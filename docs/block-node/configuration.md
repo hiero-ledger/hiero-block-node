@@ -18,7 +18,9 @@
   - [Archive Plugin Configuration (S3 Archive)](#archive-plugin-configuration-s3-archive)
   - [Server Status Plugin Configuration](#server-status-plugin-configuration)
   - [Publisher Plugin Configuration](#publisher-plugin-configuration)
+  - [RSA Bootstrap Plugin Configuration](#rsa-bootstrap-plugin-configuration)
   - [Subscriber Plugin Configuration](#subscriber-plugin-configuration)
+  - [TSS Bootstrap Plugin Configuration](#tss-bootstrap-plugin-configuration)
   - [Verification Plugin Configuration](#verification-plugin-configuration)
   - [Cloud Storage Expanded Plugin Configuration](#cloud-storage-expanded-plugin-configuration)
 
@@ -196,6 +198,17 @@ Currently, no specific options.
 | PRODUCER_FLOW_CONTROL_PAUSE_DELAY_NANOS   | Duration in nanoseconds that `onNext` parks the request-processing thread when a request arrives while the handler is paused. The handler is paused as part of the staged shutdown sequence, which schedules the actual shutdown to run after a fixed delay; parking the next incoming request prevents it from racing that pending shutdown and lets any final outbound messages flush before the connection closes. Must be 100,000 ≤ value ≤ 5,000,000,000. |               100,000,000 |
 | PRODUCER_DUPLICATE_BLOCK_SKIP_WINDOW      | Number of blocks behind `lastPersistedBlockNumber` for which a duplicate block header is answered with `SkipBlock` instead of `EndOfStream(DUPLICATE_BLOCK)`. A publisher only slightly behind can fast-forward without reconnecting; duplicates further behind than the window still close the stream so the publisher reconnects. Must be 1 ≤ value ≤ 10.                                                                                                    |                         5 |
 
+### RSA Bootstrap Plugin Configuration
+
+| ENV Variable                                             | Description                                                                                  | Default |
+|:---------------------------------------------------------|:---------------------------------------------------------------------------------------------|--------:|
+| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL                | The URL of the mirror node from which to request the node address book.                      |      "" |
+| ROSTER_BOOTSTRAP_RSA_INITIAL_QUERY_INTERVAL_MILLIS       | The initial period between queries to the mirror node until a node address book is found.    |    5000 |
+| ROSTER_BOOTSTRAP_RSA_SUBSEQUENT_QUERY_INTERVAL_MILLIS    | The subsequent period between queries to the mirror node after a node address book is found. |   60000 |
+| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_CONNECT_TIMEOUT_SECONDS | TCP connect timeout when calling the Mirror Node.                                            |       5 |
+| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_READ_TIMEOUT_SECONDS    | Per-request read timeout when calling the Mirror Node.                                       |      10 |
+| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_PAGE_SIZE               | Number of nodes requested per paginated Mirror Node call.                                    |     100 |
+
 ### Subscriber Plugin Configuration
 
 | ENV Variable                           | Description                                                                                            | Default |
@@ -203,6 +216,15 @@ Currently, no specific options.
 | SUBSCRIBER_LIVE_QUEUE_SIZE             | Queue size (in batches) for transferring live data between messaging and client threads. Must be ≥100. |    4000 |
 | SUBSCRIBER_MAXIMUM_FUTURE_REQUEST      | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                         |    4000 |
 | SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.   |     400 |
+
+### TSS Bootstrap Plugin Configuration
+
+| ENV Variable                                  | Description                                                                               |   Default |
+|:----------------------------------------------|:------------------------------------------------------------------------------------------|----------:|
+| ROSTER_BOOTSTRAP_TSS_BLOCK_NODE_SOURCES_PATH  | File path to the JSON file containing a list of block node servers to query for TSS data. |        "" |
+| ROSTER_BOOTSTRAP_TSS_QUERY_PEER_INTERVAL      | The amount of time in milliseconds between queries to the Peer Block Nodes for TSS data.  |     60000 |
+| ROSTER_BOOTSTRAP_TSS_MAX_INCOMING_BUFFER_SIZE | Maximum block size used for the BlockNode Client                                          | 104857600 |
+| ROSTER_BOOTSTRAP_TSS_ENABLE_TLS               | Flag indicating whether TLS should be enabled for the BlockNode client.                   |     false |
 
 ### Verification Plugin Configuration
 

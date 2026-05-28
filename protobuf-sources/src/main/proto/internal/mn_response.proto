@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package org.hiero.block.internal;
+
+option java_package = "org.hiero.block.internal.protoc";
+// <<<pbj.java_package = "org.hiero.block.internal">>> This comment is special code for setting PBJ Compiler java package
+option java_multiple_files = true;
+
+message MirrorNodeNodesResponse {
+    repeated NodeEntry nodes = 1;
+    LinkEntry links = 2;
+}
+
+message LinkEntry {
+    string next = 1;
+}
+
+message NodeEntry {
+    int64 node_id = 1;
+    string public_key = 2;
+    TimestampRange timestamp = 3;
+}
+
+message TimestampRange {
+    string from = 1;
+    string to = 2;
+}

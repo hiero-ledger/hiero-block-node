@@ -4,7 +4,6 @@ package org.hiero.block.node.roster.bootstrap.rsa;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.node.base.NodeAddress;
@@ -38,14 +37,14 @@ import org.junit.jupiter.api.Test;
 /// - If it is null: fetch from the Mirror Node, call `applicationStateFacility.updateAddressBook()`,
 ///   and let `BlockNodeApp` persist and broadcast the result.
 ///
-/// ## Simulating file pre-load in tests
+/// ## Simulating file preload in tests
 ///
 /// In production, `BlockNodeApp.loadApplicationState()` reads the RSA bootstrap file, builds a
 /// `NodeAddressBook`, stages it as a pending update, and the `applicationStateExecutor` scheduler
 /// fires a scan tick that rebuilds the `BlockNodeContext` and calls `onContextUpdate` on every
 /// plugin before `start()` is invoked.
 ///
-/// In tests we skip the scheduler entirely by calling `updateAddressBook(book)` directly after
+/// In tests, we skip the scheduler entirely by calling `updateAddressBook(book)` directly after
 /// `doInit()`. This synchronously updates `blockNodeContext` and calls `plugin.onContextUpdate()`,
 /// so by the time `doStart()` runs the plugin's internal `context` reference already holds the
 /// address book — exactly as it would in production after the scanner tick fires.
@@ -99,7 +98,7 @@ class RsaRosterBootstrapPluginTest
             final NodeAddressBook loaded = blockNodeContext.nodeAddressBook();
             assertNotNull(loaded);
             assertEquals(3, loaded.nodeAddress().size());
-            assertEquals("hexkey0", loaded.nodeAddress().get(0).rsaPubKey());
+            assertEquals("hexkey0", loaded.nodeAddress().getFirst().rsaPubKey());
         }
 
         @Test
@@ -132,21 +131,6 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), Map.of());
             // Address book must remain null — no Mirror Node fetch was attempted
             assertNull(blockNodeContext.nodeAddressBook());
-        }
-
-        @Test
-        @DisplayName("Unreachable Mirror Node (invalid URL) throws at start() when no book pre-loaded")
-        void unreachableMirrorNodeThrows() {
-            // No preloaded address book — plugin must fetch from Mirror Node and fail
-            assertThrows(
-                    IllegalStateException.class,
-                    () -> start(
-                            new RsaRosterBootstrapPlugin(),
-                            new SimpleInMemoryHistoricalBlockFacility(),
-                            Map.of(
-                                    "roster.bootstrap.rsa.mirrorNodeBaseUrl", "http://localhost:1",
-                                    "roster.bootstrap.rsa.mirrorNodeConnectTimeoutSeconds", "1",
-                                    "roster.bootstrap.rsa.mirrorNodeReadTimeoutSeconds", "1")));
         }
     }
 
@@ -204,12 +188,13 @@ class RsaRosterBootstrapPluginTest
                     "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\"},{\"node_id\":2,\"public_key\":\"ddeeff\"}],\"links\":{\"next\":null}}");
 
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
             assertEquals(2, book.nodeAddress().size());
-            assertEquals(1L, book.nodeAddress().get(0).nodeId());
-            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
+            assertEquals(1L, book.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
         }
 
         @Test
@@ -228,6 +213,7 @@ class RsaRosterBootstrapPluginTest
             });
 
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -249,12 +235,13 @@ class RsaRosterBootstrapPluginTest
                             + "],\"links\":{\"next\":null}}");
 
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
             assertEquals(1, book.nodeAddress().size());
-            assertEquals(2L, book.nodeAddress().get(0).nodeId());
-            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
+            assertEquals(2L, book.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
         }
 
         @Test
@@ -287,6 +274,7 @@ class RsaRosterBootstrapPluginTest
             });
 
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -301,14 +289,23 @@ class RsaRosterBootstrapPluginTest
 
         @Test
         @DisplayName("HTTP 500 triggers retry and succeeds on the next attempt")
-        void http500TriggersRetryThenSucceeds() {
+        void http500TriggersRetryThenSucceeds() throws InterruptedException {
             final AtomicInteger callCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
-                if (callCount.getAndIncrement() == 0) {
+                int call = callCount.getAndIncrement();
+                if (call == 0) {
                     exchange.sendResponseHeaders(500, -1);
-                } else {
+                } else if (call == 1) {
                     final byte[] bytes =
                             "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\"}],\"links\":{\"next\":null}}"
+                                    .getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    try (var out = exchange.getResponseBody()) {
+                        out.write(bytes);
+                    }
+                } else {
+                    final byte[] bytes =
+                            "{\"nodes\":[{\"node_id\":2,\"public_key\":\"ddeeff\"}],\"links\":{\"next\":null}}"
                                     .getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(200, bytes.length);
                     try (var out = exchange.getResponseBody()) {
@@ -320,10 +317,25 @@ class RsaRosterBootstrapPluginTest
 
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
+            // First task is the 500 error
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            // Second task should succeed
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
             assertEquals(1, book.nodeAddress().size());
-            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
+            assertEquals(1, book.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
+
+            // Third task should also succeed
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            final NodeAddressBook book2 = blockNodeContext.nodeAddressBook();
+            assertNotNull(book2);
+            assertEquals(1, book2.nodeAddress().size());
+            assertEquals(2, book2.nodeAddress().getFirst().nodeId());
+            assertEquals("ddeeff", book2.nodeAddress().getFirst().rsaPubKey());
         }
     }
 
