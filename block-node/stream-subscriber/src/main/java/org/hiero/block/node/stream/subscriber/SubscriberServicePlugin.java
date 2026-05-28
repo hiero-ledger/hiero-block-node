@@ -215,7 +215,14 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             final CompletionService<BlockStreamSubscriberSession> streams = streamSessions;
             final Map<Long, BlockStreamSubscriberSession> sessions = openSessions;
             if (streams != null && sessions != null) {
-                final SessionContext sessionContext = SessionContext.create(clientId, request, context);
+                final SessionContext sessionContext;
+                try {
+                    sessionContext = SessionContext.create(clientId, request, context);
+                } catch (final IllegalArgumentException e) {
+                    LOGGER.log(Level.DEBUG, "Client {0} sent invalid SubscribeStreamRequest: {1}", clientId, e.getMessage());
+                    failInvalidRequest(responsePipeline);
+                    return;
+                }
                 final BlockStreamSubscriberSession blockStreamSession =
                         new BlockStreamSubscriberSession(sessionContext, responsePipeline, context, sessionReadyLatch);
                 streams.submit(blockStreamSession);
@@ -250,6 +257,24 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             } catch (RuntimeException e) {
                 // If the pipeline cannot be completed, log and suppress this exception.
                 final String message = "Suppressed client error when \"failing\" stream for new client %n%s";
+                LOGGER.log(Level.DEBUG, message.formatted(e.getMessage()), e);
+            }
+        }
+
+        /**
+         * Sends an INVALID_REQUEST response and completes the pipeline. Used when
+         * the request itself is structurally invalid (e.g. a filter that names an
+         * unsupported block-item type or an include=true allowlist with no items).
+         */
+        private void failInvalidRequest(
+                @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline) {
+            final Builder response =
+                    SubscribeStreamResponseUnparsed.newBuilder().status(Code.INVALID_REQUEST);
+            responsePipeline.onNext(response.build());
+            try {
+                responsePipeline.onComplete();
+            } catch (RuntimeException e) {
+                final String message = "Suppressed client error when rejecting invalid stream request %n%s";
                 LOGGER.log(Level.DEBUG, message.formatted(e.getMessage()), e);
             }
         }

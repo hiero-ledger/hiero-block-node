@@ -3,6 +3,7 @@ package org.hiero.block.node.stream.publisher;
 
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
@@ -887,6 +888,49 @@ class StreamPublisherPluginTest {
         @DisplayName("Null is treated as absent and returns empty string")
         void testNullReturnsEmpty() {
             assertThat(StreamPublisherPlugin.truncateCorrelationId(null)).isEmpty();
+        }
+    }
+
+    /// Fails-fast tests for filter-config validation at plugin startup.
+    /// A bogus producer.blockStreamFilter* value MUST take BlockNodeApp down at
+    /// boot rather than leave it running and reject every per-connection
+    /// PublisherHandler with an obscure stack trace.
+    @Nested
+    @DisplayName("Plugin Startup Validation Tests")
+    class PluginStartupValidationTest {
+        @Test
+        @DisplayName("plugin.start() throws on unsupported filter type in config")
+        void startupFailsOnUnsupportedFilterType() {
+            // BLOCK_HEADER (field 1) is not a valid filter target — it's mandatory.
+            assertThatThrownBy(() -> bootWith(Map.of("producer.blockStreamFilterItemTypes", "1")))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("unsupported");
+        }
+
+        @Test
+        @DisplayName("plugin.start() throws on include=true with empty allowlist in config")
+        void startupFailsOnIncludeTrueWithEmptyList() {
+            assertThatThrownBy(() -> bootWith(Map.of("producer.blockStreamFilterInclude", "true")))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("non-empty");
+        }
+
+        private void bootWith(final Map<String, String> overrides) {
+            final StreamPublisherPlugin plugin = new StreamPublisherPlugin();
+            final StartupHarness harness = new StartupHarness();
+            harness.start(
+                    plugin,
+                    plugin.methods().getFirst(),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    overrides);
+        }
+    }
+
+    /// Minimal GrpcPluginTestBase subclass used only to exercise plugin.start().
+    private static final class StartupHarness
+            extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService, ScheduledBlockingExecutor> {
+        StartupHarness() {
+            super(Executors.newSingleThreadExecutor(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         }
     }
 }

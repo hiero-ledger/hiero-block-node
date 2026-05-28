@@ -9,11 +9,13 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Objects;
+import org.hiero.block.api.BlockStreamFilter;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.config.ServerConfig;
+import org.hiero.block.node.base.filter.BlockItemFilter;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -161,6 +163,14 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
 
     @Override
     public void start() {
+        // Fail fast at startup if producer.blockStreamFilter* is misconfigured.
+        // Otherwise the error only surfaces on the first publisher connection,
+        // which would leave the BN running but rejecting every publish.
+        final PublisherConfig publisherConfig = context.configuration().getConfigData(PublisherConfig.class);
+        BlockItemFilter.from(BlockStreamFilter.newBuilder()
+                .include(publisherConfig.blockStreamFilterInclude())
+                .blockItemTypes(publisherConfig.blockStreamFilterItemTypes())
+                .build());
         // Initialize plugin metrics
         initMetrics(context.metricRegistry());
         // Initialize the publisher manager

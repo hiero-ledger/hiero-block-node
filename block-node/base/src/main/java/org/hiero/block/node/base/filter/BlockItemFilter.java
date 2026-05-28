@@ -1,0 +1,232 @@
+// SPDX-License-Identifier: Apache-2.0
+package org.hiero.block.node.base.filter;
+
+import com.hedera.hapi.block.stream.FilteredSingleItem;
+import com.hedera.hapi.block.stream.SubMerkleTree;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import org.hiero.block.api.BlockStreamFilter;
+import org.hiero.block.common.hasher.HashingUtilities;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
+
+/**
+ * Applies a {@link BlockStreamFilter} to a list of {@link BlockItemUnparsed}
+ * items, replacing rejected items with a {@link FilteredSingleItem} carrying
+ * the original item's hash and the {@link SubMerkleTree} slot it occupied.
+ *
+ * <p>The helper is stateless, immutable, and shared by every plugin that
+ * filters block items (publisher ingress, subscriber outbound, future
+ * block-access reads).
+ *
+ * <h2>Supported filter targets</h2>
+ *
+ * Only the following {@code BlockItem.item} field numbers may appear in
+ * {@link BlockStreamFilter#blockItemTypes()}:
+ *
+ * <ul>
+ *   <li>2  {@code EventHeader}</li>
+ *   <li>3  {@code RoundHeader}</li>
+ *   <li>4  {@code SignedTransaction}</li>
+ *   <li>5  {@code TransactionResult}</li>
+ *   <li>6  {@code TransactionOutput}</li>
+ *   <li>7  {@code StateChanges}</li>
+ *   <li>10 {@code RecordFile}</li>
+ *   <li>11 {@code TraceData}</li>
+ * </ul>
+ *
+ * Other field numbers are not valid filter targets:
+ *
+ * <ul>
+ *   <li>1, 9, 12 ({@code BlockHeader}, {@code BlockProof}, {@code BlockFooter})
+ *       are required by the block proof tree.</li>
+ *   <li>8, 19 ({@code FilteredSingleItem}, {@code RedactedItem}) are already
+ *       filter markers; re-filtering them is meaningless.</li>
+ * </ul>
+ *
+ * {@link #from(BlockStreamFilter)} rejects any other field number with an
+ * {@link IllegalArgumentException}. Callers should map that to an
+ * {@code INVALID_REQUEST} response at the request boundary, or fail-fast at
+ * startup for config-driven filters.
+ */
+public final class BlockItemFilter {
+
+    /** The exhaustive set of {@code BlockItem.item} field numbers that may be filtered. */
+    public static final Set<Integer> SUPPORTED_FILTER_TYPES = Set.of(
+            ItemOneOfType.EVENT_HEADER.protoOrdinal(),
+            ItemOneOfType.ROUND_HEADER.protoOrdinal(),
+            ItemOneOfType.SIGNED_TRANSACTION.protoOrdinal(),
+            ItemOneOfType.TRANSACTION_RESULT.protoOrdinal(),
+            ItemOneOfType.TRANSACTION_OUTPUT.protoOrdinal(),
+            ItemOneOfType.STATE_CHANGES.protoOrdinal(),
+            ItemOneOfType.RECORD_FILE.protoOrdinal(),
+            ItemOneOfType.TRACE_DATA.protoOrdinal());
+
+    /**
+     * Block-item kinds that may never be filtered out. The first three are
+     * load-bearing for the block proof; the last two are filter markers
+     * (we don't re-filter something already filtered or redacted).
+     */
+    private static final Set<Integer> ALWAYS_FORWARD = Set.of(
+            ItemOneOfType.BLOCK_HEADER.protoOrdinal(),
+            ItemOneOfType.BLOCK_PROOF.protoOrdinal(),
+            ItemOneOfType.BLOCK_FOOTER.protoOrdinal(),
+            ItemOneOfType.FILTERED_SINGLE_ITEM.protoOrdinal(),
+            ItemOneOfType.REDACTED_ITEM.protoOrdinal());
+
+    /** True ⇒ allowlist (only listed kinds pass); false ⇒ denylist. */
+    private final boolean include;
+
+    /** Set of {@code BlockItem.item} oneof field numbers the filter applies to. */
+    private final Set<Integer> itemTypes;
+
+    /** Identity filter — passes every item through unchanged. */
+    private static final BlockItemFilter IDENTITY = new BlockItemFilter(false, Set.of());
+
+    private BlockItemFilter(final boolean include, @NonNull final Set<Integer> itemTypes) {
+        this.include = include;
+        this.itemTypes = Collections.unmodifiableSet(new HashSet<>(itemTypes));
+    }
+
+    /**
+     * Build a filter from the on-wire proto. Returns the identity filter when
+     * {@code proto} is null or its {@code block_item_types} list is empty
+     * <em>and</em> {@code include=false}.
+     *
+     * @throws IllegalArgumentException if the proto contains any field number
+     *     outside {@link #SUPPORTED_FILTER_TYPES}, or if {@code include=true}
+     *     with an empty {@code block_item_types} list (which would deny
+     *     everything).
+     */
+    @NonNull
+    public static BlockItemFilter from(@Nullable final BlockStreamFilter proto) {
+        if (proto == null) {
+            return IDENTITY;
+        }
+        final List<Integer> types = proto.blockItemTypes();
+        if (types == null || types.isEmpty()) {
+            if (proto.include()) {
+                // include=true with empty list = "allow nothing" = deny everything.
+                // Reject rather than silently degrading to identity or to an
+                // everything-filtered stream; the caller almost certainly didn't
+                // mean either.
+                throw new IllegalArgumentException(
+                        "BlockStreamFilter.include=true requires a non-empty block_item_types list");
+            }
+            return IDENTITY;
+        }
+        for (final Integer type : types) {
+            if (type == null || !SUPPORTED_FILTER_TYPES.contains(type)) {
+                throw new IllegalArgumentException(
+                        "BlockStreamFilter.block_item_types contains unsupported value " + type
+                                + "; supported values are " + SUPPORTED_FILTER_TYPES);
+            }
+        }
+        return new BlockItemFilter(proto.include(), new HashSet<>(types));
+    }
+
+    /** @return {@code true} if this filter is the identity (pass-through). */
+    public boolean isIdentity() {
+        return itemTypes.isEmpty();
+    }
+
+    /**
+     * Decide whether the filter forwards the given item unchanged.
+     *
+     * @return {@code true} if the item should pass through; {@code false}
+     *     if it should be replaced by a {@link FilteredSingleItem}.
+     */
+    public boolean accepts(@NonNull final BlockItemUnparsed item) {
+        if (isIdentity()) {
+            return true;
+        }
+        final int kind = item.item().kind().protoOrdinal();
+        if (ALWAYS_FORWARD.contains(kind)) {
+            return true;
+        }
+        final boolean listed = itemTypes.contains(kind);
+        return include == listed; // allowlist: pass iff listed; denylist: pass iff NOT listed
+    }
+
+    /**
+     * Apply the filter to a list of items. Returns a new list; the input is
+     * never mutated.
+     *
+     * <p>Items the filter rejects are replaced by a {@link FilteredSingleItem}
+     * carrying the SHA-384 of the original item's PBJ-encoded bytes and the
+     * {@link SubMerkleTree} that block-item type maps to.
+     */
+    @NonNull
+    public List<BlockItemUnparsed> apply(@NonNull final List<BlockItemUnparsed> items) {
+        if (isIdentity()) {
+            return items;
+        }
+        final List<BlockItemUnparsed> out = new ArrayList<>(items.size());
+        for (final BlockItemUnparsed item : items) {
+            if (accepts(item)) {
+                out.add(item);
+            } else {
+                out.add(replaceWithFiltered(item));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Map a {@code BlockItem.item} oneof field number to its block-proof
+     * {@link SubMerkleTree} slot. Follows the rules in
+     * {@code block_item.proto:95-143} for the supported set
+     * ({@link #SUPPORTED_FILTER_TYPES}).
+     *
+     * <p>Any field number outside that table — including the
+     * {@code ALWAYS_FORWARD} markers and any future variant — throws
+     * {@link IllegalStateException}. The validation in
+     * {@link #from(BlockStreamFilter)} prevents unsupported field numbers
+     * from reaching this method via the public API, so a throw here means
+     * either {@code SUPPORTED_FILTER_TYPES} was widened without updating
+     * this table, or an item kind reached {@code replaceWithFiltered}
+     * that was supposed to be in {@code ALWAYS_FORWARD}. Either way, fail
+     * loudly: silently routing to the wrong sub-tree would corrupt the
+     * block proof far from the cause.
+     *
+     * <p>Visible for testing.
+     */
+    @NonNull
+    static SubMerkleTree subMerkleTreeOf(final int oneofFieldNumber) {
+        return switch (oneofFieldNumber) {
+            case 2, 3 -> SubMerkleTree.CONSENSUS_HEADER_ITEMS; // event_header, round_header
+            case 4 -> SubMerkleTree.INPUT_ITEMS_TREE; // signed_transaction
+            case 5, 6, 10 -> SubMerkleTree.OUTPUT_ITEMS_TREE; // transaction_result, transaction_output, record_file
+            case 7 -> SubMerkleTree.STATE_CHANGE_ITEMS_TREE; // state_changes
+            case 11 -> SubMerkleTree.TRACE_DATA_ITEMS_TREE; // trace_data
+            default -> throw new IllegalStateException(
+                    "No SubMerkleTree mapping for BlockItem.item field number " + oneofFieldNumber
+                            + ". Either SUPPORTED_FILTER_TYPES was widened without updating "
+                            + "subMerkleTreeOf, or a kind that should be in ALWAYS_FORWARD leaked through.");
+        };
+    }
+
+    @NonNull
+    private static BlockItemUnparsed replaceWithFiltered(@NonNull final BlockItemUnparsed item) {
+        final int kind = item.item().kind().protoOrdinal();
+        // item_hash MUST be the same leaf hash the verifier would compute for the
+        // original item (LEAF_PREFIX || item_bytes, then SHA-384). HashingUtilities
+        // is the single source of truth for that leaf hash; reuse it so a filtered
+        // block still verifies under the existing block proof.
+        final ByteBuffer leafHash = HashingUtilities.getBlockItemHash(item);
+        final FilteredSingleItem filteredItem = FilteredSingleItem.newBuilder()
+                .itemHash(Bytes.wrap(leafHash.array()))
+                .tree(subMerkleTreeOf(kind))
+                .build();
+        return BlockItemUnparsed.newBuilder()
+                .filteredSingleItem(FilteredSingleItem.PROTOBUF.toBytes(filteredItem))
+                .build();
+    }
+}

@@ -108,6 +108,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private final AtomicBoolean isPaused;
     /// The current configuration for the publisher.
     private final PublisherConfig configuration;
+    /// Filter applied to every inbound block item set before it is forwarded.
+    /// Identity when {@link PublisherConfig#blockStreamFilterItemTypes()} is empty.
+    private final org.hiero.block.node.base.filter.BlockItemFilter blockItemFilter;
     // @todo() remove this (and its usage) and use telemetry or metrics queries instead
     /// The start time in nanos of block being currently streamed
     private long currentStreamingBlockHeaderReceivedTime = System.nanoTime();
@@ -142,6 +145,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         isActive = new AtomicBoolean(true);
         isPaused = new AtomicBoolean(false);
         configuration = publisherManager.configuration();
+        blockItemFilter = org.hiero.block.node.base.filter.BlockItemFilter.from(
+                org.hiero.block.api.BlockStreamFilter.newBuilder()
+                        .include(configuration.blockStreamFilterInclude())
+                        .blockItemTypes(configuration.blockStreamFilterItemTypes())
+                        .build());
     }
 
     // A package-private method for accessing correlation ID for tracing support.
@@ -329,11 +337,20 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private PublisherRequestResult processNextRequestUnparsed(final PublishStreamRequestUnparsed request) {
         final PublisherRequestResult result;
         if (request.hasBlockItems()) {
-            final BlockItemSetUnparsed itemSetUnparsed = request.blockItems();
-            final List<BlockItemUnparsed> blockItems = itemSetUnparsed.blockItems();
+            BlockItemSetUnparsed itemSetUnparsed = request.blockItems();
+            List<BlockItemUnparsed> blockItems = itemSetUnparsed.blockItems();
             if (blockItems.isEmpty()) {
                 result = new SendEndAndShutdownResult(this, Code.INVALID_REQUEST, currentStreamingBlockNumber.get());
             } else {
+                // Apply the configured block-stream filter at ingress. Lossy at the BN:
+                // filtered items are replaced by FilteredSingleItem before persistence /
+                // messaging / verification. Identity filter is a no-op.
+                if (!blockItemFilter.isIdentity()) {
+                    blockItems = blockItemFilter.apply(blockItems);
+                    itemSetUnparsed = BlockItemSetUnparsed.newBuilder()
+                            .blockItems(blockItems)
+                            .build();
+                }
                 result = handleBlockItemsRequest(itemSetUnparsed, blockItems);
             }
         } else if (request.hasEndStream()) {

@@ -56,6 +56,19 @@ message SubscribeStreamRequest {
      * </ul>
      */
     uint64 end_block_number = 2;
+
+    /**
+     * Optional per-subscriber filter describing which `BlockItem` kinds
+     * the Block-Node should forward.<br/>
+     * <p>
+     * When this field is absent or carries an empty `block_item_types`
+     * list the subscriber receives the full stream (identity filter).<br/>
+     * When present, items the filter rejects SHALL be replaced by a
+     * `FilteredSingleItem` so block-proof verification remains possible.
+     * `BlockHeader`, `BlockProof`, and `BlockFooter` items are always
+     * forwarded regardless of this filter.
+     */
+    BlockStreamFilter filter = 3;
 }
 
 /**

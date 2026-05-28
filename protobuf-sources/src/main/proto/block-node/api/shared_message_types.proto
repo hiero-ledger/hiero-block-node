@@ -42,3 +42,72 @@ message BlockEnd {
      */
     uint64 block_number = 1;
 }
+
+/**
+ * Describes which `BlockItem` kinds a publisher or subscriber wishes the
+ * Block-Node to forward, expressed as a per-kind allow- or deny-list.
+ *
+ * Used by:
+ *   - `producer.blockStreamFilter` in `PublisherConfig` (publish-side,
+ *     applied at ingress before persistence/messaging — LOSSY at the
+ *     Block-Node).
+ *   - `SubscribeStreamRequest.filter` (subscribe-side, applied per
+ *     subscriber — LOSSLESS at the Block-Node).
+ *
+ * Block items that the filter rejects SHALL be replaced by a
+ * `FilteredSingleItem` carrying the rejected item's hash and the
+ * `SubMerkleTree` it occupied, so block-proof verification of the
+ * resulting stream remains possible.
+ *
+ * `BlockHeader`, `BlockProof`, and `BlockFooter` block items are
+ * load-bearing for the block proof and SHALL be forwarded regardless
+ * of the filter. Naming them as filter targets is rejected as an
+ * invalid request (see `block_item_types`).
+ */
+message BlockStreamFilter {
+    /**
+     * Allow- vs deny-list semantics.
+     *
+     * If `true`,  ONLY items whose `BlockItem.item` oneof field number
+     *             appears in `block_item_types` are forwarded.<br/>
+     * If `false`, items whose `BlockItem.item` oneof field number
+     *             appears in `block_item_types` are DROPPED; all others
+     *             are forwarded.
+     *
+     * The default value `false` with an empty `block_item_types` list
+     * is the identity filter (pass-through). The combination
+     * `include = true` with an empty `block_item_types` list is an
+     * invalid request and SHALL be rejected.
+     */
+    bool include = 1;
+
+    /**
+     * Field numbers of the `BlockItem.item` oneof variants this filter
+     * applies to. See
+     * `hiero-consensus-node/.../block/stream/block_item.proto` for the
+     * canonical mapping.
+     *
+     * The exhaustive set of values accepted by this implementation is:
+     *   2  EventHeader
+     *   3  RoundHeader
+     *   4  SignedTransaction
+     *   5  TransactionResult
+     *   6  TransactionOutput
+     *   7  StateChanges
+     *   10 RecordFile
+     *   11 TraceData
+     *
+     * Any other value is rejected as an invalid request. In particular:
+     *   - 1, 9, 12 (BlockHeader, BlockProof, BlockFooter) are required
+     *     by the block proof and cannot be filtered.
+     *   - 8, 19 (FilteredSingleItem, RedactedItem) are filter markers;
+     *     re-filtering them is meaningless.
+     *
+     * `uint32` is used rather than a mirror enum so future
+     * `BlockItem.item` variants are forward-compatible without a
+     * Block-Node protobuf change. New variants must be added to the
+     * implementation's supported-types list before they can be
+     * filtered.
+     */
+    repeated uint32 block_item_types = 2;
+}
