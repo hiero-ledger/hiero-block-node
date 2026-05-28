@@ -98,16 +98,42 @@ message BlockStreamFilter {
      * applies to. See block_item.proto for the canonical mapping;
      * common values: 2 EventHeader, 3 RoundHeader, 4 SignedTransaction,
      * 5 TransactionResult, 6 TransactionOutput, 7 StateChanges,
-     * 11 TraceData, 19 RedactedItem.
+     * 10 RecordFile, 11 TraceData.
      */
     repeated uint32 block_item_types = 2;
 }
 ```
 
+**Supported filter targets.** Only the following `BlockItem.item` field
+numbers may appear in `block_item_types`:
+
+| Field | Variant |
+|-------|---------|
+| 2  | `EventHeader` |
+| 3  | `RoundHeader` |
+| 4  | `SignedTransaction` |
+| 5  | `TransactionResult` |
+| 6  | `TransactionOutput` |
+| 7  | `StateChanges` |
+| 10 | `RecordFile` |
+| 11 | `TraceData` |
+
+Any other field number is rejected as an invalid request. In particular:
+
+- **1, 9, 12** (`BlockHeader`, `BlockProof`, `BlockFooter`) are required
+  by the block proof tree and cannot be filtered.
+- **8, 19** (`FilteredSingleItem`, `RedactedItem`) are already filter
+  markers; re-filtering them is meaningless.
+
+The combination `include=true` with an empty `block_item_types` list is
+also rejected (it would deny everything).
+
 Encoding choice — `uint32` for the item type tag rather than an enum
 mirror — keeps the filter forward-compatible with new oneof variants.
-Adding `TransactionOutput` to the consensus-node proto in a future
-release does NOT require a block-node protobuf change.
+Adding a new `BlockItem.item` variant to the consensus-node proto does
+not require a block-node protobuf change; it does, however, require the
+implementation's supported-types list to be widened before the new
+variant can be filtered.
 
 ## 4. `BlockItemFilter` helper (`block-node/base`)
 
@@ -233,22 +259,71 @@ A subscriber's request always wins over the server-side default.
 
 ## 9. Failure modes
 
-| Failure                                  | Behaviour                                                                                  |
-|------------------------------------------|--------------------------------------------------------------------------------------------|
-| Filter rejects a mandatory item (1/9/12) | Filter helper ignores the rejection silently — `ALWAYS_FORWARD` overrides the deny.        |
-| `block_item_types` contains an unknown number | Treat as "no item of that kind today" — the filter still works for known kinds.       |
-| Hash computation fails                   | Should not happen (PBJ serialisation is total over `BlockItemUnparsed`); rethrow as `IllegalStateException`. |
-| Empty filter (no item types)             | Identity behaviour; `accepts` always true.                                                 |
+| Failure                                                  | Behaviour                                                                                  |
+|----------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| Filter names a mandatory item (1/9/12)                    | `BlockItemFilter.from` throws `IllegalArgumentException`. Subscriber call path surfaces `Code.INVALID_REQUEST`; publisher fails fast at startup. |
+| Filter names a filter marker (8 or 19)                    | Same as above — invalid request.                                                            |
+| Filter names a field number outside the supported list    | Same as above — invalid request.                                                            |
+| `include=true` with empty `block_item_types`              | Same as above — invalid request (would deny everything).                                    |
+| `include=false` with empty `block_item_types`             | Identity behaviour; `accepts` always true.                                                  |
+| Hash computation fails                                    | Should not happen (PBJ serialisation is total over `BlockItemUnparsed`); rethrow as `IllegalStateException`. |
+
+### Observability (deferred — see `expansion.md` §5.2)
+
+Today the helper has no metrics. The recommended additions are:
+
+- **`filter.items_filtered_total{sub_merkle_tree, plugin}`** —
+  counter keyed by the `SubMerkleTree` of the dropped item and by
+  `plugin` ∈ `{publisher, subscriber, block-access}`. Operators get a
+  per-tree drop rate and can compare ingress vs. egress filtering.
+- **`filter.invalid_requests_total{plugin, reason}`** — counter for
+  rejected filter specs, keyed by rejection reason
+  (`unsupported_type`, `empty_allowlist`). Useful for detecting clients
+  misusing the API.
+- **`filter.active_filters{plugin}`** — gauge of currently-active
+  non-identity filters. For the subscriber this is the number of open
+  sessions whose request carried a filter; for the publisher it is 0
+  or 1 depending on config.
+
+These would live next to the existing publisher / subscriber metrics in
+each plugin's `*ServicePlugin` (the registries already exist) and are
+captured as a follow-up ticket.
+
+### Filter composition
+
+When the publisher filters at ingress and a subscriber subsequently
+applies its own filter, the subscriber's filter sees a stream that is
+*already* free of the publisher-filtered items — those slots are
+`FilteredSingleItem`. The subscriber filter does NOT re-filter
+`FilteredSingleItem` (it's in `ALWAYS_FORWARD`), so the output remains
+well-formed and the original drop is not double-counted. In practice:
+
+- **Publisher denylist [STATE_CHANGES]** + **subscriber denylist [STATE_CHANGES]**:
+  subscriber sees one `FilteredSingleItem` per state-change slot (from
+  the publisher), not two.
+- **Publisher denylist [STATE_CHANGES]** + **subscriber denylist [TRACE_DATA]**:
+  subscriber sees `FilteredSingleItem` for both kinds.
+- **Publisher denylist [STATE_CHANGES]** + **subscriber allowlist [STATE_CHANGES]**:
+  subscriber sees no state-change items at all (the publisher already
+  dropped them and the subscriber's allowlist does not list
+  `FilteredSingleItem`, but `FilteredSingleItem` is in
+  `ALWAYS_FORWARD` so it passes anyway). Net: the same stream the
+  subscriber would have seen with no filter — composition cannot
+  un-drop a publisher-filtered item.
+
+This is intentional: filtering is monotone — once an item is replaced
+by its hash, no later filter can recover it.
 
 ## 10. Acceptance tests
 
 Unit (`block-node/base`):
 
-1. Allowlist: filter with `include=true, types=[1,9,12]` (headers + proof + footer) drops everything else and emits `FilteredSingleItem` for each drop, preserving the original list length.
+1. Allowlist: filter with `include=true, types=[11]` (allow trace_data) drops everything else (except mandatory items) and emits `FilteredSingleItem` for each drop, preserving the original list length.
 2. Denylist: filter with `include=false, types=[7]` (drop state_changes) leaves all other variants untouched.
-3. `BlockHeader`/`BlockProof`/`BlockFooter` are never replaced regardless of filter (mandatory items).
-4. Empty filter is the identity function.
+3. `BlockHeader`/`BlockProof`/`BlockFooter` are never replaced — they are mandatory and pass through even when the allowlist omits them.
+4. Empty denylist is the identity function.
 5. Each generated `FilteredSingleItem.tree` matches the SubMerkleTree the original item maps to.
+6. `BlockItemFilter.from` rejects (a) any `block_item_type` outside the supported set, and (b) `include=true` with an empty list.
 
 Plugin-level:
 

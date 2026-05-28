@@ -20,9 +20,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockStreamFilter;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
+import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
@@ -1165,7 +1167,27 @@ class SubscriberServicePluginTest {
                                             .startBlockNumber(10L)
                                             .endBlockNumber(5L)
                                             .build(),
-                                    Code.INVALID_END_BLOCK_NUMBER));
+                                    Code.INVALID_END_BLOCK_NUMBER),
+                            Arguments.of( // filter names a mandatory item — BLOCK_HEADER (1) is not a valid filter target
+                                    SubscribeStreamRequest.newBuilder()
+                                            .startBlockNumber(0L)
+                                            .endBlockNumber(0L)
+                                            .filter(BlockStreamFilter.newBuilder()
+                                                    .include(false)
+                                                    .blockItemTypes(List.of(
+                                                            ItemOneOfType.BLOCK_HEADER.protoOrdinal()))
+                                                    .build())
+                                            .build(),
+                                    Code.INVALID_REQUEST),
+                            Arguments.of( // include=true with empty allowlist would deny everything
+                                    SubscribeStreamRequest.newBuilder()
+                                            .startBlockNumber(0L)
+                                            .endBlockNumber(0L)
+                                            .filter(BlockStreamFilter.newBuilder()
+                                                    .include(true)
+                                                    .build())
+                                            .build(),
+                                    Code.INVALID_REQUEST));
                 }
 
                 /**

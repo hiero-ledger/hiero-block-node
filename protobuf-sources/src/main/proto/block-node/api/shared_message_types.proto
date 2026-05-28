@@ -61,8 +61,8 @@ message BlockEnd {
  *
  * `BlockHeader`, `BlockProof`, and `BlockFooter` block items are
  * load-bearing for the block proof and SHALL be forwarded regardless
- * of the filter. Implementations MUST silently ignore a filter that
- * would otherwise reject them.
+ * of the filter. Naming them as filter targets is rejected as an
+ * invalid request (see `block_item_types`).
  */
 message BlockStreamFilter {
     /**
@@ -75,7 +75,9 @@ message BlockStreamFilter {
      *             are forwarded.
      *
      * The default value `false` with an empty `block_item_types` list
-     * is the identity filter (pass-through).
+     * is the identity filter (pass-through). The combination
+     * `include = true` with an empty `block_item_types` list is an
+     * invalid request and SHALL be rejected.
      */
     bool include = 1;
 
@@ -83,19 +85,29 @@ message BlockStreamFilter {
      * Field numbers of the `BlockItem.item` oneof variants this filter
      * applies to. See
      * `hiero-consensus-node/.../block/stream/block_item.proto` for the
-     * canonical mapping; common values:
+     * canonical mapping.
+     *
+     * The exhaustive set of values accepted by this implementation is:
      *   2  EventHeader
      *   3  RoundHeader
      *   4  SignedTransaction
      *   5  TransactionResult
      *   6  TransactionOutput
      *   7  StateChanges
+     *   10 RecordFile
      *   11 TraceData
-     *   19 RedactedItem
+     *
+     * Any other value is rejected as an invalid request. In particular:
+     *   - 1, 9, 12 (BlockHeader, BlockProof, BlockFooter) are required
+     *     by the block proof and cannot be filtered.
+     *   - 8, 19 (FilteredSingleItem, RedactedItem) are filter markers;
+     *     re-filtering them is meaningless.
      *
      * `uint32` is used rather than a mirror enum so future
      * `BlockItem.item` variants are forward-compatible without a
-     * Block-Node protobuf change.
+     * Block-Node protobuf change. New variants must be added to the
+     * implementation's supported-types list before they can be
+     * filtered.
      */
     repeated uint32 block_item_types = 2;
 }

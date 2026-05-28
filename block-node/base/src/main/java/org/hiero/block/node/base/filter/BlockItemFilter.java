@@ -26,14 +26,51 @@ import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
  * filters block items (publisher ingress, subscriber outbound, future
  * block-access reads).
  *
- * <p>Three block-item kinds are <b>always forwarded</b> regardless of the
- * filter — {@code BlockHeader} (1), {@code BlockProof} (9), and
- * {@code BlockFooter} (12) — because the block proof tree requires them.
+ * <h2>Supported filter targets</h2>
+ *
+ * Only the following {@code BlockItem.item} field numbers may appear in
+ * {@link BlockStreamFilter#blockItemTypes()}:
+ *
+ * <ul>
+ *   <li>2  {@code EventHeader}</li>
+ *   <li>3  {@code RoundHeader}</li>
+ *   <li>4  {@code SignedTransaction}</li>
+ *   <li>5  {@code TransactionResult}</li>
+ *   <li>6  {@code TransactionOutput}</li>
+ *   <li>7  {@code StateChanges}</li>
+ *   <li>10 {@code RecordFile}</li>
+ *   <li>11 {@code TraceData}</li>
+ * </ul>
+ *
+ * Other field numbers are not valid filter targets:
+ *
+ * <ul>
+ *   <li>1, 9, 12 ({@code BlockHeader}, {@code BlockProof}, {@code BlockFooter})
+ *       are required by the block proof tree.</li>
+ *   <li>8, 19 ({@code FilteredSingleItem}, {@code RedactedItem}) are already
+ *       filter markers; re-filtering them is meaningless.</li>
+ * </ul>
+ *
+ * {@link #from(BlockStreamFilter)} rejects any other field number with an
+ * {@link IllegalArgumentException}. Callers should map that to an
+ * {@code INVALID_REQUEST} response at the request boundary, or fail-fast at
+ * startup for config-driven filters.
  */
 public final class BlockItemFilter {
 
     /** Hash algorithm used to populate {@code FilteredSingleItem.item_hash}. */
     private static final String HASH_ALG = "SHA-384";
+
+    /** The exhaustive set of {@code BlockItem.item} field numbers that may be filtered. */
+    public static final Set<Integer> SUPPORTED_FILTER_TYPES = Set.of(
+            ItemOneOfType.EVENT_HEADER.protoOrdinal(),
+            ItemOneOfType.ROUND_HEADER.protoOrdinal(),
+            ItemOneOfType.SIGNED_TRANSACTION.protoOrdinal(),
+            ItemOneOfType.TRANSACTION_RESULT.protoOrdinal(),
+            ItemOneOfType.TRANSACTION_OUTPUT.protoOrdinal(),
+            ItemOneOfType.STATE_CHANGES.protoOrdinal(),
+            ItemOneOfType.RECORD_FILE.protoOrdinal(),
+            ItemOneOfType.TRACE_DATA.protoOrdinal());
 
     /**
      * Block-item kinds that may never be filtered out. The first three are
@@ -63,14 +100,39 @@ public final class BlockItemFilter {
 
     /**
      * Build a filter from the on-wire proto. Returns the identity filter when
-     * {@code proto} is null or its {@code block_item_types} list is empty.
+     * {@code proto} is null or its {@code block_item_types} list is empty
+     * <em>and</em> {@code include=false}.
+     *
+     * @throws IllegalArgumentException if the proto contains any field number
+     *     outside {@link #SUPPORTED_FILTER_TYPES}, or if {@code include=true}
+     *     with an empty {@code block_item_types} list (which would deny
+     *     everything).
      */
     @NonNull
     public static BlockItemFilter from(@Nullable final BlockStreamFilter proto) {
-        if (proto == null || proto.blockItemTypes() == null || proto.blockItemTypes().isEmpty()) {
+        if (proto == null) {
             return IDENTITY;
         }
-        return new BlockItemFilter(proto.include(), new HashSet<>(proto.blockItemTypes()));
+        final List<Integer> types = proto.blockItemTypes();
+        if (types == null || types.isEmpty()) {
+            if (proto.include()) {
+                // include=true with empty list = "allow nothing" = deny everything.
+                // Reject rather than silently degrading to identity or to an
+                // everything-filtered stream; the caller almost certainly didn't
+                // mean either.
+                throw new IllegalArgumentException(
+                        "BlockStreamFilter.include=true requires a non-empty block_item_types list");
+            }
+            return IDENTITY;
+        }
+        for (final Integer type : types) {
+            if (type == null || !SUPPORTED_FILTER_TYPES.contains(type)) {
+                throw new IllegalArgumentException(
+                        "BlockStreamFilter.block_item_types contains unsupported value " + type
+                                + "; supported values are " + SUPPORTED_FILTER_TYPES);
+            }
+        }
+        return new BlockItemFilter(proto.include(), new HashSet<>(types));
     }
 
     /** @return {@code true} if this filter is the identity (pass-through). */
