@@ -9,6 +9,7 @@ import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import io.helidon.common.tls.Tls;
 import io.helidon.webclient.api.WebClient;
 import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
@@ -215,6 +216,81 @@ class BlockStreamFilterE2ETests {
         assertThat(hasRoundHeader)
                 .as("publisher-side filter should have stripped the original RoundHeader before persistence")
                 .isFalse();
+
+        publishStream.closeConnection();
+    }
+
+    /**
+     * Proof-chain across two filtered blocks. Each block's proof anchors to the
+     * previous block's recomputed root; if the filter ever broke the chain — e.g.
+     * by mis-aligning the leaf hash or by mis-routing a {@code FilteredSingleItem}
+     * to the wrong sub-tree — block 1 would fail verification even though block 0
+     * passed. A single-block test cannot catch that. We publish block 0 + block 1
+     * back-to-back, then subscribe both back and assert both carry a
+     * {@code FilteredSingleItem} where the round header used to be.
+     */
+    @Test
+    void filteredBlockChainVerifiesAcrossTwoBlocks() throws Exception {
+        final long blockZero = 0L;
+        final long blockOne = 1L;
+        final BlockItem[] block0Items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockZero);
+        // Anchor block 1's proof to block 0's recomputed root hash.
+        final Bytes block0Hash = BlockItemBuilderUtils.computeBlockHash(blockZero, null);
+        final BlockItem[] block1Items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockOne, block0Hash);
+
+        // ── Publish both blocks with the publisher filter active ──────────────
+        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publishSvc =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(publishClient, OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> ackObserver = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> publishStream = publishSvc.publishBlockStream(ackObserver);
+
+        final AtomicReference<CountDownLatch> ackLatch = ackObserver.setAndGetOnNextLatch(2);
+        publishStream.onNext(PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(block0Items).build())
+                .build());
+        publishStream.onNext(PublishStreamRequest.newBuilder()
+                .endOfBlock(BlockEnd.newBuilder().blockNumber(blockZero).build())
+                .build());
+        publishStream.onNext(PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(block1Items).build())
+                .build());
+        publishStream.onNext(PublishStreamRequest.newBuilder()
+                .endOfBlock(BlockEnd.newBuilder().blockNumber(blockOne).build())
+                .build());
+        awaitLatch(ackLatch, "acknowledgements for two filtered blocks");
+
+        // Both blocks must verify — count the ACK responses for blocks 0 and 1.
+        final long ackCount = ackObserver.getOnNextCalls().stream()
+                .filter(r -> r.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT)
+                .count();
+        assertThat(ackCount)
+                .as("both filtered blocks must verify; chain breaks if proof anchor drifts")
+                .isGreaterThanOrEqualTo(2L);
+
+        // ── Subscribe back: both persisted blocks must carry FilteredSingleItem
+        final PbjGrpcClient subscribeClient = createGrpcClient();
+        final BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient subscribeSvc =
+                new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(subscribeClient, OPTIONS);
+        final ResponsePipelineUtils<SubscribeStreamResponse> subscribeObserver = new ResponsePipelineUtils<>();
+
+        // Expect for each block: items frame + endOfBlock frame. Two blocks → ≥4 onNext.
+        final AtomicReference<CountDownLatch> subscribeLatch = subscribeObserver.setAndGetOnNextLatch(4);
+        subscribeSvc.subscribeBlockStream(
+                SubscribeStreamRequest.newBuilder()
+                        .startBlockNumber(blockZero)
+                        .endBlockNumber(blockOne)
+                        .build(),
+                subscribeObserver);
+        awaitLatch(subscribeLatch, "subscribe-back for the two-block filtered chain");
+
+        final long filteredSingleItemCount = subscribeObserver.getOnNextCalls().stream()
+                .filter(r -> r.blockItems() != null)
+                .flatMap(r -> r.blockItems().blockItems().stream())
+                .filter(bi -> bi.item().kind() == BlockItem.ItemOneOfType.FILTERED_SINGLE_ITEM)
+                .count();
+        assertThat(filteredSingleItemCount)
+                .as("expect one FilteredSingleItem per block (the round header), so two across the chain")
+                .isGreaterThanOrEqualTo(2L);
 
         publishStream.closeConnection();
     }

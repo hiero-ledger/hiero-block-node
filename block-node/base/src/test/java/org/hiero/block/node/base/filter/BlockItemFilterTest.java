@@ -217,6 +217,20 @@ class BlockItemFilterTest {
     }
 
     @Test
+    void subMerkleTreeOfThrowsForUnmappedFieldNumber() {
+        // The mapping table only covers SUPPORTED_FILTER_TYPES — anything else
+        // (mandatory items, filter markers, hypothetical future variants) must
+        // fail loudly so the cause is obvious if SUPPORTED_FILTER_TYPES is ever
+        // widened without updating the table.
+        for (final int unmapped : List.of(0, 1, 8, 9, 12, 13, 19, 20, 99)) {
+            assertThatThrownBy(() -> BlockItemFilter.subMerkleTreeOf(unmapped))
+                    .as("field number %d should have no SubMerkleTree mapping", unmapped)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining(String.valueOf(unmapped));
+        }
+    }
+
+    @Test
     void composingDenylistsForSameKindDoesNotDoubleFilter() {
         // Publisher and subscriber both deny STATE_CHANGES. The subscriber filter
         // must see the publisher's FilteredSingleItem and pass it through
