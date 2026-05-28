@@ -155,6 +155,92 @@ class BlockItemFilterTest {
         assertThat(stateChangesFiltered.itemHash()).isEqualTo(Bytes.wrap(expected.array()));
     }
 
+    @Test
+    void allSupportedFilterTargetsMapToExpectedSubMerkleTree() throws Exception {
+        // For every block-item kind a client may filter, assert the
+        // FilteredSingleItem.tree it produces. Covers the explicit field→subtree
+        // table from block_item.proto §95-143 across the supported filter set.
+        record Case(ItemOneOfType kind, BlockItemUnparsed item, SubMerkleTree expectedTree) {}
+        final List<Case> cases = List.of(
+                new Case(ItemOneOfType.EVENT_HEADER, eventHeader(), SubMerkleTree.CONSENSUS_HEADER_ITEMS),
+                new Case(ItemOneOfType.ROUND_HEADER, roundHeader(), SubMerkleTree.CONSENSUS_HEADER_ITEMS),
+                new Case(ItemOneOfType.SIGNED_TRANSACTION, signedTransaction(), SubMerkleTree.INPUT_ITEMS_TREE),
+                new Case(ItemOneOfType.TRANSACTION_RESULT, transactionResult(), SubMerkleTree.OUTPUT_ITEMS_TREE),
+                new Case(ItemOneOfType.TRANSACTION_OUTPUT, transactionOutput(), SubMerkleTree.OUTPUT_ITEMS_TREE),
+                new Case(ItemOneOfType.STATE_CHANGES, stateChanges(), SubMerkleTree.STATE_CHANGE_ITEMS_TREE),
+                new Case(ItemOneOfType.RECORD_FILE, recordFile(), SubMerkleTree.OUTPUT_ITEMS_TREE),
+                new Case(ItemOneOfType.TRACE_DATA, traceData(), SubMerkleTree.TRACE_DATA_ITEMS_TREE));
+
+        for (final Case c : cases) {
+            final BlockItemFilter filter = BlockItemFilter.from(BlockStreamFilter.newBuilder()
+                    .include(false)
+                    .blockItemTypes(List.of(c.kind.protoOrdinal()))
+                    .build());
+            final List<BlockItemUnparsed> out = filter.apply(List.of(c.item));
+            assertThat(out.get(0).item().kind())
+                    .as("filtered output for %s", c.kind)
+                    .isEqualTo(ItemOneOfType.FILTERED_SINGLE_ITEM);
+            assertThat(parseFiltered(out.get(0)).tree())
+                    .as("SubMerkleTree mapping for %s", c.kind)
+                    .isEqualTo(c.expectedTree);
+        }
+    }
+
+    @Test
+    void publisherFilterComposesWithSubscriberFilterWithoutDoubleFiltering() {
+        // Compose two filters back-to-back to mirror the runtime path:
+        // publisher (ingress) → subscriber (egress). Publisher drops STATE_CHANGES;
+        // subscriber drops TRACE_DATA. Mandatory items must survive both filters,
+        // and a publisher-filtered slot must not be re-filtered by the subscriber.
+        final BlockItemFilter publisherFilter = BlockItemFilter.from(BlockStreamFilter.newBuilder()
+                .include(false)
+                .blockItemTypes(List.of(ItemOneOfType.STATE_CHANGES.protoOrdinal()))
+                .build());
+        final BlockItemFilter subscriberFilter = BlockItemFilter.from(BlockStreamFilter.newBuilder()
+                .include(false)
+                .blockItemTypes(List.of(ItemOneOfType.TRACE_DATA.protoOrdinal()))
+                .build());
+
+        final List<BlockItemUnparsed> raw = List.of(
+                blockHeader(), stateChanges(), traceData(), transactionResult(), blockProof(), blockFooter());
+        final List<BlockItemUnparsed> afterPublisher = publisherFilter.apply(raw);
+        final List<BlockItemUnparsed> afterSubscriber = subscriberFilter.apply(afterPublisher);
+
+        // Position-by-position assertions on the composed output.
+        assertThat(afterSubscriber).hasSize(6);
+        assertThat(afterSubscriber.get(0).item().kind()).isEqualTo(ItemOneOfType.BLOCK_HEADER);
+        assertThat(afterSubscriber.get(1).item().kind()).isEqualTo(ItemOneOfType.FILTERED_SINGLE_ITEM); // by publisher
+        assertThat(afterSubscriber.get(2).item().kind()).isEqualTo(ItemOneOfType.FILTERED_SINGLE_ITEM); // by subscriber
+        assertThat(afterSubscriber.get(3).item().kind()).isEqualTo(ItemOneOfType.TRANSACTION_RESULT); // untouched
+        assertThat(afterSubscriber.get(4).item().kind()).isEqualTo(ItemOneOfType.BLOCK_PROOF);
+        assertThat(afterSubscriber.get(5).item().kind()).isEqualTo(ItemOneOfType.BLOCK_FOOTER);
+    }
+
+    @Test
+    void composingDenylistsForSameKindDoesNotDoubleFilter() {
+        // Publisher and subscriber both deny STATE_CHANGES. The subscriber filter
+        // must see the publisher's FilteredSingleItem and pass it through
+        // unchanged (FilteredSingleItem is in ALWAYS_FORWARD), so the output is
+        // identical to the publisher's output — no recursive replacement.
+        final BlockItemFilter publisherFilter = BlockItemFilter.from(BlockStreamFilter.newBuilder()
+                .include(false)
+                .blockItemTypes(List.of(ItemOneOfType.STATE_CHANGES.protoOrdinal()))
+                .build());
+        final BlockItemFilter subscriberFilter = BlockItemFilter.from(BlockStreamFilter.newBuilder()
+                .include(false)
+                .blockItemTypes(List.of(ItemOneOfType.STATE_CHANGES.protoOrdinal()))
+                .build());
+
+        final List<BlockItemUnparsed> raw = List.of(blockHeader(), stateChanges(), blockProof());
+        final List<BlockItemUnparsed> afterPublisher = publisherFilter.apply(raw);
+        final List<BlockItemUnparsed> afterSubscriber = subscriberFilter.apply(afterPublisher);
+
+        assertThat(afterSubscriber)
+                .as("subscriber must not re-filter a FilteredSingleItem the publisher produced")
+                .containsExactlyElementsOf(afterPublisher);
+        assertThat(afterSubscriber.get(1).item().kind()).isEqualTo(ItemOneOfType.FILTERED_SINGLE_ITEM);
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────
 
     private static BlockItemUnparsed blockHeader() {
@@ -179,6 +265,26 @@ class BlockItemFilterTest {
 
     private static BlockItemUnparsed traceData() {
         return BlockItemUnparsed.newBuilder().traceData(Bytes.fromHex("0b")).build();
+    }
+
+    private static BlockItemUnparsed eventHeader() {
+        return BlockItemUnparsed.newBuilder().eventHeader(Bytes.fromHex("02")).build();
+    }
+
+    private static BlockItemUnparsed roundHeader() {
+        return BlockItemUnparsed.newBuilder().roundHeader(Bytes.fromHex("03")).build();
+    }
+
+    private static BlockItemUnparsed signedTransaction() {
+        return BlockItemUnparsed.newBuilder().signedTransaction(Bytes.fromHex("04")).build();
+    }
+
+    private static BlockItemUnparsed transactionOutput() {
+        return BlockItemUnparsed.newBuilder().transactionOutput(Bytes.fromHex("06")).build();
+    }
+
+    private static BlockItemUnparsed recordFile() {
+        return BlockItemUnparsed.newBuilder().recordFile(Bytes.fromHex("0a")).build();
     }
 
     private static FilteredSingleItem parseFiltered(final BlockItemUnparsed item) throws Exception {

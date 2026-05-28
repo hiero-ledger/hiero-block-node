@@ -313,32 +313,49 @@ These would live next to the existing publisher / subscriber metrics in
 each plugin's `*ServicePlugin` (the registries already exist) and are
 captured as a follow-up ticket.
 
-### Filter composition
+## 10. Filter composition
 
-When the publisher filters at ingress and a subscriber subsequently
-applies its own filter, the subscriber's filter sees a stream that is
-*already* free of the publisher-filtered items — those slots are
+This is an expected-behaviour section, not a known issue. When the
+publisher filters at ingress and a subscriber later applies its own
+filter, the subscriber's filter sees a stream that is *already* free
+of the publisher-filtered items — those slots are
 `FilteredSingleItem`. The subscriber filter does NOT re-filter
-`FilteredSingleItem` (it's in `ALWAYS_FORWARD`), so the output remains
-well-formed and the original drop is not double-counted. In practice:
+`FilteredSingleItem` (it's in `ALWAYS_FORWARD`), so the output
+remains well-formed and the original drop is not double-counted.
+
+Two invariants:
+
+1. **Filtering is monotone.** Once an item is replaced by its hash,
+   no later filter can recover the original. There is no "unfilter"
+   operation.
+2. **Mandatory items are always forwarded.** `BlockHeader`,
+   `BlockProof`, `BlockFooter`, `FilteredSingleItem`, and
+   `RedactedItem` pass through every filter. Validation at filter
+   construction time prevents callers from even trying to drop them
+   (see §3, §9).
+
+Concrete compositions:
 
 - **Publisher denylist [STATE_CHANGES]** + **subscriber denylist [STATE_CHANGES]**:
-  subscriber sees one `FilteredSingleItem` per state-change slot (from
-  the publisher), not two.
+  subscriber sees one `FilteredSingleItem` per state-change slot
+  (from the publisher), not two.
 - **Publisher denylist [STATE_CHANGES]** + **subscriber denylist [TRACE_DATA]**:
-  subscriber sees `FilteredSingleItem` for both kinds.
+  subscriber sees `FilteredSingleItem` for both kinds. State-change
+  slots came in already filtered; trace-data slots are filtered by
+  the subscriber.
 - **Publisher denylist [STATE_CHANGES]** + **subscriber allowlist [STATE_CHANGES]**:
-  subscriber sees no state-change items at all (the publisher already
-  dropped them and the subscriber's allowlist does not list
-  `FilteredSingleItem`, but `FilteredSingleItem` is in
-  `ALWAYS_FORWARD` so it passes anyway). Net: the same stream the
+  subscriber sees no `StateChanges` items — the publisher already
+  dropped them. The subscriber sees the publisher's
+  `FilteredSingleItem` in each state-change slot because
+  `FilteredSingleItem` is in `ALWAYS_FORWARD` even when the
+  subscriber's allowlist doesn't list it. Net: the same stream the
   subscriber would have seen with no filter — composition cannot
   un-drop a publisher-filtered item.
+- **Publisher identity** + **subscriber denylist [STATE_CHANGES]**:
+  identical to the subscriber-only case. The publisher passes
+  everything through; the subscriber filters per request.
 
-This is intentional: filtering is monotone — once an item is replaced
-by its hash, no later filter can recover it.
-
-## 10. Acceptance tests
+## 11. Acceptance tests
 
 Unit (`block-node/base`):
 
@@ -359,7 +376,7 @@ E2E (`tools-and-tests/suites`):
 8. Boot BlockNodeApp, publish three chained blocks each with a denylist filter set in `PublisherConfig`, then subscribe without a filter and confirm the dropped item types are absent (replaced by `FilteredSingleItem`).
 9. **Verifier-acceptance round-trip** (`BlockStreamFilterE2ETests.filteredBlockIsVerifiedAndServedToSubscribers`): boot BlockNodeApp with `producer.blockStreamFilterInclude=false`, `producer.blockStreamFilterItemTypes=3` (deny `RoundHeader`), publish a block, then subscribe back. Assert the publisher emitted an `ACKNOWLEDGEMENT` (verification accepted) and the persisted block carries a `FilteredSingleItem` instead of the original `RoundHeader`. This is the real "filter → verify → persist → serve" round-trip and exercises both the leaf-hash compatibility and the verifier's `FILTERED_SINGLE_ITEM` routing.
 
-## 11. Open questions
+## 12. Open questions
 
 - **Per-block-item filtering vs per-tree filtering.** v1 operates at the
   block-item granularity. Per-`SubMerkleTree` filtering (drop an entire
@@ -375,7 +392,7 @@ E2E (`tools-and-tests/suites`):
   signed transaction body, which is a different operation than the
   oneof-level filter here.
 
-## 12. References
+## 13. References
 
 - `agent/ref/state-and-filtering/state-and-filtering-plan.md` — source plan.
 - `hiero-consensus-node/.../block/stream/block_item.proto` — canonical
