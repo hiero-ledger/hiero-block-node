@@ -29,11 +29,11 @@ and resolve problems quickly.
 - **Structured logs**: JSON-formatted logs are written to stdout / stderr
   (easily ingested by Loki, ELK, Splunk, etc.).
 - **Log levels**: Controlled via
-  [values.yaml](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values.yaml#L187):
+  [values.yaml](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values.yaml#L255):
   `logs.level` (`ALL FINEST FINER FINE CONFIG INFO WARNING SEVERE OFF`).
 - **Key log tags to grep**:
-  - `BlockStreamPublishService` : incoming blocks from consensus nodes
-  - `BlockVerification` : signature / proof failures
+  - `StreamPublisherPlugin` : incoming blocks from consensus nodes
+  - `VerificationServicePlugin` : signature / proof failures
 
 ##### Example log lines
 
@@ -78,7 +78,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
 
 ### Runbooks
 
-#### 🚫 Block Node not receiving new blocks
+#### Block Node not receiving new blocks
 
 > **Tip:** Use this runbook when ingest appears stalled and logs show little or no publish activity for new blocks.
 
@@ -91,7 +91,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
      - Verify process is running and not crashlooping.
      - Confirm CPU / memory are not obviously saturated.
    - From a trusted host, test connectivity to the Block Node:
-     - `nc <IP_OF_BLOCK_NODE> 50211 -vz`
+     - `nc <IP_OF_BLOCK_NODE> 40840 -vz`
        - Success: TCP reachability is OK.
        - Failure: suspect firewall, security group, or local iptables.
    - If `nc` fails:
@@ -109,7 +109,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
      - `publisher_stream_errors` is non-zero.
    - Correlate with time of any infrastructure changes (deploys, config updates, firewall changes).
 4. **Resolution**
-   - Fix firewall / security group rules on gossip / ingest port (default `50211`, or configured port).
+   - Fix firewall / security group rules on gossip / ingest port (default `40840`, or configured port).
    - Correct TLS or mutual-auth configuration between CN and Block Node.
    - Restart the Block Node if needed once connectivity and TLS are corrected.
 5. **Verification**
@@ -117,7 +117,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
    - `publisher_open_connections` is stable and non-zero.
    - Logs show continuous block publish / ingest activity.
 
-#### 🔌 Subscribers/Mirror Nodes cannot connect
+#### Subscribers/Mirror Nodes cannot connect
 
 1. **Triage**
    - Confirm symptoms from client side:
@@ -166,7 +166,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
    - Confirm clients successfully establish long-lived gRPC streams without continuous reconnects.
    - Metrics such as `subscriber_open_connections` are stable and `subscriber_errors` do not spike.
 
-#### 💾 Disk full / out of space
+#### Disk full / out of space
 
 1. **Triage**
    - Confirm symptoms:
@@ -191,7 +191,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
    - Confirm `files_recent_total_bytes_stored` (and/or `files_historic_total_bytes_stored`) and host `df -h` fall below alert thresholds.
    - Block ingest resumes normally and no further I/O errors appear in logs.
 
-#### 📈 Metrics endpoint not accessible
+#### Metrics endpoint not accessible
 
 1. **Triage**
    - Confirm that Grafana / Prometheus cannot scrape `/metrics` for this Block Node.
@@ -229,7 +229,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
    - Confirm the Prometheus target is `UP` and `up\{job="block-node-metrics", instance="\<node\>"\} == 1`.
    - Grafana dashboards populate and scrape errors clear.
 
-#### 🕳️ Blocks are not being backfilled
+#### Blocks are not being backfilled
 
 1. **Triage**
    - Confirm symptoms:
@@ -263,7 +263,7 @@ The table below is a **summary-only quick reference**. Use the runbooks above fo
 
 |                 **Issue**                 |                         **Symptoms**                          |                                              **Diagnosis**                                               |                                           **Resolution**                                           |
 |-------------------------------------------|---------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| Node not receiving new blocks             | Ingest appears stalled, logs show no publish activity         | Check firewall / TLS on ingest port (default `50211`), Consensus Node logs                               | Open inbound port, verify mutual TLS certs, ensure node is authorized / whitelisted by upstream CN |
+| Node not receiving new blocks             | Ingest appears stalled, logs show no publish activity         | Check firewall / TLS on ingest port (default `40840`), Consensus Node logs                               | Open inbound port, verify mutual TLS certs, ensure node is authorized / whitelisted by upstream CN |
 | Subscribers / Mirror Nodes cannot connect | gRPC connection refused or TLS handshake errors               | Wrong endpoint, expired cert, or service disabled in config                                              | Verify advertise address / port, renew TLS certs, enable `BlockStreamSubscribeService`             |
 | Disk full / out of space                  | Node crashes or refuses new blocks                            | `df -h`, `files_recent_total_bytes_stored` nearing limit                                                 | Prune old blocks (partial-history), expand volume, or migrate to archive node                      |
 | Metrics endpoint not accessible           | Grafana dashboards empty, Prometheus target `DOWN`            | Port `16007` blocked or metrics disabled via config                                                      | Open port, enable metrics, fix Prometheus scrape job                                               |
