@@ -14,6 +14,7 @@ import picocli.CommandLine.Spec;
         subcommands = {
             MetadataLsCommand.class,
             MetadataUpdateCommand.class,
+            MetadataGenerateFromBlocksCommand.class,
         },
         mixinStandardHelpOptions = true)
 public class MetadataCommand implements Runnable {

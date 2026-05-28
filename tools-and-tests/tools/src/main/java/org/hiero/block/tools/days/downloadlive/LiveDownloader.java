@@ -756,8 +756,8 @@ public class LiveDownloader {
                 final BlockWork bw =
                         new BlockWork(blockNumber, blockHashFromMirrorNode, blockTime, orderedFilesToDownload);
                 for (ListingRecordFile lr : orderedFilesToDownload) {
-                    final String blobName = current().bucketPathPrefix() + lr.path();
-                    bw.futures.add(downloadManager.downloadAsync(current().gcsBucketName(), blobName));
+                    final String blobName = current().pathPrefix() + lr.path();
+                    bw.futures.add(downloadManager.downloadAsync(current().bucketName(), blobName));
                 }
 
                 try {
@@ -928,14 +928,14 @@ public class LiveDownloader {
      * Downloads a file with retry logic for MD5 mismatch errors.
      */
     private InMemoryFile downloadFileWithRetry(ListingRecordFile lr) throws IOException {
-        final String blobName = current().bucketPathPrefix() + lr.path();
+        final String blobName = current().pathPrefix() + lr.path();
         final boolean isSignatureFile = lr.type() == ListingRecordFile.Type.RECORD_SIG;
         IOException lastException = null;
 
         for (int attempt = 1; attempt <= MAX_MD5_RETRIES; attempt++) {
             try {
                 final CompletableFuture<InMemoryFile> future =
-                        downloadManager.downloadAsync(current().gcsBucketName(), blobName);
+                        downloadManager.downloadAsync(current().bucketName(), blobName);
                 final InMemoryFile downloadedFile = future.join();
 
                 if (!Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data())) {

@@ -41,6 +41,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
@@ -79,6 +80,7 @@ import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
 import org.hiero.block.tools.blocks.validation.StreamingMerkleTreeValidation;
 import org.hiero.block.tools.blocks.validation.TssEnablementValidation;
+import org.hiero.block.tools.config.BucketType;
 import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.download.DownloadConstants;
 import org.hiero.block.tools.days.download.DownloadDayLiveImpl;
@@ -102,7 +104,9 @@ import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.Gzip;
+import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManager;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreadsV3;
+import org.hiero.block.tools.utils.s3.ConcurrentDownloadManagerS3;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -111,7 +115,7 @@ import picocli.CommandLine.Option;
  *
  * <p>Downloads blocks one at a time, strictly sequentially, failing hard on any gap. Each block is:
  * <ol>
- *   <li>Downloaded from GCS</li>
+ *   <li>Downloaded from GCS or S3 (based on {@link NetworkConfig} bucket type)</li>
  *   <li>Hash-chain validated and signature validated</li>
  *   <li>Written to per-day {@code .tar.zstd} archives</li>
  *   <li>Wrapped into block stream format (via {@link RecordBlockConverter})</li>
@@ -121,6 +125,9 @@ import picocli.CommandLine.Option;
  *
  * <p>This combines the functionality of {@code download-live2}, {@code wrap}, and {@code validate}
  * into a single pipeline optimized for correctness over throughput.
+ *
+ * <p>Supports both Google Cloud Storage (GCS) and S3-compatible storage (MinIO, AWS S3, etc.)
+ * based on the network configuration's bucket type.
  */
 @SuppressWarnings("FieldCanBeLocal")
 @Command(
@@ -180,6 +187,17 @@ public class LiveSequential implements Runnable {
             names = {"--start-date"},
             description = "Start date in YYYY-MM-DD format (default: auto-detect from mirror node)")
     private String startDate;
+
+    @Option(
+            names = {"--allow-timestamp-discovery"},
+            description =
+                    "Allow discovering block timestamps from file sequence when metadata is missing (testing only, default: false)")
+    private boolean allowTimestampDiscovery = false;
+
+    @Option(
+            names = {"--skip-signatures"},
+            description = "Skip signature validation (useful for single-node networks, default: false)")
+    private boolean skipSignatures = false;
 
     /** State persisted to JSON for resumability. Compatible with DownloadLive2 format. */
     private static class State {
@@ -292,16 +310,39 @@ public class LiveSequential implements Runnable {
             final AddressBookRegistry addressBookRegistry =
                     addressBookPath != null ? new AddressBookRegistry(addressBookPath) : new AddressBookRegistry();
 
-            // Use HTTP transport for stability
-            final Storage storage = StorageOptions.http()
-                    .setProjectId(DownloadConstants.GCP_PROJECT_ID)
-                    .build()
-                    .getService();
+            // Initialize download manager based on bucket type
+            final NetworkConfig netConfig = NetworkConfig.current();
+            final ConcurrentDownloadManager downloadManager;
 
-            final ConcurrentDownloadManagerVirtualThreadsV3 downloadManager =
-                    ConcurrentDownloadManagerVirtualThreadsV3.newBuilder(storage)
-                            .setMaxConcurrency(64)
-                            .build();
+            if (netConfig.bucketType() == BucketType.S3) {
+                System.out.println("[live-sequential] Using S3 download manager (endpoint: " + netConfig.endpoint()
+                        + ", bucket: " + netConfig.bucketName() + ")");
+                downloadManager = new ConcurrentDownloadManagerS3(
+                        netConfig.endpoint(),
+                        netConfig.region(),
+                        netConfig.accessKey(),
+                        netConfig.secretKey(),
+                        netConfig.bucketName(),
+                        64);
+            } else {
+                System.out.println(
+                        "[live-sequential] Using GCS download manager (bucket: " + netConfig.bucketName() + ")");
+                final Storage storage = StorageOptions.http()
+                        .setProjectId(DownloadConstants.GCP_PROJECT_ID)
+                        .build()
+                        .getService();
+                downloadManager = ConcurrentDownloadManagerVirtualThreadsV3.newBuilder(storage)
+                        .setMaxConcurrency(64)
+                        .build();
+            }
+
+            // Create block_times.bin if it doesn't exist (for clean starts)
+            final Path blockTimesFile = MetadataFiles.BLOCK_TIMES_FILE;
+            if (!Files.exists(blockTimesFile)) {
+                System.out.println("[live-sequential] Creating empty block_times.bin for clean start");
+                Files.createDirectories(blockTimesFile.getParent());
+                Files.createFile(blockTimesFile);
+            }
 
             final BlockTimeReader blockTimeReader = new BlockTimeReader();
 
@@ -340,13 +381,18 @@ public class LiveSequential implements Runnable {
                     .addShutdownHook(new Thread(
                             () -> {
                                 System.out.println("[live-sequential] Shutdown requested...");
-                                downloadManager.close();
+                                try {
+                                    downloadManager.close();
+                                } catch (Exception e) {
+                                    System.err.println(
+                                            "[live-sequential] Error closing download manager: " + e.getMessage());
+                                }
                             },
                             "live-sequential-shutdown"));
 
             // Main download loop
             processBlocksSequentially(
-                    initialState, downloadManager, blockTimeReader, queue, wrapError, addressBookRegistry);
+                    initialState, downloadManager, blockTimeReader, queue, wrapError, addressBookRegistry, netConfig);
 
             // Signal wrap thread to exit and wait
             queue.put(POISON_PILL);
@@ -420,15 +466,26 @@ public class LiveSequential implements Runnable {
             LocalDate targetDay = LocalDate.parse(startDate);
             System.out.println("[live-sequential] Using provided start date: " + targetDay);
 
-            LocalDateTime startOfDay = targetDay.atStartOfDay();
-            long firstBlockOfDay = blockTimeReader.getNearestBlockAfterTime(startOfDay);
+            try {
+                LocalDateTime startOfDay = targetDay.atStartOfDay();
+                long firstBlockOfDay = blockTimeReader.getNearestBlockAfterTime(startOfDay);
 
-            System.out.println("[live-sequential] First block of " + targetDay + " is " + firstBlockOfDay);
+                System.out.println("[live-sequential] First block of " + targetDay + " is " + firstBlockOfDay);
 
-            State state = new State();
-            state.blockNumber = firstBlockOfDay - 1;
-            state.dayDate = targetDay.toString();
-            return state;
+                State state = new State();
+                state.blockNumber = firstBlockOfDay - 1;
+                state.dayDate = targetDay.toString();
+                return state;
+            } catch (Exception e) {
+                // If block_times.bin is empty/missing or doesn't have data for this date,
+                // start from block 0 and let the download process populate timestamps
+                System.out.println(
+                        "[live-sequential] Could not determine first block from date (empty metadata?), starting from block 0");
+                State state = new State();
+                state.blockNumber = 0;
+                state.dayDate = targetDay.toString();
+                return state;
+            }
         }
 
         // Priority 4: Auto-detect from mirror node
@@ -508,11 +565,12 @@ public class LiveSequential implements Runnable {
      */
     private void processBlocksSequentially(
             State initialState,
-            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            ConcurrentDownloadManager downloadManager,
             BlockTimeReader initialBlockTimeReader,
             BlockingQueue<ValidatedBlock> queue,
             AtomicReference<Throwable> wrapError,
-            AddressBookRegistry addressBookRegistry)
+            AddressBookRegistry addressBookRegistry,
+            NetworkConfig netConfig)
             throws Exception {
 
         long currentBlockNumber = initialState.blockNumber;
@@ -527,8 +585,6 @@ public class LiveSequential implements Runnable {
         final DownloadLoopState state = new DownloadLoopState();
         state.blockTimeReader = initialBlockTimeReader;
         state.nextPrefetchBlock = currentBlockNumber + 1;
-
-        final NetworkConfig netConfig = NetworkConfig.current();
 
         try {
             while (true) {
@@ -545,18 +601,46 @@ public class LiveSequential implements Runnable {
                 try {
                     blockTime = state.blockTimeReader.getBlockLocalDateTime(nextBlockNumber);
                 } catch (Exception e) {
-                    long now = System.currentTimeMillis();
-                    if (now - lastBlockTimeRefreshMs >= MIN_BLOCK_TIME_REFRESH_INTERVAL_MS) {
-                        System.out.println(
-                                "[LIVE] Block " + nextBlockNumber + " not in BlockTimeReader, refreshing...");
-                        UpdateBlockData.updateBlockTimesOnly(MetadataFiles.BLOCK_TIMES_FILE);
-                        state.blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
-                        lastBlockTimeRefreshMs = now;
+                    // If timestamp discovery is enabled, skip Mirror Node refresh entirely
+                    if (allowTimestampDiscovery) {
+                        System.out.println("[LIVE] Block " + nextBlockNumber
+                                + " not in BlockTimeReader, using current time (--allow-timestamp-discovery enabled)");
+                        blockTime = LocalDateTime.now();
+                    } else {
+                        long now = System.currentTimeMillis();
+                        if (now - lastBlockTimeRefreshMs >= MIN_BLOCK_TIME_REFRESH_INTERVAL_MS) {
+                            System.out.println(
+                                    "[LIVE] Block " + nextBlockNumber + " not in BlockTimeReader, refreshing...");
+                            long beforeRefresh =
+                                    UpdateBlockData.readHighestBlockFromTimesFile(MetadataFiles.BLOCK_TIMES_FILE);
+                            UpdateBlockData.updateBlockTimesOnly(MetadataFiles.BLOCK_TIMES_FILE);
+                            long afterRefresh =
+                                    UpdateBlockData.readHighestBlockFromTimesFile(MetadataFiles.BLOCK_TIMES_FILE);
+                            state.blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                            lastBlockTimeRefreshMs = now;
+
+                            // If refresh made no progress, retry
+                            if (afterRefresh <= beforeRefresh) {
+                                System.out.println(
+                                        "[LIVE] Refresh made no progress, retrying...");
+                                state.prefetchWindow.clear();
+                                state.nextPrefetchBlock = nextBlockNumber;
+                                Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
+                                continue;
+                            } else {
+                                // Refresh helped, retry getting the timestamp
+                                state.prefetchWindow.clear();
+                                state.nextPrefetchBlock = nextBlockNumber;
+                                Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
+                                continue;
+                            }
+                        } else {
+                            state.prefetchWindow.clear();
+                            state.nextPrefetchBlock = nextBlockNumber;
+                            Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
+                            continue;
+                        }
                     }
-                    state.prefetchWindow.clear();
-                    state.nextPrefetchBlock = nextBlockNumber;
-                    Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
-                    continue;
                 }
 
                 LocalDate blockDay = blockTime.toLocalDate();
@@ -928,8 +1012,13 @@ public class LiveSequential implements Runnable {
         List<BlockValidation> parallelValidations = new ArrayList<>();
         parallelValidations.add(new RequiredItemsValidation());
         parallelValidations.add(new BlockStructureValidation());
-        SignatureValidation signatureValidation = new SignatureValidation(addressBookRegistry, nodeStakeRegistry, true);
-        parallelValidations.add(signatureValidation);
+        SignatureValidation signatureValidation;
+        if (!skipSignatures) {
+            signatureValidation = new SignatureValidation(addressBookRegistry, nodeStakeRegistry, true);
+            parallelValidations.add(signatureValidation);
+        } else {
+            signatureValidation = null; // Signature validation disabled
+        }
 
         final SignatureStatsCollector statsCollector =
                 new SignatureStatsCollector(wrapOutputDir.resolve("signature_statistics_live_sequential.csv"));
@@ -1107,10 +1196,12 @@ public class LiveSequential implements Runnable {
         // Run all validation checks
         runBlockValidations(wrappedBytes, blockNum, vc, ls, checkpointDir);
 
-        // Collect signature stats
-        SignatureBlockStats blockStats = vc.signatureValidation().popBlockStats(blockNum);
-        if (blockStats != null) {
-            vc.statsCollector().accept(blockStats);
+        // Collect signature stats (only if signature validation is enabled)
+        if (vc.signatureValidation() != null) {
+            SignatureBlockStats blockStats = vc.signatureValidation().popBlockStats(blockNum);
+            if (blockStats != null) {
+                vc.statsCollector().accept(blockStats);
+            }
         }
 
         // Save jumpstart.bin every block
@@ -1283,8 +1374,19 @@ public class LiveSequential implements Runnable {
                 state.cachedFilesByBlock =
                         state.cachedListingFiles.stream().collect(Collectors.groupingBy(ListingRecordFile::timestamp));
                 state.cachedListingDay = blockDay;
+                // Debug: Count file types in loaded listings
+                long rcdFiles = state.cachedListingFiles.stream()
+                        .filter(f -> f.type() == ListingRecordFile.Type.RECORD)
+                        .count();
+                long sigFiles = state.cachedListingFiles.stream()
+                        .filter(f -> f.type() == ListingRecordFile.Type.RECORD_SIG)
+                        .count();
+                long sidecarFiles = state.cachedListingFiles.stream()
+                        .filter(f -> f.type() == ListingRecordFile.Type.RECORD_SIDECAR)
+                        .count();
                 System.out.println("[live-sequential] Loaded " + state.cachedListingFiles.size()
-                        + " listing entries for " + blockDay);
+                        + " listing entries for " + blockDay + " (" + rcdFiles + " .rcd, " + sigFiles + " .rcd_sig, "
+                        + sidecarFiles + " sidecars)");
                 break;
             } catch (NoSuchFileException e) {
                 if (attempt >= MAX_LISTING_WAIT_ATTEMPTS) {
@@ -1305,7 +1407,7 @@ public class LiveSequential implements Runnable {
     private void fillPrefetchWindow(
             long nextBlockNumber,
             NetworkConfig netConfig,
-            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            ConcurrentDownloadManager downloadManager,
             DownloadLoopState state,
             AddressBookRegistry addressBookRegistry) {
         while (state.prefetchWindow.size() < PREFETCH_WINDOW) {
@@ -1358,7 +1460,7 @@ public class LiveSequential implements Runnable {
             LocalDateTime blockTime,
             LocalDate blockDay,
             NetworkConfig netConfig,
-            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            ConcurrentDownloadManager downloadManager,
             DownloadLoopState state)
             throws Exception {
         PrefetchedBlock head = state.prefetchWindow.peekFirst();
@@ -1382,19 +1484,64 @@ public class LiveSequential implements Runnable {
             group = state.cachedFilesByBlock.get(blockTime);
 
             if (group == null || group.isEmpty()) {
-                System.out.println("[live-sequential] No files found for block " + nextBlockNumber + " at time "
-                        + blockTime + ", fixing block times...");
+                System.out.println(
+                        "[live-sequential] No files found for block " + nextBlockNumber + " at time " + blockTime);
+
+                // Try to fix block times via mirror node (if available)
                 int fixedCount = FixBlockTime.fixBlockTimeRange(
                         MetadataFiles.BLOCK_TIMES_FILE, nextBlockNumber, nextBlockNumber + 100);
                 if (fixedCount > 0) {
                     // Block times were fixed, reload and retry
                     state.blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
                     return null;
+                }
+
+                // If mirror node didn't help, try to discover block times from the actual files we have
+                // (only if --allow-timestamp-discovery is enabled, for testing environments like Solo)
+                if (allowTimestampDiscovery && !state.cachedListingFiles.isEmpty()) {
+                    // Filter to only actual record files (.rcd, .rcd.gz), not block files (.blk)
+                    List<ListingRecordFile> recordFilesOnly = state.cachedListingFiles.stream()
+                            .filter(f -> f.path().endsWith(".rcd") || f.path().endsWith(".rcd.gz"))
+                            .toList();
+
+                    System.out.println(
+                            "[live-sequential] Mirror node has no data, but we have " + recordFilesOnly.size()
+                                    + " record files for " + blockDay
+                                    + ". Discovering block timestamps from file sequence (--allow-timestamp-discovery is enabled)...");
+
+                    if (recordFilesOnly.isEmpty()) {
+                        throw new RuntimeException("No record files (.rcd or .rcd.gz) found for block "
+                                + nextBlockNumber + " on " + blockDay + ". Only found non-record files in listings.");
+                    }
+
+                    // Sort files by timestamp (they should be sequential)
+                    List<ListingRecordFile> sortedFiles = recordFilesOnly.stream()
+                            .sorted(Comparator.comparing(ListingRecordFile::timestamp))
+                            .toList();
+
+                    // Assume the first file is block 0 (or the starting block of the day)
+                    // Match files to block numbers sequentially
+                    int blockIndex = (int) nextBlockNumber;
+                    if (blockIndex < sortedFiles.size()) {
+                        ListingRecordFile matchedFile = sortedFiles.get(blockIndex);
+                        group = List.of(matchedFile);
+                        System.out.println("[live-sequential] Matched block " + nextBlockNumber
+                                + " to file at timestamp " + matchedFile.timestamp());
+                    } else {
+                        throw new RuntimeException("Block " + nextBlockNumber + " exceeds available files (only "
+                                + sortedFiles.size() + " files found for "
+                                + blockDay + "). The block may not be available yet (live edge).");
+                    }
                 } else {
-                    // No block times were fixed, files are genuinely missing or not uploaded yet
-                    throw new RuntimeException("No record files found for block " + nextBlockNumber
-                            + " at time " + blockTime + " and block time could not be fixed. "
-                            + "The block may not be available yet (live edge) or may be missing from the network.");
+                    // No files at all - genuinely missing or not uploaded yet
+                    // Or timestamp discovery is disabled
+                    String hint = allowTimestampDiscovery
+                            ? ""
+                            : " (use --allow-timestamp-discovery for testing environments)";
+                    throw new RuntimeException("No record files found for block " + nextBlockNumber + " at time "
+                            + blockTime + " and block time could not be fixed. "
+                            + "The block may not be available yet (live edge) or may be missing from the network."
+                            + hint);
                 }
             }
         }
@@ -1414,7 +1561,7 @@ public class LiveSequential implements Runnable {
         List<InMemoryFile> inMemoryFiles = new ArrayList<>();
         for (int fi = 0; fi < downloads.orderedFiles.size(); fi++) {
             ListingRecordFile lr = downloads.orderedFiles.get(fi);
-            String blobName = netConfig.bucketPathPrefix() + lr.path();
+            String blobName = netConfig.pathPrefix() + lr.path();
             try {
                 InMemoryFile downloadedFile = downloads.downloadFutures.get(fi).join();
                 String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
@@ -1481,6 +1628,19 @@ public class LiveSequential implements Runnable {
         }
 
         // Verify sufficient signature files (need majority N/2 + 1 to prevent partition ambiguity)
+        // Debug: Show what files we downloaded
+        System.out.println(
+                "[live-sequential] Downloaded " + inMemoryFiles.size() + " files for block " + nextBlockNumber + ": "
+                        + inMemoryFiles.stream()
+                                .map(f -> f.path().getFileName().toString())
+                                .collect(java.util.stream.Collectors.joining(", ")));
+
+        // Skip signature validation if requested (useful for single-node networks)
+        if (skipSignatures) {
+            System.out.println("[live-sequential] Skipping signature validation (--skip-signatures enabled)");
+            return false; // Don't retry, proceed to wrapping
+        }
+
         long sigCount = inMemoryFiles.stream()
                 .filter(f -> f.path().getFileName().toString().contains("_sig"))
                 .count();
@@ -1642,13 +1802,12 @@ public class LiveSequential implements Runnable {
 
     /** Fire parallel downloads for all files in the ordered list. */
     private static List<CompletableFuture<InMemoryFile>> fireDownloads(
-            List<ListingRecordFile> orderedFiles,
-            NetworkConfig netConfig,
-            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager) {
+            List<ListingRecordFile> orderedFiles, NetworkConfig netConfig, ConcurrentDownloadManager downloadManager) {
         List<CompletableFuture<InMemoryFile>> futures = new ArrayList<>(orderedFiles.size());
+
         for (ListingRecordFile lr : orderedFiles) {
-            String blobName = netConfig.bucketPathPrefix() + lr.path();
-            futures.add(downloadManager.downloadAsync(netConfig.gcsBucketName(), blobName));
+            String blobName = netConfig.pathPrefix() + lr.path();
+            futures.add(downloadManager.downloadAsync(netConfig.bucketName(), blobName));
         }
         return futures;
     }

@@ -282,7 +282,19 @@ public class FixBlockTime implements Runnable {
                 + "&block.number=lte:" + toBlock
                 + "&limit=100&order=asc";
 
+        System.out.println("[fixBlockTime] DEBUG: Querying Mirror Node API:");
+        System.out.println("[fixBlockTime] DEBUG: URL = " + url);
+
         JsonObject response = MirrorNodeUtils.readUrl(url);
+
+        System.out.println("[fixBlockTime] DEBUG: Response = " + (response == null ? "null" : response.toString()));
+        System.out.println(
+                "[fixBlockTime] DEBUG: Has 'blocks' field = " + (response != null && response.has("blocks")));
+        if (response != null && response.has("blocks")) {
+            System.out.println("[fixBlockTime] DEBUG: Number of blocks in response = "
+                    + response.getAsJsonArray("blocks").size());
+        }
+
         if (response == null || !response.has("blocks")) {
             return new int[] {0, 0};
         }

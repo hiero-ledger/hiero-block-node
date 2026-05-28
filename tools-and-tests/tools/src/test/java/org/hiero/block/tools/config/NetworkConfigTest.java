@@ -28,13 +28,13 @@ class NetworkConfigTest {
         @Test
         @DisplayName("GCS bucket name includes 2024-02 suffix from testnet reset")
         void testGcsBucketName() {
-            assertEquals("hedera-testnet-streams-2024-02", testnet.gcsBucketName());
+            assertEquals("hedera-testnet-streams-2024-02", testnet.bucketName());
         }
 
         @Test
         @DisplayName("Bucket path prefix is recordstreams/")
         void testBucketPathPrefix() {
-            assertEquals("recordstreams/", testnet.bucketPathPrefix());
+            assertEquals("recordstreams/", testnet.pathPrefix());
         }
 
         @Test
@@ -90,7 +90,7 @@ class NetworkConfigTest {
         @Test
         @DisplayName("GCS bucket name is hedera-mainnet-streams")
         void testGcsBucketName() {
-            assertEquals("hedera-mainnet-streams", mainnet.gcsBucketName());
+            assertEquals("hedera-mainnet-streams", mainnet.bucketName());
         }
 
         @Test
@@ -116,7 +116,7 @@ class NetworkConfigTest {
         void testFromNameTestnet() {
             NetworkConfig config = NetworkConfig.fromName("testnet");
             assertEquals("testnet", config.networkName());
-            assertEquals("hedera-testnet-streams-2024-02", config.gcsBucketName());
+            assertEquals("hedera-testnet-streams-2024-02", config.bucketName());
         }
 
         @Test

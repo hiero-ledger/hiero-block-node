@@ -17,13 +17,15 @@ import java.time.format.DateTimeFormatter;
 /**
  * Loads network configurations from JSON files.
  *
- * <p>Supports loading network configs for previewnet and custom networks from JSON files
- * with the following format:
+ * <p>Supports loading network configs for previewnet and custom networks from JSON files.
+ *
+ * <p>Example GCS configuration:
  * <pre>{@code
  * {
  *   "networkName": "previewnet",
- *   "gcsBucketName": "hedera-preview-streams",
- *   "bucketPathPrefix": "recordstreams/",
+ *   "bucketType": "GCS",
+ *   "bucketName": "hedera-preview-streams",
+ *   "pathPrefix": "recordstreams/",
  *   "mirrorNodeApiUrl": "https://previewnet.mirrornode.hedera.com/api/v1/",
  *   "genesisDate": "2023-04-06",
  *   "genesisTimestamp": "2023-04-06T12_00_00.000000000Z",
@@ -31,6 +33,26 @@ import java.time.format.DateTimeFormatter;
  *   "maxNodeAccountId": 9,
  *   "totalHbarSupplyTinybar": 5000000000000000000,
  *   "genesisAddressBookResource": "previewnet-genesis-address-book.proto.bin"
+ * }
+ * }</pre>
+ *
+ * <p>Example S3 configuration:
+ * <pre>{@code
+ * {
+ *   "networkName": "solo",
+ *   "bucketType": "S3",
+ *   "bucketName": "solo-streams",
+ *   "pathPrefix": "recordstreams/",
+ *   "endpoint": "http://minio:9000",
+ *   "region": "us-east-1",
+ *   "accessKey": "minioadmin",
+ *   "secretKey": "minioadmin",
+ *   "mirrorNodeApiUrl": "http://block-node:8080/api/v1/",
+ *   "genesisDate": "2024-01-01",
+ *   "genesisTimestamp": "2024-01-01T00_00_00.000000000Z",
+ *   "minNodeAccountId": 0,
+ *   "maxNodeAccountId": 0,
+ *   "totalHbarSupplyTinybar": 5000000000000000000
  * }
  * }</pre>
  */
@@ -127,9 +149,29 @@ public final class NetworkConfigLoader {
         if (config.networkName() == null || config.networkName().isBlank()) {
             throw new IllegalArgumentException("Network config missing required field: networkName");
         }
-        if (config.gcsBucketName() == null || config.gcsBucketName().isBlank()) {
-            throw new IllegalArgumentException("Network config missing required field: gcsBucketName");
+
+        // Validate bucket name (common to both GCS and S3)
+        if (config.bucketName() == null || config.bucketName().isBlank()) {
+            throw new IllegalArgumentException("Network config missing required field: bucketName");
         }
+
+        // Validate bucket-type-specific fields
+        final BucketType bucketType = config.bucketType() != null ? config.bucketType() : BucketType.GCS;
+        if (bucketType == BucketType.S3) {
+            if (config.endpoint() == null || config.endpoint().isBlank()) {
+                throw new IllegalArgumentException("Network config missing required field for S3: endpoint");
+            }
+            if (config.region() == null || config.region().isBlank()) {
+                throw new IllegalArgumentException("Network config missing required field for S3: region");
+            }
+            if (config.accessKey() == null || config.accessKey().isBlank()) {
+                throw new IllegalArgumentException("Network config missing required field for S3: accessKey");
+            }
+            if (config.secretKey() == null || config.secretKey().isBlank()) {
+                throw new IllegalArgumentException("Network config missing required field for S3: secretKey");
+            }
+        }
+
         if (config.mirrorNodeApiUrl() == null || config.mirrorNodeApiUrl().isBlank()) {
             throw new IllegalArgumentException("Network config missing required field: mirrorNodeApiUrl");
         }

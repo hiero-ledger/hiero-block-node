@@ -21,8 +21,9 @@ class NetworkConfigLoaderTest {
         final String json = """
                 {
                   "networkName": "testnet-custom",
-                  "gcsBucketName": "test-bucket",
-                  "bucketPathPrefix": "recordstreams/",
+                  "bucketType": "GCS",
+                  "bucketName": "test-bucket",
+                  "pathPrefix": "recordstreams/",
                   "mirrorNodeApiUrl": "https://test.mirrornode.example.com/api/v1/",
                   "genesisDate": "2024-01-01",
                   "genesisTimestamp": "2024-01-01T00_00_00.000000000Z",
@@ -41,8 +42,8 @@ class NetworkConfigLoaderTest {
 
         // Verify all fields
         assertEquals("testnet-custom", config.networkName());
-        assertEquals("test-bucket", config.gcsBucketName());
-        assertEquals("recordstreams/", config.bucketPathPrefix());
+        assertEquals("test-bucket", config.bucketName());
+        assertEquals("recordstreams/", config.pathPrefix());
         assertEquals("https://test.mirrornode.example.com/api/v1/", config.mirrorNodeApiUrl());
         assertEquals(LocalDate.of(2024, 1, 1), config.genesisDate());
         assertEquals("2024-01-01T00_00_00.000000000Z", config.genesisTimestamp());
@@ -77,7 +78,7 @@ class NetworkConfigLoaderTest {
     void testLoadFromPath_MissingRequiredField() throws IOException {
         final String json = """
                 {
-                  "gcsBucketName": "test-bucket"
+                  "bucketName": "test-bucket"
                 }
                 """;
 
@@ -94,14 +95,14 @@ class NetworkConfigLoaderTest {
     void testFromName_Mainnet() {
         final NetworkConfig config = NetworkConfig.fromName("mainnet");
         assertEquals("mainnet", config.networkName());
-        assertEquals("hedera-mainnet-streams", config.gcsBucketName());
+        assertEquals("hedera-mainnet-streams", config.bucketName());
     }
 
     @Test
     void testFromName_Testnet() {
         final NetworkConfig config = NetworkConfig.fromName("testnet");
         assertEquals("testnet", config.networkName());
-        assertEquals("hedera-testnet-streams-2024-02", config.gcsBucketName());
+        assertEquals("hedera-testnet-streams-2024-02", config.bucketName());
     }
 
     @Test

@@ -24,6 +24,7 @@ mainModuleInfo {
     requires("info.picocli")
     requires("org.apache.commons.compress")
     requires("com.google.common.jimfs")
+    requires("io.minio")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.grpc.netty")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")

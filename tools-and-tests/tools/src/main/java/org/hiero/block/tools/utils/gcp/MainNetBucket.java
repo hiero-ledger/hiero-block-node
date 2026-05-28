@@ -33,6 +33,7 @@ import java.util.zip.GZIPOutputStream;
 import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.records.ChainFile;
 import org.hiero.block.tools.records.RecordFileDates;
+import org.hiero.block.tools.utils.BucketLister;
 
 /**
  * A class to list and download files from the mainnet bucket. This is designed to be thread safe.
@@ -44,7 +45,7 @@ import org.hiero.block.tools.records.RecordFileDates;
  * </ul>
  */
 @SuppressWarnings("unused")
-public class MainNetBucket {
+public class MainNetBucket implements BucketLister {
     /** The required fields we need from blobs */
     private static final Storage.BlobListOption REQUIRED_FIELDS =
             BlobListOption.fields(BlobField.NAME, BlobField.SIZE, BlobField.MD5HASH);
@@ -106,7 +107,7 @@ public class MainNetBucket {
                 minNodeAccountId,
                 maxNodeAccountId,
                 userProject,
-                NetworkConfig.current().gcsBucketName());
+                NetworkConfig.current().bucketName());
     }
 
     /**

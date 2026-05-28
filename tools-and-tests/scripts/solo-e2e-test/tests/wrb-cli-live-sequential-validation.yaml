@@ -1,0 +1,87 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# WRB CLI Live Blocks Validation Test (#2776)
+#
+# Validates that blocks produced by the Consensus Node can be validated
+# by the WRB CLI tools, ensuring CN and WRB CLI hashing algorithms match.
+#
+# Test flow:
+#   - Extract live blocks from Block Node pod (already in block stream format)
+#   - Generate metadata from extracted blocks
+#   - Validate blocks using WRB CLI blocks validate command
+#
+# This proves:
+#   - CN's block production creates valid block stream format
+#   - WRB CLI can validate CN-produced blocks
+#   - Hash chain validation passes (CN hashes match WRB CLI recomputation)
+#   - Merkle tree validation passes
+#   - Metadata generation works correctly
+#
+# Prerequisites:
+#   - Single topology deployed (1 CN, 1 BN)
+#   - Blocks available in BN's live directory
+#
+# Usage:
+#   task test:run TEST_FILE=tests/wrb-cli-live-sequential-validation.yaml
+
+name: wrb-cli-live-sequential-validation
+description: "Validate WRB CLI wrapping and validation of live blocks"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Confirm nodes are running"
+    delay: 5
+
+  - id: block-production-wait
+    type: sleep
+    description: "Wait for CN to produce initial blocks"
+    delay: 10
+    args:
+      seconds: 60
+
+  - id: pre-stream-metrics
+    type: print-metrics
+    description: "Capture pre-streaming state"
+    delay: 75
+    args:
+      target: all
+
+  - id: build-tools-jar
+    type: command
+    description: "Build tools shadow jar"
+    delay: 80
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh build"
+
+  - id: extract-and-validate
+    type: command
+    description: "Extract live blocks and validate (proves CN blocks pass WRB CLI validation)"
+    delay: 85
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-live-sequential.sh run"
+
+  - id: final-status
+    type: network-status
+    description: "Post-validation network status"
+    delay: 90
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors"
+    target: all

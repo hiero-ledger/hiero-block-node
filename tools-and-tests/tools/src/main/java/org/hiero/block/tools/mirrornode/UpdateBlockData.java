@@ -88,7 +88,15 @@ public class UpdateBlockData implements Runnable {
         try {
             long highestBlock = readHighestBlockFromTimesFile(blockTimesFile);
             long startBlock = highestBlock + 1;
-            long latestBlock = getLatestBlockNumber();
+            long latestBlock;
+            try {
+                latestBlock = getLatestBlockNumber();
+            } catch (RuntimeException e) {
+                // Mirror node has no blocks or is unavailable
+                System.err.println(
+                        "[UpdateBlockData] Warning: could not get latest block from mirror node: " + e.getMessage());
+                return;
+            }
             if (startBlock > latestBlock) {
                 return; // already up to date
             }
@@ -107,13 +115,27 @@ public class UpdateBlockData implements Runnable {
                         JsonObject block = blocks.get(i).getAsJsonObject();
                         long blockNumber = block.get("number").getAsLong();
                         String recordFileName = block.get("name").getAsString();
-                        Instant blockInstant = extractRecordFileTime(recordFileName);
-                        long blockTimeLong = instantToBlockTimeLong(blockInstant);
-                        raf.seek(blockNumber * Long.BYTES);
-                        raf.writeLong(blockTimeLong);
-                        lastProcessed = blockNumber;
+                        try {
+                            Instant blockInstant = extractRecordFileTime(recordFileName);
+                            long blockTimeLong = instantToBlockTimeLong(blockInstant);
+                            raf.seek(blockNumber * Long.BYTES);
+                            raf.writeLong(blockTimeLong);
+                            lastProcessed = blockNumber;
+                        } catch (RuntimeException e) {
+                            // Skip blocks with unparseable names (e.g., .blk files instead of .rcd)
+                            System.err.println("[UpdateBlockData] Warning: skipping block " + blockNumber
+                                    + " with unparseable name: " + recordFileName);
+                            continue;
+                        }
                     }
                     raf.getChannel().force(false);
+
+                    // Check if we made any progress - if not, break to avoid infinite loop
+                    if (lastProcessed < currentBlock) {
+                        System.err.println(
+                                "[UpdateBlockData] Warning: No progress made (all blocks unparseable), stopping refresh");
+                        break;
+                    }
                     currentBlock = lastProcessed + 1;
                 }
             }

@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import org.hiero.block.tools.config.BucketType;
 import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.download.DownloadConstants;
 import org.hiero.block.tools.days.listing.DayListingFileWriter;
@@ -22,8 +23,10 @@ import org.hiero.block.tools.days.listing.ListingRecordFile;
 import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.records.ChainFile;
 import org.hiero.block.tools.records.RecordFileDates;
+import org.hiero.block.tools.utils.BucketLister;
 import org.hiero.block.tools.utils.PrettyPrint;
 import org.hiero.block.tools.utils.gcp.MainNetBucket;
+import org.hiero.block.tools.utils.s3.S3BucketLister;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -191,9 +194,27 @@ public class UpdateDayListingsCommand implements Runnable {
             System.out.println("First missing: " + missingDays.getFirst() + ", Last missing: " + missingDays.getLast());
             System.out.println("Using nodes " + minNodeAccountId + " to " + maxNodeAccountId);
 
-            // Create MainNetBucket for GCS access
-            final MainNetBucket mainNetBucket =
-                    new MainNetBucket(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
+            // Create bucket lister based on network configuration
+            final NetworkConfig netConfig = NetworkConfig.current();
+            final BucketLister bucketLister;
+
+            if (netConfig.bucketType() == BucketType.S3) {
+                // Use S3 bucket lister
+                bucketLister = new S3BucketLister(
+                        netConfig.endpoint(),
+                        netConfig.region(),
+                        netConfig.accessKey(),
+                        netConfig.secretKey(),
+                        netConfig.bucketName(),
+                        cacheEnabled,
+                        cacheDir,
+                        minNodeAccountId,
+                        maxNodeAccountId);
+            } else {
+                // Use GCS bucket lister
+                bucketLister =
+                        new MainNetBucket(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
+            }
 
             // Process each missing day
             final long totalDays = missingDays.size();
@@ -201,7 +222,7 @@ public class UpdateDayListingsCommand implements Runnable {
             final long startTimeNanos = System.nanoTime();
 
             for (LocalDate missingDay : missingDays) {
-                processDayStatic(listingDir, mainNetBucket, missingDay, processedDays, totalDays, startTimeNanos);
+                processDayStatic(listingDir, bucketLister, missingDay, processedDays, totalDays, startTimeNanos);
                 processedDays++;
             }
 
@@ -326,7 +347,7 @@ public class UpdateDayListingsCommand implements Runnable {
      */
     private static void processDayStatic(
             final Path listingPath,
-            final MainNetBucket mainNetBucket,
+            final BucketLister bucketLister,
             final LocalDate day,
             final long processedDays,
             final long totalDays,
@@ -344,19 +365,37 @@ public class UpdateDayListingsCommand implements Runnable {
         // Update progress before listing
         updateProgressStatic(day, processedDays, totalDays, startTimeNanos, 0, 100);
 
-        // List all files for this day using MainNetBucket
-        final List<ChainFile> chainFiles = mainNetBucket.listDay(blockTime);
+        // List all files for this day using bucket lister
+        final List<ChainFile> chainFiles = bucketLister.listDay(blockTime);
 
         // Update progress after listing
         updateProgressStatic(day, processedDays, totalDays, startTimeNanos, 50, 100);
 
         // Create writer and write all files
+        // Filter out non-record files (.blk, etc.) - we only want .rcd, .rcd.gz, .rcd_sig files
+        int rcdCount = 0, sigCount = 0, skippedCount = 0;
         try (DayListingFileWriter writer = new DayListingFileWriter(listingPath, year, month, dayOfMonth)) {
             for (ChainFile chainFile : chainFiles) {
                 final ListingRecordFile recordFile = convertToListingRecordFileStatic(chainFile);
+                // Skip block files and other non-record files
+                final String path = recordFile.path();
+                if (!(path.endsWith(".rcd")
+                        || path.endsWith(".rcd.gz")
+                        || path.endsWith(".rcd_sig")
+                        || path.endsWith(".rcd_sig.gz"))) {
+                    skippedCount++;
+                    continue;
+                }
                 writer.writeRecordFile(recordFile);
+                if (path.endsWith(".rcd_sig") || path.endsWith(".rcd_sig.gz")) {
+                    sigCount++;
+                } else {
+                    rcdCount++;
+                }
             }
         }
+        System.out.println("[UpdateDayListingsCommand] Wrote " + rcdCount + " .rcd files, " + sigCount
+                + " .rcd_sig files for " + day + " (skipped " + skippedCount + " non-record files)");
 
         // Update progress after writing
         updateProgressStatic(day, processedDays + 1, totalDays, startTimeNanos, 100, 100);
@@ -449,13 +488,31 @@ public class UpdateDayListingsCommand implements Runnable {
                 Files.createDirectories(cacheDir);
             }
 
-            // Create MainNetBucket for GCS access
-            final MainNetBucket mainNetBucket =
-                    new MainNetBucket(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
+            // Create bucket lister based on network configuration
+            final NetworkConfig netConfig = NetworkConfig.current();
+            final BucketLister bucketLister;
+
+            if (netConfig.bucketType() == BucketType.S3) {
+                // Use S3 bucket lister
+                bucketLister = new S3BucketLister(
+                        netConfig.endpoint(),
+                        netConfig.region(),
+                        netConfig.accessKey(),
+                        netConfig.secretKey(),
+                        netConfig.bucketName(),
+                        cacheEnabled,
+                        cacheDir,
+                        minNodeAccountId,
+                        maxNodeAccountId);
+            } else {
+                // Use GCS bucket lister (MainNetBucket)
+                bucketLister =
+                        new MainNetBucket(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
+            }
 
             // Process the single day
             final long startTimeNanos = System.nanoTime();
-            processDayStatic(listingDir, mainNetBucket, targetDay, 0, 1, startTimeNanos);
+            processDayStatic(listingDir, bucketLister, targetDay, 0, 1, startTimeNanos);
 
             PrettyPrint.clearProgress();
             System.out.println("Updated listings for " + targetDay);

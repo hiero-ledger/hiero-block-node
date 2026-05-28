@@ -1,0 +1,17 @@
+{
+  "networkName": "solo",
+  "bucketType": "S3",
+  "bucketName": "solo-streams",
+  "pathPrefix": "recordstreams/",
+  "endpoint": "http://minio.solo-network.svc.cluster.local:9000",
+  "region": "us-east-1",
+  "accessKey": "minioadmin",
+  "secretKey": "minioadmin",
+  "mirrorNodeApiUrl": "http://block-node-1.solo-network.svc.cluster.local:8080/api/v1/",
+  "genesisDate": "2024-01-01",
+  "genesisTimestamp": "2024-01-01T00_00_00.000000000Z",
+  "minNodeAccountId": 0,
+  "maxNodeAccountId": 0,
+  "totalHbarSupplyTinybar": 5000000000000000000,
+  "genesisAddressBookResource": ""
+}
