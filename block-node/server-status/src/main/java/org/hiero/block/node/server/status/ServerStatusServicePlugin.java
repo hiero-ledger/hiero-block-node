@@ -130,7 +130,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
         final StateMetadata stateMetadata = latestStateMetadata;
         if (stateMetadata != null) {
-            detailsBuilder.hashStateMetadata(stateMetadata);
+            detailsBuilder.stateMetadata(stateMetadata);
         }
         return detailsBuilder.build();
     }

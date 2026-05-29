@@ -23,7 +23,7 @@ Initial scope (this epic):
    `BinaryStateQueryResponse`, and three `getBinary*` RPCs on `StateService`.
 4. New SPI hook: `StateUpdateNotification` and
    `BlockNotificationHandler.handleStateUpdate`.
-5. `ServerStatusDetailResponse.hash_state_metadata` exposes the latest applied
+5. `ServerStatusDetailResponse.state_metadata` exposes the latest applied
    state pointer.
 
 Explicitly out of scope:

@@ -245,8 +245,8 @@ public class ServerStatusDetailServicePluginTest
     }
 
     @Test
-    @DisplayName("Should expose hashStateMetadata after a StateUpdateNotification is fired")
-    void shouldExposeHashStateMetadataAfterStateUpdate() throws ParseException {
+    @DisplayName("Should expose stateMetadata after a StateUpdateNotification is fired")
+    void shouldExposeStateMetadataAfterStateUpdate() throws ParseException {
         // Fire a state update through the messaging facility — the plugin is a
         // BlockNotificationHandler registered at start().
         blockNodeContext
@@ -258,7 +258,7 @@ public class ServerStatusDetailServicePluginTest
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
         final ServerStatusDetailResponse response =
                 ServerStatusDetailResponse.PROTOBUF.parse(fromPluginBytes.getLast());
-        final StateMetadata md = response.hashStateMetadata();
+        final StateMetadata md = response.stateMetadata();
         assertNotNull(md);
         assertEquals(42L, md.blockNumber());
         assertEquals(7L, md.roundNumber());
@@ -267,12 +267,12 @@ public class ServerStatusDetailServicePluginTest
     }
 
     @Test
-    @DisplayName("Should leave hashStateMetadata absent when no StateUpdateNotification has fired")
-    void shouldOmitHashStateMetadataWithoutStateUpdate() throws ParseException {
+    @DisplayName("Should leave stateMetadata absent when no StateUpdateNotification has fired")
+    void shouldOmitStateMetadataWithoutStateUpdate() throws ParseException {
         final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
         assertNull(ServerStatusDetailResponse.PROTOBUF
                 .parse(fromPluginBytes.getFirst())
-                .hashStateMetadata());
+                .stateMetadata());
     }
 }

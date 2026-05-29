@@ -60,7 +60,7 @@ message ServerStatusDetailResponse {
      * Block-Node. Absent when no plugin maintains live Hashgraph state or
      * when the plugin has not yet finished initial catch-up.
      */
-    StateMetadata hash_state_metadata = 5;
+    StateMetadata state_metadata = 5;
 }
 
 /**
