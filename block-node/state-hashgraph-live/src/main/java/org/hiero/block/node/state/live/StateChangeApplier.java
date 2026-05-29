@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.state.live;
 
+import com.hedera.hapi.block.stream.output.BlockFooter;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.MapChangeKey;
 import com.hedera.hapi.block.stream.output.MapChangeValue;
 import com.hedera.hapi.block.stream.output.QueuePushChange;
@@ -10,88 +13,105 @@ import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.state.BinaryState;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 
 /**
- * Walks the items of a verified block, extracts metadata, and applies every
- * {@code state_changes} mutation to a {@link BinaryState} owned by
- * {@link LiveStatePlugin}.
+ * Walks the items of a verified block once, applying every `state_changes`
+ * mutation to a {@link BinaryState} owned by the state-management plugin and
+ * returning the per-block metadata ({@code blockNumber}, {@code roundNumber},
+ * applied-change count) on the way out.
  *
  * <h2>Storage encoding</h2>
  * Each variant of {@link StateChange} is translated to its corresponding
  * {@link BinaryState} write call. The bytes handed off are the PBJ-encoded
  * carrier message ({@link MapChangeKey}, {@link MapChangeValue},
  * {@link SingletonUpdateChange}, {@link QueuePushChange}) so the wire form is
- * consistent on read-back through the {@code getBinary*} RPCs.
+ * consistent on read-back through the `getBinary*` RPCs.
+ *
+ * <h2>Why no separate `inspectBlock`</h2>
+ * The plugin needs `BlockFooter.startOfBlockStateRootHash` BEFORE applying so
+ * it can validate the incoming block lines up with our live state. We don't
+ * re-walk the whole block for that — instead {@link #extractStartOfBlockStateRootHash}
+ * scans the items list from the end (the footer is always the second-to-last
+ * item in the stream, so this is O(1) in practice) and pulls the hash without
+ * touching state.
  */
 final class StateChangeApplier {
 
-    /** Outcome of a single block apply. */
-    record ApplyResult(long blockNumber, long roundNumber, int appliedChanges, @NonNull Bytes startOfBlockStateRootHash) {}
+    private static final System.Logger LOGGER = System.getLogger(StateChangeApplier.class.getName());
 
-    @NonNull
-    ApplyResult applyBlock(@NonNull final BinaryState binaryState, @NonNull final BlockUnparsed block) {
-        return applyBlock(binaryState, block, true);
-    }
+    /** Outcome of a single block apply. */
+    record ApplyResult(long blockNumber, long roundNumber, int appliedChanges) {}
 
     /**
-     * Variant used by the plugin's pre-apply validation path: walk the block items to extract
-     * metadata (block number, round number, footer hash) without mutating the state.
+     * Apply every `state_changes` item in `block` to `binaryState` and return
+     * the metadata extracted along the way.
+     *
+     * @throws IllegalStateException if a `state_changes` item is malformed.
      */
     @NonNull
-    ApplyResult inspectBlock(@NonNull final BlockUnparsed block) {
-        return applyBlock(null, block, false);
-    }
-
-    @NonNull
-    private ApplyResult applyBlock(
-            final BinaryState binaryState, @NonNull final BlockUnparsed block, final boolean mutate) {
+    ApplyResult applyBlock(@NonNull final BinaryState binaryState, @NonNull final BlockUnparsed block) {
         long blockNumber = -1L;
         long roundNumber = -1L;
         int applied = 0;
-        Bytes startOfBlockStateRootHash = Bytes.EMPTY;
 
         for (final var item : block.blockItems()) {
             if (item.hasBlockHeader() && blockNumber < 0L) {
                 try {
-                    final var header =
-                            com.hedera.hapi.block.stream.output.BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow());
-                    blockNumber = header.number();
+                    blockNumber =
+                            BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow()).number();
                 } catch (final Exception ignored) {
                     // Leaves blockNumber = -1; caller treats that as a failed apply.
                 }
             } else if (item.hasRoundHeader()) {
                 try {
-                    final var roundHeader =
-                            com.hedera.hapi.block.stream.input.RoundHeader.PROTOBUF.parse(item.roundHeaderOrThrow());
-                    roundNumber = roundHeader.roundNumber();
+                    roundNumber = RoundHeader.PROTOBUF
+                            .parse(item.roundHeaderOrThrow())
+                            .roundNumber();
                 } catch (final Exception ignored) {
                     // Keep previous round number on parse failure.
                 }
-            } else if (item.hasStateChanges() && mutate) {
+            } else if (item.hasStateChanges()) {
                 try {
-                    final StateChanges changes =
-                            StateChanges.PROTOBUF.parse(item.stateChangesOrThrow());
+                    final StateChanges changes = StateChanges.PROTOBUF.parse(item.stateChangesOrThrow());
                     applied += applyChanges(binaryState, changes.stateChanges());
                 } catch (final Exception e) {
                     throw new IllegalStateException("Failed to parse state_changes item", e);
                 }
-            } else if (item.hasBlockFooter()) {
+            }
+            // BlockFooter is read by extractStartOfBlockStateRootHash before this
+            // method runs; we don't need to re-parse it here.
+        }
+        return new ApplyResult(blockNumber, roundNumber, applied);
+    }
+
+    /**
+     * Pull the `BlockFooter.startOfBlockStateRootHash` from a block without
+     * walking the whole item list. The footer is always near the end of the
+     * stream (BlockProof is last, BlockFooter is immediately before it), so a
+     * reverse scan is O(1) in practice.
+     *
+     * @return the hash, or `null` if the block has no parseable footer.
+     */
+    @Nullable
+    static Bytes extractStartOfBlockStateRootHash(@NonNull final BlockUnparsed block) {
+        final List<BlockItemUnparsed> items = block.blockItems();
+        for (int i = items.size() - 1; i >= 0; i--) {
+            final BlockItemUnparsed item = items.get(i);
+            if (item.hasBlockFooter()) {
                 try {
-                    final var footer = com.hedera.hapi.block.stream.output.BlockFooter.PROTOBUF.parse(
-                            item.blockFooterOrThrow());
-                    if (footer.startOfBlockStateRootHash() != null) {
-                        startOfBlockStateRootHash = footer.startOfBlockStateRootHash();
-                    }
+                    final BlockFooter footer = BlockFooter.PROTOBUF.parse(item.blockFooterOrThrow());
+                    return footer.startOfBlockStateRootHash() == null ? Bytes.EMPTY : footer.startOfBlockStateRootHash();
                 } catch (final Exception ignored) {
-                    // Leaves startOfBlockStateRootHash = empty; the plugin treats that as a
-                    // validation failure unless we are at genesis.
+                    return null;
                 }
             }
         }
-        return new ApplyResult(blockNumber, roundNumber, applied, startOfBlockStateRootHash);
+        return null;
     }
 
     private static int applyChanges(
@@ -101,7 +121,14 @@ final class StateChangeApplier {
             final int stateId = change.stateId();
             switch (change.changeOperation().kind()) {
                 case STATE_ADD, STATE_REMOVE, UNSET -> {
-                    // Schema-level events — out of scope for live-state v1.
+                    // Schema-level events — out of scope for live-state v1. Log at TRACE
+                    // so a stream that suddenly starts carrying these is at least visible
+                    // when debug logging is enabled.
+                    LOGGER.log(
+                            System.Logger.Level.TRACE,
+                            "Skipping unsupported schema change (kind={0}, stateId={1})",
+                            change.changeOperation().kind(),
+                            stateId);
                 }
                 case SINGLETON_UPDATE -> {
                     final SingletonUpdateChange su = change.singletonUpdate();

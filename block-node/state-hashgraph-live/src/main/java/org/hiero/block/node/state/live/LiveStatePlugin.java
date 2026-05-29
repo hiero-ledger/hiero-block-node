@@ -79,6 +79,19 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     private ScheduledExecutorService catchUpExecutor;
     private volatile long lastSnapshottedBlock = -1L;
 
+    /**
+     * Block number of the most recent block whose state_changes have been applied
+     * to the mutable state. Distinct from `metadata.blockNumber` because of the
+     * lag-1 commit: `metadata.blockNumber` is the most recently *committed*
+     * (visible to readers) block; `lastAppliedBlock` is the staging block whose
+     * changes live in the mutable copy and will be committed when the next
+     * block's footer confirms them. Set to `-1` until the first apply.
+     */
+    private volatile long lastAppliedBlock = -1L;
+
+    /** Round number of {@code lastAppliedBlock}, mirrored for the same lag-1 reason. */
+    private volatile long lastAppliedRound = -1L;
+
     @NonNull
     @Override
     public List<Class<? extends Record>> configDataTypes() {
@@ -202,7 +215,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         if (!matchesLatestBlock(request)) {
             return out.status(Code.INVALID_REQUEST).build();
         }
-        final BinaryState binaryState = readableState();
+        final BinaryState binaryState = lifecycleManager.getLatestImmutableState();
         final Bytes value = binaryState.getKv((int) request.stateId(), request.keyBytes());
         if (value == null) {
             return out.status(Code.NOT_FOUND).build();
@@ -226,7 +239,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         if (!matchesLatestBlock(request)) {
             return out.status(Code.INVALID_REQUEST).build();
         }
-        final BinaryState binaryState = readableState();
+        final BinaryState binaryState = lifecycleManager.getLatestImmutableState();
         final Bytes value = binaryState.getSingleton((int) request.stateId());
         if (value == null) {
             return out.status(Code.NOT_FOUND).build();
@@ -248,7 +261,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
             return out.status(Code.INVALID_REQUEST).build();
         }
         final int stateId = (int) request.stateId();
-        final BinaryState binaryState = readableState();
+        final BinaryState binaryState = lifecycleManager.getLatestImmutableState();
         // VirtualMapStateImpl.getQueueState returns null for unknown stateIds; the
         // downstream getQueueAsList / peekQueue then NPE. Treat any of those as NOT_FOUND.
         try {
@@ -315,10 +328,12 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
             LOGGER.log(System.Logger.Level.WARNING, "Unable to load state metadata; starting from genesis", e);
             metadata = StateMetadata.DEFAULT;
         }
+        boolean snapshotLoaded = false;
         final Optional<Path> snapshotDir = snapshotDirectoryFor(metadata.blockNumber());
         if (snapshotDir.isPresent() && Files.isDirectory(snapshotDir.get())) {
             try {
                 lifecycleManager.loadSnapshot(snapshotDir.get());
+                snapshotLoaded = true;
                 LOGGER.log(System.Logger.Level.INFO, "Loaded state snapshot from {0}", snapshotDir.get());
             } catch (final IOException e) {
                 LOGGER.log(
@@ -328,18 +343,56 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
                         e);
             }
         }
+        if (!snapshotLoaded) {
+            // Metadata may point at a block we couldn't actually load — treat as
+            // genesis so the lag-1 commit pipeline doesn't claim we already have
+            // state we don't.
+            metadata = StateMetadata.DEFAULT;
+        } else {
+            // We trust the loaded snapshot represents post-(metadata.blockNumber).
+            // Seed lastAppliedBlock so the very next block triggers the lag-1
+            // commit notification for the loaded state.
+            lastAppliedBlock = metadata.blockNumber();
+            lastAppliedRound = metadata.roundNumber();
+        }
+        // Force the initial copyMutableState so getLatestImmutableState() is non-null
+        // from boot onwards. Query paths can then always read through immutable
+        // without a mutable-fallback helper.
+        lifecycleManager.copyMutableState();
     }
 
     void applyPending() {
-        while (!pendingBlocks.isEmpty() && !stopping.get()) {
-            final boolean atGenesis =
-                    metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
-            final long expectedNext = atGenesis ? pendingBlocks.firstKey() : metadata.blockNumber() + 1L;
-            final BlockUnparsed block = pendingBlocks.remove(expectedNext);
+        while (!pendingBlocks.isEmpty() && !stopping.get() && !degraded.get()) {
+            final boolean atGenesis = lastAppliedBlock < 0L
+                    && metadata.blockNumber() == 0L
+                    && metadata.stateRootHash().length() == 0L;
+            final long expectedNext = atGenesis
+                    ? pendingBlocks.firstKey()
+                    : Math.max(lastAppliedBlock, metadata.blockNumber()) + 1L;
+            // Peek (not remove) so an applier failure leaves the block in the queue
+            // for inspection / future retry rather than silently dropping it.
+            final BlockUnparsed block = pendingBlocks.get(expectedNext);
             if (block == null) {
                 return;
             }
-            applyOne(block);
+            final boolean applied;
+            try {
+                applied = applyBlockStateChanges(block);
+            } catch (final RuntimeException e) {
+                LOGGER.log(
+                        System.Logger.Level.WARNING,
+                        "applyBlockStateChanges threw for block {0}; degrading plugin (block retained in queue)",
+                        expectedNext,
+                        e);
+                degraded.set(true);
+                return;
+            }
+            if (!applied) {
+                // Block-specific failure already logged + degraded set (e.g. hash
+                // mismatch); leave the block in the queue and stop draining.
+                return;
+            }
+            pendingBlocks.remove(expectedNext);
         }
     }
 
@@ -413,30 +466,55 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         }
     }
 
-    private void applyOne(@NonNull final BlockUnparsed block) {
-        if (degraded.get()) {
-            return;
+    /**
+     * Apply a single block's `state_changes` to the live state.
+     *
+     * <p>Flow:
+     *
+     * <ol>
+     *   <li>Pull `BlockFooter.startOfBlockStateRootHash` (cheap reverse scan, no
+     *       full re-walk via the old `inspectBlock`).</li>
+     *   <li>Validate that hash against the current live mutable state. Mismatch
+     *       ⇒ degrade without mutating; the plugin will not advance until an
+     *       operator resolves the divergence.</li>
+     *   <li>If matches, apply the block's `state_changes` to mutable.</li>
+     *   <li>`copyMutableState()` to freeze the new state as the latest immutable
+     *       so queries see it; record the new metadata; emit a
+     *       `VERIFIED` {@link StateUpdateNotification}.</li>
+     * </ol>
+     *
+     * <p>Note: this is the **eager commit** model — the post-block state is
+     * exposed to readers immediately, not lagged by one block. The lag-1 model
+     * (only exposing state confirmed by the *next* block's footer) is captured
+     * as a follow-up STORY ticket; see self-review-1 for the trade-off rationale.
+     *
+     * @return `true` on successful apply, `false` if the block was rejected
+     *     (caller should leave the block in the pending queue and stop draining).
+     */
+    private boolean applyBlockStateChanges(@NonNull final BlockUnparsed block) {
+        final Bytes startHash = StateChangeApplier.extractStartOfBlockStateRootHash(block);
+        if (startHash == null) {
+            LOGGER.log(System.Logger.Level.WARNING, "Refusing to apply block missing a parseable BlockFooter");
+            degraded.set(true);
+            return false;
         }
-        // Inspect the block for block number + footer hash BEFORE mutating state so we can
-        // reject a divergent slice without leaving a half-applied mutable behind.
-        final StateChangeApplier.ApplyResult preview = applier.inspectBlock(block);
-        if (preview.blockNumber() < 0L) {
-            LOGGER.log(System.Logger.Level.WARNING, "Refusing to apply block with unparseable header");
-            return;
-        }
-        if (!validateStartHash(preview.startOfBlockStateRootHash())) {
+        if (!validateStartHash(startHash)) {
             hashMismatchTotal.incrementAndGet();
             degraded.set(true);
             LOGGER.log(
                     System.Logger.Level.ERROR,
-                    "State hash mismatch at block {0}: footer.startOfBlockStateRootHash diverges from live state; "
-                            + "plugin marked degraded",
-                    preview.blockNumber());
-            return;
+                    "State hash mismatch: footer.startOfBlockStateRootHash diverges from live mutable hash; "
+                            + "plugin marked degraded");
+            return false;
         }
 
         final VirtualMapState mutable = lifecycleManager.getMutableState();
         final StateChangeApplier.ApplyResult result = applier.applyBlock(mutable, block);
+        if (result.blockNumber() < 0L) {
+            LOGGER.log(System.Logger.Level.WARNING, "Block had unparseable header; treating as failed apply");
+            degraded.set(true);
+            return false;
+        }
         final VirtualMapState immutable = lifecycleManager.copyMutableState();
         final StateMetadata updated = StateMetadata.newBuilder()
                 .blockNumber(result.blockNumber())
@@ -445,6 +523,10 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
                 .stateSize(sizeOf(immutable))
                 .build();
         metadata = updated;
+        lastAppliedBlock = result.blockNumber();
+        if (result.roundNumber() >= 0L) {
+            lastAppliedRound = result.roundNumber();
+        }
         context.blockMessaging()
                 .sendStateUpdate(new StateUpdateNotification(
                         StateUpdateType.VERIFIED,
@@ -452,6 +534,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
                         updated.roundNumber(),
                         updated.stateRootHash(),
                         updated.stateSize()));
+        return true;
     }
 
     /**
@@ -629,16 +712,6 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
             return request.blockNumberOrThrow() == metadata.blockNumber();
         }
         return false;
-    }
-
-    /**
-     * Choose the state to read from. Before the first {@code copyMutableState}, the
-     * latest-immutable reference is null and reads fall back to the mutable state.
-     */
-    @NonNull
-    private VirtualMapState readableState() {
-        final VirtualMapState immutable = lifecycleManager.getLatestImmutableState();
-        return immutable != null ? immutable : lifecycleManager.getMutableState();
     }
 
     @NonNull

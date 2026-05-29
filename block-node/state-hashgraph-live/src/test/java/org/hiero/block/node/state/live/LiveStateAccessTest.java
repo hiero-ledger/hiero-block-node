@@ -37,6 +37,9 @@ class LiveStateAccessTest {
         plugin.lifecycleManager().getMutableState().updateKv(2, Bytes.fromHex("01"), Bytes.fromHex("bb"));
         plugin.lifecycleManager().getMutableState().pushQueue(3, Bytes.fromHex("aa"));
         plugin.lifecycleManager().getMutableState().pushQueue(3, Bytes.fromHex("bb"));
+        // Query handlers read from getLatestImmutableState; flush the direct mutable
+        // writes through copyMutableState so they're visible to the read path.
+        plugin.lifecycleManager().copyMutableState();
 
         final BinaryStateQueryResponse singleton = plugin.getBinarySingleton(
                 BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(1L).build());
