@@ -26,4 +26,13 @@ public record LiveStateConfig(
          * threshold. A value of {@code 0} keeps every archive indefinitely (operator
          * cleans up by hand). Mirrors {@code files.historic.blockRetentionThreshold}.
          */
-        @ConfigProperty(defaultValue = "0") long historicArchiveRetentionCount) {}
+        @ConfigProperty(defaultValue = "0") long historicArchiveRetentionCount,
+        /*
+         * Number of recent snapshot directories to retain under
+         * {@code stateSnapshotRecentPath} as hot, ready-to-load dirs. The newest
+         * snapshot is always kept; older ones beyond this count are first
+         * archived to historic (tar) and then removed from recent. Default
+         * {@code 3} keeps the current dir plus two prior for fast restart-roll-back
+         * scenarios while still archiving older ones to historic.
+         */
+        @ConfigProperty(defaultValue = "3") int stateSnapshotRecentRetentionCount) {}

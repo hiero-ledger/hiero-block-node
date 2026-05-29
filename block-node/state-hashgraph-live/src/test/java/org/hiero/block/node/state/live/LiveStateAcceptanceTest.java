@@ -148,7 +148,10 @@ class LiveStateAcceptanceTest {
 
     @Test
     void scenario7_previousSnapshotsAreArchivedToHistoric(@TempDir final Path tmp) throws java.io.IOException {
-        final Fixture f = startPlugin(tmp);
+        // Force recent retention = 1 so the test exercises the archive-then-delete
+        // path on every snapshot cycle. The default retention (3) would leave the
+        // older recent dir on disk and just archive a copy.
+        final Fixture f = startPluginWithRecentRetention(tmp, 1);
 
         // Block 1 → snapshot 1.
         f.deliverBlock(1L, 10L, Bytes.EMPTY);
@@ -169,6 +172,31 @@ class LiveStateAcceptanceTest {
         final java.nio.file.Path historic1 = tmp.resolve("historic").resolve("1.tar");
         assertThat(historic1.toFile()).exists();
         assertThat(java.nio.file.Files.size(historic1)).isGreaterThan(1024L); // header + content + EOA
+        f.plugin.stop();
+    }
+
+    @Test
+    void recentSnapshotRetentionKeepsConfiguredCount(@TempDir final Path tmp) throws java.io.IOException {
+        // Retention=3 keeps the current + 2 older recent dirs. Apply + snapshot
+        // 4 successive blocks; expect recent/1 to be archived + deleted, and
+        // recent/{2,3,4} to remain on disk.
+        final Fixture f = startPluginWithRecentRetention(tmp, 3);
+        Bytes start = Bytes.EMPTY;
+        for (long block = 1L; block <= 4L; block++) {
+            f.deliverBlock(block, block * 10L, start);
+            f.plugin.applyPendingNow();
+            f.plugin.saveSnapshotNow();
+            start = f.plugin.metadata().stateRootHash();
+        }
+
+        final java.nio.file.Path recent = tmp.resolve("recent");
+        try (var stream = java.nio.file.Files.list(recent)) {
+            final java.util.Set<String> names = stream.map(p -> p.getFileName().toString())
+                    .collect(java.util.stream.Collectors.toSet());
+            assertThat(names).containsExactlyInAnyOrder("2", "3", "4");
+        }
+        // recent/1 was archived to historic before being deleted from recent.
+        assertThat(tmp.resolve("historic").resolve("1.tar").toFile()).exists();
         f.plugin.stop();
     }
 
@@ -260,14 +288,18 @@ class LiveStateAcceptanceTest {
     }
 
     private static Fixture startPluginWithRetention(final Path tmp, final long retention) {
-        return startPlugin(tmp, retention);
+        return startPlugin(tmp, retention, 3);
+    }
+
+    private static Fixture startPluginWithRecentRetention(final Path tmp, final int recentRetention) {
+        return startPlugin(tmp, 0L, recentRetention);
     }
 
     private static Fixture startPlugin(final Path tmp) {
-        return startPlugin(tmp, 0L);
+        return startPlugin(tmp, 0L, 3);
     }
 
-    private static Fixture startPlugin(final Path tmp, final long retention) {
+    private static Fixture startPlugin(final Path tmp, final long retention, final int recentRetention) {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(LiveStateConfig.class)
@@ -280,6 +312,7 @@ class LiveStateAcceptanceTest {
                 .withValue("state.live.snapshotIntervalMillis", "3600000")
                 .withValue("state.live.stateChangesApplyIntervalMillis", "3600000")
                 .withValue("state.live.historicArchiveRetentionCount", Long.toString(retention))
+                .withValue("state.live.stateSnapshotRecentRetentionCount", Integer.toString(recentRetention))
                 .build();
         final BlockNodeContext context = new BlockNodeContext(
                 configuration, null, null, facility, null, null, null, null, null, null, null);

@@ -329,7 +329,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
             metadata = StateMetadata.DEFAULT;
         }
         boolean snapshotLoaded = false;
-        final Optional<Path> snapshotDir = snapshotDirectoryFor(metadata.blockNumber());
+        final Optional<Path> snapshotDir = recentSnapshotDirectoryFor(metadata.blockNumber());
         if (snapshotDir.isPresent() && Files.isDirectory(snapshotDir.get())) {
             try {
                 lifecycleManager.loadSnapshot(snapshotDir.get());
@@ -576,7 +576,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         if (snapshot.blockNumber() <= lastSnapshottedBlock) {
             return;
         }
-        final Optional<Path> targetOpt = snapshotDirectoryFor(snapshot.blockNumber());
+        final Optional<Path> targetOpt = recentSnapshotDirectoryFor(snapshot.blockNumber());
         if (targetOpt.isEmpty()) {
             return;
         }
@@ -586,7 +586,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
             if (!Files.exists(target)) {
                 lifecycleManager.createSnapshot(lifecycleManager.getLatestImmutableState(), target);
             }
-            pruneRecentExcept(snapshot.blockNumber());
+            pruneAndArchiveRecentSnapshotsExcept(snapshot.blockNumber());
             metadataStore.save(snapshot);
             lastSnapshottedBlock = snapshot.blockNumber();
             context.blockMessaging()
@@ -601,18 +601,106 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         }
     }
 
-    private void pruneRecentExcept(final long keep) throws IOException {
+    /**
+     * Two-stage recent-snapshot cleanup that runs after a snapshot is written.
+     *
+     * <ol>
+     *   <li>Archive every recent dir that is older than the recent retention
+     *       window to historic. Archive logic is intentionally separate from
+     *       the deletion step so it can be reshaped (S3 upload, async batching)
+     *       without touching the retention math.</li>
+     *   <li>Delete the oldest recent dirs that are over
+     *       {@code stateSnapshotRecentRetentionCount}. The just-written
+     *       {@code currentBlock} dir is always preserved regardless of the
+     *       retention setting.</li>
+     *   <li>Enforce historic-archive retention separately.</li>
+     * </ol>
+     */
+    private void pruneAndArchiveRecentSnapshotsExcept(final long currentBlock) throws IOException {
         final Path recentRoot = Path.of(config.stateSnapshotRecentPath());
         final Path historicRoot = Path.of(config.stateSnapshotHistoricPath());
-        if (!Files.isDirectory(recentRoot)) {
-            return;
-        }
-        try (var entries = Files.list(recentRoot)) {
-            entries.filter(Files::isDirectory)
-                    .filter(p -> !p.getFileName().toString().equals(Long.toString(keep)))
-                    .forEach(p -> archiveThenDelete(p, historicRoot));
+        if (Files.isDirectory(recentRoot)) {
+            archiveOlderRecentSnapshots(recentRoot, historicRoot, currentBlock);
+            pruneOldRecentSnapshots(recentRoot, currentBlock);
         }
         enforceHistoricRetention(historicRoot);
+    }
+
+    /**
+     * Tar every recent snapshot directory (other than the current block) to
+     * {@code historicRoot/<block>.tar}. The recent directory itself stays in
+     * place — {@link #pruneOldRecentSnapshots} decides whether to delete it
+     * based on the retention window. Archive failures are logged and skipped;
+     * a later cycle retries.
+     */
+    private static void archiveOlderRecentSnapshots(
+            @NonNull final Path recentRoot, @NonNull final Path historicRoot, final long currentBlock)
+            throws IOException {
+        final List<Path> entries = listRecentDirs(recentRoot);
+        for (final Path dir : entries) {
+            final long blockNumber = parseBlockDirName(dir);
+            if (blockNumber < 0L || blockNumber == currentBlock) {
+                continue;
+            }
+            try {
+                if (!Files.exists(historicRoot.resolve(blockNumber + ".tar"))) {
+                    SnapshotArchiver.archive(dir, historicRoot, blockNumber);
+                }
+            } catch (final IOException e) {
+                LOGGER.log(System.Logger.Level.WARNING, "Failed to archive snapshot " + dir + " to historic", e);
+            }
+        }
+    }
+
+    /**
+     * Delete recent snapshot directories beyond {@code stateSnapshotRecentRetentionCount}.
+     * The {@code currentBlock} dir is always preserved (it's the freshest);
+     * remaining dirs sorted by block number ascending get deleted from the
+     * oldest until the count is at or under the retention window. A retention
+     * of `0` is treated as "keep none of the older dirs" — i.e. only the
+     * current dir survives. A retention of `1` keeps the current dir only.
+     */
+    private void pruneOldRecentSnapshots(@NonNull final Path recentRoot, final long currentBlock) throws IOException {
+        final int retain = Math.max(0, config.stateSnapshotRecentRetentionCount());
+        final List<Path> entries = listRecentDirs(recentRoot);
+        // Build a list of (block, path) excluding the current block — those are
+        // candidates for deletion.
+        final List<java.util.Map.Entry<Long, Path>> candidates = new java.util.ArrayList<>();
+        for (final Path dir : entries) {
+            final long blockNumber = parseBlockDirName(dir);
+            if (blockNumber < 0L) {
+                // Not a block-number dir — treat as garbage, delete unconditionally.
+                deleteDirectoryRecursively(dir);
+                continue;
+            }
+            if (blockNumber == currentBlock) {
+                continue;
+            }
+            candidates.add(java.util.Map.entry(blockNumber, dir));
+        }
+        candidates.sort(java.util.Map.Entry.comparingByKey());
+        // The current block counts as 1 against the retention budget; older dirs
+        // beyond that get deleted from oldest to newest.
+        final int allowedOlder = Math.max(0, retain - 1);
+        final int excess = candidates.size() - allowedOlder;
+        for (int i = 0; i < excess; i++) {
+            deleteDirectoryRecursively(candidates.get(i).getValue());
+        }
+    }
+
+    @NonNull
+    private static List<Path> listRecentDirs(@NonNull final Path recentRoot) throws IOException {
+        try (var entries = Files.list(recentRoot)) {
+            return entries.filter(Files::isDirectory).toList();
+        }
+    }
+
+    private static long parseBlockDirName(@NonNull final Path dir) {
+        try {
+            return Long.parseLong(dir.getFileName().toString());
+        } catch (final NumberFormatException ignored) {
+            return -1L;
+        }
     }
 
     /**
@@ -662,32 +750,8 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         }
     }
 
-    /**
-     * Tar an older recent-snapshot directory to the historic store, then delete it from
-     * {@code recent/}. Failures are logged but non-fatal — a leftover recent directory is
-     * harmless beyond disk usage, and the next snapshot cycle will retry the prune.
-     */
-    private static void archiveThenDelete(@NonNull final Path source, @NonNull final Path historicRoot) {
-        final String name = source.getFileName().toString();
-        final long blockNumber;
-        try {
-            blockNumber = Long.parseLong(name);
-        } catch (final NumberFormatException e) {
-            // Not a block-number directory — just delete.
-            deleteRecursively(source);
-            return;
-        }
-        try {
-            SnapshotArchiver.archive(source, historicRoot, blockNumber);
-        } catch (final IOException e) {
-            LOGGER.log(System.Logger.Level.WARNING, "Failed to archive snapshot " + source + " to historic", e);
-            return; // keep the recent directory so next cycle can retry the archive.
-        }
-        deleteRecursively(source);
-    }
-
     @NonNull
-    private Optional<Path> snapshotDirectoryFor(final long blockNumber) {
+    private Optional<Path> recentSnapshotDirectoryFor(final long blockNumber) {
         return Optional.of(Path.of(config.stateSnapshotRecentPath(), Long.toString(blockNumber)));
     }
 
@@ -733,7 +797,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         return state.getRoot().size();
     }
 
-    private static void deleteRecursively(@NonNull final Path root) {
+    private static void deleteDirectoryRecursively(@NonNull final Path root) {
         try {
             if (!Files.exists(root)) {
                 return;
