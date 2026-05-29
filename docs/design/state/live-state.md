@@ -13,7 +13,7 @@ Consensus Node.
 
 Initial scope (this epic):
 
-1. A single new plugin, `state-hashgraph-live`, owning state load, apply,
+1. A single new plugin, `state-management-hashgraph`, owning state load, apply,
    snapshot, and binary state query.
 2. Persistence of state-on-disk snapshots under
    `${stateSnapshotRecentPath}/<blockNumber>` matching the consensus-node
@@ -37,7 +37,7 @@ Explicitly out of scope:
 
 ```
 ┌──────────────────────────┐    handleVerification    ┌──────────────────────┐
-│ stream-verifier plugin   │ ───────────────────────▶ │ LiveStatePlugin      │
+│ stream-verifier plugin   │ ───────────────────────▶ │ StateManagementPlugin      │
 └──────────────────────────┘                          │  (this epic)         │
                                                       │                      │
                                                       │  ┌────────────────┐  │
@@ -73,13 +73,13 @@ as the source of truth for the mutable and latest-immutable copies.
 ## 3. Module layout
 
 ```
-block-node/state-hashgraph-live/
+block-node/state-management-hashgraph/
 ├── build.gradle.kts                     # org.hiero.gradle.module.library
 ├── src/main/java/
-│   └── org/hiero/block/node/state/live/
-│       ├── LiveStatePlugin.java         # BlockNodePlugin + BlockNotificationHandler + gRPC service
-│       ├── LiveStateConfig.java         # @ConfigData("state.live")
-│       ├── LiveStateAccessService.java  # implements StateService gRPC
+│   └── org/hiero/block/node/state/management/
+│       ├── StateManagementPlugin.java         # BlockNodePlugin + BlockNotificationHandler + gRPC service
+│       ├── StateManagementConfig.java         # @ConfigData("state.management")
+│       ├── StateManagementAccessService.java  # implements StateService gRPC
 │       ├── StateChangeApplier.java      # parses StateChanges, calls BinaryState.update*
 │       ├── StateMetadataStore.java      # JSON load/save of stateMetadata.json
 │       ├── SnapshotManager.java         # createSnapshot/loadSnapshot/tar+atomic move
@@ -90,7 +90,7 @@ block-node/state-hashgraph-live/
 Module-info, mirroring `stream-publisher`:
 
 ```
-provides org.hiero.block.node.spi.BlockNodePlugin with LiveStatePlugin;
+provides org.hiero.block.node.spi.BlockNodePlugin with StateManagementPlugin;
 requires transitive com.swirlds.state.api;
 requires transitive com.swirlds.state.impl;
 requires transitive com.swirlds.virtualmap;
@@ -103,7 +103,7 @@ The new swirlds dependencies must be added to
 `swirlds-state-impl`, `swirlds-virtualmap`) at the same `hederaVersion` already
 used for `swirlds-config-*`.
 
-## 4. Configuration (`@ConfigData("state.live")`)
+## 4. Configuration (`@ConfigData("state.management")`)
 
 | Property                     | Default                                            | Notes                                                  |
 |------------------------------|----------------------------------------------------|--------------------------------------------------------|
@@ -223,7 +223,7 @@ void sendStateUpdate(StateUpdateNotification notification);
    `lifecycleManager.loadSnapshot(...)` to replace the eager genesis state
    with the on-disk state.
 3. Register self as `BlockNotificationHandler` via
-   `context.blockMessaging().registerBlockNotificationHandler(this, true, "LiveStatePlugin")`.
+   `context.blockMessaging().registerBlockNotificationHandler(this, true, "StateManagementPlugin")`.
    `cpuIntensive=true` because state apply is CPU-bound parsing work.
 4. Kick off three single-thread `ScheduledExecutorService`s:
    - `stateChangesExecutor.scheduleWithFixedDelay(this::applyPending, 0, applyInterval, ms)` — drains pending blocks in order.
@@ -346,7 +346,7 @@ is captured in STORY-12's Foundation-feedback section.
 
 ## 8. Query path
 
-`LiveStatePlugin` implements `StateServiceInterface` directly and is
+`StateManagementPlugin` implements `StateServiceInterface` directly and is
 registered as the gRPC service in `init`. Each RPC:
 
 1. Returns `NOT_READY` if catch-up hasn't completed.
@@ -368,7 +368,7 @@ registered as the gRPC service in `init`. Each RPC:
 ## 9. Metrics
 
 Current implementation tracks `hashMismatchTotal` as an in-process
-`AtomicLong` (test-visible via `LiveStatePlugin.hashMismatchTotal()`). Full
+`AtomicLong` (test-visible via `StateManagementPlugin.hashMismatchTotal()`). Full
 metric-registry integration — gauges and histograms below — is not yet
 wired and is parked as a follow-up:
 
@@ -398,7 +398,7 @@ wired and is parked as a follow-up:
 ## 11. Acceptance tests
 
 Acceptance scenarios live in
-`block-node/state-hashgraph-live/src/test/java/.../LiveStateAcceptanceTest.java`
+`block-node/state-management-hashgraph/src/test/java/.../StateManagementAcceptanceTest.java`
 and exercise the real `VirtualMapStateLifecycleManager`:
 
 1. **scenario1** — genesis startup applies the first verified block.
@@ -420,16 +420,16 @@ and exercise the real `VirtualMapStateLifecycleManager`:
 
 Other test classes:
 
-- `LiveStateTest` (in-tree fixture for the applier's BinaryState calls)
+- `StateManagementTest` (in-tree fixture for the applier's BinaryState calls)
 - `StateChangeApplierTest` — singleton / KV / queue dispatch via PBJ codecs
-- `LiveStateAccessTest` — gRPC query rules (invalid shapes, NOT_FOUND, success)
-- `LiveStateCatchUpTest` — `catchUpFromHistoricalBlocks` with an in-tree
+- `StateManagementAccessTest` — gRPC query rules (invalid shapes, NOT_FOUND, success)
+- `StateManagementCatchUpTest` — `catchUpFromHistoricalBlocks` with an in-tree
   `HistoricalBlockFacility` fixture
-- `LiveStatePluginLifecycleTest` — start → apply → snapshot → stop →
+- `StateManagementPluginLifecycleTest` — start → apply → snapshot → stop →
   restart round-trip
 - `SnapshotArchiverTest` — UStar round-trip of the tar emitter
 
-E2E (`tools-and-tests/suites/.../LiveStateE2ETests.java`) boots the full
+E2E (`tools-and-tests/suites/.../StateManagementE2ETests.java`) boots the full
 `BlockNodeApp` and exercises `StateService` over real gRPC via the
 generated `StateServiceClient`. Two tests: `getBinarySingleton` round-trip
 and `getBinaryKV` / `getBinaryQueue` structured responses.

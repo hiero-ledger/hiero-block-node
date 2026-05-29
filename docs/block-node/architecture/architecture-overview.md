@@ -42,7 +42,7 @@ The following modules provide additional functionality and are loaded as plugins
 - `verification`: Plugins for Block verification.
 
 > **Beta plugins.** Any plugin module **not listed above** (e.g.
-> `state-hashgraph-live`) is considered beta and has not yet passed promotion
+> `state-management-hashgraph`) is considered beta and has not yet passed promotion
 > criteria. Block-Node plugins have no runtime `enabled` switch — the chart
 > manifest is the single gate. Beta plugins are bundled only in opt-in
 > deployment manifests, not the default chart.
