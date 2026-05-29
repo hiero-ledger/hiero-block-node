@@ -102,6 +102,7 @@ subcommands
 │   ├── extractDayBlocksFromApi # Generate day_blocks.json from REST API
 │   ├── update                # Update block data from Mirror Node
 │   ├── generateAddressBook   # Generate address book from CSV
+│   ├── generateAddressBookFromBin # Generate address book from binary file
 │   ├── compareAddressBooks   # Compare two address book files
 │   ├── generateTestnetAddressBook # Generate testnet genesis address book
 │   └── generateTestnetAddressBookHistory # Generate testnet address book history

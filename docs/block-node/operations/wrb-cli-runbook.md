@@ -138,6 +138,49 @@ java -jar tools-<version>-all.jar \
 - Run this before starting wrapping or validation
 - Re-run periodically to capture new address book changes
 
+#### Fallback: Generate from Binary File (For Networks Without Mirror Node Backups)
+
+For networks like previewnet where Mirror Node CSV backups are not available, you can generate the address book history from a raw protobuf binary file (file 0.0.102 from the database).
+
+**Command**:
+
+```bash
+java -jar tools-<version>-all.jar \
+  mirror generateAddressBookFromBin \
+  address_book.bin \
+  -o wrappedBlocks/addressBookHistory.json
+```
+
+**Options**:
+
+```bash
+# Use current system time as consensus timestamp
+java -jar tools-<version>-all.jar \
+  mirror generateAddressBookFromBin \
+  address_book.bin \
+  -o wrappedBlocks/addressBookHistory.json \
+  --use-current-time
+
+# Specify custom consensus timestamp (format: seconds.nanos)
+java -jar tools-<version>-all.jar \
+  mirror generateAddressBookFromBin \
+  address_book.bin \
+  -o wrappedBlocks/addressBookHistory.json \
+  --timestamp 1234567890.123456789
+```
+
+**How to obtain the bin file**:
+- Export file 0.0.102 from the network's database
+- For previewnet: Contact the network operator for the latest address book export
+- The file contains the protobuf-serialized `NodeAddressBook` message
+
+**Output**: Same format as `generateAddressBook` - a JSON file with address book history that can be used for block proof verification.
+
+**When to use**:
+- Previewnet or custom networks without Mirror Node CSV exports
+- Emergency recovery when Mirror Node is unavailable
+- Testing with historical address book snapshots
+
 ---
 
 ### 2. Update Metadata Files
