@@ -6,6 +6,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.block.stream.output.MapChangeKey;
+import com.hedera.hapi.block.stream.output.MapChangeValue;
+import com.hedera.hapi.block.stream.output.MapUpdateChange;
+import com.hedera.hapi.block.stream.output.QueuePushChange;
+import com.hedera.hapi.block.stream.output.SingletonUpdateChange;
+import com.hedera.hapi.block.stream.output.StateChange;
+import com.hedera.hapi.block.stream.output.StateChanges;
+import org.hiero.block.api.BinaryStateQuery;
+import org.hiero.block.api.BinaryStateQueryResponse;
+import org.hiero.block.api.BinaryStateQueryResponse.Code;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -245,29 +255,181 @@ class LiveStateAcceptanceTest {
         g.plugin.stop();
     }
 
+    @Test
+    void scenario9_streamingBlocksApplyStateChangesAndAreQueryable(@TempDir final Path tmp) {
+        // Self-review-1 item #8: stream blocks with state_changes from genesis and
+        // verify all three query shapes (KV, Singleton, Queue) return the applied
+        // values. Plugin-level — exercises the same apply + query code path the
+        // gRPC E2E flows would, without the cost of building blocks with valid
+        // block proofs and routing through the publish gRPC.
+        final Fixture f = startPlugin(tmp);
+
+        // Block 0 (genesis-lane): singleton stateId=1 ← bytes "aabbcc"
+        //                          KV       stateId=2, key="01" ← "hello"
+        final StateChange singletonAa = StateChange.newBuilder()
+                .stateId(1)
+                .singletonUpdate(SingletonUpdateChange.newBuilder()
+                        .bytesValue(Bytes.fromHex("aabbcc"))
+                        .build())
+                .build();
+        final MapChangeKey mapKey =
+                MapChangeKey.newBuilder().protoBytesKey(Bytes.fromHex("01")).build();
+        final MapChangeValue mapValue =
+                MapChangeValue.newBuilder().protoStringValue("hello").build();
+        final StateChange kvUpdate = StateChange.newBuilder()
+                .stateId(2)
+                .mapUpdate(MapUpdateChange.newBuilder()
+                        .key(mapKey)
+                        .value(mapValue)
+                        .build())
+                .build();
+        f.deliverBlockWithChanges(0L, 0L, Bytes.EMPTY, java.util.List.of(singletonAa, kvUpdate));
+        f.plugin.applyPendingNow();
+
+        // Block 1: queue stateId=3 receives an element 0a.
+        final Bytes startAfter0 = f.plugin.metadata().stateRootHash();
+        final StateChange queuePush = StateChange.newBuilder()
+                .stateId(3)
+                .queuePush(QueuePushChange.newBuilder()
+                        .protoBytesElement(Bytes.fromHex("0a"))
+                        .build())
+                .build();
+        f.deliverBlockWithChanges(1L, 10L, startAfter0, java.util.List.of(queuePush));
+        f.plugin.applyPendingNow();
+
+        // Plugin must now serve all three query shapes successfully.
+        final BinaryStateQueryResponse singleton = f.plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(1L)
+                .build());
+        assertThat(singleton.status()).isEqualTo(Code.SUCCESS);
+        assertThat(singleton.singletonBytes()).isNotNull();
+        assertThat(singleton.stateMetadata().blockNumber()).isEqualTo(1L);
+
+        final BinaryStateQueryResponse queue = f.plugin.getBinaryQueue(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(3L)
+                .build());
+        assertThat(queue.status()).isEqualTo(Code.SUCCESS);
+        assertThat(queue.queueBytes()).isNotEmpty();
+
+        final BinaryStateQueryResponse kv = f.plugin.getBinaryKV(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(2L)
+                .keyBytes(MapChangeKey.PROTOBUF.toBytes(mapKey))
+                .build());
+        assertThat(kv.status()).isEqualTo(Code.SUCCESS);
+        assertThat(kv.kvBytes()).isNotNull();
+
+        f.plugin.stop();
+    }
+
+    @Test
+    void scenario10_restoreSnapshotServesPersistedStateThroughQueries(@TempDir final Path tmp) {
+        // Self-review-1 item #8: first run applies blocks with state changes and snapshots;
+        // second run loads the snapshot and verifies the same values come back through
+        // all three query shapes. Exercises persist → restart → read.
+        final Fixture first = startPlugin(tmp);
+        final StateChange singletonSeed = StateChange.newBuilder()
+                .stateId(7)
+                .singletonUpdate(SingletonUpdateChange.newBuilder()
+                        .bytesValue(Bytes.fromHex("c0ffee"))
+                        .build())
+                .build();
+        final MapChangeKey mapKey =
+                MapChangeKey.newBuilder().protoBytesKey(Bytes.fromHex("ab")).build();
+        final MapChangeValue mapValue =
+                MapChangeValue.newBuilder().protoStringValue("persisted").build();
+        final StateChange kvSeed = StateChange.newBuilder()
+                .stateId(8)
+                .mapUpdate(MapUpdateChange.newBuilder()
+                        .key(mapKey)
+                        .value(mapValue)
+                        .build())
+                .build();
+        final StateChange queueSeed = StateChange.newBuilder()
+                .stateId(9)
+                .queuePush(QueuePushChange.newBuilder()
+                        .protoBytesElement(Bytes.fromHex("dd"))
+                        .build())
+                .build();
+        first.deliverBlockWithChanges(0L, 0L, Bytes.EMPTY, java.util.List.of(singletonSeed, kvSeed, queueSeed));
+        first.plugin.applyPendingNow();
+        first.plugin.saveSnapshotNow();
+        first.plugin.stop();
+
+        // Second plugin instance — same paths, must reload metadata + snapshot dir.
+        final Fixture second = startPlugin(tmp);
+        assertThat(second.plugin.metadata()).isNotEqualTo(StateMetadata.DEFAULT);
+        assertThat(second.plugin.metadata().blockNumber()).isEqualTo(0L);
+
+        final BinaryStateQueryResponse singleton = second.plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(7L)
+                .build());
+        assertThat(singleton.status()).isEqualTo(Code.SUCCESS);
+        assertThat(singleton.singletonBytes()).isNotNull();
+
+        final BinaryStateQueryResponse kv = second.plugin.getBinaryKV(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(8L)
+                .keyBytes(MapChangeKey.PROTOBUF.toBytes(mapKey))
+                .build());
+        assertThat(kv.status()).isEqualTo(Code.SUCCESS);
+
+        final BinaryStateQueryResponse queue = second.plugin.getBinaryQueue(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(9L)
+                .build());
+        assertThat(queue.status()).isEqualTo(Code.SUCCESS);
+        assertThat(queue.queueBytes()).isNotEmpty();
+
+        second.plugin.stop();
+    }
+
     // ── Fixtures ───────────────────────────────────────────────────────────
 
     private record Fixture(LiveStatePlugin plugin, TestBlockMessagingFacility facility) {
         /** Deliver a block whose footer carries the supplied {@code startOfBlockStateRootHash}. */
         void deliverBlock(final long blockNumber, final long roundNumber, @NonNull final Bytes startHash) {
-            final BlockUnparsed block = BlockUnparsed.newBuilder()
-                    .blockItems(
-                            BlockItemUnparsed.newBuilder()
-                                    .blockHeader(BlockHeader.PROTOBUF.toBytes(BlockHeader.newBuilder()
-                                            .number(blockNumber)
-                                            .build()))
-                                    .build(),
-                            BlockItemUnparsed.newBuilder()
-                                    .roundHeader(RoundHeader.PROTOBUF.toBytes(RoundHeader.newBuilder()
-                                            .roundNumber(roundNumber)
-                                            .build()))
-                                    .build(),
-                            BlockItemUnparsed.newBuilder()
-                                    .blockFooter(BlockFooter.PROTOBUF.toBytes(BlockFooter.newBuilder()
-                                            .startOfBlockStateRootHash(startHash)
-                                            .build()))
-                                    .build())
-                    .build();
+            deliverBlockWithChanges(blockNumber, roundNumber, startHash, java.util.List.of());
+        }
+
+        /**
+         * Deliver a block carrying the supplied {@code state_changes}. The footer's
+         * {@code startOfBlockStateRootHash} is set verbatim. Used by scenarios
+         * 9/10 to exercise the full apply pipeline including state mutation.
+         */
+        void deliverBlockWithChanges(
+                final long blockNumber,
+                final long roundNumber,
+                @NonNull final Bytes startHash,
+                @NonNull final java.util.List<StateChange> changes) {
+            final java.util.List<BlockItemUnparsed> items = new java.util.ArrayList<>();
+            items.add(BlockItemUnparsed.newBuilder()
+                    .blockHeader(BlockHeader.PROTOBUF.toBytes(BlockHeader.newBuilder()
+                            .number(blockNumber)
+                            .build()))
+                    .build());
+            items.add(BlockItemUnparsed.newBuilder()
+                    .roundHeader(RoundHeader.PROTOBUF.toBytes(RoundHeader.newBuilder()
+                            .roundNumber(roundNumber)
+                            .build()))
+                    .build());
+            if (!changes.isEmpty()) {
+                items.add(BlockItemUnparsed.newBuilder()
+                        .stateChanges(StateChanges.PROTOBUF.toBytes(StateChanges.newBuilder()
+                                .stateChanges(changes)
+                                .build()))
+                        .build());
+            }
+            items.add(BlockItemUnparsed.newBuilder()
+                    .blockFooter(BlockFooter.PROTOBUF.toBytes(BlockFooter.newBuilder()
+                            .startOfBlockStateRootHash(startHash)
+                            .build()))
+                    .build());
+            final BlockUnparsed block =
+                    BlockUnparsed.newBuilder().blockItems(items).build();
             facility.sendBlockVerification(new VerificationNotification(
                     true, null, blockNumber, Bytes.fromHex("00"), block, BlockSource.PUBLISHER));
         }
