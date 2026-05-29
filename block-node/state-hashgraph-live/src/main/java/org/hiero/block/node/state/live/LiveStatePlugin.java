@@ -515,12 +515,19 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
             degraded.set(true);
             return false;
         }
-        final VirtualMapState immutable = lifecycleManager.copyMutableState();
+        // Freeze the just-written mutable as the new immutable. We then read the
+        // hash and size from the *immutable* (already-sealed) reference rather
+        // than from the new mutable copyMutableState returns. Hashing a mutable
+        // VirtualMap that has uncommitted writes seals it for further writes,
+        // which causes the NEXT block's applier.applyBlock to fail with
+        // "Cannot modify already hashed node".
+        lifecycleManager.copyMutableState();
+        final VirtualMapState committed = lifecycleManager.getLatestImmutableState();
         final StateMetadata updated = StateMetadata.newBuilder()
                 .blockNumber(result.blockNumber())
                 .roundNumber(result.roundNumber() < 0L ? metadata.roundNumber() : result.roundNumber())
-                .stateRootHash(rootHashOf(immutable))
-                .stateSize(sizeOf(immutable))
+                .stateRootHash(rootHashOf(committed))
+                .stateSize(sizeOf(committed))
                 .build();
         metadata = updated;
         lastAppliedBlock = result.blockNumber();
@@ -538,17 +545,27 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     }
 
     /**
-     * Compare the block's {@code BlockFooter.startOfBlockStateRootHash} with the current
-     * live state's hash. The check is skipped at genesis: when no block has been applied
-     * yet, the expected start hash is empty / all-zeros and we accept either shape.
+     * Compare the block's {@code BlockFooter.startOfBlockStateRootHash} with the
+     * hash of the state we have on hand from the previous apply (or load).
+     *
+     * <p>We compare against {@link #metadata}'s {@code state_root_hash} — recorded
+     * by the previous apply / snapshot-load — rather than recomputing the hash
+     * from `lifecycleManager.getMutableState()`. Reason: invoking
+     * `getRoot().getHash()` on a `VirtualMap` that has been written to since the
+     * last hash seals it, which causes subsequent `applier.applyBlock` writes to
+     * fail with "Cannot modify already hashed node". Using `metadata` avoids
+     * the seal because we already recorded the hash at the right point in the
+     * lifecycle (right after the previous `copyMutableState`).
+     *
+     * <p>Genesis branch: when no block has been applied yet, the expected start
+     * hash is empty / all-zeros and we accept either shape.
      */
     private boolean validateStartHash(@NonNull final Bytes startHash) {
         final boolean atGenesis = metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
         if (atGenesis) {
             return startHash.length() == 0L || isAllZeros(startHash);
         }
-        final Bytes liveHash = rootHashOf(lifecycleManager.getMutableState());
-        return liveHash.equals(startHash);
+        return metadata.stateRootHash().equals(startHash);
     }
 
     private static boolean isAllZeros(@NonNull final Bytes b) {
