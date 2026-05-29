@@ -121,11 +121,11 @@ final class StateChangeApplier {
             final int stateId = change.stateId();
             switch (change.changeOperation().kind()) {
                 case STATE_ADD, STATE_REMOVE, UNSET -> {
-                    // Schema-level events — out of scope for live-state v1. Log at TRACE
-                    // so a stream that suddenly starts carrying these is at least visible
-                    // when debug logging is enabled.
+                    // Schema-level events — out of scope for live-state v1. Log at DEBUG
+                    // so a stream that suddenly starts carrying these schema changes is
+                    // visible without flipping on the finest-grained tracing.
                     LOGGER.log(
-                            System.Logger.Level.TRACE,
+                            System.Logger.Level.DEBUG,
                             "Skipping unsupported schema change (kind={0}, stateId={1})",
                             change.changeOperation().kind(),
                             stateId);

@@ -27,6 +27,10 @@ import java.util.stream.Stream;
  *
  * <p>Writes go through {@code &lt;historicPath&gt;/&lt;blockNumber&gt;.tar.tmp} and
  * atomic move so a crash mid-write leaves the previous archive intact.
+ *
+ * <p>TODO(STORY-18): the UStar header encoding here duplicates the block-base
+ * {@code TaredBlockIterator}. Consolidate the two onto a shared tar-writer
+ * utility so the 512-byte header layout lives in exactly one place.
  */
 final class SnapshotArchiver {
 
