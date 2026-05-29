@@ -13,6 +13,13 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  * made up of these events. Only one of the fields should be set at any time.
  * These notifications are published to downstream subscribers through the LMAX
  * Disruptor.
+ *
+ * <p><b>Ordering contract — do not reorder.</b> Every {@code set(...)} method
+ * calls {@link #clearAll()} <i>first</i> and then assigns the new value. This
+ * order is load-bearing: ring-buffer slots are reused across events, so a slot
+ * may still hold a previous event's notification. If the assignment ran before
+ * {@code clearAll()}, the clear would wipe the value just set, leaving the slot
+ * empty. Keep {@code clearAll()} as the first statement in every setter.
  */
 public final class BlockNotificationRingEvent {
     /** The block verification notification to be published to downstream subscribers through the LMAX Disruptor. */
@@ -44,7 +51,7 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final VerificationNotification notification) {
-        clearAll();
+        clearAll(); // MUST come before the assignment — see class ordering contract.
         this.verificationNotification = notification;
     }
 
@@ -55,7 +62,7 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final PersistedNotification notification) {
-        clearAll();
+        clearAll(); // MUST come before the assignment — see class ordering contract.
         this.persistedNotification = notification;
     }
 
@@ -66,7 +73,7 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final BackfilledBlockNotification notification) {
-        clearAll();
+        clearAll(); // MUST come before the assignment — see class ordering contract.
         this.backfilledBlockNotification = notification;
     }
 
@@ -77,7 +84,7 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final NewestBlockKnownToNetworkNotification notification) {
-        clearAll();
+        clearAll(); // MUST come before the assignment — see class ordering contract.
         this.newestBlockKnownToNetworkNotification = notification;
     }
     /**
@@ -87,7 +94,7 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final PublisherStatusUpdateNotification notification) {
-        clearAll();
+        clearAll(); // MUST come before the assignment — see class ordering contract.
         this.publisherStatusUpdateNotification = notification;
     }
 
@@ -98,7 +105,7 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final StateUpdateNotification notification) {
-        clearAll();
+        clearAll(); // MUST come before the assignment — see class ordering contract.
         this.stateUpdateNotification = notification;
     }
 
