@@ -34,7 +34,7 @@ The `RegisteredNode` record stored in network state has the following fields:
 | `registered_node_id`      | yes (assigned by network) | A `uint64` assigned by the network on creation. Unique within a shard/realm and never reused, even after deletion. Distinct from any consensus-node ID in the same network.                                                                                               |
 | `admin_key`               | yes                       | The key that controls this entry. Must sign every create / update / delete transaction targeting this node. Recommended to be one or more public keys **not associated with any network account**. May be a `KeyList` or `ThresholdKey`; should not be a contract ID key. |
 | `description`             | optional                  | Free-form text, ≤ 100 bytes UTF-8. Useful for distinguishing nodes (`alpha`, `us-east-archive-1`, etc.).                                                                                                                                                                  |
-| `service_endpoint` (list) | yes                       | At least 1, at most 50 entries. Each describes one Block Node endpoint. A single registered node may expose endpoints serving different `BlockNodeApi` values.                                                                                                            |
+| `service_endpoint` (list) | yes                       | At least 1, at most 50 entries. Each describes one service endpoint. A single registered node may expose endpoints serving multiple node types or multiple different `BlockNodeApi` values.                                                                               |
 | `node_account`            | optional                  | An `AccountID` that identifies the entity financially responsible for the node. May be different from the operator. May be omitted, set, changed, or removed at the operator's discretion.                                                                                |
 
 The `registered_node_id` is returned in the `TransactionReceipt` of a successful `createRegisteredNode` - record it; you will need it for every subsequent update or delete.
@@ -46,7 +46,7 @@ Each entry in `service_endpoint` carries (per the `RegisteredServiceEndpoint` me
 - An address - either an `ip_address` (IPv4 or IPv6, big-endian byte order) or a `domain_name` (FQDN, ≤ 250 ASCII characters). The two are mutually exclusive per endpoint.
 - A `port` (`uint32`, `0`–`65535`).
 - A `requires_tls` flag. If `true`, clients must connect over TLS. Self-signed certificates are permitted for testing but should not be used in production.
-- A `block_node` discriminator carrying a list of `BlockNodeApi` values declaring which API(s) the endpoint serves.
+- A `block_node` discriminator carrying a list of `BlockNodeApi` values declaring which API(s) the endpoint serves. The `block_node` discriminator is one of several endpoint discriminators the registry supports (others cover mirror node, relay node, and additional node types); it is included only when the endpoint represents a Block Node.
 
 The `BlockNodeApi` values:
 
@@ -64,12 +64,12 @@ A single endpoint may declare multiple values from this enum if it serves more t
 
 Not every Block Node serves every API. Use the following as a starting point and trim it to what your deployment actually exposes:
 
-|                            Deployment shape                            |                                  Recommended `endpoint_api` set                                  |
-|------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
-| Tier 1 receiving from Consensus Nodes and feeding downstream consumers | `PUBLISH`, `SUBSCRIBE_STREAM`, `STATUS` (add `STATE_PROOF` if the node serves proofs to clients) |
-| Tier 2 buffer in front of Mirror Nodes (no upstream from Consensus)    | `SUBSCRIBE_STREAM`, `STATUS`                                                                     |
-| Archive node serving historical retrieval, not live ingest             | `SUBSCRIBE_STREAM`, `STATUS` (no `PUBLISH`)                                                      |
-| Specialized or experimental APIs not in the enum                       | `OTHER` (consumers must consult node-specific documentation)                                     |
+|                            Deployment shape                            |                            Recommended `endpoint_api` set                             |
+|------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| Tier 1 receiving from Consensus Nodes and feeding downstream consumers | `PUBLISH`, `SUBSCRIBE_STREAM`, `STATUS`                                               |
+| Tier 2 buffer in front of Mirror Nodes (no upstream from Consensus)    | `SUBSCRIBE_STREAM`, `STATUS` (add `STATE_PROOF` if the node serves proofs to clients) |
+| Archive node serving historical retrieval, not live ingest             | `SUBSCRIBE_STREAM`, `STATUS` (no `PUBLISH`)                                           |
+| Specialized or experimental APIs not in the enum                       | `OTHER` (consumers must consult node-specific documentation)                          |
 
 Declare only the APIs each endpoint truly serves. A declared but unimplemented API surfaces as a bug to clients that route to it on the basis of the registry.
 
@@ -86,6 +86,8 @@ Three operator-visible steps. All three transactions also support deferred execu
 ### Step 1: Create the registration
 
 Submit a `RegisteredNodeCreateTransactionBody`, signed by the new `admin_key`. On success, the transaction receipt carries the assigned `registered_node_id` - **record this value safely**; it is your handle for every subsequent update or delete. If lost, recover it by listing all Block Node registrations on the network and filtering by your `admin_key`, endpoint host, or description:
+
+> **Mainnet only:** On Hedera mainnet, `RegisteredNodeCreate` is a privileged transaction. It can only be submitted by a payer account in the range `0.0.2`–`0.0.55`.
 
 ```bash
 curl -s "https://{MIRROR_NODE_HOST}/api/v1/network/registered-nodes?type=BLOCK_NODE" \
@@ -176,7 +178,7 @@ The update transaction must be signed by the **current** `admin_key`. If you set
 
 1. Generate the new key (single key, `KeyList`, or `ThresholdKey`) and store it in the operator's secret-management system **before** submitting any transaction. Losing the new key after step 3 below leaves the registration unreachable.
 2. Compose a single `RegisteredNodeUpdateTransactionBody` that sets `admin_key` to the new key and changes no other fields you do not need to.
-3. Sign with the **current** `admin_key`. Submit.
+3. Sign with **both** the **current** `admin_key` and the **new** `admin_key`. Submit.
 4. On `SUCCESS`, the new key is authoritative. Every subsequent update or delete must be signed with the new key.
 5. Verify by submitting a no-op-style update (for example, re-publishing the existing `description`) signed with the new key, and confirming `SUCCESS`. Only after that confirmation should the old key be destroyed.
 
