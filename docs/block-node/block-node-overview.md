@@ -7,7 +7,7 @@ This overview document provides operators with the essential concepts needed to 
 ## What is a Block Node?
 
 A Block Node is a special kind of server that keeps a complete, trustworthy copy of what is happening on a Hiero network.
-It receives a stream of already-agreed blocks from Consensus Nodes, checks that each block is valid, and then stores those blocks and serves single block and block streams via API queries. In the future Block Nodes will also maintain a valid copy of the current network state and will serve state related queries via new APIs.
+It receives a stream of already-agreed blocks from Consensus Nodes, delivers the block stream via the subscribe API, checks that each block is valid, stores valid blocks, and serves single blocks via API query. In the future Block Nodes will also maintain an accurate copy of the current network state and will serve state related queries via new APIs.
 
 Instead of pushing this data into centralized cloud storage, Block Nodes act as a decentralized data layer for the network.
 They stream blocks to Mirror Nodes and other Block Nodes, answer questions from apps and services about past blocks or current state, and provide cryptographic proofs so users can independently verify that the data is correct.
@@ -31,7 +31,7 @@ Before diving deeper, familiarize yourself with these core concepts:
 
 - **State Snapshot** - A point-in-time capture of the complete network state (accounts, balances, smart contract storage, etc.) at a specific block height. State snapshots enable fast synchronization and recovery without replaying every transaction from genesis.
 
-- **Aggregated Signatures** - Cryptographic signatures from multiple Consensus Nodes combined into a single compact signature. Verification uses the network's Ledger ID — the hash of the genesis TSS Roster — to confirm a block was finalized by network consensus. For post-genesis blocks, **WRAPS (Weighted Roster Attestation Proof System)** proofs attest that the active roster is a valid descendant of the genesis roster, ensuring verification remains trustworthy as the roster evolves over time. Defined in [HIP-1200](https://hips.hedera.com/hip/hip-1200); the trusted-setup ceremony that produces the WRAPS public parameters is specified in [HIP-1398](https://github.com/hiero-ledger/hiero-improvement-proposals/pull/1398) (draft).
+- **Aggregated Signatures** - Cryptographic signatures from multiple Consensus Nodes combined into a single compact signature. Verification uses the network's Ledger ID — the hash of the genesis TSS Roster — to confirm a block was finalized by network consensus. For post-genesis blocks, **WRAPS (Weighted Roster Attestation Proof System)** proofs attest that the active roster is a valid descendant of the genesis roster, ensuring verification remains trustworthy as the roster evolves over time. Defined in [HIP-1200](https://hips.hedera.com/hip/hip-1200); the trusted-setup ceremony that produced the WRAPS public parameters is specified in [HIP-1398](https://github.com/hiero-ledger/hiero-improvement-proposals/pull/1398).
 
 - **Reconnect Services** - APIs and data streams that will help Consensus Nodes catch up to the current network state after downtime or network partitions by providing recent blocks and state snapshots. Service interfaces are defined; this capability is planned for a future release and is not currently in active development.
 
