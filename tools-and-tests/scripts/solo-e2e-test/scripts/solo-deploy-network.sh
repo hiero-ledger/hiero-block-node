@@ -430,7 +430,7 @@ autoRenew.targetTypes=
 nodes.gossipFqdnRestricted=false
 hedera.profiles.active=TEST
 nodes.updateAccountIdAllowed=true
-blockStream.streamMode=RECORDS
+blockStream.streamMode=BOTH
 # TODO: we can remove this after we no longer need less than v0.59.x
 networkAdmin.exportCandidateRoster=true
 # for v0.59+, write the network.json file when you freeze the network
@@ -439,6 +439,14 @@ hedera.realm=0
 hedera.shard=0
 nodes.webProxyEndpointsEnabled=true
 nodes.nodeRewardsEnabled=false
+
+tss.hintsEnabled=true
+tss.historyEnabled=true
+tss.forceMockSignatures=false
+tss.wrapsEnabled=true
+
+blockStream.writerMode=FILE_AND_GRPC
+
 blockNode.connectionStallThresholdMillis=5000
 blockStream.streamWrappedRecordBlocks=false
 EOF
