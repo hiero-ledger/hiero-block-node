@@ -79,6 +79,8 @@ Recommended layout for operations:
 │   └── ...
 └── wrappedBlocks/                    # Wrapped Block Stream output
     ├── addressBookHistory.json       # Address book changes over time
+    ├── tss-enablement.bin            # TSS parameters protobuf (if TSS enabled)
+    ├── tss-bootstrap-roster.json     # TSS parameters JSON (if TSS enabled)
     ├── 0/                            # Block 0
     ├── 1/                            # Block 1
     └── ...
@@ -513,6 +515,42 @@ nohup java \
 - **Workaround**: Use `--skip-supply` for testnet validation
 - **Root cause**: Testnet Consensus Node bug from HAPI v0.52.0 (August 2024)
 - **Reference**: [Testnet Mirror API](https://testnet.mirrornode.hedera.com/api/v1/blocks/7557270)
+
+**TSS Enablement Detection**:
+
+During validation, the CLI automatically detects and extracts TSS (Threshold Signature Scheme) enablement data from `LedgerIdPublication` transactions. When detected, two files are written to the wrapped blocks directory:
+
+**Output Files**:
+
+| File | Format | Purpose |
+|------|--------|---------|
+| `tss-enablement.bin` | Protobuf binary | TssData in protobuf format for archival |
+| `tss-bootstrap-roster.json` | JSON | TssData in JSON format matching Block Node's ApplicationStateConfig |
+
+**Example JSON Output** (`tss-bootstrap-roster.json`):
+
+```json
+{
+  "ledger_id": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+  "wraps_verification_key": "a1b2c3d4e5f6a7b8c9d0...",
+  "current_roster": {
+    "roster_entries": [
+      {
+        "node_id": 0,
+        "weight": 1000,
+        "schnorr_public_key": "0a1b2c3d4e5f6a7b8c9d0e1f..."
+      }
+    ],
+    "valid_from_block": 42
+  },
+  "valid_from_block": 42
+}
+```
+
+**Usage**:
+- The JSON file can be directly consumed by the Block Node's `ApplicationStateConfig`
+- Both files are updated automatically on each TSS publication detection
+- Validation output shows: `TSS publication at block <N>: <description>`
 
 ---
 
