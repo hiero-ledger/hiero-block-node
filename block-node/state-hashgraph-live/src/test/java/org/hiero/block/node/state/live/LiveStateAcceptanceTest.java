@@ -211,6 +211,40 @@ class LiveStateAcceptanceTest {
     }
 
     @Test
+    void historicRetentionDeletesOldestArchiveFirst(@TempDir final Path tmp) throws java.io.IOException {
+        // Self-review-1 item #14, Nana's exact example: with retention=3 and
+        // 0.tar, 1.tar, 2.tar present, adding 3.tar must drop 0.tar (the oldest).
+        // recent-retention=1 forces every block's previous snapshot to be archived,
+        // so applying blocks 1..4 produces real 1.tar, 2.tar, 3.tar archives.
+        final Fixture f = startPlugin(tmp, 3L, 1);
+
+        // Pre-seed a dummy 0.tar that pre-dates any real archive. It must be the
+        // first victim once the archive count exceeds the retention window.
+        final java.nio.file.Path historic = tmp.resolve("historic");
+        java.nio.file.Files.createDirectories(historic);
+        final java.nio.file.Path dummyZero = historic.resolve("0.tar");
+        java.nio.file.Files.writeString(dummyZero, "seed");
+
+        Bytes start = Bytes.EMPTY;
+        for (long block = 1L; block <= 4L; block++) {
+            f.deliverBlock(block, block * 10L, start);
+            f.plugin.applyPendingNow();
+            f.plugin.saveSnapshotNow();
+            start = f.plugin.metadata().stateRootHash();
+        }
+
+        // Archives produced: dummy 0.tar + real 1/2/3.tar = 4. Retention 3 trims
+        // the single oldest — 0.tar — and keeps the three most recent.
+        try (var stream = java.nio.file.Files.list(historic)) {
+            final java.util.Set<String> names = stream.map(p -> p.getFileName().toString())
+                    .collect(java.util.stream.Collectors.toSet());
+            assertThat(names).containsExactlyInAnyOrder("1.tar", "2.tar", "3.tar");
+        }
+        assertThat(dummyZero.toFile()).doesNotExist();
+        f.plugin.stop();
+    }
+
+    @Test
     void scenario6_refusesApplyOnHashMismatch(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
 
