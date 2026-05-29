@@ -21,8 +21,8 @@ import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
-import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.common.socket.SocketOptions;
+import io.helidon.webserver.ListenerConfig;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http.HttpRouting;
@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -94,8 +95,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
     /** The state of the server. */
     private final AtomicReference<State> state = new AtomicReference<>(State.STARTING);
-    /** All WebServer instances, one per distinct port. Package-private for testing. */
-    final Set<WebServer> webServers;
+    /** The single WebServer instance serving all ports via named sockets. Package-private for testing. */
+    final WebServer webServer;
+    /** All configured ports: primary first, then extra. Package-private for testing. */
+    final Set<Integer> allPorts;
     /** The server configuration. */
     private final ServerConfig serverConfig;
     /** The historical block node facility */
@@ -271,23 +274,21 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .tcpNoDelay(serverConfig.tcpNoDelay())
                 .build();
 
-        // Build one WebServer per distinct port registered by plugins.
-        // Plugins share a server when they register on the same port; each unique port gets its own.
-        final Set<Integer> allPorts = new LinkedHashSet<>();
+        // Collect all ports registered by plugins; build a single WebServer with named sockets for extra ports.
+        allPorts = new LinkedHashSet<>();
+        allPorts.add(serverConfig.port());
+        allPorts.add(serverConfig.consumerPort());
         allPorts.addAll(serviceBuilder.grpcRoutingBuilders().keySet());
         allPorts.addAll(serviceBuilder.httpRoutingBuilders().keySet());
 
-        webServers = new LinkedHashSet<>();
-        for (int port : allPorts) {
-            webServers.add(buildWebServer(
-                    port,
-                    http2Config,
-                    pbjConfig,
-                    socketOptions,
-                    serverConfig,
-                    serviceBuilder.grpcRoutingBuilders().get(port),
-                    serviceBuilder.httpRoutingBuilders().get(port)));
-        }
+        webServer = buildWebServer(
+                allPorts,
+                http2Config,
+                pbjConfig,
+                socketOptions,
+                serverConfig,
+                serviceBuilder.grpcRoutingBuilders(),
+                serviceBuilder.httpRoutingBuilders());
 
         // Init the app metrics
         metricRegistry.register(ObservableGauge.builder(METRIC_APP_HISTORICAL_OLDEST_BLOCK)
@@ -318,42 +319,63 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
-     * Builds a {@link WebServer} for the given port. Null routing builders are silently skipped.
+     * Builds a single {@link WebServer}. The first port in the set becomes the default socket;
+     * remaining ports are registered as named sockets ({@code "port-<portNumber>"}) so that all
+     * listeners share the same server process. The set must be non-empty.
      *
-     * @param port the port to listen on
-     * @param http2Config the HTTP/2 configuration
-     * @param pbjConfig the PBJ protocol configuration
-     * @param socketOptions the socket-level options
+     * @param ports all ports to listen on; first element is the default socket
+     * @param http2Config the HTTP/2 configuration applied to every socket
+     * @param pbjConfig the PBJ protocol configuration applied to every socket
+     * @param socketOptions the socket-level options applied to every socket
      * @param cfg the server configuration (timeouts, backlog, etc.)
-     * @param grpcRouting PBJ gRPC routing builder, or {@code null} if no gRPC services
-     * @param httpRouting HTTP routing builder, or {@code null} if no HTTP services
+     * @param grpcBuilders per-port PBJ gRPC routing builders
+     * @param httpBuilders per-port HTTP routing builders
      * @return a fully configured but not yet started {@link WebServer}
      */
     private static WebServer buildWebServer(
+            Set<Integer> ports,
+            Http2Config http2Config,
+            PbjConfig pbjConfig,
+            SocketOptions socketOptions,
+            ServerConfig cfg,
+            Map<Integer, PbjRouting.Builder> grpcBuilders,
+            Map<Integer, HttpRouting.Builder> httpBuilders) {
+        final var portIterator = ports.iterator();
+        final int primaryPort = portIterator.next();
+        final WebServerConfig.Builder wsBuilder = WebServerConfig.builder().port(primaryPort);
+        configureSocket(wsBuilder, primaryPort, http2Config, pbjConfig, socketOptions, cfg, grpcBuilders, httpBuilders);
+        while (portIterator.hasNext()) {
+            final int port = portIterator.next();
+            final ListenerConfig.Builder socketBuilder =
+                    ListenerConfig.builder().port(port);
+            configureSocket(
+                    socketBuilder, port, http2Config, pbjConfig, socketOptions, cfg, grpcBuilders, httpBuilders);
+            wsBuilder.putSocket("port-" + port, socketBuilder.build());
+        }
+        return wsBuilder.build();
+    }
+
+    private static void configureSocket(
+            ListenerConfig.BuilderBase<?, ?> builder,
             int port,
             Http2Config http2Config,
             PbjConfig pbjConfig,
             SocketOptions socketOptions,
             ServerConfig cfg,
-            @Nullable PbjRouting.Builder grpcRouting,
-            @Nullable HttpRouting.Builder httpRouting) {
-        final WebServerConfig.Builder wsBuilder = WebServerConfig.builder()
-                .port(port)
-                .addProtocol(http2Config)
-                .addProtocol(pbjConfig)
-                .connectionOptions(socketOptions)
-                .backlog(cfg.backlogSize())
-                .writeQueueLength(cfg.writeQueueLength())
-                .maxTcpConnections(cfg.maxTcpConnections())
-                .idleConnectionPeriod(Duration.ofMinutes(cfg.idleConnectionPeriodMinutes()))
-                .idleConnectionTimeout(Duration.ofMinutes(cfg.idleConnectionTimeoutMinutes()));
-        if (httpRouting != null) {
-            wsBuilder.addRouting(httpRouting);
-        }
-        if (grpcRouting != null) {
-            wsBuilder.addRouting(grpcRouting);
-        }
-        return wsBuilder.build();
+            Map<Integer, PbjRouting.Builder> grpcBuilders,
+            Map<Integer, HttpRouting.Builder> httpBuilders) {
+        builder.addProtocol(http2Config);
+        builder.addProtocol(pbjConfig);
+        builder.connectionOptions(socketOptions);
+        builder.backlog(cfg.backlogSize());
+        builder.writeQueueLength(cfg.writeQueueLength());
+        builder.maxTcpConnections(cfg.maxTcpConnections());
+        builder.idleConnectionPeriod(Duration.ofMinutes(cfg.idleConnectionPeriodMinutes()));
+        builder.idleConnectionTimeout(Duration.ofMinutes(cfg.idleConnectionTimeoutMinutes()));
+        final HttpRouting.Builder http = httpBuilders.get(port);
+        if (http != null) builder.addRouting(http);
+        final PbjRouting.Builder grpc = grpcBuilders.get(port);
+        if (grpc != null) builder.addRouting(grpc);
     }
 
     /**
@@ -362,10 +384,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      */
     public void start() {
         LOGGER.log(INFO, "Starting BlockNode Server...");
-        webServers.forEach(WebServer::start);
-        final String boundPorts =
-                webServers.stream().map(ws -> String.valueOf(ws.port())).collect(Collectors.joining(", "));
-        LOGGER.log(INFO, "BlockNode Server listening on port(s): {0}", boundPorts);
+        webServer.start();
+        LOGGER.log(
+                INFO,
+                "BlockNode Server listening on port(s): {0}",
+                allPorts.stream().map(String::valueOf).collect(Collectors.joining(", ")));
         // start the ApplicationStateFacility
         startApplicationStateFacility();
         // start the plugins
@@ -409,7 +432,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             Thread.currentThread().interrupt();
             LOGGER.log(INFO, "Shutdown interrupted");
         }
-        webServers.forEach(WebServer::stop);
+        webServer.stop();
         // Stop all the facilities &  plugins
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, "Stopping plugin: {0}", plugin.name());

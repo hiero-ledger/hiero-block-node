@@ -651,11 +651,11 @@ class BlockNodeAppTest {
     }
 
     /**
-     * When plugins register on two different ports the app creates two distinct WebServer instances.
+     * When plugins register on two different ports the app uses a single WebServer with a named socket for each port.
      */
     @Test
-    @DisplayName("Two-port mode: plugins on different ports each get their own WebServer")
-    void twoPortModeDefaultConfigCreatesTwoWebServers() throws IOException {
+    @DisplayName("Two-port mode: single WebServer with named socket for the second port")
+    void twoPortModeUsesSingleWebServerWithNamedSocket() throws IOException {
         final ServiceLoaderFunction twoPortLoader = new ServiceLoaderFunction() {
             @SuppressWarnings("unchecked")
             @Override
@@ -705,17 +705,15 @@ class BlockNodeAppTest {
             }
         };
         final BlockNodeApp twoPortApp = new BlockNodeApp(twoPortLoader, false);
-        assertEquals(
-                2,
-                twoPortApp.webServers.size(),
-                "With distinct port and consumerPort the app must create two separate WebServer instances");
+        assertNotNull(twoPortApp.webServer, "A single WebServer must be created even in two-port mode");
+        assertEquals(2, twoPortApp.allPorts.size(), "Two distinct ports must be tracked");
     }
 
     /**
-     * When all plugins register on the same port the app creates a single shared WebServer.
+     * When all plugins register on the same port the app creates a single WebServer with no named sockets.
      */
     @Test
-    @DisplayName("Single-port mode: one WebServer instance when all plugins register on the same port")
+    @DisplayName("Single-port mode: one WebServer with no extra sockets when all plugins use the same port")
     void singlePortModeSamePortValueUsesSingleWebServer() throws IOException {
         final ServiceLoaderFunction singlePortLoader = new ServiceLoaderFunction() {
             @SuppressWarnings("unchecked")
@@ -765,11 +763,17 @@ class BlockNodeAppTest {
                 return super.loadServices(serviceClass);
             }
         };
-        final BlockNodeApp singlePortApp = new BlockNodeApp(singlePortLoader, false);
-        assertEquals(
-                1,
-                singlePortApp.webServers.size(),
-                "When all plugins register on the same port a single WebServer instance must be used");
+        System.setProperty("server.consumerPort", "40840");
+        try {
+            final BlockNodeApp singlePortApp = new BlockNodeApp(singlePortLoader, false);
+            assertNotNull(singlePortApp.webServer, "A single WebServer must be created");
+            assertEquals(
+                    1,
+                    singlePortApp.allPorts.size(),
+                    "Only one port must be tracked when all plugins use the same port");
+        } finally {
+            System.clearProperty("server.consumerPort");
+        }
     }
 
     /// build a `TssData` object from individual fields from the `TssBootstrapConfig`
