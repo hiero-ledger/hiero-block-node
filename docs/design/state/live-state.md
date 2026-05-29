@@ -105,14 +105,14 @@ used for `swirlds-config-*`.
 
 ## 4. Configuration (`@ConfigData("state.management")`)
 
-| Property                     | Default                                            | Notes                                                  |
-|------------------------------|----------------------------------------------------|--------------------------------------------------------|
-| `stateMetadataPath`          | `/opt/hiero/block-node/data/state/stateMetadata.json` | Path to the metadata file.                          |
-| `stateSnapshotRecentPath`    | `/opt/hiero/block-node/data/state/snapshot/recent` | Directory for live snapshot dirs (`<blockNumber>/`).   |
-| `stateSnapshotHistoricPath`  | `/opt/hiero/block-node/data/state/snapshot/historic` | Directory of tarred archival snapshots.              |
-| `snapshotInterval`           | `15m`                                              | Min 1m.                                                |
-| `stateChangesApplyInterval`  | `2s`                                               | Min 100ms.                                             |
-| `historicCatchUpBatchSize`   | `64`                                               | Blocks pulled per catch-up loop iteration.             |
+|          Property           |                        Default                        |                        Notes                         |
+|-----------------------------|-------------------------------------------------------|------------------------------------------------------|
+| `stateMetadataPath`         | `/opt/hiero/block-node/data/state/stateMetadata.json` | Path to the metadata file.                           |
+| `stateSnapshotRecentPath`   | `/opt/hiero/block-node/data/state/snapshot/recent`    | Directory for live snapshot dirs (`<blockNumber>/`). |
+| `stateSnapshotHistoricPath` | `/opt/hiero/block-node/data/state/snapshot/historic`  | Directory of tarred archival snapshots.              |
+| `snapshotInterval`          | `15m`                                                 | Min 1m.                                              |
+| `stateChangesApplyInterval` | `2s`                                                  | Min 100ms.                                           |
+| `historicCatchUpBatchSize`  | `64`                                                  | Blocks pulled per catch-up loop iteration.           |
 
 ## 5. Data model
 
@@ -329,14 +329,14 @@ write call. The wire form of the change carrier is preserved as the canonical
 storage shape, so clients querying the live state get back identical bytes
 they could parse themselves with the same PBJ codecs.
 
-| Wire variant                  | BinaryState call                                 | Stored bytes                          |
-|-------------------------------|--------------------------------------------------|---------------------------------------|
-| `SingletonUpdateChange`       | `updateSingleton(stateId, bytes)`                | `SingletonUpdateChange.PROTOBUF.toBytes` |
-| `MapUpdateChange`             | `updateKv(stateId, keyBytes, valueBytes)`        | `MapChangeKey` / `MapChangeValue` carriers |
-| `MapDeleteChange`             | `removeKv(stateId, keyBytes)`                    | `MapChangeKey` carrier                |
-| `QueuePushChange`             | `pushQueue(stateId, bytes)`                      | `QueuePushChange.PROTOBUF.toBytes`    |
-| `QueuePopChange`              | `popQueue(stateId)`                              | —                                     |
-| `STATE_ADD` / `STATE_REMOVE`  | (skipped — schema events, out of scope for v1)   | —                                     |
+|         Wire variant         |                BinaryState call                |                Stored bytes                |
+|------------------------------|------------------------------------------------|--------------------------------------------|
+| `SingletonUpdateChange`      | `updateSingleton(stateId, bytes)`              | `SingletonUpdateChange.PROTOBUF.toBytes`   |
+| `MapUpdateChange`            | `updateKv(stateId, keyBytes, valueBytes)`      | `MapChangeKey` / `MapChangeValue` carriers |
+| `MapDeleteChange`            | `removeKv(stateId, keyBytes)`                  | `MapChangeKey` carrier                     |
+| `QueuePushChange`            | `pushQueue(stateId, bytes)`                    | `QueuePushChange.PROTOBUF.toBytes`         |
+| `QueuePopChange`             | `popQueue(stateId)`                            | —                                          |
+| `STATE_ADD` / `STATE_REMOVE` | (skipped — schema events, out of scope for v1) | —                                          |
 
 A malformed `state_changes` item aborts the apply with
 `IllegalStateException`; the plugin treats that as a hard failure for the
@@ -372,28 +372,28 @@ Current implementation tracks `hashMismatchTotal` as an in-process
 metric-registry integration — gauges and histograms below — is not yet
 wired and is parked as a follow-up:
 
-| Metric                              | Type      |
-|-------------------------------------|-----------|
-| `applied_block_number`              | Gauge     |
-| `apply_latency_ms`                  | Histogram |
-| `snapshot_latency_ms`               | Histogram |
-| `pending_blocks`                    | Gauge     |
-| `catch_up_blocks_total`             | Counter   |
-| `hash_mismatch_total`               | Counter   |
-| `query_total{kind=kv|singleton|queue}` | Counter |
+|                 Metric                 |   Type    |
+|----------------------------------------|-----------|
+| `applied_block_number`                 | Gauge     |
+| `apply_latency_ms`                     | Histogram |
+| `snapshot_latency_ms`                  | Histogram |
+| `pending_blocks`                       | Gauge     |
+| `catch_up_blocks_total`                | Counter   |
+| `hash_mismatch_total`                  | Counter   |
+| `query_total{kind=kv|singleton|queue}` | Counter   |
 
 ## 10. Failure modes
 
-| Failure                              | Behaviour                                                                                              |
-|--------------------------------------|--------------------------------------------------------------------------------------------------------|
-| Snapshot dir unreadable at startup   | Log at WARNING, continue with the eagerly-created genesis state; plugin is not failed.                |
+|               Failure                |                                                                   Behaviour                                                                   |
+|--------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| Snapshot dir unreadable at startup   | Log at WARNING, continue with the eagerly-created genesis state; plugin is not failed.                                                        |
 | `startOfBlockStateRootHash` mismatch | Increment `hashMismatchTotal`, set `degraded=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart. |
-| Malformed `state_changes` item        | `IllegalStateException` from the applier; plugin refuses to advance metadata for that block.          |
-| Verification gap                     | Block parks in `pendingBlocks` until predecessor arrives (via notification or catch-up); apply loop never advances past a gap. |
-| Historical block missing locally     | Catch-up skips it; the same block can arrive via notification later.                                  |
-| Snapshot write fails (I/O)           | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                  |
-| Historic archive fails               | Log at WARNING; the recent dir is kept so the next snapshot retries the archive.                      |
-| Missing-queue query                  | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.    |
+| Malformed `state_changes` item       | `IllegalStateException` from the applier; plugin refuses to advance metadata for that block.                                                  |
+| Verification gap                     | Block parks in `pendingBlocks` until predecessor arrives (via notification or catch-up); apply loop never advances past a gap.                |
+| Historical block missing locally     | Catch-up skips it; the same block can arrive via notification later.                                                                          |
+| Snapshot write fails (I/O)           | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                          |
+| Historic archive fails               | Log at WARNING; the recent dir is kept so the next snapshot retries the archive.                                                              |
+| Missing-queue query                  | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                           |
 
 ## 11. Acceptance tests
 

@@ -42,7 +42,8 @@ class StateMetadataStoreTest {
         final StateMetadata next = original.copyBuilder().blockNumber(124L).build();
         store.save(next);
         assertThat(store.load()).contains(next);
-        assertThat(Files.exists(file.resolveSibling(file.getFileName() + ".tmp"))).isFalse();
+        assertThat(Files.exists(file.resolveSibling(file.getFileName() + ".tmp")))
+                .isFalse();
 
         // 4. Corrupt content raises IOException. PBJ's JSON parser tolerates a fair amount of
         // sloppy input, so we feed it bytes that simply can't be a JSON object.

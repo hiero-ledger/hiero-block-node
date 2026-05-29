@@ -63,17 +63,22 @@ class StateManagementAccessTest {
                 MapChangeKey.newBuilder().protoBytesKey(Bytes.fromHex("01")).build();
         final MapChangeValue kvValue =
                 MapChangeValue.newBuilder().protoStringValue("bb").build();
-        final QueuePushChange queueA =
-                QueuePushChange.newBuilder().protoBytesElement(Bytes.fromHex("aa")).build();
-        final QueuePushChange queueB =
-                QueuePushChange.newBuilder().protoBytesElement(Bytes.fromHex("bb")).build();
+        final QueuePushChange queueA = QueuePushChange.newBuilder()
+                .protoBytesElement(Bytes.fromHex("aa"))
+                .build();
+        final QueuePushChange queueB = QueuePushChange.newBuilder()
+                .protoBytesElement(Bytes.fromHex("bb"))
+                .build();
 
         s.deliverBlock(
                 0L,
                 0L,
                 Bytes.EMPTY,
                 List.of(
-                        StateChange.newBuilder().stateId(1).singletonUpdate(singleton).build(),
+                        StateChange.newBuilder()
+                                .stateId(1)
+                                .singletonUpdate(singleton)
+                                .build(),
                         StateChange.newBuilder()
                                 .stateId(2)
                                 .mapUpdate(MapUpdateChange.newBuilder()
@@ -131,45 +136,47 @@ class StateManagementAccessTest {
         final StateManagementPlugin plugin = startPlugin(tmp).plugin;
 
         // not found — clean state.
-        assertThat(plugin.getBinarySingleton(
-                        BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(99L).build())
-                .status())
+        assertThat(plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
+                                .retrieveLatest(true)
+                                .stateId(99L)
+                                .build())
+                        .status())
                 .isEqualTo(Code.NOT_FOUND);
 
         // KV without key.
         assertThat(plugin.getBinaryKV(BinaryStateQuery.newBuilder()
-                        .retrieveLatest(true)
-                        .stateId(2L)
-                        .build())
-                .status())
+                                .retrieveLatest(true)
+                                .stateId(2L)
+                                .build())
+                        .status())
                 .isEqualTo(Code.INVALID_REQUEST);
 
         // KV with queue_index set.
         assertThat(plugin.getBinaryKV(BinaryStateQuery.newBuilder()
-                        .retrieveLatest(true)
-                        .stateId(2L)
-                        .keyBytes(Bytes.fromHex("01"))
-                        .queueIndex(1L)
-                        .build())
-                .status())
+                                .retrieveLatest(true)
+                                .stateId(2L)
+                                .keyBytes(Bytes.fromHex("01"))
+                                .queueIndex(1L)
+                                .build())
+                        .status())
                 .isEqualTo(Code.INVALID_REQUEST);
 
         // Singleton with key bytes set.
         assertThat(plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
-                        .retrieveLatest(true)
-                        .stateId(1L)
-                        .keyBytes(Bytes.fromHex("01"))
-                        .build())
-                .status())
+                                .retrieveLatest(true)
+                                .stateId(1L)
+                                .keyBytes(Bytes.fromHex("01"))
+                                .build())
+                        .status())
                 .isEqualTo(Code.INVALID_REQUEST);
 
         // Queue with key bytes set.
         assertThat(plugin.getBinaryQueue(BinaryStateQuery.newBuilder()
-                        .retrieveLatest(true)
-                        .stateId(3L)
-                        .keyBytes(Bytes.fromHex("01"))
-                        .build())
-                .status())
+                                .retrieveLatest(true)
+                                .stateId(3L)
+                                .keyBytes(Bytes.fromHex("01"))
+                                .build())
+                        .status())
                 .isEqualTo(Code.INVALID_REQUEST);
 
         // Block 0 (genesis) is a valid block_number — at a fresh start metadata.blockNumber()
@@ -177,25 +184,24 @@ class StateManagementAccessTest {
         // (NOT_FOUND because no items have been applied), not a treat-zero-as-latest
         // shortcut and not an immediate INVALID_REQUEST.
         assertThat(plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
-                        .stateId(99L)
-                        .blockNumber(0L)
-                        .build())
-                .status())
+                                .stateId(99L)
+                                .blockNumber(0L)
+                                .build())
+                        .status())
                 .isEqualTo(Code.NOT_FOUND);
 
         // Missing block_specifier (neither block_number nor retrieve_latest set) is invalid.
-        assertThat(plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
-                        .stateId(1L)
-                        .build())
-                .status())
+        assertThat(plugin.getBinarySingleton(
+                                BinaryStateQuery.newBuilder().stateId(1L).build())
+                        .status())
                 .isEqualTo(Code.INVALID_REQUEST);
 
         // Stale block_number does not match latest applied.
         assertThat(plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
-                        .stateId(1L)
-                        .blockNumber(42L)
-                        .build())
-                .status())
+                                .stateId(1L)
+                                .blockNumber(42L)
+                                .build())
+                        .status())
                 .isEqualTo(Code.INVALID_REQUEST);
 
         plugin.stop();
@@ -221,9 +227,8 @@ class StateManagementAccessTest {
                     .build());
             if (!changes.isEmpty()) {
                 items.add(BlockItemUnparsed.newBuilder()
-                        .stateChanges(StateChanges.PROTOBUF.toBytes(StateChanges.newBuilder()
-                                .stateChanges(changes)
-                                .build()))
+                        .stateChanges(StateChanges.PROTOBUF.toBytes(
+                                StateChanges.newBuilder().stateChanges(changes).build()))
                         .build());
             }
             items.add(BlockItemUnparsed.newBuilder()
@@ -232,8 +237,12 @@ class StateManagementAccessTest {
                             .build()))
                     .build());
             facility.sendBlockVerification(new VerificationNotification(
-                    true, null, blockNumber, Bytes.fromHex("00"),
-                    BlockUnparsed.newBuilder().blockItems(items).build(), BlockSource.PUBLISHER));
+                    true,
+                    null,
+                    blockNumber,
+                    Bytes.fromHex("00"),
+                    BlockUnparsed.newBuilder().blockItems(items).build(),
+                    BlockSource.PUBLISHER));
         }
     }
 
@@ -244,17 +253,20 @@ class StateManagementAccessTest {
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
                 .withConfigDataType(PathsConfig.class)
-                .withValue("state.management.stateMetadataPath",
+                .withValue(
+                        "state.management.stateMetadataPath",
                         tmp.resolve("md.json").toString())
-                .withValue("state.management.stateSnapshotRecentPath",
+                .withValue(
+                        "state.management.stateSnapshotRecentPath",
                         tmp.resolve("recent").toString())
-                .withValue("state.management.stateSnapshotHistoricPath",
+                .withValue(
+                        "state.management.stateSnapshotHistoricPath",
                         tmp.resolve("historic").toString())
                 .withValue("state.management.snapshotIntervalMillis", "3600000")
                 .withValue("state.management.stateChangesApplyIntervalMillis", "3600000")
                 .build();
-        final BlockNodeContext context = new BlockNodeContext(
-                configuration, null, null, facility, null, null, null, null, null, null, null);
+        final BlockNodeContext context =
+                new BlockNodeContext(configuration, null, null, facility, null, null, null, null, null, null, null);
         final StateManagementPlugin plugin = new StateManagementPlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();

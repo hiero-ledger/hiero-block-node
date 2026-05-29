@@ -48,8 +48,7 @@ final class SnapshotArchiver {
      * @return the path of the created tar file.
      */
     @NonNull
-    static Path archive(
-            @NonNull final Path sourceSnapshotDir, @NonNull final Path historicRoot, final long blockNumber)
+    static Path archive(@NonNull final Path sourceSnapshotDir, @NonNull final Path historicRoot, final long blockNumber)
             throws IOException {
         Files.createDirectories(historicRoot);
         final Path target = historicRoot.resolve(blockNumber + ".tar");
@@ -69,8 +68,8 @@ final class SnapshotArchiver {
                 if (entry.equals(sourceSnapshotDir)) {
                     continue;
                 }
-                final String rel = prefix
-                        + sourceSnapshotDir.relativize(entry).toString().replace(File.separatorChar, '/');
+                final String rel =
+                        prefix + sourceSnapshotDir.relativize(entry).toString().replace(File.separatorChar, '/');
                 if (Files.isDirectory(entry)) {
                     writeDirEntry(out, rel + "/");
                 } else {

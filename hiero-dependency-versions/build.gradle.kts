@@ -115,9 +115,15 @@ dependencies.constraints {
     api("io.prometheus:simpleclient_httpserver:0.16.0") { because("simpleclient.httpserver") }
     api("io.prometheus:simpleclient_tracer_common:0.16.0") { because("simpleclient.tracer.common") }
     api("io.prometheus:simpleclient_tracer_otel:0.16.0") { because("simpleclient.tracer.otel") }
-    api("io.prometheus:simpleclient_tracer_otel_agent:0.16.0") { because("simpleclient.tracer.otel.agent") }
-    api("org.hyperledger.besu:besu-native-common:1.3.0") { because("org.hyperledger.besu.nativelib.common") }
-    api("org.hyperledger.besu:secp256k1:1.3.0") { because("org.hyperledger.besu.nativelib.secp256k1") }
+    api("io.prometheus:simpleclient_tracer_otel_agent:0.16.0") {
+        because("simpleclient.tracer.otel.agent")
+    }
+    api("org.hyperledger.besu:besu-native-common:1.3.0") {
+        because("org.hyperledger.besu.nativelib.common")
+    }
+    api("org.hyperledger.besu:secp256k1:1.3.0") {
+        because("org.hyperledger.besu.nativelib.secp256k1")
+    }
     api("com.hedera.hashgraph:hiero-metrics:$hederaVersion") { because("org.hiero.metrics") }
     api("com.hedera.hashgraph:openmetrics-httpserver:$hederaVersion") {
         because("org.hiero.metrics.openmetrics.httpserver")

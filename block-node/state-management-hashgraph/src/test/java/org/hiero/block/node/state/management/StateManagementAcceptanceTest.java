@@ -13,18 +13,17 @@ import com.hedera.hapi.block.stream.output.QueuePushChange;
 import com.hedera.hapi.block.stream.output.SingletonUpdateChange;
 import com.hedera.hapi.block.stream.output.StateChange;
 import com.hedera.hapi.block.stream.output.StateChanges;
-import org.hiero.block.api.BinaryStateQuery;
-import org.hiero.block.api.BinaryStateQueryResponse;
-import org.hiero.block.api.BinaryStateQueryResponse.Code;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.merkledb.config.MerkleDbConfig;
 import com.swirlds.virtualmap.config.VirtualMapConfig;
-import org.hiero.consensus.config.PathsConfig;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.nio.file.Path;
+import org.hiero.block.api.BinaryStateQuery;
+import org.hiero.block.api.BinaryStateQueryResponse;
+import org.hiero.block.api.BinaryStateQueryResponse.Code;
 import org.hiero.block.api.StateMetadata;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -34,6 +33,7 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification.StateUpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.consensus.config.PathsConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -120,8 +120,7 @@ class StateManagementAcceptanceTest {
 
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(2L);
         assertThat(f.plugin.metadata().roundNumber()).isEqualTo(2L);
-        assertThat(f.facility.getSentStateUpdateNotifications()
-                        .stream()
+        assertThat(f.facility.getSentStateUpdateNotifications().stream()
                         .filter(n -> n.type() == StateUpdateType.VERIFIED)
                         .count())
                 .isEqualTo(3L);
@@ -201,8 +200,8 @@ class StateManagementAcceptanceTest {
 
         final java.nio.file.Path recent = tmp.resolve("recent");
         try (var stream = java.nio.file.Files.list(recent)) {
-            final java.util.Set<String> names = stream.map(p -> p.getFileName().toString())
-                    .collect(java.util.stream.Collectors.toSet());
+            final java.util.Set<String> names =
+                    stream.map(p -> p.getFileName().toString()).collect(java.util.stream.Collectors.toSet());
             assertThat(names).containsExactlyInAnyOrder("2", "3", "4");
         }
         // recent/1 was archived to historic before being deleted from recent.
@@ -236,8 +235,8 @@ class StateManagementAcceptanceTest {
         // Archives produced: dummy 0.tar + real 1/2/3.tar = 4. Retention 3 trims
         // the single oldest — 0.tar — and keeps the three most recent.
         try (var stream = java.nio.file.Files.list(historic)) {
-            final java.util.Set<String> names = stream.map(p -> p.getFileName().toString())
-                    .collect(java.util.stream.Collectors.toSet());
+            final java.util.Set<String> names =
+                    stream.map(p -> p.getFileName().toString()).collect(java.util.stream.Collectors.toSet());
             assertThat(names).containsExactlyInAnyOrder("1.tar", "2.tar", "3.tar");
         }
         assertThat(dummyZero.toFile()).doesNotExist();
@@ -312,10 +311,8 @@ class StateManagementAcceptanceTest {
                 MapChangeValue.newBuilder().protoStringValue("hello").build();
         final StateChange kvUpdate = StateChange.newBuilder()
                 .stateId(2)
-                .mapUpdate(MapUpdateChange.newBuilder()
-                        .key(mapKey)
-                        .value(mapValue)
-                        .build())
+                .mapUpdate(
+                        MapUpdateChange.newBuilder().key(mapKey).value(mapValue).build())
                 .build();
         f.deliverBlockWithChanges(0L, 0L, Bytes.EMPTY, java.util.List.of(singletonAa, kvUpdate));
         f.plugin.applyPending();
@@ -332,18 +329,14 @@ class StateManagementAcceptanceTest {
         f.plugin.applyPending();
 
         // Plugin must now serve all three query shapes successfully.
-        final BinaryStateQueryResponse singleton = f.plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
-                .retrieveLatest(true)
-                .stateId(1L)
-                .build());
+        final BinaryStateQueryResponse singleton = f.plugin.getBinarySingleton(
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(1L).build());
         assertThat(singleton.status()).isEqualTo(Code.SUCCESS);
         assertThat(singleton.singletonBytes()).isNotNull();
         assertThat(singleton.stateMetadata().blockNumber()).isEqualTo(1L);
 
-        final BinaryStateQueryResponse queue = f.plugin.getBinaryQueue(BinaryStateQuery.newBuilder()
-                .retrieveLatest(true)
-                .stateId(3L)
-                .build());
+        final BinaryStateQueryResponse queue = f.plugin.getBinaryQueue(
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(3L).build());
         assertThat(queue.status()).isEqualTo(Code.SUCCESS);
         assertThat(queue.queueBytes()).isNotEmpty();
 
@@ -376,10 +369,8 @@ class StateManagementAcceptanceTest {
                 MapChangeValue.newBuilder().protoStringValue("persisted").build();
         final StateChange kvSeed = StateChange.newBuilder()
                 .stateId(8)
-                .mapUpdate(MapUpdateChange.newBuilder()
-                        .key(mapKey)
-                        .value(mapValue)
-                        .build())
+                .mapUpdate(
+                        MapUpdateChange.newBuilder().key(mapKey).value(mapValue).build())
                 .build();
         final StateChange queueSeed = StateChange.newBuilder()
                 .stateId(9)
@@ -397,10 +388,8 @@ class StateManagementAcceptanceTest {
         assertThat(second.plugin.metadata()).isNotEqualTo(StateMetadata.DEFAULT);
         assertThat(second.plugin.metadata().blockNumber()).isEqualTo(0L);
 
-        final BinaryStateQueryResponse singleton = second.plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
-                .retrieveLatest(true)
-                .stateId(7L)
-                .build());
+        final BinaryStateQueryResponse singleton = second.plugin.getBinarySingleton(
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(7L).build());
         assertThat(singleton.status()).isEqualTo(Code.SUCCESS);
         assertThat(singleton.singletonBytes()).isNotNull();
 
@@ -411,10 +400,8 @@ class StateManagementAcceptanceTest {
                 .build());
         assertThat(kv.status()).isEqualTo(Code.SUCCESS);
 
-        final BinaryStateQueryResponse queue = second.plugin.getBinaryQueue(BinaryStateQuery.newBuilder()
-                .retrieveLatest(true)
-                .stateId(9L)
-                .build());
+        final BinaryStateQueryResponse queue = second.plugin.getBinaryQueue(
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(9L).build());
         assertThat(queue.status()).isEqualTo(Code.SUCCESS);
         assertThat(queue.queueBytes()).isNotEmpty();
 
@@ -441,20 +428,17 @@ class StateManagementAcceptanceTest {
                 @NonNull final java.util.List<StateChange> changes) {
             final java.util.List<BlockItemUnparsed> items = new java.util.ArrayList<>();
             items.add(BlockItemUnparsed.newBuilder()
-                    .blockHeader(BlockHeader.PROTOBUF.toBytes(BlockHeader.newBuilder()
-                            .number(blockNumber)
-                            .build()))
+                    .blockHeader(BlockHeader.PROTOBUF.toBytes(
+                            BlockHeader.newBuilder().number(blockNumber).build()))
                     .build());
             items.add(BlockItemUnparsed.newBuilder()
-                    .roundHeader(RoundHeader.PROTOBUF.toBytes(RoundHeader.newBuilder()
-                            .roundNumber(roundNumber)
-                            .build()))
+                    .roundHeader(RoundHeader.PROTOBUF.toBytes(
+                            RoundHeader.newBuilder().roundNumber(roundNumber).build()))
                     .build());
             if (!changes.isEmpty()) {
                 items.add(BlockItemUnparsed.newBuilder()
-                        .stateChanges(StateChanges.PROTOBUF.toBytes(StateChanges.newBuilder()
-                                .stateChanges(changes)
-                                .build()))
+                        .stateChanges(StateChanges.PROTOBUF.toBytes(
+                                StateChanges.newBuilder().stateChanges(changes).build()))
                         .build());
             }
             items.add(BlockItemUnparsed.newBuilder()
@@ -488,16 +472,22 @@ class StateManagementAcceptanceTest {
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
                 .withConfigDataType(PathsConfig.class)
-                .withValue("state.management.stateMetadataPath", tmp.resolve("md.json").toString())
-                .withValue("state.management.stateSnapshotRecentPath", tmp.resolve("recent").toString())
-                .withValue("state.management.stateSnapshotHistoricPath", tmp.resolve("historic").toString())
+                .withValue(
+                        "state.management.stateMetadataPath",
+                        tmp.resolve("md.json").toString())
+                .withValue(
+                        "state.management.stateSnapshotRecentPath",
+                        tmp.resolve("recent").toString())
+                .withValue(
+                        "state.management.stateSnapshotHistoricPath",
+                        tmp.resolve("historic").toString())
                 .withValue("state.management.snapshotIntervalMillis", "3600000")
                 .withValue("state.management.stateChangesApplyIntervalMillis", "3600000")
                 .withValue("state.management.historicArchiveRetentionCount", Long.toString(retention))
                 .withValue("state.management.stateSnapshotRecentRetentionCount", Integer.toString(recentRetention))
                 .build();
-        final BlockNodeContext context = new BlockNodeContext(
-                configuration, null, null, facility, null, null, null, null, null, null, null);
+        final BlockNodeContext context =
+                new BlockNodeContext(configuration, null, null, facility, null, null, null, null, null, null, null);
         final StateManagementPlugin plugin = new StateManagementPlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();

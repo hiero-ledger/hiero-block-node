@@ -128,8 +128,8 @@ class StateManagementE2ETests {
 
         // Poll briefly until the plugin finishes catch-up (no historical blocks means it
         // completes near-immediately, but the catch-up thread is still asynchronous).
-        final BinaryStateQueryResponse response = awaitNonNotReady(
-                () -> client.getBinarySingleton(BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(1L).build()));
+        final BinaryStateQueryResponse response = awaitNonNotReady(() -> client.getBinarySingleton(
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(1L).build()));
 
         assertThat(response.status()).as("structured response over the wire").isIn(Code.NOT_FOUND, Code.SUCCESS);
         assertThat(response.stateMetadata()).as("metadata always populated").isNotNull();

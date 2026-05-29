@@ -4,7 +4,6 @@ package org.hiero.block.node.state.management;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.base.time.Time;
 import com.swirlds.state.BinaryState;
-import org.hiero.base.file.FileSystemManager;
 import com.swirlds.state.merkle.VirtualMapState;
 import com.swirlds.state.merkle.VirtualMapStateLifecycleManager;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -19,6 +18,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.api.BinaryStateQuery;
 import org.hiero.block.api.BinaryStateQueryResponse;
 import org.hiero.block.api.BinaryStateQueryResponse.Code;
@@ -28,13 +28,13 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification.StateUpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.consensus.metrics.noop.NoOpMetrics;
 
 /**
@@ -72,7 +72,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private final AtomicBoolean stateIsCaughtUp = new AtomicBoolean(false);
     private final AtomicBoolean stopping = new AtomicBoolean(false);
     private final AtomicBoolean degraded = new AtomicBoolean(false);
-    private final java.util.concurrent.atomic.AtomicLong hashMismatchTotal = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong hashMismatchTotal =
+            new java.util.concurrent.atomic.AtomicLong();
 
     private ScheduledExecutorService snapshotExecutor;
     private ScheduledExecutorService stateChangesExecutor;
@@ -158,10 +159,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 catchUpFromHistoricalBlocks();
             } finally {
                 stateChangesExecutor.scheduleWithFixedDelay(
-                        this::applyPending,
-                        0L,
-                        config.stateChangesApplyIntervalMillis(),
-                        TimeUnit.MILLISECONDS);
+                        this::applyPending, 0L, config.stateChangesApplyIntervalMillis(), TimeUnit.MILLISECONDS);
             }
         });
     }
@@ -348,9 +346,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             final boolean atGenesis = lastAppliedBlock < 0L
                     && metadata.blockNumber() == 0L
                     && metadata.stateRootHash().length() == 0L;
-            final long expectedNext = atGenesis
-                    ? pendingBlocks.firstKey()
-                    : Math.max(lastAppliedBlock, metadata.blockNumber()) + 1L;
+            final long expectedNext =
+                    atGenesis ? pendingBlocks.firstKey() : Math.max(lastAppliedBlock, metadata.blockNumber()) + 1L;
             // Peek (not remove) so an applier failure leaves the block in the queue
             // for inspection / future retry rather than silently dropping it.
             final BlockUnparsed block = pendingBlocks.get(expectedNext);
@@ -543,7 +540,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
      * hash is empty / all-zeros and we accept either shape.
      */
     private boolean validateStartHash(@NonNull final Bytes startHash) {
-        final boolean atGenesis = metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
+        final boolean atGenesis =
+                metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
         if (atGenesis) {
             return startHash.length() == 0L || isAllZeros(startHash);
         }

@@ -6,15 +6,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.merkledb.config.MerkleDbConfig;
 import com.swirlds.virtualmap.config.VirtualMapConfig;
-import org.hiero.consensus.config.PathsConfig;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import io.helidon.webserver.http.HttpService;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import com.hedera.pbj.runtime.grpc.ServiceInterface;
-import edu.umd.cs.findbugs.annotations.NonNull;
 import org.hiero.block.api.StateMetadata;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -25,7 +25,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification.StateUpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import io.helidon.webserver.http.HttpService;
+import org.hiero.consensus.config.PathsConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -58,8 +58,8 @@ class StateManagementPluginLifecycleTest {
         assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
 
         final BlockUnparsed block = buildBlock(1L, 11L);
-        facility.sendBlockVerification(new VerificationNotification(
-                true, null, 1L, Bytes.fromHex("aabb"), block, BlockSource.PUBLISHER));
+        facility.sendBlockVerification(
+                new VerificationNotification(true, null, 1L, Bytes.fromHex("aabb"), block, BlockSource.PUBLISHER));
 
         plugin.applyPending();
         assertThat(plugin.metadata().blockNumber()).isEqualTo(1L);
@@ -74,7 +74,9 @@ class StateManagementPluginLifecycleTest {
         final Path snapshotDir = recentRoot.resolve("1");
         assertThat(Files.isDirectory(snapshotDir)).isTrue();
         try (var stream = Files.list(snapshotDir)) {
-            assertThat(stream.findAny()).as("snapshot dir must contain at least one file").isPresent();
+            assertThat(stream.findAny())
+                    .as("snapshot dir must contain at least one file")
+                    .isPresent();
         }
         assertThat(facility.getSentStateUpdateNotifications())
                 .anyMatch(n -> n.type() == StateUpdateType.SNAPSHOT && n.blockNumber() == 1L);
@@ -93,16 +95,16 @@ class StateManagementPluginLifecycleTest {
     @Test
     void rejectsBlockWithUnparseableHeader(@TempDir final Path tmp) throws Exception {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(
-                tmp.resolve("md.json"), tmp.resolve("recent"), tmp.resolve("historic"), facility);
+        final StateManagementPlugin plugin =
+                startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), tmp.resolve("historic"), facility);
 
         final BlockUnparsed corrupt = BlockUnparsed.newBuilder()
                 .blockItems(BlockItemUnparsed.newBuilder()
                         .blockHeader(Bytes.fromHex("ffffffff")) // not a valid BlockHeader proto
                         .build())
                 .build();
-        facility.sendBlockVerification(new VerificationNotification(
-                true, null, 1L, Bytes.fromHex("aabb"), corrupt, BlockSource.PUBLISHER));
+        facility.sendBlockVerification(
+                new VerificationNotification(true, null, 1L, Bytes.fromHex("aabb"), corrupt, BlockSource.PUBLISHER));
         plugin.applyPending();
 
         assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
@@ -128,8 +130,8 @@ class StateManagementPluginLifecycleTest {
                 .withValue("state.management.snapshotIntervalMillis", "3600000") // suppress automatic snapshot
                 .withValue("state.management.stateChangesApplyIntervalMillis", "3600000") // suppress automatic apply
                 .build();
-        final BlockNodeContext context = new BlockNodeContext(
-                configuration, null, null, facility, null, null, null, null, null, null, null);
+        final BlockNodeContext context =
+                new BlockNodeContext(configuration, null, null, facility, null, null, null, null, null, null, null);
         final StateManagementPlugin plugin = new StateManagementPlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();

@@ -39,10 +39,15 @@ class SnapshotArchiverTest {
         assertThat(entries.keySet())
                 .as("tar contents")
                 .containsExactlyInAnyOrder(
-                        "42/", "42/data/", "42/data/state/", "42/data/state/foo.ll", "42/data/state/table_metadata.pbj");
+                        "42/",
+                        "42/data/",
+                        "42/data/state/",
+                        "42/data/state/foo.ll",
+                        "42/data/state/table_metadata.pbj");
         assertThat(new String(entries.get("42/data/state/table_metadata.pbj"), StandardCharsets.UTF_8))
                 .isEqualTo("hello");
-        assertThat(new String(entries.get("42/data/state/foo.ll"), StandardCharsets.UTF_8)).isEqualTo("world");
+        assertThat(new String(entries.get("42/data/state/foo.ll"), StandardCharsets.UTF_8))
+                .isEqualTo("world");
     }
 
     @Test

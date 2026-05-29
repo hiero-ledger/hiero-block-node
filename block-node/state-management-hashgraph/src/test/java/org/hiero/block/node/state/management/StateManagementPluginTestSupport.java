@@ -14,7 +14,8 @@ final class StateManagementPluginTestSupport {
      * Block the calling thread until the plugin reports caught-up, or the timeout
      * expires. Returns the final readiness state.
      */
-    static boolean awaitReady(final StateManagementPlugin plugin, final long timeoutMillis) throws InterruptedException {
+    static boolean awaitReady(final StateManagementPlugin plugin, final long timeoutMillis)
+            throws InterruptedException {
         final long deadline = System.currentTimeMillis() + timeoutMillis;
         while (!plugin.isReady() && System.currentTimeMillis() < deadline) {
             Thread.sleep(10L);

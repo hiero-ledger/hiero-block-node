@@ -139,12 +139,18 @@ class StateManagementCatchUpTest {
 
                 @Override
                 public long min() {
-                    return blocks.keySet().stream().mapToLong(Long::longValue).min().orElse(-1L);
+                    return blocks.keySet().stream()
+                            .mapToLong(Long::longValue)
+                            .min()
+                            .orElse(-1L);
                 }
 
                 @Override
                 public long max() {
-                    return blocks.keySet().stream().mapToLong(Long::longValue).max().orElse(-1L);
+                    return blocks.keySet().stream()
+                            .mapToLong(Long::longValue)
+                            .max()
+                            .orElse(-1L);
                 }
 
                 @Override
@@ -199,23 +205,28 @@ class StateManagementCatchUpTest {
         }
     }
 
-    private static StateManagementPlugin startPlugin(
-            final Path tmp, final HistoricalBlockFacility historic) {
+    private static StateManagementPlugin startPlugin(final Path tmp, final HistoricalBlockFacility historic) {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
                 .withConfigDataType(PathsConfig.class)
-                .withValue("state.management.stateMetadataPath", tmp.resolve("md.json").toString())
-                .withValue("state.management.stateSnapshotRecentPath", tmp.resolve("recent").toString())
-                .withValue("state.management.stateSnapshotHistoricPath", tmp.resolve("historic").toString())
+                .withValue(
+                        "state.management.stateMetadataPath",
+                        tmp.resolve("md.json").toString())
+                .withValue(
+                        "state.management.stateSnapshotRecentPath",
+                        tmp.resolve("recent").toString())
+                .withValue(
+                        "state.management.stateSnapshotHistoricPath",
+                        tmp.resolve("historic").toString())
                 .withValue("state.management.snapshotIntervalMillis", "3600000")
                 .withValue("state.management.stateChangesApplyIntervalMillis", "3600000")
                 .withValue("state.management.historicCatchUpBatchSize", "2")
                 .build();
-        final BlockNodeContext context = new BlockNodeContext(
-                configuration, null, null, facility, historic, null, null, null, null, null, null);
+        final BlockNodeContext context =
+                new BlockNodeContext(configuration, null, null, facility, historic, null, null, null, null, null, null);
         final StateManagementPlugin plugin = new StateManagementPlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();

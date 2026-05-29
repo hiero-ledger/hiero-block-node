@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.state.management;
 
+import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.MapChangeKey;
 import com.hedera.hapi.block.stream.output.MapChangeValue;
 import com.hedera.hapi.block.stream.output.QueuePushChange;
@@ -62,8 +62,9 @@ final class StateChangeApplier {
         for (final var item : block.blockItems()) {
             if (item.hasBlockHeader() && blockNumber < 0L) {
                 try {
-                    blockNumber =
-                            BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow()).number();
+                    blockNumber = BlockHeader.PROTOBUF
+                            .parse(item.blockHeaderOrThrow())
+                            .number();
                 } catch (final Exception ignored) {
                     // Leaves blockNumber = -1; caller treats that as a failed apply.
                 }
@@ -105,7 +106,9 @@ final class StateChangeApplier {
             if (item.hasBlockFooter()) {
                 try {
                     final BlockFooter footer = BlockFooter.PROTOBUF.parse(item.blockFooterOrThrow());
-                    return footer.startOfBlockStateRootHash() == null ? Bytes.EMPTY : footer.startOfBlockStateRootHash();
+                    return footer.startOfBlockStateRootHash() == null
+                            ? Bytes.EMPTY
+                            : footer.startOfBlockStateRootHash();
                 } catch (final Exception ignored) {
                     return null;
                 }
@@ -114,8 +117,7 @@ final class StateChangeApplier {
         return null;
     }
 
-    private static int applyChanges(
-            @NonNull final BinaryState binaryState, @NonNull final List<StateChange> changes) {
+    private static int applyChanges(@NonNull final BinaryState binaryState, @NonNull final List<StateChange> changes) {
         int count = 0;
         for (final StateChange change : changes) {
             final int stateId = change.stateId();
@@ -173,9 +175,8 @@ final class StateChangeApplier {
     /** Convenience used by tests: build a {@code state_changes} block item from a list. */
     @NonNull
     static Bytes encodeStateChanges(@NonNull final List<StateChange> changes) {
-        final StateChanges sc = StateChanges.newBuilder()
-                .stateChanges(new ArrayList<>(changes))
-                .build();
+        final StateChanges sc =
+                StateChanges.newBuilder().stateChanges(new ArrayList<>(changes)).build();
         return StateChanges.PROTOBUF.toBytes(sc);
     }
 }

@@ -32,8 +32,9 @@ class StateChangeApplierTest {
         final InMemoryBinaryState state = new InMemoryBinaryState();
         final StateChangeApplier applier = new StateChangeApplier();
 
-        final SingletonUpdateChange singleton =
-                SingletonUpdateChange.newBuilder().bytesValue(Bytes.fromHex("aabbcc")).build();
+        final SingletonUpdateChange singleton = SingletonUpdateChange.newBuilder()
+                .bytesValue(Bytes.fromHex("aabbcc"))
+                .build();
         final MapChangeKey kvKey =
                 MapChangeKey.newBuilder().protoBytesKey(Bytes.fromHex("01")).build();
         final MapChangeValue kvValue =
@@ -69,9 +70,7 @@ class StateChangeApplierTest {
         state.pushQueue(3, Bytes.fromHex("0b"));
         assertThat(state.size()).isEqualTo(3L);
 
-        final BlockUnparsed block = buildBlockWithChanges(List.of(
-                mapDeleteChange(2, key),
-                queuePopChange(3)));
+        final BlockUnparsed block = buildBlockWithChanges(List.of(mapDeleteChange(2, key), queuePopChange(3)));
 
         applier.applyBlock(state, block);
 
@@ -93,8 +92,7 @@ class StateChangeApplierTest {
                                 .build())
                 .build();
 
-        assertThatThrownBy(() -> applier.applyBlock(state, block))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> applier.applyBlock(state, block)).isInstanceOf(IllegalStateException.class);
         assertThat(state.size()).isZero();
     }
 
@@ -120,14 +118,10 @@ class StateChangeApplierTest {
     }
 
     private static StateChange singletonChange(final int stateId, final SingletonUpdateChange change) {
-        return StateChange.newBuilder()
-                .stateId(stateId)
-                .singletonUpdate(change)
-                .build();
+        return StateChange.newBuilder().stateId(stateId).singletonUpdate(change).build();
     }
 
-    private static StateChange mapUpdateChange(
-            final int stateId, final MapChangeKey key, final MapChangeValue value) {
+    private static StateChange mapUpdateChange(final int stateId, final MapChangeKey key, final MapChangeValue value) {
         return StateChange.newBuilder()
                 .stateId(stateId)
                 .mapUpdate(MapUpdateChange.newBuilder().key(key).value(value).build())
@@ -144,7 +138,8 @@ class StateChangeApplierTest {
     private static StateChange queuePushChange(final int stateId, final Bytes payload) {
         return StateChange.newBuilder()
                 .stateId(stateId)
-                .queuePush(QueuePushChange.newBuilder().protoBytesElement(payload).build())
+                .queuePush(
+                        QueuePushChange.newBuilder().protoBytesElement(payload).build())
                 .build();
     }
 

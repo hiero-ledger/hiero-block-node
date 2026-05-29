@@ -78,15 +78,15 @@ shape to send back through the gRPC reads.
 
 Bound under `@ConfigData("state.management")` in `StateManagementConfig`:
 
-| Property                          | Default                                                | Notes                                                                 |
-|-----------------------------------|--------------------------------------------------------|-----------------------------------------------------------------------|
-| `stateMetadataPath`               | `/opt/hiero/block-node/data/state/stateMetadata.json`  | JSON file with the latest metadata                                    |
-| `stateSnapshotRecentPath`         | `/opt/hiero/block-node/data/state/snapshot/recent`     | Holds the most recent snapshot directory                              |
-| `stateSnapshotHistoricPath`       | `/opt/hiero/block-node/data/state/snapshot/historic`   | Holds tar archives of older snapshots                                 |
-| `snapshotIntervalMillis`          | `900000` (15 min)                                      | Rate of `saveSnapshot()`                                              |
-| `stateChangesApplyIntervalMillis` | `2000` (2 s)                                           | Rate of the apply loop                                                |
-| `historicCatchUpBatchSize`        | `64`                                                   | Blocks fetched per batch during start-up catch-up                     |
-| `historicArchiveRetentionCount`   | `0`                                                    | Max historic tar archives to keep (`0` = unbounded)                   |
+|             Property              |                        Default                        |                        Notes                        |
+|-----------------------------------|-------------------------------------------------------|-----------------------------------------------------|
+| `stateMetadataPath`               | `/opt/hiero/block-node/data/state/stateMetadata.json` | JSON file with the latest metadata                  |
+| `stateSnapshotRecentPath`         | `/opt/hiero/block-node/data/state/snapshot/recent`    | Holds the most recent snapshot directory            |
+| `stateSnapshotHistoricPath`       | `/opt/hiero/block-node/data/state/snapshot/historic`  | Holds tar archives of older snapshots               |
+| `snapshotIntervalMillis`          | `900000` (15 min)                                     | Rate of `saveSnapshot()`                            |
+| `stateChangesApplyIntervalMillis` | `2000` (2 s)                                          | Rate of the apply loop                              |
+| `historicCatchUpBatchSize`        | `64`                                                  | Blocks fetched per batch during start-up catch-up   |
+| `historicArchiveRetentionCount`   | `0`                                                   | Max historic tar archives to keep (`0` = unbounded) |
 
 There is no `enabled` flag. Block-Node plugins are active whenever their jar
 is on the classpath; opt-in lives in the deployment manifest.
