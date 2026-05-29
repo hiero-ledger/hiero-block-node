@@ -23,6 +23,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -220,6 +221,9 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 currentGroupSize = Math.powExact(10, config.groupingLevel());
                 currentGroupStart = result.currentGroupStart();
                 nextBlockToQueue = result.uploadId() != null ? result.nextBlockNumber() : currentGroupStart;
+                if (nextBlockToQueue > 0) {
+                    context.applicationStateFacility().addStoredBlockRange(new LongRange(0, nextBlockToQueue - 1));
+                }
                 currentBlockQueue = new LinkedBlockingQueue<>();
                 currentUploadFuture = virtualThreadExecutor.submit(new BlockUploadTask(
                         config,
@@ -228,7 +232,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                         currentGroupSize,
                         currentBlockQueue,
                         result.uploadId() != null ? result : null,
-                        metricsHolder));
+                        metricsHolder,
+                        context.applicationStateFacility()));
                 tryReplayStash();
             }
             // No else: currentGroupStart == -1 means a fresh start with no prior S3 state.
@@ -270,7 +275,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 currentGroupStart,
                 currentGroupSize,
                 currentBlockQueue,
-                metricsHolder));
+                metricsHolder,
+                context.applicationStateFacility()));
         tryReplayStash();
     }
 

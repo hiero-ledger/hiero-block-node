@@ -3,6 +3,7 @@ package org.hiero.block.node.cloud.storage.archive;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.util.Objects.requireNonNull;
 
 import com.hedera.bucky.S3Client;
 import com.hedera.bucky.S3ClientInitializationException;
@@ -16,9 +17,11 @@ import java.util.SortedMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentSkipListMap;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /// Archives a single contiguous batch of verified blocks into one `tar` file on S3-compatible
 /// cloud storage via a multipart upload.
@@ -51,6 +54,8 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
     private final CloudStorageArchiveConfig config;
     /// Facility used to publish [PersistedNotification]s after each block is durably stored.
     private final BlockMessagingFacility blockMessaging;
+    /// Facility used to record stored block ranges in application state after each successful part.
+    private final ApplicationStateFacility applicationStateFacility;
     /// Metrics holder for tracking upload statistics.
     private final CloudStorageArchivePlugin.MetricsHolder metricsHolder;
 
@@ -72,30 +77,35 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
 
     /// Creates a new task that will start a fresh upload for `groupSize` blocks starting at `firstBlock`.
     ///
-    /// @param config         plugin configuration
-    /// @param blockMessaging facility for publishing [PersistedNotification]s
-    /// @param firstBlock     block number of the first block in this batch
-    /// @param groupSize      number of blocks to archive (must equal `10 ^ groupingLevel`)
-    /// @param blockQueue     queue from which blocks are taken in ascending block-number order
+    /// @param config                  plugin configuration
+    /// @param blockMessaging          facility for publishing [PersistedNotification]s
+    /// @param firstBlock              block number of the first block in this batch
+    /// @param groupSize               number of blocks to archive (must equal `10 ^ groupingLevel`)
+    /// @param blockQueue              queue from which blocks are taken in ascending block-number order
+    /// @param metricsHolder           metrics holder for tracking upload statistics
+    /// @param applicationStateFacility facility for recording stored block ranges
     BlockUploadTask(
             @NonNull CloudStorageArchiveConfig config,
             @NonNull BlockMessagingFacility blockMessaging,
             long firstBlock,
             long groupSize,
             @NonNull BlockingQueue<BlockWithSource> blockQueue,
-            @NonNull CloudStorageArchivePlugin.MetricsHolder metricsHolder) {
-        this(config, blockMessaging, firstBlock, groupSize, blockQueue, null, metricsHolder);
+            @NonNull CloudStorageArchivePlugin.MetricsHolder metricsHolder,
+            @NonNull ApplicationStateFacility applicationStateFacility) {
+        this(config, blockMessaging, firstBlock, groupSize, blockQueue, null, metricsHolder, applicationStateFacility);
     }
 
     /// Creates a task that resumes an existing upload prepared by [StartupRecoveryTask].
     ///
-    /// @param config         plugin configuration
-    /// @param blockMessaging facility for publishing [PersistedNotification]s
-    /// @param firstBlock     block number of the first block in this batch
-    /// @param groupSize      number of blocks to archive (must equal `10 ^ groupingLevel`)
-    /// @param blockQueue     queue from which blocks are taken in ascending block-number order
-    /// @param resumeState    non-null when resuming; carries the upload ID, existing ETags, and the
-    ///                       first block number not yet uploaded
+    /// @param config                  plugin configuration
+    /// @param blockMessaging          facility for publishing [PersistedNotification]s
+    /// @param firstBlock              block number of the first block in this batch
+    /// @param groupSize               number of blocks to archive (must equal `10 ^ groupingLevel`)
+    /// @param blockQueue              queue from which blocks are taken in ascending block-number order
+    /// @param resumeState             non-null when resuming; carries the upload ID, existing ETags, and the
+    ///                                first block number not yet uploaded
+    /// @param metricsHolder           metrics holder for tracking upload statistics
+    /// @param applicationStateFacility facility for recording stored block ranges
     BlockUploadTask(
             @NonNull CloudStorageArchiveConfig config,
             @NonNull BlockMessagingFacility blockMessaging,
@@ -103,7 +113,8 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
             long groupSize,
             @NonNull BlockingQueue<BlockWithSource> blockQueue,
             RecoveryResult resumeState,
-            @NonNull CloudStorageArchivePlugin.MetricsHolder metricsHolder) {
+            @NonNull CloudStorageArchivePlugin.MetricsHolder metricsHolder,
+            @NonNull ApplicationStateFacility applicationStateFacility) {
         this.config = config;
         this.blockMessaging = blockMessaging;
         this.firstBlock = firstBlock;
@@ -112,6 +123,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
         this.blockQueue = blockQueue;
         this.resumeState = resumeState;
         this.metricsHolder = metricsHolder;
+        this.applicationStateFacility = requireNonNull(applicationStateFacility);
         this.key = ArchiveKey.format(firstBlock, config.groupingLevel());
     }
 
@@ -246,6 +258,8 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
                         blocksInBuffer.isEmpty() ? Map.entry(blockNum, blockSource) : blocksInBuffer.lastEntry();
                 blockMessaging.sendBlockPersisted(
                         new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
+                final long rangeStart = blocksInBuffer.isEmpty() ? blockNum : blocksInBuffer.firstKey();
+                applicationStateFacility.addStoredBlockRange(new LongRange(rangeStart, last.getKey()));
                 metricsHolder.blocksWritten().increment(blocksInBuffer.size());
                 metricsHolder.storedBytes().increment(partSizeBytes);
                 // Reset the map so the caller starts fresh for the next part's worth of blocks.
@@ -299,6 +313,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
         if (partResult == UploadResult.SUCCESS) {
             final Map.Entry<Long, BlockSource> last = blocksInBuffer.lastEntry();
             blockMessaging.sendBlockPersisted(new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
+            applicationStateFacility.addStoredBlockRange(new LongRange(blocksInBuffer.firstKey(), last.getKey()));
             metricsHolder.blocksWritten().increment(blocksInBuffer.size());
             metricsHolder.storedBytes().increment(buffer.length);
         }
