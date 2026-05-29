@@ -183,11 +183,11 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
                     }
                 } catch (InterruptedException e) {
                     LOGGER.log(TRACE, "Block upload task interrupted", e);
-                    cleanupEmptyUpload(s3, uploadId, etags);
-                    // TODO(1166) Do something with the result of the cleanup (if it is false)
+                    abortUpload(s3, uploadId);
                     throw e;
                 } catch (IOException e) {
                     LOGGER.log(TRACE, "Failed to accumulate block %d".formatted(blockNum), e);
+                    abortUpload(s3, uploadId);
                     throw e;
                 }
             }
@@ -199,6 +199,8 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
 
             if (result == UploadResult.SUCCESS) {
                 s3.completeMultipartUpload(key, uploadId, etags);
+            } else {
+                abortUpload(s3, uploadId);
             }
         }
         return result;
@@ -320,21 +322,18 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
         return partResult;
     }
 
-    /// Aborts the multipart upload if no parts have been uploaded yet (i.e., [etags] is empty).
-    /// Called from the [InterruptedException] handler in [call] to avoid leaving incomplete
-    /// multipart uploads in S3 when the task is cancelled before writing any data.
+    /// Aborts the multipart upload unconditionally, regardless of how many parts have already been
+    /// uploaded. Called when the task is interrupted or when a part upload fails, to ensure no
+    /// incomplete multipart upload is left hanging in S3.
     ///
     /// @param s3       the S3 client for this upload session
     /// @param uploadId the multipart upload ID to abort
-    /// @param etags    the list of part ETags uploaded so far; abort is skipped if non-empty
-    private boolean cleanupEmptyUpload(S3Client s3, String uploadId, List<String> etags) {
+    private boolean abortUpload(S3Client s3, String uploadId) {
         try {
-            if (etags.isEmpty()) {
-                s3.abortMultipartUpload(key, uploadId);
-            }
+            s3.abortMultipartUpload(key, uploadId);
             return true;
         } catch (S3ResponseException | IOException e) {
-            LOGGER.log(INFO, "Failed to abort multipart upload after interruption", e);
+            LOGGER.log(INFO, "Failed to abort multipart upload", e);
             return false;
         }
     }

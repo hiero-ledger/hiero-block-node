@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.bucky.S3Client;
+import com.hedera.bucky.S3ClientInitializationException;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -26,7 +27,12 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -577,6 +583,115 @@ class BlockUploadTaskTest {
         assertThat(asf.storedRanges).isEmpty();
     }
 
+    /// Verifies that when a part upload fails mid-loop, the multipart upload is aborted in S3,
+    /// leaving no hanging uploads.
+    @Test
+    @DisplayName("Failed part upload aborts the multipart upload in S3")
+    void testFailedPartUploadAbortsMultipartUpload() throws Exception {
+        final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
+        final CloudStorageArchiveConfig config = builder.build().getConfigData(CloudStorageArchiveConfig.class);
+        final BlockUploadTask task = new FailingBlockUploadTask(
+                config,
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(new TestMetricsExporter()),
+                noOpAsf());
+
+        final Random rng = new Random(0xDEADBEEFL);
+        for (int i = 0; i < groupSize; i++) {
+            final byte[] data = new byte[BLOCK_DATA_BYTES];
+            rng.nextBytes(data);
+            final BlockItemUnparsed item = new BlockItemUnparsed(
+                    new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+            queue.put(new BlockWithSource(
+                    BlockUnparsed.newBuilder()
+                            .blockItems(new BlockItemUnparsed[] {item})
+                            .build(),
+                    BlockSource.PUBLISHER));
+        }
+
+        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.FAILED);
+
+        try (final S3Client s3 = createS3Client(config)) {
+            assertThat(s3.listMultipartUploads()).isEmpty();
+        }
+    }
+
+    /// Verifies that when the task is interrupted after some parts have already been uploaded,
+    /// the multipart upload is aborted in S3, leaving no hanging uploads.
+    @Test
+    @DisplayName("Interrupted upload with uploaded parts aborts the multipart upload in S3")
+    void testInterruptedUploadAbortsMultipartUpload() throws Exception {
+        final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        // Signals when the task has drained all pre-filled blocks and is about to block on take().
+        final CountDownLatch blockingLatch = new CountDownLatch(1);
+        final BlockingQueue<BlockWithSource> queue = new SignalingBlockingQueue(blockingLatch);
+
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
+        final CloudStorageArchiveConfig config = builder.build().getConfigData(CloudStorageArchiveConfig.class);
+        final BlockUploadTask task = new BlockUploadTask(
+                config,
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(new TestMetricsExporter()),
+                noOpAsf());
+
+        // 10 large blocks (~600 KB each) are enough to overflow the 5 MB part threshold at least
+        // once before the queue empties, so etags will be non-empty when the task is interrupted.
+        final Random rng = new Random(0xDEADBEEFL);
+        for (int i = 0; i < 10; i++) {
+            final byte[] data = new byte[BLOCK_DATA_BYTES];
+            rng.nextBytes(data);
+            final BlockItemUnparsed item = new BlockItemUnparsed(
+                    new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+            queue.put(new BlockWithSource(
+                    BlockUnparsed.newBuilder()
+                            .blockItems(new BlockItemUnparsed[] {item})
+                            .build(),
+                    BlockSource.PUBLISHER));
+        }
+
+        final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        final java.util.concurrent.Future<BlockUploadTask.UploadResult> future = executor.submit(task);
+
+        // Wait until the queue is empty and the task blocks on take() for the next block.
+        assertTrue(blockingLatch.await(30, TimeUnit.SECONDS));
+        future.cancel(true);
+        try {
+            future.get();
+        } catch (CancellationException e) {
+            // expected
+        }
+        executor.shutdown();
+
+        try (final S3Client s3 = createS3Client(config)) {
+            assertThat(s3.listMultipartUploads()).isEmpty();
+        }
+    }
+
+    private static S3Client createS3Client(CloudStorageArchiveConfig config)
+            throws S3ClientInitializationException {
+        return new S3Client(
+                config.regionName(),
+                config.endpointUrl(),
+                config.bucketName(),
+                config.accessKey(),
+                config.secretKey());
+    }
+
     /// [BlockUploadTask] subclass that always throws from [doUploadPart] to simulate S3 failures.
     private static final class FailingBlockUploadTask extends BlockUploadTask {
 
@@ -594,6 +709,24 @@ class BlockUploadTaskTest {
         @Override
         void doUploadPart(byte[] buffer, S3Client s3, String uploadId, List<String> etags) throws IOException {
             throw new IOException("Simulated S3 final part upload failure");
+        }
+    }
+
+    /// [LinkedBlockingQueue] that counts down a [CountDownLatch] the first time [take] is called
+    /// on an empty queue, signalling that the consumer is about to block.
+    private static final class SignalingBlockingQueue extends LinkedBlockingQueue<BlockWithSource> {
+        private final CountDownLatch latch;
+
+        SignalingBlockingQueue(CountDownLatch latch) {
+            this.latch = latch;
+        }
+
+        @Override
+        public BlockWithSource take() throws InterruptedException {
+            if (isEmpty()) {
+                latch.countDown();
+            }
+            return super.take();
         }
     }
 
