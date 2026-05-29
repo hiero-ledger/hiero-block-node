@@ -64,22 +64,8 @@ dependencies.constraints {
     api("com.hedera.hashgraph:swirlds-metrics-impl:$hederaVersion") {
         because("com.swirlds.metrics.impl")
     }
-    api("com.hedera.hashgraph:swirlds-merkle:$hederaVersion") { because("com.swirlds.merkle") }
     api("com.hedera.hashgraph:swirlds-merkledb:$hederaVersion") { because("com.swirlds.merkledb") }
-    api("com.hedera.hashgraph:swirlds-fchashmap:$hederaVersion") {
-        because("com.swirlds.fchashmap")
-    }
-    api("com.hedera.hashgraph:swirlds-fcqueue:$hederaVersion") { because("com.swirlds.fcqueue") }
     api("com.hedera.hashgraph:swirlds-logging:$hederaVersion") { because("com.swirlds.logging") }
-    api("com.hedera.hashgraph:swirlds-logging-log4j-appender:$hederaVersion") {
-        because("com.swirlds.logging.log4j.appender")
-    }
-    api("com.hedera.hashgraph:swirlds-component-framework:$hederaVersion") {
-        because("com.swirlds.component.framework")
-    }
-    api("com.hedera.hashgraph:swirlds-platform-core:$hederaVersion") {
-        because("com.swirlds.platform.core")
-    }
     api("com.hedera.hashgraph:base-concurrent:$hederaVersion") {
         because("org.hiero.base.concurrent")
     }
@@ -100,12 +86,6 @@ dependencies.constraints {
     api("com.hedera.hashgraph:consensus-reconnect:$hederaVersion") {
         because("org.hiero.consensus.reconnect")
     }
-    api("com.hedera.hashgraph:consensus-event-creator:$hederaVersion") {
-        because("org.hiero.consensus.event.creator")
-    }
-    api("com.hedera.hashgraph:consensus-gossip:$hederaVersion") {
-        because("org.hiero.consensus.gossip")
-    }
     api("com.goterl:lazysodium-java:5.2.0") { because("com.goterl.lazysodium") }
     api("com.goterl:resource-loader:2.1.0") { because("com.goterl.resourceloader") }
     api("net.java.dev.jna:jna:5.18.0") { because("com.sun.jna") }
@@ -114,10 +94,6 @@ dependencies.constraints {
     api("io.prometheus:simpleclient_common:0.16.0") { because("simpleclient.common") }
     api("io.prometheus:simpleclient_httpserver:0.16.0") { because("simpleclient.httpserver") }
     api("io.prometheus:simpleclient_tracer_common:0.16.0") { because("simpleclient.tracer.common") }
-    api("io.prometheus:simpleclient_tracer_otel:0.16.0") { because("simpleclient.tracer.otel") }
-    api("io.prometheus:simpleclient_tracer_otel_agent:0.16.0") {
-        because("simpleclient.tracer.otel.agent")
-    }
     api("org.hyperledger.besu:besu-native-common:1.3.0") {
         because("org.hyperledger.besu.nativelib.common")
     }

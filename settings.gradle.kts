@@ -61,17 +61,6 @@ gradle.lifecycle.beforeProject {
             module("io.prometheus:simpleclient_tracer_common", "simpleclient.tracer.common") {
                 exportAllPackages()
             }
-            module("io.prometheus:simpleclient_tracer_otel", "simpleclient.tracer.otel") {
-                exportAllPackages()
-                requires("simpleclient.tracer.common")
-            }
-            module(
-                "io.prometheus:simpleclient_tracer_otel_agent",
-                "simpleclient.tracer.otel.agent",
-            ) {
-                exportAllPackages()
-                requires("simpleclient.tracer.common")
-            }
             module(
                 "org.hyperledger.besu:besu-native-common",
                 "org.hyperledger.besu.nativelib.common",
