@@ -413,6 +413,37 @@ function deploy_block_nodes {
   OVERLAY_DIR="${overlay_dir}"
 }
 
+function generate_cn_application_properties {
+  local output_file="${1}"
+  cat > "${output_file}" << 'EOF'
+hedera.config.version=0
+ledger.id=0x01
+netty.mode=TEST
+contracts.chainId=298
+hedera.recordStream.logPeriod=1
+balances.exportPeriodSecs=400
+files.maxSizeKb=2048
+hedera.recordStream.compressFilesOnCreation=true
+balances.compressOnCreation=true
+contracts.maxNumWithHapiSigsAccess=0
+autoRenew.targetTypes=
+nodes.gossipFqdnRestricted=false
+hedera.profiles.active=TEST
+nodes.updateAccountIdAllowed=true
+blockStream.streamMode=RECORDS
+# TODO: we can remove this after we no longer need less than v0.59.x
+networkAdmin.exportCandidateRoster=true
+# for v0.59+, write the network.json file when you freeze the network
+networkAdmin.diskNetworkExport=ONLY_FREEZE_BLOCK
+hedera.realm=0
+hedera.shard=0
+nodes.webProxyEndpointsEnabled=true
+nodes.nodeRewardsEnabled=false
+blockNode.connectionStallThresholdMillis=5000
+blockStream.streamWrappedRecordBlocks=false
+EOF
+}
+
 function deploy_consensus_nodes {
   log_line ""
   log_line "Deploying Consensus Nodes"
@@ -422,6 +453,11 @@ function deploy_consensus_nodes {
   if [[ -n "${CN_VERSION}" ]]; then
     cn_args="--release-tag ${CN_VERSION}"
   fi
+
+  local overlay_dir="${SCRIPT_DIR}/../out"
+  mkdir -p "${overlay_dir}"
+  local cn_app_properties="${overlay_dir}/cn-application.properties"
+  generate_cn_application_properties "${cn_app_properties}"
 
   start_task "Generating consensus keys for ${NODE_ALIASES}"
   solo keys consensus generate \
@@ -445,6 +481,7 @@ function deploy_consensus_nodes {
     --tss "${TSS_ENABLED}" \
     ${wraps_arg} \
     --node-aliases "${NODE_ALIASES}" \
+    --application-properties "${cn_app_properties}" \
     ${cn_args} --dev || fail "ERROR: Failed to deploy consensus network" 1
   end_task
 
