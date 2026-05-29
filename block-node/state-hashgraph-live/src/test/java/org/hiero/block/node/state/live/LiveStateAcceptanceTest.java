@@ -49,8 +49,8 @@ import org.junit.jupiter.api.io.TempDir;
  *   <li>Snapshot persists metadata.json + a snapshot file under recent/&lt;blockNumber&gt;.</li>
  * </ol>
  *
- * The plugin owns its own apply scheduler; tests drive {@code applyPendingNow} to
- * remove timing flakiness.
+ * The plugin owns its own apply scheduler; tests drive the package-private
+ * {@code applyPending()} directly to remove timing flakiness.
  */
 class LiveStateAcceptanceTest {
 
@@ -60,7 +60,7 @@ class LiveStateAcceptanceTest {
 
         // At genesis the footer's startOfBlockStateRootHash must be empty / all-zeros.
         f.deliverBlock(0L, 0L, Bytes.EMPTY);
-        f.plugin.applyPendingNow();
+        f.plugin.applyPending();
 
         assertThat(f.plugin.metadata().blockNumber()).isZero();
         assertThat(f.facility.getSentStateUpdateNotifications())
@@ -74,12 +74,12 @@ class LiveStateAcceptanceTest {
         final Fixture f = startPlugin(tmp);
 
         f.deliverBlock(5L, 50L, Bytes.EMPTY); // genesis lane accepts arbitrary first block number
-        f.plugin.applyPendingNow();
+        f.plugin.applyPending();
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
 
         final Bytes liveAfter5 = f.plugin.metadata().stateRootHash();
         f.deliverBlock(6L, 60L, liveAfter5);
-        f.plugin.applyPendingNow();
+        f.plugin.applyPending();
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(6L);
         assertThat(f.plugin.metadata().roundNumber()).isEqualTo(60L);
 
@@ -91,18 +91,18 @@ class LiveStateAcceptanceTest {
         final Fixture f = startPlugin(tmp);
 
         f.deliverBlock(5L, 50L, Bytes.EMPTY);
-        f.plugin.applyPendingNow();
+        f.plugin.applyPending();
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
         final Bytes liveAfter5 = f.plugin.metadata().stateRootHash();
 
         // Block 7 — skips 6. Footer hash is fine (no state changes in between) but
         // the apply loop will not advance past the gap.
         f.deliverBlock(7L, 70L, liveAfter5);
-        f.plugin.applyPendingNow();
+        f.plugin.applyPending();
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
 
         f.deliverBlock(6L, 60L, liveAfter5);
-        f.plugin.applyPendingNow();
+        f.plugin.applyPending();
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(7L);
 
         f.plugin.stop();
@@ -114,7 +114,7 @@ class LiveStateAcceptanceTest {
         Bytes startHash = Bytes.EMPTY;
         for (long i = 0; i < 3; i++) {
             f.deliverBlock(i, i, startHash);
-            f.plugin.applyPendingNow();
+            f.plugin.applyPending();
             startHash = f.plugin.metadata().stateRootHash();
         }
 
@@ -140,8 +140,8 @@ class LiveStateAcceptanceTest {
         Bytes start = Bytes.EMPTY;
         for (long block = 1; block <= 4; block++) {
             f.deliverBlock(block, block * 10L, start);
-            f.plugin.applyPendingNow();
-            f.plugin.saveSnapshotNow();
+            f.plugin.applyPending();
+            f.plugin.saveSnapshot();
             start = f.plugin.metadata().stateRootHash();
         }
 
@@ -165,8 +165,8 @@ class LiveStateAcceptanceTest {
 
         // Block 1 → snapshot 1.
         f.deliverBlock(1L, 10L, Bytes.EMPTY);
-        f.plugin.applyPendingNow();
-        f.plugin.saveSnapshotNow();
+        f.plugin.applyPending();
+        f.plugin.saveSnapshot();
         final java.nio.file.Path recent1 = tmp.resolve("recent").resolve("1");
         assertThat(java.nio.file.Files.isDirectory(recent1)).isTrue();
 
@@ -174,8 +174,8 @@ class LiveStateAcceptanceTest {
         // historic/1.tar and removed.
         final Bytes liveAfter1 = f.plugin.metadata().stateRootHash();
         f.deliverBlock(2L, 20L, liveAfter1);
-        f.plugin.applyPendingNow();
-        f.plugin.saveSnapshotNow();
+        f.plugin.applyPending();
+        f.plugin.saveSnapshot();
 
         assertThat(tmp.resolve("recent").resolve("2").toFile()).exists();
         assertThat(recent1.toFile()).doesNotExist();
@@ -194,8 +194,8 @@ class LiveStateAcceptanceTest {
         Bytes start = Bytes.EMPTY;
         for (long block = 1L; block <= 4L; block++) {
             f.deliverBlock(block, block * 10L, start);
-            f.plugin.applyPendingNow();
-            f.plugin.saveSnapshotNow();
+            f.plugin.applyPending();
+            f.plugin.saveSnapshot();
             start = f.plugin.metadata().stateRootHash();
         }
 
@@ -228,8 +228,8 @@ class LiveStateAcceptanceTest {
         Bytes start = Bytes.EMPTY;
         for (long block = 1L; block <= 4L; block++) {
             f.deliverBlock(block, block * 10L, start);
-            f.plugin.applyPendingNow();
-            f.plugin.saveSnapshotNow();
+            f.plugin.applyPending();
+            f.plugin.saveSnapshot();
             start = f.plugin.metadata().stateRootHash();
         }
 
@@ -249,13 +249,13 @@ class LiveStateAcceptanceTest {
         final Fixture f = startPlugin(tmp);
 
         f.deliverBlock(5L, 50L, Bytes.EMPTY); // genesis lane
-        f.plugin.applyPendingNow();
+        f.plugin.applyPending();
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
 
         // Block 6 with a deliberately bogus startOfBlockStateRootHash.
         final Bytes bogus = Bytes.fromHex("deadbeef".repeat(12)); // 48 bytes != live hash
         f.deliverBlock(6L, 60L, bogus);
-        f.plugin.applyPendingNow();
+        f.plugin.applyPending();
 
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
         assertThat(f.plugin.isDegraded()).isTrue();
@@ -267,8 +267,8 @@ class LiveStateAcceptanceTest {
     void scenario5_snapshotPersistsMetadataAndSnapshotFile(@TempDir final Path tmp) throws java.io.IOException {
         final Fixture f = startPlugin(tmp);
         f.deliverBlock(1L, 10L, Bytes.EMPTY);
-        f.plugin.applyPendingNow();
-        f.plugin.saveSnapshotNow();
+        f.plugin.applyPending();
+        f.plugin.saveSnapshot();
 
         assertThat(tmp.resolve("md.json").toFile()).exists();
         // VirtualMapStateLifecycleManager.createSnapshot writes a directory tree, not a single file.
@@ -318,7 +318,7 @@ class LiveStateAcceptanceTest {
                         .build())
                 .build();
         f.deliverBlockWithChanges(0L, 0L, Bytes.EMPTY, java.util.List.of(singletonAa, kvUpdate));
-        f.plugin.applyPendingNow();
+        f.plugin.applyPending();
 
         // Block 1: queue stateId=3 receives an element 0a.
         final Bytes startAfter0 = f.plugin.metadata().stateRootHash();
@@ -329,7 +329,7 @@ class LiveStateAcceptanceTest {
                         .build())
                 .build();
         f.deliverBlockWithChanges(1L, 10L, startAfter0, java.util.List.of(queuePush));
-        f.plugin.applyPendingNow();
+        f.plugin.applyPending();
 
         // Plugin must now serve all three query shapes successfully.
         final BinaryStateQueryResponse singleton = f.plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
@@ -388,8 +388,8 @@ class LiveStateAcceptanceTest {
                         .build())
                 .build();
         first.deliverBlockWithChanges(0L, 0L, Bytes.EMPTY, java.util.List.of(singletonSeed, kvSeed, queueSeed));
-        first.plugin.applyPendingNow();
-        first.plugin.saveSnapshotNow();
+        first.plugin.applyPending();
+        first.plugin.saveSnapshot();
         first.plugin.stop();
 
         // Second plugin instance — same paths, must reload metadata + snapshot dir.
@@ -467,20 +467,6 @@ class LiveStateAcceptanceTest {
             facility.sendBlockVerification(new VerificationNotification(
                     true, null, blockNumber, Bytes.fromHex("00"), block, BlockSource.PUBLISHER));
         }
-
-        /** Current mutable state root hash — used by tests to chain block footers correctly. */
-        @NonNull
-        Bytes currentMutableHash() {
-            try {
-                return Bytes.wrap(plugin.lifecycleManager()
-                        .getMutableState()
-                        .getRoot()
-                        .getHash()
-                        .copyToByteArray());
-            } catch (final RuntimeException e) {
-                return Bytes.EMPTY;
-            }
-        }
     }
 
     private static Fixture startPluginWithRetention(final Path tmp, final long retention) {
@@ -516,7 +502,7 @@ class LiveStateAcceptanceTest {
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();
         try {
-            plugin.awaitReady(5_000L);
+            LiveStatePluginTestSupport.awaitReady(plugin, 5_000L);
         } catch (final InterruptedException ie) {
             Thread.currentThread().interrupt();
         }

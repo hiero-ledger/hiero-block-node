@@ -37,7 +37,7 @@ import org.junit.jupiter.api.io.TempDir;
  *   <li>start writes no metadata for an empty filesystem (genesis stays implicit);</li>
  *   <li>a verified block applied via the synchronous apply hook advances metadata and
  *       emits a {@code VERIFIED} {@link StateUpdateNotification};</li>
- *   <li>{@code saveSnapshotNow} writes the snapshot binary, the metadata JSON, and emits
+ *   <li>{@code saveSnapshot()} writes the snapshot binary, the metadata JSON, and emits
  *       a {@code SNAPSHOT} notification;</li>
  *   <li>a fresh plugin pointing at the same directories restores the saved state.</li>
  * </ul>
@@ -54,20 +54,20 @@ class LiveStatePluginLifecycleTest {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final LiveStatePlugin plugin = startPlugin(metadataPath, recentRoot, historicRoot, facility);
 
-        assertThat(plugin.awaitReady(5_000L)).isTrue();
+        assertThat(LiveStatePluginTestSupport.awaitReady(plugin, 5_000L)).isTrue();
         assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
 
         final BlockUnparsed block = buildBlock(1L, 11L);
         facility.sendBlockVerification(new VerificationNotification(
                 true, null, 1L, Bytes.fromHex("aabb"), block, BlockSource.PUBLISHER));
 
-        plugin.applyPendingNow();
+        plugin.applyPending();
         assertThat(plugin.metadata().blockNumber()).isEqualTo(1L);
         assertThat(plugin.metadata().roundNumber()).isEqualTo(11L);
         assertThat(facility.getSentStateUpdateNotifications())
                 .anyMatch(n -> n.type() == StateUpdateType.VERIFIED && n.blockNumber() == 1L);
 
-        plugin.saveSnapshotNow();
+        plugin.saveSnapshot();
         assertThat(Files.exists(metadataPath)).isTrue();
         // VirtualMapStateLifecycleManager.createSnapshot writes a directory tree (per the
         // consensus-node state-snapshot spec). Assert the directory exists and is non-empty.
@@ -103,7 +103,7 @@ class LiveStatePluginLifecycleTest {
                 .build();
         facility.sendBlockVerification(new VerificationNotification(
                 true, null, 1L, Bytes.fromHex("aabb"), corrupt, BlockSource.PUBLISHER));
-        plugin.applyPendingNow();
+        plugin.applyPending();
 
         assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
         assertThat(facility.getSentStateUpdateNotifications()).isEmpty();
@@ -134,7 +134,7 @@ class LiveStatePluginLifecycleTest {
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();
         try {
-            plugin.awaitReady(5_000L);
+            LiveStatePluginTestSupport.awaitReady(plugin, 5_000L);
         } catch (final InterruptedException ie) {
             Thread.currentThread().interrupt();
         }

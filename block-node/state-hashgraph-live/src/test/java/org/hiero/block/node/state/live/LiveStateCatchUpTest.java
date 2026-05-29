@@ -53,7 +53,7 @@ class LiveStateCatchUpTest {
         // block 0, we then read the live hash, then push 1 and 2 with the right footer,
         // and call catch-up again.
         final LiveStatePlugin plugin = startPlugin(tmp, historic);
-        plugin.awaitReady(5_000L);
+        LiveStatePluginTestSupport.awaitReady(plugin, 5_000L);
         assertThat(plugin.metadata().blockNumber()).isZero();
 
         // Pre-seed remaining blocks with chained hashes now that block 0 has applied.
@@ -72,7 +72,7 @@ class LiveStateCatchUpTest {
     @Test
     void noHistoricalFacilityIsHandledGracefully(@TempDir final Path tmp) throws Exception {
         final LiveStatePlugin plugin = startPlugin(tmp, null);
-        assertThat(plugin.awaitReady(5_000L)).isTrue();
+        assertThat(LiveStatePluginTestSupport.awaitReady(plugin, 5_000L)).isTrue();
         assertThat(plugin.metadata().blockNumber()).isZero();
         plugin.stop();
     }

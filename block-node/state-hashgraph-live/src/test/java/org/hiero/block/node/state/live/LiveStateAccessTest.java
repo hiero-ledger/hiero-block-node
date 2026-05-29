@@ -3,21 +3,37 @@ package org.hiero.block.node.state.live;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hedera.hapi.block.stream.input.RoundHeader;
+import com.hedera.hapi.block.stream.output.BlockFooter;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.block.stream.output.MapChangeKey;
+import com.hedera.hapi.block.stream.output.MapChangeValue;
+import com.hedera.hapi.block.stream.output.MapUpdateChange;
+import com.hedera.hapi.block.stream.output.QueuePushChange;
+import com.hedera.hapi.block.stream.output.SingletonUpdateChange;
+import com.hedera.hapi.block.stream.output.StateChange;
+import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.merkledb.config.MerkleDbConfig;
 import com.swirlds.virtualmap.config.VirtualMapConfig;
-import org.hiero.consensus.config.PathsConfig;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import org.hiero.block.api.BinaryStateQuery;
 import org.hiero.block.api.BinaryStateQueryResponse;
 import org.hiero.block.api.BinaryStateQueryResponse.Code;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.consensus.config.PathsConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -26,52 +42,93 @@ import org.junit.jupiter.api.io.TempDir;
  * Bypasses Helidon by calling the {@code StateServiceInterface} default
  * methods directly — same code path the gRPC dispatcher invokes on a
  * matched request.
+ *
+ * <p>State is arranged by delivering a block carrying {@code state_changes}
+ * and letting the plugin apply it, exactly as in production. The applier
+ * stores the serialized change-carrier bytes (e.g.
+ * {@code SingletonUpdateChange.PROTOBUF.toBytes(...)}), so queries assert
+ * against those carrier bytes rather than raw values.
  */
 class LiveStateAccessTest {
 
     @Test
     void kvSingletonAndQueueHappyPaths(@TempDir final Path tmp) {
-        final LiveStatePlugin plugin = startPlugin(tmp);
+        final Started s = startPlugin(tmp);
 
-        plugin.lifecycleManager().getMutableState().updateSingleton(1, Bytes.fromHex("aa"));
-        plugin.lifecycleManager().getMutableState().updateKv(2, Bytes.fromHex("01"), Bytes.fromHex("bb"));
-        plugin.lifecycleManager().getMutableState().pushQueue(3, Bytes.fromHex("aa"));
-        plugin.lifecycleManager().getMutableState().pushQueue(3, Bytes.fromHex("bb"));
-        // Query handlers read from getLatestImmutableState; flush the direct mutable
-        // writes through copyMutableState so they're visible to the read path.
-        plugin.lifecycleManager().copyMutableState();
+        // Singleton stateId=1, KV stateId=2 (key=01), queue stateId=3 (two pushes).
+        final SingletonUpdateChange singleton = SingletonUpdateChange.newBuilder()
+                .bytesValue(Bytes.fromHex("aa"))
+                .build();
+        final MapChangeKey kvKey =
+                MapChangeKey.newBuilder().protoBytesKey(Bytes.fromHex("01")).build();
+        final MapChangeValue kvValue =
+                MapChangeValue.newBuilder().protoStringValue("bb").build();
+        final QueuePushChange queueA =
+                QueuePushChange.newBuilder().protoBytesElement(Bytes.fromHex("aa")).build();
+        final QueuePushChange queueB =
+                QueuePushChange.newBuilder().protoBytesElement(Bytes.fromHex("bb")).build();
 
-        final BinaryStateQueryResponse singleton = plugin.getBinarySingleton(
+        s.deliverBlock(
+                0L,
+                0L,
+                Bytes.EMPTY,
+                List.of(
+                        StateChange.newBuilder().stateId(1).singletonUpdate(singleton).build(),
+                        StateChange.newBuilder()
+                                .stateId(2)
+                                .mapUpdate(MapUpdateChange.newBuilder()
+                                        .key(kvKey)
+                                        .value(kvValue)
+                                        .build())
+                                .build(),
+                        StateChange.newBuilder().stateId(3).queuePush(queueA).build(),
+                        StateChange.newBuilder().stateId(3).queuePush(queueB).build()));
+        s.plugin.applyPending();
+
+        // The applier stores serialized carriers; compute the expected stored bytes.
+        final Bytes expectedSingleton = SingletonUpdateChange.PROTOBUF.toBytes(singleton);
+        final Bytes expectedKvKey = MapChangeKey.PROTOBUF.toBytes(kvKey);
+        final Bytes expectedKvValue = MapChangeValue.PROTOBUF.toBytes(kvValue);
+        final Bytes expectedQueueA = QueuePushChange.PROTOBUF.toBytes(queueA);
+        final Bytes expectedQueueB = QueuePushChange.PROTOBUF.toBytes(queueB);
+
+        final BinaryStateQueryResponse singletonResp = s.plugin.getBinarySingleton(
                 BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(1L).build());
-        assertThat(singleton.status()).isEqualTo(Code.SUCCESS);
-        assertThat(singleton.singletonBytes()).isEqualTo(Bytes.fromHex("aa"));
+        assertThat(singletonResp.status()).isEqualTo(Code.SUCCESS);
+        assertThat(singletonResp.singletonBytes()).isEqualTo(expectedSingleton);
 
-        final BinaryStateQueryResponse kv = plugin.getBinaryKV(
-                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(2L).keyBytes(Bytes.fromHex("01")).build());
+        final BinaryStateQueryResponse kv = s.plugin.getBinaryKV(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(2L)
+                .keyBytes(expectedKvKey)
+                .build());
         assertThat(kv.status()).isEqualTo(Code.SUCCESS);
-        assertThat(kv.kvBytes()).isEqualTo(Bytes.fromHex("bb"));
+        assertThat(kv.kvBytes()).isEqualTo(expectedKvValue);
 
-        final BinaryStateQueryResponse queueAll = plugin.getBinaryQueue(
+        final BinaryStateQueryResponse queueAll = s.plugin.getBinaryQueue(
                 BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(3L).build());
         assertThat(queueAll.status()).isEqualTo(Code.SUCCESS);
-        assertThat(queueAll.queueBytes()).containsExactly(Bytes.fromHex("aa"), Bytes.fromHex("bb"));
+        assertThat(queueAll.queueBytes()).containsExactly(expectedQueueA, expectedQueueB);
 
         // Indexed peek uses VirtualMap's internal queue index (head…tail range, not an
         // array index from zero). We assert structural success and that the returned
         // element is one of the pushed values; the exact mapping of index→element is
         // owned by swirlds-state-impl and may differ across versions.
-        final BinaryStateQueryResponse queueOne = plugin.getBinaryQueue(
-                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(3L).queueIndex(1L).build());
+        final BinaryStateQueryResponse queueOne = s.plugin.getBinaryQueue(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(3L)
+                .queueIndex(1L)
+                .build());
         assertThat(queueOne.status()).isEqualTo(Code.SUCCESS);
         assertThat(queueOne.queueBytes()).hasSize(1);
-        assertThat(queueOne.queueBytes().getFirst()).isIn(Bytes.fromHex("aa"), Bytes.fromHex("bb"));
+        assertThat(queueOne.queueBytes().getFirst()).isIn(expectedQueueA, expectedQueueB);
 
-        plugin.stop();
+        s.plugin.stop();
     }
 
     @Test
     void notFoundAndInvalidShapes(@TempDir final Path tmp) {
-        final LiveStatePlugin plugin = startPlugin(tmp);
+        final LiveStatePlugin plugin = startPlugin(tmp).plugin;
 
         // not found — clean state.
         assertThat(plugin.getBinarySingleton(
@@ -144,7 +201,43 @@ class LiveStateAccessTest {
         plugin.stop();
     }
 
-    private static LiveStatePlugin startPlugin(final Path tmp) {
+    // ── Fixtures ───────────────────────────────────────────────────────────
+
+    private record Started(LiveStatePlugin plugin, TestBlockMessagingFacility facility) {
+        /** Deliver a block carrying the supplied {@code state_changes}. */
+        void deliverBlock(
+                final long blockNumber,
+                final long roundNumber,
+                @NonNull final Bytes startHash,
+                @NonNull final List<StateChange> changes) {
+            final List<BlockItemUnparsed> items = new ArrayList<>();
+            items.add(BlockItemUnparsed.newBuilder()
+                    .blockHeader(BlockHeader.PROTOBUF.toBytes(
+                            BlockHeader.newBuilder().number(blockNumber).build()))
+                    .build());
+            items.add(BlockItemUnparsed.newBuilder()
+                    .roundHeader(RoundHeader.PROTOBUF.toBytes(
+                            RoundHeader.newBuilder().roundNumber(roundNumber).build()))
+                    .build());
+            if (!changes.isEmpty()) {
+                items.add(BlockItemUnparsed.newBuilder()
+                        .stateChanges(StateChanges.PROTOBUF.toBytes(StateChanges.newBuilder()
+                                .stateChanges(changes)
+                                .build()))
+                        .build());
+            }
+            items.add(BlockItemUnparsed.newBuilder()
+                    .blockFooter(BlockFooter.PROTOBUF.toBytes(BlockFooter.newBuilder()
+                            .startOfBlockStateRootHash(startHash)
+                            .build()))
+                    .build());
+            facility.sendBlockVerification(new VerificationNotification(
+                    true, null, blockNumber, Bytes.fromHex("00"),
+                    BlockUnparsed.newBuilder().blockItems(items).build(), BlockSource.PUBLISHER));
+        }
+    }
+
+    private static Started startPlugin(final Path tmp) {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(LiveStateConfig.class)
@@ -166,11 +259,11 @@ class LiveStateAccessTest {
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();
         try {
-            plugin.awaitReady(5_000L);
+            LiveStatePluginTestSupport.awaitReady(plugin, 5_000L);
         } catch (final InterruptedException ie) {
             Thread.currentThread().interrupt();
         }
-        return plugin;
+        return new Started(plugin, facility);
     }
 
     private static final ServiceBuilder NOOP_SERVICE_BUILDER = new ServiceBuilder() {

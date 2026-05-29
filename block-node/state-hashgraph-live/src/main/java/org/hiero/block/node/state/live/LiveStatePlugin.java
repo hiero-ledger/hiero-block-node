@@ -286,7 +286,11 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         }
     }
 
-    // ── Test hooks ──────────────────────────────────────────────────────────
+    // ── Package-private observers ─────────────────────────────────────────────
+    // Read-only accessors for the same state the gRPC surface already exposes.
+    // Tests drive the plugin through its real entry points (applyPending,
+    // saveSnapshot, block delivery) and assert against these observers; there
+    // are no force/duplicate "*Now" hooks or internals accessors in production.
 
     boolean isReady() {
         return ready.get();
@@ -295,28 +299,6 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     @NonNull
     StateMetadata metadata() {
         return metadata;
-    }
-
-    @NonNull
-    VirtualMapStateLifecycleManager lifecycleManager() {
-        return lifecycleManager;
-    }
-
-    void applyPendingNow() {
-        applyPending();
-    }
-
-    void saveSnapshotNow() {
-        saveSnapshot();
-    }
-
-    /** Block the calling thread until catch-up completes or the timeout expires. Test-only. */
-    boolean awaitReady(final long timeoutMillis) throws InterruptedException {
-        final long deadline = System.currentTimeMillis() + timeoutMillis;
-        while (!ready.get() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10L);
-        }
-        return ready.get();
     }
 
     // ── Internals ───────────────────────────────────────────────────────────
