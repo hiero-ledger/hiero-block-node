@@ -69,7 +69,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     private volatile StateMetadata metadata = StateMetadata.DEFAULT;
 
     private final ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks = new ConcurrentSkipListMap<>();
-    private final AtomicBoolean ready = new AtomicBoolean(false);
+    private final AtomicBoolean stateIsCaughtUp = new AtomicBoolean(false);
     private final AtomicBoolean stopping = new AtomicBoolean(false);
     private final AtomicBoolean degraded = new AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicLong hashMismatchTotal = new java.util.concurrent.atomic.AtomicLong();
@@ -169,7 +169,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     @Override
     public void stop() {
         stopping.set(true);
-        ready.set(false);
+        stateIsCaughtUp.set(false);
         if (context != null) {
             try {
                 context.blockMessaging().unregisterBlockNotificationHandler(this);
@@ -203,7 +203,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     @Override
     public BinaryStateQueryResponse getBinaryKV(@NonNull final BinaryStateQuery request) {
         final BinaryStateQueryResponse.Builder out = baseResponse();
-        if (!ready.get()) {
+        if (!stateIsCaughtUp.get()) {
             return out.status(Code.NOT_READY).build();
         }
         if (request.keyBytes() == null || request.keyBytes().length() == 0L) {
@@ -227,7 +227,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     @Override
     public BinaryStateQueryResponse getBinarySingleton(@NonNull final BinaryStateQuery request) {
         final BinaryStateQueryResponse.Builder out = baseResponse();
-        if (!ready.get()) {
+        if (!stateIsCaughtUp.get()) {
             return out.status(Code.NOT_READY).build();
         }
         if (request.keyBytes() != null && request.keyBytes().length() > 0L) {
@@ -251,7 +251,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     @Override
     public BinaryStateQueryResponse getBinaryQueue(@NonNull final BinaryStateQuery request) {
         final BinaryStateQueryResponse.Builder out = baseResponse();
-        if (!ready.get()) {
+        if (!stateIsCaughtUp.get()) {
             return out.status(Code.NOT_READY).build();
         }
         if (request.keyBytes() != null && request.keyBytes().length() > 0L) {
@@ -293,7 +293,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     // are no force/duplicate "*Now" hooks or internals accessors in production.
 
     boolean isReady() {
-        return ready.get();
+        return stateIsCaughtUp.get();
     }
 
     @NonNull
@@ -384,19 +384,19 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
      * {@link #applyPending()} loop that handles verification-delivered blocks.
      *
      * <p>Runs on the {@code LiveState-catchup} thread. When complete (or if there is
-     * nothing to catch up to) sets {@link #ready} so query traffic stops returning
+     * nothing to catch up to) sets {@link #stateIsCaughtUp} so query traffic stops returning
      * {@code NOT_READY}.
      */
     void catchUpFromHistoricalBlocks() {
         try {
             final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
             if (historic == null) {
-                ready.set(true);
+                stateIsCaughtUp.set(true);
                 return;
             }
             final BlockRangeSet available = historic.availableBlocks();
             if (available == null || available.size() == 0L) {
-                ready.set(true);
+                stateIsCaughtUp.set(true);
                 return;
             }
             final long latest = available.max();
@@ -404,7 +404,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
                     metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
             final long start = atGenesis ? available.min() : metadata.blockNumber() + 1L;
             if (start > latest) {
-                ready.set(true);
+                stateIsCaughtUp.set(true);
                 return;
             }
             final int batchSize = Math.max(1, config.historicCatchUpBatchSize());
@@ -425,7 +425,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         } finally {
             // Even if catch-up hit a gap or a degraded state, the plugin is in the best
             // shape it can be — start serving queries against whatever applied.
-            ready.set(true);
+            stateIsCaughtUp.set(true);
         }
     }
 
