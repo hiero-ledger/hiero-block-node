@@ -124,18 +124,33 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         snapshotExecutor = newSingleThreadExecutor("LiveState-snapshot");
         catchUpExecutor = newSingleThreadExecutor("LiveState-catchup");
 
-        stateChangesExecutor.scheduleWithFixedDelay(
-                this::applyPending, 0L, config.stateChangesApplyIntervalMillis(), TimeUnit.MILLISECONDS);
+        // Snapshot timer can run from boot — it no-ops until metadata.blockNumber()
+        // moves forward, so there is no race with catch-up.
         snapshotExecutor.scheduleWithFixedDelay(
                 this::saveSnapshot,
                 config.snapshotIntervalMillis(),
                 config.snapshotIntervalMillis(),
                 TimeUnit.MILLISECONDS);
 
-        // Catch-up runs on its own thread so start() returns fast. It sets ready=true
-        // when the live state has been brought up to the latest historical block; query
-        // traffic is gated NOT_READY until then.
-        catchUpExecutor.execute(this::catchUpFromHistoricalBlocks);
+        // IMPORTANT: do NOT schedule the recurring applyPending() task before
+        // catchUpFromHistoricalBlocks finishes. Both call applyPending(), which
+        // mutates lifecycleManager.getMutableState() / copyMutableState() and the
+        // `metadata` field — none of which are safe to invoke concurrently from
+        // two threads. The catch-up walk calls applyPending() inline as it
+        // enqueues each batch; the timer-driven version starts only after the
+        // catch-up walk has completed (or trivially decided there's nothing to
+        // catch up to).
+        catchUpExecutor.execute(() -> {
+            try {
+                catchUpFromHistoricalBlocks();
+            } finally {
+                stateChangesExecutor.scheduleWithFixedDelay(
+                        this::applyPending,
+                        0L,
+                        config.stateChangesApplyIntervalMillis(),
+                        TimeUnit.MILLISECONDS);
+            }
+        });
     }
 
     @Override
