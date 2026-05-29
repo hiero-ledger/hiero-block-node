@@ -33,18 +33,27 @@ import java.util.zip.GZIPOutputStream;
 import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.records.ChainFile;
 import org.hiero.block.tools.records.RecordFileDates;
+import org.hiero.block.tools.utils.BucketLister;
 
 /**
- * A class to list and download files from the mainnet bucket. This is designed to be thread safe.
- * <p>
- * <b>Example bucket paths</b>
+ * GCP bucket lister using Google Cloud Storage SDK with Application Default Credentials.
+ *
+ * <p>This implementation uses the GCS Java SDK and requires service account credentials
+ * via the GOOGLE_APPLICATION_CREDENTIALS environment variable.
+ *
+ * <p>For HMAC credentials, use {@link org.hiero.block.tools.utils.s3.BuckyBucketLister} instead,
+ * which accesses GCS via the S3-compatible API.
+ *
+ * <p>This class is thread-safe.
+ *
+ * <p><b>Example bucket paths</b>
  * <ul>
  *    <li><code>gs://hedera-mainnet-streams/recordstreams/record0.0.3/2019-09-13T21_53_51.396440Z.rcd</code></li>
  *    <li><code>gs://hedera-mainnet-streams/recordstreams/record0.0.3/sidecar/2023-04-25T17_42_16.032498578Z_01.rcd.gz</code></li>
  * </ul>
  */
 @SuppressWarnings("unused")
-public class MainNetBucket {
+public class GCPBucketLister implements BucketLister {
     /** The required fields we need from blobs */
     private static final Storage.BlobListOption REQUIRED_FIELDS =
             BlobListOption.fields(BlobField.NAME, BlobField.SIZE, BlobField.MD5HASH);
@@ -53,7 +62,22 @@ public class MainNetBucket {
     /** Glob filter to signature files only */
     private static final Storage.BlobListOption SIGNATURE_FILES_ONLY = BlobListOption.matchGlob("**.rcd_sig");
     /** The GCP Storage service instance - use Storage.list() directly to avoid needing bucket metadata access */
-    private static final Storage STORAGE = StorageOptions.getDefaultInstance().getService();
+    private static final Storage STORAGE = createStorageClient();
+
+    /**
+     * Creates a Storage client using Application Default Credentials.
+     *
+     * <p>This uses the standard GCS SDK authentication, which supports service account JSON files
+     * via the GOOGLE_APPLICATION_CREDENTIALS environment variable.
+     *
+     * <p><b>Note:</b> For HMAC credentials, use {@link org.hiero.block.tools.utils.s3.BuckyBucketLister}
+     * instead, which accesses GCS via the S3-compatible API.
+     *
+     * @return a configured Storage client
+     */
+    private static Storage createStorageClient() {
+        return StorageOptions.getDefaultInstance().getService();
+    }
 
     /**
      * The cache enabled switch. When caching is enabled all fetched data is saved on disk and reused between runs. This
@@ -78,19 +102,19 @@ public class MainNetBucket {
     private final String bucketName;
 
     /**
-     * Create a new MainNetBucket instance with the given cache enabled switch and cache directory.
+     * Create a new GCPBucketLister instance with the given cache enabled switch and cache directory.
      *
      * @param cacheEnabled the cache enabled switch
      * @param cacheDir the cache directory
      * @param minNodeAccountId the minimum node account id in the network
      * @param maxNodeAccountId the maximum node account id in the network
      */
-    public MainNetBucket(boolean cacheEnabled, Path cacheDir, int minNodeAccountId, int maxNodeAccountId) {
+    public GCPBucketLister(boolean cacheEnabled, Path cacheDir, int minNodeAccountId, int maxNodeAccountId) {
         this(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, null);
     }
 
     /**
-     * Create a new MainNetBucket instance with the given cache enabled switch, cache directory, and user project.
+     * Create a new GCPBucketLister instance with the given cache enabled switch, cache directory, and user project.
      *
      * @param cacheEnabled the cache enabled switch
      * @param cacheDir the cache directory
@@ -98,7 +122,7 @@ public class MainNetBucket {
      * @param maxNodeAccountId the maximum node account id in the network
      * @param userProject the GCP project to bill for requester-pays bucket access (can be null)
      */
-    public MainNetBucket(
+    public GCPBucketLister(
             boolean cacheEnabled, Path cacheDir, int minNodeAccountId, int maxNodeAccountId, String userProject) {
         this(
                 cacheEnabled,
@@ -110,7 +134,7 @@ public class MainNetBucket {
     }
 
     /**
-     * Create a new MainNetBucket instance with all parameters including bucket name.
+     * Create a new GCPBucketLister instance with all parameters including bucket name.
      *
      * @param cacheEnabled the cache enabled switch
      * @param cacheDir the cache directory
@@ -119,7 +143,7 @@ public class MainNetBucket {
      * @param userProject the GCP project to bill for requester-pays bucket access (can be null)
      * @param bucketName the GCS bucket name to use
      */
-    public MainNetBucket(
+    public GCPBucketLister(
             boolean cacheEnabled,
             Path cacheDir,
             int minNodeAccountId,
@@ -546,7 +570,7 @@ public class MainNetBucket {
      * The main method test listing all the files in the bucket for the given day and hour.
      */
     public static void main(String[] args) {
-        MainNetBucket mainNetBucket = new MainNetBucket(true, Path.of("data/gcp-cache"), 0, 34);
+        GCPBucketLister mainNetBucket = new GCPBucketLister(true, Path.of("data/gcp-cache"), 0, 34);
         mainNetBucket.listHour(0).forEach(System.out::println);
         System.out.println("==========================================================================");
         final Instant dec1st2024 = Instant.parse("2024-12-01T00:00:00Z");

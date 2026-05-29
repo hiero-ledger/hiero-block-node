@@ -7,7 +7,7 @@ import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTim
 import java.io.InputStream;
 import java.io.Serializable;
 import java.util.regex.Pattern;
-import org.hiero.block.tools.utils.gcp.MainNetBucket;
+import org.hiero.block.tools.utils.gcp.GCPBucketLister;
 
 /**
  * Represents a file in the record stream blockchain.
@@ -96,7 +96,7 @@ public record ChainFile(
      * @param mainNetBucket the main net bucket that contains the file
      * @return the file as a byte array
      */
-    public byte[] download(MainNetBucket mainNetBucket) {
+    public byte[] download(GCPBucketLister mainNetBucket) {
         return mainNetBucket.download(path);
     }
 
@@ -106,7 +106,7 @@ public record ChainFile(
      * @param mainNetBucket the main net bucket that contains the file
      * @return the file as a stream
      */
-    public InputStream downloadStreaming(MainNetBucket mainNetBucket) {
+    public InputStream downloadStreaming(GCPBucketLister mainNetBucket) {
         return mainNetBucket.downloadStreaming(path);
     }
 

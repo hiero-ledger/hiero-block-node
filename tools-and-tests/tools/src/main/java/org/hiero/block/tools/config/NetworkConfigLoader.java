@@ -38,6 +38,7 @@ public final class NetworkConfigLoader {
 
     private static final Gson GSON = new GsonBuilder()
             .registerTypeAdapter(LocalDate.class, new LocalDateDeserializer())
+            .registerTypeAdapter(NetworkConfig.class, new NetworkConfigDeserializer())
             .create();
 
     private NetworkConfigLoader() {
@@ -102,6 +103,10 @@ public final class NetworkConfigLoader {
         } catch (IOException e) {
             throw new IllegalArgumentException("Failed to read network config file: " + configPath, e);
         } catch (JsonParseException e) {
+            // Preserve validation error messages (e.g., "missing required field")
+            if (e.getMessage() != null && e.getMessage().contains("missing required field")) {
+                throw new IllegalArgumentException(e.getMessage(), e);
+            }
             throw new IllegalArgumentException("Invalid JSON in network config file: " + configPath, e);
         }
     }
@@ -149,6 +154,64 @@ public final class NetworkConfigLoader {
         public LocalDate deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context)
                 throws JsonParseException {
             return LocalDate.parse(json.getAsString(), DateTimeFormatter.ISO_LOCAL_DATE);
+        }
+    }
+
+    /**
+     * Custom deserializer for NetworkConfig to handle Java records properly.
+     */
+    private static class NetworkConfigDeserializer implements JsonDeserializer<NetworkConfig> {
+        @Override
+        public NetworkConfig deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context)
+                throws JsonParseException {
+            var obj = json.getAsJsonObject();
+
+            try {
+                return new NetworkConfig(
+                        getRequiredString(obj, "networkName"),
+                        getRequiredString(obj, "gcsBucketName"),
+                        obj.has("bucketPathPrefix")
+                                        && !obj.get("bucketPathPrefix").isJsonNull()
+                                ? obj.get("bucketPathPrefix").getAsString()
+                                : "recordstreams/", // default
+                        getRequiredString(obj, "mirrorNodeApiUrl"),
+                        context.deserialize(obj.get("genesisDate"), LocalDate.class),
+                        getRequiredString(obj, "genesisTimestamp"),
+                        getRequiredInt(obj, "minNodeAccountId"),
+                        getRequiredInt(obj, "maxNodeAccountId"),
+                        getRequiredLong(obj, "totalHbarSupplyTinybar"),
+                        obj.has("genesisAddressBookResource")
+                                        && !obj.get("genesisAddressBookResource")
+                                                .isJsonNull()
+                                ? obj.get("genesisAddressBookResource").getAsString()
+                                : null);
+            } catch (NullPointerException e) {
+                throw new JsonParseException("Network config missing required field", e);
+            }
+        }
+
+        private String getRequiredString(com.google.gson.JsonObject obj, String fieldName) {
+            JsonElement element = obj.get(fieldName);
+            if (element == null || element.isJsonNull()) {
+                throw new JsonParseException("Network config missing required field: " + fieldName);
+            }
+            return element.getAsString();
+        }
+
+        private int getRequiredInt(com.google.gson.JsonObject obj, String fieldName) {
+            JsonElement element = obj.get(fieldName);
+            if (element == null || element.isJsonNull()) {
+                throw new JsonParseException("Network config missing required field: " + fieldName);
+            }
+            return element.getAsInt();
+        }
+
+        private long getRequiredLong(com.google.gson.JsonObject obj, String fieldName) {
+            JsonElement element = obj.get(fieldName);
+            if (element == null || element.isJsonNull()) {
+                throw new JsonParseException("Network config missing required field: " + fieldName);
+            }
+            return element.getAsLong();
         }
     }
 }

@@ -22,8 +22,10 @@ import org.hiero.block.tools.days.listing.ListingRecordFile;
 import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.records.ChainFile;
 import org.hiero.block.tools.records.RecordFileDates;
+import org.hiero.block.tools.utils.BucketLister;
 import org.hiero.block.tools.utils.PrettyPrint;
-import org.hiero.block.tools.utils.gcp.MainNetBucket;
+import org.hiero.block.tools.utils.gcp.GCPBucketLister;
+import org.hiero.block.tools.utils.s3.BuckyBucketLister;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -142,6 +144,37 @@ public class UpdateDayListingsCommand implements Runnable {
     }
 
     /**
+     * Creates the appropriate BucketLister implementation based on available credentials.
+     *
+     * <p>If HMAC credentials are available in environment variables (GCS_HMAC_ACCESS_ID and GCS_HMAC_SECRET),
+     * creates a BuckyBucketLister for S3-compatible access. Otherwise, creates a GCPBucketLister for
+     * standard GCS access with Application Default Credentials.
+     *
+     * @param cacheEnabled whether to enable GCS caching (only applies to GCPBucketLister)
+     * @param cacheDir the directory for GCS cache (only applies to GCPBucketLister)
+     * @param minNodeAccountId minimum node account ID
+     * @param maxNodeAccountId maximum node account ID
+     * @param userProject GCP project for requester-pays billing (only applies to GCPBucketLister)
+     * @return configured BucketLister implementation
+     */
+    private static BucketLister createBucketLister(
+            boolean cacheEnabled, Path cacheDir, int minNodeAccountId, int maxNodeAccountId, String userProject) {
+
+        final String hmacAccessId = System.getenv("GCS_HMAC_ACCESS_ID");
+        final String hmacSecret = System.getenv("GCS_HMAC_SECRET");
+
+        // If HMAC credentials are present, use BuckyBucketLister for S3-compatible access
+        if (hmacAccessId != null && !hmacAccessId.isBlank() && hmacSecret != null && !hmacSecret.isBlank()) {
+            System.out.println("[UpdateDayListingsCommand] Using BuckyBucketLister with HMAC credentials");
+            return BuckyBucketLister.fromEnvironment(minNodeAccountId, maxNodeAccountId);
+        }
+
+        // Otherwise use GCPBucketLister for standard GCS access
+        System.out.println("[UpdateDayListingsCommand] Using GCPBucketLister with Application Default Credentials");
+        return new GCPBucketLister(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
+    }
+
+    /**
      * Update day listing files by fetching file metadata from Google Cloud Storage.
      *
      * <p>This method scans the local listing directory to find missing days (including gaps),
@@ -191,9 +224,9 @@ public class UpdateDayListingsCommand implements Runnable {
             System.out.println("First missing: " + missingDays.getFirst() + ", Last missing: " + missingDays.getLast());
             System.out.println("Using nodes " + minNodeAccountId + " to " + maxNodeAccountId);
 
-            // Create MainNetBucket for GCS access
-            final MainNetBucket mainNetBucket =
-                    new MainNetBucket(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
+            // Create appropriate BucketLister implementation based on available credentials
+            final BucketLister bucketLister =
+                    createBucketLister(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
 
             // Process each missing day
             final long totalDays = missingDays.size();
@@ -201,7 +234,7 @@ public class UpdateDayListingsCommand implements Runnable {
             final long startTimeNanos = System.nanoTime();
 
             for (LocalDate missingDay : missingDays) {
-                processDayStatic(listingDir, mainNetBucket, missingDay, processedDays, totalDays, startTimeNanos);
+                processDayStatic(listingDir, bucketLister, missingDay, processedDays, totalDays, startTimeNanos);
                 processedDays++;
             }
 
@@ -326,7 +359,7 @@ public class UpdateDayListingsCommand implements Runnable {
      */
     private static void processDayStatic(
             final Path listingPath,
-            final MainNetBucket mainNetBucket,
+            final BucketLister bucketLister,
             final LocalDate day,
             final long processedDays,
             final long totalDays,
@@ -344,8 +377,8 @@ public class UpdateDayListingsCommand implements Runnable {
         // Update progress before listing
         updateProgressStatic(day, processedDays, totalDays, startTimeNanos, 0, 100);
 
-        // List all files for this day using MainNetBucket
-        final List<ChainFile> chainFiles = mainNetBucket.listDay(blockTime);
+        // List all files for this day using BucketLister
+        final List<ChainFile> chainFiles = bucketLister.listDay(blockTime);
 
         // Update progress after listing
         updateProgressStatic(day, processedDays, totalDays, startTimeNanos, 50, 100);
@@ -449,13 +482,13 @@ public class UpdateDayListingsCommand implements Runnable {
                 Files.createDirectories(cacheDir);
             }
 
-            // Create MainNetBucket for GCS access
-            final MainNetBucket mainNetBucket =
-                    new MainNetBucket(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
+            // Create appropriate BucketLister implementation based on available credentials
+            final BucketLister bucketLister =
+                    createBucketLister(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
 
             // Process the single day
             final long startTimeNanos = System.nanoTime();
-            processDayStatic(listingDir, mainNetBucket, targetDay, 0, 1, startTimeNanos);
+            processDayStatic(listingDir, bucketLister, targetDay, 0, 1, startTimeNanos);
 
             PrettyPrint.clearProgress();
             System.out.println("Updated listings for " + targetDay);
@@ -582,10 +615,10 @@ public class UpdateDayListingsCommand implements Runnable {
     }
 
     /**
-     * Processes a single day by listing all files from GCS and writing to a listing file.
+     * Processes a single day by listing all files from cloud storage and writing to a listing file.
      *
      * @param listingPath the base directory for listings
-     * @param mainNetBucket the MainNetBucket for GCS access
+     * @param bucketLister the BucketLister for cloud storage access
      * @param day the day to process
      * @param processedDays number of days already processed
      * @param totalDays total number of days to process
@@ -594,7 +627,7 @@ public class UpdateDayListingsCommand implements Runnable {
      */
     private void processDay(
             final Path listingPath,
-            final MainNetBucket mainNetBucket,
+            final BucketLister bucketLister,
             final LocalDate day,
             final long processedDays,
             final long totalDays,
@@ -612,8 +645,8 @@ public class UpdateDayListingsCommand implements Runnable {
         // Update progress before listing
         updateProgress(day, processedDays, totalDays, startTimeNanos, 0, 100);
 
-        // List all files for this day using MainNetBucket
-        final List<ChainFile> chainFiles = mainNetBucket.listDay(blockTime);
+        // List all files for this day using BucketLister
+        final List<ChainFile> chainFiles = bucketLister.listDay(blockTime);
 
         // Update progress after listing
         updateProgress(day, processedDays, totalDays, startTimeNanos, 50, 100);
