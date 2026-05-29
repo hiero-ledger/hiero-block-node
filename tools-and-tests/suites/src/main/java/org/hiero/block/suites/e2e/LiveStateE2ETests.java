@@ -129,7 +129,7 @@ class LiveStateE2ETests {
         // Poll briefly until the plugin finishes catch-up (no historical blocks means it
         // completes near-immediately, but the catch-up thread is still asynchronous).
         final BinaryStateQueryResponse response = awaitNonNotReady(
-                () -> client.getBinarySingleton(BinaryStateQuery.newBuilder().stateId(1L).build()));
+                () -> client.getBinarySingleton(BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(1L).build()));
 
         assertThat(response.status()).as("structured response over the wire").isIn(Code.NOT_FOUND, Code.SUCCESS);
         assertThat(response.stateMetadata()).as("metadata always populated").isNotNull();
@@ -141,6 +141,7 @@ class LiveStateE2ETests {
 
         // KV on a non-existent state/key.
         final BinaryStateQueryResponse kv = awaitNonNotReady(() -> client.getBinaryKV(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
                 .stateId(99L)
                 .keyBytes(Bytes.fromHex("01"))
                 .build()));
@@ -148,7 +149,7 @@ class LiveStateE2ETests {
 
         // Queue with no elements.
         final BinaryStateQueryResponse queue = awaitNonNotReady(() -> client.getBinaryQueue(
-                BinaryStateQuery.newBuilder().stateId(99L).build()));
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(99L).build()));
         assertThat(queue.status()).isEqualTo(Code.NOT_FOUND);
     }
 

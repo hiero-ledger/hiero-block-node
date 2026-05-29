@@ -136,10 +136,15 @@ what is held in memory.
 
 ```proto
 message BinaryStateQuery {
-  uint64 block_number = 1;        // 0 = latest; otherwise must equal latest
-  uint64 state_id     = 2;
-  bytes  key_bytes    = 3;        // KV key (mutually exclusive with queue_index)
-  uint64 queue_index  = 4;        // Queue index (0-based, optional)
+  // Modeled on BlockRequest.block_specifier in block_access_service.proto.
+  // Exactly one of these MUST be set. Block 0 (genesis) is a valid block_number.
+  oneof block_specifier {
+    uint64 block_number    = 1;
+    bool   retrieve_latest = 5;
+  }
+  uint64 state_id    = 2;
+  bytes  key_bytes   = 3;        // KV key (mutually exclusive with queue_index)
+  uint64 queue_index = 4;        // Queue index (0-based, optional)
 }
 
 message BinaryStateQueryResponse {

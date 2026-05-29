@@ -20,18 +20,38 @@ import "block-node/api/shared_message_types.proto";
  *  - `getBinaryQueue`     SHALL set `state_id`. `queue_index` MAY be set to read a single element;
  *                         when omitted the full queue is returned.
  *
- * `block_number` MAY be set to `0` to indicate "latest available" or to an
- * explicit block number which the Block-Node MUST match against its
- * currently applied state. Requests for older block numbers SHALL be
- * answered with `INVALID_REQUEST` until historical state queries are
- * supported.
+ * Exactly one of `block_specifier.block_number` or
+ * `block_specifier.retrieve_latest` MUST be set. Block 0 (genesis) is a
+ * valid `block_number`. Requests targeting block numbers other than the
+ * currently applied one SHALL be answered with `INVALID_REQUEST` until
+ * historical state queries are supported.
+ *
+ * TODO: when a second consumer of this pattern lands, lift
+ * `block_specifier` into `shared_message_types.proto` and reuse here and
+ * in `BlockRequest`.
  */
 message BinaryStateQuery {
     /**
-     * Block number that the response state MUST correspond to. `0` selects
-     * the latest applied state.
+     * Which block this query targets — explicit block number or the latest
+     * applied state. Modeled to match `BlockRequest.block_specifier` in
+     * `block_access_service.proto`.
      */
-    uint64 block_number = 1;
+    oneof block_specifier {
+        /**
+         * The explicit block number the response state MUST correspond to.
+         * Genesis (`block_number = 0`) is valid. The Block-Node SHALL
+         * answer with `INVALID_REQUEST` if the requested block does not
+         * match its current live state.
+         */
+        uint64 block_number = 1;
+
+        /**
+         * Flag to request the latest applied state. SHOULD be set `true`
+         * instead of using `block_number` when the intent is "whatever
+         * state the Block-Node has caught up to".
+         */
+        bool retrieve_latest = 5;
+    }
 
     /**
      * The integer state identifier as defined in `virtual_map_state.proto`.

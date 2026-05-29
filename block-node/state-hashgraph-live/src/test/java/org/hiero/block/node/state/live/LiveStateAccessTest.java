@@ -39,17 +39,17 @@ class LiveStateAccessTest {
         plugin.lifecycleManager().getMutableState().pushQueue(3, Bytes.fromHex("bb"));
 
         final BinaryStateQueryResponse singleton = plugin.getBinarySingleton(
-                BinaryStateQuery.newBuilder().stateId(1L).build());
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(1L).build());
         assertThat(singleton.status()).isEqualTo(Code.SUCCESS);
         assertThat(singleton.singletonBytes()).isEqualTo(Bytes.fromHex("aa"));
 
         final BinaryStateQueryResponse kv = plugin.getBinaryKV(
-                BinaryStateQuery.newBuilder().stateId(2L).keyBytes(Bytes.fromHex("01")).build());
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(2L).keyBytes(Bytes.fromHex("01")).build());
         assertThat(kv.status()).isEqualTo(Code.SUCCESS);
         assertThat(kv.kvBytes()).isEqualTo(Bytes.fromHex("bb"));
 
         final BinaryStateQueryResponse queueAll = plugin.getBinaryQueue(
-                BinaryStateQuery.newBuilder().stateId(3L).build());
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(3L).build());
         assertThat(queueAll.status()).isEqualTo(Code.SUCCESS);
         assertThat(queueAll.queueBytes()).containsExactly(Bytes.fromHex("aa"), Bytes.fromHex("bb"));
 
@@ -58,7 +58,7 @@ class LiveStateAccessTest {
         // element is one of the pushed values; the exact mapping of index→element is
         // owned by swirlds-state-impl and may differ across versions.
         final BinaryStateQueryResponse queueOne = plugin.getBinaryQueue(
-                BinaryStateQuery.newBuilder().stateId(3L).queueIndex(1L).build());
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(3L).queueIndex(1L).build());
         assertThat(queueOne.status()).isEqualTo(Code.SUCCESS);
         assertThat(queueOne.queueBytes()).hasSize(1);
         assertThat(queueOne.queueBytes().getFirst()).isIn(Bytes.fromHex("aa"), Bytes.fromHex("bb"));
@@ -72,18 +72,21 @@ class LiveStateAccessTest {
 
         // not found — clean state.
         assertThat(plugin.getBinarySingleton(
-                        BinaryStateQuery.newBuilder().stateId(99L).build())
+                        BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(99L).build())
                 .status())
                 .isEqualTo(Code.NOT_FOUND);
 
         // KV without key.
-        assertThat(plugin.getBinaryKV(
-                        BinaryStateQuery.newBuilder().stateId(2L).build())
+        assertThat(plugin.getBinaryKV(BinaryStateQuery.newBuilder()
+                        .retrieveLatest(true)
+                        .stateId(2L)
+                        .build())
                 .status())
                 .isEqualTo(Code.INVALID_REQUEST);
 
         // KV with queue_index set.
         assertThat(plugin.getBinaryKV(BinaryStateQuery.newBuilder()
+                        .retrieveLatest(true)
                         .stateId(2L)
                         .keyBytes(Bytes.fromHex("01"))
                         .queueIndex(1L)
@@ -93,6 +96,7 @@ class LiveStateAccessTest {
 
         // Singleton with key bytes set.
         assertThat(plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
+                        .retrieveLatest(true)
                         .stateId(1L)
                         .keyBytes(Bytes.fromHex("01"))
                         .build())
@@ -101,8 +105,27 @@ class LiveStateAccessTest {
 
         // Queue with key bytes set.
         assertThat(plugin.getBinaryQueue(BinaryStateQuery.newBuilder()
+                        .retrieveLatest(true)
                         .stateId(3L)
                         .keyBytes(Bytes.fromHex("01"))
+                        .build())
+                .status())
+                .isEqualTo(Code.INVALID_REQUEST);
+
+        // Block 0 (genesis) is a valid block_number — at a fresh start metadata.blockNumber()
+        // is 0, so block_number=0 is a MATCH and falls through to the state lookup
+        // (NOT_FOUND because no items have been applied), not a treat-zero-as-latest
+        // shortcut and not an immediate INVALID_REQUEST.
+        assertThat(plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
+                        .stateId(99L)
+                        .blockNumber(0L)
+                        .build())
+                .status())
+                .isEqualTo(Code.NOT_FOUND);
+
+        // Missing block_specifier (neither block_number nor retrieve_latest set) is invalid.
+        assertThat(plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
+                        .stateId(1L)
                         .build())
                 .status())
                 .isEqualTo(Code.INVALID_REQUEST);

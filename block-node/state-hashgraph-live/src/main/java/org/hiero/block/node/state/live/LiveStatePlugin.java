@@ -598,8 +598,22 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         return BinaryStateQueryResponse.newBuilder().stateMetadata(metadata);
     }
 
+    /**
+     * Returns `true` when the request targets the currently applied state.
+     *
+     * <p>Matches the {@code BlockRequest.block_specifier} convention from
+     * `block_access_service.proto`: the client MUST set exactly one of
+     * `retrieve_latest=true` or an explicit `block_number`. Block 0 (genesis)
+     * is a valid `block_number`. A request that sets neither is invalid.
+     */
     private boolean matchesLatestBlock(@NonNull final BinaryStateQuery request) {
-        return request.blockNumber() == 0L || request.blockNumber() == metadata.blockNumber();
+        if (request.hasRetrieveLatest() && Boolean.TRUE.equals(request.retrieveLatest())) {
+            return true;
+        }
+        if (request.hasBlockNumber()) {
+            return request.blockNumberOrThrow() == metadata.blockNumber();
+        }
+        return false;
     }
 
     /**
