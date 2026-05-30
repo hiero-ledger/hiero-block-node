@@ -972,24 +972,26 @@ jobs:
             echo "Failed to collect CN diagnostics (deployment may be unavailable)"
           LOG_FOLDER="${HOME}/.solo/logs"
 
-          # Create filtered CN logs directory - extract only BN-relevant files
-          # This reduces artifact size from GB to MB by excluding:
-          # - solo.log/solo.ndjson (1.5+ TB of Solo CLI operations)
-          # - Most CN zip contents (consensus internals, state logs)
+          # Create filtered CN logs directory.
+          # Size driver was solo.log/solo.ndjson (GB-scale) — we truncate solo.log and skip ndjson.
+          # Per-node diagnostic zips are MB-scale, so extract them in full but exclude the
+          # size-blowing state/binary entries (hashstream, vmap, saved state, key binaries).
           mkdir -p cn-logs-filtered
 
-          # Extract only BN-relevant files from each CN diagnostic zip
           for zip in "${LOG_FOLDER}/${NAMESPACE}"/*.zip; do
             [[ -f "$zip" ]] || continue
             node_name=$(basename "$zip" .zip)
             mkdir -p "cn-logs-filtered/${node_name}"
 
-            # blocknode-comms.log - Block stream communication to BNs
-            unzip -j -o "$zip" "*/blocknode-comms.log" -d "cn-logs-filtered/${node_name}/" 2>/dev/null || true
-            # settingsUsed.txt - CN config including BN routing
-            unzip -j -o "$zip" "*/settingsUsed.txt" -d "cn-logs-filtered/${node_name}/" 2>/dev/null || true
-            # grpc-access.log - gRPC access logs (may include BN connections)
-            unzip -j -o "$zip" "*/grpc-access.log" -d "cn-logs-filtered/${node_name}/" 2>/dev/null || true
+            # Extract everything except large state/binary entries.
+            # Keeps: block-node-comms.log (and legacy blocknode-comms.log), hgcaa.log,
+            #        swirlds.log, queries.log, grpc-access.log, journalctl.log,
+            #        settingsUsed.txt, data/config/* (block-nodes.json, application.properties).
+            unzip -o "$zip" -d "cn-logs-filtered/${node_name}/" \
+              -x "*/swirlds-hashstream/*" "*/swirlds-vmap.log" \
+                 "*/state/*" "data/saved/*" "data/keys/*" "*.bin" \
+                 "data/stats/*" "hedera.key" "hedera.crt" \
+              >/dev/null 2>&1 || true
           done
 
           # Capture last 1000 lines of solo.log (recent activity only, not full history)
@@ -997,8 +999,8 @@ jobs:
 
           echo "CN_LOG_FOLDER=cn-logs-filtered" >> $GITHUB_ENV
 
-          # Show what was collected
-          echo "=== Collected CN logs (BN-relevant only) ===" && ls -laR cn-logs-filtered/
+          # Show what was collected (sizes included to spot regressions)
+          echo "=== Collected CN logs ===" && du -sh cn-logs-filtered/* 2>/dev/null && ls -laR cn-logs-filtered/
 
       - name: Upload CN Logs
         if: always()
