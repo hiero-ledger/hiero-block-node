@@ -209,7 +209,7 @@ Tracks long‑term archival jobs that push blocks to S3.
 | Counter | `s3_archive_blocks_written`     | Blocks archived to S3                   |
 | Gauge   | `s3_archive_latest_block`       | Latest block number archived            |
 | Counter | `s3_archive_tasks_failed_total` | Failed archival tasks                   |
-| Counter | `s3_archive_tasks_sucess_total` | Successful archival tasks               |
+| Counter | `s3_archive_tasks_success_total` | Successful archival tasks               |
 | Gauge   | `s3_archive_total_bytes_stored` | Total bytes stored in S3 (cost metric)  |
 | Counter | `s3_archive_chunks_uploaded`    | Chunks uploaded to S3                   |
 | Gauge   | `s3_archive_chunks_opened`      | Open chucks currently                   |
