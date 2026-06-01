@@ -9,16 +9,17 @@ module org.hiero.block.node.state.management {
             com.swirlds.config.extensions,
             org.hiero.block.node.app;
 
-    requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.config.api;
-    requires transitive com.swirlds.state.api;
-    requires transitive com.swirlds.state.impl;
-    requires transitive com.swirlds.virtualmap;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
-    requires transitive org.hiero.metrics;
+    requires com.hedera.pbj.runtime;
     requires com.swirlds.base;
     requires com.swirlds.merkledb;
+    requires com.swirlds.metrics.api;
+    requires com.swirlds.state.api;
+    requires com.swirlds.state.impl;
+    requires com.swirlds.virtualmap;
+    requires org.hiero.base.crypto;
     requires org.hiero.base.utility;
     requires org.hiero.consensus.metrics;
     requires org.hiero.consensus.utility;

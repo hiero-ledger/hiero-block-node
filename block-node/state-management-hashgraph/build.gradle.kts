@@ -15,10 +15,8 @@ testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.assertj.core")
     requires("org.hiero.block.node.app.test.fixtures")
-    requires("com.swirlds.config.api")
-    requires("com.swirlds.merkledb")
-    requires("com.swirlds.virtualmap")
-    requires("org.hiero.consensus.utility")
+    requires("io.helidon.webserver")
+    requires("org.hiero.metrics")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("com.swirlds.config.extensions")
 }
