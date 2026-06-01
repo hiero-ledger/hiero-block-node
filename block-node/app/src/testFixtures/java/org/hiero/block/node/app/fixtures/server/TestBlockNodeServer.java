@@ -234,8 +234,7 @@ public class TestBlockNodeServer {
                             Bytes.fromHex("01010101"),
                             Bytes.fromHex("02020202"),
                             List.of(buildRosterEntry(11, 22, Bytes.fromHex("03030303"))),
-                            250,
-                            50))
+                            250))
                     .build();
         }
 
@@ -244,18 +243,11 @@ public class TestBlockNodeServer {
         /// @param ledgerId The ledgerId Bytes
         /// @param wrapsVerificationKey The wrapsVerificationKey Bytes
         /// @param validFromBlock The block from which this TssData is valid
-        /// @param rosterValidFromBlock The block from which this TssRoster is valid
         /// @return a `TssData` object
         private TssData buildTssData(
-                Bytes ledgerId,
-                Bytes wrapsVerificationKey,
-                List<RosterEntry> rosterEntries,
-                long validFromBlock,
-                long rosterValidFromBlock) {
-            TssRoster tssRoster = TssRoster.newBuilder()
-                    .rosterEntries(rosterEntries)
-                    .validFromBlock(rosterValidFromBlock)
-                    .build();
+                Bytes ledgerId, Bytes wrapsVerificationKey, List<RosterEntry> rosterEntries, long validFromBlock) {
+            TssRoster tssRoster =
+                    TssRoster.newBuilder().rosterEntries(rosterEntries).build();
             return TssData.newBuilder()
                     .ledgerId(ledgerId)
                     .wrapsVerificationKey(wrapsVerificationKey)

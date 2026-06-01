@@ -220,10 +220,6 @@ message TssRoster {
      * The list of `RosterEntry`
      */
     repeated RosterEntry roster_entries = 1;
-    /**
-     * The starting block number this TssRoster is valid from
-     */
-    uint64 valid_from_block = 2;
 }
 
 /**
