@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
@@ -1022,6 +1023,98 @@ class CloudStorageArchivePluginTest {
             for (final TestBlock block : blocks) {
                 sendVerification(block);
             }
+        }
+
+        private void sendVerification(TestBlock block) {
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+        }
+    }
+
+    /// Tests that verify `CloudStorageArchivePlugin.triggerMidRunRecovery()` is called when an
+    /// upload task fails mid-run, and that the plugin recovers correctly without losing blocks.
+    @Nested
+    @DisplayName("Mid-Run Recovery Tests")
+    final class MidRunRecoveryTests
+            extends PluginTestBase<CloudStorageArchivePlugin, BlockingExecutor, ScheduledBlockingExecutor> {
+
+        private final BlockingExecutor pluginExecutor;
+
+        MidRunRecoveryTests() {
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(new CloudStorageArchivePlugin(), new SimpleInMemoryHistoricalBlockFacility(), pluginConfig());
+            pluginExecutor = testThreadPoolManager.executor();
+        }
+
+        @BeforeEach
+        void drainRecovery() {
+            pluginExecutor.executeSerially();
+        }
+
+        /// Verifies that a task returning [UploadResult.FAILED] triggers [triggerMidRunRecovery]:
+        /// the failed-tasks metric increments, [currentUploadFuture] is cleared, blocks still in
+        /// [currentGroupPending] are moved to [blocksStash], and the triggering notification's block
+        /// is also stashed so nothing is silently dropped.
+        @Test
+        @DisplayName("FAILED upload result clears state, stashes pending blocks, and submits recovery")
+        void failedResultTriggersMidRunRecovery() throws Exception {
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 9);
+
+            // Simulate blocks 5 and 6 arrived but were not yet drained to the task queue.
+            plugin.currentGroupPending.put(
+                    5L, new BlockWithSource(blocks.get(5).blockUnparsed(), BlockSource.PUBLISHER));
+            plugin.currentGroupPending.put(
+                    6L, new BlockWithSource(blocks.get(6).blockUnparsed(), BlockSource.PUBLISHER));
+
+            // Inject a done-FAILED future so checkCompletedUpload() sees a completed-but-failed task.
+            plugin.currentUploadFuture = CompletableFuture.completedFuture(BlockUploadTask.UploadResult.FAILED);
+
+            // Block 7 triggers checkCompletedUpload() -> FAILED -> triggerMidRunRecovery().
+            // triggerMidRunRecovery() sets currentGroupStart to -1, so the subsequent
+            // routeVerifiedBlock() call stashes block 7 instead of adding it to currentGroupPending.
+            sendVerification(blocks.get(7));
+
+            assertThat(plugin.currentUploadFuture).isNull();
+            assertThat(plugin.currentGroupPending).isEmpty();
+            assertThat(plugin.blocksStash).containsKeys(5L, 6L, 7L);
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
+                    .isEqualTo(1L);
+
+            // Drive the recovery task - empty bucket results in a fresh start.
+            pluginExecutor.executeSerially();
+            assertThat(plugin.isRecoveryComplete()).isTrue();
+            assertThat(plugin.recoveredNextBlockNumber()).isEqualTo(0L);
+        }
+
+        /// Verifies that an [ExecutionException] thrown by the upload-task [Future] triggers
+        /// [triggerMidRunRecovery] with the same state effects as the [UploadResult.FAILED] path.
+        @Test
+        @DisplayName("ExecutionException from upload task clears state, stashes pending blocks, and submits recovery")
+        void exceptionFromUploadTaskTriggersMidRunRecovery() throws Exception {
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 9);
+
+            plugin.currentGroupPending.put(
+                    5L, new BlockWithSource(blocks.get(5).blockUnparsed(), BlockSource.PUBLISHER));
+
+            // Inject a future that completed exceptionally — mimics an S3/IO failure inside the task.
+            final CompletableFuture<BlockUploadTask.UploadResult> exceptionalFuture = new CompletableFuture<>();
+            exceptionalFuture.completeExceptionally(new IOException("simulated S3 failure"));
+            plugin.currentUploadFuture = exceptionalFuture;
+
+            // Block 6 reaches handleVerification()'s ExecutionException catch → triggerMidRunRecovery().
+            sendVerification(blocks.get(6));
+
+            assertThat(plugin.currentUploadFuture).isNull();
+            assertThat(plugin.currentGroupPending).isEmpty();
+            assertThat(plugin.blocksStash).containsKeys(5L, 6L);
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
+                    .isEqualTo(1L);
+
+            pluginExecutor.executeSerially();
+            assertThat(plugin.isRecoveryComplete()).isTrue();
+            assertThat(plugin.recoveredNextBlockNumber()).isEqualTo(0L);
         }
 
         private void sendVerification(TestBlock block) {

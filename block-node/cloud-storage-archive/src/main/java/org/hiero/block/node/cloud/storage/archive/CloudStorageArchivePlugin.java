@@ -174,7 +174,16 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         } catch (ExecutionException e) {
             LOGGER.log(WARNING, "Could not complete uploading blocks to cloud archive storage", e);
             metricsHolder.failedTasks().increment();
-            // TODO(1166) Handle properly block upload task failure
+            if (currentUploadFuture != null) {
+                // Exception from the upload task; trigger S3 recovery to resume from the last confirmed part.
+                triggerMidRunRecovery();
+                // routeVerifiedBlock() was never reached (the exception bypassed it), so stash the
+                // triggering block manually — it is safe to use blocksStash directly because
+                // triggerMidRunRecovery() already set currentGroupStart to -1.
+                blocksStash.put(
+                        notification.blockNumber(), new BlockWithSource(notification.block(), notification.source()));
+            }
+            // else: exception from the recovery task itself; state already cleaned up in completeRecovery().
         }
     }
 
@@ -191,13 +200,14 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 if (uploadResult == UploadResult.FAILED) {
                     LOGGER.log(WARNING, "Block upload task failed");
                     metricsHolder.failedTasks().increment();
-                    // TODO(1166) Handle properly block upload task failure
+                    // False PersistedNotifications were already sent by the task for the affected blocks.
+                    // Trigger S3 recovery so the next task resumes from the last confirmed part boundary.
+                    triggerMidRunRecovery();
                 } else {
                     metricsHolder.successfulTasks().increment();
+                    currentUploadFuture = null;
+                    currentGroupPending = new ConcurrentSkipListMap<>();
                 }
-                // Clear the future regardless of outcome so the next block starts a fresh task.
-                currentUploadFuture = null;
-                currentGroupPending = new ConcurrentSkipListMap<>();
             }
         }
         return cancelled;
@@ -327,6 +337,23 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         drainPendingToQueue();
     }
 
+    /// Resets routing state and schedules an S3 recovery scan after an upload-task failure.
+    ///
+    /// Blocks that had not yet been drained to the task queue are preserved in [blocksStash] so
+    /// [tryReplayStash] can feed them to the resumed task once [completeRecovery] completes.
+    /// Setting [currentGroupStart] to `-1` causes [routeVerifiedBlock] to stash every block that
+    /// arrives while recovery is running, mirroring the startup-recovery stashing behaviour.
+    private void triggerMidRunRecovery() {
+        final int movedCount = currentGroupPending.size();
+        blocksStash.putAll(currentGroupPending);
+        currentGroupPending = new ConcurrentSkipListMap<>();
+        currentGroupStart = -1;
+        currentGroupSize = -1;
+        currentUploadFuture = null;
+        recoveryFuture = virtualThreadExecutor.submit(new StartupRecoveryTask(config));
+        LOGGER.log(TRACE, "Mid-run recovery triggered; {0} pending blocks moved to stash", movedCount);
+    }
+
     /// {@inheritDoc}
     @Override
     public void stop() {
@@ -338,7 +365,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         if (recoveryFuture != null) {
             recoveryFuture.cancel(true);
         }
-        // TODO(1166) Should we get the future here or at next verified block reception? Or both
+        // cancel(true) interrupts the virtual thread at blockQueue.take(), so the task completes
+        // quickly without needing an explicit get() here.
         currentGroupPending.clear();
         currentBlockQueue.clear();
         if (configValid) {
