@@ -88,7 +88,7 @@ dependencies.constraints {
     }
     api("com.goterl:lazysodium-java:5.2.0") { because("com.goterl.lazysodium") }
     api("com.goterl:resource-loader:2.1.0") { because("com.goterl.resourceloader") }
-    api("net.java.dev.jna:jna:5.18.0") { because("com.sun.jna") }
+    api("net.java.dev.jna:jna:5.18.1") { because("com.sun.jna") }
     api("org.json:json:20250517") { because("org.json") }
     api("io.prometheus:simpleclient:0.16.0") { because("simpleclient") }
     api("io.prometheus:simpleclient_common:0.16.0") { because("simpleclient.common") }
