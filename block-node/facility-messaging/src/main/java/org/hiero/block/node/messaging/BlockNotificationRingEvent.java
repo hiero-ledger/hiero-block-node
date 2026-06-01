@@ -12,13 +12,6 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  * made up of these events. Only one of the fields should be set at any time.
  * These notifications are published to downstream subscribers through the LMAX
  * Disruptor.
- *
- * <p><b>Ordering contract — do not reorder.</b> Every {@code set(...)} method
- * calls {@link #clearAll()} <i>first</i> and then assigns the new value. This
- * order is load-bearing: ring-buffer slots are reused across events, so a slot
- * may still hold a previous event's notification. If the assignment ran before
- * {@code clearAll()}, the clear would wipe the value just set, leaving the slot
- * empty. Keep {@code clearAll()} as the first statement in every setter.
  */
 public final class BlockNotificationRingEvent {
     /** The block verification notification to be published to downstream subscribers through the LMAX Disruptor. */
@@ -32,8 +25,14 @@ public final class BlockNotificationRingEvent {
     /** The publisher status update notification to be published to downstream subscribers through the LMAX Disruptor. */
     private PublisherStatusUpdateNotification publisherStatusUpdateNotification;
 
-    private void clearAll() {
-        this.verificationNotification = null;
+    /**
+     * Sets the given notification to be published to downstream subscribers
+     * through the LMAX Disruptor.
+     *
+     * @param notification to set
+     */
+    public void set(final VerificationNotification notification) {
+        this.verificationNotification = notification;
         this.persistedNotification = null;
         this.backfilledBlockNotification = null;
         this.newestBlockKnownToNetworkNotification = null;
@@ -46,20 +45,12 @@ public final class BlockNotificationRingEvent {
      *
      * @param notification to set
      */
-    public void set(final VerificationNotification notification) {
-        clearAll(); // MUST come before the assignment — see class ordering contract.
-        this.verificationNotification = notification;
-    }
-
-    /**
-     * Sets the given notification to be published to downstream subscribers
-     * through the LMAX Disruptor.
-     *
-     * @param notification to set
-     */
     public void set(final PersistedNotification notification) {
-        clearAll(); // MUST come before the assignment — see class ordering contract.
         this.persistedNotification = notification;
+        this.verificationNotification = null;
+        this.backfilledBlockNotification = null;
+        this.newestBlockKnownToNetworkNotification = null;
+        this.publisherStatusUpdateNotification = null;
     }
 
     /**
@@ -69,8 +60,11 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final BackfilledBlockNotification notification) {
-        clearAll(); // MUST come before the assignment — see class ordering contract.
         this.backfilledBlockNotification = notification;
+        this.verificationNotification = null;
+        this.persistedNotification = null;
+        this.newestBlockKnownToNetworkNotification = null;
+        this.publisherStatusUpdateNotification = null;
     }
 
     /**
@@ -80,8 +74,11 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final NewestBlockKnownToNetworkNotification notification) {
-        clearAll(); // MUST come before the assignment — see class ordering contract.
         this.newestBlockKnownToNetworkNotification = notification;
+        this.backfilledBlockNotification = null;
+        this.verificationNotification = null;
+        this.persistedNotification = null;
+        this.publisherStatusUpdateNotification = null;
     }
     /**
      * Sets the given notification to be published to downstream subscribers
@@ -90,10 +87,12 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final PublisherStatusUpdateNotification notification) {
-        clearAll(); // MUST come before the assignment — see class ordering contract.
         this.publisherStatusUpdateNotification = notification;
+        this.newestBlockKnownToNetworkNotification = null;
+        this.backfilledBlockNotification = null;
+        this.verificationNotification = null;
+        this.persistedNotification = null;
     }
-
 
     /**
      * Gets the verification notification of the event from the LMAX Disruptor
