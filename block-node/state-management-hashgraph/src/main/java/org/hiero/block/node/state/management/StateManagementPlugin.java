@@ -216,8 +216,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (!matchesLatestBlock(request)) {
             return out.status(Code.NOT_FOUND).build();
         }
-        final BinaryState binaryState = lifecycleManager.getLatestImmutableState();
-        final Bytes value = binaryState.getKv((int) request.stateId(), request.keyBytes());
+        // gRPC reads always go off the attested immutable state.
+        final Bytes value = mapGet(StateSource.IMMUTABLE, (int) request.stateId(), request.keyBytes());
         if (value == null) {
             return out.status(Code.NOT_FOUND).build();
         }
@@ -243,8 +243,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (!matchesLatestBlock(request)) {
             return out.status(Code.NOT_FOUND).build();
         }
-        final BinaryState binaryState = lifecycleManager.getLatestImmutableState();
-        final Bytes value = binaryState.getSingleton((int) request.stateId());
+        final Bytes value = singletonGet(StateSource.IMMUTABLE, (int) request.stateId());
         if (value == null) {
             return out.status(Code.NOT_FOUND).build();
         }
@@ -268,29 +267,70 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return out.status(Code.NOT_FOUND).build();
         }
         final int stateId = (int) request.stateId();
-        final BinaryState binaryState = lifecycleManager.getLatestImmutableState();
-        // VirtualMapStateImpl.getQueueState returns null for unknown stateIds; the
-        // downstream getQueueAsList / peekQueue then NPE. Treat any of those as NOT_FOUND.
         try {
-            if (binaryState.getQueueState(stateId) == null) {
+            final List<Bytes> elements = queueRead(StateSource.IMMUTABLE, stateId, request.queueIndex());
+            if (elements == null || elements.isEmpty()) {
                 return out.status(Code.NOT_FOUND).build();
             }
-            if (request.queueIndex() == 0L) {
-                final List<Bytes> all = binaryState.getQueueAsList(stateId);
-                if (all == null || all.isEmpty()) {
-                    return out.status(Code.NOT_FOUND).build();
-                }
-                return out.status(Code.SUCCESS).queueBytes(all).build();
-            }
-            final Bytes element = binaryState.peekQueue(stateId, (int) request.queueIndex());
-            if (element == null) {
-                return out.status(Code.NOT_FOUND).build();
-            }
-            return out.status(Code.SUCCESS).queueBytes(List.of(element)).build();
+            return out.status(Code.SUCCESS).queueBytes(elements).build();
         } catch (final RuntimeException e) {
             LOGGER.log(System.Logger.Level.DEBUG, "Queue lookup for state {0} failed", stateId, e);
             return out.status(Code.NOT_FOUND).build();
         }
+    }
+
+    // ── Binary state reads (value-returning; no BinaryStateQuery) ──────────────
+    // These back the gRPC handlers above and are the in-process read surface a
+    // future plugin-to-plugin BinaryStateReader SPI will expose (see STORY-20).
+    // The StateSource argument selects which version of state to read; the gRPC
+    // API always passes IMMUTABLE (attested). Reading a non-latest *immutable*
+    // (e.g. a snapshot) is future work tracked in STORY-20.
+
+    /**
+     * Resolve the {@link BinaryState} for a read source. {@link StateSource#HISTORICAL}
+     * is not yet supported.
+     */
+    @NonNull
+    private BinaryState stateFor(@NonNull final StateSource source) {
+        return switch (source) {
+            case IMMUTABLE -> lifecycleManager.getLatestImmutableState();
+            case MUTABLE -> lifecycleManager.getMutableState();
+            case HISTORICAL -> throw new UnsupportedOperationException(
+                    "snapshot-backed (HISTORICAL) reads are not yet supported — see STORY-20");
+        };
+    }
+
+    /** KV value for {@code stateId}/{@code key}, or {@code null} if absent. */
+    @Nullable
+    Bytes mapGet(@NonNull final StateSource source, final int stateId, @NonNull final Bytes key) {
+        return stateFor(source).getKv(stateId, key);
+    }
+
+    /** Singleton value for {@code stateId}, or {@code null} if absent. */
+    @Nullable
+    Bytes singletonGet(@NonNull final StateSource source, final int stateId) {
+        return stateFor(source).getSingleton(stateId);
+    }
+
+    /**
+     * Queue read for {@code stateId}: the whole queue when {@code index == 0},
+     * otherwise the single element at {@code index}. Returns {@code null} when the
+     * queue state is unknown or empty. {@code VirtualMapStateImpl.getQueueState}
+     * returns null for unknown state ids (downstream calls then NPE), so callers
+     * should guard with a try/catch and map failures to NOT_FOUND.
+     */
+    @Nullable
+    List<Bytes> queueRead(@NonNull final StateSource source, final int stateId, final long index) {
+        final BinaryState binaryState = stateFor(source);
+        if (binaryState.getQueueState(stateId) == null) {
+            return null;
+        }
+        if (index == 0L) {
+            final List<Bytes> all = binaryState.getQueueAsList(stateId);
+            return (all == null || all.isEmpty()) ? null : all;
+        }
+        final Bytes element = binaryState.peekQueue(stateId, (int) index);
+        return element == null ? null : List.of(element);
     }
 
     // ── Package-private observers ─────────────────────────────────────────────
