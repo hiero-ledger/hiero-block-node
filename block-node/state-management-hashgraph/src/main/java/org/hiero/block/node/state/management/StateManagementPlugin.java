@@ -35,24 +35,20 @@ import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.consensus.metrics.noop.NoOpMetrics;
 
-/**
- * Beta plugin that maintains a live, queryable copy of Hashgraph network state inside
- * the Block Node by replaying verified block-stream state changes onto a
- * {@link VirtualMapStateLifecycleManager}-managed state.
- *
- * <p>The plugin owns:
- *
- * <ul>
- *   <li>a {@link VirtualMapStateLifecycleManager} that wraps a {@link VirtualMapState}
- *       holding the merkle-backed state on disk (per the consensus-node state-snapshot spec);</li>
- *   <li>a {@link StateMetadataStore} persisting the latest {@link StateMetadata};</li>
- *   <li>a {@link StateChangeApplier} that translates {@code state_changes} block items
- *       into {@link BinaryState} mutations;</li>
- *   <li>two single-thread scheduled executors — one for apply, one for snapshot.</li>
- * </ul>
- *
- * <p>See {@code docs/design/state/live-state.md} for the full design.
- */
+/// Beta plugin that maintains a live, queryable copy of Hashgraph network state inside
+/// the Block Node by replaying verified block-stream state changes onto a
+/// `VirtualMapStateLifecycleManager`-managed state.
+///
+/// The plugin owns:
+///
+/// - a `VirtualMapStateLifecycleManager` that wraps a `VirtualMapState`
+///   holding the merkle-backed state on disk (per the consensus-node state-snapshot spec);
+/// - a `StateMetadataStore` persisting the latest `StateMetadata`;
+/// - a `StateChangeApplier` that translates `state_changes` block items
+///   into `BinaryState` mutations;
+/// - two single-thread scheduled executors — one for apply, one for snapshot.
+///
+/// See `docs/design/state/live-state.md` for the full design.
 public final class StateManagementPlugin implements BlockNodePlugin, BlockNotificationHandler, StateServiceInterface {
 
     private static final System.Logger LOGGER = System.getLogger(StateManagementPlugin.class.getName());
@@ -63,7 +59,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private StateMetadataStore metadataStore;
     private StateChangeApplier applier;
 
-    /** Latest applied state metadata. Volatile because reads happen on query threads. */
+    /// Latest applied state metadata. Volatile because reads happen on query threads.
     private volatile StateMetadata metadata = StateMetadata.DEFAULT;
 
     private final ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks = new ConcurrentSkipListMap<>();
@@ -78,38 +74,33 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private ScheduledExecutorService catchUpExecutor;
     private volatile long lastSnapshottedBlock = -1L;
 
-    /**
-     * Block number of the most recent block whose state_changes have been applied
-     * to the mutable state. Distinct from `metadata.blockNumber` because of the
-     * lag-1 commit: `metadata.blockNumber` is the most recently *committed*
-     * (visible to readers) block; `lastAppliedBlock` is the staging block whose
-     * changes live in the mutable copy and will be committed when the next
-     * block's footer confirms them. Set to `-1` until the first apply.
-     */
+    /// Block number of the most recent block whose state_changes have been applied
+    /// to the mutable state. Distinct from `metadata.blockNumber` because of the
+    /// lag-1 commit: `metadata.blockNumber` is the most recently *committed*
+    /// (visible to readers) block; `lastAppliedBlock` is the staging block whose
+    /// changes live in the mutable copy and will be committed when the next
+    /// block's footer confirms them. Set to `-1` until the first apply.
     private volatile long lastAppliedBlock = -1L;
 
-    /** Round number of {@code lastAppliedBlock}, mirrored for the same lag-1 reason. */
+    /// Round number of `lastAppliedBlock`, mirrored for the same lag-1 reason.
     private volatile long lastAppliedRound = -1L;
 
-    /**
-     * Root hash of the state produced by applying {@code lastAppliedBlock} (i.e.
-     * post-{@code lastAppliedBlock}). The next block's
-     * {@code BlockFooter.startOfBlockStateRootHash} must equal this for us to accept
-     * it — which is also the moment that next block's footer *attests*
-     * {@code lastAppliedBlock}, allowing us to commit/expose it (lag-1). Empty until
-     * the first apply.
-     */
+    /// Root hash of the state produced by applying `lastAppliedBlock` (i.e.
+    /// post-`lastAppliedBlock`). The next block's
+    /// `BlockFooter.startOfBlockStateRootHash` must equal this for us to accept
+    /// it — which is also the moment that next block's footer *attests*
+    /// `lastAppliedBlock`, allowing us to commit/expose it (lag-1). Empty until
+    /// the first apply.
     private volatile Bytes lastAppliedHash = Bytes.EMPTY;
 
-    /**
-     * The latest network-attested immutable state — the only state the query API
-     * reads. Under the lag-1 commit model this lags {@code lastAppliedBlock} by one
-     * block: a block is applied into the live mutable first, and only promoted here
-     * once the *next* block's footer confirms its root hash. {@code null} until the
-     * first block has been attested (so queries report NOT_READY at pure genesis).
-     */
+    /// The latest network-attested immutable state — the only state the query API
+    /// reads. Under the lag-1 commit model this lags `lastAppliedBlock` by one
+    /// block: a block is applied into the live mutable first, and only promoted here
+    /// once the *next* block's footer confirms its root hash. `null` until the
+    /// first block has been attested (so queries report NOT_READY at pure genesis).
     private volatile VirtualMapState attestedImmutable;
 
+    /// {@inheritDoc}
     @NonNull
     @Override
     public List<Class<? extends Record>> configDataTypes() {
@@ -130,6 +121,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 org.hiero.consensus.config.PathsConfig.class);
     }
 
+    /// {@inheritDoc}
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = context;
@@ -145,6 +137,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         serviceBuilder.registerGrpcService(this);
     }
 
+    /// {@inheritDoc}
     @Override
     public void start() {
         loadPersistedState();
@@ -180,6 +173,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         });
     }
 
+    /// {@inheritDoc}
     @Override
     public void stop() {
         stopping.set(true);
@@ -203,6 +197,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// {@inheritDoc}
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
         if (!notification.success() || notification.block() == null) {
@@ -213,6 +208,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     // ── StateServiceInterface: getBinaryKV / Singleton / Queue ─────────────
 
+    /// {@inheritDoc}
     @NonNull
     @Override
     public BinaryStateQueryResponse getBinaryKV(@NonNull final BinaryStateQuery request) {
@@ -240,6 +236,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return out.status(Code.SUCCESS).kvBytes(value).build();
     }
 
+    /// {@inheritDoc}
     @NonNull
     @Override
     public BinaryStateQueryResponse getBinarySingleton(@NonNull final BinaryStateQuery request) {
@@ -266,6 +263,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return out.status(Code.SUCCESS).singletonBytes(value).build();
     }
 
+    /// {@inheritDoc}
     @NonNull
     @Override
     public BinaryStateQueryResponse getBinaryQueue(@NonNull final BinaryStateQuery request) {
@@ -302,10 +300,12 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     // API always passes IMMUTABLE (attested). Reading a non-latest *immutable*
     // (e.g. a snapshot) is future work
 
-    /**
-     * Resolve the {@link BinaryState} for a read source. {@link StateSource#HISTORICAL}
-     * is not yet supported.
-     */
+    /// Resolve the `BinaryState` for a read source. `StateSource.HISTORICAL`
+    /// is not yet supported.
+    ///
+    /// @param source which version of state to read
+    /// @return the backing `BinaryState` for that source
+    /// @throws UnsupportedOperationException if `source` is `StateSource.HISTORICAL`
     @NonNull
     private BinaryState stateFor(@NonNull final StateSource source) {
         return switch (source) {
@@ -319,25 +319,37 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         };
     }
 
-    /** KV value for {@code stateId}/{@code key}, or {@code null} if absent. */
+    /// KV value for `stateId`/`key`, or `null` if absent.
+    ///
+    /// @param source which version of state to read
+    /// @param stateId the state id to look up
+    /// @param key the KV key
+    /// @return the value bytes, or `null` if absent
     @Nullable
     Bytes mapGet(@NonNull final StateSource source, final int stateId, @NonNull final Bytes key) {
         return stateFor(source).getKv(stateId, key);
     }
 
-    /** Singleton value for {@code stateId}, or {@code null} if absent. */
+    /// Singleton value for `stateId`, or `null` if absent.
+    ///
+    /// @param source which version of state to read
+    /// @param stateId the singleton state id
+    /// @return the singleton value bytes, or `null` if absent
     @Nullable
     Bytes singletonGet(@NonNull final StateSource source, final int stateId) {
         return stateFor(source).getSingleton(stateId);
     }
 
-    /**
-     * Queue read for {@code stateId}: the whole queue when {@code index == 0},
-     * otherwise the single element at {@code index}. Returns {@code null} when the
-     * queue state is unknown or empty. {@code VirtualMapStateImpl.getQueueState}
-     * returns null for unknown state ids (downstream calls then NPE), so callers
-     * should guard with a try/catch and map failures to NOT_FOUND.
-     */
+    /// Queue read for `stateId`: the whole queue when `index == 0`,
+    /// otherwise the single element at `index`. Returns `null` when the
+    /// queue state is unknown or empty. `VirtualMapStateImpl.getQueueState`
+    /// returns null for unknown state ids (downstream calls then NPE), so callers
+    /// should guard with a try/catch and map failures to NOT_FOUND.
+    ///
+    /// @param source which version of state to read
+    /// @param stateId the queue state id
+    /// @param index `0` for the whole queue, otherwise the 1-based element index to peek
+    /// @return the queue elements (whole queue or single element), or `null` if unknown/empty
     @Nullable
     List<Bytes> queueRead(@NonNull final StateSource source, final int stateId, final long index) {
         final BinaryState binaryState = stateFor(source);
@@ -358,31 +370,37 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     // saveSnapshot, block delivery) and assert against these observers; there
     // are no force/duplicate "*Now" hooks or internals accessors in production.
 
+    /// Whether historical catch-up has completed.
+    ///
+    /// @return `true` once catch-up has finished
     boolean isReady() {
         return stateIsCaughtUp.get();
     }
 
-    /**
-     * Queries are servable only once catch-up has finished AND at least one block
-     * has been attested (so {@link #attestedImmutable} is non-null). Under lag-1 a
-     * freshly-started node that has applied only genesis (block 0) has nothing
-     * attested yet and must report NOT_READY until the next block confirms it.
-     */
+    /// Queries are servable only once catch-up has finished AND at least one block
+    /// has been attested (so `attestedImmutable` is non-null). Under lag-1 a
+    /// freshly-started node that has applied only genesis (block 0) has nothing
+    /// attested yet and must report NOT_READY until the next block confirms it.
+    ///
+    /// @return `true` if the plugin cannot yet serve queries
     private boolean notReadyForQueries() {
         return !stateIsCaughtUp.get() || attestedImmutable == null;
     }
 
+    /// The latest applied state metadata.
+    ///
+    /// @return the current `StateMetadata`
     @NonNull
     StateMetadata metadata() {
         return metadata;
     }
 
-    /**
-     * The {@code startOfBlockStateRootHash} the next block's footer must carry to be
-     * accepted — i.e. the root hash of the most recently applied (staged) block,
-     * which under lag-1 is one ahead of {@link #metadata}. Empty before the first
-     * apply. Test-visible so tests can chain a confirming block.
-     */
+    /// The `startOfBlockStateRootHash` the next block's footer must carry to be
+    /// accepted — i.e. the root hash of the most recently applied (staged) block,
+    /// which under lag-1 is one ahead of `metadata`. Empty before the first
+    /// apply. Test-visible so tests can chain a confirming block.
+    ///
+    /// @return the staged state root hash, or empty before the first apply
     @NonNull
     Bytes stagedStateRootHash() {
         return lastAppliedHash;
@@ -390,6 +408,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     // ── Internals ───────────────────────────────────────────────────────────
 
+    /// Load persisted metadata and, if present, the matching recent snapshot from disk,
+    /// seeding the lag-1 bookkeeping so the loaded (already-attested) state is exposed on
+    /// boot. Falls back to genesis when metadata is missing/unreadable or its snapshot
+    /// cannot be loaded.
     private void loadPersistedState() {
         try {
             metadata = metadataStore.load().orElse(StateMetadata.DEFAULT);
@@ -436,6 +458,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// Drain the pending-blocks queue in strict block-number order, applying each
+    /// contiguous next block via `applyBlockStateChanges`. Stops on the first gap
+    /// (next expected block not yet present), when stopping, or when degraded.
+    /// Blocks are removed only after a successful apply so failures leave the block
+    /// queued for inspection / retry.
     void applyPending() {
         while (!pendingBlocks.isEmpty() && !stopping.get() && !degraded.get()) {
             final boolean atGenesis = lastAppliedBlock < 0L
@@ -470,15 +497,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
-    /**
-     * Bring the live state up to the latest block the Block-Node has on hand by reading
-     * blocks from {@link HistoricalBlockFacility} and feeding them through the same
-     * {@link #applyPending()} loop that handles verification-delivered blocks.
-     *
-     * <p>Runs on the {@code StateManagement-catchup} thread. When complete (or if there is
-     * nothing to catch up to) sets {@link #stateIsCaughtUp} so query traffic stops returning
-     * {@code NOT_READY}.
-     */
+    /// Bring the live state up to the latest block the Block-Node has on hand by reading
+    /// blocks from `HistoricalBlockFacility` and feeding them through the same
+    /// `applyPending` loop that handles verification-delivered blocks.
+    ///
+    /// Runs on the `StateManagement-catchup` thread. When complete (or if there is
+    /// nothing to catch up to) sets `stateIsCaughtUp` so query traffic stops returning
+    /// `NOT_READY`.
     void catchUpFromHistoricalBlocks() {
         try {
             final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
@@ -521,6 +546,12 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// Fetch a single historical block via its `BlockAccessor` and enqueue it in
+    /// `pendingBlocks`. No-ops if the block is unavailable or cannot be unparsed.
+    /// The accessor is always closed; close failures during catch-up are non-fatal.
+    ///
+    /// @param historic the historical block facility to read from
+    /// @param blockNumber the block number to fetch and enqueue
     private void enqueueHistoricalBlock(@NonNull final HistoricalBlockFacility historic, final long blockNumber) {
         final BlockAccessor accessor = historic.block(blockNumber);
         if (accessor == null) {
@@ -540,28 +571,25 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
-    /**
-     * Apply a single block's `state_changes` to the live state under the **lag-1
-     * commit** model: a block is applied into the live mutable, but only exposed to
-     * readers once the *next* block's footer attests its root hash. Readers
-     * therefore never see state the network has not yet confirmed.
-     *
-     * <p>Flow for block N (given block N-1 was the last applied, post-(N-1) sealed):
-     *
-     * <ol>
-     *   <li>Pull `BlockFooter.startOfBlockStateRootHash` from N (cheap reverse scan).</li>
-     *   <li>Validate it against {@link #lastAppliedHash} (the hash of post-(N-1)).
-     *       A match means N's footer attests post-(N-1). Mismatch ⇒ degrade without
-     *       mutating; we never expose post-(N-1).</li>
-     *   <li>Now that post-(N-1) is attested, promote it to {@link #attestedImmutable}
-     *       (visible to queries), record its metadata, and emit `VERIFIED(N-1)`.</li>
-     *   <li>Apply N's `state_changes` to the live mutable, then `copyMutableState()`
-     *       to seal post-N. Post-N stays *un-exposed* until block N+1 attests it.</li>
-     * </ol>
-     *
-     * @return `true` on successful apply, `false` if the block was rejected
-     *     (caller should leave the block in the pending queue and stop draining).
-     */
+    /// Apply a single block's `state_changes` to the live state under the **lag-1
+    /// commit** model: a block is applied into the live mutable, but only exposed to
+    /// readers once the *next* block's footer attests its root hash. Readers
+    /// therefore never see state the network has not yet confirmed.
+    ///
+    /// Flow for block N (given block N-1 was the last applied, post-(N-1) sealed):
+    ///
+    /// 1. Pull `BlockFooter.startOfBlockStateRootHash` from N (cheap reverse scan).
+    /// 2. Validate it against `lastAppliedHash` (the hash of post-(N-1)).
+    ///    A match means N's footer attests post-(N-1). Mismatch ⇒ degrade without
+    ///    mutating; we never expose post-(N-1).
+    /// 3. Now that post-(N-1) is attested, promote it to `attestedImmutable`
+    ///    (visible to queries), record its metadata, and emit `VERIFIED(N-1)`.
+    /// 4. Apply N's `state_changes` to the live mutable, then `copyMutableState()`
+    ///    to seal post-N. Post-N stays *un-exposed* until block N+1 attests it.
+    ///
+    /// @param block the block to apply
+    /// @return `true` on successful apply, `false` if the block was rejected
+    ///     (caller should leave the block in the pending queue and stop draining).
     private boolean applyBlockStateChanges(@NonNull final BlockUnparsed block) {
         final Bytes startHash = StateChangeApplier.extractStartOfBlockStateRootHash(block);
         if (startHash == null) {
@@ -613,22 +641,23 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return true;
     }
 
-    /**
-     * Validate block N's {@code BlockFooter.startOfBlockStateRootHash} against the
-     * hash of the last state we applied (post-(N-1), held in {@link #lastAppliedHash}).
-     * A match confirms our post-(N-1) matches the network's attested start-of-N hash
-     * — which is exactly the attestation that lets us expose post-(N-1).
-     *
-     * <p>We compare against the recorded {@link #lastAppliedHash} rather than
-     * recomputing from the live mutable: hashing a {@code VirtualMap} that has been
-     * written to since its last hash seals it and breaks the next
-     * `applier.applyBlock` with "Cannot modify already hashed node". The hash was
-     * recorded at the right lifecycle point (right after the previous
-     * `copyMutableState`, off the sealed immutable).
-     *
-     * <p>Genesis branch: when no block has been applied yet ({@code lastAppliedBlock < 0}),
-     * the expected start hash is empty / all-zeros and we accept either shape.
-     */
+    /// Validate block N's `BlockFooter.startOfBlockStateRootHash` against the
+    /// hash of the last state we applied (post-(N-1), held in `lastAppliedHash`).
+    /// A match confirms our post-(N-1) matches the network's attested start-of-N hash
+    /// — which is exactly the attestation that lets us expose post-(N-1).
+    ///
+    /// We compare against the recorded `lastAppliedHash` rather than
+    /// recomputing from the live mutable: hashing a `VirtualMap` that has been
+    /// written to since its last hash seals it and breaks the next
+    /// `applier.applyBlock` with "Cannot modify already hashed node". The hash was
+    /// recorded at the right lifecycle point (right after the previous
+    /// `copyMutableState`, off the sealed immutable).
+    ///
+    /// Genesis branch: when no block has been applied yet (`lastAppliedBlock < 0`),
+    /// the expected start hash is empty / all-zeros and we accept either shape.
+    ///
+    /// @param startHash the incoming block's footer start-of-block state root hash
+    /// @return `true` if the hash matches the last applied state (or genesis shape)
     private boolean validateStartHash(@NonNull final Bytes startHash) {
         if (lastAppliedBlock < 0L) {
             return startHash.length() == 0L || isAllZeros(startHash);
@@ -636,19 +665,19 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return lastAppliedHash.equals(startHash);
     }
 
-    /**
-     * Adopt {@code newAttested} as the state queries read, managing reference counts
-     * so it survives the next {@code copyMutableState()} (which releases the lifecycle
-     * manager's own reference to the superseded version). We {@code reserve()} the new
-     * state's root and {@code release()} the previously-held one — without this the
-     * held immutable is destroyed and reads/snapshots throw {@code ReferenceCountException}.
-     *
-     * <p>Reserve-then-swap-then-release keeps the new state pinned before it is
-     * published. A read that is already in flight on the prior state holds only a Java
-     * reference, not a reservation; tightening that race (reserve per-read, or a grace
-     * window) is deferred as a follow-up. The apply path is
-     * single-threaded, so only one rotation is ever in flight.
-     */
+    /// Adopt `newAttested` as the state queries read, managing reference counts
+    /// so it survives the next `copyMutableState()` (which releases the lifecycle
+    /// manager's own reference to the superseded version). We `reserve()` the new
+    /// state's root and `release()` the previously-held one — without this the
+    /// held immutable is destroyed and reads/snapshots throw `ReferenceCountException`.
+    ///
+    /// Reserve-then-swap-then-release keeps the new state pinned before it is
+    /// published. A read that is already in flight on the prior state holds only a Java
+    /// reference, not a reservation; tightening that race (reserve per-read, or a grace
+    /// window) is deferred as a follow-up. The apply path is
+    /// single-threaded, so only one rotation is ever in flight.
+    ///
+    /// @param newAttested the newly-attested state to publish to readers
     private void setAttested(@NonNull final VirtualMapState newAttested) {
         final VirtualMapState previous = attestedImmutable;
         newAttested.getRoot().reserve();
@@ -658,6 +687,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// Whether every byte in `b` is zero. Used to accept an all-zeros genesis
+    /// start-of-block state root hash.
+    ///
+    /// @param b the bytes to test
+    /// @return `true` if all bytes are zero (vacuously true for empty)
     private static boolean isAllZeros(@NonNull final Bytes b) {
         final long len = b.length();
         for (long i = 0; i < len; i++) {
@@ -668,16 +702,26 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return true;
     }
 
-    /** Visible to tests + future server-status metrics integration. */
+    /// Total count of footer hash mismatches observed. Visible to tests + future
+    /// server-status metrics integration.
+    ///
+    /// @return the cumulative hash-mismatch count
     long hashMismatchTotal() {
         return hashMismatchTotal.get();
     }
 
-    /** Visible to tests. */
+    /// Whether the plugin has entered the degraded (stopped-applying) state.
+    /// Visible to tests.
+    ///
+    /// @return `true` if the plugin is degraded
     boolean isDegraded() {
         return degraded.get();
     }
 
+    /// Write a snapshot of the *attested* state (the committed block named by
+    /// `metadata`) to its recent-snapshot directory, prune snapshots beyond the
+    /// retention window, and persist the metadata. No-ops when nothing has been
+    /// attested yet or the attested block was already snapshotted.
     void saveSnapshot() {
         final StateMetadata snapshot = metadata;
         final VirtualMapState attested = attestedImmutable;
@@ -705,21 +749,22 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
-    /**
-     * Delete recent snapshot directories beyond {@code stateSnapshotRecentRetentionCount}
-     * after a snapshot is written. Snapshots live only under
-     * {@code stateSnapshotRecentPath} as hot, ready-to-load directories — each
-     * hard-links into the live MerkleDb files, so a snapshot is cheap in both time
-     * and disk. Long-term archival (compaction, off-box transfer, random-read
-     * indexes) is intentionally out of scope for this plugin and is left to a
-     * future archiving plugin; we keep only the last N good snapshots, which is all
-     * that seeding / reconnecting another BN or CN needs.
-     *
-     * <p>The just-written {@code currentBlock} dir is always preserved (it's the
-     * freshest); remaining dirs sorted by block number ascending are deleted from
-     * the oldest until the count is at or under the retention window. A retention
-     * of {@code 1} keeps only the current dir.
-     */
+    /// Delete recent snapshot directories beyond `stateSnapshotRecentRetentionCount`
+    /// after a snapshot is written. Snapshots live only under
+    /// `stateSnapshotRecentPath` as hot, ready-to-load directories — each
+    /// hard-links into the live MerkleDb files, so a snapshot is cheap in both time
+    /// and disk. Long-term archival (compaction, off-box transfer, random-read
+    /// indexes) is intentionally out of scope for this plugin and is left to a
+    /// future archiving plugin; we keep only the last N good snapshots, which is all
+    /// that seeding / reconnecting another BN or CN needs.
+    ///
+    /// The just-written `currentBlock` dir is always preserved (it's the
+    /// freshest); remaining dirs sorted by block number ascending are deleted from
+    /// the oldest until the count is at or under the retention window. A retention
+    /// of `1` keeps only the current dir.
+    ///
+    /// @param currentBlock the block number of the just-written snapshot (always retained)
+    /// @throws IOException if listing or deleting snapshot directories fails
     private void pruneOldRecentSnapshots(final long currentBlock) throws IOException {
         final Path recentRoot = Path.of(config.stateSnapshotRecentPath());
         if (!Files.isDirectory(recentRoot)) {
@@ -752,6 +797,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// List the immediate subdirectories of the recent-snapshot root.
+    ///
+    /// @param recentRoot the recent-snapshot root directory
+    /// @return the directory children of `recentRoot`
+    /// @throws IOException if the directory cannot be listed
     @NonNull
     private static List<Path> listRecentDirs(@NonNull final Path recentRoot) throws IOException {
         try (var entries = Files.list(recentRoot)) {
@@ -759,6 +809,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// Parse a snapshot directory's name as a block number.
+    ///
+    /// @param dir the directory whose name is parsed
+    /// @return the parsed block number, or `-1` if the name is not a number
     private static long parseBlockDirName(@NonNull final Path dir) {
         try {
             return Long.parseLong(dir.getFileName().toString());
@@ -767,36 +821,45 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// The recent-snapshot directory path for a given block number.
+    ///
+    /// @param blockNumber the block number
+    /// @return the directory path under `stateSnapshotRecentPath` for that block
     @NonNull
     private Optional<Path> recentSnapshotDirectoryFor(final long blockNumber) {
         return Optional.of(Path.of(config.stateSnapshotRecentPath(), Long.toString(blockNumber)));
     }
 
+    /// A response builder pre-seeded with the current `metadata`, shared by all query handlers.
+    ///
+    /// @return a `BinaryStateQueryResponse.Builder` carrying the current metadata
     @NonNull
     private BinaryStateQueryResponse.Builder baseResponse() {
         return BinaryStateQueryResponse.newBuilder().stateMetadata(metadata);
     }
 
-    /**
-     * Returns `true` when the request carries a {@code block_specifier} — exactly
-     * one of {@code retrieve_latest} or {@code block_number}, per the
-     * {@code BlockRequest.block_specifier} convention in `block_access_service.proto`.
-     * A request that sets neither is malformed and must be rejected with
-     * {@link Code#INVALID_REQUEST} (distinct from a well-formed request for a block
-     * we do not hold, which is {@link Code#NOT_FOUND}).
-     */
+    /// Returns `true` when the request carries a `block_specifier` — exactly
+    /// one of `retrieve_latest` or `block_number`, per the
+    /// `BlockRequest.block_specifier` convention in `block_access_service.proto`.
+    /// A request that sets neither is malformed and must be rejected with
+    /// `Code.INVALID_REQUEST` (distinct from a well-formed request for a block
+    /// we do not hold, which is `Code.NOT_FOUND`).
+    ///
+    /// @param request the query to inspect
+    /// @return `true` if the request carries a block specifier
     private static boolean hasBlockSpecifier(@NonNull final BinaryStateQuery request) {
         return request.hasRetrieveLatest() || request.hasBlockNumber();
     }
 
-    /**
-     * Returns `true` when the request targets the currently applied state. Assumes
-     * the request has already passed {@link #hasBlockSpecifier}. The plugin only
-     * ever serves the latest immutable state, so a `block_number` other than the
-     * latest applied block does not match — callers get {@link Code#NOT_FOUND},
-     * which affirms the latest-only API rather than rejecting the request shape.
-     * Block 0 (genesis) is a valid `block_number`.
-     */
+    /// Returns `true` when the request targets the currently applied state. Assumes
+    /// the request has already passed `hasBlockSpecifier`. The plugin only
+    /// ever serves the latest immutable state, so a `block_number` other than the
+    /// latest applied block does not match — callers get `Code.NOT_FOUND`,
+    /// which affirms the latest-only API rather than rejecting the request shape.
+    /// Block 0 (genesis) is a valid `block_number`.
+    ///
+    /// @param request the query to inspect (already known to carry a block specifier)
+    /// @return `true` if the request targets the latest applied block
     private boolean matchesLatestBlock(@NonNull final BinaryStateQuery request) {
         if (request.hasRetrieveLatest() && Boolean.TRUE.equals(request.retrieveLatest())) {
             return true;
@@ -807,6 +870,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return false;
     }
 
+    /// The root hash of a sealed state, or empty if the state/root is absent or
+    /// not yet hashed.
+    ///
+    /// @param state the state to hash (may be `null`)
+    /// @return the root hash bytes, or empty
     @NonNull
     private static Bytes rootHashOf(@Nullable final VirtualMapState state) {
         if (state == null || state.getRoot() == null) {
@@ -819,6 +887,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// The node count of a state's root, or `0` if the state/root is absent.
+    ///
+    /// @param state the state to measure (may be `null`)
+    /// @return the root size, or `0`
     private static long sizeOf(@Nullable final VirtualMapState state) {
         if (state == null || state.getRoot() == null) {
             return 0L;
@@ -826,6 +898,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return state.getRoot().size();
     }
 
+    /// Recursively delete a directory tree. Deletes children before parents
+    /// (reverse-ordered walk). Failures are logged and swallowed (best-effort prune).
+    ///
+    /// @param root the directory tree to delete
     private static void deleteDirectoryRecursively(@NonNull final Path root) {
         try {
             if (!Files.exists(root)) {
@@ -845,6 +921,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// Create a single-thread scheduled executor backed by a named daemon thread.
+    ///
+    /// @param threadName the name for the executor's daemon thread
+    /// @return a new single-thread scheduled executor
     @NonNull
     private static ScheduledExecutorService newSingleThreadExecutor(@NonNull final String threadName) {
         return Executors.newSingleThreadScheduledExecutor(r -> {
@@ -854,6 +934,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         });
     }
 
+    /// Gracefully shut down an executor, waiting up to 2 seconds before forcing
+    /// shutdown. No-ops on a `null` executor; restores the interrupt flag if
+    /// interrupted while awaiting termination.
+    ///
+    /// @param executor the executor to shut down (may be `null`)
     private static void shutdownExecutor(@Nullable final ScheduledExecutorService executor) {
         if (executor == null) {
             return;

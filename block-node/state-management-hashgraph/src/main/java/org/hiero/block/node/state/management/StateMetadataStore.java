@@ -10,31 +10,32 @@ import java.nio.file.StandardCopyOption;
 import java.util.Optional;
 import org.hiero.block.api.StateMetadata;
 
-/**
- * Persists {@link StateMetadata} to disk as JSON via PBJ's generated codec.
- *
- * <p>Writes are atomic: the new payload is written to a {@code .tmp} sibling and then
- * moved over the target with {@link StandardCopyOption#ATOMIC_MOVE}. A crash between
- * those two steps leaves the previous snapshot of the file intact.
- */
+/// Persists `StateMetadata` to disk as JSON via PBJ's generated codec.
+///
+/// Writes are atomic: the new payload is written to a `.tmp` sibling and then
+/// moved over the target with `StandardCopyOption.ATOMIC_MOVE`. A crash between
+/// those two steps leaves the previous snapshot of the file intact.
 final class StateMetadataStore {
 
     private final Path path;
 
+    /// Create a store backed by the given metadata file path.
+    ///
+    /// @param path the file the store reads from and writes to
     StateMetadataStore(@NonNull final Path path) {
         this.path = path;
     }
 
-    /** The path the store reads from and writes to. */
+    /// The path the store reads from and writes to.
     @NonNull
     Path path() {
         return path;
     }
 
-    /**
-     * @return the persisted metadata, or empty if the file does not exist yet.
-     * @throws IOException on read failure or malformed contents.
-     */
+    /// Load the persisted metadata.
+    ///
+    /// @return the persisted metadata, or empty if the file does not exist yet.
+    /// @throws IOException on read failure or malformed contents.
     @NonNull
     Optional<StateMetadata> load() throws IOException {
         if (!Files.exists(path)) {
@@ -48,7 +49,10 @@ final class StateMetadataStore {
         }
     }
 
-    /** Atomic write of the given metadata. Creates parent directories as needed. */
+    /// Atomic write of the given metadata. Creates parent directories as needed.
+    ///
+    /// @param metadata the metadata to persist
+    /// @throws IOException if the parent directories or the file cannot be written
     void save(@NonNull final StateMetadata metadata) throws IOException {
         Files.createDirectories(path.getParent());
         final Path tmp = path.resolveSibling(path.getFileName() + ".tmp");

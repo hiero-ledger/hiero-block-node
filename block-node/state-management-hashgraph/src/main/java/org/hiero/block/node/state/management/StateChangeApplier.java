@@ -19,40 +19,43 @@ import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 
-/**
- * Walks the items of a verified block once, applying every `state_changes`
- * mutation to a {@link BinaryState} owned by the state-management plugin and
- * returning the per-block metadata ({@code blockNumber}, {@code roundNumber},
- * applied-change count) on the way out.
- *
- * <h2>Storage encoding</h2>
- * Each variant of {@link StateChange} is translated to its corresponding
- * {@link BinaryState} write call. The bytes handed off are the PBJ-encoded
- * carrier message ({@link MapChangeKey}, {@link MapChangeValue},
- * {@link SingletonUpdateChange}, {@link QueuePushChange}) so the wire form is
- * consistent on read-back through the `getBinary*` RPCs.
- *
- * <h2>Why no separate `inspectBlock`</h2>
- * The plugin needs `BlockFooter.startOfBlockStateRootHash` BEFORE applying so
- * it can validate the incoming block lines up with our live state. We don't
- * re-walk the whole block for that — instead {@link #extractStartOfBlockStateRootHash}
- * scans the items list from the end (the footer is always the second-to-last
- * item in the stream, so this is O(1) in practice) and pulls the hash without
- * touching state.
- */
+/// Walks the items of a verified block once, applying every `state_changes`
+/// mutation to a `BinaryState` owned by the state-management plugin and
+/// returning the per-block metadata (`blockNumber`, `roundNumber`,
+/// applied-change count) on the way out.
+///
+/// ## Storage encoding
+/// Each variant of `StateChange` is translated to its corresponding
+/// `BinaryState` write call. The bytes handed off are the PBJ-encoded
+/// carrier message (`MapChangeKey`, `MapChangeValue`,
+/// `SingletonUpdateChange`, `QueuePushChange`) so the wire form is
+/// consistent on read-back through the `getBinary*` RPCs.
+///
+/// ## Why no separate `inspectBlock`
+/// The plugin needs `BlockFooter.startOfBlockStateRootHash` BEFORE applying so
+/// it can validate the incoming block lines up with our live state. We don't
+/// re-walk the whole block for that — instead `extractStartOfBlockStateRootHash`
+/// scans the items list from the end (the footer is always the second-to-last
+/// item in the stream, so this is O(1) in practice) and pulls the hash without
+/// touching state.
 final class StateChangeApplier {
 
     private static final System.Logger LOGGER = System.getLogger(StateChangeApplier.class.getName());
 
-    /** Outcome of a single block apply. */
+    /// Outcome of a single block apply.
+    ///
+    /// @param blockNumber the block number parsed from the block header, or `-1` if unparseable
+    /// @param roundNumber the round number parsed from the round header, or `-1` if absent
+    /// @param appliedChanges the number of `state_changes` mutations applied
     record ApplyResult(long blockNumber, long roundNumber, int appliedChanges) {}
 
-    /**
-     * Apply every `state_changes` item in `block` to `binaryState` and return
-     * the metadata extracted along the way.
-     *
-     * @throws IllegalStateException if a `state_changes` item is malformed.
-     */
+    /// Apply every `state_changes` item in `block` to `binaryState` and return
+    /// the metadata extracted along the way.
+    ///
+    /// @param binaryState the state to mutate
+    /// @param block the verified block whose items are walked once
+    /// @return the per-block metadata (`blockNumber`, `roundNumber`, applied-change count)
+    /// @throws IllegalStateException if a `state_changes` item is malformed.
     @NonNull
     ApplyResult applyBlock(@NonNull final BinaryState binaryState, @NonNull final BlockUnparsed block) {
         long blockNumber = -1L;
@@ -90,14 +93,13 @@ final class StateChangeApplier {
         return new ApplyResult(blockNumber, roundNumber, applied);
     }
 
-    /**
-     * Pull the `BlockFooter.startOfBlockStateRootHash` from a block without
-     * walking the whole item list. The footer is always near the end of the
-     * stream (BlockProof is last, BlockFooter is immediately before it), so a
-     * reverse scan is O(1) in practice.
-     *
-     * @return the hash, or `null` if the block has no parseable footer.
-     */
+    /// Pull the `BlockFooter.startOfBlockStateRootHash` from a block without
+    /// walking the whole item list. The footer is always near the end of the
+    /// stream (BlockProof is last, BlockFooter is immediately before it), so a
+    /// reverse scan is O(1) in practice.
+    ///
+    /// @param block the block to scan
+    /// @return the hash, or `null` if the block has no parseable footer.
     @Nullable
     static Bytes extractStartOfBlockStateRootHash(@NonNull final BlockUnparsed block) {
         final List<BlockItemUnparsed> items = block.blockItems();
@@ -117,6 +119,14 @@ final class StateChangeApplier {
         return null;
     }
 
+    /// Translate each `StateChange` in `changes` into the matching `BinaryState`
+    /// write call (singleton update, KV update/delete, queue push/pop). Schema-level
+    /// events (`STATE_ADD`, `STATE_REMOVE`, `UNSET`) are out of scope for live-state v1
+    /// and are skipped with a DEBUG log.
+    ///
+    /// @param binaryState the state to mutate
+    /// @param changes the list of changes to apply
+    /// @return the number of changes actually applied (skipped schema events excluded)
     private static int applyChanges(@NonNull final BinaryState binaryState, @NonNull final List<StateChange> changes) {
         int count = 0;
         for (final StateChange change : changes) {
@@ -172,7 +182,10 @@ final class StateChangeApplier {
         return count;
     }
 
-    /** Convenience used by tests: build a {@code state_changes} block item from a list. */
+    /// Convenience used by tests: build a `state_changes` block item from a list.
+    ///
+    /// @param changes the changes to encode
+    /// @return the PBJ-encoded `StateChanges` bytes
     @NonNull
     static Bytes encodeStateChanges(@NonNull final List<StateChange> changes) {
         final StateChanges sc =

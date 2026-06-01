@@ -4,10 +4,8 @@ package org.hiero.block.node.state.management;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 
-/**
- * Configuration for the live Hashgraph state plugin. Defaults match the production
- * filesystem layout described in {@code docs/design/state/live-state.md}.
- */
+/// Configuration for the live Hashgraph state plugin. Defaults match the production
+/// filesystem layout described in `docs/design/state/live-state.md`.
 @ConfigData("state.management")
 public record StateManagementConfig(
         @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/state/stateMetadata.json")
