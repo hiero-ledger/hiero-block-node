@@ -20,8 +20,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Direct unit tests for {@link StateChangeApplier}. The applier is the
- * load-bearing piece of STORY-5 — every block applied to the live state goes
- * through it. Fixtures use typed PBJ builder setters (e.g. {@code protoBytesKey},
+ * load-bearing piece of the apply path — every block applied to the live state
+ * goes through it. Fixtures use typed PBJ builder setters (e.g. {@code protoBytesKey},
  * {@code protoStringValue}, {@code bytesValue}, {@code protoBytesElement}) to
  * select a oneof variant.
  */

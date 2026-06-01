@@ -38,7 +38,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Exercises the gRPC query surface of {@link StateManagementPlugin} (STORY-7).
+ * Exercises the gRPC query surface of {@link StateManagementPlugin}.
  * Bypasses Helidon by calling the {@code StateServiceInterface} default
  * methods directly — same code path the gRPC dispatcher invokes on a
  * matched request.

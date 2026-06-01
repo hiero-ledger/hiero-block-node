@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Covers {@link StateManagementPlugin#catchUpFromHistoricalBlocks()} (STORY-14): on start, the
+ * Covers {@link StateManagementPlugin#catchUpFromHistoricalBlocks()}: on start, the
  * plugin reads blocks from {@code context.historicalBlockProvider()} and replays them
  * through the apply loop until it is caught up to the latest block on hand. Only then
  * is {@code awaitReady} satisfied.

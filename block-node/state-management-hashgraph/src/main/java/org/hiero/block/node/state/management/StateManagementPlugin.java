@@ -113,11 +113,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     @NonNull
     @Override
     public List<Class<? extends Record>> configDataTypes() {
-        // TODO(STORY-16): a plugin shouldn't own config records defined by an external
-        // library. Tracked options:
+        // TODO: a plugin shouldn't own config records defined by an external
+        // library. Options under consideration:
         //   (A) Foundation: ship META-INF/services entries on the swirlds jars so
-        //       BlockNodeApp.autoDiscoverExtensions picks them up automatically — see
-        //       STORY-12 Foundation-feedback section.
+        //       BlockNodeApp.autoDiscoverExtensions picks them up automatically.
         //   (B) Block-node base helper: a shared SwirldsStateConfigs.types() list every
         //       state-consuming plugin includes, paired with idempotent registration so
         //       multiple plugins don't collide.
@@ -647,7 +646,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
      * <p>Reserve-then-swap-then-release keeps the new state pinned before it is
      * published. A read that is already in flight on the prior state holds only a Java
      * reference, not a reservation; tightening that race (reserve per-read, or a grace
-     * window) is deferred to STORY-20 (jasper review 2d). The apply path is
+     * window) is deferred as a follow-up. The apply path is
      * single-threaded, so only one rotation is ever in flight.
      */
     private void setAttested(@NonNull final VirtualMapState newAttested) {

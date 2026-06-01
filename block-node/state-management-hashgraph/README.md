@@ -150,15 +150,14 @@ whether to retry against a different Block-Node or wait.
   as an in-process counter.
 - The plugin contributes swirlds-library config records via
   `configDataTypes()` — see the TODO above
-  `StateManagementPlugin.configDataTypes()` and STORY-16.
+  `StateManagementPlugin.configDataTypes()`.
 
 ## Roadmap
 
-See the design doc, expansion notes, and ticket set under
-`agent/proposals/live-state/tickets/` for the open follow-ups:
+Open follow-ups (see the design doc and expansion notes for detail):
 
-- **STORY-12** — trim swirlds dependency tree, surface upstream feedback.
-- **STORY-16** — stop the plugin owning swirlds library config records.
+- Trim the swirlds dependency tree and surface upstream feedback.
+- Stop the plugin owning swirlds library config records.
 - Hash-mismatch recovery protocol.
 - Merkle proof RPC exposure.
 - Metric registry integration.
