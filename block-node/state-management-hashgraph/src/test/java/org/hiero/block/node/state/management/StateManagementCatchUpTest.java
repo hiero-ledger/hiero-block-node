@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
+import org.hiero.block.api.StateMetadata;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
@@ -46,22 +47,22 @@ class StateManagementCatchUpTest {
         // No state changes in the blocks → root hash never changes after the first apply,
         // so all subsequent blocks carry the same footer hash.
         historic.put(0L, buildBlock(0L, 0L, Bytes.EMPTY));
-        // The other two blocks need a startOfBlockStateRootHash equal to the live hash
-        // after block 0. We can't know that until the plugin computes it, so the test
-        // probes the plugin's mutable hash after manually applying block 0 — but that
-        // would defeat the test. Instead, we use a two-phase fixture: catch-up applies
-        // block 0, we then read the live hash, then push 1 and 2 with the right footer,
-        // and call catch-up again.
+        // The other blocks need a startOfBlockStateRootHash equal to the live hash after
+        // block 0, which only the plugin can compute. Two-phase fixture: catch-up applies
+        // block 0, we read the staged hash, then push the chained blocks and catch up again.
         final StateManagementPlugin plugin = startPlugin(tmp, historic);
         StateManagementPluginTestSupport.awaitReady(plugin, 5_000L);
-        assertThat(plugin.metadata().blockNumber()).isZero();
+        // Under lag-1 block 0 is applied (staged) but not yet exposed — nothing attests it.
+        assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
 
-        // Pre-seed remaining blocks with chained hashes now that block 0 has applied.
-        final Bytes liveAfter0 = plugin.metadata().stateRootHash();
-        historic.put(1L, buildBlock(1L, 1L, liveAfter0));
-        historic.put(2L, buildBlock(2L, 2L, liveAfter0));
+        // Chain the remaining blocks off the staged hash (empty blocks don't change state,
+        // so every footer carries the same hash). Block 3 confirms block 2 so it is exposed.
+        final Bytes stagedAfter0 = plugin.stagedStateRootHash();
+        historic.put(1L, buildBlock(1L, 1L, stagedAfter0));
+        historic.put(2L, buildBlock(2L, 2L, stagedAfter0));
+        historic.put(3L, buildBlock(3L, 3L, stagedAfter0));
 
-        // Second catch-up pass — closes the new gap to 2.
+        // Second catch-up pass applies 1,2,3 → exposes up to block 2 (lag-1).
         plugin.catchUpFromHistoricalBlocks();
         assertThat(plugin.metadata().blockNumber()).isEqualTo(2L);
         assertThat(plugin.metadata().roundNumber()).isEqualTo(2L);

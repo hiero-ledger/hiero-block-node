@@ -59,9 +59,13 @@ class StateManagementAcceptanceTest {
         final Fixture f = startPlugin(tmp);
 
         // At genesis the footer's startOfBlockStateRootHash must be empty / all-zeros.
-        f.deliverBlock(0L, 0L, Bytes.EMPTY);
-        f.plugin.applyPending();
+        // Under lag-1 block 0 is applied (staged) but NOT yet exposed: nothing has
+        // attested it, so metadata is still DEFAULT.
+        f.deliverAndApply(0L, 0L);
+        assertThat(f.plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
 
+        // Block 1's footer attests post-0, exposing block 0 to readers.
+        f.confirm(1L, 10L);
         assertThat(f.plugin.metadata().blockNumber()).isZero();
         assertThat(f.facility.getSentStateUpdateNotifications())
                 .anyMatch(n -> n.type() == StateUpdateType.VERIFIED && n.blockNumber() == 0L);
@@ -73,13 +77,11 @@ class StateManagementAcceptanceTest {
     void scenario2_nextBlockOnTopOfMetadataApplies(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
 
-        f.deliverBlock(5L, 50L, Bytes.EMPTY); // genesis lane accepts arbitrary first block number
-        f.plugin.applyPending();
+        f.deliverAndApply(5L, 50L); // genesis lane accepts arbitrary first block number
+        f.confirm(6L, 60L); // attests block 5 → exposes it
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
 
-        final Bytes liveAfter5 = f.plugin.metadata().stateRootHash();
-        f.deliverBlock(6L, 60L, liveAfter5);
-        f.plugin.applyPending();
+        f.confirm(7L, 70L); // attests block 6 → exposes it
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(6L);
         assertThat(f.plugin.metadata().roundNumber()).isEqualTo(60L);
 
@@ -90,18 +92,20 @@ class StateManagementAcceptanceTest {
     void scenario3_gapBlockIsNotApplied(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
 
-        f.deliverBlock(5L, 50L, Bytes.EMPTY);
-        f.plugin.applyPending();
-        assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
-        final Bytes liveAfter5 = f.plugin.metadata().stateRootHash();
-
-        // Block 7 — skips 6. Footer hash is fine (no state changes in between) but
-        // the apply loop will not advance past the gap.
-        f.deliverBlock(7L, 70L, liveAfter5);
-        f.plugin.applyPending();
+        f.deliverAndApply(5L, 50L); // genesis lane: block 5 applied/staged
+        f.confirm(6L, 60L); // exposes block 5 (block 6 now staged)
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
 
-        f.deliverBlock(6L, 60L, liveAfter5);
+        // Empty blocks don't change state, so every footer carries the same staged hash.
+        final Bytes staged = f.plugin.stagedStateRootHash();
+
+        // Block 8 — skips 7. The apply loop will not advance past the gap (expectedNext=7).
+        f.deliverBlockWithChanges(8L, 80L, staged, java.util.List.of());
+        f.plugin.applyPending();
+        assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
+
+        // Fill the gap with 7: applies 7 (exposes 6), then 8 (exposes 7).
+        f.deliverBlockWithChanges(7L, 70L, staged, java.util.List.of());
         f.plugin.applyPending();
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(7L);
 
@@ -111,11 +115,10 @@ class StateManagementAcceptanceTest {
     @Test
     void scenario4_chainedBlocksApplyInOrder(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
-        Bytes startHash = Bytes.EMPTY;
-        for (long i = 0; i < 3; i++) {
-            f.deliverBlock(i, i, startHash);
-            f.plugin.applyPending();
-            startHash = f.plugin.metadata().stateRootHash();
+        // Apply blocks 0..3 chained. Under lag-1 each block attests its predecessor,
+        // so after block 3 the exposed block is 2, and VERIFIED has fired for 0,1,2.
+        for (long i = 0; i <= 3; i++) {
+            f.deliverAndApply(i, i);
         }
 
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(2L);
@@ -134,12 +137,12 @@ class StateManagementAcceptanceTest {
         // to remain on disk. Snapshots live only under recent/ — the plugin does
         // no historic/tar archival.
         final Fixture f = startPluginWithRecentRetention(tmp, 3);
-        Bytes start = Bytes.EMPTY;
-        for (long block = 1L; block <= 4L; block++) {
-            f.deliverBlock(block, block * 10L, start);
-            f.plugin.applyPending();
+        // Snapshots capture the exposed (attested) block. Applying blocks 0..5
+        // exposes blocks 0..4, so snapshots recent/0..recent/4 are written; with
+        // retention 3 the oldest (0, 1) are pruned, leaving {2,3,4}.
+        for (long block = 0L; block <= 5L; block++) {
+            f.deliverAndApply(block, block * 10L);
             f.plugin.saveSnapshot();
-            start = f.plugin.metadata().stateRootHash();
         }
 
         final java.nio.file.Path recent = tmp.resolve("recent");
@@ -157,13 +160,14 @@ class StateManagementAcceptanceTest {
     void scenario6_refusesApplyOnHashMismatch(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
 
-        f.deliverBlock(5L, 50L, Bytes.EMPTY); // genesis lane
-        f.plugin.applyPending();
+        f.deliverAndApply(5L, 50L); // genesis lane: block 5 applied/staged
+        f.confirm(6L, 60L); // exposes block 5 (block 6 staged)
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
 
-        // Block 6 with a deliberately bogus startOfBlockStateRootHash.
-        final Bytes bogus = Bytes.fromHex("deadbeef".repeat(12)); // 48 bytes != live hash
-        f.deliverBlock(6L, 60L, bogus);
+        // Block 7 with a deliberately bogus startOfBlockStateRootHash — does not match
+        // the staged hash (post-6), so it is rejected and nothing new is exposed.
+        final Bytes bogus = Bytes.fromHex("deadbeef".repeat(12)); // 48 bytes != staged hash
+        f.deliverBlockWithChanges(7L, 70L, bogus, java.util.List.of());
         f.plugin.applyPending();
 
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
@@ -175,8 +179,8 @@ class StateManagementAcceptanceTest {
     @Test
     void scenario5_snapshotPersistsMetadataAndSnapshotFile(@TempDir final Path tmp) throws java.io.IOException {
         final Fixture f = startPlugin(tmp);
-        f.deliverBlock(1L, 10L, Bytes.EMPTY);
-        f.plugin.applyPending();
+        f.deliverAndApply(1L, 10L); // genesis lane: block 1 applied/staged
+        f.confirm(2L, 20L); // exposes block 1 so it can be snapshotted
         f.plugin.saveSnapshot();
 
         assertThat(tmp.resolve("md.json").toFile()).exists();
@@ -224,21 +228,20 @@ class StateManagementAcceptanceTest {
                 .mapUpdate(
                         MapUpdateChange.newBuilder().key(mapKey).value(mapValue).build())
                 .build();
-        f.deliverBlockWithChanges(0L, 0L, Bytes.EMPTY, java.util.List.of(singletonAa, kvUpdate));
-        f.plugin.applyPending();
+        f.deliverAndApply(0L, 0L, java.util.List.of(singletonAa, kvUpdate)); // staged
 
         // Block 1: queue stateId=3 receives an element 0a.
-        final Bytes startAfter0 = f.plugin.metadata().stateRootHash();
         final StateChange queuePush = StateChange.newBuilder()
                 .stateId(3)
                 .queuePush(QueuePushChange.newBuilder()
                         .protoBytesElement(Bytes.fromHex("0a"))
                         .build())
                 .build();
-        f.deliverBlockWithChanges(1L, 10L, startAfter0, java.util.List.of(queuePush));
-        f.plugin.applyPending();
+        f.deliverAndApply(1L, 10L, java.util.List.of(queuePush)); // exposes block 0, stages block 1
+        // Confirm block 1 so its state (singleton + kv from block 0, plus the queue) is exposed.
+        f.confirm(2L, 20L);
 
-        // Plugin must now serve all three query shapes successfully.
+        // Plugin must now serve all three query shapes successfully off block 1.
         final BinaryStateQueryResponse singleton = f.plugin.getBinarySingleton(
                 BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(1L).build());
         assertThat(singleton.status()).isEqualTo(Code.SUCCESS);
@@ -288,8 +291,8 @@ class StateManagementAcceptanceTest {
                         .protoBytesElement(Bytes.fromHex("dd"))
                         .build())
                 .build();
-        first.deliverBlockWithChanges(0L, 0L, Bytes.EMPTY, java.util.List.of(singletonSeed, kvSeed, queueSeed));
-        first.plugin.applyPending();
+        first.deliverAndApply(0L, 0L, java.util.List.of(singletonSeed, kvSeed, queueSeed)); // staged
+        first.confirm(1L, 10L); // exposes block 0 so it can be snapshotted
         first.plugin.saveSnapshot();
         first.plugin.stop();
 
@@ -360,6 +363,30 @@ class StateManagementAcceptanceTest {
                     BlockUnparsed.newBuilder().blockItems(items).build();
             facility.sendBlockVerification(new VerificationNotification(
                     true, null, blockNumber, Bytes.fromHex("00"), block, BlockSource.PUBLISHER));
+        }
+
+        /**
+         * Deliver block {@code blockNumber} with its footer chained to the current
+         * staged hash (so it validates under lag-1), then drain {@code applyPending}.
+         * The block applies but — per lag-1 — is not exposed until a following block
+         * confirms it; use {@link #confirm} for that.
+         */
+        void deliverAndApply(
+                final long blockNumber, final long roundNumber, @NonNull final java.util.List<StateChange> changes) {
+            deliverBlockWithChanges(blockNumber, roundNumber, plugin.stagedStateRootHash(), changes);
+            plugin.applyPending();
+        }
+
+        void deliverAndApply(final long blockNumber, final long roundNumber) {
+            deliverAndApply(blockNumber, roundNumber, java.util.List.of());
+        }
+
+        /**
+         * Deliver an empty confirming block {@code blockNumber} (no state changes) to
+         * attest the previously applied block under lag-1, exposing it to queries.
+         */
+        void confirm(final long blockNumber, final long roundNumber) {
+            deliverAndApply(blockNumber, roundNumber, java.util.List.of());
         }
     }
 

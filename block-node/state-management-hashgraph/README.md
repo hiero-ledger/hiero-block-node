@@ -27,16 +27,19 @@ management, gRPC queries, and an SPI notification on top.
    missing blocks via `block(n)` in batches of `historicCatchUpBatchSize`,
    enqueueing each into the pending map. The plugin reports `NOT_READY` on
    gRPC queries until catch-up completes.
-4. **Apply.** A scheduled executor drains the pending map in strict
-   block-number order. For each block:
-   - `inspectBlock` walks items without mutating to grab `blockNumber`,
-     `roundNumber` (last `RoundHeader` seen), and
-     `BlockFooter.startOfBlockStateRootHash`.
-   - The footer hash is compared to the current mutable state hash. On
-     mismatch the plugin sets `degraded=true`, increments `hashMismatchTotal`,
-     and refuses further applies.
-   - On match, `StateChangeApplier` walks the items and translates every
-     `state_changes` mutation into a call on the mutable `BinaryState`:
+4. **Apply (lag-1 commit).** A scheduled executor drains the pending map in
+   strict block-number order. Readers never see state the network has not yet
+   attested: a block is applied into the live mutable, but only **exposed** once
+   the *next* block's footer confirms its root hash. For each block N:
+   - Validate N's `BlockFooter.startOfBlockStateRootHash` against the hash of the
+     last applied state (post-(N-1)). On mismatch the plugin sets
+     `degraded=true`, increments `hashMismatchTotal`, refuses further applies, and
+     exposes nothing.
+   - On match, N's footer has attested post-(N-1): promote post-(N-1) to the
+     query-visible `attestedImmutable` (reserving its reference so the next
+     `copyMutableState()` doesn't release it), record its `StateMetadata`, and emit
+     `StateUpdateNotification(VERIFIED, N-1, …)`.
+   - Apply N's `state_changes` to the live mutable `BinaryState`:
      | wire variant | BinaryState call |
      |---|---|
      | `SingletonUpdateChange` | `updateSingleton(stateId, bytes)` |
@@ -44,11 +47,13 @@ management, gRPC queries, and an SPI notification on top.
      | `MapDeleteChange`       | `removeKv(stateId, keyBytes)` |
      | `QueuePushChange`       | `pushQueue(stateId, bytes)` |
      | `QueuePopChange`        | `popQueue(stateId)` |
-   - `lifecycleManager.copyMutableState()` promotes the just-mutated state
-     to the latest immutable copy.
-5. **Track metadata.** After each apply the plugin builds a fresh
-   `StateMetadata` (block number, round number, immutable root hash,
-   leaf-count size) and emits a `StateUpdateNotification(VERIFIED, …)`.
+   - `lifecycleManager.copyMutableState()` seals post-N. It stays staged (not
+     exposed) until block N+1 attests it.
+5. **Consequences of lag-1.** `metadata.blockNumber` (the exposed block) lags the
+   most-recently-applied block by one; the tip block is not queryable until the
+   next block arrives. A freshly-started node that has applied only genesis
+   reports NOT_READY until a second block attests it. Snapshots capture the
+   *attested* state. `getBinary*` reads always go off `attestedImmutable`.
 6. **Snapshot.** A second scheduled executor calls `saveSnapshot()` every
    `state.management.snapshotIntervalMillis`. The snapshot calls
    `lifecycleManager.createSnapshot(latestImmutable, recent/<blockNumber>)`

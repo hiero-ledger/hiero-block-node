@@ -93,6 +93,25 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /** Round number of {@code lastAppliedBlock}, mirrored for the same lag-1 reason. */
     private volatile long lastAppliedRound = -1L;
 
+    /**
+     * Root hash of the state produced by applying {@code lastAppliedBlock} (i.e.
+     * post-{@code lastAppliedBlock}). The next block's
+     * {@code BlockFooter.startOfBlockStateRootHash} must equal this for us to accept
+     * it — which is also the moment that next block's footer *attests*
+     * {@code lastAppliedBlock}, allowing us to commit/expose it (lag-1). Empty until
+     * the first apply.
+     */
+    private volatile Bytes lastAppliedHash = Bytes.EMPTY;
+
+    /**
+     * The latest network-attested immutable state — the only state the query API
+     * reads. Under the lag-1 commit model this lags {@code lastAppliedBlock} by one
+     * block: a block is applied into the live mutable first, and only promoted here
+     * once the *next* block's footer confirms its root hash. {@code null} until the
+     * first block has been attested (so queries report NOT_READY at pure genesis).
+     */
+    private volatile VirtualMapState attestedImmutable;
+
     @NonNull
     @Override
     public List<Class<? extends Record>> configDataTypes() {
@@ -201,7 +220,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     @Override
     public BinaryStateQueryResponse getBinaryKV(@NonNull final BinaryStateQuery request) {
         final BinaryStateQueryResponse.Builder out = baseResponse();
-        if (!stateIsCaughtUp.get()) {
+        if (notReadyForQueries()) {
             return out.status(Code.NOT_READY).build();
         }
         if (request.keyBytes() == null || request.keyBytes().length() == 0L) {
@@ -228,7 +247,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     @Override
     public BinaryStateQueryResponse getBinarySingleton(@NonNull final BinaryStateQuery request) {
         final BinaryStateQueryResponse.Builder out = baseResponse();
-        if (!stateIsCaughtUp.get()) {
+        if (notReadyForQueries()) {
             return out.status(Code.NOT_READY).build();
         }
         if (request.keyBytes() != null && request.keyBytes().length() > 0L) {
@@ -254,7 +273,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     @Override
     public BinaryStateQueryResponse getBinaryQueue(@NonNull final BinaryStateQuery request) {
         final BinaryStateQueryResponse.Builder out = baseResponse();
-        if (!stateIsCaughtUp.get()) {
+        if (notReadyForQueries()) {
             return out.status(Code.NOT_READY).build();
         }
         if (request.keyBytes() != null && request.keyBytes().length() > 0L) {
@@ -293,7 +312,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     @NonNull
     private BinaryState stateFor(@NonNull final StateSource source) {
         return switch (source) {
-            case IMMUTABLE -> lifecycleManager.getLatestImmutableState();
+            // IMMUTABLE is the latest *attested* state (lag-1). gRPC callers reach
+            // this only past the readiness gate, which guarantees it is non-null.
+            case IMMUTABLE -> attestedImmutable;
+            // MUTABLE is the latest applied-but-unattested state — the live mutable,
+            // which after copyMutableState mirrors post-(lastAppliedBlock).
             case MUTABLE -> lifecycleManager.getMutableState();
             case HISTORICAL -> throw new UnsupportedOperationException(
                     "snapshot-backed (HISTORICAL) reads are not yet supported — see STORY-20");
@@ -343,9 +366,30 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return stateIsCaughtUp.get();
     }
 
+    /**
+     * Queries are servable only once catch-up has finished AND at least one block
+     * has been attested (so {@link #attestedImmutable} is non-null). Under lag-1 a
+     * freshly-started node that has applied only genesis (block 0) has nothing
+     * attested yet and must report NOT_READY until the next block confirms it.
+     */
+    private boolean notReadyForQueries() {
+        return !stateIsCaughtUp.get() || attestedImmutable == null;
+    }
+
     @NonNull
     StateMetadata metadata() {
         return metadata;
+    }
+
+    /**
+     * The {@code startOfBlockStateRootHash} the next block's footer must carry to be
+     * accepted — i.e. the root hash of the most recently applied (staged) block,
+     * which under lag-1 is one ahead of {@link #metadata}. Empty before the first
+     * apply. Test-visible so tests can chain a confirming block.
+     */
+    @NonNull
+    Bytes stagedStateRootHash() {
+        return lastAppliedHash;
     }
 
     // ── Internals ───────────────────────────────────────────────────────────
@@ -378,16 +422,22 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             // state we don't.
             metadata = StateMetadata.DEFAULT;
         } else {
-            // We trust the loaded snapshot represents post-(metadata.blockNumber).
-            // Seed lastAppliedBlock so the very next block triggers the lag-1
-            // commit notification for the loaded state.
+            // We trust the loaded snapshot represents post-(metadata.blockNumber),
+            // which was an attested/committed block when snapshotted. Seed the
+            // lag-1 bookkeeping so it is already the exposed state on boot and the
+            // next block validates against it.
             lastAppliedBlock = metadata.blockNumber();
             lastAppliedRound = metadata.roundNumber();
         }
         // Force the initial copyMutableState so getLatestImmutableState() is non-null
-        // from boot onwards. Query paths can then always read through immutable
-        // without a mutable-fallback helper.
+        // from boot onwards (and so the live mutable is a writable copy).
         lifecycleManager.copyMutableState();
+        if (snapshotLoaded) {
+            // Expose the loaded (already-attested) state immediately and anchor the
+            // hash the next block's footer must match.
+            setAttested(lifecycleManager.getLatestImmutableState());
+            lastAppliedHash = rootHashOf(attestedImmutable);
+        }
     }
 
     void applyPending() {
@@ -495,26 +545,23 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     }
 
     /**
-     * Apply a single block's `state_changes` to the live state.
+     * Apply a single block's `state_changes` to the live state under the **lag-1
+     * commit** model: a block is applied into the live mutable, but only exposed to
+     * readers once the *next* block's footer attests its root hash. Readers
+     * therefore never see state the network has not yet confirmed.
      *
-     * <p>Flow:
+     * <p>Flow for block N (given block N-1 was the last applied, post-(N-1) sealed):
      *
      * <ol>
-     *   <li>Pull `BlockFooter.startOfBlockStateRootHash` (cheap reverse scan, no
-     *       full re-walk via the old `inspectBlock`).</li>
-     *   <li>Validate that hash against the current live mutable state. Mismatch
-     *       ⇒ degrade without mutating; the plugin will not advance until an
-     *       operator resolves the divergence.</li>
-     *   <li>If matches, apply the block's `state_changes` to mutable.</li>
-     *   <li>`copyMutableState()` to freeze the new state as the latest immutable
-     *       so queries see it; record the new metadata; emit a
-     *       `VERIFIED` {@link StateUpdateNotification}.</li>
+     *   <li>Pull `BlockFooter.startOfBlockStateRootHash` from N (cheap reverse scan).</li>
+     *   <li>Validate it against {@link #lastAppliedHash} (the hash of post-(N-1)).
+     *       A match means N's footer attests post-(N-1). Mismatch ⇒ degrade without
+     *       mutating; we never expose post-(N-1).</li>
+     *   <li>Now that post-(N-1) is attested, promote it to {@link #attestedImmutable}
+     *       (visible to queries), record its metadata, and emit `VERIFIED(N-1)`.</li>
+     *   <li>Apply N's `state_changes` to the live mutable, then `copyMutableState()`
+     *       to seal post-N. Post-N stays *un-exposed* until block N+1 attests it.</li>
      * </ol>
-     *
-     * <p>Note: this is the **eager commit** model — the post-block state is
-     * exposed to readers immediately, not lagged by one block. The lag-1 model
-     * (only exposing state confirmed by the *next* block's footer) is captured
-     * as a follow-up STORY ticket; see self-review-1 for the trade-off rationale.
      *
      * @return `true` on successful apply, `false` if the block was rejected
      *     (caller should leave the block in the pending queue and stop draining).
@@ -531,11 +578,36 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             degraded.set(true);
             LOGGER.log(
                     System.Logger.Level.ERROR,
-                    "State hash mismatch: footer.startOfBlockStateRootHash diverges from live mutable hash; "
-                            + "plugin marked degraded");
+                    "State hash mismatch: footer.startOfBlockStateRootHash diverges from the last applied "
+                            + "state's root hash; plugin marked degraded (state not exposed)");
             return false;
         }
 
+        // This block's footer just attested post-(lastAppliedBlock). Commit/expose
+        // that previously-applied block now — lag-1: readers only ever see attested
+        // state. (Skipped at genesis, and when the last applied block is already the
+        // exposed one, e.g. immediately after a snapshot reload.)
+        if (lastAppliedBlock >= 0L && (attestedImmutable == null || lastAppliedBlock != metadata.blockNumber())) {
+            final VirtualMapState attested = lifecycleManager.getLatestImmutableState();
+            setAttested(attested);
+            final StateMetadata committed = StateMetadata.newBuilder()
+                    .blockNumber(lastAppliedBlock)
+                    .roundNumber(lastAppliedRound < 0L ? metadata.roundNumber() : lastAppliedRound)
+                    .stateRootHash(lastAppliedHash)
+                    .stateSize(sizeOf(attested))
+                    .build();
+            metadata = committed;
+            context.blockMessaging()
+                    .sendStateUpdate(new StateUpdateNotification(
+                            StateUpdateType.VERIFIED,
+                            committed.blockNumber(),
+                            committed.roundNumber(),
+                            committed.stateRootHash(),
+                            committed.stateSize()));
+        }
+
+        // Apply this block into the live mutable and seal it, but DO NOT expose it:
+        // it stays staged until the next block's footer attests it (above, next call).
         final VirtualMapState mutable = lifecycleManager.getMutableState();
         final StateChangeApplier.ApplyResult result = applier.applyBlock(mutable, block);
         if (result.blockNumber() < 0L) {
@@ -543,58 +615,59 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             degraded.set(true);
             return false;
         }
-        // Freeze the just-written mutable as the new immutable. We then read the
-        // hash and size from the *immutable* (already-sealed) reference rather
-        // than from the new mutable copyMutableState returns. Hashing a mutable
-        // VirtualMap that has uncommitted writes seals it for further writes,
-        // which causes the NEXT block's applier.applyBlock to fail with
-        // "Cannot modify already hashed node".
         lifecycleManager.copyMutableState();
-        final VirtualMapState committed = lifecycleManager.getLatestImmutableState();
-        final StateMetadata updated = StateMetadata.newBuilder()
-                .blockNumber(result.blockNumber())
-                .roundNumber(result.roundNumber() < 0L ? metadata.roundNumber() : result.roundNumber())
-                .stateRootHash(rootHashOf(committed))
-                .stateSize(sizeOf(committed))
-                .build();
-        metadata = updated;
+        final VirtualMapState sealed = lifecycleManager.getLatestImmutableState();
         lastAppliedBlock = result.blockNumber();
         if (result.roundNumber() >= 0L) {
             lastAppliedRound = result.roundNumber();
         }
-        context.blockMessaging()
-                .sendStateUpdate(new StateUpdateNotification(
-                        StateUpdateType.VERIFIED,
-                        updated.blockNumber(),
-                        updated.roundNumber(),
-                        updated.stateRootHash(),
-                        updated.stateSize()));
+        lastAppliedHash = rootHashOf(sealed);
         return true;
     }
 
     /**
-     * Compare the block's {@code BlockFooter.startOfBlockStateRootHash} with the
-     * hash of the state we have on hand from the previous apply (or load).
+     * Validate block N's {@code BlockFooter.startOfBlockStateRootHash} against the
+     * hash of the last state we applied (post-(N-1), held in {@link #lastAppliedHash}).
+     * A match confirms our post-(N-1) matches the network's attested start-of-N hash
+     * — which is exactly the attestation that lets us expose post-(N-1).
      *
-     * <p>We compare against {@link #metadata}'s {@code state_root_hash} — recorded
-     * by the previous apply / snapshot-load — rather than recomputing the hash
-     * from `lifecycleManager.getMutableState()`. Reason: invoking
-     * `getRoot().getHash()` on a `VirtualMap` that has been written to since the
-     * last hash seals it, which causes subsequent `applier.applyBlock` writes to
-     * fail with "Cannot modify already hashed node". Using `metadata` avoids
-     * the seal because we already recorded the hash at the right point in the
-     * lifecycle (right after the previous `copyMutableState`).
+     * <p>We compare against the recorded {@link #lastAppliedHash} rather than
+     * recomputing from the live mutable: hashing a {@code VirtualMap} that has been
+     * written to since its last hash seals it and breaks the next
+     * `applier.applyBlock` with "Cannot modify already hashed node". The hash was
+     * recorded at the right lifecycle point (right after the previous
+     * `copyMutableState`, off the sealed immutable).
      *
-     * <p>Genesis branch: when no block has been applied yet, the expected start
-     * hash is empty / all-zeros and we accept either shape.
+     * <p>Genesis branch: when no block has been applied yet ({@code lastAppliedBlock < 0}),
+     * the expected start hash is empty / all-zeros and we accept either shape.
      */
     private boolean validateStartHash(@NonNull final Bytes startHash) {
-        final boolean atGenesis =
-                metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
-        if (atGenesis) {
+        if (lastAppliedBlock < 0L) {
             return startHash.length() == 0L || isAllZeros(startHash);
         }
-        return metadata.stateRootHash().equals(startHash);
+        return lastAppliedHash.equals(startHash);
+    }
+
+    /**
+     * Adopt {@code newAttested} as the state queries read, managing reference counts
+     * so it survives the next {@code copyMutableState()} (which releases the lifecycle
+     * manager's own reference to the superseded version). We {@code reserve()} the new
+     * state's root and {@code release()} the previously-held one — without this the
+     * held immutable is destroyed and reads/snapshots throw {@code ReferenceCountException}.
+     *
+     * <p>Reserve-then-swap-then-release keeps the new state pinned before it is
+     * published. A read that is already in flight on the prior state holds only a Java
+     * reference, not a reservation; tightening that race (reserve per-read, or a grace
+     * window) is deferred to STORY-20 (jasper review 2d). The apply path is
+     * single-threaded, so only one rotation is ever in flight.
+     */
+    private void setAttested(@NonNull final VirtualMapState newAttested) {
+        final VirtualMapState previous = attestedImmutable;
+        newAttested.getRoot().reserve();
+        attestedImmutable = newAttested;
+        if (previous != null && previous != newAttested) {
+            previous.getRoot().release();
+        }
     }
 
     private static boolean isAllZeros(@NonNull final Bytes b) {
@@ -619,7 +692,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     void saveSnapshot() {
         final StateMetadata snapshot = metadata;
-        if (snapshot.blockNumber() <= lastSnapshottedBlock) {
+        final VirtualMapState attested = attestedImmutable;
+        // Snapshot the *attested* state (the committed block named by metadata), not
+        // lifecycleManager.getLatestImmutableState() — under lag-1 the latter is one
+        // block ahead and unattested. Nothing attested yet ⇒ nothing to snapshot.
+        if (attested == null || snapshot.blockNumber() <= lastSnapshottedBlock) {
             return;
         }
         final Optional<Path> targetOpt = recentSnapshotDirectoryFor(snapshot.blockNumber());
@@ -630,7 +707,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         try {
             Files.createDirectories(target.getParent());
             if (!Files.exists(target)) {
-                lifecycleManager.createSnapshot(lifecycleManager.getLatestImmutableState(), target);
+                lifecycleManager.createSnapshot(attested, target);
             }
             pruneOldRecentSnapshots(snapshot.blockNumber());
             metadataStore.save(snapshot);

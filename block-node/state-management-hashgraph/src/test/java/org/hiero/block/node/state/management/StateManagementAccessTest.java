@@ -89,6 +89,10 @@ class StateManagementAccessTest {
                         StateChange.newBuilder().stateId(3).queuePush(queueA).build(),
                         StateChange.newBuilder().stateId(3).queuePush(queueB).build()));
         s.plugin.applyPending();
+        // lag-1: block 0 is applied but not exposed until the next block attests it.
+        // Deliver an empty confirming block 1 (footer chained to the staged hash).
+        s.deliverBlock(1L, 10L, s.plugin.stagedStateRootHash(), List.of());
+        s.plugin.applyPending();
 
         // The applier stores serialized carriers; compute the expected stored bytes.
         final Bytes expectedSingleton = SingletonUpdateChange.PROTOBUF.toBytes(singleton);
@@ -133,7 +137,15 @@ class StateManagementAccessTest {
 
     @Test
     void notFoundAndInvalidShapes(@TempDir final Path tmp) {
-        final StateManagementPlugin plugin = startPlugin(tmp).plugin;
+        final Started s = startPlugin(tmp);
+        // lag-1: queries report NOT_READY until at least one block is attested. Apply
+        // an empty genesis block 0 and confirm it with block 1 so an (empty) attested
+        // state exists; the shape/NOT_FOUND checks below run against it.
+        s.deliverBlock(0L, 0L, Bytes.EMPTY, List.of());
+        s.plugin.applyPending();
+        s.deliverBlock(1L, 10L, s.plugin.stagedStateRootHash(), List.of());
+        s.plugin.applyPending();
+        final StateManagementPlugin plugin = s.plugin;
 
         // not found — clean state.
         assertThat(plugin.getBinarySingleton(BinaryStateQuery.newBuilder()

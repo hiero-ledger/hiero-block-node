@@ -275,27 +275,33 @@ while (!pendingBlocks.isEmpty() && !stopping) {
 }
 ```
 
-`applyOne(block)`:
+`applyBlockStateChanges(block N)` — **lag-1 commit**: a block is applied into
+the live mutable, but only exposed to readers once the *next* block's footer
+attests its root hash. Readers therefore never see unattested state.
 
-1. Walk block items via `StateChangeApplier.inspectBlock(block)` (no
-   mutation) to extract `blockNumber`, the last `RoundHeader.roundNumber`
-   seen, and the `BlockFooter.startOfBlockStateRootHash`.
-2. If block header is unparseable → log, return without applying.
-3. **Validate** `BlockFooter.startOfBlockStateRootHash` against the
-   current mutable state hash:
-   - genesis (`metadata.blockNumber==0` and `metadata.stateRootHash` is
-     empty): accept iff the footer hash is empty/all-zeros.
-   - otherwise: footer hash must equal `mutable.getRoot().getHash()`.
-   - On mismatch: increment `hashMismatchTotal`, set `degraded=true`,
-     log at ERROR, return. All further `applyOne` calls short-circuit on
-     `degraded`.
-4. Apply the block's `state_changes` items via
-   `StateChangeApplier.applyBlock(mutable, block)`.
-5. `lifecycleManager.copyMutableState()` promotes the mutated state to
-   `latestImmutable`.
-6. Build a fresh `StateMetadata` from the immutable's hash + size and the
-   block number / round number from step 1. Update the `volatile` reference.
-7. Emit `StateUpdateNotification(VERIFIED, blockNumber, roundNumber, …)`.
+1. Pull `BlockFooter.startOfBlockStateRootHash` from N (cheap reverse scan).
+2. If block header is unparseable → log, set `degraded=true`, return.
+3. **Validate** N's start hash against `lastAppliedHash` (the hash of the last
+   applied state, post-(N-1)):
+   - genesis (`lastAppliedBlock < 0`): accept iff the footer hash is empty/all-zeros.
+   - otherwise: must equal `lastAppliedHash`.
+   - On mismatch: increment `hashMismatchTotal`, set `degraded=true`, log at ERROR,
+     return without exposing anything. Further applies short-circuit on `degraded`.
+4. A match means N's footer attests post-(N-1). **Commit/expose** it (unless it is
+   already exposed, e.g. just after a snapshot reload): set `attestedImmutable` to
+   `getLatestImmutableState()` — reserving its reference so the `copyMutableState()`
+   in step 6 does not release it — record its `StateMetadata`, and emit
+   `StateUpdateNotification(VERIFIED, N-1, …)`.
+5. Apply N's `state_changes` via `StateChangeApplier.applyBlock(mutable, block)`.
+6. `lifecycleManager.copyMutableState()` seals post-N; record `lastAppliedBlock=N`,
+   `lastAppliedRound`, `lastAppliedHash=hash(post-N)`. Post-N stays staged
+   (un-exposed) until block N+1 attests it.
+
+Reference counting: `attestedImmutable` is held across applies by reserving its
+root (`copyMutableState()` releases the lifecycle manager's own reference to the
+superseded version); the previously-held attested state is released when a new one
+is adopted. Queries read `attestedImmutable`; a node that has applied only genesis
+has nothing attested and reports NOT_READY. Snapshots capture `attestedImmutable`.
 
 ### 6.6 `saveSnapshot()` (scheduled, runs every `snapshotIntervalMillis`)
 
