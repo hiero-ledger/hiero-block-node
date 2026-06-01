@@ -210,6 +210,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (request.queueIndex() != 0L) {
             return out.status(Code.INVALID_REQUEST).build();
         }
+        if (!hasBlockSpecifier(request)) {
+            return out.status(Code.INVALID_REQUEST).build();
+        }
         if (!matchesLatestBlock(request)) {
             return out.status(Code.NOT_FOUND).build();
         }
@@ -234,6 +237,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (request.queueIndex() != 0L) {
             return out.status(Code.INVALID_REQUEST).build();
         }
+        if (!hasBlockSpecifier(request)) {
+            return out.status(Code.INVALID_REQUEST).build();
+        }
         if (!matchesLatestBlock(request)) {
             return out.status(Code.NOT_FOUND).build();
         }
@@ -253,6 +259,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return out.status(Code.NOT_READY).build();
         }
         if (request.keyBytes() != null && request.keyBytes().length() > 0L) {
+            return out.status(Code.INVALID_REQUEST).build();
+        }
+        if (!hasBlockSpecifier(request)) {
             return out.status(Code.INVALID_REQUEST).build();
         }
         if (!matchesLatestBlock(request)) {
@@ -671,15 +680,24 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     }
 
     /**
-     * Returns `true` when the request targets the currently applied state.
-     *
-     * <p>Matches the {@code BlockRequest.block_specifier} convention from
-     * `block_access_service.proto`: the client sets one of `retrieve_latest=true`
-     * or an explicit `block_number`. Block 0 (genesis) is a valid `block_number`.
-     * The plugin only ever serves the latest immutable state, so a `block_number`
-     * other than the latest applied block (or a request that sets neither field)
-     * does not match — callers get {@link Code#NOT_FOUND}, which affirms the
-     * latest-only API rather than rejecting the request shape.
+     * Returns `true` when the request carries a {@code block_specifier} — exactly
+     * one of {@code retrieve_latest} or {@code block_number}, per the
+     * {@code BlockRequest.block_specifier} convention in `block_access_service.proto`.
+     * A request that sets neither is malformed and must be rejected with
+     * {@link Code#INVALID_REQUEST} (distinct from a well-formed request for a block
+     * we do not hold, which is {@link Code#NOT_FOUND}).
+     */
+    private static boolean hasBlockSpecifier(@NonNull final BinaryStateQuery request) {
+        return request.hasRetrieveLatest() || request.hasBlockNumber();
+    }
+
+    /**
+     * Returns `true` when the request targets the currently applied state. Assumes
+     * the request has already passed {@link #hasBlockSpecifier}. The plugin only
+     * ever serves the latest immutable state, so a `block_number` other than the
+     * latest applied block does not match — callers get {@link Code#NOT_FOUND},
+     * which affirms the latest-only API rather than rejecting the request shape.
+     * Block 0 (genesis) is a valid `block_number`.
      */
     private boolean matchesLatestBlock(@NonNull final BinaryStateQuery request) {
         if (request.hasRetrieveLatest() && Boolean.TRUE.equals(request.retrieveLatest())) {

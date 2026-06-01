@@ -190,12 +190,13 @@ class StateManagementAccessTest {
                         .status())
                 .isEqualTo(Code.NOT_FOUND);
 
-        // No block_specifier set (neither block_number nor retrieve_latest): does not
-        // target latest, so NOT_FOUND — the plugin only serves the latest state.
+        // No block_specifier set (neither block_number nor retrieve_latest) is a
+        // malformed request → INVALID_REQUEST (distinct from a well-formed request
+        // for state we do not hold, which is NOT_FOUND).
         assertThat(plugin.getBinarySingleton(
                                 BinaryStateQuery.newBuilder().stateId(1L).build())
                         .status())
-                .isEqualTo(Code.NOT_FOUND);
+                .isEqualTo(Code.INVALID_REQUEST);
 
         // A non-latest block_number is a valid shape, but the plugin only serves
         // latest state — so it returns NOT_FOUND (no historical state held),
