@@ -53,13 +53,16 @@ management, gRPC queries, and an SPI notification on top.
    `state.management.snapshotIntervalMillis`. The snapshot calls
    `lifecycleManager.createSnapshot(latestImmutable, recent/<blockNumber>)`
    which writes the canonical consensus-node `data/state/` directory layout
-   (see `swirlds-state-api/docs/state-snapshot-spec.md`); archives every
-   older `<recent>/<other>` directory to `<historic>/<other>.tar` via
-   `SnapshotArchiver` (hand-rolled UStar, mirrors block-base
-   `TaredBlockIterator`); enforces `historicArchiveRetentionCount` by
-   deleting the oldest tars when over threshold (mirrors
-   `BlockFileHistoricPlugin.cleanup`); and rewrites `stateMetadata.json`
-   atomically. A `StateUpdateNotification(SNAPSHOT, …)` follows.
+   (see `swirlds-state-api/docs/state-snapshot-spec.md`) — each dir
+   hard-links into the live MerkleDb, so the snapshot is cheap in time and
+   disk. It then prunes recent snapshot dirs beyond
+   `stateSnapshotRecentRetentionCount` (oldest first; the just-written dir is
+   always kept) and rewrites `stateMetadata.json` atomically. A
+   `StateUpdateNotification(SNAPSHOT, …)` follows. Long-term archival
+   (compaction, off-box transfer, random-read indexes) is intentionally out of
+   scope here — a future archiving plugin owns it; this plugin keeps only the
+   last N good snapshots on disk, which is all that seeding / reconnecting
+   another BN or CN needs.
 
 ## Storage encoding
 
@@ -81,12 +84,11 @@ Bound under `@ConfigData("state.management")` in `StateManagementConfig`:
 |             Property              |                        Default                        |                        Notes                        |
 |-----------------------------------|-------------------------------------------------------|-----------------------------------------------------|
 | `stateMetadataPath`               | `/opt/hiero/block-node/data/state/stateMetadata.json` | JSON file with the latest metadata                  |
-| `stateSnapshotRecentPath`         | `/opt/hiero/block-node/data/state/snapshot/recent`    | Holds the most recent snapshot directory            |
-| `stateSnapshotHistoricPath`       | `/opt/hiero/block-node/data/state/snapshot/historic`  | Holds tar archives of older snapshots               |
+| `stateSnapshotRecentPath`         | `/opt/hiero/block-node/data/state/snapshot/recent`    | Holds the recent snapshot directories               |
 | `snapshotIntervalMillis`          | `900000` (15 min)                                     | Rate of `saveSnapshot()`                            |
 | `stateChangesApplyIntervalMillis` | `2000` (2 s)                                          | Rate of the apply loop                              |
 | `historicCatchUpBatchSize`        | `64`                                                  | Blocks fetched per batch during start-up catch-up   |
-| `historicArchiveRetentionCount`   | `0`                                                   | Max historic tar archives to keep (`0` = unbounded) |
+| `stateSnapshotRecentRetentionCount` | `3`                                                 | Recent snapshot dirs to keep on disk (oldest pruned first) |
 
 There is no `enabled` flag. Block-Node plugins are active whenever their jar
 is on the classpath; opt-in lives in the deployment manifest.

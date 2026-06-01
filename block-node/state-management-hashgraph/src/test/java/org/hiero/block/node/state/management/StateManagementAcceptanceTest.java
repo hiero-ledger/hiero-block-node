@@ -128,67 +128,11 @@ class StateManagementAcceptanceTest {
     }
 
     @Test
-    void scenario8_historicArchivesAreCappedByRetention(@TempDir final Path tmp) throws java.io.IOException {
-        final Fixture f = startPluginWithRetention(tmp, 2);
-
-        // Apply + snapshot 3 successive blocks, producing snapshots 1, 2, 3.
-        // After each snapshot, the previous recent dir is archived to historic.
-        // With retention=2, after writing 3.tar the historic store should hold
-        // only 2.tar and 1.tar — wait, that's 2. After writing 4 it would drop 1.
-        // So produce four snapshots so the retention actually trims one.
-        Bytes start = Bytes.EMPTY;
-        for (long block = 1; block <= 4; block++) {
-            f.deliverBlock(block, block * 10L, start);
-            f.plugin.applyPending();
-            f.plugin.saveSnapshot();
-            start = f.plugin.metadata().stateRootHash();
-        }
-
-        final java.nio.file.Path historic = tmp.resolve("historic");
-        final java.util.Set<String> names;
-        try (var stream = java.nio.file.Files.list(historic)) {
-            names = stream.map(p -> p.getFileName().toString()).collect(java.util.stream.Collectors.toSet());
-        }
-        // 1, 2, 3 would all be archives (4 is in recent/). Retention of 2 should leave
-        // only the two most recent archives: 3.tar and 2.tar (or some prefix variant).
-        assertThat(names).hasSize(2).contains("3.tar").contains("2.tar").doesNotContain("1.tar");
-        f.plugin.stop();
-    }
-
-    @Test
-    void scenario7_previousSnapshotsAreArchivedToHistoric(@TempDir final Path tmp) throws java.io.IOException {
-        // Force recent retention = 1 so the test exercises the archive-then-delete
-        // path on every snapshot cycle. The default retention (3) would leave the
-        // older recent dir on disk and just archive a copy.
-        final Fixture f = startPluginWithRecentRetention(tmp, 1);
-
-        // Block 1 → snapshot 1.
-        f.deliverBlock(1L, 10L, Bytes.EMPTY);
-        f.plugin.applyPending();
-        f.plugin.saveSnapshot();
-        final java.nio.file.Path recent1 = tmp.resolve("recent").resolve("1");
-        assertThat(java.nio.file.Files.isDirectory(recent1)).isTrue();
-
-        // Block 2 → snapshot 2. The recent/1 directory should be tarred to
-        // historic/1.tar and removed.
-        final Bytes liveAfter1 = f.plugin.metadata().stateRootHash();
-        f.deliverBlock(2L, 20L, liveAfter1);
-        f.plugin.applyPending();
-        f.plugin.saveSnapshot();
-
-        assertThat(tmp.resolve("recent").resolve("2").toFile()).exists();
-        assertThat(recent1.toFile()).doesNotExist();
-        final java.nio.file.Path historic1 = tmp.resolve("historic").resolve("1.tar");
-        assertThat(historic1.toFile()).exists();
-        assertThat(java.nio.file.Files.size(historic1)).isGreaterThan(1024L); // header + content + EOA
-        f.plugin.stop();
-    }
-
-    @Test
     void recentSnapshotRetentionKeepsConfiguredCount(@TempDir final Path tmp) throws java.io.IOException {
         // Retention=3 keeps the current + 2 older recent dirs. Apply + snapshot
-        // 4 successive blocks; expect recent/1 to be archived + deleted, and
-        // recent/{2,3,4} to remain on disk.
+        // 4 successive blocks; expect recent/1 to be deleted and recent/{2,3,4}
+        // to remain on disk. Snapshots live only under recent/ — the plugin does
+        // no historic/tar archival.
         final Fixture f = startPluginWithRecentRetention(tmp, 3);
         Bytes start = Bytes.EMPTY;
         for (long block = 1L; block <= 4L; block++) {
@@ -204,42 +148,8 @@ class StateManagementAcceptanceTest {
                     stream.map(p -> p.getFileName().toString()).collect(java.util.stream.Collectors.toSet());
             assertThat(names).containsExactlyInAnyOrder("2", "3", "4");
         }
-        // recent/1 was archived to historic before being deleted from recent.
-        assertThat(tmp.resolve("historic").resolve("1.tar").toFile()).exists();
-        f.plugin.stop();
-    }
-
-    @Test
-    void historicRetentionDeletesOldestArchiveFirst(@TempDir final Path tmp) throws java.io.IOException {
-        // Self-review-1 item #14, Nana's exact example: with retention=3 and
-        // 0.tar, 1.tar, 2.tar present, adding 3.tar must drop 0.tar (the oldest).
-        // recent-retention=1 forces every block's previous snapshot to be archived,
-        // so applying blocks 1..4 produces real 1.tar, 2.tar, 3.tar archives.
-        final Fixture f = startPlugin(tmp, 3L, 1);
-
-        // Pre-seed a dummy 0.tar that pre-dates any real archive. It must be the
-        // first victim once the archive count exceeds the retention window.
-        final java.nio.file.Path historic = tmp.resolve("historic");
-        java.nio.file.Files.createDirectories(historic);
-        final java.nio.file.Path dummyZero = historic.resolve("0.tar");
-        java.nio.file.Files.writeString(dummyZero, "seed");
-
-        Bytes start = Bytes.EMPTY;
-        for (long block = 1L; block <= 4L; block++) {
-            f.deliverBlock(block, block * 10L, start);
-            f.plugin.applyPending();
-            f.plugin.saveSnapshot();
-            start = f.plugin.metadata().stateRootHash();
-        }
-
-        // Archives produced: dummy 0.tar + real 1/2/3.tar = 4. Retention 3 trims
-        // the single oldest — 0.tar — and keeps the three most recent.
-        try (var stream = java.nio.file.Files.list(historic)) {
-            final java.util.Set<String> names =
-                    stream.map(p -> p.getFileName().toString()).collect(java.util.stream.Collectors.toSet());
-            assertThat(names).containsExactlyInAnyOrder("1.tar", "2.tar", "3.tar");
-        }
-        assertThat(dummyZero.toFile()).doesNotExist();
+        // No historic archival — the plugin never creates a historic/ directory.
+        assertThat(tmp.resolve("historic").toFile()).doesNotExist();
         f.plugin.stop();
     }
 
@@ -453,19 +363,15 @@ class StateManagementAcceptanceTest {
         }
     }
 
-    private static Fixture startPluginWithRetention(final Path tmp, final long retention) {
-        return startPlugin(tmp, retention, 3);
-    }
-
     private static Fixture startPluginWithRecentRetention(final Path tmp, final int recentRetention) {
-        return startPlugin(tmp, 0L, recentRetention);
+        return startPlugin(tmp, recentRetention);
     }
 
     private static Fixture startPlugin(final Path tmp) {
-        return startPlugin(tmp, 0L, 3);
+        return startPlugin(tmp, 3);
     }
 
-    private static Fixture startPlugin(final Path tmp, final long retention, final int recentRetention) {
+    private static Fixture startPlugin(final Path tmp, final int recentRetention) {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
@@ -478,12 +384,8 @@ class StateManagementAcceptanceTest {
                 .withValue(
                         "state.management.stateSnapshotRecentPath",
                         tmp.resolve("recent").toString())
-                .withValue(
-                        "state.management.stateSnapshotHistoricPath",
-                        tmp.resolve("historic").toString())
                 .withValue("state.management.snapshotIntervalMillis", "3600000")
                 .withValue("state.management.stateChangesApplyIntervalMillis", "3600000")
-                .withValue("state.management.historicArchiveRetentionCount", Long.toString(retention))
                 .withValue("state.management.stateSnapshotRecentRetentionCount", Integer.toString(recentRetention))
                 .build();
         final BlockNodeContext context =

@@ -48,11 +48,10 @@ class StateManagementPluginLifecycleTest {
     void applyAndSnapshotAndReloadEndToEnd(@TempDir final Path tmp) throws Exception {
         final Path metadataPath = tmp.resolve("stateMetadata.json");
         final Path recentRoot = tmp.resolve("snapshot/recent");
-        final Path historicRoot = tmp.resolve("snapshot/historic");
 
         // First plugin lifecycle — apply a synthetic block 1, snapshot, stop.
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, historicRoot, facility);
+        final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, facility);
 
         assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 5_000L)).isTrue();
         assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
@@ -85,7 +84,7 @@ class StateManagementPluginLifecycleTest {
 
         // Second plugin lifecycle — fresh instance, same paths, must load metadata + snapshot.
         final TestBlockMessagingFacility facility2 = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin2 = startPlugin(metadataPath, recentRoot, historicRoot, facility2);
+        final StateManagementPlugin plugin2 = startPlugin(metadataPath, recentRoot, facility2);
 
         assertThat(plugin2.metadata().blockNumber()).isEqualTo(1L);
         assertThat(plugin2.metadata().roundNumber()).isEqualTo(11L);
@@ -95,8 +94,7 @@ class StateManagementPluginLifecycleTest {
     @Test
     void rejectsBlockWithUnparseableHeader(@TempDir final Path tmp) throws Exception {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin =
-                startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), tmp.resolve("historic"), facility);
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), facility);
 
         final BlockUnparsed corrupt = BlockUnparsed.newBuilder()
                 .blockItems(BlockItemUnparsed.newBuilder()
@@ -115,10 +113,7 @@ class StateManagementPluginLifecycleTest {
     // ── Fixtures ───────────────────────────────────────────────────────────
 
     private static StateManagementPlugin startPlugin(
-            final Path metadataPath,
-            final Path recentRoot,
-            final Path historicRoot,
-            final TestBlockMessagingFacility facility) {
+            final Path metadataPath, final Path recentRoot, final TestBlockMessagingFacility facility) {
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
@@ -126,7 +121,6 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(PathsConfig.class)
                 .withValue("state.management.stateMetadataPath", metadataPath.toString())
                 .withValue("state.management.stateSnapshotRecentPath", recentRoot.toString())
-                .withValue("state.management.stateSnapshotHistoricPath", historicRoot.toString())
                 .withValue("state.management.snapshotIntervalMillis", "3600000") // suppress automatic snapshot
                 .withValue("state.management.stateChangesApplyIntervalMillis", "3600000") // suppress automatic apply
                 .build();

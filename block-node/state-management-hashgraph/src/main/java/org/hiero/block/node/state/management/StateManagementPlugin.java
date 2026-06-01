@@ -583,7 +583,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             if (!Files.exists(target)) {
                 lifecycleManager.createSnapshot(lifecycleManager.getLatestImmutableState(), target);
             }
-            pruneAndArchiveRecentSnapshotsExcept(snapshot.blockNumber());
+            pruneOldRecentSnapshots(snapshot.blockNumber());
             metadataStore.save(snapshot);
             lastSnapshottedBlock = snapshot.blockNumber();
             context.blockMessaging()
@@ -599,65 +599,25 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     }
 
     /**
-     * Two-stage recent-snapshot cleanup that runs after a snapshot is written.
+     * Delete recent snapshot directories beyond {@code stateSnapshotRecentRetentionCount}
+     * after a snapshot is written. Snapshots live only under
+     * {@code stateSnapshotRecentPath} as hot, ready-to-load directories — each
+     * hard-links into the live MerkleDb files, so a snapshot is cheap in both time
+     * and disk. Long-term archival (compaction, off-box transfer, random-read
+     * indexes) is intentionally out of scope for this plugin and is left to a
+     * future archiving plugin; we keep only the last N good snapshots, which is all
+     * that seeding / reconnecting another BN or CN needs.
      *
-     * <ol>
-     *   <li>Archive every recent dir that is older than the recent retention
-     *       window to historic. Archive logic is intentionally separate from
-     *       the deletion step so it can be reshaped (S3 upload, async batching)
-     *       without touching the retention math.</li>
-     *   <li>Delete the oldest recent dirs that are over
-     *       {@code stateSnapshotRecentRetentionCount}. The just-written
-     *       {@code currentBlock} dir is always preserved regardless of the
-     *       retention setting.</li>
-     *   <li>Enforce historic-archive retention separately.</li>
-     * </ol>
+     * <p>The just-written {@code currentBlock} dir is always preserved (it's the
+     * freshest); remaining dirs sorted by block number ascending are deleted from
+     * the oldest until the count is at or under the retention window. A retention
+     * of {@code 1} keeps only the current dir.
      */
-    private void pruneAndArchiveRecentSnapshotsExcept(final long currentBlock) throws IOException {
+    private void pruneOldRecentSnapshots(final long currentBlock) throws IOException {
         final Path recentRoot = Path.of(config.stateSnapshotRecentPath());
-        final Path historicRoot = Path.of(config.stateSnapshotHistoricPath());
-        if (Files.isDirectory(recentRoot)) {
-            archiveOlderRecentSnapshots(recentRoot, historicRoot, currentBlock);
-            pruneOldRecentSnapshots(recentRoot, currentBlock);
+        if (!Files.isDirectory(recentRoot)) {
+            return;
         }
-        enforceHistoricRetention(historicRoot);
-    }
-
-    /**
-     * Tar every recent snapshot directory (other than the current block) to
-     * {@code historicRoot/<block>.tar}. The recent directory itself stays in
-     * place — {@link #pruneOldRecentSnapshots} decides whether to delete it
-     * based on the retention window. Archive failures are logged and skipped;
-     * a later cycle retries.
-     */
-    private static void archiveOlderRecentSnapshots(
-            @NonNull final Path recentRoot, @NonNull final Path historicRoot, final long currentBlock)
-            throws IOException {
-        final List<Path> entries = listRecentDirs(recentRoot);
-        for (final Path dir : entries) {
-            final long blockNumber = parseBlockDirName(dir);
-            if (blockNumber < 0L || blockNumber == currentBlock) {
-                continue;
-            }
-            try {
-                if (!Files.exists(historicRoot.resolve(blockNumber + ".tar"))) {
-                    SnapshotArchiver.archive(dir, historicRoot, blockNumber);
-                }
-            } catch (final IOException e) {
-                LOGGER.log(System.Logger.Level.WARNING, "Failed to archive snapshot " + dir + " to historic", e);
-            }
-        }
-    }
-
-    /**
-     * Delete recent snapshot directories beyond {@code stateSnapshotRecentRetentionCount}.
-     * The {@code currentBlock} dir is always preserved (it's the freshest);
-     * remaining dirs sorted by block number ascending get deleted from the
-     * oldest until the count is at or under the retention window. A retention
-     * of `0` is treated as "keep none of the older dirs" — i.e. only the
-     * current dir survives. A retention of `1` keeps the current dir only.
-     */
-    private void pruneOldRecentSnapshots(@NonNull final Path recentRoot, final long currentBlock) throws IOException {
         final int retain = Math.max(0, config.stateSnapshotRecentRetentionCount());
         final List<Path> entries = listRecentDirs(recentRoot);
         // Build a list of (block, path) excluding the current block — those are
@@ -697,53 +657,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return Long.parseLong(dir.getFileName().toString());
         } catch (final NumberFormatException ignored) {
             return -1L;
-        }
-    }
-
-    /**
-     * Delete the oldest historic tar archives until the archive count is at or under
-     * {@code historicArchiveRetentionCount}. A value of {@code 0} disables the policy.
-     * Mirrors {@code BlockFileHistoricPlugin.cleanup} — track count and prune the
-     * lowest-block-number archive until under threshold.
-     */
-    private void enforceHistoricRetention(@NonNull final Path historicRoot) {
-        final long retention = config.historicArchiveRetentionCount();
-        if (retention <= 0L || !Files.isDirectory(historicRoot)) {
-            return;
-        }
-        final java.util.List<java.util.Map.Entry<Long, Path>> archives;
-        try (var entries = Files.list(historicRoot)) {
-            archives = entries.filter(Files::isRegularFile)
-                    .map(p -> {
-                        final String name = p.getFileName().toString();
-                        if (!name.endsWith(".tar")) {
-                            return null;
-                        }
-                        try {
-                            final long block = Long.parseLong(name.substring(0, name.length() - 4));
-                            return java.util.Map.entry(block, p);
-                        } catch (final NumberFormatException ignored) {
-                            return null;
-                        }
-                    })
-                    .filter(java.util.Objects::nonNull)
-                    .sorted(java.util.Map.Entry.comparingByKey())
-                    .toList();
-        } catch (final IOException e) {
-            LOGGER.log(System.Logger.Level.WARNING, "Failed to enumerate historic tar archives", e);
-            return;
-        }
-        long excess = archives.size() - retention;
-        int i = 0;
-        while (excess > 0 && i < archives.size()) {
-            final Path victim = archives.get(i).getValue();
-            try {
-                Files.delete(victim);
-            } catch (final IOException e) {
-                LOGGER.log(System.Logger.Level.WARNING, "Failed to delete historic archive " + victim, e);
-            }
-            excess--;
-            i++;
         }
     }
 

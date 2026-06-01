@@ -218,9 +218,6 @@ class StateManagementCatchUpTest {
                 .withValue(
                         "state.management.stateSnapshotRecentPath",
                         tmp.resolve("recent").toString())
-                .withValue(
-                        "state.management.stateSnapshotHistoricPath",
-                        tmp.resolve("historic").toString())
                 .withValue("state.management.snapshotIntervalMillis", "3600000")
                 .withValue("state.management.stateChangesApplyIntervalMillis", "3600000")
                 .withValue("state.management.historicCatchUpBatchSize", "2")

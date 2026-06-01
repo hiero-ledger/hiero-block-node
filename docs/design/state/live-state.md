@@ -109,10 +109,10 @@ used for `swirlds-config-*`.
 |-----------------------------|-------------------------------------------------------|------------------------------------------------------|
 | `stateMetadataPath`         | `/opt/hiero/block-node/data/state/stateMetadata.json` | Path to the metadata file.                           |
 | `stateSnapshotRecentPath`   | `/opt/hiero/block-node/data/state/snapshot/recent`    | Directory for live snapshot dirs (`<blockNumber>/`). |
-| `stateSnapshotHistoricPath` | `/opt/hiero/block-node/data/state/snapshot/historic`  | Directory of tarred archival snapshots.              |
 | `snapshotInterval`          | `15m`                                                 | Min 1m.                                              |
 | `stateChangesApplyInterval` | `2s`                                                  | Min 100ms.                                           |
 | `historicCatchUpBatchSize`  | `64`                                                  | Blocks pulled per catch-up loop iteration.           |
+| `stateSnapshotRecentRetentionCount` | `3`                                           | Recent snapshot dirs kept on disk (oldest pruned).   |
 
 ## 5. Data model
 
@@ -302,14 +302,12 @@ while (!pendingBlocks.isEmpty() && !stopping) {
 1. If `metadata.blockNumber == lastSnapshottedBlock` → nothing new, skip.
 2. `lifecycleManager.createSnapshot(latestImmutable, recentPath/<blockNumber>)`
    writes the canonical consensus-node `data/state/` layout into the directory.
-3. `pruneRecentExcept(blockNumber)`:
-   - for every other directory under `recentPath`, call `SnapshotArchiver`
-     to tar it into `historicPath/<otherBlock>.tar` (UStar, atomic via
-     `.tar.tmp` + move), then delete the recent dir;
-   - enforce `historicArchiveRetentionCount`: if non-zero, list `*.tar`
-     under `historicPath`, sort by block number, delete the oldest until
-     the count is at or under the threshold (mirrors
-     `BlockFileHistoricPlugin.cleanup`).
+3. `pruneOldRecentSnapshots(blockNumber)`: delete recent snapshot dirs beyond
+   `stateSnapshotRecentRetentionCount`, oldest first; the just-written
+   `<blockNumber>` dir is always kept. Snapshots live only under `recentPath`
+   (each dir hard-links into the live MerkleDb, so they are cheap). Long-term
+   archival is out of scope for this plugin — a future archiving plugin owns
+   compaction / off-box transfer / random-read indexes.
 4. Atomically rewrite `stateMetadata.json`.
 5. Emit `StateUpdateNotification(SNAPSHOT, ...)`.
 
@@ -392,7 +390,6 @@ wired and is parked as a follow-up:
 | Verification gap                     | Block parks in `pendingBlocks` until predecessor arrives (via notification or catch-up); apply loop never advances past a gap.                |
 | Historical block missing locally     | Catch-up skips it; the same block can arrive via notification later.                                                                          |
 | Snapshot write fails (I/O)           | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                          |
-| Historic archive fails               | Log at WARNING; the recent dir is kept so the next snapshot retries the archive.                                                              |
 | Missing-queue query                  | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                           |
 
 ## 11. Acceptance tests
@@ -413,10 +410,9 @@ and exercise the real `VirtualMapStateLifecycleManager`:
    dirs restores from disk.
 6. **scenario6** — footer hash mismatch refuses apply, increments
    `hashMismatchTotal`, sets `degraded=true`.
-7. **scenario7** — older recent snapshot is tarred to
-   `historic/<block>.tar` before the recent dir is deleted.
-8. **scenario8** — `historicArchiveRetentionCount=2` caps the historic
-   store at two archives, deleting the oldest.
+7. **recentSnapshotRetentionKeepsConfiguredCount** — with retention 3,
+   applying/snapshotting blocks 1..4 keeps `recent/{2,3,4}` and deletes
+   `recent/1`; no `historic/` directory is created.
 
 Other test classes:
 
@@ -427,7 +423,6 @@ Other test classes:
   `HistoricalBlockFacility` fixture
 - `StateManagementPluginLifecycleTest` — start → apply → snapshot → stop →
   restart round-trip
-- `SnapshotArchiverTest` — UStar round-trip of the tar emitter
 
 E2E (`tools-and-tests/suites/.../StateManagementE2ETests.java`) boots the full
 `BlockNodeApp` and exercises `StateService` over real gRPC via the
