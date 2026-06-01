@@ -17,7 +17,6 @@ import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotifica
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
-import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
@@ -52,8 +51,6 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     /** List of all sent publisher status update notifications */
     private final List<PublisherStatusUpdateNotification> sentPublisherStatusUpdateNotifications =
             new CopyOnWriteArrayList<>();
-    /** List of all sent live-state update notifications */
-    private final List<StateUpdateNotification> sentStateUpdateNotifications = new CopyOnWriteArrayList<>();
     /** Set of handlers for which we must simulate a handler that is behind and producing backpressure. */
     private final Set<BlockItemHandler> handlersWithBackpressure =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
@@ -270,27 +267,6 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
         for (final BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handlePublisherStatusUpdate(notification);
         }
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void sendStateUpdate(final StateUpdateNotification notification) {
-        logNotification(notification);
-        sentStateUpdateNotifications.add(notification);
-        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
-            handler.handleStateUpdate(notification);
-        }
-    }
-
-    /**
-     * Get all live-state update notifications observed by this fixture.
-     *
-     * @return the list of sent state update notifications
-     */
-    public List<StateUpdateNotification> getSentStateUpdateNotifications() {
-        return sentStateUpdateNotifications;
     }
 
     /**

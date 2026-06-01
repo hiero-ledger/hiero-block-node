@@ -50,13 +50,4 @@ public interface BlockNotificationHandler {
      * @param notification the publisher status update notification to handle
      */
     default void handlePublisherStatusUpdate(final PublisherStatusUpdateNotification notification) {}
-
-    /**
-     * Handle a live-state update notification emitted by the live-state plugin when a verified block
-     * has been applied to the immutable state or a snapshot has been written. Always called on a
-     * handler thread; each registered handler has its own virtual thread.
-     *
-     * @param notification the state update notification to handle
-     */
-    default void handleStateUpdate(final StateUpdateNotification notification) {}
 }

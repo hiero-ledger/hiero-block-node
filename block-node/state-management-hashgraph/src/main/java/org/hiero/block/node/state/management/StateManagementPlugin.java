@@ -29,8 +29,6 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
-import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
-import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification.StateUpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
@@ -300,10 +298,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     // ── Binary state reads (value-returning; no BinaryStateQuery) ──────────────
     // These back the gRPC handlers above and are the in-process read surface a
-    // future plugin-to-plugin BinaryStateReader SPI will expose (see STORY-20).
+    // future plugin-to-plugin BinaryStateReader SPI will expose as desired.
     // The StateSource argument selects which version of state to read; the gRPC
     // API always passes IMMUTABLE (attested). Reading a non-latest *immutable*
-    // (e.g. a snapshot) is future work tracked in STORY-20.
+    // (e.g. a snapshot) is future work
 
     /**
      * Resolve the {@link BinaryState} for a read source. {@link StateSource#HISTORICAL}
@@ -319,7 +317,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             // which after copyMutableState mirrors post-(lastAppliedBlock).
             case MUTABLE -> lifecycleManager.getMutableState();
             case HISTORICAL -> throw new UnsupportedOperationException(
-                    "snapshot-backed (HISTORICAL) reads are not yet supported — see STORY-20");
+                    "snapshot-backed reads are not yet supported");
         };
     }
 
@@ -590,20 +588,12 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (lastAppliedBlock >= 0L && (attestedImmutable == null || lastAppliedBlock != metadata.blockNumber())) {
             final VirtualMapState attested = lifecycleManager.getLatestImmutableState();
             setAttested(attested);
-            final StateMetadata committed = StateMetadata.newBuilder()
+            metadata = StateMetadata.newBuilder()
                     .blockNumber(lastAppliedBlock)
                     .roundNumber(lastAppliedRound < 0L ? metadata.roundNumber() : lastAppliedRound)
                     .stateRootHash(lastAppliedHash)
                     .stateSize(sizeOf(attested))
                     .build();
-            metadata = committed;
-            context.blockMessaging()
-                    .sendStateUpdate(new StateUpdateNotification(
-                            StateUpdateType.VERIFIED,
-                            committed.blockNumber(),
-                            committed.roundNumber(),
-                            committed.stateRootHash(),
-                            committed.stateSize()));
         }
 
         // Apply this block into the live mutable and seal it, but DO NOT expose it:
@@ -712,13 +702,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             pruneOldRecentSnapshots(snapshot.blockNumber());
             metadataStore.save(snapshot);
             lastSnapshottedBlock = snapshot.blockNumber();
-            context.blockMessaging()
-                    .sendStateUpdate(new StateUpdateNotification(
-                            StateUpdateType.SNAPSHOT,
-                            snapshot.blockNumber(),
-                            snapshot.roundNumber(),
-                            snapshot.stateRootHash(),
-                            snapshot.stateSize()));
         } catch (final IOException e) {
             LOGGER.log(System.Logger.Level.WARNING, "Snapshot write failed for block " + snapshot.blockNumber(), e);
         }

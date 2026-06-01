@@ -21,10 +21,8 @@ Initial scope (this epic):
    `hiero-consensus-node/platform-sdk/swirlds-state-api/docs/state-snapshot-spec.md`).
 3. New protobuf surface: `StateMetadata`, `BinaryStateQuery`,
    `BinaryStateQueryResponse`, and three `getBinary*` RPCs on `StateService`.
-4. New SPI hook: `StateUpdateNotification` and
-   `BlockNotificationHandler.handleStateUpdate`.
-5. `ServerStatusDetailResponse.state_metadata` exposes the latest applied
-   state pointer.
+   `StateMetadata` is returned on every `BinaryStateQueryResponse` so a client
+   can see which block the latest state corresponds to.
 
 Explicitly out of scope:
 
@@ -58,10 +56,10 @@ Explicitly out of scope:
                                                       │  │ (every 15m)    │  │
                                                       │  └────────────────┘  │
                                                       └──────────┬───────────┘
-                                                                 │ sendStateUpdate
+                                                                 │ getBinaryKV / getBinarySingleton / getBinaryQueue
                                                                  ▼
                                               ┌──────────────────────────────┐
-                                              │ server-status & other plugins│
+                                              │ gRPC clients & other plugins  │
                                               └──────────────────────────────┘
 ```
 
@@ -174,30 +172,15 @@ service StateService {
 }
 ```
 
-### 5.3 SPI: `StateUpdateNotification`
+### 5.3 No state-update notification
 
-```java
-public record StateUpdateNotification(
-    StateUpdateType type,        // VERIFIED or SNAPSHOT
-    long blockNumber,
-    long roundNumber,
-    Bytes stateRootHash,
-    long stateSize) {}
-```
-
-Added alongside `VerificationNotification` in
-`org.hiero.block.node.spi.blockmessaging`. New default-empty hook on
-`BlockNotificationHandler`:
-
-```java
-default void handleStateUpdate(StateUpdateNotification n) {}
-```
-
-New send method on `BlockMessagingFacility`:
-
-```java
-void sendStateUpdate(StateUpdateNotification notification);
-```
+An earlier revision pushed a `StateUpdateNotification` (VERIFIED / SNAPSHOT) over
+the messaging SPI and surfaced a `StateMetadata` pointer on
+`ServerStatusDetailResponse`. That was removed for the spike: the plugin does not
+push notifications and `ServerStatusDetailResponse` carries no state field
+(field 5 reserved). Consumers read the latest `StateMetadata` directly off the
+`BinaryStateQueryResponse`. If plugins later need a discoverable in-process read
+API, that is STORY-20 (the `BinaryStateReader` SPI), not a push notification.
 
 ## 6. Plugin lifecycle
 
@@ -290,8 +273,7 @@ attests its root hash. Readers therefore never see unattested state.
 4. A match means N's footer attests post-(N-1). **Commit/expose** it (unless it is
    already exposed, e.g. just after a snapshot reload): set `attestedImmutable` to
    `getLatestImmutableState()` — reserving its reference so the `copyMutableState()`
-   in step 6 does not release it — record its `StateMetadata`, and emit
-   `StateUpdateNotification(VERIFIED, N-1, …)`.
+   in step 6 does not release it — and record its `StateMetadata`.
 5. Apply N's `state_changes` via `StateChangeApplier.applyBlock(mutable, block)`.
 6. `lifecycleManager.copyMutableState()` seals post-N; record `lastAppliedBlock=N`,
    `lastAppliedRound`, `lastAppliedHash=hash(post-N)`. Post-N stays staged
@@ -315,7 +297,6 @@ has nothing attested and reports NOT_READY. Snapshots capture `attestedImmutable
    archival is out of scope for this plugin — a future archiving plugin owns
    compaction / off-box transfer / random-read indexes.
 4. Atomically rewrite `stateMetadata.json`.
-5. Emit `StateUpdateNotification(SNAPSHOT, ...)`.
 
 ### 6.7 `stop()`
 
@@ -409,8 +390,8 @@ and exercise the real `VirtualMapStateLifecycleManager`:
    footer hash advances metadata.
 3. **scenario3** — gap: block `n+2` parks until `n+1` fills the gap; both
    then apply in order.
-4. **scenario4** — three chained blocks (`0,1,2`) emit three VERIFIED
-   notifications.
+4. **scenario4** — chained blocks `0..3` apply in order; under lag-1 the exposed
+   block is `2` (the tip stays staged until confirmed).
 5. **scenario5** — `saveSnapshot` writes `stateMetadata.json` and the
    `recent/<block>/` directory tree; a fresh plugin pointed at the same
    dirs restores from disk.

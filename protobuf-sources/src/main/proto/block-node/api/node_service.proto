@@ -55,12 +55,12 @@ message ServerStatusDetailResponse {
      */
     proto.NodeAddressBook node_address_book = 4;
 
-    /**
-     * Latest live-state metadata, if a live-state plugin is active on this
-     * Block-Node. Absent when no plugin maintains live Hashgraph state or
-     * when the plugin has not yet finished initial catch-up.
-     */
-    StateMetadata state_metadata = 5;
+    // Field 5 (state_metadata) was reserved for a live-state metadata pointer fed by
+    // a StateUpdateNotification. Removed for the spike — the state-management plugin
+    // does not push notifications; clients read StateMetadata directly off the
+    // BinaryStateQueryResponse instead. See agent/.../2903-review-response.md (2b).
+    reserved 5;
+    reserved "state_metadata";
 }
 
 /**

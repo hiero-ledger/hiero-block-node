@@ -31,7 +31,6 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
-import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification.StateUpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.consensus.config.PathsConfig;
 import org.junit.jupiter.api.Test;
@@ -42,8 +41,8 @@ import org.junit.jupiter.api.io.TempDir;
  *
  * <ol>
  *   <li>Genesis load → first verified block (any number) applies and metadata advances.</li>
- *   <li>After metadata.block=n, verification of n+1 applies cleanly and emits a VERIFIED
- *       StateUpdateNotification carrying n+1.</li>
+ *   <li>After metadata.block=n, verification of n+1 applies cleanly and (under lag-1)
+ *       exposes block n.</li>
  *   <li>After metadata.block=n, verification of n+2 (gap) does not apply.</li>
  *   <li>Chained n+1 then n+2 both apply in order; the final metadata is at n+2.</li>
  *   <li>Snapshot persists metadata.json + a snapshot file under recent/&lt;blockNumber&gt;.</li>
@@ -67,8 +66,6 @@ class StateManagementAcceptanceTest {
         // Block 1's footer attests post-0, exposing block 0 to readers.
         f.confirm(1L, 10L);
         assertThat(f.plugin.metadata().blockNumber()).isZero();
-        assertThat(f.facility.getSentStateUpdateNotifications())
-                .anyMatch(n -> n.type() == StateUpdateType.VERIFIED && n.blockNumber() == 0L);
         assertThat(f.plugin.isDegraded()).isFalse();
         f.plugin.stop();
     }
@@ -116,17 +113,13 @@ class StateManagementAcceptanceTest {
     void scenario4_chainedBlocksApplyInOrder(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
         // Apply blocks 0..3 chained. Under lag-1 each block attests its predecessor,
-        // so after block 3 the exposed block is 2, and VERIFIED has fired for 0,1,2.
+        // so after block 3 the exposed (committed) block is 2.
         for (long i = 0; i <= 3; i++) {
             f.deliverAndApply(i, i);
         }
 
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(2L);
         assertThat(f.plugin.metadata().roundNumber()).isEqualTo(2L);
-        assertThat(f.facility.getSentStateUpdateNotifications().stream()
-                        .filter(n -> n.type() == StateUpdateType.VERIFIED)
-                        .count())
-                .isEqualTo(3L);
         f.plugin.stop();
     }
 
@@ -190,8 +183,6 @@ class StateManagementAcceptanceTest {
         try (var stream = java.nio.file.Files.list(snapshotDir)) {
             assertThat(stream.findAny()).isPresent();
         }
-        assertThat(f.facility.getSentStateUpdateNotifications())
-                .anyMatch(n -> n.type() == StateUpdateType.SNAPSHOT && n.blockNumber() == 1L);
 
         f.plugin.stop();
 

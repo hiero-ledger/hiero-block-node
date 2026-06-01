@@ -48,9 +48,8 @@ message BlockEnd {
  *
  * A Block-Node that operates the live-state plugin SHALL maintain a single,
  * authoritative snapshot of the network state and expose it through this
- * message in `serverStatusDetail` responses and `StateUpdateNotification`
- * SPI events. Consumers MAY use it to decide whether to issue further binary
- * state queries.
+ * message on `BinaryStateQueryResponse`. Consumers MAY use it to decide whether
+ * to issue further binary state queries.
  */
 message StateMetadata {
     /**

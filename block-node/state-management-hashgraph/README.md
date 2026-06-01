@@ -37,8 +37,7 @@ management, gRPC queries, and an SPI notification on top.
      exposes nothing.
    - On match, N's footer has attested post-(N-1): promote post-(N-1) to the
      query-visible `attestedImmutable` (reserving its reference so the next
-     `copyMutableState()` doesn't release it), record its `StateMetadata`, and emit
-     `StateUpdateNotification(VERIFIED, N-1, …)`.
+     `copyMutableState()` doesn't release it) and record its `StateMetadata`.
    - Apply N's `state_changes` to the live mutable `BinaryState`:
      | wire variant | BinaryState call |
      |---|---|
@@ -62,8 +61,7 @@ management, gRPC queries, and an SPI notification on top.
    hard-links into the live MerkleDb, so the snapshot is cheap in time and
    disk. It then prunes recent snapshot dirs beyond
    `stateSnapshotRecentRetentionCount` (oldest first; the just-written dir is
-   always kept) and rewrites `stateMetadata.json` atomically. A
-   `StateUpdateNotification(SNAPSHOT, …)` follows. Long-term archival
+   always kept) and rewrites `stateMetadata.json` atomically. Long-term archival
    (compaction, off-box transfer, random-read indexes) is intentionally out of
    scope here — a future archiving plugin owns it; this plugin keeps only the
    last N good snapshots on disk, which is all that seeding / reconnecting

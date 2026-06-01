@@ -5,7 +5,6 @@ import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
-import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
@@ -32,8 +31,6 @@ public final class BlockNotificationRingEvent {
     private NewestBlockKnownToNetworkNotification newestBlockKnownToNetworkNotification;
     /** The publisher status update notification to be published to downstream subscribers through the LMAX Disruptor. */
     private PublisherStatusUpdateNotification publisherStatusUpdateNotification;
-    /** The live-state update notification to be published to downstream subscribers through the LMAX Disruptor. */
-    private StateUpdateNotification stateUpdateNotification;
 
     private void clearAll() {
         this.verificationNotification = null;
@@ -41,7 +38,6 @@ public final class BlockNotificationRingEvent {
         this.backfilledBlockNotification = null;
         this.newestBlockKnownToNetworkNotification = null;
         this.publisherStatusUpdateNotification = null;
-        this.stateUpdateNotification = null;
     }
 
     /**
@@ -98,16 +94,6 @@ public final class BlockNotificationRingEvent {
         this.publisherStatusUpdateNotification = notification;
     }
 
-    /**
-     * Sets the given notification to be published to downstream subscribers
-     * through the LMAX Disruptor.
-     *
-     * @param notification to set
-     */
-    public void set(final StateUpdateNotification notification) {
-        clearAll(); // MUST come before the assignment — see class ordering contract.
-        this.stateUpdateNotification = notification;
-    }
 
     /**
      * Gets the verification notification of the event from the LMAX Disruptor
@@ -167,16 +153,5 @@ public final class BlockNotificationRingEvent {
      */
     public PublisherStatusUpdateNotification getPublisherStatusUpdateNotification() {
         return publisherStatusUpdateNotification;
-    }
-
-    /**
-     * Gets the live-state update notification of the event from the LMAX
-     * Disruptor on the consumer side.
-     * If the event is not a {@link StateUpdateNotification}, this will return null.
-     *
-     * @return the value of the event
-     */
-    public StateUpdateNotification getStateUpdateNotification() {
-        return stateUpdateNotification;
     }
 }

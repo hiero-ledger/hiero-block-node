@@ -21,7 +21,6 @@ import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
-import org.hiero.block.api.StateMetadata;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -30,8 +29,6 @@ import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
-import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
-import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification.StateUpdateType;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -242,37 +239,5 @@ public class ServerStatusDetailServicePluginTest
                 .wrapsVerificationKey(Bytes.EMPTY)
                 .currentRoster(TssRoster.DEFAULT)
                 .build();
-    }
-
-    @Test
-    @DisplayName("Should expose stateMetadata after a StateUpdateNotification is fired")
-    void shouldExposeStateMetadataAfterStateUpdate() throws ParseException {
-        // Fire a state update through the messaging facility — the plugin is a
-        // BlockNotificationHandler registered at start().
-        blockNodeContext
-                .blockMessaging()
-                .sendStateUpdate(new StateUpdateNotification(
-                        StateUpdateType.VERIFIED, 42L, 7L, Bytes.fromHex("deadbeef"), 1024L));
-
-        final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
-        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
-        final ServerStatusDetailResponse response =
-                ServerStatusDetailResponse.PROTOBUF.parse(fromPluginBytes.getLast());
-        final StateMetadata md = response.stateMetadata();
-        assertNotNull(md);
-        assertEquals(42L, md.blockNumber());
-        assertEquals(7L, md.roundNumber());
-        assertEquals(1024L, md.stateSize());
-        assertEquals(Bytes.fromHex("deadbeef"), md.stateRootHash());
-    }
-
-    @Test
-    @DisplayName("Should leave stateMetadata absent when no StateUpdateNotification has fired")
-    void shouldOmitStateMetadataWithoutStateUpdate() throws ParseException {
-        final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
-        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
-        assertNull(ServerStatusDetailResponse.PROTOBUF
-                .parse(fromPluginBytes.getFirst())
-                .stateMetadata());
     }
 }

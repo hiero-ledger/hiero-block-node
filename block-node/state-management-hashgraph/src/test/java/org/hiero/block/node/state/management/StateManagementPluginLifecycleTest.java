@@ -22,8 +22,6 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
-import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
-import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification.StateUpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.consensus.config.PathsConfig;
 import org.junit.jupiter.api.Test;
@@ -35,10 +33,9 @@ import org.junit.jupiter.api.io.TempDir;
  *
  * <ul>
  *   <li>start writes no metadata for an empty filesystem (genesis stays implicit);</li>
- *   <li>a verified block applied via the synchronous apply hook advances metadata and
- *       emits a {@code VERIFIED} {@link StateUpdateNotification};</li>
- *   <li>{@code saveSnapshot()} writes the snapshot binary, the metadata JSON, and emits
- *       a {@code SNAPSHOT} notification;</li>
+ *   <li>a verified block applied via the synchronous apply hook, confirmed by the next
+ *       block, advances the exposed metadata (lag-1);</li>
+ *   <li>{@code saveSnapshot()} writes the snapshot binary and the metadata JSON;</li>
  *   <li>a fresh plugin pointing at the same directories restores the saved state.</li>
  * </ul>
  */
@@ -70,8 +67,6 @@ class StateManagementPluginLifecycleTest {
         plugin.applyPending();
         assertThat(plugin.metadata().blockNumber()).isEqualTo(1L);
         assertThat(plugin.metadata().roundNumber()).isEqualTo(11L);
-        assertThat(facility.getSentStateUpdateNotifications())
-                .anyMatch(n -> n.type() == StateUpdateType.VERIFIED && n.blockNumber() == 1L);
 
         plugin.saveSnapshot();
         assertThat(Files.exists(metadataPath)).isTrue();
@@ -84,8 +79,6 @@ class StateManagementPluginLifecycleTest {
                     .as("snapshot dir must contain at least one file")
                     .isPresent();
         }
-        assertThat(facility.getSentStateUpdateNotifications())
-                .anyMatch(n -> n.type() == StateUpdateType.SNAPSHOT && n.blockNumber() == 1L);
 
         plugin.stop();
 
@@ -113,7 +106,6 @@ class StateManagementPluginLifecycleTest {
         plugin.applyPending();
 
         assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
-        assertThat(facility.getSentStateUpdateNotifications()).isEmpty();
         plugin.stop();
     }
 
