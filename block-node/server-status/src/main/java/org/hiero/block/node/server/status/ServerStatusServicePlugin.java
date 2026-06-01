@@ -113,12 +113,11 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                     .build());
         }
         // return detailed block node status information.
-        detailsBuilder
+        return detailsBuilder
                 .availableRanges(blockRanges)
                 .tssData(context.tssData())
-                .nodeAddressBook(context.nodeAddressBook());
-
-        return detailsBuilder.build();
+                .nodeAddressBook(context.nodeAddressBook())
+                .build();
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
