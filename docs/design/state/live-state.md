@@ -103,14 +103,14 @@ used for `swirlds-config-*`.
 
 ## 4. Configuration (`@ConfigData("state.management")`)
 
-|          Property           |                        Default                        |                        Notes                         |
-|-----------------------------|-------------------------------------------------------|------------------------------------------------------|
-| `stateMetadataPath`         | `/opt/hiero/block-node/data/state/stateMetadata.json` | Path to the metadata file.                           |
-| `stateSnapshotRecentPath`   | `/opt/hiero/block-node/data/state/snapshot/recent`    | Directory for live snapshot dirs (`<blockNumber>/`). |
-| `snapshotInterval`          | `15m`                                                 | Min 1m.                                              |
-| `stateChangesApplyInterval` | `2s`                                                  | Min 100ms.                                           |
-| `historicCatchUpBatchSize`  | `64`                                                  | Blocks pulled per catch-up loop iteration.           |
-| `stateSnapshotRecentRetentionCount` | `3`                                           | Recent snapshot dirs kept on disk (oldest pruned).   |
+|              Property               |                        Default                        |                        Notes                         |
+|-------------------------------------|-------------------------------------------------------|------------------------------------------------------|
+| `stateMetadataPath`                 | `/opt/hiero/block-node/data/state/stateMetadata.json` | Path to the metadata file.                           |
+| `stateSnapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent`    | Directory for live snapshot dirs (`<blockNumber>/`). |
+| `snapshotInterval`                  | `15m`                                                 | Min 1m.                                              |
+| `stateChangesApplyInterval`         | `2s`                                                  | Min 100ms.                                           |
+| `historicCatchUpBatchSize`          | `64`                                                  | Blocks pulled per catch-up loop iteration.           |
+| `stateSnapshotRecentRetentionCount` | `3`                                                   | Recent snapshot dirs kept on disk (oldest pruned).   |
 
 ## 5. Data model
 

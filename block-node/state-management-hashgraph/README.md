@@ -84,14 +84,14 @@ shape to send back through the gRPC reads.
 
 Bound under `@ConfigData("state.management")` in `StateManagementConfig`:
 
-|             Property              |                        Default                        |                        Notes                        |
-|-----------------------------------|-------------------------------------------------------|-----------------------------------------------------|
-| `stateMetadataPath`               | `/opt/hiero/block-node/data/state/stateMetadata.json` | JSON file with the latest metadata                  |
-| `stateSnapshotRecentPath`         | `/opt/hiero/block-node/data/state/snapshot/recent`    | Holds the recent snapshot directories               |
-| `snapshotIntervalMillis`          | `900000` (15 min)                                     | Rate of `saveSnapshot()`                            |
-| `stateChangesApplyIntervalMillis` | `2000` (2 s)                                          | Rate of the apply loop                              |
-| `historicCatchUpBatchSize`        | `64`                                                  | Blocks fetched per batch during start-up catch-up   |
-| `stateSnapshotRecentRetentionCount` | `3`                                                 | Recent snapshot dirs to keep on disk (oldest pruned first) |
+|              Property               |                        Default                        |                           Notes                            |
+|-------------------------------------|-------------------------------------------------------|------------------------------------------------------------|
+| `stateMetadataPath`                 | `/opt/hiero/block-node/data/state/stateMetadata.json` | JSON file with the latest metadata                         |
+| `stateSnapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent`    | Holds the recent snapshot directories                      |
+| `snapshotIntervalMillis`            | `900000` (15 min)                                     | Rate of `saveSnapshot()`                                   |
+| `stateChangesApplyIntervalMillis`   | `2000` (2 s)                                          | Rate of the apply loop                                     |
+| `historicCatchUpBatchSize`          | `64`                                                  | Blocks fetched per batch during start-up catch-up          |
+| `stateSnapshotRecentRetentionCount` | `3`                                                   | Recent snapshot dirs to keep on disk (oldest pruned first) |
 
 There is no `enabled` flag. Block-Node plugins are active whenever their jar
 is on the classpath; opt-in lives in the deployment manifest.

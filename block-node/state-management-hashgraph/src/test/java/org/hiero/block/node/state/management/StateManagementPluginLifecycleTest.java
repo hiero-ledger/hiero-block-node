@@ -62,7 +62,11 @@ class StateManagementPluginLifecycleTest {
         // Confirm block 1 with an empty block 2 (footer chained to the staged hash) so
         // block 1 is attested and exposed to readers / snapshots.
         facility.sendBlockVerification(new VerificationNotification(
-                true, null, 2L, Bytes.fromHex("aabb"), buildBlock(2L, 22L, plugin.stagedStateRootHash()),
+                true,
+                null,
+                2L,
+                Bytes.fromHex("aabb"),
+                buildBlock(2L, 22L, plugin.stagedStateRootHash()),
                 BlockSource.PUBLISHER));
         plugin.applyPending();
         assertThat(plugin.metadata().blockNumber()).isEqualTo(1L);

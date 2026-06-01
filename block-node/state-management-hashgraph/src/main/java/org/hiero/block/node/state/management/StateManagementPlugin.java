@@ -316,8 +316,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             // MUTABLE is the latest applied-but-unattested state — the live mutable,
             // which after copyMutableState mirrors post-(lastAppliedBlock).
             case MUTABLE -> lifecycleManager.getMutableState();
-            case HISTORICAL -> throw new UnsupportedOperationException(
-                    "snapshot-backed reads are not yet supported");
+            case HISTORICAL -> throw new UnsupportedOperationException("snapshot-backed reads are not yet supported");
         };
     }
 
