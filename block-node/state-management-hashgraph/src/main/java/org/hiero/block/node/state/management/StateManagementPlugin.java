@@ -211,7 +211,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return out.status(Code.INVALID_REQUEST).build();
         }
         if (!matchesLatestBlock(request)) {
-            return out.status(Code.INVALID_REQUEST).build();
+            return out.status(Code.NOT_FOUND).build();
         }
         final BinaryState binaryState = lifecycleManager.getLatestImmutableState();
         final Bytes value = binaryState.getKv((int) request.stateId(), request.keyBytes());
@@ -235,7 +235,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return out.status(Code.INVALID_REQUEST).build();
         }
         if (!matchesLatestBlock(request)) {
-            return out.status(Code.INVALID_REQUEST).build();
+            return out.status(Code.NOT_FOUND).build();
         }
         final BinaryState binaryState = lifecycleManager.getLatestImmutableState();
         final Bytes value = binaryState.getSingleton((int) request.stateId());
@@ -256,7 +256,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return out.status(Code.INVALID_REQUEST).build();
         }
         if (!matchesLatestBlock(request)) {
-            return out.status(Code.INVALID_REQUEST).build();
+            return out.status(Code.NOT_FOUND).build();
         }
         final int stateId = (int) request.stateId();
         final BinaryState binaryState = lifecycleManager.getLatestImmutableState();
@@ -674,16 +674,19 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
      * Returns `true` when the request targets the currently applied state.
      *
      * <p>Matches the {@code BlockRequest.block_specifier} convention from
-     * `block_access_service.proto`: the client MUST set exactly one of
-     * `retrieve_latest=true` or an explicit `block_number`. Block 0 (genesis)
-     * is a valid `block_number`. A request that sets neither is invalid.
+     * `block_access_service.proto`: the client sets one of `retrieve_latest=true`
+     * or an explicit `block_number`. Block 0 (genesis) is a valid `block_number`.
+     * The plugin only ever serves the latest immutable state, so a `block_number`
+     * other than the latest applied block (or a request that sets neither field)
+     * does not match — callers get {@link Code#NOT_FOUND}, which affirms the
+     * latest-only API rather than rejecting the request shape.
      */
     private boolean matchesLatestBlock(@NonNull final BinaryStateQuery request) {
         if (request.hasRetrieveLatest() && Boolean.TRUE.equals(request.retrieveLatest())) {
             return true;
         }
         if (request.hasBlockNumber()) {
-            return request.blockNumberOrThrow() == metadata.blockNumber();
+            return request.blockNumber() == metadata.blockNumber();
         }
         return false;
     }
