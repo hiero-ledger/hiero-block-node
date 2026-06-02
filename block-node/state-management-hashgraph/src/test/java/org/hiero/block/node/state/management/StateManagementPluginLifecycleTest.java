@@ -23,6 +23,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.consensus.config.PathsConfig;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.Test;
@@ -226,6 +227,70 @@ class StateManagementPluginLifecycleTest {
         assertThat(plugin2.isDegraded()).isFalse();
         assertThat(StateManagementPluginTestSupport.awaitReady(plugin2, 5_000L)).isTrue();
         plugin2.stop();
+    }
+
+    @Test
+    void unwritableStateDirRequestsShutdownWithoutThrowing(@TempDir final Path tmp) throws Exception {
+        // Make the configured recent-snapshot path impossible to create: its parent is a
+        // regular file, so directory creation fails (mirrors a non-writable /opt/hiero in a
+        // real deployment). init() must log and request a graceful node shutdown via the
+        // health facility rather than throw — an unchecked exception out of init() would
+        // abort BlockNodeApp construction and take down every other plugin.
+        final Path blocker = tmp.resolve("blocker");
+        Files.writeString(blocker, "not a directory");
+        final Path badRecent = blocker.resolve("state/recent");
+
+        final var configuration = ConfigurationBuilder.create()
+                .withConfigDataType(StateManagementConfig.class)
+                .withConfigDataType(MerkleDbConfig.class)
+                .withConfigDataType(VirtualMapConfig.class)
+                .withConfigDataType(PathsConfig.class)
+                .withValue(
+                        "state.management.stateMetadataPath",
+                        tmp.resolve("md.json").toString())
+                .withValue("state.management.stateSnapshotRecentPath", badRecent.toString())
+                .withValue("state.management.snapshotIntervalMillis", "3600000")
+                .withValue("state.management.stateChangesApplyIntervalMillis", "3600000")
+                .build();
+        final RecordingHealthFacility health = new RecordingHealthFacility();
+        final BlockNodeContext context = new BlockNodeContext(
+                configuration,
+                MetricRegistry.builder().build(),
+                health,
+                new TestBlockMessagingFacility(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+        final StateManagementPlugin plugin = new StateManagementPlugin();
+
+        // Neither init() nor start() may throw despite the unusable state directory.
+        plugin.init(context, NOOP_SERVICE_BUILDER);
+        plugin.start();
+
+        assertThat(health.shutdownRequested)
+                .as("init() requests a graceful node shutdown on an unusable state dir")
+                .isTrue();
+        assertThat(plugin.isReady()).isFalse();
+        plugin.stop();
+    }
+
+    /// Minimal {@link HealthFacility} that records whether a shutdown was requested.
+    private static final class RecordingHealthFacility implements HealthFacility {
+        private volatile boolean shutdownRequested = false;
+
+        @Override
+        public State blockNodeState() {
+            return shutdownRequested ? State.SHUTTING_DOWN : State.RUNNING;
+        }
+
+        @Override
+        public void shutdown(final String className, final String reason) {
+            shutdownRequested = true;
+        }
     }
 
     // ── Fixtures ───────────────────────────────────────────────────────────
