@@ -676,7 +676,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final Path tssDataJsonPath = appStateConfig.tssBootstrapFilePath();
         if (Files.exists(tssDataJsonPath)) {
             try {
-                TssData tssData = TssData.JSON.parse(Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
+                TssData tssData = ProtobufHandler.parse(
+                        TssData.JSON,
+                        Bytes.wrap(Files.readAllBytes(tssDataJsonPath)).toReadableSequentialData());
                 updateTssData(tssData);
                 LOGGER.log(INFO, "Loaded TssData from file: {0}", tssDataJsonPath);
             } catch (ParseException | IOException e) {
