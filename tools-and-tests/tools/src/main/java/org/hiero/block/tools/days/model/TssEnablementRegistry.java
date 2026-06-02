@@ -221,10 +221,8 @@ public class TssEnablementRegistry {
         return TssData.newBuilder()
                 .ledgerId(body.ledgerId())
                 .wrapsVerificationKey(body.historyProofVerificationKey())
-                .currentRoster(TssRoster.newBuilder()
-                        .rosterEntries(rosterEntries)
-                        .validFromBlock(blockNumber)
-                        .build())
+                .currentRoster(
+                        TssRoster.newBuilder().rosterEntries(rosterEntries).build())
                 .validFromBlock(blockNumber)
                 .build();
     }

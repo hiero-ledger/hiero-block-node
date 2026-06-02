@@ -672,10 +672,7 @@ class BlockNodeAppTest {
                 .weight(weight)
                 .schnorrPublicKey(schnorrPublicKey)
                 .build();
-        TssRoster tssRoster = TssRoster.newBuilder()
-                .rosterEntries(rosterEntry)
-                .validFromBlock(rosterValidFromBlock)
-                .build();
+        TssRoster tssRoster = TssRoster.newBuilder().rosterEntries(rosterEntry).build();
         return TssData.newBuilder()
                 .ledgerId(ledgerId)
                 .wrapsVerificationKey(wrapsVerificationKey)

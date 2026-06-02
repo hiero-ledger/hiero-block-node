@@ -133,7 +133,6 @@ class TssEnablementRegistryTest {
                     HISTORY_PROOF_KEY_0,
                     tssData.currentRosterOrThrow().rosterEntries().getFirst().schnorrPublicKey());
             assertEquals(42, tssData.validFromBlock());
-            assertEquals(42, tssData.currentRosterOrThrow().validFromBlock());
         }
     }
 
