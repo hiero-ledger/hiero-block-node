@@ -521,6 +521,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 Thread.currentThread().interrupt();
             }
         }
+        // check for any pending Tss or Rsa updates and persist them.
+        checkForApplicationStateUpdates();
+        // calling persistBlockRanges separately so that it persists wherever it is.
         persistBlockRanges();
     }
 
