@@ -69,6 +69,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
@@ -239,6 +240,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 serviceLoader,
                 threadPoolManager,
                 versionInfo(loadedPlugins),
+                null,
+                null,
                 null,
                 null);
         // ==== CREATE ROUTING BUILDERS ================================================================================
@@ -645,11 +648,35 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (addressBook != null) {
             builder.nodeAddressBook(addressBook);
         }
+
+        if (storedBlocks != null) {
+            builder.storedBlocks(toBlockRange(storedBlocks));
+        }
+
+        if (availableBlocks != null) {
+            builder.availableBlocks(toBlockRange(availableBlocks));
+        }
         LOGGER.log(INFO, "BlockNodeContext updated");
 
         // update the BlockNodeContext
         blockNodeContext = builder.build();
         return true;
+    }
+
+    /**
+     * Convert BlockRangeSet to BlockRange
+     */
+    private List<BlockRange> toBlockRange(BlockRangeSet blockRangeSet) {
+        return blockRangeSet
+                .streamRanges()
+                .map(longRange -> {
+                    BlockRange.Builder blockRangeBuilder = BlockRange.newBuilder();
+                    return blockRangeBuilder
+                            .rangeStart(longRange.start())
+                            .rangeEnd(longRange.end())
+                            .build();
+                })
+                .toList();
     }
 
     /**

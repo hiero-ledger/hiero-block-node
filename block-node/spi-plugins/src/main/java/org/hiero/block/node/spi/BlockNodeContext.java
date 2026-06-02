@@ -3,7 +3,9 @@ package org.hiero.block.node.spi;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.swirlds.config.api.Configuration;
+import java.util.List;
 import org.hiero.block.api.BlockNodeVersions;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
@@ -49,7 +51,9 @@ public record BlockNodeContext(
         ThreadPoolManager threadPoolManager,
         BlockNodeVersions blockNodeVersions,
         TssData tssData,
-        NodeAddressBook nodeAddressBook) {
+        NodeAddressBook nodeAddressBook,
+        List<BlockRange> storedBlocks,
+        List<BlockRange> availableBlocks) {
 
     // Static inner Builder class
     public static class Builder {
@@ -64,6 +68,8 @@ public record BlockNodeContext(
         BlockNodeVersions blockNodeVersions;
         TssData tssData;
         NodeAddressBook nodeAddressBook;
+        List<BlockRange> storedBlocks;
+        List<BlockRange> availableBlocks;
 
         public Builder(BlockNodeContext context) {
             this.configuration = context.configuration;
@@ -77,6 +83,8 @@ public record BlockNodeContext(
             this.blockNodeVersions = context.blockNodeVersions;
             this.tssData = context.tssData;
             this.nodeAddressBook = context.nodeAddressBook;
+            this.storedBlocks = context.storedBlocks;
+            this.availableBlocks = context.availableBlocks;
         }
 
         public Builder tssData(TssData tssData) {
@@ -86,6 +94,16 @@ public record BlockNodeContext(
 
         public Builder nodeAddressBook(NodeAddressBook nodeAddressBook) {
             this.nodeAddressBook = nodeAddressBook;
+            return this; // Returns the builder for chaining
+        }
+
+        public Builder storedBlocks(List<BlockRange> storedBlocks) {
+            this.storedBlocks = storedBlocks;
+            return this; // Returns the builder for chaining
+        }
+
+        public Builder availableBlocks(List<BlockRange> availableBlocks) {
+            this.availableBlocks = availableBlocks;
             return this; // Returns the builder for chaining
         }
 
@@ -101,7 +119,9 @@ public record BlockNodeContext(
                     this.threadPoolManager,
                     this.blockNodeVersions,
                     this.tssData,
-                    this.nodeAddressBook);
+                    this.nodeAddressBook,
+                    this.storedBlocks,
+                    this.availableBlocks);
         }
     }
 }

@@ -198,6 +198,8 @@ public abstract class PluginTestBase<
                 testThreadPoolManager,
                 buildBlockNodeVersions(),
                 null,
+                null,
+                null,
                 null);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
@@ -318,7 +320,9 @@ public abstract class PluginTestBase<
                 blockNodeContext.threadPoolManager(),
                 blockNodeContext.blockNodeVersions(),
                 tssData,
-                blockNodeContext.nodeAddressBook());
+                blockNodeContext.nodeAddressBook(),
+                blockNodeContext.storedBlocks(),
+                blockNodeContext.availableBlocks());
         plugin.onContextUpdate(blockNodeContext);
     }
 
@@ -335,7 +339,9 @@ public abstract class PluginTestBase<
                 blockNodeContext.threadPoolManager(),
                 blockNodeContext.blockNodeVersions(),
                 blockNodeContext.tssData(),
-                nodeAddressBook);
+                nodeAddressBook,
+                blockNodeContext.storedBlocks(),
+                blockNodeContext.availableBlocks());
         plugin.onContextUpdate(blockNodeContext);
         return true;
     }

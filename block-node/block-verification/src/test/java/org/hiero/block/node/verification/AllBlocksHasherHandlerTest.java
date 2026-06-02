@@ -36,7 +36,6 @@ import org.hiero.block.internal.AllPreviousBlocksRootHashHasherSnapshot;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.MinimalBlockAccessor;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -63,7 +62,7 @@ class AllBlocksHasherHandlerTest {
     @Test
     void initializesFromGenesisWhenStoreEmpty() throws Exception {
         final Path hasherFile = tempDir.resolve("hasher.bin");
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, false, 10, Path.of(""));
         final HistoricalBlockFacility facility = new HistoricalBlockFacility() {
             @Override
             public BlockAccessor block(long blockNumber) {
@@ -88,13 +87,13 @@ class AllBlocksHasherHandlerTest {
     void rebuildsFromStoreWhenFileMissing() throws Exception {
         final BlockChainData chain = buildBlockChain(10);
         final Path hasherFile = tempDir.resolve("rebuild.bin");
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, true, 10, Path.of(""));
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
         assertTrue(handler.isAvailable());
         assertEquals(chain.blocks().size(), handler.getNumberOfBlocks());
-        assertArrayEquals(chain.blockHashes().get(chain.blockHashes().size() - 1), handler.lastBlockHash());
+        assertArrayEquals(chain.blockHashes().getLast(), handler.lastBlockHash());
         assertArrayEquals(chain.expectedRootHash(), handler.computeRootHash());
     }
 
@@ -105,7 +104,7 @@ class AllBlocksHasherHandlerTest {
         persistHasher(hasherFile, chain.blockHashes());
         final long originalSize = Files.size(hasherFile);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, false, 10, Path.of(""));
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -123,7 +122,7 @@ class AllBlocksHasherHandlerTest {
         final List<byte[]> partialHashes = chain.blockHashes().subList(0, 5);
         persistHasher(hasherFile, partialHashes);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, false, 10, Path.of(""));
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -141,7 +140,7 @@ class AllBlocksHasherHandlerTest {
                 chain.blockHashes().subList(0, chain.blockHashes().size() - 1);
         persistHasher(hasherFile, partialHashes);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, false, 10, Path.of(""));
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -159,7 +158,7 @@ class AllBlocksHasherHandlerTest {
         final List<byte[]> partialHashes = new ArrayList<byte[]>();
         persistHasher(hasherFile, partialHashes);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, false, 10, Path.of(""));
+        final VerificationConfig config = new VerificationConfig(hasherFile, false, false, 10, Path.of(""));
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -179,7 +178,7 @@ class AllBlocksHasherHandlerTest {
         final List<byte[]> longerChainHashes = longerChain.blockHashes();
         persistHasher(hasherFile, longerChainHashes);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, false, 10, Path.of(""));
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -251,34 +250,31 @@ class AllBlocksHasherHandlerTest {
                 new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, proof))));
     }
 
-    /**
-     * Calculates the block hash for a given {@link Block}.
-     * <p>
-     * This method:
-     * <ul>
-     *     <li>Serializes each {@link BlockItem} and parses it into a
-     *         {@link BlockItemUnparsed} representation</li>
-     *     <li>Feeds the parsed items into a {@link VerificationSession}</li>
-     *     <li>Finalizes verification using the provided root hash of all previous blocks
-     *         and the previous block hash</li>
-     * </ul>
-     *
-     * <p>
-     * The method is intentionally implemented using a simple loop instead of streams in order to:
-     * <ul>
-     *     <li>Avoid wrapping checked {@link ParseException}s in unchecked exceptions</li>
-     *     <li>Minimize allocation and stream pipeline overhead</li>
-     *     <li>Keep failure semantics explicit and predictable</li>
-     * </ul>
-     *
-     * @param block the block whose hash is being calculated
-     * @param blockNumber the block number associated with the block
-     * @param rootHashOfAllPreviousBlocks the root hash of all blocks preceding this one;
-     *                                    may be {@code null} if not applicable
-     * @param prevHash the hash of the immediately preceding block; may be {@code null}
-     * @return the calculated block hash using the VerificationSessionFactory used by the node app.
-     * @throws ParseException if any block item cannot be serialized or parsed
-     */
+    /// Calculates the block hash for a given [Block].
+    ///
+    /// This method:
+    ///
+    ///   - Serializes each [BlockItem] and parses it into a
+    ///     [BlockItemUnparsed] representation
+    ///   - Feeds the parsed items into a [VerificationSession]
+    ///   - Finalizes verification using the provided root hash of all previous blocks
+    ///     and the previous block hash
+    ///
+    ///
+    /// The method is intentionally implemented using a simple loop instead of streams in order to:
+    ///
+    ///   - Avoid wrapping checked [ParseException]s in unchecked exceptions
+    ///   - Minimize allocation and stream pipeline overhead
+    ///   - Keep failure semantics explicit and predictable
+    ///
+    ///
+    /// @param block the block whose hash is being calculated
+    /// @param blockNumber the block number associated with the block
+    /// @param rootHashOfAllPreviousBlocks the root hash of all blocks preceding this one;
+    ///                                    may be `null` if not applicable
+    /// @param prevHash the hash of the immediately preceding block; may be `null`
+    /// @return the calculated block hash using the VerificationSessionFactory used by the node app.
+    /// @throws ParseException if any block item cannot be serialized or parsed
     private byte[] calculateBlockHash(
             final Block block, final long blockNumber, final byte[] rootHashOfAllPreviousBlocks, final byte[] prevHash)
             throws ParseException {
@@ -313,7 +309,7 @@ class AllBlocksHasherHandlerTest {
                 mock(HealthFacility.class),
                 mock(BlockMessagingFacility.class),
                 facility,
-                mock(ApplicationStateFacility.class),
+                null,
                 mock(ServiceLoaderFunction.class),
                 mock(ThreadPoolManager.class),
                 null,

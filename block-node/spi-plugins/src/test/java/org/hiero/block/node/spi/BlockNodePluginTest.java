@@ -255,7 +255,7 @@ public class BlockNodePluginTest {
         });
 
         BlockNodeContext context =
-                new BlockNodeContext(null, null, null, null, null, null, null, null, null, null, null);
+                new BlockNodeContext(null, null, null, null, null, null, null, null, null, null, null, null, null);
 
         plugin.onContextUpdate(context);
 

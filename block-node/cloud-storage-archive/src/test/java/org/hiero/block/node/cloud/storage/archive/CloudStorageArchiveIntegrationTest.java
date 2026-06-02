@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.hedera.bucky.S3Client;
-import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -27,8 +26,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.locks.LockSupport;
-import org.hiero.block.api.BlockNodeVersions;
-import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
@@ -275,9 +272,11 @@ class CloudStorageArchiveIntegrationTest {
                 null,
                 new ServiceLoaderFunction(),
                 tpm,
-                BlockNodeVersions.DEFAULT,
-                TssData.DEFAULT,
-                NodeAddressBook.DEFAULT);
+                null,
+                null,
+                null,
+                null,
+                null);
 
         final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
         plugin.init(ctx, null);

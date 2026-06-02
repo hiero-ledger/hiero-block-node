@@ -19,7 +19,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
-import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
@@ -2830,7 +2829,9 @@ class LiveStreamPublisherManagerTest {
                 applicationStateFacility,
                 serviceLoader,
                 threadPoolManager,
-                BlockNodeVersions.DEFAULT,
+                null,
+                null,
+                null,
                 null,
                 null);
     }

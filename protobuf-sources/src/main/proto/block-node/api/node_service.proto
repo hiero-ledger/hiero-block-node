@@ -53,6 +53,14 @@ message ServerStatusDetailResponse {
      * Node Id, rsa public key information
      */
     proto.NodeAddressBook node_address_book = 4;
+
+    /**
+     * Block availability information.<br/>
+     * A list of stored block ranges.
+     */
+    repeated BlockRange stored_ranges = 5;
+
+
 }
 
 /**

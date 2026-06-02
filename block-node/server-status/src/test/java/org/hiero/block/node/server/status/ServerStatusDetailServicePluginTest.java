@@ -143,9 +143,11 @@ public class ServerStatusDetailServicePluginTest
                 blockNodeContext.applicationStateFacility(),
                 blockNodeContext.serviceLoader(),
                 blockNodeContext.threadPoolManager(),
-                BlockNodeVersions.DEFAULT,
+                blockNodeContext.blockNodeVersions(),
                 buildTssData(),
-                null);
+                blockNodeContext.nodeAddressBook(),
+                blockNodeContext.storedBlocks(),
+                blockNodeContext.availableBlocks());
         plugin.onContextUpdate(newBlockNodeContext);
 
         ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
@@ -186,8 +188,10 @@ public class ServerStatusDetailServicePluginTest
                 blockNodeContext.serviceLoader(),
                 blockNodeContext.threadPoolManager(),
                 blockNodeContext.blockNodeVersions(),
-                null,
-                book);
+                blockNodeContext.tssData(),
+                book,
+                blockNodeContext.storedBlocks(),
+                blockNodeContext.availableBlocks());
         plugin.onContextUpdate(ctxWithBook);
 
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
