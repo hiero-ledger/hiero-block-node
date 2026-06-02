@@ -40,7 +40,7 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 | ENV Variable                            | Description                                  |    Default |
 |:----------------------------------------|:---------------------------------------------|-----------:|
-| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max gRPC/HTTP-2 transport message size (bytes). Block *parsing* size is governed separately by `PROTOBUF_MAX_MESSAGE_SIZE_BYTES`. | 131,072,000 |
+| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max gRPC/HTTP-2 transport message size (bytes); slightly larger than the parse limit to allow framing overhead. Block *parsing* size is governed separately by `PROTOBUF_MAX_MESSAGE_SIZE_BYTES`. | 134,217,728 |
 | SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).                    |      32768 |
 | SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes).                 |  8,388,608 |
 | SERVER_PORT                             | Server listening port.                       |      40840 |

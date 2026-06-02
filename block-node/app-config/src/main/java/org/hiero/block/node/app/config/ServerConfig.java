@@ -12,7 +12,9 @@ import org.hiero.block.node.base.Loggable;
  *
  * <p>ServerConfig will have settings for the server.
  *
- * @param maxMessageSizeBytes the PBJ max message size in bytes
+ * @param maxMessageSizeBytes the gRPC/HTTP-2 transport max message size in bytes. This is the
+ *     transport ceiling and is intentionally a little larger than the protobuf parse limit
+ *     ({@code protobuf.maxMessageSizeBytes}) to allow for framing/transport overhead.
  * @param socketSendBufferSizeBytes the socket send buffer size in bytes
  * @param socketReceiveBufferSizeBytes the socket receive buffer size in bytes
  * @param port the port the server will listen on
@@ -27,7 +29,7 @@ import org.hiero.block.node.base.Loggable;
 // spotless:off
 @ConfigData("server")
 public record ServerConfig(
-        @Loggable @ConfigProperty(defaultValue = "131_072_000")
+        @Loggable @ConfigProperty(defaultValue = "134_217_728")
             @Min(1_048_576) @Max(1_610_612_736) int maxMessageSizeBytes,
         @Loggable @ConfigProperty(defaultValue = "131_072")
             @Min(32768) @Max(Integer.MAX_VALUE) int socketSendBufferSizeBytes,
