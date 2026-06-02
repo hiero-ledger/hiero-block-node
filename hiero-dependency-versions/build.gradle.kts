@@ -15,7 +15,7 @@ dependencies.constraints {
     val eclipseCollectionsVersion = "13.0.0"
     val mockitoVersion = "5.23.0"
     val testContainersVersion = "1.21.4"
-    val buckyVersion = "0.1.0-rc4"
+    val buckyVersion = "0.1.0-rc5"
     val s3MockVersion = "4.11.0"
 
     api("com.github.luben:zstd-jni:1.5.7-8") { because("com.github.luben.zstd_jni") }
