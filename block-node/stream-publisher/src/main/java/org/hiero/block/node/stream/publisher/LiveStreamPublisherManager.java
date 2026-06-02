@@ -10,6 +10,8 @@ import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_BATCHES_MESSAGED;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_MESSAGED;
+import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_FLOW_CONTROL_AGGREGATE_PAUSES;
+import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_FLOW_CONTROL_PENALTIES_APPLIED;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_HIGHEST_BLOCK_NUMBER_INBOUND;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_LOWEST_BLOCK_NUMBER_INBOUND;
@@ -21,6 +23,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -69,6 +72,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             "[{0}] Stall detected: handler {1} has not completed block {2}, another handler completed block {3}";
     private static final String BLOCK_ABANDONED_LOG_MESSAGE =
             "[{0}] Replacement persistence detected: handler {1} has not completed block {2}, but a different source persisted the same block {3}";
+    /// Limit the maximum scheduled threads to 12, more than that is almost certainly excessive.
+    private static final int MAX_SCHEDULE_THREADS = 12;
+    /// Value assigned as a Handler message budget when that handler is being paused
+    /// due to overload or other ill-advised behaviors.
+    private static final long MESSAGE_BUDGET_PENALTY_FLAG_VALUE = -1L;
     private final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
     private final BlockNodeContext serverContext;
@@ -87,6 +95,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final int duplicateBlockSkipWindow;
     private final ScheduledExecutorService scheduledExecutor;
     private volatile ScheduledFuture<Boolean> publisherUnavailabilityTimeoutFuture;
+    /// nanoTime of the last penalty-count reset (tumbling window).
+    private long lastPenaltyResetNanos;
+    /// Scheduled handle for the flow-control refresh task.
+    private ScheduledFuture<?> flowControlRefreshFuture;
 
     /// Future tracking the queue forwarder task.
     ///
@@ -109,6 +121,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentSkipListSet<Long> endBlocksReceived;
     private final ConcurrentSkipListSet<Long> blocksToResend;
     private final ConcurrentSkipListSet<Long> activeResendBlocks;
+    /// Flow state per handler ID; created in addHandler, removed in removeHandler.
+    private final ConcurrentSkipListMap<Long, HandlerFlowState> handlerFlowState;
     /// Maps block number to the ID of the handler that currently holds ACCEPT for that block.
     /// An entry is added when a handler wins ACCEPT via registerQueueForBlock().
     /// An entry is removed when endOfBlock() is called for that block, when blockIsEnding()
@@ -132,12 +146,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         dataReadyLatch = dataReadyLock.newCondition();
         NodeConfig nodeConfiguration = serverContext.configuration().getConfigData(NodeConfig.class);
         earliestManagedBlock = nodeConfiguration.earliestManagedBlock();
-        int threadCount = Runtime.getRuntime().availableProcessors();
-        // Ensure at least 2 threads for scheduled tasks so we do not have
-        // excessive contention with the idle detector task.
-        threadCount = threadCount < 2 ? 2 : threadCount;
-        scheduledExecutor = threadManager.createVirtualThreadScheduledExecutor(
-                threadCount, null, this::uncaughtScheduledExecutorException);
+        scheduledExecutor = setupScheduledExecutor(threadManager);
         publisherConfig = serverContext.configuration().getConfigData(PublisherConfig.class);
         maxBlocksBeforeStalled = publisherConfig.MaxFutureBlocksBeforeStalled();
         staleResendPruneBuffer = publisherConfig.staleResendPruneBuffer();
@@ -148,7 +157,21 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         blocksToResend = new ConcurrentSkipListSet<>();
         activeResendBlocks = new ConcurrentSkipListSet<>();
         activeStreamHandlerByBlock = new ConcurrentSkipListMap<>();
+        handlerFlowState = new ConcurrentSkipListMap<>();
         initializeBlockNumbers(serverContext);
+        scheduleFlowControlRefresh();
+    }
+
+    /// todo(1420) add documentation
+    private ScheduledExecutorService setupScheduledExecutor(final ThreadPoolManager threadManager) {
+        // start with half the available processors.
+        int threadCount = Runtime.getRuntime().availableProcessors() / 2;
+        // Ensure at least 2 threads for scheduled tasks so we do not have
+        // excessive contention with the idle detector task.
+        threadCount = threadCount > 2 ? threadCount : 2;
+        threadCount = threadCount > MAX_SCHEDULE_THREADS ? MAX_SCHEDULE_THREADS : threadCount;
+        return threadManager.createVirtualThreadScheduledExecutor(
+                threadCount, null, this::uncaughtScheduledExecutorException);
     }
 
     @Override
@@ -164,6 +187,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // The cancel of the existing future must happen immediately prior to updating the active handlers map!
         cancelExistingFuture();
         handlers.put(handlerId, newHandler);
+        handlerFlowState.put(handlerId, new HandlerFlowState());
         // Now we can safely update the metrics and send the notification
         // for the new publisher.
         metrics.currentPublisherCount().set(handlers.size());
@@ -175,6 +199,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public void removeHandler(final long handlerId) {
         final PublisherHandler handlerRemoved = handlers.remove(handlerId);
+        handlerFlowState.remove(handlerId);
         // If there are no more active publishers, schedule the
         // unavailability timeout task.
         if (handlerRemoved != null && handlers.isEmpty()) {
@@ -304,6 +329,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
         queueByBlockMap.clear();
         activeStreamHandlerByBlock.clear();
+        // Cancel the flow control refresh task before executor shutdown.
+        if (flowControlRefreshFuture != null) {
+            flowControlRefreshFuture.cancel(false);
+        }
         // We can safely shut down the scheduled executor abruptly. The timeout
         // tasks can be ignored completely as we shut down the manager.
         scheduledExecutor.shutdownNow();
@@ -947,9 +976,120 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         return threadManager.getVirtualThreadExecutor().submit(new MessagingForwarderTask(this));
     }
 
+    private void scheduleFlowControlRefresh() {
+        final long intervalNanos = publisherConfig.flowControlRefreshIntervalNanos();
+        flowControlRefreshFuture = scheduledExecutor.scheduleAtFixedRate(
+                this::refreshFlowControl, intervalNanos, intervalNanos, TimeUnit.NANOSECONDS);
+        lastPenaltyResetNanos = System.nanoTime();
+    }
+
+    private void refreshFlowControl() {
+        final long consecutiveIntervalsForPenalty = publisherConfig.consecutiveFullBudgetIntervalsForPenalty();
+        final int penaltyDurationSeconds = publisherConfig.penaltyDurationSeconds();
+        final long perHandlerBudget = publisherConfig.perHandlerMessageBudget();
+        final long totalBudget = publisherConfig.totalMessageBudgetPerInterval();
+        final long penaltyResetIntervalNanos = publisherConfig.penaltyResetIntervalSeconds() * 1_000_000_000L;
+        final long nowNanos = System.nanoTime();
+
+        // 1. Tumbling-window penalty reset check.
+        if (nowNanos - lastPenaltyResetNanos >= penaltyResetIntervalNanos) {
+            for (final HandlerFlowState state : handlerFlowState.values()) {
+                state.penaltyCount = 0;
+            }
+            lastPenaltyResetNanos = nowNanos;
+        }
+
+        // 2. Single pass: snapshot budget values and compute aggregate consumed.
+        //    Snapshot so that the aggregate check and per-handler decisions use
+        //    a consistent view (budget values can only decrease between reads).
+        final Map<Long, Long> budgetSnapshot = new HashMap<>();
+        long totalConsumed = 0L;
+        for (final Map.Entry<Long, PublisherHandler> entry : handlers.entrySet()) {
+            final long budget = entry.getValue().getMessageBudget();
+            budgetSnapshot.put(entry.getKey(), budget);
+            // consumed = how far below perHandlerBudget the current budget is.
+            // Clamp to [0, perHandlerBudget] to avoid negative or inflated contributions.
+            final long handlerConsumed = Math.max(0L, perHandlerBudget - budget);
+            totalConsumed += Math.min(perHandlerBudget, handlerConsumed);
+        }
+
+        // 3. Aggregate limit check.
+        if (totalConsumed >= totalBudget) {
+            // Aggregate limit exceeded: set all positive budgets to 0, withhold refresh.
+            // Streaks are intentionally NOT updated — individual handlers must not be
+            // penalized for aggregate behavior they might not control.
+            for (final PublisherHandler handler : handlers.values()) {
+                if (handler.getMessageBudget() > 0) {
+                    handler.clearMessageBudget();
+                }
+            }
+            metrics.flowControlAggregatePauses().increment();
+            LOGGER.log(
+                    DEBUG,
+                    "Aggregate message budget exceeded ({0} consumed, limit {1}); withholding refresh for all handlers",
+                    totalConsumed,
+                    totalBudget);
+            return;
+        }
+
+        // 4. Per-handler streak, penalty update, and budget refresh.
+        for (final Map.Entry<Long, PublisherHandler> entry : handlers.entrySet()) {
+            final long handlerId = entry.getKey();
+            final PublisherHandler handler = entry.getValue();
+            final HandlerFlowState state = handlerFlowState.get(handlerId);
+            // If the handler was removed, or is in a shutdown delay, skip it.
+            if (state == null || handler.getMessageBudget() == Long.MIN_VALUE) {
+                continue;
+            }
+            final long snapshotBudget = budgetSnapshot.getOrDefault(handlerId, perHandlerBudget);
+            final boolean fullyConsumed = snapshotBudget <= 0L;
+            // Handle fully consumed budgets, but skip currently penalized publishers.
+            // There is no need to update counts or check penalty for publishers
+            // currently on penalty hold.
+            if (fullyConsumed && !state.isPenalized(nowNanos)) {
+                state.consecutiveFullBudgetIntervals++;
+                if (state.consecutiveFullBudgetIntervals >= consecutiveIntervalsForPenalty) {
+                    state.penaltyCount++;
+                    final int currentPenaltySeconds = penaltyDurationSeconds * state.penaltyCount;
+                    final long penaltyNanos = currentPenaltySeconds * 1_000_000_000L;
+                    state.penaltyEndNanos = nowNanos + penaltyNanos;
+                    state.consecutiveFullBudgetIntervals = 0;
+                    metrics.flowControlPenaltiesApplied().increment();
+                    LOGGER.log(
+                            INFO,
+                            "[{0}] Handler {1} penalized (count {2}): paused for {3}s",
+                            handler.getCorrelationId(),
+                            handlerId,
+                            state.penaltyCount,
+                            currentPenaltySeconds);
+                }
+            } else {
+                state.consecutiveFullBudgetIntervals = 0;
+            }
+
+            if (state.isPenalized(nowNanos)) {
+                handler.setMessageBudget(snapshotBudget, MESSAGE_BUDGET_PENALTY_FLAG_VALUE);
+            } else {
+                handler.setMessageBudget(snapshotBudget, perHandlerBudget);
+            }
+        }
+    }
+
     private void uncaughtScheduledExecutorException(Thread t, Throwable e) {
         final String message = "Scheduled task thread exception occurred in Live Stream Publisher Manager";
         LOGGER.log(WARNING, message, e);
+    }
+
+    /// Per-handler flow-control state owned exclusively by the refresh task thread.
+    /// No synchronization is needed on these fields.
+    static final class HandlerFlowState {
+        int consecutiveFullBudgetIntervals = 0;
+        int penaltyCount = 0;
+        long penaltyEndNanos = 0L;
+
+        boolean isPenalized(final long nowNanos) {
+            return nowNanos < penaltyEndNanos;
+        }
     }
 
     /// todo(1420) add documentation
@@ -1109,7 +1249,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             LongGauge.Measurement highestBlockNumber,
             LongGauge.Measurement latestBlockNumberAcknowledged,
             LongCounter.Measurement blocksClosedComplete,
-            LongCounter.Measurement stallTimeoutsSent) {
+            LongCounter.Measurement stallTimeoutsSent,
+            LongCounter.Measurement flowControlAggregatePauses,
+            LongCounter.Measurement flowControlPenaltiesApplied) {
         /// todo(1420) add documentation
         static MetricsHolder createMetrics(@NonNull final MetricRegistry metricRegistry) {
             final LongCounter.Measurement blockItemsMessaged = metricRegistry
@@ -1127,6 +1269,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final LongCounter.Measurement stallTimeoutsSent = metricRegistry
                     .register(LongCounter.builder(METRIC_PUBLISHER_STALL_TIMEOUTS_SENT)
                             .setDescription("Publishers terminated due to stall detection (silent ACCEPT winner)"))
+                    .getOrCreateNotLabeled();
+            final LongCounter.Measurement flowControlAggregatePauses = metricRegistry
+                    .register(
+                            LongCounter.builder(METRIC_PUBLISHER_FLOW_CONTROL_AGGREGATE_PAUSES)
+                                    .setDescription(
+                                            "Intervals where aggregate message budget was exceeded and all handler budgets were withheld"))
+                    .getOrCreateNotLabeled();
+            final LongCounter.Measurement flowControlPenaltiesApplied = metricRegistry
+                    .register(LongCounter.builder(METRIC_PUBLISHER_FLOW_CONTROL_PENALTIES_APPLIED)
+                            .setDescription("Penalty pauses applied to handlers that repeatedly exhaust their budget"))
                     .getOrCreateNotLabeled();
             final LongGauge.Measurement numberOfProducers = metricRegistry
                     .register(
@@ -1152,7 +1304,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     highestBlockNumber,
                     latestBlockNumberAcknowledged,
                     blocksClosedComplete,
-                    stallTimeoutsSent);
+                    stallTimeoutsSent,
+                    flowControlAggregatePauses,
+                    flowControlPenaltiesApplied);
         }
     }
 
