@@ -21,9 +21,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.ToIntFunction;
 import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 import org.hiero.block.node.roster.bootstrap.tss.BlockNodeSourceConfig;
 import org.hiero.block.node.roster.bootstrap.tss.GrpcWebClientTuning;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 public class BlockNodeClient implements Closeable {
     private static final Logger LOGGER = System.getLogger(BlockNodeClient.class.getName());
@@ -146,7 +146,7 @@ public class BlockNodeClient implements Closeable {
                 "application/grpc",
                 GrpcCompression.IDENTITY,
                 GrpcCompression.getDecompressorNames(),
-                BlockAccessor.MAX_BLOCK_SIZE_BYTES,
+                ProtobufHandler.maxMessageSizeBytes(),
                 maxIncomingBufferSize);
 
         webClient = WebClient.builder()

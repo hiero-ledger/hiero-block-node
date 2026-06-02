@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /**
@@ -151,7 +152,7 @@ final class ZipBlockAccessor implements BlockAccessor {
                         false,
                         false,
                         Codec.DEFAULT_MAX_DEPTH,
-                        BlockAccessor.MAX_BLOCK_SIZE_BYTES));
+                        ProtobufHandler.maxMessageSizeBytes()));
             } catch (final RuntimeException | ParseException e) {
                 String entryName = blockPathData.blockFileName();
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockNumber, absoluteZipFilePath, entryName);

@@ -40,7 +40,7 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 | ENV Variable                            | Description                                  |    Default |
 |:----------------------------------------|:---------------------------------------------|-----------:|
-| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2.         | 37,748,736 |
+| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max gRPC/HTTP-2 transport message size (bytes). Block *parsing* size is governed separately by `PROTOBUF_MAX_MESSAGE_SIZE_BYTES`. | 131,072,000 |
 | SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).                    |      32768 |
 | SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes).                 |  8,388,608 |
 | SERVER_PORT                             | Server listening port.                       |      40840 |
@@ -48,6 +48,12 @@ Each plugin has its own properties, but this focuses on core options and core pl
 | SERVER_MAX_TCP_CONNECTIONS              | Max TCP connections allowed.                 |       1000 |
 | SERVER_IDLE_CONNECTION_PERIOD_MINUTES   | Period for idle connections check (minutes). |          5 |
 | SERVER_IDLE_CONNECTION_TIMEOUT_MINUTES  | Timeout for idle connections (minutes).      |         30 |
+
+### Protobuf Configuration
+
+| ENV Variable                    | Description                                                                                                                          |     Default |
+|:--------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------|------------:|
+| PROTOBUF_MAX_MESSAGE_SIZE_BYTES | Maximum protobuf message size (bytes) the node will parse. Raise to ingest or serve unusually large blocks (e.g. TSS Wraps transition blocks). Applied node-wide via `ProtobufHandler`. | 131,072,000 |
 
 ### WebServerHttp2 Configuration
 

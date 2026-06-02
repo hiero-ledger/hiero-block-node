@@ -49,6 +49,7 @@ import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
+import org.hiero.block.node.app.config.ProtobufConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.app.config.node.NodeConfig;
@@ -56,6 +57,7 @@ import org.hiero.block.node.app.config.state.ApplicationStateConfig;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
 import org.hiero.block.node.app.logging.ConfigLogger;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodeContext.Builder;
@@ -186,6 +188,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // Collect all the config data types from the plugins and global server level
         final List<Class<? extends Record>> allConfigDataTypes = new ArrayList<>();
         allConfigDataTypes.add(ServerConfig.class);
+        allConfigDataTypes.add(ProtobufConfig.class);
         allConfigDataTypes.add(WebServerHttp2Config.class);
         allConfigDataTypes.add(NodeConfig.class);
         allConfigDataTypes.add(ApplicationStateConfig.class);
@@ -207,6 +210,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         ConfigLogger.log(configuration);
         // now that configuration is loaded we can get config for server
         serverConfig = configuration.getConfigData(ServerConfig.class);
+        // Push the configured protobuf max message size into ProtobufHandler so every module parses
+        // block data with the same operator-configurable bound (see ProtobufConfig).
+        ProtobufHandler.setMaxMessageSizeBytes(
+                configuration.getConfigData(ProtobufConfig.class).maxMessageSizeBytes());
         WebServerHttp2Config webServerHttp2Config = configuration.getConfigData(WebServerHttp2Config.class);
         // ==== METRICS ================================================================================================
         // discover all metrics providers via SPI

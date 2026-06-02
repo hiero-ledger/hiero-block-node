@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.ToIntFunction;
 import org.hiero.block.api.BlockNodeServiceInterface;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 
 public class BlockNodeClient {
     private static final Logger LOGGER = System.getLogger(BlockNodeClient.class.getName());
@@ -146,7 +146,7 @@ public class BlockNodeClient {
                 "application/grpc",
                 GrpcCompression.IDENTITY,
                 GrpcCompression.getDecompressorNames(),
-                BlockAccessor.MAX_BLOCK_SIZE_BYTES,
+                ProtobufHandler.maxMessageSizeBytes(),
                 maxIncomingBufferSize);
 
         webClient = WebClient.builder()

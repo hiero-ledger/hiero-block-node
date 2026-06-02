@@ -7,6 +7,7 @@ import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 
 /**
  * The BlockAccessor interface is used to provide access to a block.
@@ -15,13 +16,6 @@ import org.hiero.block.internal.BlockUnparsed;
  * but that attempt is unsuccessful.
  */
 public interface BlockAccessor extends AutoCloseable {
-    /**
-     * Maximum protobuf parse size in bytes (125 MB). This matches the consensus node limit
-     * and accommodates the largest known block items (TSS Wraps transition blocks) which
-     * can exceed PBJ's default 2 MB limit.
-     */
-    int MAX_BLOCK_SIZE_BYTES = 125 * 1024 * 1024;
-
     /**
      * The format of the block data. The consumer can choose the format that is most efficient for them.
      */
@@ -51,7 +45,11 @@ public interface BlockAccessor extends AutoCloseable {
                 return null;
             }
             return BlockUnparsed.PROTOBUF.parse(
-                    rawData.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, MAX_BLOCK_SIZE_BYTES);
+                    rawData.toReadableSequentialData(),
+                    false,
+                    false,
+                    Codec.DEFAULT_MAX_DEPTH,
+                    ProtobufHandler.maxMessageSizeBytes());
         } catch (final RuntimeException | ParseException e) {
             final System.Logger LOGGER = System.getLogger(getClass().getName());
             LOGGER.log(WARNING, "Failed to parse block", e);

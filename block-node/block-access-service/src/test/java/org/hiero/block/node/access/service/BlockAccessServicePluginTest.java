@@ -22,8 +22,8 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -185,7 +185,7 @@ public class BlockAccessServicePluginTest
                 false,
                 false,
                 Codec.DEFAULT_MAX_DEPTH,
-                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                ProtobufHandler.maxMessageSizeBytes());
         assertEquals(Code.SUCCESS, response.status());
         assertEquals(466, response.block().items().getFirst().blockHeader().number());
     }

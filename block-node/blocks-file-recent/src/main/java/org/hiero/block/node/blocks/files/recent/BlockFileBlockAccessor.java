@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.util.UUID;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /**
@@ -87,7 +88,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
                             false,
                             false,
                             Codec.DEFAULT_MAX_DEPTH,
-                            BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                            ProtobufHandler.maxMessageSizeBytes());
         } catch (final RuntimeException | ParseException e) {
             LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock), e);
             return null;
@@ -166,7 +167,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
                         false,
                         false,
                         Codec.DEFAULT_MAX_DEPTH,
-                        BlockAccessor.MAX_BLOCK_SIZE_BYTES));
+                        ProtobufHandler.maxMessageSizeBytes()));
             } catch (final RuntimeException | ParseException e) {
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock);
                 LOGGER.log(WARNING, message, e);

@@ -36,6 +36,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.Builder;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfType;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
@@ -459,7 +460,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                             false,
                             false,
                             Codec.DEFAULT_MAX_DEPTH,
-                            BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                            ProtobufHandler.maxMessageSizeBytes());
                     // We have retrieved the block to send, so send it.
                     sendOneFullBlock(block, blockByteSize);
                     // Trim the queue if necessary, also increment the next block to send.

@@ -9,7 +9,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 
 /**
  * Utility class for testing block items.
@@ -39,7 +39,7 @@ public final class BlockItemUtils {
                     false,
                     false,
                     Codec.DEFAULT_MAX_DEPTH,
-                    BlockAccessor.MAX_BLOCK_SIZE_BYTES));
+                    ProtobufHandler.maxMessageSizeBytes()));
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -59,7 +59,7 @@ public final class BlockItemUtils {
                     false,
                     false,
                     Codec.DEFAULT_MAX_DEPTH,
-                    BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                    ProtobufHandler.maxMessageSizeBytes());
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -89,7 +89,7 @@ public final class BlockItemUtils {
                     false,
                     false,
                     Codec.DEFAULT_MAX_DEPTH,
-                    BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                    ProtobufHandler.maxMessageSizeBytes());
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }

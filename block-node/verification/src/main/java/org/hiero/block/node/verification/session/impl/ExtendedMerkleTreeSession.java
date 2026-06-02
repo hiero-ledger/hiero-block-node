@@ -46,11 +46,11 @@ import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.verification.VerificationServicePlugin;
 import org.hiero.block.node.verification.session.VerificationProofMetrics;
 import org.hiero.block.node.verification.session.VerificationSession;
@@ -368,13 +368,13 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 false,
                 false,
                 Codec.DEFAULT_MAX_DEPTH,
-                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                ProtobufHandler.maxMessageSizeBytes());
         TransactionBody body = TransactionBody.PROTOBUF.parse(
                 signedTx.bodyBytes().toReadableSequentialData(),
                 false,
                 false,
                 Codec.DEFAULT_MAX_DEPTH,
-                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                ProtobufHandler.maxMessageSizeBytes());
         if (!body.hasLedgerIdPublication()) {
             return null;
         }

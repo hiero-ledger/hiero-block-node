@@ -28,8 +28,8 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -58,7 +58,7 @@ class SubscriberServicePluginTest {
                     false,
                     false,
                     Codec.DEFAULT_MAX_DEPTH,
-                    BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                    ProtobufHandler.maxMessageSizeBytes());
         } catch (final ParseException e) {
             throw new RuntimeException(e);
         }

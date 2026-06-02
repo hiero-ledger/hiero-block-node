@@ -18,7 +18,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 
 /*
  * Utility class for getting test blocks.
@@ -87,7 +87,7 @@ public final class BlockUtils {
                     false,
                     false,
                     Codec.DEFAULT_MAX_DEPTH,
-                    BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                    ProtobufHandler.maxMessageSizeBytes());
         }
 
         return new SampleBlockInfo(sampleBlock.getBlockHash(), sampleBlock.getBlockNumber(), blockUnparsed);

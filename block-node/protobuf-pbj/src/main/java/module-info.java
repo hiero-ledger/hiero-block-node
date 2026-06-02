@@ -68,6 +68,7 @@ module org.hiero.block.protobuf.pbj {
     exports com.hedera.hapi.block.stream.schema;
     exports org.hiero.block.api;
     exports org.hiero.block.internal;
+    exports org.hiero.block.node.protobuf;
 
     requires transitive com.hedera.pbj.runtime;
     requires org.antlr.antlr4.runtime;

@@ -30,6 +30,7 @@ import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
@@ -41,7 +42,7 @@ public class TestBlockNodeServer {
         // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
                 .name("pbj")
-                .maxMessageSizeBytes(BlockAccessor.MAX_BLOCK_SIZE_BYTES)
+                .maxMessageSizeBytes(ProtobufHandler.maxMessageSizeBytes())
                 .build();
 
         // Create the service builder
@@ -117,7 +118,7 @@ public class TestBlockNodeServer {
                                 false,
                                 false,
                                 Codec.DEFAULT_MAX_DEPTH,
-                                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                                ProtobufHandler.maxMessageSizeBytes());
                         sendBlockItemsInBatches(block.items(), replies);
                         replies.onNext(SubscribeStreamResponse.newBuilder()
                                 .endOfBlock(BlockEnd.newBuilder().blockNumber(i).build())

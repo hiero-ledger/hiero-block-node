@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.node.protobuf.ProtobufHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /**
@@ -140,7 +141,7 @@ final class BlockStagingFileAccessor implements BlockAccessor {
                         false,
                         false,
                         Codec.DEFAULT_MAX_DEPTH,
-                        BlockAccessor.MAX_BLOCK_SIZE_BYTES));
+                        ProtobufHandler.maxMessageSizeBytes()));
             } catch (final UncheckedIOException | ParseException e) {
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockFilePath);
                 LOGGER.log(WARNING, message, e);
