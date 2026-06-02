@@ -81,9 +81,6 @@ class StateManagementE2ETests {
         System.setProperty(
                 "state.management.stateSnapshotRecentPath",
                 stateRoot.resolve("recent").toString());
-        System.setProperty(
-                "state.management.stateSnapshotHistoricPath",
-                stateRoot.resolve("historic").toString());
 
         final Path dataDir = Paths.get("build/tmp/data").toAbsolutePath();
         if (Files.exists(dataDir)) {
@@ -119,7 +116,6 @@ class StateManagementE2ETests {
     private static void clearProperties() {
         System.clearProperty("state.management.stateMetadataPath");
         System.clearProperty("state.management.stateSnapshotRecentPath");
-        System.clearProperty("state.management.stateSnapshotHistoricPath");
     }
 
     @Test
