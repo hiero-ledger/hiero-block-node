@@ -126,7 +126,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private ScheduledExecutorService snapshotExecutor;
     private ScheduledExecutorService stateChangesExecutor;
     private ScheduledExecutorService catchUpExecutor;
-    private volatile long lastSnapshottedBlock = -1L;
+    private volatile long lastSnapshotBlock = -1L;
 
     /// Block number of the most recent block whose state_changes have been applied
     /// to the mutable state. Distinct from `metadata.blockNumber` because of the
@@ -181,13 +181,28 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         this.context = context;
         this.config = context.configuration().getConfigData(StateManagementConfig.class);
         this.metadataStore = new StateMetadataStore(Path.of(config.stateMetadataPath()));
-        // Anchor FileSystemManager at the configured recent-snapshot path so the lifecycle
-        // manager's bookkeeping (its temp scratchpad in particular) lives next to the
-        // snapshots rather than in the cwd.
-        final Path fsmRoot = Path.of(config.stateSnapshotRecentPath());
-        this.lifecycleManager = new VirtualMapStateLifecycleManager(
-                new NoOpMetrics(), Time.getCurrent(), context.configuration(), new FileSystemManager(fsmRoot));
         this.applier = new StateChangeApplier();
+        try {
+            // Anchor FileSystemManager at the configured recent-snapshot path so the lifecycle
+            // manager's bookkeeping (its temp scratchpad in particular) lives next to the
+            // snapshots rather than in the cwd. This is the first filesystem touch — if the
+            // configured state directory is not writable it fails here.
+            final Path fsmRoot = Path.of(config.stateSnapshotRecentPath());
+            this.lifecycleManager = new VirtualMapStateLifecycleManager(
+                    new NoOpMetrics(), Time.getCurrent(), context.configuration(), new FileSystemManager(fsmRoot));
+        } catch (final RuntimeException e) {
+            // The configured state directory could not be prepared (e.g. not writable). This is
+            // a fatal misconfiguration — in normal operation the directory is provisioned at node
+            // setup. Follow the same pattern as BlockFileRecentPlugin: log and request a graceful
+            // node shutdown via the health facility, rather than throwing an unchecked exception
+            // out of init() (which would abort BlockNodeApp construction with no plugin isolation).
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "Could not prepare state directory {0}; requesting Block Node shutdown.",
+                    config.stateSnapshotRecentPath(),
+                    e);
+            context.serverHealth().shutdown(name(), "Could not prepare state directory");
+        }
         registerMetrics(context.metricRegistry());
         serviceBuilder.registerGrpcService(this);
     }
@@ -225,6 +240,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// {@inheritDoc}
     @Override
     public void start() {
+        if (lifecycleManager == null) {
+            // init() could not prepare the state directory and requested a node shutdown;
+            // there is nothing to start.
+            return;
+        }
         loadPersistedState();
         context.blockMessaging().registerBlockNotificationHandler(this, true, name());
 
@@ -273,7 +293,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         shutdownExecutor(catchUpExecutor);
         shutdownExecutor(stateChangesExecutor);
         shutdownExecutor(snapshotExecutor);
-        if (metadata.blockNumber() > lastSnapshottedBlock && metadata.blockNumber() > 0L) {
+        if (metadata.blockNumber() > lastSnapshotBlock && metadata.blockNumber() > 0L) {
             try {
                 saveSnapshot();
             } catch (final RuntimeException e) {
@@ -827,7 +847,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         // Snapshot the *attested* state (the committed block named by metadata), not
         // lifecycleManager.getLatestImmutableState() — under lag-1 the latter is one
         // block ahead and unattested. Nothing attested yet ⇒ nothing to snapshot.
-        if (attested == null || snapshot.blockNumber() <= lastSnapshottedBlock) {
+        if (attested == null || snapshot.blockNumber() <= lastSnapshotBlock) {
             return;
         }
         final Path target = recentSnapshotDirectoryFor(snapshot.blockNumber());
@@ -838,7 +858,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             }
             pruneOldRecentSnapshots(snapshot.blockNumber());
             metadataStore.save(snapshot);
-            lastSnapshottedBlock = snapshot.blockNumber();
+            lastSnapshotBlock = snapshot.blockNumber();
         } catch (final IOException e) {
             LOGGER.log(System.Logger.Level.WARNING, "Snapshot write failed for block " + snapshot.blockNumber(), e);
         }
