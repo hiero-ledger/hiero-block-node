@@ -5,6 +5,7 @@
 - [Overview](#overview)
 - [Core Configuration Options](#core-configuration-options)
 - [Server Configuration](#server-configuration)
+- [Protobuf Configuration](#protobuf-configuration)
 - [Application State Configuration](#application-state-configuration)
 - [Metrics Endpoint Configuration](#metrics-endpoint-configuration)
 - [Configurations By Plugin](#configurations-by-plugin)
