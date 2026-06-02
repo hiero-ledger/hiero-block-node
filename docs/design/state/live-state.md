@@ -75,25 +75,30 @@ block-node/state-management-hashgraph/
 ├── build.gradle.kts                     # org.hiero.gradle.module.library
 ├── src/main/java/
 │   └── org/hiero/block/node/state/management/
-│       ├── StateManagementPlugin.java         # BlockNodePlugin + BlockNotificationHandler + gRPC service
-│       ├── StateManagementConfig.java         # @ConfigData("state.management")
-│       ├── StateManagementAccessService.java  # implements StateService gRPC
-│       ├── StateChangeApplier.java      # parses StateChanges, calls BinaryState.update*
-│       ├── StateMetadataStore.java      # JSON load/save of stateMetadata.json
-│       ├── SnapshotManager.java         # createSnapshot/loadSnapshot/tar+atomic move
+│       ├── StateManagementPlugin.java    # BlockNodePlugin + BlockNotificationHandler + StateService gRPC + lifecycle/snapshot
+│       ├── StateManagementConfig.java    # @ConfigData("state.management")
+│       ├── StateChangeApplier.java       # parses StateChanges, calls BinaryState.update*
+│       ├── StateMetadataStore.java       # JSON load/save of stateMetadata.json
+│       ├── StateSource.java              # read-target selector (IMMUTABLE / MUTABLE / HISTORICAL)
 │       └── module-info.java
 └── src/test/java/...
 ```
 
-Module-info, mirroring `stream-publisher`:
+There is no separate access-service or snapshot-manager class: the plugin
+itself implements the `StateService` gRPC surface and owns the snapshot
+save/load/prune logic (recent-dir retention only — no tar/historic archival).
+
+Module-info (the state libraries are required non-transitively — the plugin
+consumes them internally and does not re-export them):
 
 ```
 provides org.hiero.block.node.spi.BlockNodePlugin with StateManagementPlugin;
-requires transitive com.swirlds.state.api;
-requires transitive com.swirlds.state.impl;
-requires transitive com.swirlds.virtualmap;
 requires transitive org.hiero.block.node.spi;
 requires transitive org.hiero.block.protobuf.pbj;
+requires com.swirlds.state.api;
+requires com.swirlds.state.impl;
+requires com.swirlds.virtualmap;
+requires org.hiero.metrics;
 ```
 
 The new swirlds dependencies must be added to
