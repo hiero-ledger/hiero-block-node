@@ -37,14 +37,17 @@ import org.junit.jupiter.api.Timeout;
  * End-to-end test for the state-management-hashgraph plugin. Boots {@link BlockNodeApp} in-JVM
  * with the live-state plugin on the classpath and exercises the
  * {@code StateService} gRPC endpoint over the network (via {@link PbjGrpcClient}) —
- * the same wire path a real client uses. Verifies:
+ * the same wire path a real client uses.
+ *
+ * <p>No blocks are streamed in this harness, so under the lag-1 commit model the plugin
+ * has no network-attested state and answers every query with {@code NOT_READY}. The test
+ * therefore verifies that:
  *
  * <ul>
  *   <li>the app reaches RUNNING — the live-state plugin doesn't break startup;</li>
- *   <li>{@code getBinarySingleton} reaches the running plugin, returns a structured
- *       response code, and includes {@code state_metadata} on the wire;</li>
- *   <li>{@code getBinaryKV} on a missing key returns {@code NOT_FOUND};</li>
- *   <li>{@code getBinaryQueue} on a missing queue returns {@code NOT_FOUND}.</li>
+ *   <li>the {@code StateService} endpoints ({@code getBinarySingleton}, {@code getBinaryKV},
+ *       {@code getBinaryQueue}) are reachable over the wire and return a structured
+ *       {@code NOT_READY} response carrying {@code state_metadata}.</li>
  * </ul>
  *
  * Each test runs the BlockNodeApp through a fresh boot/shutdown cycle with state paths
@@ -122,12 +125,13 @@ class StateManagementE2ETests {
     void getBinarySingletonRoundTripsThroughGrpc() {
         final var client = new StateServiceInterface.StateServiceClient(grpcClient, OPTIONS);
 
-        // Poll briefly until the plugin finishes catch-up (no historical blocks means it
-        // completes near-immediately, but the catch-up thread is still asynchronous).
-        final BinaryStateQueryResponse response = awaitNonNotReady(() -> client.getBinarySingleton(
-                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(1L).build()));
+        // No blocks streamed → no network-attested state → NOT_READY under lag-1. The point
+        // is that the StateService is wired, reachable over the wire, and returns a
+        // structured response carrying metadata.
+        final BinaryStateQueryResponse response = client.getBinarySingleton(
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(1L).build());
 
-        assertThat(response.status()).as("structured response over the wire").isIn(Code.NOT_FOUND, Code.SUCCESS);
+        assertThat(response.status()).as("structured response over the wire").isEqualTo(Code.NOT_READY);
         assertThat(response.stateMetadata()).as("metadata always populated").isNotNull();
     }
 
@@ -135,41 +139,20 @@ class StateManagementE2ETests {
     void getBinaryKVAndQueueReturnStructuredResponses() {
         final var client = new StateServiceInterface.StateServiceClient(grpcClient, OPTIONS);
 
-        // KV on a non-existent state/key.
-        final BinaryStateQueryResponse kv = awaitNonNotReady(() -> client.getBinaryKV(BinaryStateQuery.newBuilder()
+        // No blocks streamed → NOT_READY for every query (lag-1: nothing attested yet).
+        final BinaryStateQueryResponse kv = client.getBinaryKV(BinaryStateQuery.newBuilder()
                 .retrieveLatest(true)
                 .stateId(99L)
                 .keyBytes(Bytes.fromHex("01"))
-                .build()));
-        assertThat(kv.status()).isEqualTo(Code.NOT_FOUND);
+                .build());
+        assertThat(kv.status()).isEqualTo(Code.NOT_READY);
 
-        // Queue with no elements.
-        final BinaryStateQueryResponse queue = awaitNonNotReady(() -> client.getBinaryQueue(
-                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(99L).build()));
-        assertThat(queue.status()).isEqualTo(Code.NOT_FOUND);
+        final BinaryStateQueryResponse queue = client.getBinaryQueue(
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(99L).build());
+        assertThat(queue.status()).isEqualTo(Code.NOT_READY);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
-
-    /**
-     * Polls the supplied gRPC call until the plugin reports a non-{@code NOT_READY}
-     * response or the timeout elapses. Returns the final response.
-     */
-    private static BinaryStateQueryResponse awaitNonNotReady(
-            final java.util.function.Supplier<BinaryStateQueryResponse> call) {
-        final long deadline = System.currentTimeMillis() + 10_000L;
-        BinaryStateQueryResponse response = call.get();
-        while (response.status() == Code.NOT_READY && System.currentTimeMillis() < deadline) {
-            try {
-                Thread.sleep(50L);
-            } catch (final InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-            response = call.get();
-        }
-        return response;
-    }
 
     private PbjGrpcClient createGrpcClient() {
         final Duration timeout = Duration.ofSeconds(30);
