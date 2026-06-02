@@ -23,7 +23,7 @@ import "block-node/api/shared_message_types.proto";
  * Exactly one of `block_specifier.block_number` or
  * `block_specifier.retrieve_latest` MUST be set. Block 0 (genesis) is a
  * valid `block_number`. Requests targeting block numbers other than the
- * currently applied one SHALL be answered with `INVALID_REQUEST` until
+ * currently applied one SHALL be answered with `NOT_FOUND` until
  * historical state queries are supported.
  *
  * TODO: when a second consumer of this pattern lands, lift
@@ -40,7 +40,7 @@ message BinaryStateQuery {
         /**
          * The explicit block number the response state MUST correspond to.
          * Genesis (`block_number = 0`) is valid. The Block-Node SHALL
-         * answer with `INVALID_REQUEST` if the requested block does not
+         * answer with `NOT_FOUND` if the requested block does not
          * match its current live state.
          */
         uint64 block_number = 1;
@@ -100,7 +100,10 @@ message BinaryStateQueryResponse {
         INVALID_REQUEST = 2;
 
         /**
-         * The requested state element does not exist in the current state.
+         * The requested state element does not exist in the current state,
+         * or the requested `block_number` is not the Block-Node's current
+         * applied block (non-latest blocks are not retained until historical
+         * state queries are supported).
          */
         NOT_FOUND = 3;
 

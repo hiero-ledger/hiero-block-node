@@ -111,8 +111,8 @@ Request rules (enforced in code):
 - `state_id` is required.
 - `key_bytes` is required for `getBinaryKV`, forbidden for the other two.
 - `queue_index` may be set for `getBinaryQueue` (`0` returns the whole queue).
-- `block_number` is either `0` (latest) or must equal the current applied
-  block; older block numbers are answered with `INVALID_REQUEST`.
+- `block_number` must equal the current applied block (or use
+  `retrieve_latest`); non-latest block numbers are answered with `NOT_FOUND`.
 - `NOT_READY` is returned until the start-up catch-up completes.
 
 Every response carries the current `StateMetadata` so the client can decide
