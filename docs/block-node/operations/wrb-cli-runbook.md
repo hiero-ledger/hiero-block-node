@@ -522,10 +522,10 @@ During validation, the CLI automatically detects and extracts TSS (Threshold Sig
 
 **Output Files**:
 
-| File | Format | Purpose |
-|------|--------|---------|
-| `tss-enablement.bin` | Protobuf binary | TssData in protobuf format for archival |
-| `tss-bootstrap-roster.json` | JSON | TssData in JSON format matching Block Node's ApplicationStateConfig |
+|            File             |     Format      |                               Purpose                               |
+|-----------------------------|-----------------|---------------------------------------------------------------------|
+| `tss-enablement.bin`        | Protobuf binary | TssData in protobuf format for archival                             |
+| `tss-bootstrap-roster.json` | JSON            | TssData in JSON format matching Block Node's ApplicationStateConfig |
 
 **Example JSON Output** (`tss-bootstrap-roster.json`):
 
@@ -540,8 +540,7 @@ During validation, the CLI automatically detects and extracts TSS (Threshold Sig
         "weight": 1000,
         "schnorr_public_key": "0a1b2c3d4e5f6a7b8c9d0e1f..."
       }
-    ],
-    "valid_from_block": 42
+    ]
   },
   "valid_from_block": 42
 }
