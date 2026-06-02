@@ -119,6 +119,25 @@ final class StateChangeApplier {
         return null;
     }
 
+    /// Pull the block number from a block's `BlockHeader` without applying it.
+    /// Used for diagnostic logging (e.g. naming the offending block on a hash
+    /// mismatch) before the block is walked by `applyBlock`.
+    ///
+    /// @param block the block to scan
+    /// @return the block number, or `-1` if no header is present or it is unparseable
+    static long extractBlockNumber(@NonNull final BlockUnparsed block) {
+        for (final BlockItemUnparsed item : block.blockItems()) {
+            if (item.hasBlockHeader()) {
+                try {
+                    return BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow()).number();
+                } catch (final Exception ignored) {
+                    return -1L;
+                }
+            }
+        }
+        return -1L;
+    }
+
     /// Translate each `StateChange` in `changes` into the matching `BinaryState`
     /// write call (singleton update, KV update/delete, queue push/pop). Schema-level
     /// events (`STATE_ADD`, `STATE_REMOVE`, `UNSET`) are out of scope for live-state v1

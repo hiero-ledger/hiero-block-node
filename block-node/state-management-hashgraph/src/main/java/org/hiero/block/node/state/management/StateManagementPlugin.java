@@ -591,9 +591,15 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// @return `true` on successful apply, `false` if the block was rejected
     ///     (caller should leave the block in the pending queue and stop draining).
     private boolean applyBlockStateChanges(@NonNull final BlockUnparsed block) {
+        // Block number is pulled up-front purely for diagnostics — the apply path below
+        // re-parses it from the header as the authoritative value.
+        final long incomingBlock = StateChangeApplier.extractBlockNumber(block);
         final Bytes startHash = StateChangeApplier.extractStartOfBlockStateRootHash(block);
         if (startHash == null) {
-            LOGGER.log(System.Logger.Level.WARNING, "Refusing to apply block missing a parseable BlockFooter");
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "Refusing to apply block {0}: missing a parseable BlockFooter",
+                    incomingBlock);
             degraded.set(true);
             return false;
         }
@@ -602,8 +608,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             degraded.set(true);
             LOGGER.log(
                     System.Logger.Level.ERROR,
-                    "State hash mismatch: footer.startOfBlockStateRootHash diverges from the last applied "
-                            + "state's root hash; plugin marked degraded (state not exposed)");
+                    "State hash mismatch applying block {0}: footer.startOfBlockStateRootHash ({1}) diverges "
+                            + "from the last applied state's root hash ({2}, post-block {3}); plugin marked "
+                            + "degraded (state not exposed)",
+                    incomingBlock,
+                    startHash.toHex(),
+                    lastAppliedHash.toHex(),
+                    lastAppliedBlock);
             return false;
         }
 
@@ -883,6 +894,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         try {
             return Bytes.wrap(state.getRoot().getHash().copyToByteArray());
         } catch (final RuntimeException e) {
+            // Returning empty is fail-safe — the next block's footer validation will not
+            // match an empty hash, so we degrade rather than expose a wrong root. Log the
+            // cause at WARNING so a hashing/lifecycle bug is diagnosable instead of silent.
+            LOGGER.log(System.Logger.Level.WARNING, "Failed to read state root hash; treating as empty", e);
             return Bytes.EMPTY;
         }
     }
