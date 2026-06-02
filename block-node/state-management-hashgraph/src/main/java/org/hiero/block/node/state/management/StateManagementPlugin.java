@@ -11,13 +11,16 @@ import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.api.BinaryStateQuery;
 import org.hiero.block.api.BinaryStateQueryResponse;
@@ -94,14 +97,22 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private StateChangeApplier applier;
 
     /// Latest applied state metadata. Volatile because reads happen on query threads.
+    ///
+    /// Concurrency note (accepted for beta): `metadata` and `attestedImmutable` are
+    /// updated as two separate volatile writes in the lag-1 commit (see
+    /// `applyBlockStateChanges`), not as one atomic swap. A query thread can therefore
+    /// briefly observe `metadata` one commit ahead of (or behind) `attestedImmutable`.
+    /// Both are only ever written from the single apply thread, so the window is tiny
+    /// and the worst case is a stale-but-attested read or a transient `NOT_FOUND` — never
+    /// a crash. Tightening this by bundling `(attestedImmutable, metadata)` into a single
+    /// immutable holder swapped with one volatile write is a deferred consideration.
     private volatile StateMetadata metadata = StateMetadata.DEFAULT;
 
     private final ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks = new ConcurrentSkipListMap<>();
     private final AtomicBoolean stateIsCaughtUp = new AtomicBoolean(false);
     private final AtomicBoolean stopping = new AtomicBoolean(false);
     private final AtomicBoolean degraded = new AtomicBoolean(false);
-    private final java.util.concurrent.atomic.AtomicLong hashMismatchTotal =
-            new java.util.concurrent.atomic.AtomicLong();
+    private final AtomicLong hashMismatchTotal = new AtomicLong();
 
     /// Wall-clock duration of the most recent block apply, exported via
     /// `state_apply_latency_ms`. Volatile because the gauge supplier reads it
@@ -494,17 +505,17 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             metadata = StateMetadata.DEFAULT;
         }
         boolean snapshotLoaded = false;
-        final Optional<Path> snapshotDir = recentSnapshotDirectoryFor(metadata.blockNumber());
-        if (snapshotDir.isPresent() && Files.isDirectory(snapshotDir.get())) {
+        final Path snapshotDir = recentSnapshotDirectoryFor(metadata.blockNumber());
+        if (Files.isDirectory(snapshotDir)) {
             try {
-                lifecycleManager.loadSnapshot(snapshotDir.get());
+                lifecycleManager.loadSnapshot(snapshotDir);
                 snapshotLoaded = true;
-                LOGGER.log(System.Logger.Level.INFO, "Loaded state snapshot from {0}", snapshotDir.get());
+                LOGGER.log(System.Logger.Level.INFO, "Loaded state snapshot from {0}", snapshotDir);
             } catch (final IOException e) {
                 LOGGER.log(
                         System.Logger.Level.WARNING,
                         "Snapshot at {0} unreadable; continuing with eager genesis state",
-                        snapshotDir.get(),
+                        snapshotDir,
                         e);
             }
         }
@@ -819,11 +830,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (attested == null || snapshot.blockNumber() <= lastSnapshottedBlock) {
             return;
         }
-        final Optional<Path> targetOpt = recentSnapshotDirectoryFor(snapshot.blockNumber());
-        if (targetOpt.isEmpty()) {
-            return;
-        }
-        final Path target = targetOpt.get();
+        final Path target = recentSnapshotDirectoryFor(snapshot.blockNumber());
         try {
             Files.createDirectories(target.getParent());
             if (!Files.exists(target)) {
@@ -862,7 +869,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         final List<Path> entries = listRecentDirs(recentRoot);
         // Build a list of (block, path) excluding the current block — those are
         // candidates for deletion.
-        final List<java.util.Map.Entry<Long, Path>> candidates = new java.util.ArrayList<>();
+        final List<Map.Entry<Long, Path>> candidates = new ArrayList<>();
         for (final Path dir : entries) {
             final long blockNumber = parseBlockDirName(dir);
             if (blockNumber < 0L) {
@@ -873,9 +880,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             if (blockNumber == currentBlock) {
                 continue;
             }
-            candidates.add(java.util.Map.entry(blockNumber, dir));
+            candidates.add(Map.entry(blockNumber, dir));
         }
-        candidates.sort(java.util.Map.Entry.comparingByKey());
+        candidates.sort(Map.Entry.comparingByKey());
         // The current block counts as 1 against the retention budget; older dirs
         // beyond that get deleted from oldest to newest.
         final int allowedOlder = Math.max(0, retain - 1);
@@ -914,8 +921,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// @param blockNumber the block number
     /// @return the directory path under `stateSnapshotRecentPath` for that block
     @NonNull
-    private Optional<Path> recentSnapshotDirectoryFor(final long blockNumber) {
-        return Optional.of(Path.of(config.stateSnapshotRecentPath(), Long.toString(blockNumber)));
+    private Path recentSnapshotDirectoryFor(final long blockNumber) {
+        return Path.of(config.stateSnapshotRecentPath(), Long.toString(blockNumber));
     }
 
     /// A response builder pre-seeded with the current `metadata`, shared by all query handlers.
@@ -1000,7 +1007,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 return;
             }
             try (var stream = Files.walk(root)) {
-                stream.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                stream.sorted(Comparator.reverseOrder()).forEach(p -> {
                     try {
                         Files.delete(p);
                     } catch (final IOException e) {
