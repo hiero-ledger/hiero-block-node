@@ -37,6 +37,7 @@ public final class TssEnablementValidation implements BlockValidation {
 
     private final TssEnablementRegistry tssRegistry;
     private final Path tssParametersBinPath;
+    private final Path tssParametersJsonPath;
     private boolean firstPublicationSeen = false;
 
     /**
@@ -48,6 +49,8 @@ public final class TssEnablementValidation implements BlockValidation {
     public TssEnablementValidation(final TssEnablementRegistry tssRegistry, final Path tssParametersBinPath) {
         this.tssRegistry = tssRegistry;
         this.tssParametersBinPath = tssParametersBinPath;
+        // Derive JSON path from bin path: change tss-enablement.bin to tss-bootstrap-roster.json
+        this.tssParametersJsonPath = tssParametersBinPath.getParent().resolve("tss-bootstrap-roster.json");
     }
 
     @Override
@@ -57,7 +60,7 @@ public final class TssEnablementValidation implements BlockValidation {
 
     @Override
     public String description() {
-        return "Discovers LedgerIdPublication transactions from block data and writes tss-enablement.bin";
+        return "Discovers LedgerIdPublication transactions from block data and writes tss-enablement.bin and tss-bootstrap-roster.json";
     }
 
     @Override
@@ -111,12 +114,18 @@ public final class TssEnablementValidation implements BlockValidation {
                         tssRegistry.recordPublication(blockInstant, blockNumber, body.ledgerIdPublicationOrThrow());
                 System.out.println(
                         Ansi.AUTO.string("@|yellow TSS publication at block " + blockNumber + ":|@ " + description));
-                // Write tss-enablement.bin immediately on each detection
+                // Write tss-enablement.bin and tss-bootstrap-roster.json immediately on each detection
                 try {
                     tssRegistry.writeTssParametersBin(tssParametersBinPath);
                 } catch (Exception e) {
                     System.err.println(
                             "[TssEnablement] WARNING: Failed to write " + tssParametersBinPath + ": " + e.getMessage());
+                }
+                try {
+                    tssRegistry.writeTssDataJson(tssParametersJsonPath);
+                } catch (Exception e) {
+                    System.err.println("[TssEnablement] WARNING: Failed to write " + tssParametersJsonPath + ": "
+                            + e.getMessage());
                 }
             }
         }

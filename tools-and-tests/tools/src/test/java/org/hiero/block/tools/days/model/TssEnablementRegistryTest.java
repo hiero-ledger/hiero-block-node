@@ -210,4 +210,36 @@ class TssEnablementRegistryTest {
             assertFalse(Files.exists(binFile));
         }
     }
+
+    @Nested
+    @DisplayName("writeTssDataJson")
+    class WriteJson {
+
+        @Test
+        @DisplayName("writes parseable TssData JSON")
+        void writesParseableJson(@TempDir Path tempDir) throws Exception {
+            TssEnablementRegistry registry = new TssEnablementRegistry();
+            LedgerIdPublicationTransactionBody original = createPublication(LEDGER_ID, WRAPS_VK, 0, 1000, 1, 2000);
+            registry.recordPublication(Instant.ofEpochSecond(100), 42, original);
+
+            Path jsonFile = tempDir.resolve("tss-bootstrap-roster.json");
+            registry.writeTssDataJson(jsonFile);
+
+            assertTrue(Files.exists(jsonFile));
+            Bytes fileBytes = Bytes.wrap(Files.readAllBytes(jsonFile));
+            TssData parsed = TssData.JSON.parse(fileBytes.toReadableSequentialData());
+            assertEquals(LEDGER_ID, parsed.ledgerId());
+            assertEquals(WRAPS_VK, parsed.wrapsVerificationKey());
+            assertEquals(2, parsed.currentRosterOrThrow().rosterEntries().size());
+        }
+
+        @Test
+        @DisplayName("does nothing when registry is empty")
+        void doesNothingWhenEmpty(@TempDir Path tempDir) throws Exception {
+            TssEnablementRegistry registry = new TssEnablementRegistry();
+            Path jsonFile = tempDir.resolve("tss-bootstrap-roster.json");
+            registry.writeTssDataJson(jsonFile);
+            assertFalse(Files.exists(jsonFile));
+        }
+    }
 }
