@@ -23,6 +23,8 @@ import io.helidon.webserver.http.HttpService;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.BinaryStateQuery;
 import org.hiero.block.api.BinaryStateQueryResponse;
 import org.hiero.block.api.BinaryStateQueryResponse.Code;
@@ -222,6 +224,56 @@ class StateManagementAccessTest {
                 .isEqualTo(Code.NOT_FOUND);
 
         plugin.stop();
+    }
+
+    @Test
+    void concurrentReadsDuringAppliesDoNotThrow(@TempDir final Path tmp) throws Exception {
+        final Started s = startPlugin(tmp);
+
+        // Seed a singleton at state 1 in genesis block 0; confirm with block 1 so it is exposed.
+        s.deliverBlock(
+                0L,
+                0L,
+                Bytes.EMPTY,
+                List.of(StateChange.newBuilder()
+                        .stateId(1)
+                        .singletonUpdate(SingletonUpdateChange.newBuilder()
+                                .bytesValue(Bytes.fromHex("aa"))
+                                .build())
+                        .build()));
+        s.plugin.applyPending();
+
+        final AtomicBoolean stop = new AtomicBoolean(false);
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        final Thread reader = new Thread(() -> {
+            while (!stop.get() && failure.get() == null) {
+                try {
+                    final BinaryStateQueryResponse r = s.plugin.getBinarySingleton(BinaryStateQuery.newBuilder()
+                            .retrieveLatest(true)
+                            .stateId(1L)
+                            .build());
+                    assertThat(r.status()).isIn(Code.SUCCESS, Code.NOT_FOUND, Code.NOT_READY);
+                } catch (final Throwable t) {
+                    failure.set(t);
+                }
+            }
+        });
+        reader.start();
+
+        // Rotate attestedImmutable repeatedly by applying a chain of confirming blocks while
+        // the reader hammers queries. Pins that a read overlapping setAttested rotation never
+        // throws (e.g. ReferenceCountException) and always yields a structured status.
+        for (long b = 1L; b <= 50L; b++) {
+            s.deliverBlock(b, b * 10L, s.plugin.stagedStateRootHash(), List.of());
+            s.plugin.applyPending();
+        }
+        stop.set(true);
+        reader.join(5_000L);
+
+        assertThat(failure.get())
+                .as("no exception from concurrent reads during state rotation")
+                .isNull();
+        s.plugin.stop();
     }
 
     // ── Fixtures ───────────────────────────────────────────────────────────

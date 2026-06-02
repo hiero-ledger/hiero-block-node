@@ -114,6 +114,120 @@ class StateManagementPluginLifecycleTest {
         plugin.stop();
     }
 
+    @Test
+    void missingSnapshotForPersistedMetadataFallsBackToGenesis(@TempDir final Path tmp) throws Exception {
+        final Path metadataPath = tmp.resolve("stateMetadata.json");
+        final Path recentRoot = tmp.resolve("recent");
+        // Persist metadata pointing at block 5 but never create its recent/5 snapshot dir.
+        // On start the plugin cannot load state for block 5, so it must reset to genesis
+        // rather than claim state it does not actually hold.
+        new StateMetadataStore(metadataPath)
+                .save(StateMetadata.newBuilder()
+                        .blockNumber(5L)
+                        .roundNumber(50L)
+                        .stateRootHash(Bytes.fromHex("abcd"))
+                        .stateSize(7L)
+                        .build());
+
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, facility);
+
+        assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
+        assertThat(plugin.isDegraded()).isFalse();
+        plugin.stop();
+    }
+
+    @Test
+    void malformedStateChangesDegradesWithoutApplying(@TempDir final Path tmp) throws Exception {
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), facility);
+
+        // Genesis block 0 with a valid header/footer (empty start hash passes genesis
+        // validation) but a state_changes item carrying invalid protobuf bytes. The
+        // applier throws; applyPending must degrade and leave the block unapplied.
+        final BlockUnparsed badBlock = BlockUnparsed.newBuilder()
+                .blockItems(
+                        BlockItemUnparsed.newBuilder()
+                                .blockHeader(BlockHeader.PROTOBUF.toBytes(
+                                        BlockHeader.newBuilder().number(0L).build()))
+                                .build(),
+                        BlockItemUnparsed.newBuilder()
+                                .stateChanges(Bytes.fromHex("ffffffff"))
+                                .build(),
+                        BlockItemUnparsed.newBuilder()
+                                .blockFooter(BlockFooter.PROTOBUF.toBytes(BlockFooter.newBuilder()
+                                        .startOfBlockStateRootHash(Bytes.EMPTY)
+                                        .build()))
+                                .build())
+                .build();
+        facility.sendBlockVerification(
+                new VerificationNotification(true, null, 0L, Bytes.fromHex("aabb"), badBlock, BlockSource.PUBLISHER));
+        plugin.applyPending();
+
+        assertThat(plugin.isDegraded()).isTrue();
+        assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
+        plugin.stop();
+    }
+
+    @Test
+    void stopWritesFinalSnapshotForExposedBlock(@TempDir final Path tmp) throws Exception {
+        final Path metadataPath = tmp.resolve("stateMetadata.json");
+        final Path recentRoot = tmp.resolve("recent");
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, facility);
+
+        // Apply block 1 and confirm it with block 2 so block 1 is exposed (metadata.block=1).
+        facility.sendBlockVerification(new VerificationNotification(
+                true, null, 1L, Bytes.fromHex("aabb"), buildBlock(1L, 11L), BlockSource.PUBLISHER));
+        plugin.applyPending();
+        facility.sendBlockVerification(new VerificationNotification(
+                true,
+                null,
+                2L,
+                Bytes.fromHex("aabb"),
+                buildBlock(2L, 22L, plugin.stagedStateRootHash()),
+                BlockSource.PUBLISHER));
+        plugin.applyPending();
+        assertThat(plugin.metadata().blockNumber()).isEqualTo(1L);
+
+        // No explicit saveSnapshot() here — stop() must write the final snapshot for the
+        // exposed block since it was never snapshotted during the run.
+        plugin.stop();
+        assertThat(Files.isDirectory(recentRoot.resolve("1"))).isTrue();
+    }
+
+    @Test
+    void restartAfterDegradeStartsClean(@TempDir final Path tmp) throws Exception {
+        final Path metadataPath = tmp.resolve("stateMetadata.json");
+        final Path recentRoot = tmp.resolve("recent");
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, facility);
+
+        // Apply genesis block 0 (staged), then deliver block 1 whose footer start hash does
+        // not match post-0 — a hash mismatch that degrades the plugin.
+        facility.sendBlockVerification(new VerificationNotification(
+                true, null, 0L, Bytes.fromHex("aabb"), buildBlock(0L, 0L), BlockSource.PUBLISHER));
+        plugin.applyPending();
+        facility.sendBlockVerification(new VerificationNotification(
+                true,
+                null,
+                1L,
+                Bytes.fromHex("aabb"),
+                buildBlock(1L, 10L, Bytes.fromHex("deadbeef".repeat(12))),
+                BlockSource.PUBLISHER));
+        plugin.applyPending();
+        assertThat(plugin.isDegraded()).isTrue();
+        plugin.stop();
+
+        // Degraded state is in-memory only (the documented recovery is a restart). A fresh
+        // instance must start clean and reach readiness.
+        final TestBlockMessagingFacility facility2 = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin2 = startPlugin(metadataPath, recentRoot, facility2);
+        assertThat(plugin2.isDegraded()).isFalse();
+        assertThat(StateManagementPluginTestSupport.awaitReady(plugin2, 5_000L)).isTrue();
+        plugin2.stop();
+    }
+
     // ── Fixtures ───────────────────────────────────────────────────────────
 
     private static StateManagementPlugin startPlugin(
