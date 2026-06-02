@@ -99,7 +99,7 @@ dependencies.constraints {
     api("org.assertj:assertj-core:3.27.7") { because("org.assertj.core") }
     api("org.junit.jupiter:junit-jupiter-api:6.0.3") { because("org.junit.jupiter.api") }
     api("org.junit.jupiter:junit-jupiter-engine:6.0.3") { because("org.junit.jupiter.engine") }
-    api("org.junit.platform:junit-platform-launcher:6.0.3") {
+    api("org.junit.platform:junit-platform-launcher:6.1.0") {
         because("org.junit.platform.launcher")
     }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
