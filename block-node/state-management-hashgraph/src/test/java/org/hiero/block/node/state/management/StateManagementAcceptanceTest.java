@@ -33,6 +33,7 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.consensus.config.PathsConfig;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -406,8 +407,18 @@ class StateManagementAcceptanceTest {
                 .withValue("state.management.stateChangesApplyIntervalMillis", "3600000")
                 .withValue("state.management.stateSnapshotRecentRetentionCount", Integer.toString(recentRetention))
                 .build();
-        final BlockNodeContext context =
-                new BlockNodeContext(configuration, null, null, facility, null, null, null, null, null, null, null);
+        final BlockNodeContext context = new BlockNodeContext(
+                configuration,
+                MetricRegistry.builder().build(),
+                null,
+                facility,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
         final StateManagementPlugin plugin = new StateManagementPlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();

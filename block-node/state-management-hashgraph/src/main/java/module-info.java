@@ -23,6 +23,7 @@ module org.hiero.block.node.state.management {
     requires org.hiero.base.utility;
     requires org.hiero.consensus.metrics;
     requires org.hiero.consensus.utility;
+    requires org.hiero.metrics;
     requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with

@@ -34,6 +34,10 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.consensus.metrics.noop.NoOpMetrics;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.ObservableGauge;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /// Beta plugin that maintains a live, queryable copy of Hashgraph network state inside
 /// the Block Node by replaying verified block-stream state changes onto a
@@ -53,6 +57,36 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     private static final System.Logger LOGGER = System.getLogger(StateManagementPlugin.class.getName());
 
+    /// `blocknode:state_applied_block` — latest committed (reader-visible) block number.
+    static final MetricKey<ObservableGauge> METRIC_APPLIED_BLOCK =
+            MetricKey.of("state_applied_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_size` — node count of the latest network-attested state.
+    static final MetricKey<ObservableGauge> METRIC_STATE_SIZE =
+            MetricKey.of("state_size", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_pending_blocks` — blocks buffered awaiting apply.
+    static final MetricKey<ObservableGauge> METRIC_PENDING_BLOCKS =
+            MetricKey.of("state_pending_blocks", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_ready` — `1` once start-up catch-up is complete, else `0`.
+    static final MetricKey<ObservableGauge> METRIC_READY =
+            MetricKey.of("state_ready", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_degraded` — `1` when the plugin has degraded (e.g. footer
+    /// hash mismatch), else `0`.
+    static final MetricKey<ObservableGauge> METRIC_DEGRADED =
+            MetricKey.of("state_degraded", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_apply_latency_ms` — wall-clock duration of the most recent
+    /// block apply, in milliseconds.
+    static final MetricKey<ObservableGauge> METRIC_APPLY_LATENCY_MS =
+            MetricKey.of("state_apply_latency_ms", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_hash_mismatch_total` — cumulative footer hash mismatches.
+    static final MetricKey<LongCounter> METRIC_HASH_MISMATCH_TOTAL =
+            MetricKey.of("state_hash_mismatch_total", LongCounter.class).addCategory(METRICS_CATEGORY);
+
     private BlockNodeContext context;
     private StateManagementConfig config;
     private VirtualMapStateLifecycleManager lifecycleManager;
@@ -68,6 +102,15 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private final AtomicBoolean degraded = new AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicLong hashMismatchTotal =
             new java.util.concurrent.atomic.AtomicLong();
+
+    /// Wall-clock duration of the most recent block apply, exported via
+    /// `state_apply_latency_ms`. Volatile because the gauge supplier reads it
+    /// from the metrics-scrape thread while the apply thread writes it.
+    private volatile long lastApplyDurationMs = 0L;
+
+    /// Exported counter measurement for footer hash mismatches, registered in
+    /// `init` (always before any apply runs in `start`).
+    private LongCounter.Measurement hashMismatchMetric;
 
     private ScheduledExecutorService snapshotExecutor;
     private ScheduledExecutorService stateChangesExecutor;
@@ -134,7 +177,38 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         this.lifecycleManager = new VirtualMapStateLifecycleManager(
                 new NoOpMetrics(), Time.getCurrent(), context.configuration(), new FileSystemManager(fsmRoot));
         this.applier = new StateChangeApplier();
+        registerMetrics(context.metricRegistry());
         serviceBuilder.registerGrpcService(this);
+    }
+
+    /// Register the plugin's metrics with the block node's registry. Gauges observe
+    /// the live plugin fields (committed block, state size, pending depth, readiness,
+    /// degraded flag, last apply latency); the hash-mismatch counter is stored so the
+    /// apply path can increment it.
+    ///
+    /// @param metrics the block node metric registry
+    private void registerMetrics(@NonNull final MetricRegistry metrics) {
+        metrics.register(ObservableGauge.builder(METRIC_APPLIED_BLOCK)
+                .setDescription("Latest committed (reader-visible) block number applied to live state")
+                .observe(() -> metadata.blockNumber()));
+        metrics.register(ObservableGauge.builder(METRIC_STATE_SIZE)
+                .setDescription("Node count of the latest network-attested state")
+                .observe(() -> metadata.stateSize()));
+        metrics.register(ObservableGauge.builder(METRIC_PENDING_BLOCKS)
+                .setDescription("Blocks buffered awaiting apply")
+                .observe(pendingBlocks::size));
+        metrics.register(ObservableGauge.builder(METRIC_READY)
+                .setDescription("1 once start-up catch-up is complete, else 0")
+                .observe(() -> isReady() ? 1L : 0L));
+        metrics.register(ObservableGauge.builder(METRIC_DEGRADED)
+                .setDescription("1 when the plugin has degraded (e.g. footer hash mismatch), else 0")
+                .observe(() -> degraded.get() ? 1L : 0L));
+        metrics.register(ObservableGauge.builder(METRIC_APPLY_LATENCY_MS)
+                .setDescription("Wall-clock duration of the most recent block apply in ms")
+                .observe(() -> lastApplyDurationMs));
+        this.hashMismatchMetric = metrics.register(LongCounter.builder(METRIC_HASH_MISMATCH_TOTAL)
+                        .setDescription("Cumulative footer hash mismatches observed"))
+                .getOrCreateNotLabeled();
     }
 
     /// {@inheritDoc}
@@ -591,6 +665,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// @return `true` on successful apply, `false` if the block was rejected
     ///     (caller should leave the block in the pending queue and stop draining).
     private boolean applyBlockStateChanges(@NonNull final BlockUnparsed block) {
+        final long applyStartMs = System.currentTimeMillis();
         // Block number is pulled up-front purely for diagnostics — the apply path below
         // re-parses it from the header as the authoritative value.
         final long incomingBlock = StateChangeApplier.extractBlockNumber(block);
@@ -605,6 +680,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
         if (!validateStartHash(startHash)) {
             hashMismatchTotal.incrementAndGet();
+            hashMismatchMetric.increment();
             degraded.set(true);
             LOGGER.log(
                     System.Logger.Level.ERROR,
@@ -649,6 +725,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             lastAppliedRound = result.roundNumber();
         }
         lastAppliedHash = rootHashOf(sealed);
+        lastApplyDurationMs = System.currentTimeMillis() - applyStartMs;
         return true;
     }
 

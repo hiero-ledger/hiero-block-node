@@ -29,6 +29,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.consensus.config.PathsConfig;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -223,8 +224,18 @@ class StateManagementCatchUpTest {
                 .withValue("state.management.stateChangesApplyIntervalMillis", "3600000")
                 .withValue("state.management.historicCatchUpBatchSize", "2")
                 .build();
-        final BlockNodeContext context =
-                new BlockNodeContext(configuration, null, null, facility, historic, null, null, null, null, null, null);
+        final BlockNodeContext context = new BlockNodeContext(
+                configuration,
+                MetricRegistry.builder().build(),
+                null,
+                facility,
+                historic,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
         final StateManagementPlugin plugin = new StateManagementPlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();
