@@ -12,7 +12,9 @@ import com.hedera.hapi.block.stream.output.QueuePopChange;
 import com.hedera.hapi.block.stream.output.QueuePushChange;
 import com.hedera.hapi.block.stream.output.SingletonUpdateChange;
 import com.hedera.hapi.block.stream.output.StateChange;
+import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -103,9 +105,16 @@ class StateChangeApplierTest {
                 .blockItems(
                         blockHeaderItem(7L),
                         BlockItemUnparsed.newBuilder()
-                                .stateChanges(StateChangeApplier.encodeStateChanges(changes))
+                                .stateChanges(encodeStateChanges(changes))
                                 .build())
                 .build();
+    }
+
+    /// Build the PBJ-encoded `state_changes` carrier bytes from a list of changes.
+    private static Bytes encodeStateChanges(final List<StateChange> changes) {
+        final StateChanges sc =
+                StateChanges.newBuilder().stateChanges(new ArrayList<>(changes)).build();
+        return StateChanges.PROTOBUF.toBytes(sc);
     }
 
     private static BlockItemUnparsed blockHeaderItem(final long blockNumber) {

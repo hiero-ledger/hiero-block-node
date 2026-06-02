@@ -14,7 +14,6 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.state.BinaryState;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
-import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -199,16 +198,5 @@ final class StateChangeApplier {
             }
         }
         return count;
-    }
-
-    /// Convenience used by tests: build a `state_changes` block item from a list.
-    ///
-    /// @param changes the changes to encode
-    /// @return the PBJ-encoded `StateChanges` bytes
-    @NonNull
-    static Bytes encodeStateChanges(@NonNull final List<StateChange> changes) {
-        final StateChanges sc =
-                StateChanges.newBuilder().stateChanges(new ArrayList<>(changes)).build();
-        return StateChanges.PROTOBUF.toBytes(sc);
     }
 }
