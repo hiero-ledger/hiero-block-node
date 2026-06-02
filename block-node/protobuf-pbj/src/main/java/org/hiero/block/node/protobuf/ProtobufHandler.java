@@ -4,7 +4,6 @@ package org.hiero.block.node.protobuf;
 import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.ReadableSequentialData;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 
 /**
@@ -49,28 +48,35 @@ public final class ProtobufHandler {
     }
 
     /**
-     * Parse the given input with the supplied codec, applying the node-wide maximum message size.
+     * Parse {@code input} into a message of type {@code T} using the supplied codec and the
+     * node-wide maximum message size. Lets callers write {@code T msg = ProtobufHandler.parse(
+     * SomeType.PROTOBUF, input)} without repeating the parse flags or the size limit.
      *
-     * @param codec the PBJ codec
+     * @param codec the PBJ codec for the target message type
      * @param input the data to parse
-     * @return the parsed value as {@link Bytes}
+     * @param <T> the parsed message type
+     * @return the parsed message
      * @throws ParseException if parsing fails
      */
-    public static Bytes parse(@NonNull Codec codec, @NonNull ReadableSequentialData input) throws ParseException {
+    public static <T> T parse(@NonNull final Codec<T> codec, @NonNull final ReadableSequentialData input)
+            throws ParseException {
         return parse(codec, input, maxMessageSizeBytes);
     }
 
     /**
-     * Parse the given input with the supplied codec and an explicit maximum message size.
+     * Parse {@code input} into a message of type {@code T} using the supplied codec and an explicit
+     * maximum message size.
      *
-     * @param codec the PBJ codec
+     * @param codec the PBJ codec for the target message type
      * @param input the data to parse
      * @param maxMessageSizeBytes the maximum protobuf message size in bytes
-     * @return the parsed value as {@link Bytes}
+     * @param <T> the parsed message type
+     * @return the parsed message
      * @throws ParseException if parsing fails
      */
-    public static Bytes parse(@NonNull Codec codec, @NonNull ReadableSequentialData input, int maxMessageSizeBytes)
+    public static <T> T parse(
+            @NonNull final Codec<T> codec, @NonNull final ReadableSequentialData input, final int maxMessageSizeBytes)
             throws ParseException {
-        return (Bytes) codec.parse(input, false, true, maxMessageSizeBytes / 8, maxMessageSizeBytes);
+        return codec.parse(input, false, false, Codec.DEFAULT_MAX_DEPTH, maxMessageSizeBytes);
     }
 }
