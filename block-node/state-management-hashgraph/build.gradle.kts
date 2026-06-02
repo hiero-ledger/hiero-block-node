@@ -16,7 +16,7 @@ testModuleInfo {
     requires("org.assertj.core")
     requires("org.hiero.block.node.app.test.fixtures")
     requires("io.helidon.webserver")
-    requires("org.hiero.metrics")
+    runtimeOnly("org.hiero.metrics")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("com.swirlds.config.extensions")
 }
