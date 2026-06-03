@@ -9,9 +9,9 @@ It assumes the Block Node was installed using the standard Helm chart, either vi
 Reset and upgrade are two distinct day-two operations that are often confused:
 
 - **Upgrade** changes the running Block Node version (image tag and Helm chart version) without discarding the local block storage or state. Pre-existing live and historic blocks remain on disk; the new version resumes from where the previous one left off.
-- **Reset** wipes the Block Node's local block data — both live blocks and historic blocks — and starts the node fresh. A reset is destructive: Consensus Nodes only keep a minimal recent buffer and cannot serve the wiped history, so the lost data must be backfilled from another Block Node that holds the relevant range (typically a Tier 1 archive node). For a mature network — Hedera mainnet, for example — that backfill can take a very long time (potentially weeks), proportional to the total block history.
+- **Reset** wipes the Block Node's local block data (both live blocks and historic blocks), clears the node application state details (e.g. rosters), and starts the node fresh. A reset is destructive: Consensus Nodes only keep a minimal recent buffer and cannot serve the wiped history, so the lost data must be backfilled from another Block Node that holds the relevant range (typically a Tier 1 archive node). For a mature network — Hedera mainnet, for example — that backfill can take a very long time (potentially weeks), proportional to the total block history.
 
-The two operations can be chained: `task reset-upgrade` resets the local data store and moves to a new version in a single command. Use this when you need to discard data and move forward; use `task helm-upgrade` alone for a clean version bump.
+The two operations can be chained. **Solo Provisioner is the recommended path**: `sudo solo-provisioner block node upgrade --with-reset` performs the reset and the upgrade in a single managed transaction (the `--with-reset` flag wipes the block node data directories; PVs and PVCs are preserved). For manual Taskfile-managed deployments, `task reset-upgrade` is the equivalent. Use the chained operation when you need to discard data and move forward; use a plain upgrade (`sudo solo-provisioner block node upgrade` or `task helm-upgrade`) for a clean version bump.
 
 > **Production Block Nodes should rarely, if ever, be reset under normal circumstances.** Treat reset as a recovery procedure for corruption, version-incompatibility, or network changes — not as routine maintenance. For high-value Block Nodes, maintain an offline backup of the live and archive PVC contents (updated daily where possible) so a corrupted node can be restored from snapshot instead of resyncing from another Block Node.
 
@@ -55,6 +55,8 @@ Reset the Block Node only when there is a concrete reason to discard local data.
 > **Caution:** Reset cannot be undone from inside the Block Node. If you need a recoverable snapshot of the data before resetting, copy the contents of the live and archive PVCs to off-cluster storage first.
 
 ## Upgrading the Block Node
+
+> If your upgrade involves enabling or disabling plugins, see [Plugin Management](../configuration.md#plugin-management) in the configuration reference.
 
 ### Step 1: Confirm the current state is healthy
 
