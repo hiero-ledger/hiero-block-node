@@ -15,6 +15,7 @@ dependencies {
     published(project(":spi-plugins"))
     published(project(":stream-publisher"))
     published(project(":stream-subscriber"))
+    published(project(":roster-bootstrap-rsa"))
     published(project(":roster-bootstrap-tss"))
     published(project(":verification"))
 
