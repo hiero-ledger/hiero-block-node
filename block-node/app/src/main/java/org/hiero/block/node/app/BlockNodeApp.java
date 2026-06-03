@@ -242,8 +242,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 versionInfo(loadedPlugins),
                 null,
                 null,
-                null,
-                null);
+                new ArrayList<>(),
+                new ArrayList<>());
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders; null port in plugin registrations resolves to server.port
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl(serverConfig.port());
@@ -576,7 +576,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             persistNodeAddressBook(addressBook);
         }
 
-        if (updateBlockNodeContext(tssData, addressBook)) {
+        if (updateBlockNodeContext(tssData, addressBook, storedBlocks, availableBlocks)) {
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
             LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
         }
@@ -635,12 +635,21 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * @param addressBook the NodeAddressBook to consider; may be null
      * @return {@code true} if the BlockNodeContext was updated
      */
-    private boolean updateBlockNodeContext(TssData tssData, NodeAddressBook addressBook) {
-        if (tssData == null && addressBook == null) {
+    private boolean updateBlockNodeContext(
+            TssData tssData, NodeAddressBook addressBook, BlockRangeSet storedBlocks, BlockRangeSet availableBlocks) {
+        BlockNodeContext context = blockNodeContext;
+
+        List<BlockRange> storedBlockRange = toBlockRange(storedBlocks);
+        List<BlockRange> availableBlockRange = toBlockRange(availableBlocks);
+
+        if (tssData == null
+                && addressBook == null
+                && storedBlockRange.hashCode() == context.storedBlocks().hashCode()
+                && availableBlockRange.hashCode() == context.availableBlocks().hashCode()) {
             return false;
         }
 
-        BlockNodeContext.Builder builder = new Builder(blockNodeContext);
+        BlockNodeContext.Builder builder = new Builder(context);
         if (tssData != null) {
             builder.tssData(tssData);
         }
@@ -649,12 +658,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             builder.nodeAddressBook(addressBook);
         }
 
-        if (storedBlocks != null) {
-            builder.storedBlocks(toBlockRange(storedBlocks));
+        if (storedBlockRange.hashCode() != context.storedBlocks().hashCode()) {
+            builder.storedBlocks(storedBlockRange);
         }
 
-        if (availableBlocks != null) {
-            builder.availableBlocks(toBlockRange(availableBlocks));
+        if (availableBlockRange.hashCode() != context.availableBlocks().hashCode()) {
+            builder.availableBlocks(availableBlockRange);
         }
         LOGGER.log(INFO, "BlockNodeContext updated");
 
@@ -669,13 +678,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private List<BlockRange> toBlockRange(BlockRangeSet blockRangeSet) {
         return blockRangeSet
                 .streamRanges()
-                .map(longRange -> {
-                    BlockRange.Builder blockRangeBuilder = BlockRange.newBuilder();
-                    return blockRangeBuilder
-                            .rangeStart(longRange.start())
-                            .rangeEnd(longRange.end())
-                            .build();
-                })
+                .map(longRange -> new BlockRange(longRange.start(), longRange.end()))
                 .toList();
     }
 
