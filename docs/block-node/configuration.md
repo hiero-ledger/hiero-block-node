@@ -139,21 +139,21 @@ A more robust pattern for fully operator-managed plugins is to mount a pre-popul
 
 ### Backfill Plugin Configuration
 
-| ENV Variable                          | Description                                                     |   Default |
-|:--------------------------------------|:----------------------------------------------------------------|----------:|
-| BACKFILL_START_BLOCK                  | First block this BN deploy wants.                               |         0 |
-| BACKFILL_END_BLOCK                    | Max block number, -1 means no limit.                            |        -1 |
-| BACKFILL_BLOCK_NODE_SOURCES_PATH      | File path for BN sources (PBJ JSON `block-nodes.json`).         |        "" |
-| BACKFILL_SCAN_INTERVAL                | Scan interval for gap detection (ms).                           |     60000 |
-| BACKFILL_MAX_RETRIES                  | Max retries to fetch a block.                                   |         3 |
-| BACKFILL_INITIAL_RETRY_DELAY          | Initial retry delay (ms), grows linearly.                       |      5000 |
-| BACKFILL_FETCH_BATCH_SIZE             | Number of blocks per gRPC call.                                 |        10 |
-| BACKFILL_DELAY_BETWEEN_BATCHES        | Delay (ms) between block batches.                               |      1000 |
-| BACKFILL_INITIAL_DELAY                | Initial delay (ms) before starting backfill.                    |     15000 |
-| BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT | Timeout (ms) to wait for a block batch.                         |      1000 |
-| BACKFILL_GRPC_OVERALL_TIMEOUT         | Overall gRPC timeout (connect, read, poll) in ms.               |     60000 |
-| BACKFILL_MAX_INCOMING_BUFFER_SIZE     | Max gRPC incoming buffer size in bytes (min 10 MB, max 300 MB). | 104857600 |
-| BACKFILL_ENABLE_TLS                   | Enable TLS if supported by block-node client.                   |     false |
+| ENV Variable                             | Description                                                                                            |   Default |
+|:-----------------------------------------|:-------------------------------------------------------------------------------------------------------|----------:|
+| BACKFILL_START_BLOCK                     | First block this BN deploy wants.                                                                      |         0 |
+| BACKFILL_END_BLOCK                       | Max block number, -1 means no limit.                                                                   |        -1 |
+| BACKFILL_BLOCK_NODE_SOURCES_PATH         | File path for BN sources (PBJ JSON `block-nodes.json`).                                                |        "" |
+| BACKFILL_SCAN_INTERVAL                   | Scan interval for gap detection (ms).                                                                  |     60000 |
+| BACKFILL_MAX_RETRIES                     | Max retries to fetch a block.                                                                          |         3 |
+| BACKFILL_INITIAL_RETRY_DELAY             | Initial retry delay (ms), grows linearly.                                                              |      5000 |
+| BACKFILL_FETCH_BATCH_SIZE                | Number of blocks per gRPC call.                                                                        |        10 |
+| BACKFILL_DELAY_BETWEEN_BATCHES           | Delay (ms) between block batches.                                                                      |      1000 |
+| BACKFILL_INITIAL_DELAY                   | Initial delay (ms) before starting backfill.                                                           |     15000 |
+| BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT    | Timeout (ms) to wait for a block batch.                                                                |      1000 |
+| BACKFILL_GRPC_OVERALL_TIMEOUT            | Overall gRPC timeout (connect, read, poll) in ms.                                                      |     60000 |
+| BACKFILL_MAX_INCOMING_BUFFER_SIZE        | Max gRPC incoming buffer size in bytes (min 10 MB, max 300 MB).                                        | 104857600 |
+| BACKFILL_ENABLE_TLS                      | Enable TLS if supported by block-node client.                                                          |     false |
 | BACKFILL_MAX_PROTOBUF_MESSAGE_SIZE_BYTES | Max protobuf message size (bytes) accepted when parsing a block fetched over the wire during backfill. | 131072000 |
 
 **Note:** The following can be configured in the JSON file at `BACKFILL_BLOCK_NODE_SOURCES_PATH`:
@@ -244,13 +244,13 @@ for the JSON schema.
 
 ### Subscriber Plugin Configuration
 
-| ENV Variable                           | Description                                                                                            | Default |
-|:---------------------------------------|:-------------------------------------------------------------------------------------------------------|--------:|
-| SUBSCRIBER_LIVE_QUEUE_SIZE             | Queue size (in batches) for transferring live data between messaging and client threads. Must be ≥100. |    4000 |
-| SUBSCRIBER_MAXIMUM_FUTURE_REQUEST      | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                         |    4000 |
-| SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.   |     400 |
-| SUBSCRIBER_MAX_PROTOBUF_MESSAGE_SIZE_BYTES | Max protobuf message size (bytes) accepted when parsing a block to stream to a subscriber. | 131072000 |
-| SUBSCRIBER_PORT                        | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.          | (unset) |
+| ENV Variable                               | Description                                                                                            |   Default |
+|:-------------------------------------------|:-------------------------------------------------------------------------------------------------------|----------:|
+| SUBSCRIBER_LIVE_QUEUE_SIZE                 | Queue size (in batches) for transferring live data between messaging and client threads. Must be ≥100. |      4000 |
+| SUBSCRIBER_MAXIMUM_FUTURE_REQUEST          | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                         |      4000 |
+| SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY     | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.   |       400 |
+| SUBSCRIBER_MAX_PROTOBUF_MESSAGE_SIZE_BYTES | Max protobuf message size (bytes) accepted when parsing a block to stream to a subscriber.             | 131072000 |
+| SUBSCRIBER_PORT                            | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.          |   (unset) |
 
 ### TSS Bootstrap Plugin Configuration
 
