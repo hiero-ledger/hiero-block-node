@@ -14,6 +14,7 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.api.BlockNodeVersions;
@@ -41,7 +42,15 @@ import org.junit.jupiter.api.Test;
  */
 public class ServerStatusDetailServicePluginTest
         extends GrpcPluginTestBase<ServerStatusServicePlugin, BlockingExecutor, ScheduledExecutorService> {
-    private final ServerStatusServicePlugin plugin = new ServerStatusServicePlugin();
+    private final ServerStatusServicePlugin plugin = new ServerStatusServicePlugin() {
+        @Override
+        public void onContextUpdate(BlockNodeContext context) {
+            super.onContextUpdate(context);
+            countDownLatch.countDown();
+        }
+    };
+
+    private CountDownLatch countDownLatch = new CountDownLatch(1);
 
     public ServerStatusDetailServicePluginTest() {
         super(
@@ -83,18 +92,31 @@ public class ServerStatusDetailServicePluginTest
         final ServerStatusDetailResponse response =
                 ServerStatusDetailResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
 
-        final List<BlockRange> blockRanges = response.availableRanges();
-        assertFalse(blockRanges.isEmpty());
-        assertEquals(4, blockRanges.size());
+        final List<BlockRange> storedRanges = response.storedRanges();
+        assertFalse(storedRanges.isEmpty());
+        assertEquals(2, storedRanges.size());
 
-        BlockRange blockRange = blockRanges.getFirst();
+        BlockRange storedRange = storedRanges.getFirst();
         // make sure block ranges are ordered.
-        assertEquals(0L, blockRange.rangeStart());
-        assertEquals(5L, blockRange.rangeEnd());
-        blockRange = blockRanges.getLast();
+        assertEquals(0L, storedRange.rangeStart());
+        assertEquals(5L, storedRange.rangeEnd());
+        storedRange = storedRanges.getLast();
         // make sure block ranges are ordered.
-        assertEquals(1_000_000_000_000L, blockRange.rangeStart());
-        assertEquals(1_000_000_000_005L, blockRange.rangeEnd());
+        assertEquals(1_000_000L, storedRange.rangeStart());
+        assertEquals(1_000_005L, storedRange.rangeEnd());
+
+        final List<BlockRange> availableRanges = response.availableRanges();
+        assertFalse(availableRanges.isEmpty());
+        assertEquals(4, availableRanges.size());
+
+        BlockRange availableRange = availableRanges.getFirst();
+        // make sure block ranges are ordered.
+        assertEquals(0L, availableRange.rangeStart());
+        assertEquals(5L, availableRange.rangeEnd());
+        availableRange = availableRanges.getLast();
+        // make sure block ranges are ordered.
+        assertEquals(1_000_000_000_000L, availableRange.rangeStart());
+        assertEquals(1_000_000_000_005L, availableRange.rangeEnd());
 
         assertNotNull(response);
         assertTrue(response.hasVersionInformation());
@@ -132,7 +154,7 @@ public class ServerStatusDetailServicePluginTest
      */
     @Test
     @DisplayName("Should return changed Server Detail Status when the BlockNodeContext is updated")
-    void shouldReturnValidServerStatusOnContextUpdate() throws ParseException {
+    void shouldReturnValidServerStatusOnContextUpdate() throws ParseException, InterruptedException {
         // notify the plugin of an update to the block node plugin
         BlockNodeContext newBlockNodeContext = new BlockNodeContext(
                 blockNodeContext.configuration(),
@@ -148,7 +170,10 @@ public class ServerStatusDetailServicePluginTest
                 blockNodeContext.nodeAddressBook(),
                 blockNodeContext.storedBlocks(),
                 blockNodeContext.availableBlocks());
+
+        countDownLatch = new CountDownLatch(1);
         plugin.onContextUpdate(newBlockNodeContext);
+        countDownLatch.await();
 
         ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
@@ -158,9 +183,9 @@ public class ServerStatusDetailServicePluginTest
 
         BlockNodeVersions blockNodeVersions = response.versionInformation();
         assertNotNull(blockNodeVersions);
-        assertFalse(blockNodeVersions.hasStreamProtoVersion());
-        assertFalse(blockNodeVersions.hasBlockNodeVersion());
-        assertTrue(blockNodeVersions.installedPluginVersions().isEmpty());
+        assertTrue(blockNodeVersions.hasStreamProtoVersion());
+        assertTrue(blockNodeVersions.hasBlockNodeVersion());
+        assertFalse(blockNodeVersions.installedPluginVersions().isEmpty());
 
         // Check the TssData
         TssData tssData = response.tssData();
