@@ -303,7 +303,7 @@ public class LiveSequential implements Runnable {
                             .setMaxConcurrency(64)
                             .build();
 
-            final BlockTimeReader blockTimeReader = new BlockTimeReader();
+            final BlockTimeReader blockTimeReader = BlockTimeReader.forCurrentNetwork();
 
             // Determine starting point
             final State initialState = determineStartingPoint(blockTimeReader);
@@ -550,7 +550,7 @@ public class LiveSequential implements Runnable {
                         System.out.println(
                                 "[LIVE] Block " + nextBlockNumber + " not in BlockTimeReader, refreshing...");
                         UpdateBlockData.updateBlockTimesOnly(MetadataFiles.BLOCK_TIMES_FILE);
-                        state.blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                        state.blockTimeReader = BlockTimeReader.forCurrentNetwork(MetadataFiles.BLOCK_TIMES_FILE);
                         lastBlockTimeRefreshMs = now;
                     }
                     state.prefetchWindow.clear();
@@ -1388,7 +1388,7 @@ public class LiveSequential implements Runnable {
                         MetadataFiles.BLOCK_TIMES_FILE, nextBlockNumber, nextBlockNumber + 100);
                 if (fixedCount > 0) {
                     // Block times were fixed, reload and retry
-                    state.blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                    state.blockTimeReader = BlockTimeReader.forCurrentNetwork(MetadataFiles.BLOCK_TIMES_FILE);
                     return null;
                 } else {
                     // No block times were fixed, files are genuinely missing or not uploaded yet

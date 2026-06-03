@@ -371,7 +371,7 @@ public class DownloadLive2 implements Runnable {
                             .setMaxConcurrency(maxConcurrency)
                             .build();
 
-            final BlockTimeReader blockTimeReader = new BlockTimeReader();
+            final BlockTimeReader blockTimeReader = BlockTimeReader.forCurrentNetwork();
 
             // Initialize stats CSV path (same file as validate-with-stats for consistency)
             if (statsCsvPath == null) {
@@ -548,7 +548,8 @@ public class DownloadLive2 implements Runnable {
         UpdateBlockData.updateMirrorNodeData(MetadataFiles.BLOCK_TIMES_FILE, MetadataFiles.DAY_BLOCKS_FILE);
 
         // Reload BlockTimeReader after updating block data to pick up new block times
-        final BlockTimeReader updatedBlockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+        final BlockTimeReader updatedBlockTimeReader =
+                BlockTimeReader.forCurrentNetwork(MetadataFiles.BLOCK_TIMES_FILE);
 
         final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
         final List<LocalDate> daysToDownload = startDay.datesUntil(today).toList();
@@ -746,7 +747,7 @@ public class DownloadLive2 implements Runnable {
 
         try {
             FixBlockTime.fixBlockTimeRange(MetadataFiles.BLOCK_TIMES_FILE, fixStartBlock, fixEndBlock);
-            BlockTimeReader newReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+            BlockTimeReader newReader = BlockTimeReader.forCurrentNetwork(MetadataFiles.BLOCK_TIMES_FILE);
             System.out.println("[CATCH-UP] Block times fixed, retrying day " + dayDate + "...");
 
             state.previousRecordHash = downloadDayWithFullValidation(
@@ -1223,7 +1224,7 @@ public class DownloadLive2 implements Runnable {
                                 "[LIVE] Block " + nextBlockNumber + " not in BlockTimeReader, refreshing...");
                         UpdateBlockData.updateMirrorNodeData(
                                 MetadataFiles.BLOCK_TIMES_FILE, MetadataFiles.DAY_BLOCKS_FILE);
-                        blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                        blockTimeReader = BlockTimeReader.forCurrentNetwork(MetadataFiles.BLOCK_TIMES_FILE);
                         lastBlockTimeRefreshMs = now;
                     } else {
                         System.out.println(
@@ -1253,7 +1254,7 @@ public class DownloadLive2 implements Runnable {
                         System.out.println("[download-live2] Refreshing block times from mirror node...");
                         UpdateBlockData.updateMirrorNodeData(
                                 MetadataFiles.BLOCK_TIMES_FILE, MetadataFiles.DAY_BLOCKS_FILE);
-                        blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                        blockTimeReader = BlockTimeReader.forCurrentNetwork(MetadataFiles.BLOCK_TIMES_FILE);
                         continue; // Retry with fresh data
                     } else {
                         // After 3 retries, try fixBlockTime to query individual block timestamps
@@ -1261,7 +1262,7 @@ public class DownloadLive2 implements Runnable {
                                 "[download-live2] Trying fixBlockTime to correct individual block entries...");
                         FixBlockTime.fixBlockTimeRange(
                                 MetadataFiles.BLOCK_TIMES_FILE, nextBlockNumber, nextBlockNumber + 100);
-                        blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                        blockTimeReader = BlockTimeReader.forCurrentNetwork(MetadataFiles.BLOCK_TIMES_FILE);
                         staleTimestampRetries = 0; // Reset after fix attempt
                         continue;
                     }
@@ -1395,7 +1396,7 @@ public class DownloadLive2 implements Runnable {
                 // Update block times before batch mode to ensure we have current timestamps
                 System.out.println("[download-live2] Updating block times from mirror node...");
                 UpdateBlockData.updateMirrorNodeData(MetadataFiles.BLOCK_TIMES_FILE, MetadataFiles.DAY_BLOCKS_FILE);
-                blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                blockTimeReader = BlockTimeReader.forCurrentNetwork(MetadataFiles.BLOCK_TIMES_FILE);
 
                 // Sanity check: verify next block's timestamp is on expected day or later
                 // If timestamp goes backwards (e.g., 2026-01-16 when we're on 2026-02-01), data is corrupt
@@ -1408,7 +1409,7 @@ public class DownloadLive2 implements Runnable {
                                 + "), running fixBlockTime...");
                         long endBlock = currentBlockNumber + BATCH_SIZE;
                         FixBlockTime.fixBlockTimeRange(MetadataFiles.BLOCK_TIMES_FILE, nextBlock, endBlock);
-                        blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                        blockTimeReader = BlockTimeReader.forCurrentNetwork(MetadataFiles.BLOCK_TIMES_FILE);
                     }
                 } catch (Exception e) {
                     // Block time not available yet - that's fine, will be handled by download logic
@@ -1433,7 +1434,7 @@ public class DownloadLive2 implements Runnable {
                         long estimatedEndBlock = currentBlockNumber + BATCH_SIZE + 100;
                         FixBlockTime.fixBlockTimeRange(
                                 MetadataFiles.BLOCK_TIMES_FILE, currentBlockNumber + 1, estimatedEndBlock);
-                        blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                        blockTimeReader = BlockTimeReader.forCurrentNetwork(MetadataFiles.BLOCK_TIMES_FILE);
 
                         // Retry the batch
                         System.out.println("[download-live2] Retrying batch after fix...");
@@ -1554,7 +1555,7 @@ public class DownloadLive2 implements Runnable {
                     // No block times ahead - need to refresh from mirror node
                     System.out.println("[LIVE] Refreshing block times from mirror node...");
                     UpdateBlockData.updateMirrorNodeData(MetadataFiles.BLOCK_TIMES_FILE, MetadataFiles.DAY_BLOCKS_FILE);
-                    blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                    blockTimeReader = BlockTimeReader.forCurrentNetwork(MetadataFiles.BLOCK_TIMES_FILE);
                     lastBlockTimeRefreshMs = now;
 
                     // Refresh listings in case new files appeared - skip historical days at live edge
