@@ -14,7 +14,6 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.api.BlockNodeVersions;
@@ -42,15 +41,7 @@ import org.junit.jupiter.api.Test;
  */
 public class ServerStatusDetailServicePluginTest
         extends GrpcPluginTestBase<ServerStatusServicePlugin, BlockingExecutor, ScheduledExecutorService> {
-    private final ServerStatusServicePlugin plugin = new ServerStatusServicePlugin() {
-        @Override
-        public void onContextUpdate(BlockNodeContext context) {
-            super.onContextUpdate(context);
-            countDownLatch.countDown();
-        }
-    };
-
-    private CountDownLatch countDownLatch = new CountDownLatch(1);
+    private final ServerStatusServicePlugin plugin = new ServerStatusServicePlugin();
 
     public ServerStatusDetailServicePluginTest() {
         super(
@@ -154,7 +145,7 @@ public class ServerStatusDetailServicePluginTest
      */
     @Test
     @DisplayName("Should return changed Server Detail Status when the BlockNodeContext is updated")
-    void shouldReturnValidServerStatusOnContextUpdate() throws ParseException, InterruptedException {
+    void shouldReturnValidServerStatusOnContextUpdate() throws ParseException {
         // notify the plugin of an update to the block node plugin
         BlockNodeContext newBlockNodeContext = new BlockNodeContext(
                 blockNodeContext.configuration(),
@@ -171,10 +162,7 @@ public class ServerStatusDetailServicePluginTest
                 blockNodeContext.storedBlocks(),
                 blockNodeContext.availableBlocks());
 
-        countDownLatch = new CountDownLatch(1);
         plugin.onContextUpdate(newBlockNodeContext);
-        countDownLatch.await();
-
         ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
         assertEquals(1, fromPluginBytes.size());
