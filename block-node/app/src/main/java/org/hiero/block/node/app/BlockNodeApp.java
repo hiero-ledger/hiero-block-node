@@ -676,9 +676,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final Path tssDataJsonPath = appStateConfig.tssBootstrapFilePath();
         if (Files.exists(tssDataJsonPath)) {
             try {
-                TssData tssData = ProtobufHandler.parse(
-                        TssData.JSON,
-                        Bytes.wrap(Files.readAllBytes(tssDataJsonPath)).toReadableSequentialData());
+                TssData tssData = ProtobufHandler.parse(TssData.JSON, Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
                 updateTssData(tssData);
                 LOGGER.log(INFO, "Loaded TssData from file: {0}", tssDataJsonPath);
             } catch (ParseException | IOException e) {
@@ -699,7 +697,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (Files.exists(rsaFilePath)) {
             try {
                 final byte[] raw = Files.readAllBytes(rsaFilePath);
-                final NodeAddressBook book = NodeAddressBook.JSON.parse(Bytes.wrap(raw));
+                final NodeAddressBook book = ProtobufHandler.parse(NodeAddressBook.JSON, Bytes.wrap(raw));
                 validateAddressBook(book, rsaFilePath.toString());
                 pendingAddressBook.set(book);
                 LOGGER.log(
@@ -730,7 +728,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (Files.exists(blockRangesPath)) {
             try {
                 final BlockRangesState rangeSet =
-                        BlockRangesState.JSON.parse(Bytes.wrap(Files.readAllBytes(blockRangesPath)));
+                    ProtobufHandler.parse(BlockRangesState.JSON, Bytes.wrap(Files.readAllBytes(blockRangesPath)));
                 rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
                 rangeSet.availableBlocks()
                         .forEach(r -> availableBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));

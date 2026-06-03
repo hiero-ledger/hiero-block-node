@@ -4,6 +4,7 @@ package org.hiero.block.node.protobuf;
 import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.ReadableSequentialData;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 
 /**
@@ -58,7 +59,7 @@ public final class ProtobufHandler {
      * @return the parsed message
      * @throws ParseException if parsing fails
      */
-    public static <T> T parse(@NonNull final Codec<T> codec, @NonNull final ReadableSequentialData input)
+    public static <T> T parse(@NonNull final Codec<T> codec, @NonNull final Bytes input)
             throws ParseException {
         return parse(codec, input, maxMessageSizeBytes);
     }
@@ -75,8 +76,8 @@ public final class ProtobufHandler {
      * @throws ParseException if parsing fails
      */
     public static <T> T parse(
-            @NonNull final Codec<T> codec, @NonNull final ReadableSequentialData input, final int maxMessageSizeBytes)
+            @NonNull final Codec<T> codec, @NonNull final Bytes input, final int maxMessageSizeBytes)
             throws ParseException {
-        return codec.parse(input, false, false, Codec.DEFAULT_MAX_DEPTH, maxMessageSizeBytes);
+        return codec.parse(input.toReadableSequentialData(), false, true, maxMessageSizeBytes / 8, maxMessageSizeBytes);
     }
 }
