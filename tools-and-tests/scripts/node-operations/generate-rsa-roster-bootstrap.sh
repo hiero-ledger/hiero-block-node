@@ -22,9 +22,7 @@
 # historical entries (timestamp.to set) are excluded. Nodes without a
 # public_key are excluded — they cannot participate in RSA WRB verification.
 #
-# This output matches both:
-#   * genesisNetworkBNRSARoster.sh (the genesis-network.json -> BN converter), and
-#   * NodeAddressBook.JSON as parsed by RsaRosterBootstrapPlugin at startup.
+# This output matches NodeAddressBook.JSON as parsed by RsaRosterBootstrapPlugin at startup.
 #
 # The script makes no assumptions about its own location or the current working
 # directory. It writes to stdout by default, or to the path given via -o/--output.
