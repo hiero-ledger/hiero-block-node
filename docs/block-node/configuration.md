@@ -1,29 +1,5 @@
 # Hiero Block Node Configuration Document
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Core Configuration Options](#core-configuration-options)
-- [Server Configuration](#server-configuration)
-- [Application State Configuration](#application-state-configuration)
-- [Metrics Endpoint Configuration](#metrics-endpoint-configuration)
-- [Configurations By Plugin](#configurations-by-plugin)
-  - [Cloud Storage Archive Plugin Configuration](#cloud-storage-archive-plugin-configuration)
-  - [Backfill Plugin Configuration](#backfill-plugin-configuration)
-  - [Block Access Plugin Configuration](#block-access-plugin-configuration)
-  - [Files Historic Plugin Configuration](#files-historic-plugin-configuration)
-  - [Files Recent Plugin Configuration](#files-recent-plugin-configuration)
-  - [Health Plugin Configuration](#health-plugin-configuration)
-  - [Messaging Plugin Configuration](#messaging-plugin-configuration)
-  - [Archive Plugin Configuration (S3 Archive)](#archive-plugin-configuration-s3-archive)
-  - [Server Status Plugin Configuration](#server-status-plugin-configuration)
-  - [Publisher Plugin Configuration](#publisher-plugin-configuration)
-  - [RSA Bootstrap Plugin Configuration](#rsa-bootstrap-plugin-configuration)
-  - [Subscriber Plugin Configuration](#subscriber-plugin-configuration)
-  - [TSS Bootstrap Plugin Configuration](#tss-bootstrap-plugin-configuration)
-  - [Verification Plugin Configuration](#verification-plugin-configuration)
-  - [Cloud Storage Expanded Plugin Configuration](#cloud-storage-expanded-plugin-configuration)
-
 ## Overview
 
 This document outlines configuration options for the Hiero Block Node. Most settings are controlled via environment variables for flexible deployment.
@@ -96,6 +72,54 @@ Prometheus-format metrics. Its properties are prefixed with
 > Node `@ConfigData` record. They cannot be set via environment variable
 > mapping (`AutomaticEnvironmentVariableConfigSource`). The chart injects them as
 > JVM system properties through `JAVA_TOOL_OPTIONS`.
+
+## Plugin Management
+
+The Block Node is composed of plugins. The Helm chart determines which plugins are loaded into the running pod from the `plugins.*` values block. The next section ([Configurations By Plugin](#configurations-by-plugin)) covers the per-plugin environment-variable settings; this section covers how plugins themselves are selected and added. For the design rationale, see [Deployment with Selected Plugins](../design/deployment-with-selected-plugins.md).
+
+### Default Hiero plugins
+
+A base Block Node deployment ships with no plugins; the Helm chart downloads them into the container at pod start. The chart's default plugin set is focused on a Tier 1 Local Full History (LFH) profile, enabled via `plugins.names`. The value is a comma-separated string of plugin identifiers:
+
+```yaml
+plugins:
+  names: "facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill"
+```
+
+> **Note:** All Tier 2 Block Nodes should drop `stream-publisher` from `plugins.names`. The presence of `stream-publisher` is the main difference between a Tier 1 and a Tier 2 deployment.
+
+To change which plugins load, edit the list. Adding a name causes that plugin to be downloaded and loaded on the next pod start. Removing a name skips it on the next start, but the previously-installed JAR remains in the plugins folder unless the folder is cleared between runs (for example, by recreating the PVC or the volume backing the plugins directory). Operators do not need to rebuild the Block Node image — the chart resolves plugins from configured sources at pod start.
+
+#### Plugin sources
+
+The chart supports two sources for downloading plugins; both are configurable:
+
+- **`plugins.repositories`** (recommended for production): Maven repositories the init container queries to resolve plugin artifacts. Defaults to Maven Central and Sonatype Snapshots. Operators running at scale should add a local mirror to `plugins.repositories` to reduce dependency on public infrastructure.
+- **`plugins.mavenImage`** (intended for local and Solo testing): a container image with plugin JARs pre-built into it. Used as a fallback when network-based resolution from `plugins.repositories` isn't appropriate.
+
+|      Chart value       |                       Purpose                       |                                                                             Default                                                                             |
+|------------------------|-----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `plugins.names`        | Comma-separated list of plugin identifiers to load  | `facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill` |
+| `plugins.repositories` | Maven repositories used to resolve plugin artifacts | `central` (`https://repo1.maven.org/maven2`), `sonatype-snapshots` (`https://central.sonatype.com/repository/maven-snapshots`)                                  |
+| `plugins.mavenImage`   | Container image used as a fallback plugin source    | `maven:3-eclipse-temurin-25-alpine`                                                                                                                             |
+
+### Third-party plugins (Maven-resolvable)
+
+To add a plugin published to a Maven repository, list its full coordinates under `plugins.thirdParty`:
+
+```yaml
+plugins:
+  thirdParty:
+    - "com.example:my-custom-plugin:1.0.0"
+```
+
+Third-party plugins are resolved alongside the default Hiero set using the repositories listed in `plugins.repositories`. To pull from a private repository, append it to `plugins.repositories` with the appropriate `id` and `url`.
+
+### Non-Maven plugins (manual JAR placement)
+
+For plugins not published to a Maven repository, add an init container under `blockNode.initContainers` that places the JAR (and its transitive dependencies) into the plugin directory at pod start. The chart's `values.yaml` carries a commented example using `wget` to download a JAR. Dependencies are **not** auto-resolved on this path — the operator must supply every JAR the plugin needs.
+
+A more robust pattern for fully operator-managed plugins is to mount a pre-populated PVC containing the JAR set; the chart supports this through standard Kubernetes volume mounts. See [Deployment with Selected Plugins](../design/deployment-with-selected-plugins.md) for the design boundary on what the chart resolves versus what the operator supplies.
 
 ## Configurations By Plugin
 
