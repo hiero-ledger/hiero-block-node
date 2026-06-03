@@ -45,6 +45,9 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     /// Byte length of a legacy SHA384 signature (non-TSS blocks).
     private static final int HASH_LENGTH = 48;
 
+    /** Max protobuf/JSON message allowed depth of nested messages. */
+    private static final int MAX_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
+
     private final long blockNumber;
     // Stream Hashers
     /// The tree hasher for input hashes.
@@ -436,9 +439,9 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             return null;
         }
         SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(
-                signedTxBytes.toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE);
+                signedTxBytes.toReadableSequentialData(), false, true, MAX_MESSAGE_DEPTH, Integer.MAX_VALUE);
         TransactionBody body = TransactionBody.PROTOBUF.parse(
-                signedTx.bodyBytes().toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE);
+                signedTx.bodyBytes().toReadableSequentialData(), false, true, MAX_MESSAGE_DEPTH, Integer.MAX_VALUE);
         if (!body.hasLedgerIdPublication()) {
             return null;
         }

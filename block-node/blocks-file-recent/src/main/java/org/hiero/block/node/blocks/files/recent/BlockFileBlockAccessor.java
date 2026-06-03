@@ -76,17 +76,13 @@ final class BlockFileBlockAccessor implements BlockAccessor {
      * The method should be otherwise identical to the default.
      */
     @Override
-    public BlockUnparsed blockUnparsed(final int maxMessageSizeBytes) {
+    public BlockUnparsed blockUnparsed() {
         try {
             final Bytes rawData = blockBytes(Format.PROTOBUF);
             return rawData == null
                     ? null
                     : BlockUnparsed.PROTOBUF.parse(
-                            rawData.toReadableSequentialData(),
-                            false,
-                            true,
-                            maxMessageSizeBytes / 8,
-                            maxMessageSizeBytes);
+                            rawData.toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE);
         } catch (final RuntimeException | ParseException e) {
             LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock), e);
             return null;

@@ -270,7 +270,7 @@ class BlockFileBlockAccessorTest {
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockPath, compressionType, protoBytes);
             // test accessor.blockUnparsed() and then parse to Block
-            final BlockUnparsed unparsed = toTest.blockUnparsed(Integer.MAX_VALUE);
+            final BlockUnparsed unparsed = toTest.blockUnparsed();
             assertThat(unparsed).isNotNull();
             final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
@@ -298,7 +298,7 @@ class BlockFileBlockAccessorTest {
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockPath, compressionType, protoBytes);
             // test accessor.blockUnparsed() and parse
-            final BlockUnparsed unparsed = toTest.blockUnparsed(Integer.MAX_VALUE);
+            final BlockUnparsed unparsed = toTest.blockUnparsed();
             assertThat(unparsed).isNotNull();
             final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
@@ -312,11 +312,11 @@ class BlockFileBlockAccessorTest {
                     .isNotEmptyFile()
                     .isReadable();
             // assert that the accessor can no longer find the data
-            assertThat(toTest.blockUnparsed(Integer.MAX_VALUE)).isNull();
+            assertThat(toTest.blockUnparsed()).isNull();
             // now create a new accessor
             final BlockFileBlockAccessor toTest2 = new BlockFileBlockAccessor(blockPath, linksRoot);
             // assert that the second accessor can retrieve the same data as did the first one
-            final BlockUnparsed unparsed2 = toTest2.blockUnparsed(Integer.MAX_VALUE);
+            final BlockUnparsed unparsed2 = toTest2.blockUnparsed();
             assertThat(unparsed2).isNotNull();
             final Block actual2 = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed2));
             assertThat(actual2).isEqualTo(expected);
@@ -352,8 +352,8 @@ class BlockFileBlockAccessorTest {
                     .isNotEmptyFile()
                     .isReadable();
 
-            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed(Integer.MAX_VALUE));
-            assertThat(toTest.blockUnparsed(Integer.MAX_VALUE)).isNull();
+            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed());
+            assertThat(toTest.blockUnparsed()).isNull();
         }
 
         /**
@@ -375,8 +375,8 @@ class BlockFileBlockAccessorTest {
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockPath, compressionType, protoBytes);
 
-            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed(Integer.MAX_VALUE));
-            assertThat(toTest.blockUnparsed(Integer.MAX_VALUE)).isNull();
+            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed());
+            assertThat(toTest.blockUnparsed()).isNull();
         }
 
         /**
@@ -397,7 +397,7 @@ class BlockFileBlockAccessorTest {
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockPath, compressionType, block.bytes());
             // test accessor.blockUnparsed()
-            final BlockUnparsed actual = toTest.blockUnparsed(Integer.MAX_VALUE);
+            final BlockUnparsed actual = toTest.blockUnparsed();
             assertThat(actual).isEqualTo(expected);
         }
 
@@ -421,7 +421,7 @@ class BlockFileBlockAccessorTest {
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockPath, compressionType, block.bytes());
             // test accessor.blockUnparsed()
-            final BlockUnparsed actual = toTest.blockUnparsed(Integer.MAX_VALUE);
+            final BlockUnparsed actual = toTest.blockUnparsed();
             assertThat(actual).isEqualTo(expected);
             // calling close will drop the hard link, and accessor will no longer
             // be able to find the data
@@ -433,11 +433,11 @@ class BlockFileBlockAccessorTest {
                     .isNotEmptyFile()
                     .isReadable();
             // assert that the accessor can no longer find the data
-            assertThat(toTest.blockUnparsed(Integer.MAX_VALUE)).isNull();
+            assertThat(toTest.blockUnparsed()).isNull();
             // now create a new accessor
             final BlockFileBlockAccessor toTest2 = new BlockFileBlockAccessor(blockPath, linksRoot);
             // assert that the second accessor can retrieve the same data as did the first one
-            assertThat(toTest2.blockUnparsed(Integer.MAX_VALUE)).isEqualTo(expected);
+            assertThat(toTest2.blockUnparsed()).isEqualTo(expected);
         }
 
         /**
@@ -468,8 +468,8 @@ class BlockFileBlockAccessorTest {
                     .isNotEmptyFile()
                     .isReadable();
 
-            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed(Integer.MAX_VALUE));
-            assertThat(toTest.blockUnparsed(Integer.MAX_VALUE)).isNull();
+            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed());
+            assertThat(toTest.blockUnparsed()).isNull();
         }
 
         /**
@@ -490,8 +490,8 @@ class BlockFileBlockAccessorTest {
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockPath, compressionType, protoBytes);
 
-            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed(Integer.MAX_VALUE));
-            assertThat(toTest.blockUnparsed(Integer.MAX_VALUE)).isNull();
+            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed());
+            assertThat(toTest.blockUnparsed()).isNull();
         }
 
         /**
@@ -533,7 +533,7 @@ class BlockFileBlockAccessorTest {
                     createBlockAndGetAssociatedAccessor(blockPath, CompressionType.NONE, protoBytes);
 
             // blockUnparsed() should succeed - it only parses top-level structure
-            final BlockUnparsed result = toTest.blockUnparsed(Integer.MAX_VALUE);
+            final BlockUnparsed result = toTest.blockUnparsed();
             assertThat(result).isNotNull();
             assertThat(result.blockItems()).hasSize(block.blockSize());
 

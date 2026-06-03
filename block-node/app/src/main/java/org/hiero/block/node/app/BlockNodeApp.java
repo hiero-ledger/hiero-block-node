@@ -93,6 +93,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private static final long BLOCK_RANGE_PERSIST_INTERVAL = 1000;
     /** Max protobuf/JSON message size for application-state files loaded from disk (small). */
     private static final int MAX_APP_STATE_MESSAGE_SIZE_BYTES = 1 * 1024 * 1024;
+    /** Max protobuf/JSON message allowed depth of nested messages. */
+    private static final int MAX_APP_STATE_MESSAGE_DEPTH = MAX_APP_STATE_MESSAGE_SIZE_BYTES / 8;
     /** The logger for this class. */
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
     /** The state of the server. */
@@ -748,7 +750,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         Bytes.wrap(Files.readAllBytes(tssDataJsonPath)).toReadableSequentialData(),
                         false,
                         true,
-                        MAX_APP_STATE_MESSAGE_SIZE_BYTES / 8,
+                        MAX_APP_STATE_MESSAGE_DEPTH,
                         MAX_APP_STATE_MESSAGE_SIZE_BYTES);
                 updateTssData(tssData);
                 LOGGER.log(INFO, "Loaded TssData from file: {0}", tssDataJsonPath);
@@ -774,7 +776,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         Bytes.wrap(raw).toReadableSequentialData(),
                         false,
                         true,
-                        MAX_APP_STATE_MESSAGE_SIZE_BYTES / 8,
+                        MAX_APP_STATE_MESSAGE_DEPTH,
                         MAX_APP_STATE_MESSAGE_SIZE_BYTES);
                 validateAddressBook(book, rsaFilePath.toString());
                 pendingAddressBook.set(book);
@@ -809,7 +811,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         Bytes.wrap(Files.readAllBytes(blockRangesPath)).toReadableSequentialData(),
                         false,
                         true,
-                        MAX_APP_STATE_MESSAGE_SIZE_BYTES / 8,
+                        MAX_APP_STATE_MESSAGE_DEPTH,
                         MAX_APP_STATE_MESSAGE_SIZE_BYTES);
                 rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
                 rangeSet.availableBlocks()

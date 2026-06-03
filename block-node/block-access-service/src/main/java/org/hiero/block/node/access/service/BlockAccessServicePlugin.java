@@ -124,7 +124,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
             try (final BlockAccessor accessor = blockProvider.block(blockNumberToRetrieve)) {
                 if (accessor != null) {
                     // Use blockUnparsed() to avoid full parsing of block items
-                    final BlockUnparsed block = accessor.blockUnparsed(Integer.MAX_VALUE);
+                    final BlockUnparsed block = accessor.blockUnparsed();
                     if (block != null) {
                         responseCounterSuccess.increment();
                         return new BlockResponseUnparsed(Code.SUCCESS, block);

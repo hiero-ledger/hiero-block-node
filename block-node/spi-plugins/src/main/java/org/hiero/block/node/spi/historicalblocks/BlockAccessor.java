@@ -33,24 +33,17 @@ public interface BlockAccessor extends AutoCloseable {
     /**
      * Get the block as an unparsed {@code BlockUnparsed} Java object.
      *
-     * <p>The caller supplies the maximum protobuf message size in bytes; there is intentionally no
-     * shared constant, because the appropriate limit depends on the caller. A consumer reading a
-     * block this node already produced and stored may pass {@link Integer#MAX_VALUE} (the data is
-     * trusted/internal); a consumer parsing block data received over the wire should pass its own
-     * configured limit. The parse depth is derived as {@code maxMessageSizeBytes / 8}.
-     *
-     * @param maxMessageSizeBytes the maximum protobuf message size, in bytes, to accept while parsing
      * @return the block as a {@code BlockUnparsed} Java object, or null if parsing failed.
      *     Also returns null if the data cannot be read from a source.
      */
-    default BlockUnparsed blockUnparsed(final int maxMessageSizeBytes) {
+    default BlockUnparsed blockUnparsed() {
         try {
             final Bytes rawData = blockBytes(Format.PROTOBUF);
             if (rawData == null) {
                 return null;
             }
             return BlockUnparsed.PROTOBUF.parse(
-                    rawData.toReadableSequentialData(), false, true, maxMessageSizeBytes / 8, maxMessageSizeBytes);
+                    rawData.toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE);
         } catch (final RuntimeException | ParseException e) {
             final System.Logger LOGGER = System.getLogger(getClass().getName());
             LOGGER.log(WARNING, "Failed to parse block", e);

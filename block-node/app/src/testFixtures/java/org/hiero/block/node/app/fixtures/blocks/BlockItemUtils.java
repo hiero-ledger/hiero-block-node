@@ -13,6 +13,9 @@ import org.hiero.block.internal.BlockItemUnparsed;
  * Utility class for testing block items.
  */
 public final class BlockItemUtils {
+    /** Max protobuf/JSON message allowed depth of nested messages. */
+    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
+
     /**
      * Converts a BlockItem to a JSON string
      *
@@ -33,7 +36,7 @@ public final class BlockItemUtils {
         try {
             final Bytes bytes = BlockItemUnparsed.PROTOBUF.toBytes(blockItemUnparsed);
             return BlockItem.JSON.toJSON(BlockItem.PROTOBUF.parse(
-                    bytes.toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE));
+                    bytes.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE));
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -49,7 +52,7 @@ public final class BlockItemUtils {
         try {
             final Bytes bytes = BlockItem.PROTOBUF.toBytes(blockItem);
             return BlockItemUnparsed.PROTOBUF.parse(
-                    bytes.toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE);
+                    bytes.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE);
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -75,7 +78,7 @@ public final class BlockItemUtils {
         try {
             final Bytes bytes = BlockItemUnparsed.PROTOBUF.toBytes(blockItem);
             return BlockItem.PROTOBUF.parse(
-                    bytes.toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE);
+                    bytes.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE);
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }

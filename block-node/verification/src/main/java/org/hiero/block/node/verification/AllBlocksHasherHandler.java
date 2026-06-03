@@ -308,7 +308,7 @@ public class AllBlocksHasherHandler {
         if (blockProvider != null) {
             try (final BlockAccessor blockReader = blockProvider.block(blockNumber)) {
                 if (blockReader != null) {
-                    final BlockUnparsed block = blockReader.blockUnparsed(Integer.MAX_VALUE);
+                    final BlockUnparsed block = blockReader.blockUnparsed();
                     // is safe to assume first item is always block header
                     final BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                             block.blockItems().getFirst().blockHeader());
