@@ -47,12 +47,14 @@ import org.junit.jupiter.params.provider.MethodSource;
 class SubscriberServicePluginTest {
     // CONST
     private static final int responseWaitLimit = 50_000;
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
+    private static final int MAX_BLOCK_MESSAGE_DEPTH = SubscriberConfig.DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES / 8;
 
     // EXTRACTORS
     private static final Function<Bytes, SubscribeStreamResponse> responseExtractor = bytes -> {
         try {
             return SubscribeStreamResponse.PROTOBUF.parse(
-                    bytes.toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE);
+                    bytes.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE);
         } catch (final ParseException e) {
             throw new RuntimeException(e);
         }

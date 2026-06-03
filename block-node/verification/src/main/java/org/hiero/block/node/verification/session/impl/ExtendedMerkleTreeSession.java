@@ -59,7 +59,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     /** Byte length of a legacy SHA384 signature (non-TSS blocks). */
     private static final int HASH_LENGTH = 48;
 
-    /** Max protobuf/JSON message allowed depth of nested messages. */
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
     private static final int MAX_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
 
     /**

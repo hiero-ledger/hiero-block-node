@@ -110,6 +110,11 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private final AtomicLong nextBlockToSend;
     /** The context for this session */
     private final SessionContext sessionContext;
+    /**
+     * Max protobuf message size, in bytes, accepted while parsing a block streamed to this subscriber.
+     * Captured once from the (immutable) subscriber config at construction rather than read per block.
+     */
+    private final int maxProtobufMessageSizeBytes;
     /** The context of the block node */
     private final BlockNodeContext blockNodeContext;
     /**
@@ -141,6 +146,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         this.sessionReadyLatch = requireNonNull(sessionReadyLatch);
         this.blockNodeContext = requireNonNull(context);
         this.sessionContext = requireNonNull(sessionContext);
+        this.maxProtobufMessageSizeBytes = sessionContext.subscriberConfig.maxProtobufMessageSizeBytes();
         this.latestLiveStreamBlock = new AtomicLong(INITIAL_STATE_SENTINEL);
         this.nextBlockToSend = new AtomicLong(INITIAL_STATE_SENTINEL);
         this.liveBlockQueue = new ArrayBlockingQueue<>(sessionContext.subscriberConfig.liveQueueSize());
@@ -453,8 +459,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                         throw new IllegalStateException(message);
                     }
                     final int blockByteSize = (int) blockBytes.length();
-                    final int maxProtobufMessageSizeBytes =
-                            sessionContext.subscriberConfig.maxProtobufMessageSizeBytes();
+                    // maxProtobufMessageSizeBytes / 8: each level of message nesting needs >= ~8 bytes on the wire,
+                    // so size/8 bounds the deepest a non-degenerate message can nest.
                     final BlockUnparsed block = BlockUnparsed.PROTOBUF.parse(
                             blockBytes.toReadableSequentialData(),
                             false,

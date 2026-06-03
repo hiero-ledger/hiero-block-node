@@ -93,7 +93,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private static final long BLOCK_RANGE_PERSIST_INTERVAL = 1000;
     /** Max protobuf/JSON message size for application-state files loaded from disk (small). */
     private static final int MAX_APP_STATE_MESSAGE_SIZE_BYTES = 1 * 1024 * 1024;
-    /** Max protobuf/JSON message allowed depth of nested messages. */
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
     private static final int MAX_APP_STATE_MESSAGE_DEPTH = MAX_APP_STATE_MESSAGE_SIZE_BYTES / 8;
     /** The logger for this class. */
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());

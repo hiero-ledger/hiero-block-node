@@ -28,6 +28,9 @@ import org.junit.jupiter.api.Test;
 
 public class BlockAccessServicePluginTest
         extends GrpcPluginTestBase<BlockAccessServicePlugin, BlockingExecutor, ScheduledExecutorService> {
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
+    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
+
     private final BlockAccessServicePlugin plugin = new BlockAccessServicePlugin();
 
     public BlockAccessServicePluginTest() {
@@ -182,7 +185,7 @@ public class BlockAccessServicePluginTest
                 fromPluginBytes.get(0).toReadableSequentialData(),
                 false,
                 true,
-                Integer.MAX_VALUE / 8,
+                MAX_BLOCK_MESSAGE_DEPTH,
                 Integer.MAX_VALUE);
         assertEquals(Code.SUCCESS, response.status());
         assertEquals(466, response.block().items().getFirst().blockHeader().number());

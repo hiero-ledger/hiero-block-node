@@ -13,7 +13,7 @@ import org.hiero.block.internal.BlockItemUnparsed;
  * Utility class for testing block items.
  */
 public final class BlockItemUtils {
-    /** Max protobuf/JSON message allowed depth of nested messages. */
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
     private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
 
     /**

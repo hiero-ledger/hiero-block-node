@@ -45,6 +45,10 @@ public record SubscriberConfig(
         @Loggable @ConfigProperty(defaultValue = "4000") @Min(10) long maximumFutureRequest,
         @Loggable @ConfigProperty(defaultValue = "400") @Min(10) int minimumLiveQueueCapacity,
         @Loggable @ConfigProperty(defaultValue = "1_048_576") @Min(100_000) int maxChunkSizeBytes,
+        // defaultValue must match DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES (annotation requires a String literal)
         @Loggable @ConfigProperty(defaultValue = "131_072_000") @Min(1_048_576) @Max(1_610_612_736) int maxProtobufMessageSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = ConfigProperty.NULL_DEFAULT_VALUE) Integer port) {}
+        @Loggable @ConfigProperty(defaultValue = ConfigProperty.NULL_DEFAULT_VALUE) Integer port) {
+    /** Default for {@code maxProtobufMessageSizeBytes}; must match the {@code @ConfigProperty(defaultValue = ...)} literal above. */
+    public static final int DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES = 131_072_000;
+}
 // spotless:on

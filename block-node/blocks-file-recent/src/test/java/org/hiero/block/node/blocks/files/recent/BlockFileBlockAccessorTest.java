@@ -352,7 +352,7 @@ class BlockFileBlockAccessorTest {
                     .isNotEmptyFile()
                     .isReadable();
 
-            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed());
+            assertThatNoException().isThrownBy(toTest::blockUnparsed);
             assertThat(toTest.blockUnparsed()).isNull();
         }
 
@@ -375,7 +375,7 @@ class BlockFileBlockAccessorTest {
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockPath, compressionType, protoBytes);
 
-            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed());
+            assertThatNoException().isThrownBy(toTest::blockUnparsed);
             assertThat(toTest.blockUnparsed()).isNull();
         }
 
@@ -468,7 +468,7 @@ class BlockFileBlockAccessorTest {
                     .isNotEmptyFile()
                     .isReadable();
 
-            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed());
+            assertThatNoException().isThrownBy(toTest::blockUnparsed);
             assertThat(toTest.blockUnparsed()).isNull();
         }
 
@@ -490,7 +490,7 @@ class BlockFileBlockAccessorTest {
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockPath, compressionType, protoBytes);
 
-            assertThatNoException().isThrownBy(() -> toTest.blockUnparsed());
+            assertThatNoException().isThrownBy(toTest::blockUnparsed);
             assertThat(toTest.blockUnparsed()).isNull();
         }
 

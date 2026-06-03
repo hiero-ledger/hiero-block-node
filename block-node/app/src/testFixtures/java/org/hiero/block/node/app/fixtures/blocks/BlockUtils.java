@@ -23,6 +23,8 @@ import org.hiero.block.node.app.fixtures.TestUtils;
  * */
 @SuppressWarnings("unused")
 public final class BlockUtils {
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
+    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
 
     /**
      * Converts Block to a List of BlockUnparsed
@@ -84,7 +86,7 @@ public final class BlockUtils {
                     Bytes.wrap(bytes).toReadableSequentialData(),
                     false,
                     true,
-                    Integer.MAX_VALUE / 8,
+                    MAX_BLOCK_MESSAGE_DEPTH,
                     Integer.MAX_VALUE);
         }
 
