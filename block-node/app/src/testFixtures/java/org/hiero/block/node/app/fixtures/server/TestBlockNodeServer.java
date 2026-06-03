@@ -6,7 +6,6 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.PbjRouting.Builder;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -41,7 +40,7 @@ public class TestBlockNodeServer {
         // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
                 .name("pbj")
-                .maxMessageSizeBytes(BlockAccessor.MAX_BLOCK_SIZE_BYTES)
+                .maxMessageSizeBytes(Integer.MAX_VALUE)
                 .build();
 
         // Create the service builder
@@ -115,9 +114,9 @@ public class TestBlockNodeServer {
                         Block block = Block.PROTOBUF.parse(
                                 blockBytes.toReadableSequentialData(),
                                 false,
-                                false,
-                                Codec.DEFAULT_MAX_DEPTH,
-                                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                                true,
+                                Integer.MAX_VALUE / 8,
+                                Integer.MAX_VALUE);
                         sendBlockItemsInBatches(block.items(), replies);
                         replies.onNext(SubscribeStreamResponse.newBuilder()
                                 .endOfBlock(BlockEnd.newBuilder().blockNumber(i).build())

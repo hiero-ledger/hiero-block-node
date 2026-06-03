@@ -332,7 +332,7 @@ class ZipBlockAccessorTest {
             final Bytes protoBytes = block.bytes();
             // test zipBlockAccessor.blockUnparsed() and parse
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
-            final BlockUnparsed unparsed = toTest.blockUnparsed();
+            final BlockUnparsed unparsed = toTest.blockUnparsed(Integer.MAX_VALUE);
             assertThat(unparsed).isNotNull();
             final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
@@ -357,7 +357,7 @@ class ZipBlockAccessorTest {
             final Bytes protoBytes = block.bytes();
             // test zipBlockAccessor.blockUnparsed() and parse
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
-            final BlockUnparsed unparsed = toTest.blockUnparsed();
+            final BlockUnparsed unparsed = toTest.blockUnparsed(Integer.MAX_VALUE);
             assertThat(unparsed).isNotNull();
             final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
@@ -372,7 +372,7 @@ class ZipBlockAccessorTest {
             // now we create a new accessor to the same block
             final ZipBlockAccessor toTest2 = new ZipBlockAccessor(blockPath, linksTempDir);
             // now we should be able to access the block again
-            final BlockUnparsed unparsed2 = toTest2.blockUnparsed();
+            final BlockUnparsed unparsed2 = toTest2.blockUnparsed(Integer.MAX_VALUE);
             assertThat(unparsed2).isNotNull();
             final Block actual2 = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed2));
             assertThat(actual2).isEqualTo(expected);
@@ -393,7 +393,7 @@ class ZipBlockAccessorTest {
             final BlockUnparsed expected = block.blockUnparsed();
             final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
-            final BlockUnparsed actual = toTest.blockUnparsed();
+            final BlockUnparsed actual = toTest.blockUnparsed(Integer.MAX_VALUE);
             assertThat(actual).isEqualTo(expected);
         }
 
@@ -420,7 +420,7 @@ class ZipBlockAccessorTest {
             assertThat(toTest.isClosed()).isFalse();
             assertNotNull(jimfs);
             assertThat(jimfs.isOpen()).isTrue();
-            final BlockUnparsed actual = toTest.blockUnparsed();
+            final BlockUnparsed actual = toTest.blockUnparsed(Integer.MAX_VALUE);
             assertThat(actual).isEqualTo(expected);
             // now we close the accessor
             toTest.close();
@@ -433,7 +433,7 @@ class ZipBlockAccessorTest {
             // now we create a new accessor to the same block
             final ZipBlockAccessor toTest2 = new ZipBlockAccessor(blockPath, linksTempDir);
             // now we should be able to access the block again
-            assertThat(toTest2.blockUnparsed()).isEqualTo(expected);
+            assertThat(toTest2.blockUnparsed(Integer.MAX_VALUE)).isEqualTo(expected);
         }
 
         private Format getHappyPathFormat(final CompressionType compressionType) {

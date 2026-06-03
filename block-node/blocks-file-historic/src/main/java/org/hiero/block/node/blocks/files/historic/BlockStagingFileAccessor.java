@@ -4,7 +4,6 @@ package org.hiero.block.node.blocks.files.historic;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -136,11 +135,7 @@ final class BlockStagingFileAccessor implements BlockAccessor {
         if (sourceData != null) {
             try {
                 return Block.JSON.toBytes(Block.PROTOBUF.parse(
-                        sourceData.toReadableSequentialData(),
-                        false,
-                        false,
-                        Codec.DEFAULT_MAX_DEPTH,
-                        BlockAccessor.MAX_BLOCK_SIZE_BYTES));
+                        sourceData.toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE));
             } catch (final UncheckedIOException | ParseException e) {
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockFilePath);
                 LOGGER.log(WARNING, message, e);

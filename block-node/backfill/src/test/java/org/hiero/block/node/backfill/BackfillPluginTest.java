@@ -1577,6 +1577,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                     perBlockProcessingTimeout,
                     60000, // grpcOverallTimeout - default
                     104_857_600, // maxIncomingBufferSize - default (100 MB)
+                    131_072_000, // maxProtobufMessageSizeBytes - default
                     false, // enableTLS - default
                     greedy,
                     20, // historicalQueueCapacity - default

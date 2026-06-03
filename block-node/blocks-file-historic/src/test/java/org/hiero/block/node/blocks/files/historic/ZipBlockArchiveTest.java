@@ -348,8 +348,8 @@ class ZipBlockArchiveTest {
             assertThat(actual)
                     .isNotNull()
                     .isExactlyInstanceOf(ZipBlockAccessor.class)
-                    .extracting(BlockAccessor::blockUnparsed)
-                    .isEqualTo(expected.blockUnparsed());
+                    .extracting(a -> a.blockUnparsed(Integer.MAX_VALUE))
+                    .isEqualTo(expected.blockUnparsed(Integer.MAX_VALUE));
         }
 
         /**

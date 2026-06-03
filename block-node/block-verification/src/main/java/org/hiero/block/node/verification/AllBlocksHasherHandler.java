@@ -285,7 +285,7 @@ public class AllBlocksHasherHandler {
             try (final BlockAccessor accessor = blockProvider.block(blockNumber)) {
                 if (accessor != null) {
                     // if failure to read occurs, the reader will return null
-                    final BlockUnparsed block = accessor.blockUnparsed();
+                    final BlockUnparsed block = accessor.blockUnparsed(Integer.MAX_VALUE);
                     if (block != null) {
                         final BlockHeader blockHeader = parseHeader(block);
                         if (blockHeader != null) {

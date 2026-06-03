@@ -335,7 +335,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                     // and
                     // month
                     final BlockUnparsed firstBlock =
-                            blockAccessorBatch.getFirst().blockUnparsed();
+                            blockAccessorBatch.getFirst().blockUnparsed(Integer.MAX_VALUE);
                     final ZonedDateTime firstBlockConsensusTime;
                     final Bytes headerBytes = firstBlock.blockItems().getFirst().blockHeader();
                     if (headerBytes == null) {

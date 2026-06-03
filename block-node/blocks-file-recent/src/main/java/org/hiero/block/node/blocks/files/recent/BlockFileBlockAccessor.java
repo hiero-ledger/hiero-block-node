@@ -5,7 +5,6 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -77,7 +76,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
      * The method should be otherwise identical to the default.
      */
     @Override
-    public BlockUnparsed blockUnparsed() {
+    public BlockUnparsed blockUnparsed(final int maxMessageSizeBytes) {
         try {
             final Bytes rawData = blockBytes(Format.PROTOBUF);
             return rawData == null
@@ -85,9 +84,9 @@ final class BlockFileBlockAccessor implements BlockAccessor {
                     : BlockUnparsed.PROTOBUF.parse(
                             rawData.toReadableSequentialData(),
                             false,
-                            false,
-                            Codec.DEFAULT_MAX_DEPTH,
-                            BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                            true,
+                            maxMessageSizeBytes / 8,
+                            maxMessageSizeBytes);
         } catch (final RuntimeException | ParseException e) {
             LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock), e);
             return null;
@@ -162,11 +161,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
         if (sourceData != null) {
             try {
                 return Block.JSON.toBytes(Block.PROTOBUF.parse(
-                        sourceData.toReadableSequentialData(),
-                        false,
-                        false,
-                        Codec.DEFAULT_MAX_DEPTH,
-                        BlockAccessor.MAX_BLOCK_SIZE_BYTES));
+                        sourceData.toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE));
             } catch (final RuntimeException | ParseException e) {
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock);
                 LOGGER.log(WARNING, message, e);

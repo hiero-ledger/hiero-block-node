@@ -83,11 +83,11 @@ public class BlockAccessorTest {
     void testBlockUnparsed() throws ParseException {
         BlockAccessor accessor = new TestBlockAccessor();
         BlockUnparsed blockUnparsed = BlockUnparsed.PROTOBUF.parse(SAMPLE_BLOCK_PROTOBUF_BYTES);
-        assertEquals(blockUnparsed, accessor.blockUnparsed());
+        assertEquals(blockUnparsed, accessor.blockUnparsed(Integer.MAX_VALUE));
         // create a parsing failure
         BlockAccessor emptyAccessor = new ParseFailureBlockAccessor();
-        assertDoesNotThrow(emptyAccessor::blockUnparsed);
-        assertNull(emptyAccessor.blockUnparsed());
+        assertDoesNotThrow(() -> emptyAccessor.blockUnparsed(Integer.MAX_VALUE));
+        assertNull(emptyAccessor.blockUnparsed(Integer.MAX_VALUE));
     }
 
     @Test

@@ -3,7 +3,6 @@ package org.hiero.block.node.spi.historicalblocks;
 
 import static java.lang.System.Logger.Level.WARNING;
 
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import org.hiero.block.internal.BlockUnparsed;
@@ -15,13 +14,6 @@ import org.hiero.block.internal.BlockUnparsed;
  * but that attempt is unsuccessful.
  */
 public interface BlockAccessor extends AutoCloseable {
-    /**
-     * Maximum protobuf parse size in bytes (125 MB). This matches the consensus node limit
-     * and accommodates the largest known block items (TSS Wraps transition blocks) which
-     * can exceed PBJ's default 2 MB limit.
-     */
-    int MAX_BLOCK_SIZE_BYTES = 125 * 1024 * 1024;
-
     /**
      * The format of the block data. The consumer can choose the format that is most efficient for them.
      */
@@ -39,19 +31,26 @@ public interface BlockAccessor extends AutoCloseable {
     long blockNumber();
 
     /**
-     * Get the block as unparsed {@code BlockUnparsed} Java object.
+     * Get the block as an unparsed {@code BlockUnparsed} Java object.
      *
+     * <p>The caller supplies the maximum protobuf message size in bytes; there is intentionally no
+     * shared constant, because the appropriate limit depends on the caller. A consumer reading a
+     * block this node already produced and stored may pass {@link Integer#MAX_VALUE} (the data is
+     * trusted/internal); a consumer parsing block data received over the wire should pass its own
+     * configured limit. The parse depth is derived as {@code maxMessageSizeBytes / 8}.
+     *
+     * @param maxMessageSizeBytes the maximum protobuf message size, in bytes, to accept while parsing
      * @return the block as a {@code BlockUnparsed} Java object, or null if parsing failed.
      *     Also returns null if the data cannot be read from a source.
      */
-    default BlockUnparsed blockUnparsed() {
+    default BlockUnparsed blockUnparsed(final int maxMessageSizeBytes) {
         try {
             final Bytes rawData = blockBytes(Format.PROTOBUF);
             if (rawData == null) {
                 return null;
             }
             return BlockUnparsed.PROTOBUF.parse(
-                    rawData.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, MAX_BLOCK_SIZE_BYTES);
+                    rawData.toReadableSequentialData(), false, true, maxMessageSizeBytes / 8, maxMessageSizeBytes);
         } catch (final RuntimeException | ParseException e) {
             final System.Logger LOGGER = System.getLogger(getClass().getName());
             LOGGER.log(WARNING, "Failed to parse block", e);

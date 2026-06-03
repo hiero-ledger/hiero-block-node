@@ -5,7 +5,6 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -147,11 +146,7 @@ final class ZipBlockAccessor implements BlockAccessor {
         if (sourceData != null) {
             try {
                 return Block.JSON.toBytes(Block.PROTOBUF.parse(
-                        sourceData.toReadableSequentialData(),
-                        false,
-                        false,
-                        Codec.DEFAULT_MAX_DEPTH,
-                        BlockAccessor.MAX_BLOCK_SIZE_BYTES));
+                        sourceData.toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE));
             } catch (final RuntimeException | ParseException e) {
                 String entryName = blockPathData.blockFileName();
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockNumber, absoluteZipFilePath, entryName);

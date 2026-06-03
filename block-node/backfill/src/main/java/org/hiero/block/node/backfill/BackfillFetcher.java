@@ -57,6 +57,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     private final boolean enableTls;
     /** Maximum incoming buffer size in bytes for the gRPC client. */
     private final int maxIncomingBufferSize;
+    /** Maximum protobuf message size in bytes accepted while parsing a fetched block. */
+    private final int maxProtobufMessageSizeBytes;
     /** Maximum backoff duration in milliseconds (configurable). */
     private final long maxBackoffMs;
     /** Health penalty per failure for scoring (configurable). */
@@ -93,6 +95,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         this.globalGrpcTimeoutMs = config.grpcOverallTimeout();
         this.enableTls = config.enableTLS();
         this.maxIncomingBufferSize = config.maxIncomingBufferSize();
+        this.maxProtobufMessageSizeBytes = config.maxProtobufMessageSizeBytes();
         this.maxBackoffMs = config.maxBackoffMs();
         this.healthPenaltyPerFailure = config.healthPenaltyPerFailure();
         this.selectionStrategy = new PriorityHealthBasedStrategy(this);
@@ -188,7 +191,12 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         return nodeClientMap.computeIfAbsent(
                 node,
                 n -> new BlockNodeClient(
-                        n, globalGrpcTimeoutMs, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
+                        n,
+                        globalGrpcTimeoutMs,
+                        enableTls,
+                        maxIncomingBufferSize,
+                        maxProtobufMessageSizeBytes,
+                        n.grpcWebclientTuning()));
     }
 
     /**

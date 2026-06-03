@@ -200,7 +200,7 @@ class BlockFileRecentPluginTest {
             blockMessaging.sendBlockVerification(new VerificationNotification(
                     true, null, blockNumber, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             // now try and read it back
-            final BlockUnparsed blockFromPlugin = plugin.block(blockNumber).blockUnparsed();
+            final BlockUnparsed blockFromPlugin = plugin.block(blockNumber).blockUnparsed(Integer.MAX_VALUE);
             // check we got the correct block
             assertArrayEquals(
                     block.asBlockItemUnparsedArray(),
@@ -265,7 +265,7 @@ class BlockFileRecentPluginTest {
             blockMessaging.sendBlockVerification(new VerificationNotification(
                     true, null, blockNumber, Bytes.EMPTY, blockOrig, BlockSource.PUBLISHER));
             // now try and read it back
-            final BlockUnparsed blockFromPlugin = plugin.block(blockNumber).blockUnparsed();
+            final BlockUnparsed blockFromPlugin = plugin.block(blockNumber).blockUnparsed(Integer.MAX_VALUE);
             // check we got the correct block
             assertArrayEquals(
                     blockOrig.blockItems().toArray(),

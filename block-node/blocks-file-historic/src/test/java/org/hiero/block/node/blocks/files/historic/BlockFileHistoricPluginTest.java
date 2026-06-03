@@ -862,7 +862,7 @@ class BlockFileHistoricPluginTest {
             // assert the contents of the now available block accessors
             for (int i = 0; i < 10; i++) {
                 try (final BlockAccessor blockAccessor = toTest.block(i)) {
-                    final BlockUnparsed actual = blockAccessor.blockUnparsed();
+                    final BlockUnparsed actual = blockAccessor.blockUnparsed(Integer.MAX_VALUE);
                     assertThat(actual).isEqualTo(expectedBlocks.get(i));
                 }
             }
