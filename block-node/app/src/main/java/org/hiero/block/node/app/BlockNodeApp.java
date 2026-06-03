@@ -728,7 +728,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (Files.exists(blockRangesPath)) {
             try {
                 final BlockRangesState rangeSet =
-                    ProtobufHandler.parse(BlockRangesState.JSON, Bytes.wrap(Files.readAllBytes(blockRangesPath)));
+                        ProtobufHandler.parse(BlockRangesState.JSON, Bytes.wrap(Files.readAllBytes(blockRangesPath)));
                 rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
                 rangeSet.availableBlocks()
                         .forEach(r -> availableBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
