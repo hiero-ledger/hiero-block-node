@@ -93,10 +93,10 @@ across all drives in the configuration, not per-drive requirements.
 
 ### Disk Performance Targets
 
-| Disk Type | Sustained Write | Sustained Read | Required Write IOPS | Required Read IOPS | Random Read AIO IOPS | P99 Write Latency | P99 Read Latency |
-|-----------|-----------------|----------------|---------------------|--------------------|----------------------|-------------------|------------------|
-| Fast NVMe | 4 GBps          | 6 GBps         | 350k                | 900k               | 1M                   | < 300 µs          | < 200 µs         |
-| Bulk Disk | 300 MBps        | 1 GBps         | 150k                | 500k               | -                    | —                 | —                |
+| Disk Type | Sustained Write | Sustained Read |  Write IOPS   |   Read IOPS   | Random Read AIO IOPS | P99 Write Latency | P99 Read Latency |
+|-----------|-----------------|----------------|---------------|---------------|----------------------|-------------------|------------------|
+| Fast NVMe | 4 GBps          | 6 GBps         | 350k (random) | 900k (random) | 1M                   | < 300 µs          | < 200 µs         |
+| Bulk Disk | 300 MBps        | 1 GBps         | 1200          | 4000          | n/a                  | —                 | —                |
 
 #### Notes
 
@@ -106,6 +106,19 @@ across all drives in the configuration, not per-drive requirements.
   the Bulk Disk serves the historic block archive in LFH configurations.
 * P99 latency targets apply only to the Fast NVMe tier. Bulk Disk latency is
   workload-dependent and not explicitly bounded.
+
+#### Bulk tier hardware
+
+* **Medium**: HDD is the intended medium for the bulk tier. SSD or NVMe is not
+  required at the 100 TB+ capacity and is typically cost-prohibitive at that
+  scale.
+* **Aggregate, not per-drive**: The IOPS and bandwidth targets are aggregate
+  across all drives in the configuration, not per-drive requirements.
+  Achievable with at least 12 drives in RAID-0; fewer may be sufficient
+  depending on the specific hardware.
+* **Caching layer**: With sufficient physical drives, a dedicated read/write
+  cache layer in front of the bulk drives is not needed and is not
+  recommended.
 
 ---
 
