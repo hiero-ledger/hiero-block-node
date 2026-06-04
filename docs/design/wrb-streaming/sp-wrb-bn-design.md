@@ -16,12 +16,12 @@
 
 ## Purpose
 
-Distribute historical and live **Wrapped Record Blocks (WRBs)** and **TSS** data from the CLI
-conversion server (S03) to Council-operated **Tier-1 Block Nodes**, ready before the WRB release
-(release 75, July). A co-located **special-purpose Block Node** on S03 acts as the initial source
-("Tier 0"): the CLI pushes blocks into it through the normal ingestion path, and Tier-1 nodes pull
-blocks (backfill) and query TSS (status API) from it. To serve *historical* WRBs, the Block Node must
-verify each block against the address book that was in effect for that block, not just the current one.
+Distribute historical and live **Wrapped Record Blocks (WRBs)** and **TSS** data from a WRB CLI
+conversion server to Council-operated **Tier-1 Block Nodes**. A co-located **special-purpose Block
+Node** on acts as the initial source ("Tier 0"): the CLI pushes blocks into it through the normal
+ingestion path, and Tier-1 nodes pull blocks (backfill) and query TSS (status API) from it.
+To serve *historical* WRBs, the Block Node must verify each block against the address book that
+was in effect for that block, not just the current one.
 
 This is intended as the durable long-term solution (historical address-book verification), not
 throwaway migration code.
@@ -31,12 +31,11 @@ throwaway migration code.
 - Push historical WRBs from the CLI's existing wrapped-block storage into the special-purpose BN,
   one block at a time, via the existing ingestion (publish) API — no disk-layout restructuring, no BN
   restarts.
-- Keep the special-purpose BN current during the ~2-month transition by pushing each new WRB live as
+- Keep the special-purpose BN current during the transition by pushing each new WRB live as
   the CLI produces it (no 6-hour zip-batch floods).
 - Verify any historical WRB by selecting the address book in effect for that block's number.
-- Let Tier-1 nodes use the special-purpose BN as a backfill source and as a TSS peer (existing paths).
-- Reuse existing code: the CLI's wrapped-block storage + Mirror-Node address-book tooling, the gRPC
-  publish client, and the BN's RSA roster / verification plugins.
+- Let Tier-1 nodes use the special-purpose BN as a backfill source for WRBs and TSS details.
+- Reuse existing code where possible to reduce overhead and throwaway.
 
 ## Terms
 
@@ -48,7 +47,7 @@ throwaway migration code.
   <dd>Threshold-signature-scheme material (ledger id, roster, WRAPS verification key) the BN needs;
       produced by the CLI as <code>tss-bootstrap-roster.json</code>.</dd>
   <dt>Special-purpose BN ("Tier 0")</dt>
-  <dd>A Block Node co-located with the CLI on S03 that serves as the initial WRB source and TSS peer
+  <dd>A Block Node co-located with the CLI that serves as the initial WRB source and TSS peer
       for Tier-1 nodes, effectively replacing the consensus node for WRB distribution.</dd>
   <dt>Address book roster</dt>
   <dd>An ordered set of historical address books, each scoped to a block-number range, used to verify
@@ -65,7 +64,7 @@ throwaway migration code.
   `days live-sequential`), maintains address-book history (`mirror generateAddressBook*`,
   `compareAddressBooks`), and can push blocks over gRPC (`networkCapacity` client). Extended here with
   backfill-push and live-push.
-- **Special-purpose Block Node (S03)** — standard BN deployment that ingests pushed blocks, stores
+- **Special-purpose Block Node** — standard BN deployment that ingests pushed blocks, stores
   them, verifies WRBs against the historical roster, and serves Tier-1 nodes.
 - **Tier-1 Block Nodes** — Council-run; pull blocks via their existing backfill plugin and query TSS
   via `RosterBootstrapTssPlugin.queryPeerTssData()`.
@@ -134,7 +133,7 @@ Multiple processes must not write the same location; use a copy/move, not a shar
 
 ```mermaid
 flowchart LR
-    subgraph S03 [S03 server]
+    subgraph WRBS [WRB server]
         CLI[CLI tools<br/>wrap + push] -->|"publish (gRPC), 1 block at a time"| SP[Special-purpose BN<br/>Tier 0]
         TSSJSON[tss-bootstrap-roster.json] -. operator copy .-> SPCFG[(BN config<br/>/opt/hiero/block-node/node)]
     end
