@@ -2,14 +2,23 @@
 open module org.hiero.block.node.suites {
     requires com.hedera.pbj.grpc.client.helidon;
     requires com.hedera.pbj.runtime;
+    requires com.swirlds.base;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
+    requires com.swirlds.merkledb;
+    requires com.swirlds.state.api;
+    requires com.swirlds.state.impl;
+    requires com.swirlds.virtualmap;
+    requires org.hiero.base.utility;
     requires org.hiero.block.common;
     requires org.hiero.block.node.app;
     requires org.hiero.block.node.base;
     requires org.hiero.block.node.spi;
+    requires org.hiero.block.protobuf.pbj;
     requires org.hiero.block.protobuf.protoc;
     requires org.hiero.block.simulator;
+    requires org.hiero.consensus.metrics;
+    requires org.hiero.consensus.utility;
     requires com.github.dockerjava.api;
     requires io.grpc.stub;
     requires io.grpc;
