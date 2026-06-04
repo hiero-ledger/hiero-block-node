@@ -46,7 +46,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     private static final int HASH_LENGTH = 48;
 
     /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
-    private static final int MAX_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
+    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
 
     private final long blockNumber;
     // Stream Hashers
@@ -439,9 +439,13 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             return null;
         }
         SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(
-                signedTxBytes.toReadableSequentialData(), false, true, MAX_MESSAGE_DEPTH, Integer.MAX_VALUE);
+                signedTxBytes.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE);
         TransactionBody body = TransactionBody.PROTOBUF.parse(
-                signedTx.bodyBytes().toReadableSequentialData(), false, true, MAX_MESSAGE_DEPTH, Integer.MAX_VALUE);
+                signedTx.bodyBytes().toReadableSequentialData(),
+                false,
+                true,
+                MAX_BLOCK_MESSAGE_DEPTH,
+                Integer.MAX_VALUE);
         if (!body.hasLedgerIdPublication()) {
             return null;
         }

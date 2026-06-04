@@ -14,9 +14,6 @@ import org.hiero.block.internal.BlockUnparsed;
  * but that attempt is unsuccessful.
  */
 public interface BlockAccessor extends AutoCloseable {
-    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
-    int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
-
     /**
      * The format of the block data. The consumer can choose the format that is most efficient for them.
      */
@@ -45,8 +42,11 @@ public interface BlockAccessor extends AutoCloseable {
             if (rawData == null) {
                 return null;
             }
+            // Trusted internal block — parse unbounded. maxDepth = size / 8: each level of message
+            // nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate
+            // message can nest.
             return BlockUnparsed.PROTOBUF.parse(
-                    rawData.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE);
+                    rawData.toReadableSequentialData(), false, true, Integer.MAX_VALUE / 8, Integer.MAX_VALUE);
         } catch (final RuntimeException | ParseException e) {
             final System.Logger LOGGER = System.getLogger(getClass().getName());
             LOGGER.log(WARNING, "Failed to parse block", e);
