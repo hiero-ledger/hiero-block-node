@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# BN ↔ BN Latency Test
+#
+# Injects 200 ms ± 40 ms bidirectional latency between all Block Nodes during
+# NLG load. CN-to-BN streaming is unaffected; only BN-to-BN backfill mesh
+# traffic is slowed. Verifies that every BN keeps receiving blocks from its
+# upstream CN under degraded peer connectivity.
+#
+# Note: solo-chaos does not ship a BN↔BN template — this is the dimension that
+# requires our own NetworkChaos manifest authoring (see issues/001).
+#
+# Selectors:
+#   source: block-node.hiero.com/type=block-node
+#   target: block-node.hiero.com/type=block-node
+#
+# Pre-req:
+#   TSS_ENABLED=false task up TOPOLOGY=paired-3
+#   CHAOS_ENABLED=true task chaos:install
+#
+# Note: TSS_ENABLED=false is currently required at 'task up' time — see
+# .env.example or agent/proposals/solo-chaos-spike/findings/001 for context.
+#
+# Usage:
+#   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-bn-to-bn.yaml
+
+name: latency-bn-to-bn
+description: "200ms ± 40ms bidirectional latency between Block Nodes during load"
+
+events:
+  - id: load-start
+    type: load-start
+    description: "Start NLG load"
+    delay: 0
+    args:
+      concurrency: 5
+      accounts: 10
+      duration: 420
+
+  - id: inject
+    type: inject-latency
+    description: "Inject BN↔BN 200ms latency"
+    delay: 30
+    args:
+      name: bn-to-bn-200ms
+      source: { kind: block-node }
+      target: { kind: block-node }
+      latency: 200ms
+      jitter: 40ms
+      correlation: '0'
+      bidirectional: true
+
+  - id: clear
+    type: clear-latency
+    description: "Clear BN↔BN latency"
+    delay: 330
+    args:
+      name: bn-to-bn-200ms
+
+  - id: load-stop
+    type: load-stop
+    description: "Stop NLG load"
+    delay: 360
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All BNs healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All BNs have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: blocks-increasing
+    type: blocks-increasing
+    description: "Blocks still increasing across BN↔BN chaos window (live stream from CN unaffected)"
+    target: all
+    args:
+      wait_seconds: 30
+      max_attempts: 3
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Post-chaos block rate ≥ 0.3 blk/s on every BN"
+    target: all
+    args:
+      min_rate_per_sec: 0.3
+      window_seconds: 30
