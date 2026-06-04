@@ -20,12 +20,12 @@ jobs:
     runs-on: hl-bn-lin-md
     steps:
       - name: Checkout hiero-block-node
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
         with:
           path: block-node
 
       - name: Checkout hiero-docs
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
         with:
           repository: hiero-ledger/hiero-docs
           token: ${{ secrets.DOCS_SYNC_TOKEN }}
