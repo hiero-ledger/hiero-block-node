@@ -3,8 +3,11 @@ package org.hiero.block.suites.utils;
 
 import com.hedera.hapi.block.stream.output.MapChangeKey;
 import com.hedera.hapi.block.stream.output.MapChangeValue;
+import com.hedera.hapi.block.stream.output.MapUpdateChange;
 import com.hedera.hapi.block.stream.output.QueuePushChange;
 import com.hedera.hapi.block.stream.output.SingletonUpdateChange;
+import com.hedera.hapi.block.stream.output.StateChange;
+import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.base.time.Time;
 import com.swirlds.config.api.Configuration;
@@ -16,6 +19,7 @@ import com.swirlds.state.merkle.VirtualMapStateLifecycleManager;
 import com.swirlds.virtualmap.config.VirtualMapConfig;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.api.StateMetadata;
 import org.hiero.consensus.config.PathsConfig;
@@ -82,6 +86,50 @@ public final class StateSeedSnapshotGenerator {
     public static final Bytes QUEUE_ELEMENT_ENCODED = QueuePushChange.PROTOBUF.toBytes(
             QueuePushChange.newBuilder().protoBytesElement(QUEUE_ELEMENT).build());
 
+    // ── Block 1 (streamed-after-seed) changes — distinct values, so reads confirm the apply ──
+
+    /** Block 1 updates singleton {@link #SINGLETON_STATE_ID} to this new value (distinct from the seed). */
+    public static final Bytes BLOCK1_SINGLETON_VALUE = Bytes.fromHex("beef");
+    /** Block 1 inserts this new KV key under {@link #KV_STATE_ID} (distinct from the seed's key). */
+    public static final Bytes BLOCK1_KV_KEY_RAW = Bytes.fromHex("cd");
+    /** Block 1 KV value string. */
+    public static final String BLOCK1_KV_VALUE_STRING = "applied";
+    /** Block 1 pushes this new element onto queue {@link #QUEUE_STATE_ID}. */
+    public static final Bytes BLOCK1_QUEUE_ELEMENT = Bytes.fromHex("ee");
+
+    /** Block 1 singleton value as stored/read — PBJ-encoded {@link SingletonUpdateChange}. */
+    public static final Bytes BLOCK1_SINGLETON_VALUE_ENCODED =
+            SingletonUpdateChange.PROTOBUF.toBytes(SingletonUpdateChange.newBuilder()
+                    .bytesValue(BLOCK1_SINGLETON_VALUE)
+                    .build());
+    /** Block 1 KV key as stored — the {@code keyBytes} a {@code getBinaryKV} query must pass. */
+    public static final Bytes BLOCK1_KV_KEY_ENCODED = MapChangeKey.PROTOBUF.toBytes(
+            MapChangeKey.newBuilder().protoBytesKey(BLOCK1_KV_KEY_RAW).build());
+    /** Block 1 KV value as stored/read — PBJ-encoded {@link MapChangeValue}. */
+    public static final Bytes BLOCK1_KV_VALUE_ENCODED = MapChangeValue.PROTOBUF.toBytes(
+            MapChangeValue.newBuilder().protoStringValue(BLOCK1_KV_VALUE_STRING).build());
+    /** Block 1 queue element as stored — PBJ-encoded {@link QueuePushChange}. */
+    public static final Bytes BLOCK1_QUEUE_ELEMENT_ENCODED = QueuePushChange.PROTOBUF.toBytes(
+            QueuePushChange.newBuilder().protoBytesElement(BLOCK1_QUEUE_ELEMENT).build());
+
+    /** Block number that block 1's changes become queryable at (after block 2 attests block 1). */
+    public static final long BLOCK1_NUMBER = 1L;
+    /** Block number streamed to attest block 1 under lag-1 (carries no state changes). */
+    public static final long BLOCK2_NUMBER = 2L;
+
+    /**
+     * Result of {@link #generateWithChain(Path)}: the seed snapshot is written to disk, and these
+     * footer hashes + block-1 changes let a test stream verifiable blocks the running plugin will apply.
+     *
+     * @param block1FooterHash the {@code startOfBlockStateRootHash} block 1 must carry — the post-seed
+     *     (block 0) state root the plugin will validate against before applying block 1
+     * @param block2FooterHash the {@code startOfBlockStateRootHash} block 2 must carry — the post-block-1
+     *     state root; delivering block 2 attests block 1, exposing its changes under lag-1
+     * @param block1StateChanges the state changes block 1 carries (must equal what was applied to compute
+     *     {@code block2FooterHash})
+     */
+    public record SeededChain(Bytes block1FooterHash, Bytes block2FooterHash, StateChanges block1StateChanges) {}
+
     private StateSeedSnapshotGenerator() {}
 
     /**
@@ -136,6 +184,88 @@ public final class StateSeedSnapshotGenerator {
                 .stateRootHash(rootHashOf(sealed))
                 .build();
         Files.write(metadataPath, StateMetadata.JSON.toBytes(metadata).toByteArray());
+    }
+
+    /**
+     * Generate the seed snapshot (as {@link #generate(Path)}) and additionally compute the footer-hash
+     * chain needed to stream blocks 1 and 2 into the running plugin so block 1's changes get applied and
+     * exposed. The block-1 changes are applied to the same swirlds state used for the seed, so the
+     * returned {@code block2FooterHash} equals the hash the plugin will compute after applying block 1 —
+     * letting the streamed block 2 attest block 1 under lag-1.
+     *
+     * @param stateRoot the directory to write the seed snapshot and metadata into
+     * @return the footer-hash chain and the block-1 state changes to stream
+     * @throws Exception if the swirlds state cannot be built or written
+     */
+    public static SeededChain generateWithChain(final Path stateRoot) throws Exception {
+        final Path recentRoot = stateRoot.resolve("recent");
+        final Path metadataPath = stateRoot.resolve("stateMetadata.json");
+        Files.createDirectories(recentRoot);
+
+        final Configuration configuration = ConfigurationBuilder.create()
+                .withConfigDataType(MerkleDbConfig.class)
+                .withConfigDataType(VirtualMapConfig.class)
+                .withConfigDataType(PathsConfig.class)
+                .build();
+        final VirtualMapStateLifecycleManager lifecycleManager = new VirtualMapStateLifecycleManager(
+                new NoOpMetrics(), Time.getCurrent(), configuration, new FileSystemManager(recentRoot));
+        lifecycleManager.copyMutableState();
+
+        // Block 0 (seed) — same writes as generate().
+        final BinaryState seedMutable = lifecycleManager.getMutableState();
+        seedMutable.updateSingleton(SINGLETON_STATE_ID, SINGLETON_VALUE_ENCODED);
+        seedMutable.updateKv(KV_STATE_ID, KV_KEY_ENCODED, KV_VALUE_ENCODED);
+        seedMutable.pushQueue(QUEUE_STATE_ID, QUEUE_ELEMENT_ENCODED);
+        lifecycleManager.copyMutableState();
+        final VirtualMapState sealed0 = lifecycleManager.getLatestImmutableState();
+        final Bytes block1FooterHash = rootHashOf(sealed0); // post-block-0 root → block 1's footer
+
+        lifecycleManager.createSnapshot(sealed0, recentRoot.resolve(Long.toString(SEED_BLOCK_NUMBER)));
+        final StateMetadata metadata = StateMetadata.newBuilder()
+                .blockNumber(SEED_BLOCK_NUMBER)
+                .roundNumber(SEED_ROUND_NUMBER)
+                .stateRootHash(block1FooterHash)
+                .build();
+        Files.write(metadataPath, StateMetadata.JSON.toBytes(metadata).toByteArray());
+
+        // Block 1 — apply the distinct changes with the SAME encoding StateChangeApplier uses, so the
+        // resulting hash matches what the plugin computes when it applies the streamed block 1.
+        final BinaryState block1Mutable = lifecycleManager.getMutableState();
+        block1Mutable.updateSingleton(SINGLETON_STATE_ID, BLOCK1_SINGLETON_VALUE_ENCODED);
+        block1Mutable.updateKv(KV_STATE_ID, BLOCK1_KV_KEY_ENCODED, BLOCK1_KV_VALUE_ENCODED);
+        block1Mutable.pushQueue(QUEUE_STATE_ID, BLOCK1_QUEUE_ELEMENT_ENCODED);
+        lifecycleManager.copyMutableState();
+        final VirtualMapState sealed1 = lifecycleManager.getLatestImmutableState();
+        final Bytes block2FooterHash = rootHashOf(sealed1); // post-block-1 root → block 2's footer
+
+        final StateChanges block1StateChanges = StateChanges.newBuilder()
+                .stateChanges(List.of(
+                        StateChange.newBuilder()
+                                .stateId(SINGLETON_STATE_ID)
+                                .singletonUpdate(SingletonUpdateChange.newBuilder()
+                                        .bytesValue(BLOCK1_SINGLETON_VALUE)
+                                        .build())
+                                .build(),
+                        StateChange.newBuilder()
+                                .stateId(KV_STATE_ID)
+                                .mapUpdate(MapUpdateChange.newBuilder()
+                                        .key(MapChangeKey.newBuilder()
+                                                .protoBytesKey(BLOCK1_KV_KEY_RAW)
+                                                .build())
+                                        .value(MapChangeValue.newBuilder()
+                                                .protoStringValue(BLOCK1_KV_VALUE_STRING)
+                                                .build())
+                                        .build())
+                                .build(),
+                        StateChange.newBuilder()
+                                .stateId(QUEUE_STATE_ID)
+                                .queuePush(QueuePushChange.newBuilder()
+                                        .protoBytesElement(BLOCK1_QUEUE_ELEMENT)
+                                        .build())
+                                .build()))
+                .build();
+
+        return new SeededChain(block1FooterHash, block2FooterHash, block1StateChanges);
     }
 
     /**

@@ -4,9 +4,12 @@ package org.hiero.block.suites.e2e;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
+import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import io.helidon.common.tls.Tls;
 import io.helidon.webclient.api.WebClient;
 import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
@@ -17,16 +20,27 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.BinaryStateQuery;
 import org.hiero.block.api.BinaryStateQueryResponse;
 import org.hiero.block.api.BinaryStateQueryResponse.Code;
+import org.hiero.block.api.BlockEnd;
+import org.hiero.block.api.BlockItemSet;
+import org.hiero.block.api.BlockStreamPublishServiceInterface;
+import org.hiero.block.api.PublishStreamRequest;
+import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.StateServiceInterface;
 import org.hiero.block.node.app.BlockNodeApp;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.health.HealthFacility.State;
+import org.hiero.block.suites.utils.BlockItemBuilderUtils;
+import org.hiero.block.suites.utils.ResponsePipelineUtils;
 import org.hiero.block.suites.utils.StateSeedSnapshotGenerator;
+import org.hiero.block.suites.utils.StateSeedSnapshotGenerator.SeededChain;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -131,6 +145,95 @@ class StateManagementE2ETests {
     }
 
     @Test
+    void seededStateAppliesStreamedBlocksAndProgressesOverGrpc() throws Exception {
+        // Generate a seed (block 0) plus the footer-hash chain for blocks 1 and 2, then boot the app
+        // on a fresh copy so the plugin loads block 0 as attested.
+        final Path chainSeedDir = Path.of("build/tmp/state-e2e-chain-seed").toAbsolutePath();
+        deleteRecursively(chainSeedDir);
+        Files.createDirectories(chainSeedDir);
+        final SeededChain chain = StateSeedSnapshotGenerator.generateWithChain(chainSeedDir);
+
+        final Path runDir = freshRunDir();
+        copyRecursively(chainSeedDir, runDir);
+        setStateProperties(runDir);
+        bootApp();
+
+        final var stateClient = new StateServiceInterface.StateServiceClient(grpcClient, OPTIONS);
+
+        // Pre-stream: only the seed (block 0) is exposed.
+        final BinaryStateQueryResponse preSingleton = stateClient.getBinarySingleton(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(StateSeedSnapshotGenerator.SINGLETON_STATE_ID)
+                .build());
+        assertThat(preSingleton.status()).isEqualTo(Code.SUCCESS);
+        assertThat(preSingleton.singletonBytes()).isEqualTo(StateSeedSnapshotGenerator.SINGLETON_VALUE_ENCODED);
+        assertThat(preSingleton.stateMetadata().blockNumber())
+                .as("only the seed block is exposed before streaming")
+                .isEqualTo(0L);
+
+        // Stream a throwaway block 0 (so the BN head is 0 and the publisher accepts a contiguous chain),
+        // then verifiable block 1 (carrying the changes) and block 2 (which attests block 1 under lag-1).
+        final var publishClient =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> observer = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> stream = publishClient.publishBlockStream(observer);
+
+        final Bytes block0Hash = BlockItemBuilderUtils.computeBlockHash(0L, null);
+        final Bytes block1Hash = BlockItemBuilderUtils.computeBlockHashWithState(
+                1L, block0Hash, chain.block1FooterHash(), chain.block1StateChanges());
+
+        streamBlock(stream, observer, BlockItemBuilderUtils.createSimpleBlockWithNumber(0L, null), 0L);
+        streamBlock(
+                stream,
+                observer,
+                BlockItemBuilderUtils.createVerifiableBlockWithState(
+                        1L, block0Hash, chain.block1FooterHash(), chain.block1StateChanges()),
+                1L);
+        streamBlock(
+                stream,
+                observer,
+                BlockItemBuilderUtils.createVerifiableBlockWithState(2L, block1Hash, chain.block2FooterHash(), null),
+                2L);
+
+        // The plugin applies asynchronously; wait until block 1 is exposed (progression 0 → 1).
+        awaitExposedBlock(stateClient, 1L);
+
+        // Block progression confirmed, and all three shapes reflect the block-1 changes.
+        final BinaryStateQueryResponse singleton = stateClient.getBinarySingleton(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(StateSeedSnapshotGenerator.SINGLETON_STATE_ID)
+                .build());
+        assertThat(singleton.status()).isEqualTo(Code.SUCCESS);
+        assertThat(singleton.stateMetadata().blockNumber())
+                .as("exposed block progressed to 1")
+                .isEqualTo(1L);
+        assertThat(singleton.singletonBytes())
+                .as("singleton reflects the block-1 update")
+                .isEqualTo(StateSeedSnapshotGenerator.BLOCK1_SINGLETON_VALUE_ENCODED);
+
+        final BinaryStateQueryResponse kv = stateClient.getBinaryKV(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(StateSeedSnapshotGenerator.KV_STATE_ID)
+                .keyBytes(StateSeedSnapshotGenerator.BLOCK1_KV_KEY_ENCODED)
+                .build());
+        assertThat(kv.status()).as("block-1 KV key is now present").isEqualTo(Code.SUCCESS);
+        assertThat(kv.kvBytes()).isEqualTo(StateSeedSnapshotGenerator.BLOCK1_KV_VALUE_ENCODED);
+
+        final BinaryStateQueryResponse queue = stateClient.getBinaryQueue(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(StateSeedSnapshotGenerator.QUEUE_STATE_ID)
+                .build());
+        assertThat(queue.status()).isEqualTo(Code.SUCCESS);
+        assertThat(queue.queueBytes())
+                .as("queue holds the seed element plus the block-1 element")
+                .containsExactly(
+                        StateSeedSnapshotGenerator.QUEUE_ELEMENT_ENCODED,
+                        StateSeedSnapshotGenerator.BLOCK1_QUEUE_ELEMENT_ENCODED);
+
+        publishClient.close();
+    }
+
+    @Test
     void emptyStateReturnsNotReadyOverGrpc() throws Exception {
         bootAppWithEmptyState();
         final var client = new StateServiceInterface.StateServiceClient(grpcClient, OPTIONS);
@@ -188,6 +291,45 @@ class StateManagementE2ETests {
         }
         assertEquals(State.RUNNING, app.blockNodeState(), "BlockNodeApp must be RUNNING after startup");
         grpcClient = createGrpcClient();
+    }
+
+    /** Send a block's items plus its end-of-block marker, then await an ACK for {@code blockNumber}. */
+    private static void streamBlock(
+            final Pipeline<? super PublishStreamRequest> stream,
+            final ResponsePipelineUtils<PublishStreamResponse> observer,
+            final BlockItem[] items,
+            final long blockNumber)
+            throws InterruptedException {
+        final AtomicReference<CountDownLatch> ackLatch = observer.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
+                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() >= blockNumber);
+        stream.onNext(PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(items).build())
+                .build());
+        stream.onNext(PublishStreamRequest.newBuilder()
+                .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
+                .build());
+        ackLatch.get().await(60, TimeUnit.SECONDS);
+        assertEquals(0, ackLatch.get().getCount(), "Timed out waiting for ACK >= " + blockNumber);
+    }
+
+    /** Poll the state service until the exposed block reaches {@code expectedBlock} (or time out). */
+    private static void awaitExposedBlock(
+            final StateServiceInterface.StateServiceClient client, final long expectedBlock)
+            throws InterruptedException {
+        final long deadline = System.currentTimeMillis() + 30_000L;
+        while (System.currentTimeMillis() < deadline) {
+            final BinaryStateQueryResponse response = client.getBinarySingleton(BinaryStateQuery.newBuilder()
+                    .retrieveLatest(true)
+                    .stateId(StateSeedSnapshotGenerator.SINGLETON_STATE_ID)
+                    .build());
+            if (response.status() == Code.SUCCESS
+                    && response.stateMetadata() != null
+                    && response.stateMetadata().blockNumber() >= expectedBlock) {
+                return;
+            }
+            Thread.sleep(100);
+        }
     }
 
     private static void clearProperties() {
