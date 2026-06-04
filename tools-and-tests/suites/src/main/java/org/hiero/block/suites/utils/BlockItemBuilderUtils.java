@@ -442,11 +442,11 @@ public final class BlockItemBuilderUtils {
     /**
      * Creates a verifiable block carrying an explicit {@code startOfBlockStateRootHash} in its footer
      * and (optionally) a {@code state_changes} item, with a block proof signature that
-     * {@link org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession} accepts (legacy
-     * {@code SHA384(blockRootHash)} path). The block root hash is computed exactly as that session
-     * computes it — folding the header into the output subtree, the round header into the consensus
-     * subtree, the {@code state_changes} item into the state-changes subtree, and threading the chosen
-     * {@code startOfBlockStateRootHash} — so the block both verifies and drives a real state apply.
+     * {@code ExtendedMerkleTreeSession} accepts (legacy {@code SHA384(blockRootHash)} path).
+     * The block root hash is computed exactly as that session computes it — folding the header into the
+     * output subtree, the round header into the consensus subtree, the {@code state_changes} item into
+     * the state-changes subtree, and threading the chosen {@code startOfBlockStateRootHash} — so the
+     * block both verifies and drives a real state apply.
      *
      * <p>Use {@link #computeBlockHashWithState} to chain the next block's {@code previousBlockHash}.
      *
