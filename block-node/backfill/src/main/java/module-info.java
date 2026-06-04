@@ -10,25 +10,15 @@ module org.hiero.block.node.backfill {
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
             org.hiero.block.node.app;
-    exports org.hiero.block.node.backfill.client to
-            com.swirlds.config.extensions,
-            com.swirlds.config.impl,
-            org.hiero.block.node.app;
 
-    requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.config.api;
+    requires transitive org.hiero.block.node.base;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
     requires transitive org.hiero.metrics;
-    requires com.hedera.pbj.grpc.client.helidon;
+    requires com.hedera.pbj.runtime;
     requires org.hiero.block.node.app.config;
-    requires org.hiero.block.node.base;
-    requires io.helidon.common.tls;
-    requires io.helidon.webclient.api;
-    requires io.helidon.webclient.grpc;
-    requires io.helidon.webclient.http2;
     requires java.logging;
-    requires org.antlr.antlr4.runtime;
     requires static transitive com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with

@@ -14,8 +14,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.TssData;
+import org.hiero.block.internal.BlockNodeSource;
+import org.hiero.block.internal.BlockNodeSourceConfig;
+import org.hiero.block.node.base.client.BlockNodeClient;
 import org.hiero.block.node.roster.bootstrap.tss.RosterBootstrapTssPlugin.MetricsHolder;
-import org.hiero.block.node.roster.bootstrap.tss.client.BlockNodeClient;
 
 /// Client for fetching TssData from block nodes using gRPC.
 /// This client handles fetching TssData from select nodes.
@@ -77,7 +79,7 @@ public class TssDataFetcher implements Closeable {
             LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", node.address());
         }
         return nodeClientMap.computeIfAbsent(
-                node, n -> new BlockNodeClient(n, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
+                node, n -> new BlockNodeClient(n, 10_000, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
     }
 
     /// Perform a serverStatusDetail call per configured node and capture the TssData.

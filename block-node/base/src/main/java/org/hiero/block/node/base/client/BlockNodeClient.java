@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.roster.bootstrap.tss.client;
+package org.hiero.block.node.base.client;
 
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
@@ -21,8 +21,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.ToIntFunction;
 import org.hiero.block.api.BlockNodeServiceInterface;
-import org.hiero.block.node.roster.bootstrap.tss.BlockNodeSourceConfig;
-import org.hiero.block.node.roster.bootstrap.tss.GrpcWebClientTuning;
+import org.hiero.block.internal.BlockNodeSourceConfig;
+import org.hiero.block.internal.GrpcWebClientTuning;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 public class BlockNodeClient implements Closeable {
@@ -45,6 +45,35 @@ public class BlockNodeClient implements Closeable {
     private static final int MAX_BUFFER_SIZE = 64 * 1024 * 1024; // 64 MB
     private static final int MIN_HEADER_LIST_SIZE_BOUND = 1024; // 1 KB
     private static final int MAX_HEADER_LIST_SIZE_BOUND = 1024 * 1024; // 1 MB
+
+    // Config specification record bundling name, default, range, and getter
+    record IntConfigSpec(
+            String name, int defaultValue, int minValue, int maxValue, ToIntFunction<GrpcWebClientTuning> getter) {
+        boolean isValid(int value) {
+            return value >= minValue && value <= maxValue;
+        }
+
+        int getValidOrDefault(@Nullable GrpcWebClientTuning tuning) {
+            // if null use default
+            if (tuning == null) return defaultValue;
+            // get value from tuning
+            int value = getter.applyAsInt(tuning);
+            // if 0 use default
+            if (value == 0) return defaultValue;
+            // validate range
+            if (isValid(value)) return value;
+            // log warning and use default
+            LOGGER.log(
+                    Level.WARNING,
+                    "Invalid tuning value for {0}: {1} is outside valid range [{2}, {3}], using default: {4}",
+                    name,
+                    value,
+                    minValue,
+                    maxValue,
+                    defaultValue);
+            return defaultValue;
+        }
+    }
 
     // Timeout config specs
     private static final IntConfigSpec CONNECT_TIMEOUT = new IntConfigSpec(
@@ -85,62 +114,37 @@ public class BlockNodeClient implements Closeable {
 
     private final PbjGrpcClientConfig grpcConfig;
     private final WebClient webClient;
+    private final int globalTimeoutMs;
+    private BlockStreamSubscribeUnparsedClient blockStreamSubscribeUnparsedClient;
     private BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
     private boolean nodeReachable;
 
-    @Override
-    public void close() throws IOException {
-        if (blockNodeServiceClient != null) {
-            blockNodeServiceClient.close();
-        }
-    }
-
-    // Config specification record bundling name, default, range, and getter
-    record IntConfigSpec(
-            String name, int defaultValue, int minValue, int maxValue, ToIntFunction<GrpcWebClientTuning> getter) {
-        boolean isValid(int value) {
-            return value >= minValue && value <= maxValue;
-        }
-
-        int getValidOrDefault(@Nullable GrpcWebClientTuning tuning) {
-            // if null use default
-            if (tuning == null) return defaultValue;
-            // get value from tuning
-            int value = getter.applyAsInt(tuning);
-            // if 0 use default
-            if (value == 0) return defaultValue;
-            // validate range
-            if (isValid(value)) return value;
-            // log warning and use default
-            LOGGER.log(
-                    Level.WARNING,
-                    "Invalid tuning value for {0}: {1} is outside valid range [{2}, {3}], using default: {4}",
-                    name,
-                    value,
-                    minValue,
-                    maxValue,
-                    defaultValue);
-            return defaultValue;
-        }
-    }
-
-    /// Constructs a BlockNodeClient using the provided configuration.
-    ///
-    /// @param blockNodeConfig the configuration for the block node, including address and port
-    /// latch await
-    /// @param enableTls whether to enable TLS for connections
-    /// @param maxIncomingBufferSize the maximum incoming buffer size in bytes for gRPC message reception
-    /// @param tuning optional tuning for timeouts and HTTP/2 settings
+    /**
+     * Constructs a BlockNodeClient using the provided configuration.
+     *
+     * @param blockNodeConfig the configuration for the block node, including address and port
+     * @param globalTimeoutMs the global gRPC timeout in ms (fallback when tuning values are 0), also used for latch await
+     * @param enableTls whether to enable TLS for connections
+     * @param maxIncomingBufferSize the maximum incoming buffer size in bytes for gRPC message reception
+     * @param tuning optional tuning for timeouts and HTTP/2 settings
+     */
     public BlockNodeClient(
             @NonNull BlockNodeSourceConfig blockNodeConfig,
+            int globalTimeoutMs,
             boolean enableTls,
             int maxIncomingBufferSize,
             @Nullable GrpcWebClientTuning tuning) {
 
+        this.globalTimeoutMs = globalTimeoutMs;
+        int connectTimeoutMs = CONNECT_TIMEOUT.getValidOrDefault(tuning);
+        int readTimeoutMs = READ_TIMEOUT.getValidOrDefault(tuning);
+        int pollWaitMs = POLL_WAIT_TIME.getValidOrDefault(tuning);
+
         Tls tls = Tls.builder().enabled(enableTls).build();
         String protocol = enableTls ? "https://" : "http://";
+
         grpcConfig = new PbjGrpcClientConfig(
-                Duration.ofMillis(READ_TIMEOUT.getValidOrDefault(tuning)),
+                Duration.ofMillis(readTimeoutMs),
                 tls,
                 Optional.of(""),
                 "application/grpc",
@@ -152,9 +156,8 @@ public class BlockNodeClient implements Closeable {
         webClient = WebClient.builder()
                 .baseUri(protocol + blockNodeConfig.address() + ":" + blockNodeConfig.port())
                 .tls(tls)
-                .protocolConfigs(List.of(
-                        buildHttp2Config(tuning), buildGrpcConfig(POLL_WAIT_TIME.getValidOrDefault(tuning), tuning)))
-                .connectTimeout(Duration.ofMillis(CONNECT_TIMEOUT.getValidOrDefault(tuning)))
+                .protocolConfigs(List.of(buildHttp2Config(tuning), buildGrpcConfig(pollWaitMs, tuning)))
+                .connectTimeout(Duration.ofMillis(connectTimeoutMs))
                 .keepAlive(true)
                 .build();
 
@@ -196,15 +199,27 @@ public class BlockNodeClient implements Closeable {
                 .build();
     }
 
-    private void initializeClient() {
+    public void initializeClient() {
         try {
             PbjGrpcClient pbjGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
             blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(pbjGrpcClient, OPTIONS);
+            blockStreamSubscribeUnparsedClient = new BlockStreamSubscribeUnparsedClient(pbjGrpcClient, globalTimeoutMs);
             nodeReachable = true;
         } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException ex) {
             LOGGER.log(Level.WARNING, "Failed to initialize gRPC client: %s".formatted(ex.getMessage()), ex);
             nodeReachable = false;
         }
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (blockNodeServiceClient != null) {
+            blockNodeServiceClient.close();
+        }
+    }
+
+    public BlockStreamSubscribeUnparsedClient getBlockstreamSubscribeUnparsedClient() {
+        return blockStreamSubscribeUnparsedClient;
     }
 
     public BlockNodeServiceInterface.BlockNodeServiceClient getBlockNodeServiceClient() {

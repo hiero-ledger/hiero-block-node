@@ -11,6 +11,8 @@ mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
+    runtimeOnly("com.hedera.pbj.grpc.client.helidon")
+    runtimeOnly("com.hedera.pbj.grpc.helidon")
 }
 
 testModuleInfo {
@@ -21,5 +23,4 @@ testModuleInfo {
     requires("org.mockito")
     requires("org.testcontainers")
     requires("io.minio")
-    requires("org.hiero.block.protobuf.pbj")
 }

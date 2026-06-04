@@ -24,13 +24,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.ServerStatusResponse;
+import org.hiero.block.internal.BlockNodeSource;
+import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
-import org.hiero.block.node.backfill.client.BackfillSource;
-import org.hiero.block.node.backfill.client.BackfillSourceConfig;
-import org.hiero.block.node.backfill.client.BlockNodeClient;
-import org.hiero.block.node.backfill.client.BlockStreamSubscribeUnparsedClient;
+import org.hiero.block.node.base.client.BlockNodeClient;
+import org.hiero.block.node.base.client.BlockStreamSubscribeUnparsedClient;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -48,8 +48,8 @@ class BackfillFetcherTest {
     private static BackfillPlugin.MetricsHolder metricsHolder;
     private static TestMetricsExporter testMetricsExporter;
 
-    private static BackfillSourceConfig node(String host, int port, int priority) {
-        return BackfillSourceConfig.newBuilder()
+    private static BlockNodeSourceConfig node(String host, int port, int priority) {
+        return BlockNodeSourceConfig.newBuilder()
                 .address(host)
                 .port(port)
                 .priority(priority)
@@ -60,9 +60,9 @@ class BackfillFetcherTest {
         return TestBlockBuilder.generateBlockWithNumber(blockNumber).blockUnparsed();
     }
 
-    private static BackfillFetcher newClient(BackfillSourceConfig... nodes) throws Exception {
-        final BackfillSource source =
-                BackfillSource.newBuilder().nodes(List.of(nodes)).build();
+    private static BackfillFetcher newClient(BlockNodeSourceConfig... nodes) throws Exception {
+        final BlockNodeSource source =
+                BlockNodeSource.newBuilder().nodes(List.of(nodes)).build();
         return new BackfillFetcher(source, createTestConfig(1, 0, 0, 0, 300_000L, 1000.0), createTestMetricsHolder());
     }
 
@@ -112,8 +112,8 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("selects node with earliest start block")
         void selectsEarliestStart() throws Exception {
-            final BackfillSourceConfig lowPriority = node("localhost", 1, 1);
-            final BackfillSourceConfig highPriority = node("localhost", 2, 2);
+            final BlockNodeSourceConfig lowPriority = node("localhost", 1, 1);
+            final BlockNodeSourceConfig highPriority = node("localhost", 2, 2);
             final BackfillFetcher client = newClient(lowPriority, highPriority);
 
             Optional<NodeSelectionStrategy.NodeSelection> selection = client.selectNextChunk(
@@ -128,8 +128,8 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("breaks ties by lower priority value")
         void breaksTiesByPriority() throws Exception {
-            final BackfillSourceConfig lowPriority = node("localhost", 1, 1);
-            final BackfillSourceConfig highPriority = node("localhost", 2, 2);
+            final BlockNodeSourceConfig lowPriority = node("localhost", 1, 1);
+            final BlockNodeSourceConfig highPriority = node("localhost", 2, 2);
             final BackfillFetcher client = newClient(lowPriority, highPriority);
 
             Optional<NodeSelectionStrategy.NodeSelection> selection = client.selectNextChunk(
@@ -143,7 +143,7 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("returns empty when no range covers start")
         void returnsEmptyWhenNoRangeCoversStart() throws Exception {
-            final BackfillSourceConfig lowPriority = node("localhost", 1, 1);
+            final BlockNodeSourceConfig lowPriority = node("localhost", 1, 1);
             final BackfillFetcher client = newClient(lowPriority);
 
             Optional<NodeSelectionStrategy.NodeSelection> selection =
@@ -154,7 +154,7 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("returns empty for empty availability")
         void returnsEmptyForEmptyAvailability() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
             final BackfillFetcher client = newClient(nodeConfig);
 
             Optional<NodeSelectionStrategy.NodeSelection> selection =
@@ -171,7 +171,7 @@ class BackfillFetcherTest {
         @Timeout(value = 10, unit = TimeUnit.SECONDS)
         @DisplayName("returns blocks on success")
         void returnsBlocksOnSuccess() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
             final BackfillPlugin.MetricsHolder metrics = createTestMetricsHolder();
 
             long retriesBefore = getMetricValue(BackfillPlugin.METRIC_BACKFILL_RETRIES);
@@ -187,7 +187,7 @@ class BackfillFetcherTest {
         @Timeout(value = 10, unit = TimeUnit.SECONDS)
         @DisplayName("returns empty on block count mismatch")
         void returnsEmptyOnMismatch() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
             final BackfillPlugin.MetricsHolder metrics = createTestMetricsHolder();
 
             BlockNodeClient mismatchClient = mockClientReturning(List.of(createTestBlock(0L)));
@@ -200,7 +200,7 @@ class BackfillFetcherTest {
         @Timeout(value = 10, unit = TimeUnit.SECONDS)
         @DisplayName("retries on failure and increments retry metric")
         void retriesOnFailure() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
             final BackfillPlugin.MetricsHolder metrics = createTestMetricsHolder();
 
             long retriesBefore = getMetricValue(BackfillPlugin.METRIC_BACKFILL_RETRIES);
@@ -237,7 +237,7 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("returns null when node is unreachable")
         void returnsNullWhenUnreachable() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
 
             BlockNodeClient unreachable = mock(BlockNodeClient.class);
             when(unreachable.isNodeReachable()).thenReturn(false);
@@ -248,7 +248,7 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("returns range when node is reachable")
         void returnsRangeWhenReachable() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
 
             BlockNodeClient reachable = mockReachableClientWithStatus(0L, 100L);
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), reachable);
@@ -261,7 +261,7 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("returns null when already ahead of peers")
         void returnsNullWhenAheadOfPeers() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
 
             BlockNodeClient reachable = mockReachableClientWithStatus(0L, 100L);
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), reachable);
@@ -286,7 +286,7 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("returns null when serverStatus throws exception for all nodes")
         void shouldReturnNullWhenServerStatusThrowsForAllNodes() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
 
             // Mock a reachable client that throws on serverStatus()
             BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
@@ -305,8 +305,8 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("returns range from healthy nodes when some nodes timeout on serverStatus")
         void shouldReturnRangeFromHealthyNodesWhenSomeTimeout() throws Exception {
-            final BackfillSourceConfig failingNode = node("localhost", 1, 1);
-            final BackfillSourceConfig healthyNode = node("localhost", 2, 2);
+            final BlockNodeSourceConfig failingNode = node("localhost", 1, 1);
+            final BlockNodeSourceConfig healthyNode = node("localhost", 2, 2);
 
             // Failing node throws on serverStatus
             BlockNodeServiceInterface.BlockNodeServiceClient failingServiceClient =
@@ -329,11 +329,11 @@ class BackfillFetcherTest {
             when(healthyClient.getBlockNodeServiceClient()).thenReturn(healthyServiceClient);
 
             // Create fetcher that returns different clients for different nodes
-            final BackfillSource source = createSource(failingNode, healthyNode);
+            final BlockNodeSource source = createSource(failingNode, healthyNode);
             final BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
             BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
-                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
                     return node.equals(failingNode) ? failingClient : healthyClient;
                 }
             };
@@ -353,8 +353,8 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("returns intersection for reachable nodes with overlap")
         void returnsIntersectionForReachableNodes() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
-            final BackfillSource source = createSource(nodeConfig);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSource source = createSource(nodeConfig);
             final BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
 
             BlockNodeClient reachable = mock(BlockNodeClient.class);
@@ -362,7 +362,7 @@ class BackfillFetcherTest {
 
             BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
-                protected BlockNodeClient getNodeClient(BackfillSourceConfig ignored) {
+                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig ignored) {
                     return reachable;
                 }
 
@@ -372,7 +372,7 @@ class BackfillFetcherTest {
                 }
             };
 
-            Map<BackfillSourceConfig, List<LongRange>> availability =
+            Map<BlockNodeSourceConfig, List<LongRange>> availability =
                     fetcher.getAvailabilityForRange(new LongRange(10, 50));
             assertFalse(availability.isEmpty());
             assertEquals(new LongRange(10, 50), availability.get(nodeConfig).get(0));
@@ -381,8 +381,8 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("returns empty when no overlap with requested range")
         void returnsEmptyWhenNoOverlap() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
-            final BackfillSource source = createSource(nodeConfig);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSource source = createSource(nodeConfig);
             final BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
 
             BlockNodeClient reachable = mock(BlockNodeClient.class);
@@ -390,7 +390,7 @@ class BackfillFetcherTest {
 
             BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
-                protected BlockNodeClient getNodeClient(BackfillSourceConfig ignored) {
+                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig ignored) {
                     return reachable;
                 }
 
@@ -400,7 +400,7 @@ class BackfillFetcherTest {
                 }
             };
 
-            Map<BackfillSourceConfig, List<LongRange>> availability =
+            Map<BlockNodeSourceConfig, List<LongRange>> availability =
                     fetcher.getAvailabilityForRange(new LongRange(200, 300));
             assertTrue(availability.isEmpty());
         }
@@ -408,13 +408,13 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("returns empty when node is unreachable")
         void returnsEmptyWhenUnreachable() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
 
             BlockNodeClient unreachable = mock(BlockNodeClient.class);
             when(unreachable.isNodeReachable()).thenReturn(false);
             BackfillFetcher unreachableFetcher =
                     createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), unreachable);
-            Map<BackfillSourceConfig, List<LongRange>> availability =
+            Map<BlockNodeSourceConfig, List<LongRange>> availability =
                     unreachableFetcher.getAvailabilityForRange(new LongRange(0, 100));
             assertTrue(availability.isEmpty());
         }
@@ -427,7 +427,7 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("tracks health score and backoff after failures")
         void healthAndBackoffBehaviors() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
 
             // Initially no backoff, zero health score
             BackfillFetcher fetcher = newClient(nodeConfig);
@@ -442,12 +442,12 @@ class BackfillFetcherTest {
             when(failingClient.getBlockstreamSubscribeUnparsedClient()).thenReturn(subscribeClient);
 
             double healthPenalty = 1000.0;
-            final BackfillSource source = createSource(nodeConfig);
+            final BlockNodeSource source = createSource(nodeConfig);
             final BackfillConfiguration config = createTestConfig(1, 10000, 1, 1, 300_000L, healthPenalty);
             final BackfillPlugin.MetricsHolder metrics = createTestMetricsHolder();
             fetcher = new BackfillFetcher(source, config, metrics) {
                 @Override
-                protected BlockNodeClient getNodeClient(BackfillSourceConfig ignored) {
+                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig ignored) {
                     return failingClient;
                 }
             };
@@ -465,8 +465,8 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("merges overlapping and contiguous ranges into single range")
         void mergesOverlappingRanges() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
-            final BackfillSource source = createSource(nodeConfig);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSource source = createSource(nodeConfig);
             final BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
 
             BlockNodeClient reachable = mock(BlockNodeClient.class);
@@ -474,7 +474,7 @@ class BackfillFetcherTest {
 
             BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
-                protected BlockNodeClient getNodeClient(BackfillSourceConfig ignored) {
+                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig ignored) {
                     return reachable;
                 }
 
@@ -484,7 +484,7 @@ class BackfillFetcherTest {
                 }
             };
 
-            Map<BackfillSourceConfig, List<LongRange>> availability =
+            Map<BlockNodeSourceConfig, List<LongRange>> availability =
                     fetcher.getAvailabilityForRange(new LongRange(0, 20));
             assertEquals(1, availability.get(nodeConfig).size());
             assertEquals(new LongRange(0, 20), availability.get(nodeConfig).get(0));
@@ -493,8 +493,8 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("keeps disjoint ranges separate")
         void keepsDisjointRangesSeparate() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
-            final BackfillSource source = createSource(nodeConfig);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSource source = createSource(nodeConfig);
             final BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
 
             BlockNodeClient reachable = mock(BlockNodeClient.class);
@@ -502,7 +502,7 @@ class BackfillFetcherTest {
 
             BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
-                protected BlockNodeClient getNodeClient(BackfillSourceConfig ignored) {
+                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig ignored) {
                     return reachable;
                 }
 
@@ -512,7 +512,7 @@ class BackfillFetcherTest {
                 }
             };
 
-            Map<BackfillSourceConfig, List<LongRange>> availability =
+            Map<BlockNodeSourceConfig, List<LongRange>> availability =
                     fetcher.getAvailabilityForRange(new LongRange(0, 60));
             assertEquals(2, availability.get(nodeConfig).size());
         }
@@ -530,15 +530,15 @@ class BackfillFetcherTest {
         @Timeout(value = 10, unit = TimeUnit.SECONDS)
         @DisplayName("should evict client on failure and create fresh one after backoff")
         void shouldEvictClientOnFailureAndCreateFreshAfterBackoff() throws Exception {
-            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
-            final BackfillSource source = createSource(nodeConfig);
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockNodeSource source = createSource(nodeConfig);
             final BackfillConfiguration config = createTestConfig(1, 10, 100, 100, 50L, 100.0);
 
             AtomicBoolean shouldFail = new AtomicBoolean(false);
 
             BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
-                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
                     return nodeClientMap.computeIfAbsent(node, n -> createToggleableMockClient(shouldFail));
                 }
             };
@@ -594,18 +594,18 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("getAvailabilityForRange should skip nodes in backoff")
         void shouldSkipNodesInBackoffForAvailability() throws Exception {
-            BackfillSourceConfig node1 = node("localhost", 1, 1);
-            BackfillSourceConfig node2 = node("localhost", 2, 1);
-            BackfillSourceConfig node3 = node("localhost", 3, 1);
+            BlockNodeSourceConfig node1 = node("localhost", 1, 1);
+            BlockNodeSourceConfig node2 = node("localhost", 2, 1);
+            BlockNodeSourceConfig node3 = node("localhost", 3, 1);
 
-            BackfillSource source = createSource(node1, node2, node3);
+            BlockNodeSource source = createSource(node1, node2, node3);
             BackfillConfiguration config = createTestConfig(1, 5_000, 1000, 1000, 300_000L, 1000.0);
 
             AtomicInteger clientCreationCount = new AtomicInteger(0);
 
             BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
-                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
                     clientCreationCount.incrementAndGet();
                     BlockNodeClient client = mock(BlockNodeClient.class);
                     when(client.isNodeReachable()).thenReturn(true);
@@ -632,7 +632,7 @@ class BackfillFetcherTest {
             clientCreationCount.set(0);
 
             // Second call - only node3 should be queried (node1, node2 in backoff)
-            Map<BackfillSourceConfig, List<LongRange>> availability =
+            Map<BlockNodeSourceConfig, List<LongRange>> availability =
                     fetcher.getAvailabilityForRange(new LongRange(0, 50));
             assertEquals(1, clientCreationCount.get(), "Only 1 node should be queried when 2 are in backoff");
             assertTrue(availability.containsKey(node3), "node3 should be in availability");
@@ -644,12 +644,12 @@ class BackfillFetcherTest {
         @DisplayName("should track connection attempts for multiple down sources")
         void shouldTrackConnectionAttemptsForMultipleDownSources() throws Exception {
             int numberOfNodes = 5;
-            List<BackfillSourceConfig> nodes = new ArrayList<>();
+            List<BlockNodeSourceConfig> nodes = new ArrayList<>();
             for (int i = 0; i < numberOfNodes; i++) {
                 nodes.add(node("localhost", i + 1, 1));
             }
 
-            BackfillSource source = BackfillSource.newBuilder().nodes(nodes).build();
+            BlockNodeSource source = BlockNodeSource.newBuilder().nodes(nodes).build();
             // Backoff delay must be long enough that it does not expire between the two scans
             BackfillConfiguration config = createTestConfig(1, 5_000, 1000, 1000, 300_000L, 1000.0);
 
@@ -657,7 +657,7 @@ class BackfillFetcherTest {
 
             BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
-                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
                     connectionAttempts.incrementAndGet();
                     // All nodes fail to connect
                     BlockNodeClient client = mock(BlockNodeClient.class);
@@ -672,7 +672,7 @@ class BackfillFetcherTest {
             assertEquals(numberOfNodes, connectionAttempts.get(), "Should attempt all nodes on first scan");
 
             // All nodes should now be in backoff
-            for (BackfillSourceConfig node : nodes) {
+            for (BlockNodeSourceConfig node : nodes) {
                 assertTrue(fetcher.isInBackoff(node), "Node " + node.port() + " should be in backoff after failure");
             }
 
@@ -690,8 +690,8 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("should apply exponential backoff on failure with max cap")
         void shouldApplyExponentialBackoffOnFailure() throws Exception {
-            BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
-            BackfillSource source = createSource(nodeConfig);
+            BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+            BlockNodeSource source = createSource(nodeConfig);
             // Initial delay 100ms, max backoff 1000ms for fast testing
             long initialDelayMs = 100L;
             long maxBackoffMs = 1_000L;
@@ -699,7 +699,7 @@ class BackfillFetcherTest {
 
             BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
-                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
                     BlockNodeClient client = mock(BlockNodeClient.class);
                     when(client.isNodeReachable()).thenReturn(true);
                     when(client.getBlockNodeServiceClient()).thenThrow(new RuntimeException("Connection refused"));
@@ -749,10 +749,10 @@ class BackfillFetcherTest {
         @Test
         @DisplayName("getNewAvailableRange should respect backoff and skip nodes in backoff")
         void shouldRespectBackoffInGetNewAvailableRange() throws Exception {
-            BackfillSourceConfig node1 = node("localhost", 1, 1);
-            BackfillSourceConfig node2 = node("localhost", 2, 1);
+            BlockNodeSourceConfig node1 = node("localhost", 1, 1);
+            BlockNodeSourceConfig node2 = node("localhost", 2, 1);
 
-            BackfillSource source = createSource(node1, node2);
+            BlockNodeSource source = createSource(node1, node2);
             BackfillConfiguration config = createTestConfig(1, 60_000, 1000, 1000, 300_000L, 1000.0);
 
             AtomicInteger node1Attempts = new AtomicInteger(0);
@@ -760,7 +760,7 @@ class BackfillFetcherTest {
 
             BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
-                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
                     if (node.equals(node1)) {
                         node1Attempts.incrementAndGet();
                     } else {
@@ -805,21 +805,21 @@ class BackfillFetcherTest {
     }
 
     // Helper methods
-    private static BackfillSource createSource(BackfillSourceConfig... nodes) {
-        return BackfillSource.newBuilder().nodes(List.of(nodes)).build();
+    private static BlockNodeSource createSource(BlockNodeSourceConfig... nodes) {
+        return BlockNodeSource.newBuilder().nodes(List.of(nodes)).build();
     }
 
     private static BackfillFetcher createFetcherWithClient(
-            BackfillSourceConfig nodeConfig,
+            BlockNodeSourceConfig nodeConfig,
             int maxRetries,
             BackfillPlugin.MetricsHolder metrics,
             BlockNodeClient client)
             throws Exception {
-        final BackfillSource source = createSource(nodeConfig);
+        final BlockNodeSource source = createSource(nodeConfig);
         final BackfillConfiguration config = createTestConfig(maxRetries, 1, 1000, 1000, 300_000L, 1000.0);
         return new BackfillFetcher(source, config, metrics) {
             @Override
-            protected BlockNodeClient getNodeClient(BackfillSourceConfig ignored) {
+            protected BlockNodeClient getNodeClient(BlockNodeSourceConfig ignored) {
                 return client;
             }
         };
