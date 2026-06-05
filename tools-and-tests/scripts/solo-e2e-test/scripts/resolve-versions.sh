@@ -37,11 +37,14 @@ readonly TCK_REPO="hiero-ledger/hiero-sdk-tck"
 #
 # | CN Version        | MN Minimum    | BN Minimum   | Notes                          |
 # |-------------------|---------------|--------------|--------------------------------|
-# | >= 0.74.0-rc.2    | 0.154.0-rc1   | 0.33.0-rc3   | TSS/WRAPS/hinTS support        |
+# | >= 0.75.0-rc.4    | 0.154.0       | 0.35.0       | WRB streaming + RSA roster      |
 #
-readonly COMPAT_CN_MINS=("0.74.0-rc.2")
-readonly COMPAT_MN_MINS=("0.154.0-rc1")
-readonly COMPAT_BN_MINS=("0.33.0-rc3")
+# Note: MN 0.155.0-rc2 .. 0.156.0-rc1 have a GraalVM native-image crash in the
+# importer (RecordFileConsensusTimestampsRecalculateMigration). 0.154.0 GA is the
+# newest working version and already supports WRB cutover (since 0.153.0).
+readonly COMPAT_CN_MINS=("0.75.0-rc.4")
+readonly COMPAT_MN_MINS=("0.154.0")
+readonly COMPAT_BN_MINS=("0.35.0")
 
 # Lowest tier CN floor (used to enforce CN minimum before tier selection)
 # Note: bash 3.2 (macOS default) does not support negative array indices — use explicit last index

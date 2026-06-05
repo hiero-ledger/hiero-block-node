@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# RSA Roster Verification Test (WRB / Phase 2a)
+#
+# Verifies that blocks are accepted via the RSA roster path rather than TSS.
+# In a WRB topology the Consensus Nodes stream Wrapped Record Blocks carrying
+# gossiped RSA signatures, and the Block Node verifies them against the roster
+# loaded by the roster-bootstrap-rsa plugin (fetched from the Mirror Node).
+#
+# Passes when, for each Block Node:
+#   - the RSA roster was loaded (blocknode_roster_entries_loaded > 0)
+#   - blocks were verified via the RSA proof path (rsa success >= min_rsa_success)
+#   - no RSA verification failures occurred
+#
+# Prerequisites:
+#   - A rsa-wrb topology deployed: task up TOPOLOGY=single-wrb-rsa (or 3cn-2bn-wrb-rsa)
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/rsa-roster-verification.yaml TOPOLOGY=single-wrb-rsa
+
+name: rsa-roster-verification
+description: "Verify blocks are accepted via the RSA roster (WRB), not TSS"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Network status before RSA verification check"
+    delay: 5
+
+  - id: settle
+    type: sleep
+    description: "Allow blocks to flow and be verified"
+    delay: 30
+    args:
+      seconds: 30
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: rsa-verification-active
+    type: rsa-roster-verification
+    description: "Blocks are verified via the RSA roster with no failures"
+    target: all
+    args:
+      min_rsa_success: 1

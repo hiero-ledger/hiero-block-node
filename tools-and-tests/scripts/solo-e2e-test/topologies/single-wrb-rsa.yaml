@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+# WRB + RSA topology: 1 Consensus Node, 1 Block Node, 1 Mirror Node
+#
+# "Special" Phase-2a topology. Instead of TSS-signed blocks, the Consensus Node
+# streams Wrapped Record Blocks (WRB) carrying gossiped RSA signatures. The Block
+# Node verifies them against an RSA roster loaded by the roster-bootstrap-rsa
+# plugin (fetched from the Mirror Node). TSS is disabled.
+#
+# CN1 -> BN1 -> MN
+#
+# The verification_mode marker drives WRB-specific deployment:
+#   - CN: blockStream.streamWrappedRecordBlocks=true, TSS disabled
+#   - BN: roster-bootstrap-rsa plugin enabled, points at the in-cluster Mirror Node
+#   - MN: WRB cutover importer config + DISABLE_IMPORTER_SPRING_PROFILES=true
+
+name: single-wrb-rsa
+description: "1 CN, 1 BN, 1 MN using WRB (wrapped record blocks) verified via the RSA roster"
+verification_mode: rsa-wrb
+
+block_nodes:
+  block-node-1:
+    address: block-node-1
+    port: 40840
+
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-1]
+
+mirror_nodes:
+  mirror-1:
+    block_nodes: [block-node-1]
+
+relay_nodes: {}
+
+explorer_nodes: {}

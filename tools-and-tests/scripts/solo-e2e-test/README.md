@@ -401,8 +401,31 @@ Topologies define network configuration. Located in `./topologies/`.
 | `minimal`             | 1  | 1  | 0  |   0   |    0     | CN+BN only, no mirror/relay/explorer                |
 | `2cn-2bn-backfill`    | 2  | 2  | 1  |   1   |    0     | Backfill testing, BN recovery after data loss       |
 | `7cn-3bn-distributed` | 7  | 3  | 1  |   1   |    0     | Distributed streaming, grouped CN->BN with backfill |
+| `single-wrb-rsa`      | 1  | 1  | 1  |   0   |    0     | WRB (wrapped record blocks) verified via RSA roster |
+| `3cn-2bn-wrb-rsa`     | 3  | 2  | 1  |   0   |    0     | WRB fan-out verified via RSA roster                 |
 
 See `../network-topology-tool/README.md` for topology schema details.
+
+### WRB + RSA Verification Topologies
+
+The `*-wrb-rsa` topologies are "special": instead of TSS-signed blocks they exercise the Phase-2a
+path where Consensus Nodes stream **Wrapped Record Blocks (WRB)** carrying gossiped RSA signatures,
+and Block Nodes verify them against an **RSA roster**. They are selected by a top-level
+`verification_mode: rsa-wrb` marker in the topology file (default is `tss`). When the marker is
+present the deploy script:
+
+- enables `blockStream.streamWrappedRecordBlocks=true` on the Consensus Nodes and **disables TSS**;
+- enables the `roster-bootstrap-rsa` Block Node plugin, pointing it at the in-cluster Mirror Node
+  REST service (`ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL`);
+- configures the Mirror Node importer for the WRB cutover (`block.cutover.enabled`,
+  `firstStage.enabled`, `DISABLE_IMPORTER_SPRING_PROFILES=true`).
+
+Deployment order stays the standard **BN -> CN -> MN** (so Solo wires the Block Nodes as
+stream sources on the Consensus Nodes). The `roster-bootstrap-rsa` plugin polls the Mirror Node
+indefinitely until it is reachable, so the Block Node tolerates the Mirror Node starting later.
+
+These topologies do not run the `tss-signature-transition` test; they run `rsa-roster-verification`
+instead.
 
 ## CI Integration
 
@@ -533,6 +556,7 @@ task test:validate TEST_FILE=tests/basic-load.yaml
 | `tests/high-load.yaml`               | High load test (5000 TPS cap)                   |
 | `tests/node-restart-resilience.yaml` | BN recovery after restart during load           |
 | `tests/full-history-backfill.yaml`   | BN recovery via backfill after simulated outage |
+| `tests/rsa-roster-verification.yaml` | Blocks verified via the RSA roster (WRB topologies) |
 
 ### Test Definition Schema
 
@@ -592,6 +616,7 @@ assertions:                      # Validations to run after all events
 | `node-healthy`      | Verify pod is Running              | `target`                       |
 | `no-errors`         | Verify no verification errors      | `target`                       |
 | `blocks-increasing` | Verify blocks are actively flowing | `wait_seconds`, `max_attempts` |
+| `rsa-roster-verification` | Verify blocks accepted via the RSA roster (WRB), no RSA failures | `min_rsa_success` |
 
 **Note:** The `blocks-increasing` assertion verifies a Block Node is actively receiving blocks. It measures baseline, waits `wait_seconds` (default: 60), verifies increase, retrying up to `max_attempts` (default: 3) times.
 
@@ -696,6 +721,8 @@ Tests are validated against topologies before execution. The matrix defines whic
 | `fan-out-3cn-2bn`     | `smoke-test`                                          |
 | `2cn-2bn-backfill`    | `full-history-backfill`                               |
 | `7cn-3bn-distributed` | `smoke-test`                                          |
+| `single-wrb-rsa`      | `smoke-test`, `rsa-roster-verification`               |
+| `3cn-2bn-wrb-rsa`     | `smoke-test`, `rsa-roster-verification`               |
 
 Multiple tests run sequentially on the same deployment, reducing CI time.
 
