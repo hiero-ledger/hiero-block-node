@@ -139,7 +139,7 @@ Observes inbound streams from publishers.
 
 ### Subscriber
 
-**Plugin:** `stream-subscriber` [block-node-stream-subscriber]`
+**Plugin:** `stream-subscriber [block-node-stream-subscriber]`
 Observes outbound streams served to subscribers.
 
 |  Type   |             Name              |              Description              |
@@ -212,7 +212,7 @@ Tracks long‑term archival jobs that push blocks to S3.
 | Counter | `s3_archive_tasks_sucess_total` | Successful archival tasks               |
 | Gauge   | `s3_archive_total_bytes_stored` | Total bytes stored in S3 (cost metric)  |
 | Counter | `s3_archive_chunks_uploaded`    | Chunks uploaded to S3                   |
-| Gauge   | `s3_archive_chunks_opened`      | Open chucks currently                   |
+| Gauge   | `s3_archive_chunks_opened`      | Open chunks currently                   |
 | Counter | `s3_archive_files_closed`       | Total number of files closed, finished. |
 
 ---
