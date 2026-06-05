@@ -549,13 +549,13 @@ task test:validate TEST_FILE=tests/basic-load.yaml
 
 ### Available Tests
 
-|              Test File               |                   Description                   |
-|--------------------------------------|-------------------------------------------------|
-| `tests/smoke-test.yaml`              | Quick validation of network functionality       |
-| `tests/basic-load.yaml`              | Basic load test (1000 TPS cap)                  |
-| `tests/high-load.yaml`               | High load test (5000 TPS cap)                   |
-| `tests/node-restart-resilience.yaml` | BN recovery after restart during load           |
-| `tests/full-history-backfill.yaml`   | BN recovery via backfill after simulated outage |
+|              Test File               |                     Description                     |
+|--------------------------------------|-----------------------------------------------------|
+| `tests/smoke-test.yaml`              | Quick validation of network functionality           |
+| `tests/basic-load.yaml`              | Basic load test (1000 TPS cap)                      |
+| `tests/high-load.yaml`               | High load test (5000 TPS cap)                       |
+| `tests/node-restart-resilience.yaml` | BN recovery after restart during load               |
+| `tests/full-history-backfill.yaml`   | BN recovery via backfill after simulated outage     |
 | `tests/rsa-roster-verification.yaml` | Blocks verified via the RSA roster (WRB topologies) |
 
 ### Test Definition Schema
@@ -610,13 +610,13 @@ assertions:                      # Validations to run after all events
 
 ### Assertion Types
 
-|        Type         |            Description             |           Arguments            |
-|---------------------|------------------------------------|--------------------------------|
-| `block-available`   | Verify BN has blocks in range      | `min_block`, `max_block_gte`   |
-| `node-healthy`      | Verify pod is Running              | `target`                       |
-| `no-errors`         | Verify no verification errors      | `target`                       |
-| `blocks-increasing` | Verify blocks are actively flowing | `wait_seconds`, `max_attempts` |
-| `rsa-roster-verification` | Verify blocks accepted via the RSA roster (WRB), no RSA failures | `min_rsa_success` |
+|           Type            |                           Description                            |           Arguments            |
+|---------------------------|------------------------------------------------------------------|--------------------------------|
+| `block-available`         | Verify BN has blocks in range                                    | `min_block`, `max_block_gte`   |
+| `node-healthy`            | Verify pod is Running                                            | `target`                       |
+| `no-errors`               | Verify no verification errors                                    | `target`                       |
+| `blocks-increasing`       | Verify blocks are actively flowing                               | `wait_seconds`, `max_attempts` |
+| `rsa-roster-verification` | Verify blocks accepted via the RSA roster (WRB), no RSA failures | `min_rsa_success`              |
 
 **Note:** The `blocks-increasing` assertion verifies a Block Node is actively receiving blocks. It measures baseline, waits `wait_seconds` (default: 60), verifies increase, retrying up to `max_attempts` (default: 3) times.
 
