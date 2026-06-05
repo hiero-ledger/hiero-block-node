@@ -126,7 +126,7 @@ Prometheus-format metrics. Its properties are prefixed with
 | BACKFILL_DELAY_BETWEEN_BATCHES        | Delay (ms) between block batches.                               |      1000 |
 | BACKFILL_INITIAL_DELAY                | Initial delay (ms) before starting backfill.                    |     15000 |
 | BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT | Timeout (ms) to wait for a block batch.                         |      1000 |
-| BACKFILL_GRPC_OVERALL_TIMEOUT         | Overall gRPC timeout (connect, read, poll) in ms.               |     10000 |
+| BACKFILL_GRPC_OVERALL_TIMEOUT         | Overall gRPC timeout (connect, read, poll) in ms.               |     60000 |
 | BACKFILL_MAX_INCOMING_BUFFER_SIZE     | Max gRPC incoming buffer size in bytes (min 10 MB, max 300 MB). | 104857600 |
 | BACKFILL_ENABLE_TLS                   | Enable TLS if supported by block-node client.                   |     false |
 
@@ -223,7 +223,7 @@ Currently, no specific options.
 |:----------------------------------------------|:------------------------------------------------------------------------------------------|----------:|
 | ROSTER_BOOTSTRAP_TSS_BLOCK_NODE_SOURCES_PATH  | File path to the JSON file containing a list of block node servers to query for TSS data. |        "" |
 | ROSTER_BOOTSTRAP_TSS_QUERY_PEER_INTERVAL      | The amount of time in milliseconds between queries to the Peer Block Nodes for TSS data.  |     60000 |
-| ROSTER_GRPC_OVERALL_TIMEOUT                   | Overall gRPC timeout (connect, read, poll) in ms.                                         |     10000 |
+| ROSTER_GRPC_OVERALL_TIMEOUT                   | Overall gRPC timeout (connect, read, poll) in ms.                                         |     60000 |
 | ROSTER_BOOTSTRAP_TSS_MAX_INCOMING_BUFFER_SIZE | Maximum block size used for the BlockNode Client                                          | 104857600 |
 | ROSTER_BOOTSTRAP_TSS_ENABLE_TLS               | Flag indicating whether TLS should be enabled for the BlockNode client.                   |     false |
 
