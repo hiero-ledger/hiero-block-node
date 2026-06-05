@@ -24,7 +24,7 @@ import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.PrettyPrint;
-import org.hiero.block.tools.utils.gcp.MainNetBucket;
+import org.hiero.block.tools.utils.gcp.GCPBucketLister;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
@@ -169,7 +169,7 @@ public class FixMissingSignatures implements Runnable {
         System.out.println(Ansi.AUTO.string(
                 "@|green ✓ Found source date range: " + days.getFirst() + " to " + days.getLast() + "|@\n"));
         // Set up GCP bucket access
-        final MainNetBucket bucket = new MainNetBucket(
+        final GCPBucketLister bucket = new GCPBucketLister(
                 false, Path.of("metadata/gcp-cache"), minNodeAccountId, maxNodeAccountId, userProject);
 
         // Producer-consumer queue with bounded capacity for backpressure
@@ -242,7 +242,7 @@ public class FixMissingSignatures implements Runnable {
             int numOfDays,
             int dayIndex,
             LocalDate day,
-            MainNetBucket bucket,
+            GCPBucketLister bucket,
             final Map<Instant, Set<String>> bucketSignatures,
             long startNanos,
             AtomicLong totalProgress,

@@ -29,7 +29,7 @@ import org.hiero.block.tools.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.TarReader;
 import org.hiero.block.tools.utils.ZstCmdInputStream;
-import org.hiero.block.tools.utils.gcp.MainNetBucket;
+import org.hiero.block.tools.utils.gcp.GCPBucketLister;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
@@ -286,8 +286,8 @@ public class ValidateSignatureCounts implements Runnable {
 
         // Check blocks against the GCP bucket
         if (!blocksToCheck.isEmpty()) {
-            // Create MainNetBucket instance (no caching for this use case, with user project for requester-pays)
-            MainNetBucket bucket = new MainNetBucket(false, Path.of("data/gcp-cache"), 3, 37, userProject);
+            // Create GCPBucketLister instance (no caching for this use case, with user project for requester-pays)
+            GCPBucketLister bucket = new GCPBucketLister(false, Path.of("data/gcp-cache"), 3, 37, userProject);
 
             if (checkAllBlocks) {
                 // Comprehensive mode: fetch all signatures from bucket for this day and compare

@@ -15,7 +15,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.records.RecordFileDates;
-import org.hiero.block.tools.utils.gcp.MainNetBucket;
+import org.hiero.block.tools.utils.gcp.GCPBucketLister;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
@@ -80,7 +80,7 @@ public class AddNewerBlockTimes implements Runnable {
             System.out.println(Ansi.AUTO.string("@|yellow lastBlockTime = |@" + lastBlockTime + " nanos @|yellow =|@ "
                     + RecordFileDates.blockTimeLongToInstant(lastBlockTime)));
             // Open connection to get data from mainnet GCP bucket
-            final MainNetBucket mainNetBucket = new MainNetBucket(
+            final GCPBucketLister mainNetBucket = new GCPBucketLister(
                     cacheEnabled, dataDir.resolve("gcp-cache"), minNodeAccountId, maxNodeAccountId, userProject);
 
             // find the day containing the last block time

@@ -62,7 +62,7 @@ public class DownloadDaysV3 implements Runnable {
 
     @Override
     public void run() {
-        try (BlockTimeReader blockTimeReader = new BlockTimeReader();
+        try (BlockTimeReader blockTimeReader = BlockTimeReader.forCurrentNetwork();
                 // Use HTTP transport + platform threads for most stable operation
                 Storage storage = StorageOptions.http()
                         .setProjectId(GCP_PROJECT_ID)

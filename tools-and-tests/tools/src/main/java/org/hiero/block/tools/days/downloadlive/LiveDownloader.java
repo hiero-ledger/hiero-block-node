@@ -490,7 +490,7 @@ public class LiveDownloader {
         }
 
         try {
-            final BlockTimeReader blockTimeReader = new BlockTimeReader();
+            final BlockTimeReader blockTimeReader = BlockTimeReader.forCurrentNetwork();
             long highest = -1L;
             final long startTime = System.currentTimeMillis();
             final int totalBlocks = context.sortedBatch.size();
@@ -567,7 +567,7 @@ public class LiveDownloader {
      */
     private BlockTimeReader getBlockTimeReader() throws IOException {
         if (cachedBlockTimeReader == null) {
-            cachedBlockTimeReader = new BlockTimeReader();
+            cachedBlockTimeReader = BlockTimeReader.forCurrentNetwork();
         }
         return cachedBlockTimeReader;
     }

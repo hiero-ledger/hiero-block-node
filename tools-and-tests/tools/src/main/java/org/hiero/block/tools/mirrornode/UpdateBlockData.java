@@ -3,7 +3,6 @@ package org.hiero.block.tools.mirrornode;
 
 import static org.hiero.block.tools.config.NetworkConfig.current;
 import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
-import static org.hiero.block.tools.records.RecordFileDates.instantToBlockTimeLong;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -57,6 +56,19 @@ public class UpdateBlockData implements Runnable {
 
     /** The batch size for fetching blocks from the mirror node. */
     private static final int BATCH_SIZE = 100;
+
+    /**
+     * Convert an instant to a block time long using the current network's genesis.
+     * This ensures block_times.bin values are relative to the correct network's genesis
+     * (mainnet: 2019-09-13, testnet: 2024-02-01, previewnet: custom, etc).
+     *
+     * @param instant the instant to convert
+     * @return nanoseconds since the current network's genesis
+     */
+    private static long instantToBlockTimeLong(Instant instant) {
+        Instant genesisInstant = Instant.parse(current().genesisTimestamp().replace('_', ':'));
+        return java.time.Duration.between(genesisInstant, instant).toNanos();
+    }
 
     /**
      * Update block data files with newer blocks from the mirror node.
