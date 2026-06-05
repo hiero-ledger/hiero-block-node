@@ -11,7 +11,6 @@ import io.helidon.common.tls.Tls;
 import io.helidon.webclient.api.WebClient;
 import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
 import io.helidon.webclient.http2.Http2ClientProtocolConfig;
-import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
@@ -25,7 +24,7 @@ import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.GrpcWebClientTuning;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
-public class BlockNodeClient implements Closeable {
+public class BlockNodeClient implements AutoCloseable {
     private static final Logger LOGGER = System.getLogger(BlockNodeClient.class.getName());
     // Default tuning values optimized for high-throughput block streaming
     private static final int DEFAULT_2MB = 2 * 1024 * 1024;

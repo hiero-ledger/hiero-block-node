@@ -53,6 +53,7 @@ class TssDataFetcherTest {
                 "", // blockNodeSourcesPath
                 500, // queryPeerInterval
                 104_857_600, // maxIncomingBufferSize (100 MB default)
+                10_000,
                 false // enableTLS
                 );
     }

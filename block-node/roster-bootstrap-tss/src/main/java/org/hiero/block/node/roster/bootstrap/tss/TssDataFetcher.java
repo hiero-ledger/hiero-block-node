@@ -30,6 +30,9 @@ public class TssDataFetcher implements Closeable {
     /// Source of block node configurations.
     private final BlockNodeSource blockNodeSource;
 
+    /// Global timeout in milliseconds for gRPC calls to block nodes (used as fallback).
+    private final int globalGrpcTimeoutMs;
+
     /// Enable TLS for secure connections to block nodes.
     private final boolean enableTls;
     /// Maximum incoming buffer size in bytes for the gRPC client.
@@ -50,6 +53,7 @@ public class TssDataFetcher implements Closeable {
             BlockNodeSource blockNodeSource, RosterBootstrapTssConfig config, @NonNull MetricsHolder metrics) {
         this.blockNodeSource = blockNodeSource;
         this.enableTls = config.enableTLS();
+        this.globalGrpcTimeoutMs = config.grpcOverallTimeout();
         this.maxIncomingBufferSize = config.maxIncomingBufferSize();
         this.metrics = metrics;
         for (BlockNodeSourceConfig node : blockNodeSource.nodes()) {
@@ -79,7 +83,9 @@ public class TssDataFetcher implements Closeable {
             LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", node.address());
         }
         return nodeClientMap.computeIfAbsent(
-                node, n -> new BlockNodeClient(n, 10_000, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
+                node,
+                n -> new BlockNodeClient(
+                        n, globalGrpcTimeoutMs, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
     }
 
     /// Perform a serverStatusDetail call per configured node and capture the TssData.
