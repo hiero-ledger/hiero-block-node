@@ -15,13 +15,13 @@ Refer to the [Configuration](../configuration.md) for configuration options.
 
 ## Running locally
 
-- Server subproject qualifier: `:block-node:app`
+- Server subproject qualifier: `:app`
 - Assuming your working directory is the repo root
 
 > **NOTE:** one may use the `-p` flag for `./gradlew` in order to avoid
 > specifying the target subproject repeatedly on each task when running
 > multiple tasks. When running only a single task, however, it is
-> recommended to use the project qualifier (i.e. `:block-node:app:`) for
+> recommended to use the project qualifier (i.e. `:app:`) for
 > both simplicity and clarity.
 
 ### Build the Server
