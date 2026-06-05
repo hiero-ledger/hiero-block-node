@@ -25,7 +25,7 @@ This document describes a revised design of that architecture. The previous desi
 - Remove facilities from `BlockNodeContext` and the `BlockNodeApp`.
 - Allow plugins to discover other plugins by their unique interface via `ServiceLoader`.
 - Allow `init()` to execute in any order, or in parallel, with no assumptions about other plugins being initialized.
-- Allow `start()` to coordinate readiness with plugins via `isReady()`, without the application imposing an ordering constraint.
+- Allow `start()` to coordinate readiness with plugins via `awaitReady()`, without the application imposing an ordering constraint.
 - Ensure plugins that cannot satisfy a required dependency mark themselves as unhealthy rather than throwing, so the rest of the plugins can continue to start.
 - Support typed, immutable configuration for each plugin using Java records and the Swirlds Config API.
 - Remain entirely within the Java Platform Module System so that module boundaries are enforced by the JVM.
@@ -54,8 +54,8 @@ This document describes a revised design of that architecture. The previous desi
   <dt>BlockProviderPlugin</dt>
   <dd>A plugin that also implements the BlockSource interface and registers that interface as a JPMS service. Plugins that require a BlockSource will add `uses org.hiero.block.node.spi.BlockSource` to their module info file. There can be many BlockSources. It is up to the plugin to decide how to sort/choose the BlockSources they need to use.
 
-  <dt>isReady()</dt>
-  <dd>A method on <code>BlockNodePlugin</code> that returns <code>true</code> when the plugin is fully initialized and ready to serve its callers. Plugins expose this so the `BlockNodeApp` and other plugins ca inspect the readiness of any given plugin.</dd>
+  <dt>awaitReady()</dt>
+  <dd>A method on <code>BlockNodePlugin</code> that returns <code>true</code> when the plugin is fully initialized and ready to serve its callers. Plugins expose this so the `BlockNodeApp` and other plugins can inspect the readiness of any given plugin.</dd>
 </dl>
 
 ## Entities
@@ -70,13 +70,13 @@ The root SPI interface. Every plugin implements this interface. All methods have
 | `version()`                     | After load                                    | Returns the plugin's version from its JAR manifest.                                                                                                                                                                                                              |
 | `configDataTypes()`             | Before config load                            | Declares `@ConfigData`-annotated record classes the plugin needs. All types are collected from every plugin before configuration is built.                                                                                                                       |
 | `init(context, serviceBuilder)` | During startup, any order                     | Plugin uses `ServiceLoader` to locate plugins it depends on. Logs an error and marks itself unhealthy if a required dependency is missing. Registers HTTP/gRPC routes. Must not start background threads. Must not assume any other plugin has been initialized. |
-| `isReady()`                     | Anytime after `init()`                        | Returns `true` when the plugin is ready to serve callers. Defaults to `false`.                                                                                                                                                                                   |
-| `start()`                       | After all `init()` calls, on a virtual thread | Loads data and resources. Waits on any required plugins via `isReady()` before proceeding. Starts background worker threads.                                                                                                                                     |
+| `awaitReady()`                  | Anytime after `init()`                        | Returns `true` when the plugin is ready to serve callers. Defaults to `false`.                                                                                                                                                                                   |
+| `start()`                       | After all `init()` calls, on a virtual thread | Loads data and resources. Waits on any required plugins via `awaitReady()` before proceeding. Starts background worker threads.                                                                                                                                  |
 | `stop()`                        | During graceful shutdown                      | Closes resources, stops worker threads.                                                                                                                                                                                                                          |
 
 #### `ServerStatusPlugin`
 
-Owns and persists the mutable node state (`BlockNodeVersions`). These fields have been removed from `BlockNodeContext`. Plugins that need this state discover the `ServerStatusPlugin` via `ServiceLoader`                                         |
+Owns and persists the mutable node state (`BlockNodeVersions`). These fields have been removed from `BlockNodeContext`. Plugins that need this state discover the `ServerStatusPlugin` via `ServiceLoader`.
 
 ### `BlockNodeContext` (record)
 
@@ -175,7 +175,7 @@ Every plugin follows the same pattern:
 2. **Implement** `BlockNodePlugin`.
 3. **Implement** interface(s) for any additional services provided by this plugin. (OPTIONAL)
 4. **Register** both `BlockNodePlugin` and any additional interfaces as JPMS services in `module-info.java`.
-5. **Override** `isReady()` to return `true` only after internal startup is complete.
+5. **Override** `awaitReady()` to return `true` only after internal startup is complete.
 
 Dependent plugins declare `uses <AdditionalInterface>` in their own `module-info.java` and resolve the required plugin in `init()`:
 
@@ -199,9 +199,7 @@ public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
 @Override
 public void start() {
     // Wait for the plugin to be ready before starting workers
-    while (!messaging.isReady()) {
-        Thread.sleep(Duration.ofMillis(10));
-    }
+    messaging.awaitReady();
     startWorkerThreads();
 }
 ```
@@ -229,8 +227,8 @@ public void start() {
 6. Start Helidon WebServer using routes accumulated in ServiceBuilder.
 
 7. Call plugin.start() for every plugin, each on its own virtual thread.
-   - start() may call isReady() on plugins and wait until they are ready.
-   - Plugins reach isReady() == true once their own internal startup completes.
+   - start() may call awaitReady() on plugins to block until the plugin is ready.
+   - Plugins reach awaitReady() == true once their own internal startup completes.
    - Plugins start their workers once dependencies are ready.
 
 8. Node is RUNNING once all plugins have started (or been marked unhealthy).
@@ -290,32 +288,30 @@ No changes to `BlockNodeApp` or any existing plugin are required.
 Because `init()` may run in any order or in parallel, it must be entirely self-contained:
 
 - It must not call methods on other plugins directly.
-- It must not assume that any plugin's `isReady()` returns `true`.
+- It must not assume that any plugin's `awaitReady()` returns `true`.
 - It **may** call `context.serviceLoader().loadServices(FacilityInterface.class)` to obtain a reference to a plugin it depends on (the plugin object exists even if not yet ready).
 - It **may** call `registerTssDataListener(...)` on `ApplicationStateFacility` — listener registration is safe before the plugin is ready; the first delivery occurs once ready.
 - It **must** log an error and mark itself unhealthy if a required plugin is not found.
 
 ### `start()` Readiness Coordination
 
-`start()` runs on a virtual thread spawned by the application. Because virtual threads are cheap, a plugin may spin-wait on a dependency's `isReady()` without consuming a platform thread:
+`start()` runs on a virtual thread spawned by the application. Because virtual threads are cheap, a plugin may call `awaitReady()` on another plugin without consuming a platform thread:
 
 ```java
 @Override
 public void start() {
     // Block this virtual thread until the messaging plugin is ready.
     // Virtual thread parking is cheap — no platform thread is consumed.
-    while (!messaging.isReady()) {
-        Thread.sleep(Duration.ofMillis(10));
-    }
+    messaging.awaitReady();
     // Now safe to use the plugin.
     messaging.registerBlockItemHandler(this, false, name());
     startWorkerThread();
 }
 ```
 
-The `isReady()` contract for plugins:
-- Returns `false` from construction until the plugin has loaded its state and is ready to serve calls.
-- Returns `true` permanently thereafter (plugins do not go back to non-ready once started).
+The `awaitReady()` contract for plugins:
+- Returns `false` if it could not start or is unhealthy.
+- Returns `true` if it started successfully.
 - Is safe to call from any thread at any time.
 
 ### Mutable State Propagation via `ApplicationStateFacility`
@@ -400,8 +396,8 @@ stateDiagram-v2
     [*] --> Discovered : ServiceLoader.load()
     Discovered --> Configured : configDataTypes() collected
     Configured --> Initialized : init(context, serviceBuilder)
-    Initialized --> NotReady : isReady() == false
-    Initialized --> Ready : isReady() == true (no async startup)
+    Initialized --> NotHealthy : awaitReady() == false
+    Initialized --> Ready : awaitReady() == true (no async startup)
     NotReady --> Ready : internal startup complete
     Ready --> Running : start() completes
     Running --> Stopped : stop()
@@ -430,7 +426,7 @@ sequenceDiagram
     App->>App: construct BlockNodeContext (no facilities)
     par init() — any order, may be parallel
         App->>P: init(context, serviceBuilder)
-        P->>P: isReady() = false
+        P->>P: awaitReady() = false
         P->>SL: loadServices(FacilityInterface.class)
         SL-->>P: plugin reference
         P->>P: store reference, register listeners
@@ -441,7 +437,7 @@ sequenceDiagram
         App->>P: start()
         P->>P: load state, build indexes
         App->>P: start()
-        P->>P: isReady()? (spin until true)
+        P->>P: awaitReady()? (blocks until true)
         P-->>P: true
         P->>P: start workers
     end
@@ -525,7 +521,7 @@ The `ApplicationStateFacility` plugin manages stored and available blocks. It re
 | A plugin's `init()` throws an unchecked exception      | The exception is caught by the app; the plugin is marked unhealthy and skipped during `start()`. Other plugins continue.                               |
 | A plugin's `start()` throws                            | The exception is logged; the plugin is considered failed. Other plugins on their own virtual threads are not affected.                                 |
 | A plugin's `stop()` throws                             | The exception is logged; remaining plugins are still stopped.                                                                                          |
-| A plugin's `isReady()` never returns `true`            | A dependent plugin's `start()` spins indefinitely. A startup watchdog timeout (configurable) should be implemented to detect and abort this condition. |
+| A plugin's `awaitReady()` never returns `true`         | A dependent plugin's `start()` spins indefinitely. A startup watchdog timeout (configurable) should be implemented to detect and abort this condition. |
 | A `NoBackPressureBlockItemHandler` falls 80% behind    | `onTooFarBehindError()` is called on that handler; the publisher is not blocked.                                                                       |
 | A back-pressure `BlockItemHandler` falls behind        | The publisher thread blocks until the handler catches up, applying flow control end-to-end.                                                            |
 | `ApplicationStateFacility.updateAddressBook()` fails   | Returns `false`; the caller is responsible for retry logic.                                                                                            |
@@ -536,7 +532,7 @@ The `ApplicationStateFacility` plugin manages stored and available blocks. It re
 - **Plugin discovery by dependent**: A dependent plugin that calls `context.serviceLoader().loadServices(BlockMessagingFacility.class)` in `init()` receives the same object instance as the one loaded as a `BlockNodePlugin`.
 - **init() order independence**: Calling `init()` on all plugins in reverse alphabetical order produces the same end state as calling them in forward alphabetical order. No plugin fails due to ordering.
 - **Missing dependency handling**: Removing a required plugin's JAR from the module path causes the dependent plugin to log an error and mark itself unhealthy, while all other plugins start normally.
-- **isReady() gate**: A dependent plugin's `start()` does not proceed past the readiness check until the plugin's `isReady()` returns `true`. Verified by injecting an artificial delay in a plugin's `start()` and observing the dependent plugin waits.
+- **awaitReady() gate**: A dependent plugin's `start()` does not proceed past the readiness check until the plugin's `awaitReady()` returns `true`. Verified by injecting an artificial delay in a plugin's `start()` and observing the dependent plugin waits.
 - **ApplicationStateFacility listener — initial delivery**: A plugin that registers a `TssDataListener` after the `ApplicationStateFacility` is ready receives the current `TssData` immediately upon registration.
 - **ApplicationStateFacility listener — update delivery**: Calling `applicationStateFacility.updateTssData(newData)` results in every registered listener being called with `newData`. No `onContextUpdate()` broadcast occurs; `BlockNodeContext` is not reconstructed.
 - **ApplicationStateFacility listener — NodeAddressBook**: Calling `applicationStateFacility.updateAddressBook(newBook)` delivers `newBook` to all registered `AddressBookListener` instances.
