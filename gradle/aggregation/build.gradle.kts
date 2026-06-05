@@ -8,6 +8,8 @@ dependencies {
     published(project(":block-access-service"))
     published(project(":blocks-file-historic"))
     published(project(":blocks-file-recent"))
+    published(project(":cloud-storage-archive"))
+    published(project(":cloud-storage-expanded"))
     published(project(":health"))
     published(project(":facility-messaging"))
     published(project(":s3-archive"))
