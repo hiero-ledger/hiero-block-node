@@ -202,7 +202,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 // register us to listen to block items from the block messaging system
                 blockNodeContext
                         .blockMessaging()
-                        .registerNoBackpressureBlockItemHandler(liveBlockHandler, false, sessionContext.handlerName);
+                        .registerBlockItemHandler(liveBlockHandler, false, sessionContext.handlerName);
                 if (canFulfillRequest()) {
                     // the request can be fulfilled, so we can start sending blocks
                     sessionReadyLatch.countDown();

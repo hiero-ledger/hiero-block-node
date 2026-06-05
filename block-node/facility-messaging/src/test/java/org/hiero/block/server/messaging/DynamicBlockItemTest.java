@@ -2,6 +2,7 @@
 package org.hiero.block.server.messaging;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -12,14 +13,19 @@ import java.util.List;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.messaging.MessagingConfig;
+import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
@@ -239,6 +245,171 @@ public class DynamicBlockItemTest {
         // check that the second handler processed all items
         assertEquals(TEST_DATA_COUNT, handler2Counter.get());
         assertEquals(expectedTotal, handler2Sum.get());
+    }
+
+    /**
+     * Verify that a no-backpressure handler that blocks indefinitely does NOT gate the ring buffer.
+     * The publisher must be able to fill and wrap the ring buffer without deadlocking, even while the
+     * handler is stuck. This is the core invariant of the no-backpressure contract.
+     */
+    @Test
+    void testNoBackpressureHandlerDoesNotGateRingBuffer() throws Exception {
+        final int ringSize =
+                TestConfig.getConfig().getConfigData(MessagingConfig.class).blockItemQueueSize();
+        // This latch is never released — the handler blocks forever.
+        final CountDownLatch blockForever = new CountDownLatch(1);
+        final AtomicBoolean tooFarBehindCalled = new AtomicBoolean(false);
+
+        final NoBackPressureBlockItemHandler blockingHandler = new NoBackPressureBlockItemHandler() {
+            @Override
+            public void handleBlockItemsReceived(BlockItems items) {
+                try {
+                    blockForever.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+
+            @Override
+            public void onTooFarBehindError() {
+                tooFarBehindCalled.set(true);
+                blockForever.countDown(); // release so stop() can clean up
+            }
+        };
+
+        final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
+        messagingService.registerNoBackpressureBlockItemHandler(blockingHandler, false, "blocking");
+        messagingService.start();
+
+        // Publish more events than the ring buffer size; if the handler is a gating sequence this deadlocks.
+        final ExecutorService publisher = Executors.newSingleThreadExecutor();
+        final Future<?> publishFuture = publisher.submit(() -> {
+            for (int i = 0; i < ringSize * 2; i++) {
+                messagingService.sendBlockItems(new BlockItems(
+                        List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),
+                        i,
+                        true,
+                        false));
+            }
+        });
+
+        // If the handler were a gating sequence this would time out.
+        publishFuture.get(10, TimeUnit.SECONDS);
+
+        blockForever.countDown(); // ensure handler thread can exit
+        messagingService.stop();
+        publisher.shutdown();
+    }
+
+    /**
+     * Verify that the lag eviction check fires BEFORE dispatching to the handler, not after.
+     * When a no-backpressure handler falls more than 80% behind the ring head, it must be evicted
+     * and onTooFarBehindError() called even if the handler would otherwise block indefinitely.
+     * No further events should be dispatched to the handler after eviction.
+     */
+    @Test
+    void testNoBackpressureEvictionCheckedBeforeDispatch() throws Exception {
+        final int ringSize =
+                TestConfig.getConfig().getConfigData(MessagingConfig.class).blockItemQueueSize();
+        final CountDownLatch evicted = new CountDownLatch(1);
+        final AtomicInteger dispatchCount = new AtomicInteger(0);
+        // Once evicted is set, any further dispatch is a bug.
+        final AtomicBoolean dispatchAfterEviction = new AtomicBoolean(false);
+
+        final NoBackPressureBlockItemHandler slowHandler = new NoBackPressureBlockItemHandler() {
+            @Override
+            public void handleBlockItemsReceived(BlockItems items) {
+                if (evicted.getCount() == 0) {
+                    dispatchAfterEviction.set(true);
+                }
+                dispatchCount.incrementAndGet();
+                // Block long enough to fall far behind, but not forever.
+                try {
+                    Thread.sleep(5);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+
+            @Override
+            public void onTooFarBehindError() {
+                evicted.countDown();
+            }
+        };
+
+        // Fast handler to keep the ring head advancing.
+        final CountDownLatch fastDone = new CountDownLatch(1);
+        final int totalItems = ringSize * 2;
+        final AtomicInteger fastCount = new AtomicInteger(0);
+        final NoBackPressureBlockItemHandler fastHandler = new NoBackPressureBlockItemHandler() {
+            @Override
+            public void handleBlockItemsReceived(BlockItems items) {
+                if (fastCount.incrementAndGet() >= totalItems) {
+                    fastDone.countDown();
+                }
+            }
+
+            @Override
+            public void onTooFarBehindError() {
+                fail("Fast handler should never be evicted");
+            }
+        };
+
+        final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
+        messagingService.registerNoBackpressureBlockItemHandler(slowHandler, false, "slow");
+        messagingService.registerNoBackpressureBlockItemHandler(fastHandler, false, "fast");
+        messagingService.start();
+
+        for (int i = 0; i < totalItems; i++) {
+            messagingService.sendBlockItems(new BlockItems(
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),
+                    i,
+                    true,
+                    false));
+        }
+
+        assertTrue(evicted.await(15, TimeUnit.SECONDS), "Slow handler was never evicted");
+        assertTrue(fastDone.await(15, TimeUnit.SECONDS), "Fast handler did not finish");
+        assertFalse(dispatchAfterEviction.get(), "Events were dispatched to handler after eviction");
+
+        messagingService.stop();
+    }
+
+    /**
+     * Regression test: a regular BlockItemHandler must still receive all published events after the
+     * no-backpressure fix. Verifies that the gating sequence plumbing for regular handlers is not
+     * accidentally broken by the fix (e.g. sequences not added, removed too early, or stop() skipping cleanup).
+     */
+    @Test
+    void testRegularHandlerReceivesAllEvents() throws Exception {
+        final int totalItems = TEST_DATA_COUNT;
+        final CountDownLatch allReceived = new CountDownLatch(1);
+        final AtomicInteger receiveCount = new AtomicInteger(0);
+
+        final BlockItemHandler gatingHandler = items -> {
+            if (receiveCount.incrementAndGet() >= totalItems) {
+                allReceived.countDown();
+            }
+        };
+
+        final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
+        messagingService.registerBlockItemHandler(gatingHandler, false, "regular");
+        messagingService.start();
+
+        for (int i = 0; i < totalItems; i++) {
+            messagingService.sendBlockItems(new BlockItems(
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),
+                    i,
+                    true,
+                    false));
+        }
+
+        assertTrue(allReceived.await(20, TimeUnit.SECONDS), "Regular handler did not receive all events");
+        assertEquals(totalItems, receiveCount.get());
+        messagingService.stop();
     }
 
     /**

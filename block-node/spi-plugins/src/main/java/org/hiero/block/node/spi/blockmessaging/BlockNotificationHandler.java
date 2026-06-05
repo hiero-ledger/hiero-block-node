@@ -4,7 +4,7 @@ package org.hiero.block.node.spi.blockmessaging;
 /**
  * Interface for handling block notifications.
  */
-public interface BlockNotificationHandler {
+public interface BlockNotificationHandler extends GatingHandler {
     /**
      * Handle a block verification notification.
      * <p>
