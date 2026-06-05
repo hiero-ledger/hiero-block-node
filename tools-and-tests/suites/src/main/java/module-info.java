@@ -6,9 +6,11 @@ open module org.hiero.block.node.suites {
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
     requires com.swirlds.merkledb;
+    requires com.swirlds.metrics.api;
     requires com.swirlds.state.api;
     requires com.swirlds.state.impl;
     requires com.swirlds.virtualmap;
+    requires org.hiero.base.crypto;
     requires org.hiero.base.utility;
     requires org.hiero.block.common;
     requires org.hiero.block.node.app;
