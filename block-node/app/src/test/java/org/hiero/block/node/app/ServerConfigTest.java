@@ -2,7 +2,6 @@
 package org.hiero.block.node.app;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -71,52 +70,14 @@ class ServerConfigTest {
     }
 
     @Test
-    @DisplayName("Default consumer port is 40940")
-    void defaultConsumerPortIs40940() {
-        assertEquals(40940, defaultConfig().getConfigData(ServerConfig.class).consumerPort());
-    }
-
-    @Test
-    @DisplayName("Default ports are distinct (two-port mode by default)")
-    void defaultPortsAreDistinct() {
-        final ServerConfig cfg = defaultConfig().getConfigData(ServerConfig.class);
-        assertNotEquals(cfg.port(), cfg.consumerPort(), "port and consumerPort should differ in the default config");
-    }
-
-    @Test
-    @DisplayName("consumerPort can be set equal to port for single-port mode")
-    void consumerPortCanMatchPort() {
-        final Configuration config = ConfigurationBuilder.create()
-                .autoDiscoverExtensions()
-                .withConfigDataType(ServerConfig.class)
-                .withValue("server.consumerPort", "40840")
-                .build();
-        final ServerConfig cfg = config.getConfigData(ServerConfig.class);
-        assertEquals(cfg.port(), cfg.consumerPort());
-    }
-
-    @Test
-    @DisplayName("consumerPort can be overridden to an arbitrary valid value")
-    void consumerPortCanBeOverridden() {
-        final Configuration config = ConfigurationBuilder.create()
-                .autoDiscoverExtensions()
-                .withConfigDataType(ServerConfig.class)
-                .withValue("server.consumerPort", "8443")
-                .build();
-        assertEquals(8443, config.getConfigData(ServerConfig.class).consumerPort());
-    }
-
-    @Test
-    @DisplayName("publisher port can be overridden independently of consumer port")
-    void publisherPortCanBeOverriddenIndependently() {
+    @DisplayName("server port can be overridden")
+    void portCanBeOverridden() {
         final Configuration config = ConfigurationBuilder.create()
                 .autoDiscoverExtensions()
                 .withConfigDataType(ServerConfig.class)
                 .withValue("server.port", "12345")
                 .build();
-        final ServerConfig cfg = config.getConfigData(ServerConfig.class);
-        assertEquals(12345, cfg.port());
-        assertEquals(40940, cfg.consumerPort()); // consumer port unchanged
+        assertEquals(12345, config.getConfigData(ServerConfig.class).port());
     }
 
     private static Configuration defaultConfig() {

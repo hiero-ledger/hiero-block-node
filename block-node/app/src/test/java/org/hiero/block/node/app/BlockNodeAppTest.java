@@ -763,17 +763,10 @@ class BlockNodeAppTest {
                 return super.loadServices(serviceClass);
             }
         };
-        System.setProperty("server.consumerPort", "40840");
-        try {
-            final BlockNodeApp singlePortApp = new BlockNodeApp(singlePortLoader, false);
-            assertNotNull(singlePortApp.webServer, "A single WebServer must be created");
-            assertEquals(
-                    1,
-                    singlePortApp.allPorts.size(),
-                    "Only one port must be tracked when all plugins use the same port");
-        } finally {
-            System.clearProperty("server.consumerPort");
-        }
+        final BlockNodeApp singlePortApp = new BlockNodeApp(singlePortLoader, false);
+        assertNotNull(singlePortApp.webServer, "A single WebServer must be created");
+        assertEquals(
+                1, singlePortApp.allPorts.size(), "Only one port must be tracked when all plugins use the same port");
     }
 
     /// build a `TssData` object from individual fields from the `TssBootstrapConfig`

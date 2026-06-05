@@ -238,8 +238,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 null,
                 null);
         // ==== CREATE ROUTING BUILDERS ================================================================================
-        // Create HTTP & GRPC routing builders
-        final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
+        // Create HTTP & GRPC routing builders; null port in plugin registrations resolves to server.port
+        final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl(serverConfig.port());
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
         LOGGER.log(INFO, "Initializing plugins:");
@@ -277,7 +277,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // Collect all ports registered by plugins; build a single WebServer with named sockets for extra ports.
         allPorts = new LinkedHashSet<>();
         allPorts.add(serverConfig.port());
-        allPorts.add(serverConfig.consumerPort());
         allPorts.addAll(serviceBuilder.grpcRoutingBuilders().keySet());
         allPorts.addAll(serviceBuilder.httpRoutingBuilders().keySet());
 

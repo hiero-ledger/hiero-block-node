@@ -206,14 +206,14 @@ public class BlockNodePluginTest {
         plugin.init(null, new ServiceBuilder() {
 
             @Override
-            public void registerHttpService(String path, int port, HttpService... service) {
+            public void registerHttpService(String path, Integer port, HttpService... service) {
                 assertEquals("foo", path);
                 assertEquals(1, service.length);
                 assertEquals(testHttpService, service[0]);
             }
 
             @Override
-            public void registerGrpcService(@NonNull ServiceInterface service, final int port) {
+            public void registerGrpcService(@NonNull ServiceInterface service, final Integer port) {
                 assertEquals(testServiceInterface, service);
             }
         });
@@ -242,14 +242,14 @@ public class BlockNodePluginTest {
         plugin.init(null, new ServiceBuilder() {
 
             @Override
-            public void registerHttpService(String path, int port, HttpService... service) {
+            public void registerHttpService(String path, Integer port, HttpService... service) {
                 assertEquals("foo", path);
                 assertEquals(1, service.length);
                 assertEquals(testHttpService, service[0]);
             }
 
             @Override
-            public void registerGrpcService(@NonNull ServiceInterface service, final int port) {
+            public void registerGrpcService(@NonNull ServiceInterface service, final Integer port) {
                 assertEquals(testServiceInterface, service);
             }
         });

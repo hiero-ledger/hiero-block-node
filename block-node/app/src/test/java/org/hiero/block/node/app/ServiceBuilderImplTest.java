@@ -36,7 +36,7 @@ class ServiceBuilderImplTest {
 
     @BeforeEach
     void setUp() {
-        serviceBuilder = new ServiceBuilderImpl();
+        serviceBuilder = new ServiceBuilderImpl(PUBLISHER_PORT);
     }
 
     @Test
@@ -235,6 +235,30 @@ class ServiceBuilderImplTest {
                 serviceBuilder.grpcRoutingBuilders().get(PUBLISHER_PORT),
                 serviceBuilder.grpcRoutingBuilders().get(CONSUMER_PORT),
                 "Different ports must use independent routing builders");
+    }
+
+    @Test
+    @DisplayName("null port for registerGrpcService resolves to default port")
+    void registerGrpcService_nullPort_resolvesToDefault() {
+        final ServiceInterface mockService = mock(ServiceInterface.class);
+
+        serviceBuilder.registerGrpcService(mockService, null);
+
+        assertNotNull(
+                serviceBuilder.grpcRoutingBuilders().get(PUBLISHER_PORT), "null port must resolve to default port");
+        assertFalse(serviceBuilder.grpcRoutingBuilders().containsKey(CONSUMER_PORT));
+    }
+
+    @Test
+    @DisplayName("null port for registerHttpService resolves to default port")
+    void registerHttpService_nullPort_resolvesToDefault() {
+        final HttpService mockService = mock(HttpService.class);
+
+        serviceBuilder.registerHttpService("/api/test", null, mockService);
+
+        assertNotNull(
+                serviceBuilder.httpRoutingBuilders().get(PUBLISHER_PORT), "null port must resolve to default port");
+        assertFalse(serviceBuilder.httpRoutingBuilders().containsKey(CONSUMER_PORT));
     }
 
     @Test

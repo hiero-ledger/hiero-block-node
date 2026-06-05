@@ -4,6 +4,7 @@ package org.hiero.block.node.app;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.HttpService;
 import java.util.HashMap;
@@ -16,27 +17,41 @@ import org.hiero.block.node.spi.ServiceBuilder;
  * Services are bucketed by port number. {@link BlockNodeApp} creates one
  * {@link io.helidon.webserver.WebServer} per distinct port found in the maps, so registering all
  * services on the same port results in a single listener with all routes merged.
+ * <p>
+ * A {@code null} port in any registration call resolves to the default port supplied at
+ * construction time (typically {@code server.port}).
  */
 public class ServiceBuilderImpl implements ServiceBuilder {
+    /** The port used when a plugin passes {@code null}. */
+    private final int defaultPort;
     /** Per-port HTTP routing builders. */
     private final Map<Integer, HttpRouting.Builder> httpBuilders = new HashMap<>();
     /** Per-port PBJ gRPC routing builders. */
     private final Map<Integer, PbjRouting.Builder> grpcBuilders = new HashMap<>();
 
     /**
-     * {@inheritDoc}
+     * Creates a new instance with the given default port.
+     *
+     * @param defaultPort the port used when a plugin passes {@code null}
      */
-    @Override
-    public void registerHttpService(@NonNull String path, int port, @NonNull HttpService... service) {
-        httpBuilders.computeIfAbsent(port, k -> HttpRouting.builder()).register(path, service);
+    ServiceBuilderImpl(int defaultPort) {
+        this.defaultPort = defaultPort;
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public void registerGrpcService(@NonNull ServiceInterface service, int port) {
-        grpcBuilders.computeIfAbsent(port, k -> PbjRouting.builder()).service(service);
+    public void registerHttpService(@NonNull String path, @Nullable Integer port, @NonNull HttpService... service) {
+        httpBuilders.computeIfAbsent(resolve(port), k -> HttpRouting.builder()).register(path, service);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void registerGrpcService(@NonNull ServiceInterface service, @Nullable Integer port) {
+        grpcBuilders.computeIfAbsent(resolve(port), k -> PbjRouting.builder()).service(service);
     }
 
     /**
@@ -55,5 +70,9 @@ public class ServiceBuilderImpl implements ServiceBuilder {
      */
     Map<Integer, PbjRouting.Builder> grpcRoutingBuilders() {
         return grpcBuilders;
+    }
+
+    private int resolve(@Nullable Integer port) {
+        return port != null ? port : defaultPort;
     }
 }

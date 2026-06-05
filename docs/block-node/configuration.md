@@ -38,17 +38,16 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 ### Server Configuration
 
-| ENV Variable                            | Description                                                                                                         |    Default |
-|:----------------------------------------|:--------------------------------------------------------------------------------------------------------------------|-----------:|
-| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2.                                                                                | 37,748,736 |
-| SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).                                                                                           |      32768 |
-| SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes).                                                                                        |  8,388,608 |
-| SERVER_PORT                             | Publisher port (CN -> BN ingest).                                                                                   |      40840 |
-| SERVER_CONSUMER_PORT                    | Consumer port (subscribers, block access, health). Set equal to `SERVER_PORT` to run all services on a single port. |      40940 |
-| SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).                                                                                         |        500 |
-| SERVER_MAX_TCP_CONNECTIONS              | Max TCP connections allowed.                                                                                        |       1000 |
-| SERVER_IDLE_CONNECTION_PERIOD_MINUTES   | Period for idle connections check (minutes).                                                                        |          5 |
-| SERVER_IDLE_CONNECTION_TIMEOUT_MINUTES  | Timeout for idle connections (minutes).                                                                             |         30 |
+| ENV Variable                            | Description                                                                                          |    Default |
+|:----------------------------------------|:-----------------------------------------------------------------------------------------------------|-----------:|
+| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2.                                                                 | 37,748,736 |
+| SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).                                                                            |      32768 |
+| SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes).                                                                         |  8,388,608 |
+| SERVER_PORT                             | Default port for all services. Individual plugins may bind to a different port via their own config. |      40840 |
+| SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).                                                                          |        500 |
+| SERVER_MAX_TCP_CONNECTIONS              | Max TCP connections allowed.                                                                         |       1000 |
+| SERVER_IDLE_CONNECTION_PERIOD_MINUTES   | Period for idle connections check (minutes).                                                         |          5 |
+| SERVER_IDLE_CONNECTION_TIMEOUT_MINUTES  | Timeout for idle connections (minutes).                                                              |         30 |
 
 ### WebServerHttp2 Configuration
 

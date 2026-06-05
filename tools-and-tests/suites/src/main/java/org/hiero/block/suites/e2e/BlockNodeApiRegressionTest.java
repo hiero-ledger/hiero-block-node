@@ -61,9 +61,6 @@ public class BlockNodeApiRegressionTest {
 
     private final String serverPort = System.getenv("SERVER_PORT") == null ? "40840" : System.getenv("SERVER_PORT");
 
-    private final String consumerPort =
-            System.getenv("SERVER_CONSUMER_PORT") == null ? "40940" : System.getenv("SERVER_CONSUMER_PORT");
-
     private final Function<PublishStreamResponse, PublishStreamResponse.ResponseOneOfType> responseKindExtractor =
             response -> response.response().kind();
     private final Function<PublishStreamResponse, Long> acknowledgementBlockNumberExtractor =
@@ -96,7 +93,7 @@ public class BlockNodeApiRegressionTest {
             }
             assertEquals(State.RUNNING, app.blockNodeState());
             publishBlockStreamPbjGrpcClient = createGrpcClient();
-            getBlockPbjGrpcClient = createConsumerGrpcClient();
+            getBlockPbjGrpcClient = createGrpcClient();
         } catch (final Exception e) {
             if (app != null && app.blockNodeState() != State.SHUTTING_DOWN) {
                 app.shutdown("BlockNodeApiRegressionTest", "test-setup-failure");
@@ -362,10 +359,6 @@ public class BlockNodeApiRegressionTest {
 
     private PbjGrpcClient createGrpcClient() {
         return createGrpcClientForPort(serverPort);
-    }
-
-    private PbjGrpcClient createConsumerGrpcClient() {
-        return createGrpcClientForPort(consumerPort);
     }
 
     private PbjGrpcClient createGrpcClientForPort(final String port) {

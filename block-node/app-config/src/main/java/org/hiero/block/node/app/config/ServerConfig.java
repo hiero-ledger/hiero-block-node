@@ -15,9 +15,9 @@ import org.hiero.block.node.base.Loggable;
  * @param maxMessageSizeBytes the PBJ max message size in bytes
  * @param socketSendBufferSizeBytes the socket send buffer size in bytes
  * @param socketReceiveBufferSizeBytes the socket receive buffer size in bytes
- * @param port the port the publisher service (CN -> BN ingest) will listen on
- * @param consumerPort the port that consumer services (subscribers, block access, health) will listen on;
- *     set it equal to {@code port} to run all services on a single port
+ * @param port the default port all services listen on; individual plugins may override this by
+ *     passing an explicit port to {@link org.hiero.block.node.spi.ServiceBuilder}, or pass
+ *     {@code null} to fall back to this value
  * @param shutdownDelayMillis the delay in milliseconds for the service
  * @param maxTcpConnections the maximum number of TCP connections
  * @param idleConnectionPeriodMinutes the period of idle connections check in minutes
@@ -37,8 +37,6 @@ public record ServerConfig(
             @Min(32768) @Max(Integer.MAX_VALUE) int socketReceiveBufferSizeBytes,
         @Loggable @ConfigProperty(defaultValue = "40840")
             @Min(1024) @Max(65_535) int port,
-        @Loggable @ConfigProperty(defaultValue = "40940")
-            @Min(1024) @Max(65_535) int consumerPort,
         @Loggable @ConfigProperty(defaultValue = "500") int shutdownDelayMillis,
         @Loggable @ConfigProperty(defaultValue = "1000") int maxTcpConnections,
         @Loggable @ConfigProperty(defaultValue = "5") int idleConnectionPeriodMinutes,

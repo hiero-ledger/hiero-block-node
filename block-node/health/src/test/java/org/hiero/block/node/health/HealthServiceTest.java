@@ -4,12 +4,10 @@ package org.hiero.block.node.health;
 import static org.hiero.block.node.health.HealthServicePlugin.*;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.swirlds.config.api.Configuration;
 import io.helidon.webserver.http.HttpRules;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
-import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.health.HealthFacility;
@@ -30,14 +28,9 @@ class HealthServiceTest {
     @Mock
     ServiceBuilder serviceBuilder;
 
-    /** Sets up context.configuration() so the plugin can read ServerConfig.consumerPort(). */
-    private static void setupContextConfig(BlockNodeContext context) {
-        final Configuration configuration = Mockito.mock(Configuration.class);
-        final ServerConfig serverConfig = Mockito.mock(ServerConfig.class);
-        Mockito.when(serverConfig.consumerPort()).thenReturn(40940);
-        Mockito.when(configuration.getConfigData(ServerConfig.class)).thenReturn(serverConfig);
-        Mockito.when(context.configuration()).thenReturn(configuration);
-    }
+    /** No-op: health plugin no longer reads configuration during init. */
+    @SuppressWarnings("unused")
+    private static void setupContextConfig(BlockNodeContext context) {}
 
     @Test
     public void testHandleLivez() {
@@ -143,7 +136,7 @@ class HealthServiceTest {
         Mockito.verify(serviceBuilder, Mockito.times(1))
                 .registerHttpService(
                         ArgumentMatchers.eq(HEALTHZ_PATH),
-                        ArgumentMatchers.anyInt(),
+                        ArgumentMatchers.isNull(),
                         httpServiceArgumentCaptor.capture());
         HttpService httpService = httpServiceArgumentCaptor.getValue();
         assertNotNull(httpService);
