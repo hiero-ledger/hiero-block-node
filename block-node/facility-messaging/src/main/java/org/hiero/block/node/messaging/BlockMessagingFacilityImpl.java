@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
@@ -28,6 +29,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.GatingHandler;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -387,18 +389,23 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public synchronized void registerNoBackpressureBlockItemHandler(
             final NoBackPressureBlockItemHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
+        // One-shot eviction guard: the event processor may deliver a few more buffered events after halt()
+        // is called, so we use an AtomicBoolean to ensure unregister and onTooFarBehindError fire exactly once.
+        final AtomicBoolean evicted = new AtomicBoolean(false);
         final InformedEventHandler<BlockItemBatchRingEvent> informedEventHandler =
                 (event, sequence, endOfBatch, percentageBehindRingHead) -> {
-                    // send on the event block items
-                    handler.handleBlockItemsReceived(event.get());
-                    if (percentageBehindRingHead > 80) {
-                        // If the event processor is more than 80% behind, we need to stop it.
-                        // This is a sign that the event processor is not able to keep up with the
-                        // rate of events being published.
-                        unregisterBlockItemHandler(handler);
-                        // the handler it got too far behind
-                        handler.onTooFarBehindError();
+                    if (evicted.get()) {
+                        // Already evicted; skip remaining buffered events.
+                        return;
                     }
+                    if (percentageBehindRingHead > 80 && evicted.compareAndSet(false, true)) {
+                        // Check lag BEFORE dispatching: if already too far behind, evict now rather
+                        // than calling handleBlockItemsReceived (which might block indefinitely).
+                        unregisterBlockItemHandler(handler);
+                        handler.onTooFarBehindError();
+                        return;
+                    }
+                    handler.handleBlockItemsReceived(event.get());
                 };
         if (blockItemDisruptor.hasStarted()) {
             registerHandler(
@@ -640,7 +647,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * Registers a handler with the ring buffer. This generic method allows all the logic to be common and hence any bug
      * hopefully only need fixing once. Any improvements can be made in one place.
      *
-     * @param <H> the type of the handler
+     * @param <H> the type of the GatingHandler
      * @param <E> the type of the event
      * @param handler the handler to register
      * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
@@ -650,7 +657,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * @param handlerToEventProcessor the map of handlers to event processors
      * @param handlerToThread the map of handlers to threads
      */
-    private static <H, E> void registerHandler(
+    private static <H extends GatingHandler, E> void registerHandler(
             final H handler,
             final boolean cpuIntensiveHandler,
             final String handlerName,
@@ -669,7 +676,9 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     informedEventHandler.onEvent(event, sequence, endOfBatch, percentageBehindHead);
                 });
         // Dynamically add sequences to the ring buffer
-        ringBuffer.addGatingSequences(batchEventProcessor.getSequence());
+        if (handler.isGating()) {
+            ringBuffer.addGatingSequences(batchEventProcessor.getSequence());
+        }
         // Create the new virtual thread to power the batch processor
         final Thread handlerThread = cpuIntensiveHandler
                 ? PLATFORM_THREAD_FACTORY.newThread(batchEventProcessor)
@@ -686,14 +695,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * Unregisters the handler from the ring buffer and stops the event processor. This generic method allows all the
      * logic to be common and hence any bug hopefully only need fixing once. Any improvements can be made in one place.
      *
-     * @param <H> the type of the handler
+     * @param <H> the type of the GatingHandler
      * @param <E> the type of the event
      * @param handler the handler to unregister
      * @param ringBuffer the ring buffer to unregister from
      * @param handlerToEventProcessor the map of handlers to event processors
      * @param handlerToThread the map of handlers to threads
      */
-    private static <H, E> void unregisterHandler(
+    private static <H extends GatingHandler, E> void unregisterHandler(
             final H handler,
             final RingBuffer<E> ringBuffer,
             final Map<H, BatchEventProcessor<E>> handlerToEventProcessor,
@@ -701,7 +710,9 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         final Thread handlerThread = handlerToThread.remove(handler);
         final BatchEventProcessor<E> eventProcessor = handlerToEventProcessor.remove(handler);
         if (eventProcessor != null) {
-            ringBuffer.removeGatingSequence(eventProcessor.getSequence());
+            if (handler.isGating()) {
+                ringBuffer.removeGatingSequence(eventProcessor.getSequence());
+            }
             // stop the event processor
             eventProcessor.halt();
         }
