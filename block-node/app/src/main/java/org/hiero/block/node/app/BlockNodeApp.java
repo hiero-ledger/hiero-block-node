@@ -658,11 +658,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             builder.nodeAddressBook(addressBook);
         }
 
-        if (storedBlockRange.hashCode() != context.storedBlocks().hashCode()) {
+        if (storedBlockRange.hashCode() != context.storedBlocks().hashCode()
+                || !storedBlockRange.equals(context.storedBlocks())) {
             builder.storedBlocks(storedBlockRange);
         }
 
-        if (availableBlockRange.hashCode() != context.availableBlocks().hashCode()) {
+        if (availableBlockRange.hashCode() != context.availableBlocks().hashCode()
+                || !availableBlockRange.equals(context.availableBlocks())) {
             builder.availableBlocks(availableBlockRange);
         }
         LOGGER.log(INFO, "BlockNodeContext updated");
