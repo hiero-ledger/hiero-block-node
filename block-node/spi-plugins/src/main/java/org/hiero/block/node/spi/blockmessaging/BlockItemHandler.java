@@ -19,8 +19,4 @@ public interface BlockItemHandler extends GatingHandler {
      * @param blockItems the immutable list of block items to handle
      */
     void handleBlockItemsReceived(BlockItems blockItems);
-
-    default boolean isGating() {
-        return true;
-    }
 }
