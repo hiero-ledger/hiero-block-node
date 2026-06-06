@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: Apache-2.0
+# WRB Differential Test Topology: 1 CN, 2 BNs, 2 MNs
+#
+# BN1: Receives live blocks from CN1 (normal mode)
+# BN2: Serves pre-wrapped blocks from historic storage (FILES_HISTORIC_ROOT_PATH)
+# MN1: Subscribes to BN1 (live blocks)
+# MN2: Subscribes to BN2 (wrapped blocks)
+#
+# This topology enables differential testing: compare MN1 and MN2 databases
+# to validate that WRB CLI-wrapped blocks produce identical Mirror Node state.
+#
+# CN1 → BN1 → MN1
+# BN2 (historic) → MN2
+#
+# NOTE: grpc_tuning.max_frame_size is set to 8MB to match server.http2.maxFrameSize and handle larger blocks.
+# This can be removed once Block Node v0.27+ is released, as the default
+# will be increased from 2MB to 8MB.
+
+name: wrb-differential-test
+description: "WRB differential test: 1 CN, 2 BNs (live + historic), 2 MNs"
+
+block_nodes:
+  block-node-1:
+    address: block-node-1
+    port: 40840
+    greedy: false
+    grpc_tuning:
+      max_frame_size: 8388608  # 8MB to match server.http2.maxFrameSize and handle larger blocks
+
+  block-node-2:
+    address: block-node-2
+    port: 40840
+    greedy: false
+    # BN2 serves from historic storage only - no CN connection, no peers
+    # Will be configured via helm values to use FILES_HISTORIC_ROOT_PATH
+    grpc_tuning:
+      max_frame_size: 8388608
+
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-1]  # Only BN1 receives live blocks from CN
+
+mirror_nodes:
+  mirror-1:
+    block_nodes: [block-node-1]  # MN1 subscribes to BN1 (live blocks)
+
+  mirror-2:
+    block_nodes: [block-node-2]  # MN2 subscribes to BN2 (wrapped blocks)
+
+relay_nodes:
+  # relay-1: {}
+
+# explorer_nodes:           # Uncomment to enable Explorer
+#   explorer-1: {}
