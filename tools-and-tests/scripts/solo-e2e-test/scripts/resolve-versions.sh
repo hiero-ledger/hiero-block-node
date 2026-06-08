@@ -39,9 +39,10 @@ readonly TCK_REPO="hiero-ledger/hiero-sdk-tck"
 # |-------------------|---------------|--------------|--------------------------------|
 # | >= 0.75.0-rc.4    | 0.154.0       | 0.35.0       | WRB streaming + RSA roster      |
 #
-# Note: MN 0.155.0-rc2 .. 0.156.0-rc1 have a GraalVM native-image crash in the
-# importer (RecordFileConsensusTimestampsRecalculateMigration). 0.154.0 GA is the
-# newest working version and already supports WRB cutover (since 0.153.0).
+# Note: 0.154.0 is the floor for WRB cutover support (added in 0.153.0); newer MN is fine.
+# Separately, MN 0.155.x/0.156.x ship broken GraalVM-native importer/grpc images; that is
+# worked around in the Mirror Node overlay by overriding those modules to the JVM images
+# (see generate-chart-values-config-overlays.sh), NOT by pinning the MN version here.
 readonly COMPAT_CN_MINS=("0.75.0-rc.4")
 readonly COMPAT_MN_MINS=("0.154.0")
 readonly COMPAT_BN_MINS=("0.35.0")
