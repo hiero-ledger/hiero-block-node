@@ -48,6 +48,7 @@ public final class BlockSessionHandler {
             final VerificationDataProvider verificationDataProvider,
             final AtomicLong lastVerifiedBlock,
             final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks,
+            final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions,
             final ExecutorService executor) {
         this.context = Objects.requireNonNull(context);
         this.metricsHolder = Objects.requireNonNull(metricsHolder);
@@ -57,7 +58,7 @@ public final class BlockSessionHandler {
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
         this.executor = Objects.requireNonNull(executor);
-        this.activeSessions = new ConcurrentSkipListMap<>();
+        this.activeSessions = Objects.requireNonNull(activeSessions);
         this.nextUniqueSessionIdentifier = new AtomicLong(0);
         this.activePublisherSession = new AtomicReference<>();
         this.finishedSessions = new ConcurrentSkipListSet<>();

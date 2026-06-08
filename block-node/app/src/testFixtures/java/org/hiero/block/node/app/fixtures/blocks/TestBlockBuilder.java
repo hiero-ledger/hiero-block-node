@@ -30,6 +30,7 @@ import java.util.Random;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.jspecify.annotations.NonNull;
 
 /**
  * A utility class to create sample BlockItem objects for testing purposes.
@@ -312,11 +313,21 @@ public final class TestBlockBuilder {
         return new BlockItems(converted, blockNumber, isStartOfNewBlock, isEndOfBlock);
     }
 
+    public static BlockUnparsed convertToUnparsed(final Block blockToConvert) {
+        final List<BlockItemUnparsed> items = convertToUnparsedItems(blockToConvert.items());
+        return BlockUnparsed.newBuilder().blockItems(items).build();
+    }
+
+    public static Block convertToBlock(final BlockUnparsed blockUnparsedToConvert) {
+        final List<BlockItem> items = convertToItems(blockUnparsedToConvert.blockItems());
+        return Block.newBuilder().items(items).build();
+    }
+
     public static List<BlockItemUnparsed> convertToUnparsedItems(final List<BlockItem> itemsToConvert) {
         final List<BlockItemUnparsed> result = new ArrayList<>();
         for (final BlockItem item : itemsToConvert) {
             try {
-                result.add(standardParse(BlockItemUnparsed.PROTOBUF, BlockItem.PROTOBUF.toBytes(item)));
+                result.add(convertToUnparsedItem(item));
             } catch (final ParseException e) {
                 fail("Failed to convert BlockItem to BlockItemUnparsed", e);
             }
@@ -324,15 +335,23 @@ public final class TestBlockBuilder {
         return List.copyOf(result);
     }
 
+    public static BlockItemUnparsed convertToUnparsedItem(final BlockItem itemToConvert) throws ParseException {
+        return standardParse(BlockItemUnparsed.PROTOBUF, BlockItem.PROTOBUF.toBytes(itemToConvert), Integer.MAX_VALUE);
+    }
+
     public static List<BlockItem> convertToItems(final List<BlockItemUnparsed> unparsedItemsToConvert) {
         final List<BlockItem> result = new ArrayList<>();
         for (final BlockItemUnparsed item : unparsedItemsToConvert) {
             try {
-                result.add(standardParse(BlockItem.PROTOBUF, BlockItemUnparsed.PROTOBUF.toBytes(item)));
+                result.add(convertToItem(item));
             } catch (ParseException e) {
                 fail("Failed to convert BlockItemUnparsed to BlockItem", e);
             }
         }
         return List.copyOf(result);
+    }
+
+    public static @NonNull BlockItem convertToItem(final BlockItemUnparsed itemToConvert) throws ParseException {
+        return standardParse(BlockItem.PROTOBUF, BlockItemUnparsed.PROTOBUF.toBytes(itemToConvert), Integer.MAX_VALUE);
     }
 }

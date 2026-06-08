@@ -3,39 +3,66 @@ package org.hiero.block.node.app.fixtures.blocks;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.output.BlockFooter;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Predicate;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /**
  * A simple wrapper for blocks, with convenience methods for testing.
  */
-public final class TestBlock {
+public class TestBlock {
+    /// so size/8 bounds the deepest a non-degenerate message can nest.
+    public static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
     private final long number;
     private final int blockSize;
     private final Block block;
     private final BlockUnparsed blockUnparsed;
+    private final BlockHeader header;
+    private final BlockFooter footer;
+    private final List<BlockProof> proofs;
+    private final SemanticVersion hapiVersion;
 
     public TestBlock(final long number, final Block block) {
-        this.number = number;
-        this.block = Objects.requireNonNull(block);
-        final List<BlockItemUnparsed> converted = TestBlockBuilder.convertToUnparsedItems(block.items());
-        this.blockUnparsed = BlockUnparsed.newBuilder().blockItems(converted).build();
-        this.blockSize = this.block.items().size();
+        this(number, block, TestBlockBuilder.convertToUnparsed(block));
     }
 
     public TestBlock(final long number, final BlockUnparsed blockUnparsed) {
+        this(number, TestBlockBuilder.convertToBlock(blockUnparsed), blockUnparsed);
+    }
+
+    private TestBlock(final long number, final Block block, final BlockUnparsed blockUnparsed) {
         this.number = number;
-        this.blockUnparsed = blockUnparsed;
-        final List<BlockItem> converted = TestBlockBuilder.convertToItems(blockUnparsed.blockItems());
-        this.block = Block.newBuilder().items(converted).build();
+        this.block = Objects.requireNonNull(block);
+        this.blockUnparsed = Objects.requireNonNull(blockUnparsed);
         this.blockSize = this.block.items().size();
+        this.header = block.items().getFirst().blockHeader();
+        this.footer = block.items().stream()
+                .filter(BlockItem::hasBlockFooter)
+                .findFirst()
+                .map(BlockItem::blockFooter)
+                .orElse(null);
+        this.proofs = block.items().stream()
+                .filter(BlockItem::hasBlockProof)
+                .map(BlockItem::blockProof)
+                .toList();
+        if (header != null) {
+            this.hapiVersion = header.hapiProtoVersion();
+        } else {
+            this.hapiVersion = null;
+        }
     }
 
     public long number() {
@@ -92,5 +119,48 @@ public final class TestBlock {
         return PublishStreamRequestUnparsed.newBuilder()
                 .blockItems(asItemSetUnparsed())
                 .build();
+    }
+
+    public BackfilledBlockNotification asBackfilledNotification() {
+        return new BackfilledBlockNotification(number, blockUnparsed);
+    }
+
+    public BlockHeader header() {
+        return header;
+    }
+
+    public BlockFooter footer() {
+        return footer;
+    }
+
+    public List<BlockProof> proofs() {
+        return proofs;
+    }
+
+    public SemanticVersion hapiVersion() {
+        return hapiVersion;
+    }
+
+    public List<BlockItem> asBlockItemFiltered(final Predicate<BlockItem> filter) {
+        return block.items().stream().filter(Objects.requireNonNull(filter)).toList();
+    }
+
+    public List<BlockItemUnparsed> asBlockItemUnparsedFiltered(final Predicate<BlockItemUnparsed> filter) {
+        return blockUnparsed.blockItems().stream()
+                .filter(Objects.requireNonNull(filter))
+                .toList();
+    }
+
+    public TestBlock replace(final Predicate<BlockItemUnparsed> filter, final BlockItemUnparsed replacement) {
+        final List<BlockItemUnparsed> items = new ArrayList<>();
+        for (final BlockItemUnparsed currentItem : blockUnparsed.blockItems()) {
+            if (filter.test(currentItem)) {
+                items.add(replacement);
+            } else {
+                items.add(currentItem);
+            }
+        }
+        return new TestBlock(
+                number, BlockUnparsed.newBuilder().blockItems(items).build());
     }
 }

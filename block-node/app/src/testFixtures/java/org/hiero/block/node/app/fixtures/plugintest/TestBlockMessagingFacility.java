@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.plugintest;
 
+import static java.util.concurrent.locks.LockSupport.parkNanos;
+
 import java.lang.System.Logger.Level;
 import java.util.Comparator;
 import java.util.List;
@@ -28,6 +30,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  */
 @SuppressWarnings("unused")
 public class TestBlockMessagingFacility implements BlockMessagingFacility {
+    private static final long NOTIFICATION_AWAIT_TIMEOUT = 5_000_000_000L; // 5 seconds
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** set of block item handlers */
@@ -70,6 +73,20 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      * @return the list of sent block verification notifications
      */
     public List<VerificationNotification> getSentVerificationNotifications() {
+        return sentVerificationNotifications;
+    }
+
+    /**
+     * Get all block verification notifications sent to the block messaging facility.
+     * Await for at least a given number of notifications to arrive.
+     *
+     * @return the list of sent block verification notifications
+     */
+    public List<VerificationNotification> getSentVerificationNotifications(final long awaitNotifications) {
+        final long deadline = System.nanoTime() + NOTIFICATION_AWAIT_TIMEOUT;
+        while (sentVerificationNotifications.size() < awaitNotifications && System.nanoTime() < deadline) {
+            parkNanos(1_000_000L);
+        }
         return sentVerificationNotifications;
     }
 
