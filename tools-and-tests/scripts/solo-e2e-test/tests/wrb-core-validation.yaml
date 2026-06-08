@@ -1,0 +1,128 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# WRB Core Validation Test
+#
+# E2E test to validate core WRB CLI functionality without Mirror Nodes.
+# Tests that wrapped blocks can be deployed to historic storage and served by Block Node.
+#
+# Test Flow:
+#   1. Deploy network with wrb-differential-test-minimal topology (1 CN, 2 BNs, no MN)
+#   2. Wait for CN to produce blocks
+#   3. Extract and wrap blocks using WRB CLI
+#   4. Copy wrapped blocks to BN2's historic storage
+#   5. Restart BN2 to discover blocks
+#   6. Verify BN2 can serve blocks (via gRPC)
+#   7. Compare BN1 and BN2 block hashes (validate wrapping preserves data)
+#
+# Prerequisites:
+#   - Deploy with topology: wrb-differential-test-minimal
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/wrb-core-validation.yaml TOPOLOGY=wrb-differential-test-minimal
+
+name: wrb-core-validation
+description: "WRB core validation - test wrapping and serving without Mirror Nodes"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Confirm nodes are running"
+    delay: 5
+
+  - id: block-production-wait
+    type: sleep
+    description: "Wait for CN to produce blocks"
+    delay: 10
+    args:
+      seconds: 120
+
+  - id: pre-wrap-metrics
+    type: print-metrics
+    description: "Capture pre-wrap metrics"
+    delay: 135
+    args:
+      target: all
+
+  - id: build-tools-jar
+    type: command
+    description: "Build tools shadow jar for WRB CLI"
+    delay: 140
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh build"
+
+  - id: extract-record-files
+    type: command
+    description: "Extract record files from MinIO/CN"
+    delay: 145
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh extract"
+
+  - id: wrap-blocks
+    type: command
+    description: "Wrap record files with WRB CLI"
+    delay: 150
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh wrap"
+
+  - id: copy-to-bn2
+    type: command
+    description: "Copy wrapped blocks to BN2's archive PVC"
+    delay: 155
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-deploy-bn2-historic.sh copy-blocks"
+
+  - id: restart-bn2
+    type: command
+    description: "Restart BN2 to discover wrapped blocks"
+    delay: 160
+    timeout: 180
+    args:
+      script: "${SCRIPT_DIR}/wrb-deploy-bn2-historic.sh restart"
+
+  - id: verify-bn2
+    type: command
+    description: "Verify BN2 can serve blocks"
+    delay: 165
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-deploy-bn2-historic.sh verify"
+
+  - id: final-status
+    type: network-status
+    description: "Post-test network status"
+    delay: 240
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: bn1-has-blocks
+    type: block-available
+    description: "BN1 has blocks from CN (live)"
+    target: block-node-1
+    args:
+      min_block: 0
+
+  - id: bn2-has-blocks
+    type: block-available
+    description: "BN2 has blocks from historic storage (wrapped)"
+    target: block-node-2
+    args:
+      min_block: 0
+
+  - id: no-errors
+    type: no-errors
+    description: "No errors in block node logs"
+    target: all
+
+  - id: wrb-deployment-success
+    type: command-success
+    description: "BN2 successfully serves wrapped blocks"
+    command_id: verify-bn2
