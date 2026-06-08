@@ -1,7 +1,7 @@
 # Epic #2767: WRB Mirror Node Validation - COMPLETE ✅
 
-**Status**: COMPLETE  
-**Date**: 2026-06-05  
+**Status**: COMPLETE
+**Date**: 2026-06-05
 **Objective**: Validate that Mirror Node databases are identical whether ingesting live blocks or WRB CLI-wrapped blocks.
 
 ## Executive Summary
@@ -35,15 +35,14 @@ Successfully implemented and validated end-to-end differential testing for WRB (
 
 **Created**:
 - `topologies/wrb-differential-test.yaml` - 1 CN, 2 BNs, 2 MNs topology
-  - BN1: receives live blocks from CN1 → MN1
-  - BN2: serves wrapped blocks from historic storage → MN2
-  - Compare: MN1 vs MN2 databases
-  
+- BN1: receives live blocks from CN1 → MN1
+- BN2: serves wrapped blocks from historic storage → MN2
+- Compare: MN1 vs MN2 databases
+
 - `charts/block-node-server/values-overrides/wrb-historic-only.yaml`
   - Historic-only Block Node configuration
   - Disabled live streaming plugins
   - ZSTD compression matching WRB CLI output
-  
 - `scripts/wrb-deploy-bn2-historic.sh`
   - Copy wrapped blocks to BN2's archive PVC
   - Restart BN2 to discover blocks
@@ -55,11 +54,11 @@ Successfully implemented and validated end-to-end differential testing for WRB (
 
 **Created**:
 - `scripts/python/compare_mirror_nodes.py`
-  - Compares two Mirror Node REST APIs
-  - Endpoints: /network/nodes, /blocks, /transactions, /balances
-  - Pagination support for large datasets
-  - Detailed difference classification
-  - JSON report generation
+- Compares two Mirror Node REST APIs
+- Endpoints: /network/nodes, /blocks, /transactions, /balances
+- Pagination support for large datasets
+- Detailed difference classification
+- JSON report generation
 
 - `scripts/compare-mirror-node-apis.sh`
   - Shell wrapper for Solo integration
@@ -79,16 +78,15 @@ Successfully implemented and validated end-to-end differential testing for WRB (
 
 **Created**:
 - `scripts/wrb-full-differential-test.sh` - Master orchestration script
-  - Build → Extract → Wrap → Deploy → Compare → Validate
-  - Comprehensive error handling
-  - Skip flags for partial re-runs
-  - Structured test reports
+- Build → Extract → Wrap → Deploy → Compare → Validate
+- Comprehensive error handling
+- Skip flags for partial re-runs
+- Structured test reports
 
 - `scripts/python/compare_jumpstart_hashes.py`
   - Merkle hash verification from jumpstart.bin
   - Cryptographic state validation
   - Block hash, timestamp hash, tree root hash comparison
-
 - `tests/wrb-differential-test.yaml`
   - Complete E2E test case definition
   - Integrated with Solo test framework
@@ -255,13 +253,13 @@ See `WRB_PRODUCTION_DEPLOYMENT.md` for:
 
 ## Tasks Completed
 
-| Task | Status | Description |
-|------|--------|-------------|
-| #4 | ✅ Complete | Block Node loading investigation |
-| #5 | ⏸️ Deferred | Import command (not needed - direct compatibility!) |
-| #6 | ✅ Complete | BN2 historic deployment configuration |
-| #7 | ✅ Complete | Mirror Node API comparison tool |
-| #8 | ✅ Complete | E2E test orchestration & documentation |
+| Task |   Status    |                     Description                     |
+|------|-------------|-----------------------------------------------------|
+| #4   | ✅ Complete  | Block Node loading investigation                    |
+| #5   | ⏸️ Deferred | Import command (not needed - direct compatibility!) |
+| #6   | ✅ Complete  | BN2 historic deployment configuration               |
+| #7   | ✅ Complete  | Mirror Node API comparison tool                     |
+| #8   | ✅ Complete  | E2E test orchestration & documentation              |
 
 ## Key Metrics
 

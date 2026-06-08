@@ -23,18 +23,22 @@ Compare: MN1 database == MN2 database
 ## Components
 
 ### 1. Topology: `wrb-differential-test.yaml`
+
 - 1 Consensus Node (CN1)
 - 2 Block Nodes (BN1 - live, BN2 - historic)
 - 2 Mirror Nodes (MN1, MN2)
 
 ### 2. Scripts
+
 - `wrb-cli-wrap-and-compare.sh` - WRB CLI wrapping (extract, wrap, validate)
 - `wrb-deploy-bn2-historic.sh` - BN2 historic deployment (copy blocks, restart, verify)
 
 ### 3. Configuration
+
 - `values-overrides/wrb-historic-only.yaml` - BN2 values override (historic-only mode)
 
 ### 4. Test Case
+
 - `tests/wrb-differential-test.yaml` - Full E2E test orchestration
 
 ## Prerequisites
