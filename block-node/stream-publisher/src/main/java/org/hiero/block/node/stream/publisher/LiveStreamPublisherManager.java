@@ -22,6 +22,7 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
@@ -455,19 +456,28 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     ensureNextGreaterThanPersisted(blockNumber);
                 }
             } else {
-                if (blockNumber <= lastPersistedBlockNumber.get()) {
-                    // @todo(2198): We may have an extremely rare race condition here
-                    nextUnstreamedBlockNumber.set(blockNumber);
+                if (notification.blockSource() == BlockSource.PUBLISHER) {
+                    if (blockNumber <= lastPersistedBlockNumber.get()) {
+                        nextUnstreamedBlockNumber.set(blockNumber);
+                    }
+                    Collection<PublisherHandler> handlersToClose = handlers.values();
+                    // Notify the handlers that persistence failed.
+                    handlersToClose.parallelStream()
+                            .unordered()
+                            .forEach((handler) -> handler.endStreamWithCode(Code.PERSISTENCE_FAILED, false));
+                    queueByBlockMap.clear();
+                    // Note, nothing stops another publisher from connecting
+                    //     immediately after clearing the map, and that is
+                    //     fine. If the failure was intermittent, then we will
+                    //     succeed storing that block. If the failure is
+                    //     permanent, then we will fail again.
+                    // Make sure to schedule resend for this failed persistence
+                    // This is actually unnecessary, _for now_, add back in if
+                    // we no longer end all handlers.
+                    // blocksToResend.add(blockNumber);
+                    // @todo(2240,2236) Mark the publisher plugin _unhealthy_
+                    //     when the Health Plugin supports that.
                 }
-                // Make sure to schedule resend for this failed persistence
-                // This is actually unnecessary, _for now_, add back in when
-                // we no longer end all handlers.
-                // blocksToResend.add(blockNumber);
-                // Notify the handlers that persistence failed.
-                handlers.values().parallelStream()
-                        .unordered()
-                        .forEach((handler) -> handler.endStreamWithCode(Code.PERSISTENCE_FAILED, false));
-                queueByBlockMap.clear();
             }
         }
     }
