@@ -43,6 +43,8 @@ consensus_nodes:
     block_nodes: [block-node-1]  # Only BN1 receives live blocks from CN
 
 # No Mirror Nodes in minimal topology - focus on core WRB wrapping/serving
+mirror_nodes:
+  # Empty section - no Mirror Nodes deployed
 
 relay_nodes:
   # relay-1: {}  # Disabled
