@@ -124,7 +124,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
         this.resumeState = resumeState;
         this.metricsHolder = metricsHolder;
         this.applicationStateFacility = requireNonNull(applicationStateFacility);
-        this.key = ArchiveKey.format(firstBlock, config.groupingLevel());
+        this.key = ArchiveKey.format(firstBlock, config.groupingLevel(), config.objectKeyPrefix());
     }
 
     /// Runs the full upload lifecycle for this batch:

@@ -20,10 +20,13 @@ public record CloudStorageArchiveConfig(
     @ConfigProperty(defaultValue = "") String accessKey,
     @ConfigProperty(defaultValue = "") String secretKey,
     @Loggable @ConfigProperty(defaultValue = "") String bucketName,
+    @Loggable @ConfigProperty(defaultValue = "") String objectKeyPrefix,
     @Loggable @ConfigProperty(defaultValue = "STANDARD") S3StorageClass storageClass) {
     // spotless:on
 
-    // Source for storage class values: https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html
+    // AWS S3 storage class values: https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html
+    // ARCHIVE is not an AWS S3 class; it is the native storage class for Google Cloud Storage
+    // accessed via the S3-compatible API (https://cloud.google.com/storage/docs/storage-classes).
     enum S3StorageClass {
         STANDARD,
         STANDARD_IA,
@@ -33,7 +36,8 @@ public record CloudStorageArchiveConfig(
         GLACIER,
         GLACIER_IR,
         DEEP_ARCHIVE,
-        REDUCED_REDUNDANCY
+        REDUCED_REDUNDANCY,
+        ARCHIVE
     }
 
     /// Validates the plugin configuration and returns a list of human-readable violation messages
