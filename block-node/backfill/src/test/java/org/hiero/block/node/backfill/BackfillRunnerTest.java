@@ -21,10 +21,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
-import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
@@ -97,9 +97,9 @@ class BackfillRunnerTest {
         @DisplayName("should return null when node not in availability map")
         void shouldReturnNullWhenNodeNotInAvailability() {
             // given
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
             NodeSelectionStrategy.NodeSelection selection = new NodeSelectionStrategy.NodeSelection(nodeConfig, 100L);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             // nodeConfig not in map
 
             // when
@@ -113,9 +113,9 @@ class BackfillRunnerTest {
         @DisplayName("should return null when no range covers start block")
         void shouldReturnNullWhenNoRangeCoverStart() {
             // given
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
             NodeSelectionStrategy.NodeSelection selection = new NodeSelectionStrategy.NodeSelection(nodeConfig, 100L);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             // Range 50-80 does not cover start block 100
             availability.put(nodeConfig, List.of(new LongRange(50, 80)));
 
@@ -130,9 +130,9 @@ class BackfillRunnerTest {
         @DisplayName("should limit chunk to batch size")
         void shouldLimitChunkToBatchSize() {
             // given
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
             NodeSelectionStrategy.NodeSelection selection = new NodeSelectionStrategy.NodeSelection(nodeConfig, 100L);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 500)));
             long batchSize = 10;
 
@@ -149,9 +149,9 @@ class BackfillRunnerTest {
         @DisplayName("should limit chunk to gap end")
         void shouldLimitChunkToGapEnd() {
             // given
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
             NodeSelectionStrategy.NodeSelection selection = new NodeSelectionStrategy.NodeSelection(nodeConfig, 100L);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 500)));
             long gapEnd = 105L;
             long batchSize = 20;
@@ -169,9 +169,9 @@ class BackfillRunnerTest {
         @DisplayName("should limit chunk to range end")
         void shouldLimitChunkToRangeEnd() {
             // given
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
             NodeSelectionStrategy.NodeSelection selection = new NodeSelectionStrategy.NodeSelection(nodeConfig, 100L);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 103))); // Range ends at 103
             long gapEnd = 500L;
             long batchSize = 20;
@@ -189,9 +189,9 @@ class BackfillRunnerTest {
         @DisplayName("should select correct range when multiple ranges available")
         void shouldSelectCorrectRangeFromMultiple() {
             // given
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
             NodeSelectionStrategy.NodeSelection selection = new NodeSelectionStrategy.NodeSelection(nodeConfig, 150L);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(
                     nodeConfig,
                     List.of(
@@ -237,8 +237,8 @@ class BackfillRunnerTest {
         void shouldReportFetchErrorWhenNoNodesAvailable() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 10), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 10)));
 
             when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
@@ -261,8 +261,8 @@ class BackfillRunnerTest {
         void shouldRemoveNodeOnEmptyFetch() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 10), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 10)));
 
             when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
@@ -287,12 +287,12 @@ class BackfillRunnerTest {
         void shouldContinueWhenChunkNullButOtherNodesAvailable() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(100, 105), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig badNode = mock(BackfillSourceConfig.class);
-            BackfillSourceConfig goodNode = mock(BackfillSourceConfig.class);
+            BlockNodeSourceConfig badNode = mock(BlockNodeSourceConfig.class);
+            BlockNodeSourceConfig goodNode = mock(BlockNodeSourceConfig.class);
 
             // badNode selected first but has range that doesn't cover start (will cause computeChunk to return null)
             // goodNode has valid range
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(badNode, List.of(new LongRange(0, 50))); // doesn't cover 100
             availability.put(goodNode, List.of(new LongRange(100, 200)));
 
@@ -331,12 +331,12 @@ class BackfillRunnerTest {
         void shouldContinueAfterReplanOnEmptySelection() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
 
-            Map<BackfillSourceConfig, List<LongRange>> initialAvailability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> initialAvailability = new HashMap<>();
             initialAvailability.put(nodeConfig, List.of(new LongRange(0, 10)));
 
-            Map<BackfillSourceConfig, List<LongRange>> replanAvailability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> replanAvailability = new HashMap<>();
             replanAvailability.put(nodeConfig, List.of(new LongRange(0, 10)));
 
             BlockUnparsed testBlock = createTestBlock(0L);
@@ -377,13 +377,13 @@ class BackfillRunnerTest {
         void shouldContinueAfterReplanOnEmptyFetch() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig badNode = mock(BackfillSourceConfig.class);
-            BackfillSourceConfig goodNode = mock(BackfillSourceConfig.class);
+            BlockNodeSourceConfig badNode = mock(BlockNodeSourceConfig.class);
+            BlockNodeSourceConfig goodNode = mock(BlockNodeSourceConfig.class);
 
-            Map<BackfillSourceConfig, List<LongRange>> initialAvailability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> initialAvailability = new HashMap<>();
             initialAvailability.put(badNode, List.of(new LongRange(0, 10)));
 
-            Map<BackfillSourceConfig, List<LongRange>> replanAvailability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> replanAvailability = new HashMap<>();
             replanAvailability.put(goodNode, List.of(new LongRange(0, 10)));
 
             BlockUnparsed testBlock = createTestBlock(0L);
@@ -425,10 +425,10 @@ class BackfillRunnerTest {
         void shouldBreakWhenChunkNullAndAvailabilityEmpty() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(100, 105), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
 
             // Node has range that doesn't cover start block 100 (will cause computeChunk to return null)
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 50)));
 
             when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
@@ -452,8 +452,8 @@ class BackfillRunnerTest {
         void shouldTrackBlocksBeforeSending() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 0)));
 
             BlockUnparsed testBlock = createTestBlock(0L);
@@ -494,8 +494,8 @@ class BackfillRunnerTest {
         void shouldAwaitPersistenceForEachBlock() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 0)));
 
             BlockUnparsed testBlock = createTestBlock(0L);
@@ -551,8 +551,8 @@ class BackfillRunnerTest {
                     persistenceAwaiter);
 
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 0)));
 
             BlockUnparsed testBlock = createTestBlock(0L);
@@ -583,8 +583,8 @@ class BackfillRunnerTest {
         void shouldReturnGapEndOnFullCompletion() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 2), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 2)));
 
             BlockUnparsed block0 = createTestBlock(0L);
@@ -636,9 +636,9 @@ class BackfillRunnerTest {
                     persistenceAwaiter);
 
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 9), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
 
-            Map<BackfillSourceConfig, List<LongRange>> initialAvailability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<LongRange>> initialAvailability = new HashMap<>();
             initialAvailability.put(nodeConfig, List.of(new LongRange(0, 9)));
 
             List<BlockUnparsed> firstBatch = List.of(
@@ -707,8 +707,8 @@ class BackfillRunnerTest {
         void shouldReportBlockFetched() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 0)));
 
             BlockUnparsed testBlock = createTestBlock(0L);
@@ -744,8 +744,8 @@ class BackfillRunnerTest {
         void shouldReportBlockDispatched() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 0)));
 
             BlockUnparsed testBlock = createTestBlock(0L);
@@ -781,8 +781,8 @@ class BackfillRunnerTest {
         void shouldReportMultipleBlocks() throws Exception {
             // given
             GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 2), GapDetector.Type.HISTORICAL);
-            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
-            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 2)));
 
             BlockUnparsed testBlock0 = createTestBlock(0L);

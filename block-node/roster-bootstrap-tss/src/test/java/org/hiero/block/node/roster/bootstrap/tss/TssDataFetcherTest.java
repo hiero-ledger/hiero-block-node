@@ -16,8 +16,10 @@ import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
+import org.hiero.block.internal.BlockNodeSource;
+import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
-import org.hiero.block.node.roster.bootstrap.tss.client.BlockNodeClient;
+import org.hiero.block.node.base.client.BlockNodeClient;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.DisplayName;
@@ -51,6 +53,7 @@ class TssDataFetcherTest {
                 "", // blockNodeSourcesPath
                 500, // queryPeerInterval
                 104_857_600, // maxIncomingBufferSize (100 MB default)
+                10_000,
                 false // enableTLS
                 );
     }

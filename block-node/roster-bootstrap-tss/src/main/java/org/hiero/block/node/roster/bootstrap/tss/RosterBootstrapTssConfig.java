@@ -20,6 +20,7 @@ public record RosterBootstrapTssConfig(
         @Loggable @ConfigProperty(defaultValue = "") String blockNodeSourcesPath,
         @Loggable @ConfigProperty(defaultValue = "60000") @Min(100) int queryPeerInterval,
         @Loggable @ConfigProperty(defaultValue = "104857600") @Min(10_485_760) @Max(314_572_800) int maxIncomingBufferSize,
+        @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS) {}
 
 // spotless:on

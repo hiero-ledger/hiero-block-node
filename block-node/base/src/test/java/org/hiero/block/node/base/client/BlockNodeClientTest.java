@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.roster.bootstrap.tss.client;
+package org.hiero.block.node.base.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import org.hiero.block.node.roster.bootstrap.tss.GrpcWebClientTuning;
-import org.hiero.block.node.roster.bootstrap.tss.client.BlockNodeClient.IntConfigSpec;
+import org.hiero.block.internal.GrpcWebClientTuning;
+import org.hiero.block.node.base.client.BlockNodeClient.IntConfigSpec;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

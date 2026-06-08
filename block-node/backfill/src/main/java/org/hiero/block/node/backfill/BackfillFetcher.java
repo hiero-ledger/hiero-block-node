@@ -16,10 +16,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
+import org.hiero.block.internal.BlockNodeSource;
+import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.backfill.client.BackfillSource;
-import org.hiero.block.node.backfill.client.BackfillSourceConfig;
-import org.hiero.block.node.backfill.client.BlockNodeClient;
+import org.hiero.block.node.base.client.BlockNodeClient;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.LongCounter;
 
@@ -40,7 +40,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     /** Metric for Number of retries during the backfill process. */
     private final LongCounter.Measurement backfillRetries;
     /** Source of block node configurations. */
-    private final BackfillSource blockNodeSource;
+    private final BlockNodeSource blockNodeSource;
     /**
      * Maximum number of retries to fetch blocks from a block node.
      * This is used to avoid infinite loops in case of persistent failures.
@@ -64,16 +64,16 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     /** Strategy for selecting nodes. */
     private final NodeSelectionStrategy selectionStrategy;
     /**
-     * Map of BackfillSourceConfig to BlockNodeClient instances.
+     * Map of BlockNodeSourceConfig to BlockNodeClient instances.
      * This allows us to reuse clients for the same node configuration.
      * Package-private for testing.
      */
-    final ConcurrentHashMap<BackfillSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
+    final ConcurrentHashMap<BlockNodeSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
     /**
      * Per-source health for backoff and simple scoring.
      * Package-private for testing.
      */
-    final ConcurrentHashMap<BackfillSourceConfig, SourceHealth> healthMap = new ConcurrentHashMap<>();
+    final ConcurrentHashMap<BlockNodeSourceConfig, SourceHealth> healthMap = new ConcurrentHashMap<>();
 
     /**
      * Constructor for the fetcher responsible for retrieving blocks from peer block nodes.
@@ -83,7 +83,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @param metrics the metrics holder
      */
     public BackfillFetcher(
-            BackfillSource backfillSource,
+            BlockNodeSource backfillSource,
             BackfillConfiguration config,
             @NonNull BackfillPlugin.MetricsHolder metrics) {
         this.blockNodeSource = backfillSource;
@@ -97,7 +97,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         this.healthPenaltyPerFailure = config.healthPenaltyPerFailure();
         this.selectionStrategy = new PriorityHealthBasedStrategy(this);
 
-        for (BackfillSourceConfig node : blockNodeSource.nodes()) {
+        for (BlockNodeSourceConfig node : blockNodeSource.nodes()) {
             LOGGER.log(INFO, "Loaded backfill source node: {0}", node);
         }
     }
@@ -114,7 +114,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         long earliestPeerBlock = Long.MAX_VALUE;
         long latestPeerBlock = Long.MIN_VALUE;
 
-        for (BackfillSourceConfig node : blockNodeSource.nodes()) {
+        for (BlockNodeSourceConfig node : blockNodeSource.nodes()) {
             if (isInBackoff(node)) {
                 LOGGER.log(DEBUG, "Node [{0}] is in backoff, skipping range discovery", node.address());
                 continue;
@@ -167,7 +167,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     }
 
     /**
-     * Returns a BlockNodeClient for the given BackfillSourceConfig.
+     * Returns a BlockNodeClient for the given BlockNodeSourceConfig.
      * If a client for the node already exists, it returns that client.
      * Otherwise, it creates a new client and stores it in the map.
      * <p>
@@ -175,10 +175,10 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * to the client. When tuning values are 0 or not specified, the global
      * timeout from BackfillConfiguration is used as fallback.
      *
-     * @param node the BackfillSourceConfig to get the client for
+     * @param node the BlockNodeSourceConfig to get the client for
      * @return a BlockNodeClient for the specified node
      */
-    protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+    protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
         // Check if existing client is unreachable and remove it to allow recreation
         BlockNodeClient existingClient = nodeClientMap.get(node);
         if (existingClient != null && !existingClient.isNodeReachable()) {
@@ -197,10 +197,10 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @param targetRange overall gap we are trying to backfill
      * @return map of node -> available range overlapping the target
      */
-    public Map<BackfillSourceConfig, List<LongRange>> getAvailabilityForRange(LongRange targetRange) {
-        Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+    public Map<BlockNodeSourceConfig, List<LongRange>> getAvailabilityForRange(LongRange targetRange) {
+        Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
 
-        for (BackfillSourceConfig node : blockNodeSource.nodes()) {
+        for (BlockNodeSourceConfig node : blockNodeSource.nodes()) {
             if (isInBackoff(node)) {
                 continue;
             }
@@ -249,14 +249,14 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @return optional NodeSelection describing which node to hit and what range to request
      */
     public Optional<NodeSelectionStrategy.NodeSelection> selectNextChunk(
-            long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
+            long startBlock, long gapEnd, @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability) {
         return selectionStrategy.select(startBlock, gapEnd, availability);
     }
 
     /**
      * Fetch blocks for the provided range from the selected node using retries, without iterating other nodes.
      */
-    public List<BlockUnparsed> fetchBlocksFromNode(BackfillSourceConfig nodeConfig, LongRange blockRange) {
+    public List<BlockUnparsed> fetchBlocksFromNode(BlockNodeSourceConfig nodeConfig, LongRange blockRange) {
         BlockNodeClient currentNodeClient = getNodeClient(nodeConfig);
 
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
@@ -309,7 +309,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     }
 
     @Override
-    public boolean isInBackoff(BackfillSourceConfig node) {
+    public boolean isInBackoff(BlockNodeSourceConfig node) {
         SourceHealth health = healthMap.get(node);
         if (health == null) {
             return false;
@@ -317,7 +317,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         return System.currentTimeMillis() < health.nextAllowedMillis;
     }
 
-    private void markFailure(BackfillSourceConfig node) {
+    private void markFailure(BlockNodeSourceConfig node) {
         // Evict cached client so a fresh one is created after backoff expires
         nodeClientMap.remove(node);
         healthMap.compute(node, (n, h) -> {
@@ -332,7 +332,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         });
     }
 
-    private void markSuccess(BackfillSourceConfig node, long latencyNanos) {
+    private void markSuccess(BlockNodeSourceConfig node, long latencyNanos) {
         healthMap.compute(node, (n, h) -> {
             if (h == null) {
                 return new SourceHealth(0, 0, 1, latencyNanos);
@@ -344,7 +344,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     }
 
     @Override
-    public double healthScore(BackfillSourceConfig node) {
+    public double healthScore(BlockNodeSourceConfig node) {
         SourceHealth h = healthMap.get(node);
         if (h == null) {
             return 0.0;

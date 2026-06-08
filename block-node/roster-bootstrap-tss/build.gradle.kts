@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-plugins {
-    id("org.hiero.gradle.module.library")
-    id("com.hedera.pbj.pbj-compiler")
-}
+plugins { id("org.hiero.gradle.module.library") }
 
 description = "Hiero Block Node Roster Bootstrap Tss Service"
 
@@ -10,21 +7,9 @@ description = "Hiero Block Node Roster Bootstrap Tss Service"
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
-tasks.javadoc {
-    options {
-        this as StandardJavadocDocletOptions
-        // There are violations in the generated pbj code
-        addStringOption("Xdoclint:-reference,-html", "-quiet")
-    }
-}
-
-pbj { generateTestClasses = false }
-
 mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
-    runtimeOnly("com.hedera.pbj.grpc.client.helidon")
-    runtimeOnly("com.hedera.pbj.grpc.helidon")
 }
 
 testModuleInfo {
