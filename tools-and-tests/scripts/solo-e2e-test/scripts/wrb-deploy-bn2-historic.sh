@@ -46,7 +46,7 @@ function kctl {
 }
 
 function log {
-    echo "[wrb-bn2-historic] $*"
+    echo "[wrb-bn2-historic] $*" >&2
 }
 
 function find_bn2_pod {

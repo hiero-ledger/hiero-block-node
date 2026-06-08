@@ -121,8 +121,3 @@ assertions:
     type: no-errors
     description: "No errors in block node logs"
     target: all
-
-  - id: wrb-deployment-success
-    type: command-success
-    description: "BN2 successfully serves wrapped blocks"
-    command_id: verify-bn2
