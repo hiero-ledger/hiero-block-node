@@ -13,14 +13,21 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.hiero.block.internal.BlockNodeSource;
+import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
+import org.hiero.block.node.spi.BlockNodeContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -53,10 +60,35 @@ import org.junit.jupiter.api.io.TempDir;
 class RsaRosterBootstrapPluginTest
         extends PluginTestBase<RsaRosterBootstrapPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
 
-    RsaRosterBootstrapPluginTest() {
+    private List<TestBlockNodeServer> testBlockNodeServers;
+
+    /// TempDir for the current test
+    private final Path testTempDir;
+
+    @BeforeEach
+    void setup() {
+        testBlockNodeServers = new ArrayList<>();
+    }
+
+    @AfterEach
+    void cleanup() {
+        // stop any started test block node servers
+        if (testBlockNodeServers != null) {
+            for (TestBlockNodeServer server : testBlockNodeServers) {
+                if (server != null) {
+                    server.stop();
+                }
+            }
+        }
+
+        if (plugin != null) plugin.stop();
+    }
+
+    RsaRosterBootstrapPluginTest(@TempDir final Path testTempDir) {
         super(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+        this.testTempDir = testTempDir;
     }
 
     /// Override tearDown to gracefully handle cases where `start()` threw before
@@ -419,13 +451,60 @@ class RsaRosterBootstrapPluginTest
                     Map.of(
                             "roster.bootstrap.rsa.blockNodeSourcesPath", sourcesPath,
                             "roster.bootstrap.rsa.peerQueryMaxRetries", "1",
-                            "roster.bootstrap.rsa.bnInitialQueryIntervalMillis", "100"));
+                            "roster.bootstrap.rsa.mnInitialQueryIntervalMillis", "100"));
 
             // First scheduled task: peer query (will fail — port 1 is unreachable)
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
             // After exhaustion the plugin should fall through; no crash expected
             assertNull(blockNodeContext.nodeAddressBook());
+        }
+
+        @Test
+        @DisplayName("request TssData from a peer bn ")
+        void requestRsaDataFromPeerBN() throws IOException, InterruptedException {
+            final TestBlockNodeServer server1 = new TestBlockNodeServer(0, new SimpleInMemoryHistoricalBlockFacility());
+            testBlockNodeServers.add(server1);
+            String blockNodeSourcesPath = testTempDir + "/blocknode-sources.json";
+
+            createTestBlockNodeSourcesFile(
+                    BlockNodeSource.newBuilder()
+                            .nodes(BlockNodeSourceConfig.newBuilder()
+                                    .address("localhost")
+                                    .port(server1.port())
+                                    .priority(1)
+                                    .build())
+                            .build(),
+                    blockNodeSourcesPath);
+
+            // Config Override
+            Map<String, String> configOverride = RsaRosterBootstrapConfigBuilder.newBuilder()
+                    .blockNodeSourcesPath(blockNodeSourcesPath)
+                    .bnInitialQueryIntervalMillis(500)
+                    .bnSubsequentQueryIntervalMillis(10_000)
+                    .maxIncomingBufferSize(104_857_600)
+                    .enableTLS(false) // start quickly
+                    .build();
+
+            final int[] contextUpdated = {0};
+            final NodeAddressBook[] nodeAddressBooks = {null};
+            CountDownLatch latch = new CountDownLatch(1);
+
+            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(contextUpdated, nodeAddressBooks, latch);
+
+            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            latch.await();
+
+            assertTrue(contextUpdated[0] > 0);
+            assertNotNull(nodeAddressBooks[0]);
+
+            // These are magic numbers, yes. The {@link TestBlockNodeServer} does not yet have a way to pass in TssData
+            // to
+            // hand back to testers. Using the values that are passed back to make sure the statusDetails api is
+            // being called. Todo: add TssData flexibility to {@link TestBlockNodeServer}
+            assertEquals(0L, nodeAddressBooks[0].nodeAddress().getFirst().nodeId());
+            assertEquals(1L, nodeAddressBooks[0].nodeAddress().get(1).nodeId());
         }
     }
 
@@ -450,5 +529,94 @@ class RsaRosterBootstrapPluginTest
                     NodeAddress.newBuilder().nodeId(i).rsaPubKey("hexkey" + i).build());
         }
         return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
+    }
+
+    private void createTestBlockNodeSourcesFile(BlockNodeSource blockNodeSource, String configPath) throws IOException {
+        String jsonString = BlockNodeSource.JSON.toJSON(blockNodeSource);
+        // Write the JSON string to the specified file path
+        java.nio.file.Files.write(java.nio.file.Paths.get(configPath), jsonString.getBytes());
+    }
+
+    /// Builder for creating backfill configuration maps for testing.
+    public static class RsaRosterBootstrapConfigBuilder {
+
+        private String blockNodeSourcesPath;
+        private int bnInitialQueryIntervalMillis;
+        private int bnSubsequentQueryIntervalMillis;
+        private int maxIncomingBufferSize;
+        private boolean enableTLS;
+        private int grpcOverallTimeout;
+
+        private RsaRosterBootstrapConfigBuilder() {
+            // private to force use of NewBuilder()
+        }
+
+        public static RsaRosterBootstrapConfigBuilder newBuilder() {
+            return new RsaRosterBootstrapConfigBuilder();
+        }
+
+        public RsaRosterBootstrapConfigBuilder blockNodeSourcesPath(String path) {
+            this.blockNodeSourcesPath = path;
+            return this;
+        }
+
+        public RsaRosterBootstrapConfigBuilder bnInitialQueryIntervalMillis(int value) {
+            this.bnInitialQueryIntervalMillis = value;
+            return this;
+        }
+
+        public RsaRosterBootstrapConfigBuilder bnSubsequentQueryIntervalMillis(int value) {
+            this.bnSubsequentQueryIntervalMillis = value;
+            return this;
+        }
+
+        public RsaRosterBootstrapConfigBuilder maxIncomingBufferSize(int value) {
+            this.maxIncomingBufferSize = value;
+            return this;
+        }
+
+        public RsaRosterBootstrapConfigBuilder grpcOverallTimeout(int value) {
+            this.grpcOverallTimeout = value;
+            return this;
+        }
+
+        public RsaRosterBootstrapConfigBuilder enableTLS(boolean value) {
+            this.enableTLS = value;
+            return this;
+        }
+
+        public Map<String, String> build() {
+            if (blockNodeSourcesPath == null || blockNodeSourcesPath.isBlank()) {
+                throw new IllegalStateException("backfillSourcePath is required");
+            }
+
+            return new HashMap<>(Map.of(
+                    "roster.bootstrap.rsa.blockNodeSourcesPath", blockNodeSourcesPath,
+                    "roster.bootstrap.rsa.bnInitialQueryIntervalMillis", String.valueOf(bnInitialQueryIntervalMillis),
+                    "roster.bootstrap.rsa.bnSubsequentQueryIntervalMillis",
+                            String.valueOf(bnSubsequentQueryIntervalMillis),
+                    "roster.bootstrap.tsa.maxIncomingBufferSize", String.valueOf(maxIncomingBufferSize),
+                    "roster.bootstrap.tsa.grpcOverallTimeout", String.valueOf(grpcOverallTimeout),
+                    "roster.bootstrap.rsa.enableTLS", String.valueOf(enableTLS)));
+        }
+    }
+
+    private class TestBootstrapPlugin extends RsaRosterBootstrapPlugin {
+        private final int[] contextUpdated;
+        private final NodeAddressBook[] nodeAddressBooks;
+        private final CountDownLatch latch;
+
+        private TestBootstrapPlugin(int[] contextUpdated, NodeAddressBook[] nodeAddressBooks, CountDownLatch latch) {
+            this.contextUpdated = contextUpdated;
+            this.nodeAddressBooks = nodeAddressBooks;
+            this.latch = latch;
+        }
+
+        @Override
+        public void onContextUpdate(BlockNodeContext context) {
+            contextUpdated[0]++;
+            nodeAddressBooks[0] = context.nodeAddressBook();
+            latch.countDown();
+        }
     }
 }

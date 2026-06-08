@@ -61,7 +61,6 @@ class AddressBookFetcherTest {
                 "", // blockNodeSourcesPath
                 5_000, // bnInitialQueryIntervalMillis
                 60_000, // bnInitialQueryIntervalMillis
-                3, // peerQueryMaxRetries
                 false, // enableTLS
                 60_000,
                 104_857_600 // maxIncomingBufferSize

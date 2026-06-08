@@ -3,6 +3,8 @@ package org.hiero.block.node.app.fixtures.server;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.node.base.NodeAddress;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.PbjRouting.Builder;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
@@ -237,6 +239,7 @@ public class TestBlockNodeServer {
                             Bytes.fromHex("02020202"),
                             List.of(buildRosterEntry(11, 22, Bytes.fromHex("03030303"))),
                             250))
+                    .nodeAddressBook(buildAddressBook(4))
                     .build();
         }
 
@@ -256,6 +259,20 @@ public class TestBlockNodeServer {
                     .currentRoster(tssRoster)
                     .validFromBlock(validFromBlock)
                     .build();
+        }
+
+        /// builds a `NodeAddressBook`
+        ///
+        /// @param count the number of addresses in the `NodeAddressBook`
+        private static NodeAddressBook buildAddressBook(final int count) {
+            final List<NodeAddress> addresses = new java.util.ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                addresses.add(NodeAddress.newBuilder()
+                        .nodeId(i)
+                        .rsaPubKey("hexkey" + i)
+                        .build());
+            }
+            return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
         }
 
         /// build a `RosterEntry`object from individual fields

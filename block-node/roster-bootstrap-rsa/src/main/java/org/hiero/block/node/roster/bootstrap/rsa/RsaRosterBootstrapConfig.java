@@ -26,9 +26,11 @@ import org.hiero.block.node.base.Loggable;
 /// @param mirrorNodePageSize number of nodes requested per paginated Mirror Node call
 /// @param blockNodeSourcesPath path to a JSON file listing peer block nodes to query via gRPC;
 ///     leave blank to skip the peer-query step
-/// @param bnInitialQueryIntervalMillis retry interval in ms between peer-query attempts when all peers fail
-/// @param peerQueryMaxRetries maximum number of peer-query attempts before falling through to Mirror Node
+/// @param bnInitialQueryIntervalMillis retry interval in ms between peer queries attempts until an address book is
+/// found
+/// @param bnSubsequentQueryIntervalMillis retry interval in ms between peer queries after an address book is found.
 /// @param enableTLS whether to enable TLS for peer gRPC connections
+/// @param grpcOverallTimeout the timeout for grpc connections.
 /// @param maxIncomingBufferSize maximum incoming gRPC message buffer size in bytes
 @ConfigData("roster.bootstrap.rsa")
 public record RsaRosterBootstrapConfig(
@@ -42,7 +44,6 @@ public record RsaRosterBootstrapConfig(
         @Loggable @ConfigProperty(defaultValue = "") String blockNodeSourcesPath,
         @Loggable @ConfigProperty(defaultValue = "5000") @Min(100) int bnInitialQueryIntervalMillis,
         @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int bnSubsequentQueryIntervalMillis,
-        @Loggable @ConfigProperty(defaultValue = "3") @Min(1) int peerQueryMaxRetries,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS,
         @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
         @Loggable @ConfigProperty(defaultValue = "104857600") @Min(1) int maxIncomingBufferSize) {}
