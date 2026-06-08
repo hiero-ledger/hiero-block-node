@@ -70,7 +70,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test"
         type: string
         default: "none"
     outputs:
@@ -99,6 +99,8 @@ on:
           - minimal # like single but without MN, Relay and Explorer
           - single-wrb-rsa # 1 CN, 1 BN, 1 MN; WRB verified via RSA roster
           - 3cn-2bn-wrb-rsa # 3 CN, 2 BN, 1 MN; WRB verified via RSA roster
+          - wrb-differential-test # 1 CN, 2 BNs (live + historic), 2 MNs
+          - wrb-differential-test-minimal # 1 CN, 2 BNs (live + historic), no MN
       block-node-version:
         description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.29.0')"
         required: false
@@ -169,7 +171,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, rsa-roster-verification"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification"
         required: false
         default: "none"
 
