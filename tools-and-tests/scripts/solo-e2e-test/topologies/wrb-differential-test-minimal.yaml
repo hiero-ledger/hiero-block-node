@@ -45,8 +45,6 @@ consensus_nodes:
 # No Mirror Nodes in minimal topology - focus on core WRB wrapping/serving
 mirror_nodes: {}
 
-relay_nodes:
-  # relay-1: {}  # Disabled
+relay_nodes: {}
 
-# explorer_nodes:  # Disabled
-#   explorer-1: {}
+explorer_nodes: {}
