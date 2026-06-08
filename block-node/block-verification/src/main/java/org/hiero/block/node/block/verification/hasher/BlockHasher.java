@@ -116,7 +116,12 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                     item.item().kind();
                             switch (kind) {
                                 case BLOCK_HEADER -> {
-                                    this.blockHeader = BlockHeader.PROTOBUF.parse(item.blockHeader());
+                                    this.blockHeader = BlockHeader.PROTOBUF.parse(
+                                            item.blockHeader().toReadableSequentialData(),
+                                            false,
+                                            true,
+                                            MAX_BLOCK_MESSAGE_DEPTH,
+                                            Integer.MAX_VALUE);
                                     this.hapiProtoVersion = this.blockHeader.hapiProtoVersion();
                                     if (this.hapiProtoVersion == null) {
                                         throw new VerificationSessionFailedException(
@@ -147,9 +152,20 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                     this.rawRecordFileItemProtoBytes = item.recordFileOrThrow();
                                     outputTreeHasher.addLeaf(getBlockItemHash(item));
                                 }
-                                case BLOCK_FOOTER -> this.blockFooter = BlockFooter.PROTOBUF.parse(item.blockFooter());
+                                case BLOCK_FOOTER ->
+                                    this.blockFooter = BlockFooter.PROTOBUF.parse(
+                                            item.blockFooter().toReadableSequentialData(),
+                                            false,
+                                            true,
+                                            MAX_BLOCK_MESSAGE_DEPTH,
+                                            Integer.MAX_VALUE);
                                 case BLOCK_PROOF -> {
-                                    final BlockProof blockProof = BlockProof.PROTOBUF.parse(item.blockProof());
+                                    final BlockProof blockProof = BlockProof.PROTOBUF.parse(
+                                            item.blockProof().toReadableSequentialData(),
+                                            false,
+                                            true,
+                                            MAX_BLOCK_MESSAGE_DEPTH,
+                                            Integer.MAX_VALUE);
                                     blockProofs.add(blockProof);
                                 }
                             }

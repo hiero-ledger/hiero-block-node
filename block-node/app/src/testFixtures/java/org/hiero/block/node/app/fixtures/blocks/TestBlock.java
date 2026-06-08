@@ -10,13 +10,16 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /**
  * A simple wrapper for blocks, with convenience methods for testing.
  */
-public final class TestBlock {
+public class TestBlock {
+    /// so size/8 bounds the deepest a non-degenerate message can nest.
+    public static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
     private final long number;
     private final int blockSize;
     private final Block block;
@@ -92,5 +95,9 @@ public final class TestBlock {
         return PublishStreamRequestUnparsed.newBuilder()
                 .blockItems(asItemSetUnparsed())
                 .build();
+    }
+
+    public BackfilledBlockNotification asBackfilledNotification() {
+        return new BackfilledBlockNotification(number, blockUnparsed);
     }
 }

@@ -129,6 +129,7 @@ class VerificationServicePluginIntegrationTest
                 sample.getBlockNumber(),
                 notification.blockNumber(),
                 "Notification must echo the block number from the header");
+        assertEquals(notification.blockHash(), blockInfo.blockRootHash(), "Block hash must match the block content");
     }
 
     // -------------------------------------------------------------------------

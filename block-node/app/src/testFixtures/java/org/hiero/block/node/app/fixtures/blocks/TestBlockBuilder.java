@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.blocks;
 
+import static org.hiero.block.node.app.fixtures.blocks.TestBlock.MAX_BLOCK_MESSAGE_DEPTH;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -315,7 +316,12 @@ public final class TestBlockBuilder {
         final List<BlockItemUnparsed> result = new ArrayList<>();
         for (final BlockItem item : itemsToConvert) {
             try {
-                result.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item)));
+                result.add(BlockItemUnparsed.PROTOBUF.parse(
+                        BlockItem.PROTOBUF.toBytes(item).toReadableSequentialData(),
+                        false,
+                        true,
+                        MAX_BLOCK_MESSAGE_DEPTH,
+                        Integer.MAX_VALUE));
             } catch (final ParseException e) {
                 fail("Failed to convert BlockItem to BlockItemUnparsed", e);
             }
@@ -327,7 +333,12 @@ public final class TestBlockBuilder {
         final List<BlockItem> result = new ArrayList<>();
         for (final BlockItemUnparsed item : unparsedItemsToConvert) {
             try {
-                result.add(BlockItem.PROTOBUF.parse(BlockItemUnparsed.PROTOBUF.toBytes(item)));
+                result.add(BlockItem.PROTOBUF.parse(
+                        BlockItemUnparsed.PROTOBUF.toBytes(item).toReadableSequentialData(),
+                        false,
+                        true,
+                        MAX_BLOCK_MESSAGE_DEPTH,
+                        Integer.MAX_VALUE));
             } catch (ParseException e) {
                 fail("Failed to convert BlockItemUnparsed to BlockItem", e);
             }
