@@ -358,7 +358,7 @@ class RsaRosterBootstrapPluginTest
                     sourcesPath,
                     "roster.bootstrap.rsa.peerQueryMaxRetries",
                     String.valueOf(maxRetries),
-                    "roster.bootstrap.rsa.peerQueryIntervalMillis",
+                    "roster.bootstrap.rsa.bnInitialQueryIntervalMillis",
                     "100");
         }
 
@@ -419,7 +419,7 @@ class RsaRosterBootstrapPluginTest
                     Map.of(
                             "roster.bootstrap.rsa.blockNodeSourcesPath", sourcesPath,
                             "roster.bootstrap.rsa.peerQueryMaxRetries", "1",
-                            "roster.bootstrap.rsa.peerQueryIntervalMillis", "100"));
+                            "roster.bootstrap.rsa.bnInitialQueryIntervalMillis", "100"));
 
             // First scheduled task: peer query (will fail — port 1 is unreachable)
             testThreadPoolManager.scheduledExecutor().executeSerially();

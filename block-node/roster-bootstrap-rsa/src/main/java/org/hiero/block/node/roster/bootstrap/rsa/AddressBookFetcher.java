@@ -7,7 +7,6 @@ import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.Closeable;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import org.hiero.block.api.ServerStatusDetailResponse;
@@ -27,11 +26,13 @@ import org.hiero.block.node.roster.bootstrap.rsa.RsaRosterBootstrapPlugin.Metric
 /// Connection pooling: a `BlockNodeClient` is created per peer on first use and cached for
 /// subsequent calls. If a client becomes unreachable it is removed from the pool so it can
 /// be recreated on the next attempt.
-public class AddressBookFetcher implements Closeable {
+public class AddressBookFetcher implements AutoCloseable {
 
     private static final System.Logger LOGGER = System.getLogger(AddressBookFetcher.class.getName());
 
     private final BlockNodeSource blockNodeSource;
+    /// Global timeout in milliseconds for gRPC calls to block nodes (used as fallback).
+    private final int grpcOverallTimeout;
     private final boolean enableTls;
     private final int maxIncomingBufferSize;
     private final MetricsHolder metrics;
@@ -49,6 +50,7 @@ public class AddressBookFetcher implements Closeable {
             @NonNull RsaRosterBootstrapConfig config,
             @NonNull MetricsHolder metrics) {
         this.blockNodeSource = blockNodeSource;
+        this.grpcOverallTimeout = config.grpcOverallTimeout();
         this.enableTls = config.enableTLS();
         this.maxIncomingBufferSize = config.maxIncomingBufferSize();
         this.metrics = metrics;
@@ -117,7 +119,9 @@ public class AddressBookFetcher implements Closeable {
             LOGGER.log(DEBUG, "Removed unreachable client for peer [{0}], will recreate", node.address());
         }
         return nodeClientMap.computeIfAbsent(
-                node, n -> new BlockNodeClient(n, 10_000, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
+                node,
+                n -> new BlockNodeClient(
+                        n, grpcOverallTimeout, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
     }
 
     /// Returns `true` if the book has at least one entry with a non-blank RSA public key.

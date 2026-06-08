@@ -53,15 +53,17 @@ class AddressBookFetcherTest {
     private static RsaRosterBootstrapConfig testConfig() {
         return new RsaRosterBootstrapConfig(
                 "", // mirrorNodeBaseUrl
-                5000, // initialQueryIntervalMillis
-                60000, // subsequentQueryIntervalMillis
+                5_000, // mnInitialQueryIntervalMillis
+                60_000, // mnSubsequentQueryIntervalMillis
                 5, // mirrorNodeConnectTimeoutSeconds
                 10, // mirrorNodeReadTimeoutSeconds
                 100, // mirrorNodePageSize
                 "", // blockNodeSourcesPath
-                5000, // peerQueryIntervalMillis
+                5_000, // bnInitialQueryIntervalMillis
+                60_000, // bnInitialQueryIntervalMillis
                 3, // peerQueryMaxRetries
                 false, // enableTLS
+                60_000,
                 104_857_600 // maxIncomingBufferSize
                 );
     }

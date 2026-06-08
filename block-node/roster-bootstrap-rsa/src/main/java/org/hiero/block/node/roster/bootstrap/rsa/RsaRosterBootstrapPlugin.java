@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.MirrorNodeNodesResponse;
 import org.hiero.block.internal.NodeEntry;
@@ -48,12 +47,11 @@ import org.hiero.metrics.core.MetricRegistry;
 /// **Startup sequence:**
 ///
 /// 1. If `context.nodeAddressBook()` is non-null: BlockNodeApp loaded it from the
-///    bootstrap file — emit metrics and return.
+///    bootstrap file — emit metrics.
 /// 2. If `blockNodeSourcesPath` is configured: query peer BNs via gRPC `serverStatusDetail`
 ///    and extract the `NodeAddressBook`. Retries up to `peerQueryMaxRetries` times. On success,
 ///    calls `applicationStateFacility.updateAddressBook()`.
-/// 3. If peer query is not configured or all retries are exhausted: fall through to the
-///    Mirror Node REST API (`GET /api/v1/network/nodes`).
+/// 3. If mn query is configured. Call Mirror Node REST API (`GET /api/v1/network/nodes`).
 /// 4. If neither source succeeds and `mirrorNodeBaseUrl` is blank: log `WARNING` and return.
 ///
 /// See `docs/design/wrb-streaming/bootstrap-roster-plugin.md` for the full design.
@@ -95,17 +93,15 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     }
 
     // ScheduledExecutors for peer-query and Mirror Node steps
-    private ScheduledExecutorService queryPeerExecutor;
+    private ScheduledExecutorService queryBnExecutor;
+    private volatile ScheduledFuture<?> bnScheduledFuture = null;
     private ScheduledExecutorService queryMnExecutor;
-    private volatile ScheduledFuture<?> scheduledFuture = null;
+    private volatile ScheduledFuture<?> mnScheduledFuture = null;
 
     private volatile BlockNodeContext context;
     private RsaRosterBootstrapConfig config;
     private ApplicationStateFacility applicationStateFacility;
     private AddressBookFetcher addressBookFetcher;
-
-    // Peer retry counter
-    private final AtomicInteger peerAttempts = new AtomicInteger(0);
 
     // Metric values stored after startup so ObservableGauge can read them
     private volatile long rosterEntriesLoaded = 0L;
@@ -163,10 +159,10 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         this.context = updatedContext;
     }
 
-    /// Implements the three-step bootstrap sequence:
-    /// 1. File already loaded → record metrics, schedule periodic refresh.
-    /// 2. Peer BN query (if configured) → retry up to peerQueryMaxRetries, then fall through.
-    /// 3. Mirror Node fallback → poll until success.
+    /// Implements three bootstrap strategies:
+    /// 1. File already loaded → record metrics.
+    /// 2. Peer BN query (if configured) → schedule address book refreshes
+    /// 3. Mirror Node configured, schedule address book refreshes.
     @Override
     public void start() {
         long startTimeMillis = System.currentTimeMillis();
@@ -175,20 +171,12 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         if (book != null) {
             // Step 1: bootstrap file was pre-loaded by BlockNodeApp
             recordSuccessMetrics(book, startTimeMillis, "File");
+            schedulePeriodicBlockNodeRefresh();
             schedulePeriodicMirrorNodeRefresh();
             return;
         }
 
-        // Step 2: peer block node query
-        if (addressBookFetcher != null) {
-            queryPeerExecutor = context.threadPoolManager()
-                    .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
-            scheduledFuture = queryPeerExecutor.scheduleAtFixedRate(
-                    this::fetchFromPeer, 0, config.peerQueryIntervalMillis(), TimeUnit.MILLISECONDS);
-            return;
-        }
-
-        // Step 3: Mirror Node fallback (no peer configured)
+        startBlockNodeFallback();
         startMirrorNodeFallback();
     }
 
@@ -196,34 +184,40 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     // Peer BN query
     // -------------------------------------------------------------------------
 
+    private void startBlockNodeFallback() {
+        if (addressBookFetcher == null) {
+            LOGGER.log(
+                    WARNING,
+                    "roster.bootstrap.rsa.blockNodeSourcesPath is blank or not valid."
+                            + " set roster.bootstrap.rsa.blockNodeSourcesPath, to check for node address book updates.");
+            return;
+        }
+        queryBnExecutor = context.threadPoolManager()
+                .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
+        bnScheduledFuture = queryBnExecutor.scheduleAtFixedRate(
+                this::fetchFromPeer, 0, config.bnInitialQueryIntervalMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    private void schedulePeriodicBlockNodeRefresh() {
+        if (addressBookFetcher == null) return;
+        if (queryBnExecutor == null) {
+            queryBnExecutor = context.threadPoolManager()
+                    .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
+        }
+        queryBnExecutor.scheduleAtFixedRate(
+                this::fetchFromPeer, 0, config.bnSubsequentQueryIntervalMillis(), TimeUnit.MILLISECONDS);
+    }
+
     private void fetchFromPeer() {
         final NodeAddressBook book = addressBookFetcher.getNodeAddressBook();
         if (book != null) {
             applicationStateFacility.updateAddressBook(book);
             recordSuccessMetrics(book, System.currentTimeMillis(), "Peer BN");
-            cancelAndNullify(scheduledFuture);
-            scheduledFuture = null;
-            shutdownExecutor(queryPeerExecutor, "queryPeerExecutor");
-            queryPeerExecutor = null;
-            schedulePeriodicMirrorNodeRefresh();
-            return;
-        }
-
-        // All peers failed this attempt
-        final int attempt = peerAttempts.incrementAndGet();
-        LOGGER.log(
-                WARNING,
-                "Peer query attempt {0}/{1} returned no usable NodeAddressBook",
-                attempt,
-                config.peerQueryMaxRetries());
-
-        if (attempt >= config.peerQueryMaxRetries()) {
-            LOGGER.log(INFO, "Peer query exhausted after {0} attempts; falling through to Mirror Node", attempt);
-            cancelAndNullify(scheduledFuture);
-            scheduledFuture = null;
-            shutdownExecutor(queryPeerExecutor, "queryPeerExecutor");
-            queryPeerExecutor = null;
-            startMirrorNodeFallback();
+            if (bnScheduledFuture != null) {
+                cancelScheduledFuture(bnScheduledFuture);
+                bnScheduledFuture = null;
+                schedulePeriodicBlockNodeRefresh();
+            }
         }
     }
 
@@ -243,8 +237,8 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         }
         queryMnExecutor = context.threadPoolManager()
                 .createVirtualThreadScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
-        scheduledFuture = queryMnExecutor.scheduleAtFixedRate(
-                this::fetchFromMirrorNode, 0, config.initialQueryIntervalMillis(), TimeUnit.MILLISECONDS);
+        mnScheduledFuture = queryMnExecutor.scheduleAtFixedRate(
+                this::fetchFromMirrorNode, 0, config.mnInitialQueryIntervalMillis(), TimeUnit.MILLISECONDS);
     }
 
     private void schedulePeriodicMirrorNodeRefresh() {
@@ -255,8 +249,8 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         }
         queryMnExecutor.scheduleAtFixedRate(
                 this::fetchFromMirrorNode,
-                config.subsequentQueryIntervalMillis(),
-                config.subsequentQueryIntervalMillis(),
+                config.mnSubsequentQueryIntervalMillis(),
+                config.mnSubsequentQueryIntervalMillis(),
                 TimeUnit.MILLISECONDS);
     }
 
@@ -314,14 +308,10 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             applicationStateFacility.updateAddressBook(book);
             recordSuccessMetrics(book, startTimeMillis, "Mirror Node");
 
-            if (scheduledFuture != null) {
-                cancelAndNullify(scheduledFuture);
-                scheduledFuture = null;
-                queryMnExecutor.scheduleAtFixedRate(
-                        this::fetchFromMirrorNode,
-                        config.subsequentQueryIntervalMillis(),
-                        config.subsequentQueryIntervalMillis(),
-                        TimeUnit.MILLISECONDS);
+            if (mnScheduledFuture != null) {
+                cancelScheduledFuture(mnScheduledFuture);
+                mnScheduledFuture = null;
+                schedulePeriodicMirrorNodeRefresh();
             }
         }
     }
@@ -369,7 +359,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 rosterLoadDurationMs);
     }
 
-    private static void cancelAndNullify(ScheduledFuture<?> future) {
+    private static void cancelScheduledFuture(ScheduledFuture<?> future) {
         if (future != null) future.cancel(false);
     }
 
@@ -380,7 +370,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// {@inheritDoc}
     @Override
     public void stop() {
-        shutdownExecutor(queryPeerExecutor, "queryPeerExecutor");
+        shutdownExecutor(queryBnExecutor, "queryPeerExecutor");
         shutdownExecutor(queryMnExecutor, "queryMnExecutor");
         if (addressBookFetcher != null) {
             try {
