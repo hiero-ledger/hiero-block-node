@@ -14,7 +14,8 @@ mainModuleInfo {
 }
 
 testModuleInfo {
-    requires("com.swirlds.config.api")
+    // com.swirlds.config.api now comes transitively from the main module's requires-transitive
+    // directive
     requires("org.junit.jupiter.api")
     requires("org.hiero.block.node.app.test.fixtures")
 }

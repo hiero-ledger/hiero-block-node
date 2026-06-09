@@ -11,10 +11,10 @@ module org.hiero.block.node.access.service {
             org.hiero.block.node.app;
 
     requires transitive com.hedera.pbj.runtime;
+    requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
     requires transitive org.hiero.metrics;
-    requires com.swirlds.config.api;
     requires org.hiero.block.node.base;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
