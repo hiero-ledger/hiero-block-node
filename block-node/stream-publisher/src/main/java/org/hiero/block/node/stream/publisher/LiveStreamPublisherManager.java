@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
+import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.api.PublishStreamResponse.EndOfStream.Code.TIMEOUT;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE;
@@ -43,6 +44,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
@@ -78,6 +80,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// Value assigned as a Handler message budget when that handler is being paused
     /// due to overload or other ill-advised behaviors.
     private static final long MESSAGE_BUDGET_PENALTY_FLAG_VALUE = -1L;
+    /// Wait 10 microseconds per pause if a reset is in progress. A reset
+    /// should generally take less than one microsecond, but waiting
+    /// less than 10 microseconds is not completely reliable.
+    private static final long RESET_WAIT_TIME_NANOS = 10_000L;
     private final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
     private final BlockNodeContext serverContext;
@@ -90,6 +96,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final AtomicLong blocksClosedComplete;
     private final Condition dataReadyLatch;
     private final ReentrantLock dataReadyLock;
+    /// Flag indicating that the plugin is in the middle of a reset and must
+    /// not accept new connections, create new Handlers, or forward data.
+    private final AtomicBoolean resetIsActive;
     private final long earliestManagedBlock;
     private final int maxBlocksBeforeStalled;
     private final long staleResendPruneBuffer;
@@ -133,6 +142,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// todo(1420) add documentation
     public LiveStreamPublisherManager(
             @NonNull final BlockNodeContext context, @NonNull final MetricsHolder metricsHolder) {
+        resetIsActive = new AtomicBoolean(true);
         serverContext = Objects.requireNonNull(context);
         metrics = Objects.requireNonNull(metricsHolder);
         threadManager = serverContext.threadPoolManager();
@@ -161,6 +171,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         handlerFlowState = new ConcurrentSkipListMap<>();
         initializeBlockNumbers(serverContext);
         scheduleFlowControlRefresh();
+        resetIsActive.compareAndSet(true, false);
     }
 
     /// todo(1420) add documentation
@@ -180,6 +191,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             @NonNull final Pipeline<? super PublishStreamResponse> replies,
             @NonNull final PublisherHandler.MetricsHolder handlerMetrics,
             final String correlationId) {
+        awaitReset();
         final long handlerId = nextHandlerId.getAndIncrement();
         final PublisherHandler newHandler =
                 new PublisherHandler(handlerId, replies, handlerMetrics, this, correlationId);
@@ -195,6 +207,20 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         sendPublisherStatusUpdate(UpdateType.PUBLISHER_CONNECTED, handlers);
         LOGGER.log(DEBUG, "Added new handler {0}", handlerId);
         return newHandler;
+    }
+
+    /// Method to wait for a boolean value to be false.
+    /// We do _not_ want a lock here, a lock ensures a single entry
+    /// at a time, while here we just do not want to proceed when this value is
+    /// true. It's not quite a condition wait, and not quite a lock situation,
+    /// it's more like a gate condition.
+    private void awaitReset() {
+        // Busy wait loop, but will almost always return immediately
+        // when it does pause, it will almost always return after a single pause
+        // because reset takes a few hundred nanoseconds.
+        while (resetIsActive.get()) {
+            parkNanos(RESET_WAIT_TIME_NANOS);
+        }
     }
 
     @Override
@@ -215,16 +241,21 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public BlockAction getActionForBlock(
             final long blockNumber, final BlockAction previousAction, final long handlerId) {
-        return switch (previousAction) {
-            case null -> getActionForHeader(blockNumber);
-            case ACCEPT -> getActionForCurrentlyStreaming(blockNumber);
-            case END_ERROR, END_DUPLICATE ->
-                // This should not happen because the Handler should have shut down.
-                BlockAction.END_ERROR;
-            case SKIP, RESEND, SEND_BEHIND ->
-                // This should not happen because the Handler should have reset the previous action.
-                BlockAction.END_ERROR;
-        };
+        awaitReset();
+        if (handlers.containsKey(handlerId)) {
+            return switch (previousAction) {
+                case null -> getActionForHeader(blockNumber);
+                case ACCEPT -> getActionForCurrentlyStreaming(blockNumber);
+                case END_ERROR, END_DUPLICATE ->
+                    // This should not happen because the Handler should have shut down.
+                    BlockAction.END_ERROR;
+                case SKIP, RESEND, SEND_BEHIND ->
+                    // This should not happen because the Handler should have reset the previous action.
+                    BlockAction.END_ERROR;
+            };
+        } else {
+            return BlockAction.END_ERROR;
+        }
     }
 
     @Override
@@ -457,28 +488,46 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 }
             } else {
                 if (notification.blockSource() == BlockSource.PUBLISHER) {
-                    if (blockNumber <= lastPersistedBlockNumber.get()) {
-                        nextUnstreamedBlockNumber.set(blockNumber);
-                    }
-                    Collection<PublisherHandler> handlersToClose = handlers.values();
-                    // Notify the handlers that persistence failed.
-                    handlersToClose.parallelStream()
-                            .unordered()
-                            .forEach((handler) -> handler.endStreamWithCode(Code.PERSISTENCE_FAILED, false));
-                    queueByBlockMap.clear();
-                    // Note, nothing stops another publisher from connecting
-                    //     immediately after clearing the map, and that is
-                    //     fine. If the failure was intermittent, then we will
-                    //     succeed storing that block. If the failure is
-                    //     permanent, then we will fail again.
-                    // Make sure to schedule resend for this failed persistence
-                    // This is actually unnecessary, _for now_, add back in if
-                    // we no longer end all handlers.
-                    // blocksToResend.add(blockNumber);
+                    endAllHandlersAndClearTracking(blockNumber);
                     // @todo(2240,2236) Mark the publisher plugin _unhealthy_
                     //     when the Health Plugin supports that.
                 }
             }
+        }
+    }
+
+    /// Method to reset internal tracking and close all active connections.
+    /// This method sets a flag so that new connections are briefly paused
+    /// to let the process complete; we avoid a lock because the rare brief
+    /// delay is more efficient than frequent lock acquisition (even a Condition
+    /// or Latch would be significantly more costly).
+    /// This method does reset the flag in a finally block, however, to ensure
+    /// that if an exception is thrown the flag is still cleared.
+    private void endAllHandlersAndClearTracking(final long blockNumber) {
+        resetIsActive.compareAndSet(false, true);
+        try {
+            nextUnstreamedBlockNumber.set(blockNumber);
+            activeStreamHandlerByBlock.clear();
+            Collection<PublisherHandler> handlersToClose = handlers.values();
+            // Notify the handlers that persistence failed.
+            handlersToClose.parallelStream()
+                    .unordered()
+                    .forEach((handler) -> handler.endStreamWithCode(Code.PERSISTENCE_FAILED, true));
+            // Order matters here. Reordering these can lead to _extremely rare_
+            // cases where we get unnecessary errors or a block is scheduled to be
+            // resent that was never sent.
+            blocksToResend.clear();
+            activeResendBlocks.clear();
+            blockProofs.clear();
+            queueByBlockMap.clear();
+            endBlocksReceived.clear();
+            // Note, nothing stops another publisher from connecting immediately
+            //     after clearing the maps, or while clearing them, and that is
+            //     fine. If the failure was intermittent, then we will succeed
+            //     storing that block. If the failure is permanent, then we will
+            //     fail again.
+        } finally {
+            resetIsActive.compareAndSet(true, false);
         }
     }
 
@@ -1109,7 +1158,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
         /// todo(1420) add documentation
         public MessagingForwarderTask(final LiveStreamPublisherManager liveStreamPublisherManager) {
-            this.publisherManager = Objects.requireNonNull(liveStreamPublisherManager);
+            publisherManager = Objects.requireNonNull(liveStreamPublisherManager);
         }
 
         // This needs more work, particularly handling the next block if it's already
@@ -1122,11 +1171,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // End this thread after some number of batches, so we don't have
             // a thread that becomes overly "old" and experiences "senescence".
             while (!forwardingLimitReached) {
-                // @todo(2347) we can improve the loop because we have new way of doing resends, we can also
-                //   improve on the way we determine the current block number below, but also the way we decide
-                //   which items and how to hold them for a bit, to await for the end of block message so we can
-                //   send them to messaging as the end of the block.
                 final long currentBlockNumber = determineCurrentBlockNumber();
+                publisherManager.awaitReset(); // Hold here if the manager is resetting
                 final Deque<BlockItemSetUnparsed> queueToForward =
                         publisherManager.queueByBlockMap.get(currentBlockNumber);
                 if (queueToForward != null && !publisherManager.blockProofs.containsKey(currentBlockNumber)) {
@@ -1138,8 +1184,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         // runtime exception if the queue is empty.
                         final BlockItemSetUnparsed currentBatch = queueToForward.poll();
                         if (currentBatch != null) {
-                            // @todo(2347) as an improvement we can opt in to possibly change the
-                            //    way we send the last batch of BlockItems
                             final boolean hasBlockProof =
                                     currentBatch.blockItems().getLast().hasBlockProof();
                             final int itemsSent;
