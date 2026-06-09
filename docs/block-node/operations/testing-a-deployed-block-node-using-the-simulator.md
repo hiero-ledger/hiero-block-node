@@ -14,8 +14,8 @@ This container streams blocks to your deployed Block Node, verifying connectivit
 Before you begin, ensure you have:
 
 - A running Block Node deployment on your system using one of the following methods:
-  - [**Manual Single-Node Kubernetes Deployment**](./single-node-k8s-deployment.md)
-  - [**Solo Provisioner Single-Node Kubernetes Deployment**](./solo-weaver-single-node-k8s-deployment.md)
+  - [**Bare Metal Single Node Kubernetes Deployment**](./single-node-k8s-deployment.md)
+  - [**Virtual Machine Single Node Kubernetes Deployment**](./solo-weaver-single-node-k8s-deployment.md)
 - **[Docker](https://docs.docker.com/get-started/get-docker/) and Docker Compose** installed and available on your machine where you will run the simulator.
 - The **gRPC** service address and port for your Block Node:
   - For Local deployment: `localhost:40840`

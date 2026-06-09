@@ -1,4 +1,4 @@
-# Single Node Kubernetes Deployment
+# Bare Metal Single Node Kubernetes Deployment
 
 This document provides instructions for deploying the Block Node Server Helm chart in a Single-Node Kubernetes environment.
 This setup is ideal for production environments on bare metal or cloud VMs.
@@ -36,7 +36,7 @@ Assuming a Linux based environment, a node operator has two options at this time
 ### Solo Provisioner
 
 Solo Provisioner (formerly known as Solo Weaver) is a go-based tool to simplify the provisioning of Hiero network components (like the block node) in a
-streamlined and automated fashion. For a step-by-step GCP VM walkthrough using Solo Provisioner (including `local`, `previewnet`, and `testnet` profiles), see the [Solo Provisioner Single Node Kubernetes Deployment Guide](./solo-weaver-single-node-k8s-deployment.md). For production Tier 1 mainnet, the [Block Node Hardware Specifications](./block-node-hardware-specifications.md) take precedence over the smaller VM sizings used there.
+streamlined and automated fashion. For a step-by-step GCP VM walkthrough using Solo Provisioner (including `local`, `previewnet`, and `testnet` profiles), see the [Virtual Machine Single Node Kubernetes Deployment Guide](./solo-weaver-single-node-k8s-deployment.md). For production Tier 1 mainnet, the [Block Node Hardware Specifications](./block-node-hardware-specifications.md) take precedence over the smaller VM sizings used there.
 
 To utilize the Solo Provisioner experience
 
