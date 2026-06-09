@@ -27,16 +27,21 @@ NAMESPACE="${NAMESPACE:-solo-network}"
 CONTEXT="${CONTEXT:-kind-solo-cluster}"
 
 # Mirror Node service names (adjust based on deployment)
-MN1_SERVICE="${MN1_SERVICE:-hedera-mirror-node}"
-MN2_SERVICE="${MN2_SERVICE:-hedera-mirror-node-2}"
+MN1_SERVICE="${MN1_SERVICE:-mirror-1-rest}"
+MN2_SERVICE="${MN2_SERVICE:-mirror-2-rest}"
 
-# Default ports
-MN1_PORT="${MN1_PORT:-5551}"
-MN2_PORT="${MN2_PORT:-5552}"
-
-# Local endpoints (assumes port-forward is active)
-MN1_URL="${MN1_URL:-http://localhost:${MN1_PORT}/api/v1}"
-MN2_URL="${MN2_URL:-http://localhost:${MN2_PORT}/api/v1}"
+# Detect if running in Kubernetes cluster vs local with port-forward
+if [[ -n "${KUBERNETES_SERVICE_HOST:-}" ]] || [[ "${CI:-false}" == "true" ]]; then
+    # Running in cluster - use service endpoints
+    MN1_URL="${MN1_URL:-http://${MN1_SERVICE}.${NAMESPACE}.svc.cluster.local:80/api/v1}"
+    MN2_URL="${MN2_URL:-http://${MN2_SERVICE}.${NAMESPACE}.svc.cluster.local:80/api/v1}"
+else
+    # Running locally - use port-forward endpoints
+    MN1_PORT="${MN1_PORT:-5551}"
+    MN2_PORT="${MN2_PORT:-5552}"
+    MN1_URL="${MN1_URL:-http://localhost:${MN1_PORT}/api/v1}"
+    MN2_URL="${MN2_URL:-http://localhost:${MN2_PORT}/api/v1}"
+fi
 
 # Output file
 OUTPUT_FILE="${OUTPUT_FILE:-/tmp/mirror-node-comparison-report.json}"
@@ -67,24 +72,34 @@ function check_python {
 
 function check_mirror_nodes {
     log "Checking Mirror Node endpoints..."
+    log "  MN1: ${MN1_URL}"
+    log "  MN2: ${MN2_URL}"
 
     # Check MN1
-    log "Testing MN1: ${MN1_URL}"
-    if curl -s -f "${MN1_URL}/network/nodes" > /dev/null 2>&1; then
+    log "Testing MN1..."
+    if curl -s -f --max-time 10 "${MN1_URL}/network/nodes" > /dev/null 2>&1; then
         log "  ✅ MN1 is accessible"
     else
         log "  ❌ MN1 is NOT accessible at ${MN1_URL}"
-        log "  Make sure port-forward is active: task port-forward"
+        if [[ -z "${KUBERNETES_SERVICE_HOST:-}" ]] && [[ "${CI:-false}" != "true" ]]; then
+            log "  Make sure port-forward is active: task port-forward"
+        else
+            log "  Check if Mirror Node pods are running: kubectl get pods -n ${NAMESPACE}"
+        fi
         return 1
     fi
 
     # Check MN2
-    log "Testing MN2: ${MN2_URL}"
-    if curl -s -f "${MN2_URL}/network/nodes" > /dev/null 2>&1; then
+    log "Testing MN2..."
+    if curl -s -f --max-time 10 "${MN2_URL}/network/nodes" > /dev/null 2>&1; then
         log "  ✅ MN2 is accessible"
     else
         log "  ❌ MN2 is NOT accessible at ${MN2_URL}"
-        log "  Make sure port-forward is active for MN2"
+        if [[ -z "${KUBERNETES_SERVICE_HOST:-}" ]] && [[ "${CI:-false}" != "true" ]]; then
+            log "  Make sure port-forward is active for MN2"
+        else
+            log "  Check if Mirror Node 2 pods are running: kubectl get pods -n ${NAMESPACE}"
+        fi
         return 1
     fi
 
