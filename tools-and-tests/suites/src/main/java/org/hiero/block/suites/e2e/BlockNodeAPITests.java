@@ -778,6 +778,225 @@ public class BlockNodeAPITests {
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
     }
 
+    /**
+     * Verifies the per-service port wiring (PR #2880): each plugin reads a nullable {@code port} from
+     * its own config and registers its service on that dedicated port. The default-port app from
+     * {@link #beforeEach()} is shut down and a fresh app is booted with a unique port configured for
+     * each of the five API plugins. Every API must answer on its own port and must NOT answer on the
+     * default {@code server.port}, which has no API routes once all services are moved off it.
+     */
+    @Test
+    void servicesBindToConfiguredUniquePortsOnly() throws Exception {
+        // Derive the per-service ports from the suite's base port (SERVER_PORT) so they shift with it.
+        // CI runs the api suite on a non-default SERVER_PORT to avoid parallel-run port conflicts; basing
+        // these ports on it keeps that isolation rather than hardcoding a fixed range that could collide
+        // with a concurrent run on the same host.
+        final int defaultPort = Integer.parseInt(serverPort); // no API routes after the move
+        final int blockAccessPort = defaultPort + 1;
+        final int healthPort = defaultPort + 2;
+        final int serverStatusPort = defaultPort + 3;
+        final int publisherPort = defaultPort + 4;
+        final int subscriberPort = defaultPort + 5;
+
+        // The @BeforeEach app holds the default port; release it before rebinding with per-service ports.
+        app.shutdown("BlockNodeAPITests", "rebind with per-service ports");
+        awaitState(app, false);
+
+        System.setProperty("block.access.port", Integer.toString(blockAccessPort));
+        System.setProperty("health.port", Integer.toString(healthPort));
+        System.setProperty("server.status.port", Integer.toString(serverStatusPort));
+        System.setProperty("producer.port", Integer.toString(publisherPort));
+        System.setProperty("subscriber.port", Integer.toString(subscriberPort));
+        try {
+            app = new BlockNodeApp(new ServiceLoaderFunction(), false);
+            app.start();
+            awaitState(app, true);
+
+            // ==== Positive: every API routes on its own dedicated port ====
+            // Publisher: publishing genesis on its port and getting an ACK proves it routes there.
+            publishGenesisBlock(publisherPort);
+            // ServerStatus: reachable on its port and reflects the persisted block.
+            assertThat(serverStatusOn(serverStatusPort).lastAvailableBlock()).isEqualTo(0L);
+            // BlockAccess: reachable on its port and returns the persisted block.
+            assertThat(getBlockOn(blockAccessPort, 0L).status()).isEqualTo(BlockResponse.Code.SUCCESS);
+            // Subscriber: reachable on its port and streams the persisted block 0.
+            assertSubscriberReceivesBlock0(subscriberPort);
+            // Health: reachable on its port.
+            assertThat(healthLivezStatusCode(healthPort)).isEqualTo(200);
+
+            // ==== Negative: none of the services answer on the default port ====
+            assertThat(healthLivezStatusCode(defaultPort))
+                    .as("health must not be routed on the default port")
+                    .isEqualTo(404);
+            assertGrpcNotRoutedOnDefaultPort(defaultPort);
+            assertPublisherNotRoutedOnDefaultPort(defaultPort);
+            assertSubscriberNotRoutedOnDefaultPort(defaultPort);
+        } finally {
+            System.clearProperty("block.access.port");
+            System.clearProperty("health.port");
+            System.clearProperty("server.status.port");
+            System.clearProperty("producer.port");
+            System.clearProperty("subscriber.port");
+        }
+    }
+
+    /** Publishes genesis block 0 on the given port and awaits the ACK (proves the publisher routes there). */
+    private void publishGenesisBlock(final int port) throws InterruptedException {
+        final var client = new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
+                createGrpcClientForPort(Integer.toString(port)), OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> observer = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> stream = client.publishBlockStream(observer);
+        final AtomicReference<CountDownLatch> ackLatch = observer.setAndGetOnNextLatch(1);
+        stream.onNext(PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder()
+                        .blockItems(BlockItemBuilderUtils.createSimpleBlockWithNumber(0L))
+                        .build())
+                .build());
+        endBlock(0L, stream);
+        awaitLatch(ackLatch, "publisher ACK on port " + port);
+        assertThat(observer.getOnNextCalls())
+                .first()
+                .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                .returns(0L, acknowledgementBlockNumberExtractor);
+        stream.closeConnection();
+        client.close();
+    }
+
+    private ServerStatusResponse serverStatusOn(final int port) {
+        final var client = new BlockNodeServiceInterface.BlockNodeServiceClient(
+                createGrpcClientForPort(Integer.toString(port)), OPTIONS);
+        try {
+            return client.serverStatus(SIMPLE_SERVER_STAUS_REQUEST);
+        } finally {
+            client.close();
+        }
+    }
+
+    private BlockResponse getBlockOn(final int port, final long blockNumber) {
+        final var client = new BlockAccessServiceInterface.BlockAccessServiceClient(
+                createGrpcClientForPort(Integer.toString(port)), OPTIONS);
+        try {
+            return client.getBlock(
+                    BlockRequest.newBuilder().blockNumber(blockNumber).build());
+        } finally {
+            client.close();
+        }
+    }
+
+    private void assertSubscriberReceivesBlock0(final int port) throws InterruptedException {
+        final var client = new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(
+                createGrpcClientForPort(Integer.toString(port)), OPTIONS);
+        final ResponsePipelineUtils<SubscribeStreamResponse> observer = new ResponsePipelineUtils<>();
+        final AtomicReference<CountDownLatch> latch = observer.setAndGetOnNextLatch(2);
+        client.subscribeBlockStream(
+                SubscribeStreamRequest.newBuilder()
+                        .startBlockNumber(0L)
+                        .endBlockNumber(0L)
+                        .build(),
+                observer);
+        awaitLatch(latch, "subscriber stream of block 0 on port " + port);
+        assertThat(observer.getOnNextCalls().getFirst().blockItems().blockItems())
+                .as("subscriber on port %d must stream block 0", port)
+                .isNotEmpty();
+        client.close();
+    }
+
+    /** Returns the HTTP status code of GET {@code /healthz/livez} on the given port. */
+    private int healthLivezStatusCode(final int port) {
+        final Http2Client http2Client =
+                Http2Client.builder().baseUri("http://localhost:" + port).build();
+        try (var response =
+                http2Client.method(Method.create("GET")).path("/healthz/livez").request()) {
+            return response.status().code();
+        }
+    }
+
+    /**
+     * Asserts that the four gRPC API services do not route on the default port. Once each plugin binds
+     * its own port, the default port has no PBJ routes, so a unary call there fails rather than
+     * returning a valid domain response.
+     */
+    private void assertGrpcNotRoutedOnDefaultPort(final int defaultPort) {
+        assertThrows(
+                Exception.class,
+                () -> serverStatusOn(defaultPort),
+                "server-status must not be routed on the default port");
+        assertThrows(
+                Exception.class,
+                () -> getBlockOn(defaultPort, 0L),
+                "block-access must not be routed on the default port");
+    }
+
+    /** Asserts the publisher gRPC service is not routed on the default port: no ACK and the stream is rejected. */
+    private void assertPublisherNotRoutedOnDefaultPort(final int port) throws InterruptedException {
+        final var client = new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
+                createGrpcClientForPort(Integer.toString(port)), OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> observer = new ResponsePipelineUtils<>();
+        final AtomicReference<CountDownLatch> endedLatch = observer.setAndGetConnectionEndedLatch(1);
+        try {
+            final Pipeline<? super PublishStreamRequest> stream = client.publishBlockStream(observer);
+            stream.onNext(PublishStreamRequest.newBuilder()
+                    .blockItems(BlockItemSet.newBuilder()
+                            .blockItems(BlockItemBuilderUtils.createSimpleBlockWithNumber(0L))
+                            .build())
+                    .build());
+            endBlock(0L, stream);
+            endedLatch.get().await(DEFAULT_AWAIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            assertEquals(
+                    0, endedLatch.get().getCount(), "publisher stream on the default port must be rejected (no route)");
+            assertThat(observer.getOnNextCalls())
+                    .as("publisher must not acknowledge on the default port")
+                    .isEmpty();
+        } catch (final RuntimeException rejectedDuringSend) {
+            // Sending on an unrouted stream may throw directly (e.g. closed socket); that also proves "not routed".
+        } finally {
+            client.close();
+        }
+    }
+
+    /** Asserts the subscriber gRPC service is not routed on the default port: the stream is rejected/closed. */
+    private void assertSubscriberNotRoutedOnDefaultPort(final int port) throws InterruptedException {
+        final var client = new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(
+                createGrpcClientForPort(Integer.toString(port)), OPTIONS);
+        final ResponsePipelineUtils<SubscribeStreamResponse> observer = new ResponsePipelineUtils<>();
+        final AtomicReference<CountDownLatch> endedLatch = observer.setAndGetConnectionEndedLatch(1);
+        // subscribeBlockStream blocks until the server-streaming RPC ends; run it off-thread so a stuck call
+        // can't stall the test, then require the connection to have ended (been rejected) within the timeout.
+        final Thread subscribeThread = new Thread(
+                () -> {
+                    try {
+                        client.subscribeBlockStream(
+                                SubscribeStreamRequest.newBuilder()
+                                        .startBlockNumber(0L)
+                                        .endBlockNumber(0L)
+                                        .build(),
+                                observer);
+                    } catch (final RuntimeException rejected) {
+                        // expected — not routed
+                    }
+                },
+                "api-subscribe-default-port-negative");
+        subscribeThread.start();
+        endedLatch.get().await(DEFAULT_AWAIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        subscribeThread.join(DEFAULT_AWAIT_TIMEOUT.toMillis());
+        assertEquals(
+                0, endedLatch.get().getCount(), "subscriber stream on the default port must be rejected (no route)");
+        client.close();
+    }
+
+    /** Waits until the app reaches (running == true) or leaves (running == false) the RUNNING state. */
+    private static void awaitState(final BlockNodeApp app, final boolean running) throws InterruptedException {
+        final long deadline = System.currentTimeMillis() + 10_000L;
+        while (System.currentTimeMillis() < deadline) {
+            final boolean isRunning = app.blockNodeState() == State.RUNNING;
+            if (isRunning == running) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        assertEquals(running, app.blockNodeState() == State.RUNNING, "app did not reach expected running=" + running);
+    }
+
     private void endBlock(final long blockNumber, final Pipeline<? super PublishStreamRequest> requestStream) {
         PublishStreamRequest request = PublishStreamRequest.newBuilder()
                 .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
