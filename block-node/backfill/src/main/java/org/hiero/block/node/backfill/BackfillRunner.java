@@ -13,8 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
@@ -94,7 +94,7 @@ final class BackfillRunner {
     private long backfillGap(LongRange gap, GapDetector.Type gapType) throws InterruptedException, ParseException {
         final String startingBackfillGapMsg = "Starting backfillGap type=[{0}] range=[{1}]";
         logger.log(INFO, startingBackfillGapMsg, gapType, gap);
-        Map<BackfillSourceConfig, List<LongRange>> availability = planAvailabilityForGap(fetcher, gap);
+        Map<BlockNodeSourceConfig, List<LongRange>> availability = planAvailabilityForGap(fetcher, gap);
         long currentBlock = gap.start();
         long batchSize = config.fetchBatchSize();
         long lastSuccessfulBlock = gap.start() - 1;
@@ -164,7 +164,7 @@ final class BackfillRunner {
      * @param outcome the outcome indicating how the main loop should proceed
      */
     private record ChunkFetchResult(
-            Map<BackfillSourceConfig, List<LongRange>> availability,
+            Map<BlockNodeSourceConfig, List<LongRange>> availability,
             LongRange chunk,
             List<BlockUnparsed> blocks,
             FetchOutcome outcome) {}
@@ -186,7 +186,7 @@ final class BackfillRunner {
      * @return result containing fetched blocks and control flow signals
      */
     private ChunkFetchResult fetchNextChunk(
-            long currentBlock, long gapEnd, long batchSize, Map<BackfillSourceConfig, List<LongRange>> availability) {
+            long currentBlock, long gapEnd, long batchSize, Map<BlockNodeSourceConfig, List<LongRange>> availability) {
 
         // Step 1: Select a node that can serve the requested block range
         Optional<NodeSelectionStrategy.NodeSelection> selection =
@@ -196,7 +196,7 @@ final class BackfillRunner {
             final String noAvailableNodesMsg = "No available nodes found for block [{0}]";
             logger.log(TRACE, noAvailableNodesMsg, currentBlock);
             metricsHolder.backfillFetchErrors().increment();
-            Map<BackfillSourceConfig, List<LongRange>> replanned = replanAvailability(currentBlock, gapEnd);
+            Map<BlockNodeSourceConfig, List<LongRange>> replanned = replanAvailability(currentBlock, gapEnd);
             FetchOutcome outcome = replanned.isEmpty() ? FetchOutcome.EXHAUSTED : FetchOutcome.RETRY;
             return new ChunkFetchResult(replanned, null, List.of(), outcome);
         }
@@ -218,7 +218,7 @@ final class BackfillRunner {
             availability.remove(nodeChoice.nodeConfig());
             final String noBlocksFetchedMsg = "No blocks fetched for gap [{0}], skipping";
             logger.log(DEBUG, noBlocksFetchedMsg, chunk);
-            Map<BackfillSourceConfig, List<LongRange>> replanned = replanAvailability(currentBlock, gapEnd);
+            Map<BlockNodeSourceConfig, List<LongRange>> replanned = replanAvailability(currentBlock, gapEnd);
             FetchOutcome outcome = replanned.isEmpty() ? FetchOutcome.EXHAUSTED : FetchOutcome.RETRY;
             return new ChunkFetchResult(replanned, null, List.of(), outcome);
         }
@@ -293,7 +293,7 @@ final class BackfillRunner {
     /**
      * Initializes availability by querying all configured nodes for their block ranges.
      */
-    private Map<BackfillSourceConfig, List<LongRange>> planAvailabilityForGap(
+    private Map<BlockNodeSourceConfig, List<LongRange>> planAvailabilityForGap(
             BackfillFetcher backfillFetcher, LongRange gap) {
         return backfillFetcher.getAvailabilityForRange(gap);
     }
@@ -302,7 +302,7 @@ final class BackfillRunner {
      * Re-queries node availability for the remaining gap range.
      * Called when current availability becomes stale (e.g., after node failures).
      */
-    private Map<BackfillSourceConfig, List<LongRange>> replanAvailability(long startBlock, long gapEnd) {
+    private Map<BlockNodeSourceConfig, List<LongRange>> replanAvailability(long startBlock, long gapEnd) {
         LongRange remaining = new LongRange(startBlock, gapEnd);
         return planAvailabilityForGap(fetcher, remaining);
     }
@@ -325,7 +325,7 @@ final class BackfillRunner {
      */
     static LongRange computeChunk(
             @NonNull NodeSelectionStrategy.NodeSelection selection,
-            @NonNull Map<BackfillSourceConfig, List<LongRange>> availability,
+            @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability,
             long gapEnd,
             long batchSize) {
         List<LongRange> ranges = availability.get(selection.nodeConfig());

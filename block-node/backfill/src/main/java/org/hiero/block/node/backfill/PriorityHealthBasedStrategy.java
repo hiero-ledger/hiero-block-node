@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ThreadLocalRandom;
-import org.hiero.block.node.backfill.client.BackfillSourceConfig;
+import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
@@ -35,7 +35,7 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
 
     @Override
     public Optional<NodeSelection> select(
-            long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
+            long startBlock, long gapEnd, @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability) {
 
         if (startBlock > gapEnd) {
             return Optional.empty();
@@ -55,7 +55,7 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
      * Locate the earliest start index across all available ranges that can satisfy the request bounds.
      */
     private OptionalLong findEarliestAvailableStart(
-            long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
+            long startBlock, long gapEnd, @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability) {
         long earliestAvailableStart = Long.MAX_VALUE;
         // Nested loop needed: each node can have multiple non-contiguous available ranges
         for (List<LongRange> ranges : availability.values()) {
@@ -80,10 +80,10 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
             long startBlock,
             long gapEnd,
             long earliestAvailableStart,
-            @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
+            @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability) {
         List<NodeSelection> candidates = new ArrayList<>();
         // Cannot use values() here: we need the node key (entry.getKey()) to build NodeSelection
-        for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
+        for (Map.Entry<BlockNodeSourceConfig, List<LongRange>> entry : availability.entrySet()) {
             for (LongRange availableRange : entry.getValue()) {
                 long candidateStart = Math.max(startBlock, availableRange.start());
                 if (candidateStart != earliestAvailableStart) {
@@ -153,12 +153,12 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
         /**
          * Returns whether the node is currently in backoff state.
          */
-        boolean isInBackoff(BackfillSourceConfig node);
+        boolean isInBackoff(BlockNodeSourceConfig node);
 
         /**
          * Returns a health score for the node (lower is better).
          * Considers failure rate and average latency.
          */
-        double healthScore(BackfillSourceConfig node);
+        double healthScore(BlockNodeSourceConfig node);
     }
 }

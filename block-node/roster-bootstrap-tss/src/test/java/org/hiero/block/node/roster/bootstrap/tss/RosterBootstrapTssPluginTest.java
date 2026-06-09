@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.TssData;
+import org.hiero.block.internal.BlockNodeSource;
+import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;

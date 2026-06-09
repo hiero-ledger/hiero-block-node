@@ -14,8 +14,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.TssData;
+import org.hiero.block.internal.BlockNodeSource;
+import org.hiero.block.internal.BlockNodeSourceConfig;
+import org.hiero.block.node.base.client.BlockNodeClient;
 import org.hiero.block.node.roster.bootstrap.tss.RosterBootstrapTssPlugin.MetricsHolder;
-import org.hiero.block.node.roster.bootstrap.tss.client.BlockNodeClient;
 
 /// Client for fetching TssData from block nodes using gRPC.
 /// This client handles fetching TssData from select nodes.
@@ -27,6 +29,9 @@ public class TssDataFetcher implements Closeable {
 
     /// Source of block node configurations.
     private final BlockNodeSource blockNodeSource;
+
+    /// Global timeout in milliseconds for gRPC calls to block nodes (used as fallback).
+    private final int globalGrpcTimeoutMs;
 
     /// Enable TLS for secure connections to block nodes.
     private final boolean enableTls;
@@ -48,6 +53,7 @@ public class TssDataFetcher implements Closeable {
             BlockNodeSource blockNodeSource, RosterBootstrapTssConfig config, @NonNull MetricsHolder metrics) {
         this.blockNodeSource = blockNodeSource;
         this.enableTls = config.enableTLS();
+        this.globalGrpcTimeoutMs = config.grpcOverallTimeout();
         this.maxIncomingBufferSize = config.maxIncomingBufferSize();
         this.metrics = metrics;
         for (BlockNodeSourceConfig node : blockNodeSource.nodes()) {
@@ -77,7 +83,9 @@ public class TssDataFetcher implements Closeable {
             LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", node.address());
         }
         return nodeClientMap.computeIfAbsent(
-                node, n -> new BlockNodeClient(n, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
+                node,
+                n -> new BlockNodeClient(
+                        n, globalGrpcTimeoutMs, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
     }
 
     /// Perform a serverStatusDetail call per configured node and capture the TssData.

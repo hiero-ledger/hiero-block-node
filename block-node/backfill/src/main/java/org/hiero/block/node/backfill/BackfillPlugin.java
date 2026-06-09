@@ -19,9 +19,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import org.hiero.block.internal.BlockNodeSource;
+import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
-import org.hiero.block.node.backfill.client.BackfillSource;
-import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -71,7 +71,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private BackfillConfiguration backfillConfiguration;
     private long earliestManagedBlock;
     private boolean hasBNSourcesPath = false;
-    private BackfillSource blockNodeSources;
+    private BlockNodeSource blockNodeSources;
     private ScheduledExecutorService autonomousExecutor;
 
     // Two independent schedulers with dedicated executors: historical never blocks live-tail
@@ -145,7 +145,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
 
         try {
-            blockNodeSources = BackfillSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
+            blockNodeSources = BlockNodeSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
         } catch (ParseException | IOException e) {
             final String parseFailedMsg =
                     "Failed to parse block node sources from path: [%s], backfill will not run: %s"
@@ -417,7 +417,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     // Package-private for test visibility
     LongRange computeChunk(
             @NonNull NodeSelectionStrategy.NodeSelection selection,
-            @NonNull Map<BackfillSourceConfig, List<LongRange>> availability,
+            @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability,
             long gapEnd,
             long batchSize) {
         return BackfillRunner.computeChunk(selection, availability, gapEnd, batchSize);

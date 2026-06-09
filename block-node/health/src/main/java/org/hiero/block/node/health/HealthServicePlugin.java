@@ -31,9 +31,9 @@ public class HealthServicePlugin implements BlockNodePlugin {
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         healthFacility = context.serverHealth();
-        serviceBuilder.registerHttpService(
-                HEALTHZ_PATH,
-                httpRules -> httpRules.get(LIVEZ_PATH, this::handleLivez).get(READYZ_PATH, this::handleReadyz));
+        serviceBuilder.registerHttpService(HEALTHZ_PATH, null, httpRules -> httpRules
+                .get(LIVEZ_PATH, this::handleLivez)
+                .get(READYZ_PATH, this::handleReadyz));
         LOGGER.log(DEBUG, "Completed health facility initialization");
     }
 

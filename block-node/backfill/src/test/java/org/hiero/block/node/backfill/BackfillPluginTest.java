@@ -20,6 +20,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.internal.BlockNodeSource;
+import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
@@ -27,8 +29,6 @@ import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
-import org.hiero.block.node.backfill.client.BackfillSource;
-import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -91,8 +91,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         testBlockNodeServers.add(server1);
         final String blockNodeSourcesPath = testTempDir + "/block-nodes-autonomous.json";
         createTestBlockNodeSourcesFile(
-                BackfillSource.newBuilder()
-                        .nodes(BackfillSourceConfig.newBuilder()
+                BlockNodeSource.newBuilder()
+                        .nodes(BlockNodeSourceConfig.newBuilder()
                                 .address("localhost")
                                 .port(server1.port())
                                 .priority(1)
@@ -148,8 +148,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         testBlockNodeServers.add(server1);
         final String blockNodeSourcesPath = testTempDir + "/block-nodes-empty-store.json";
         createTestBlockNodeSourcesFile(
-                BackfillSource.newBuilder()
-                        .nodes(BackfillSourceConfig.newBuilder()
+                BlockNodeSource.newBuilder()
+                        .nodes(BlockNodeSourceConfig.newBuilder()
                                 .address("localhost")
                                 .port(server1.port())
                                 .priority(1)
@@ -197,8 +197,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         testBlockNodeServers.add(server1);
         final String blockNodeSourcesPath = testTempDir + "/block-nodes-no-gaps.json";
         createTestBlockNodeSourcesFile(
-                BackfillSource.newBuilder()
-                        .nodes(BackfillSourceConfig.newBuilder()
+                BlockNodeSource.newBuilder()
+                        .nodes(BlockNodeSourceConfig.newBuilder()
                                 .address("localhost")
                                 .port(server1.port())
                                 .priority(1)
@@ -246,8 +246,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         testBlockNodeServers.add(server1);
         final String blockNodeSourcesPath = testTempDir + "/block-nodes-greedy.json";
         createTestBlockNodeSourcesFile(
-                BackfillSource.newBuilder()
-                        .nodes(BackfillSourceConfig.newBuilder()
+                BlockNodeSource.newBuilder()
+                        .nodes(BlockNodeSourceConfig.newBuilder()
                                 .address("localhost")
                                 .port(server1.port())
                                 .priority(1)
@@ -306,8 +306,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         testBlockNodeServers.add(server1);
         final String blockNodeSourcesPath = testTempDir + "/block-nodes-greedy-empty.json";
         createTestBlockNodeSourcesFile(
-                BackfillSource.newBuilder()
-                        .nodes(BackfillSourceConfig.newBuilder()
+                BlockNodeSource.newBuilder()
+                        .nodes(BlockNodeSourceConfig.newBuilder()
                                 .address("localhost")
                                 .port(server1.port())
                                 .priority(1)
@@ -355,13 +355,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // BN1 exposes only blocks 400..700
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, getHistoricalBlockFacility(400, 700));
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig sourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(sourceConfig).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(sourceConfig).build();
         String backfillSourcePath = testTempDir + "/backfill-source-start-boundary.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -402,13 +402,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // BN1 exposes only blocks 400..700
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, getHistoricalBlockFacility(400, 700));
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig sourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(sourceConfig).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(sourceConfig).build();
         String backfillSourcePath = testTempDir + "/backfill-source-earliest-peer.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -457,8 +457,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         testBlockNodeServers.add(server1);
         final String blockNodeSourcesPath = testTempDir + "/block-nodes-greedy-no-gap.json";
         createTestBlockNodeSourcesFile(
-                BackfillSource.newBuilder()
-                        .nodes(BackfillSourceConfig.newBuilder()
+                BlockNodeSource.newBuilder()
+                        .nodes(BlockNodeSourceConfig.newBuilder()
                                 .address("localhost")
                                 .port(server1.port())
                                 .priority(1)
@@ -503,18 +503,18 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
 
         // Set up a backfill source with two nodes, one primary and one secondary.
         // Primary port is intentionally unreachable to exercise the fallback path.
-        BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig backfillSourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(8082)
                 .priority(1)
                 .build();
-        BackfillSourceConfig secondaryBackfillSourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig secondaryBlockNodeSourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(secondaryServer.port())
                 .priority(2)
                 .build();
-        BackfillSource backfillSource = BackfillSource.newBuilder()
-                .nodes(backfillSourceConfig, secondaryBackfillSourceConfig)
+        BlockNodeSource backfillSource = BlockNodeSource.newBuilder()
+                .nodes(backfillSourceConfig, secondaryBlockNodeSourceConfig)
                 .build();
         String backfillSourcePath = testTempDir + "/backfill-source-2.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
@@ -562,13 +562,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // Block Node sources
         // let's create a config with a non-existing block-node source
         String blockNodeSourcesPath = testTempDir + "/backfill-source-3.json";
-        BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig backfillSourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("non-existing-block-node.example.node") // non-existing address
                 .port(80840) // non-existing port
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(backfillSourceConfig).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(backfillSourceConfig).build();
         // Create a temporary file for the backfill source configuration
         createTestBlockNodeSourcesFile(backfillSource, blockNodeSourcesPath);
 
@@ -598,13 +598,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 50);
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockNodeServerBlockFacility);
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig config = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(config).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(config).build();
         String backfillSourcePath = testTempDir + "/backfill-source-4.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -661,13 +661,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
 
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, serverFacility);
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig config = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(config).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(config).build();
         String backfillSourcePath = testTempDir + "/backfill-source-tss.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -702,13 +702,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 19);
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockNodeServerBlockFacility);
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig config = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(config).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(config).build();
         String backfillSourcePath = testTempDir + "/backfill-source-4.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -754,13 +754,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 19);
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockNodeServerBlockFacility);
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig config = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(config).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(config).build();
         String backfillSourcePath = testTempDir + "/backfill-source-4.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -799,13 +799,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 50);
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockNodeServerBlockFacility);
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig config = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(config).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(config).build();
         String backfillSourcePath = testTempDir + "/backfill-source-4.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -856,13 +856,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         HistoricalBlockFacility blockFacilityServer = getHistoricalBlockFacility(0, 200);
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockFacilityServer);
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig config = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(config).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(config).build();
         String backfillSourcePath = testTempDir + "/backfill-source-5.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -943,13 +943,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         HistoricalBlockFacility blockFacilityServer = getHistoricalBlockFacility(0, 200);
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockFacilityServer);
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig config = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(config).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(config).build();
         String backfillSourcePath = testTempDir + "/backfill-source-5.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -1040,18 +1040,18 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // Set up 2 backfill sources with two nodes, one primary and one secondary
         // primary node will have blocks from 0 to 100
         // secondary node will have blocks from 50 to 150
-        BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig backfillSourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer1.port())
                 .priority(2)
                 .build();
-        BackfillSourceConfig secondaryBackfillSourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig secondaryBlockNodeSourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer2.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource = BackfillSource.newBuilder()
-                .nodes(backfillSourceConfig, secondaryBackfillSourceConfig)
+        BlockNodeSource backfillSource = BlockNodeSource.newBuilder()
+                .nodes(backfillSourceConfig, secondaryBlockNodeSourceConfig)
                 .build();
         String backfillSourcePath = testTempDir + "/backfill-source-7.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
@@ -1126,18 +1126,18 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         testBlockNodeServers.add(mockServer1);
         testBlockNodeServers.add(mockServer2);
 
-        BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig backfillSourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer1.port())
                 .priority(2)
                 .build();
-        BackfillSourceConfig secondaryBackfillSourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig secondaryBlockNodeSourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer2.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource = BackfillSource.newBuilder()
-                .nodes(backfillSourceConfig, secondaryBackfillSourceConfig)
+        BlockNodeSource backfillSource = BlockNodeSource.newBuilder()
+                .nodes(backfillSourceConfig, secondaryBlockNodeSourceConfig)
                 .build();
         String backfillSourcePath = testTempDir + "/backfill-source-7.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
@@ -1231,13 +1231,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // Set up a peer with a large range of blocks
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, getHistoricalBlockFacility(0, 200));
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig sourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(sourceConfig).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(sourceConfig).build();
         String backfillSourcePath = testTempDir + "/backfill-source-skip-historical.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -1306,13 +1306,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
 
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, gappyStorage);
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig backfillSourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(backfillSourceConfig).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(backfillSourceConfig).build();
         String backfillSourcePath = testTempDir + "/backfill-source-lying.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -1354,13 +1354,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // Set up peer server with blocks 0-99
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, getHistoricalBlockFacility(0, 99));
         testBlockNodeServers.add(mockServer);
-        BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
+        BlockNodeSourceConfig sourceConfig = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(mockServer.port())
                 .priority(1)
                 .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(sourceConfig).build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(sourceConfig).build();
         String backfillSourcePath = testTempDir + "/backfill-source-split-gap.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
@@ -1401,8 +1401,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 "Should backfill LIVE_TAIL blocks (50-99) at or above earliestManagedBlock");
     }
 
-    private void createTestBlockNodeSourcesFile(BackfillSource backfillSource, String configPath) {
-        String jsonString = BackfillSource.JSON.toJSON(backfillSource);
+    private void createTestBlockNodeSourcesFile(BlockNodeSource backfillSource, String configPath) {
+        String jsonString = BlockNodeSource.JSON.toJSON(backfillSource);
         // Write the JSON string to the specified file path
         try {
             java.nio.file.Files.write(java.nio.file.Paths.get(configPath), jsonString.getBytes());

@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 syntax = "proto3";
 
-package org.hiero.block.node.backfill.client;
+package org.hiero.block.internal;
 
-message BackfillSource {
+option java_package = "org.hiero.block.internal.protoc";
+// <<<pbj.java_package = "org.hiero.block.internal">>> This comment is special code for setting PBJ Compiler java package
+option java_multiple_files = true;
+
+message BlockNodeSource {
   /** Array of BlockNode messages */
-  repeated BackfillSourceConfig nodes = 1;
+  repeated BlockNodeSourceConfig nodes = 1;
 }
 
-message BackfillSourceConfig {
+message BlockNodeSourceConfig {
   /** Address as a string (either hostname or IP) */
   string address = 1;
 

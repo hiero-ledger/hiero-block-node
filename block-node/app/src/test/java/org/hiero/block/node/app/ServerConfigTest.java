@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import java.util.stream.Stream;
+import org.hiero.block.node.app.config.ServerConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.provider.Arguments;
 
 @SuppressWarnings("unused")
@@ -55,6 +62,30 @@ class ServerConfigTest {
     //                .isThrownBy(() -> new ServerConfig(4_194_304, 32_768, 32_768, port))
     //                .withMessage(message);
     //    }
+
+    @Test
+    @DisplayName("Default publisher port is 40840")
+    void defaultPortIs40840() {
+        assertEquals(40840, defaultConfig().getConfigData(ServerConfig.class).port());
+    }
+
+    @Test
+    @DisplayName("server port can be overridden")
+    void portCanBeOverridden() {
+        final Configuration config = ConfigurationBuilder.create()
+                .autoDiscoverExtensions()
+                .withConfigDataType(ServerConfig.class)
+                .withValue("server.port", "12345")
+                .build();
+        assertEquals(12345, config.getConfigData(ServerConfig.class).port());
+    }
+
+    private static Configuration defaultConfig() {
+        return ConfigurationBuilder.create()
+                .autoDiscoverExtensions()
+                .withConfigDataType(ServerConfig.class)
+                .build();
+    }
 
     private static Stream<Arguments> outOfRangePorts() {
         return Stream.of(
