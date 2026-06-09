@@ -183,29 +183,60 @@ function run_in_kubernetes_pod {
         return 1
     fi
 
-    # Find a running block node pod to use for execution
-    local exec_pod
-    exec_pod=$(kctl get pods -n "${NAMESPACE}" -l "block-node.hiero.com/type=block-node" \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    # Create a temporary Python pod for running the comparison
+    local pod_name="mn-comparison-$(date +%s)"
+    log "Creating temporary Python pod: ${pod_name}"
 
-    if [[ -z "${exec_pod}" ]]; then
-        log "ERROR: No block node pods found to execute comparison"
-        return 1
-    fi
-
-    log "Using pod ${exec_pod} for comparison execution"
-
-    # Copy Python script to pod
-    log "Copying comparison script to pod..."
-    kctl cp -n "${NAMESPACE}" "${python_script}" "${exec_pod}:/tmp/compare_mirror_nodes.py" || {
-        log "ERROR: Failed to copy script to pod"
+    # Create ConfigMap with the Python script
+    kctl create configmap -n "${NAMESPACE}" "${pod_name}-script" \
+        --from-file=compare_mirror_nodes.py="${python_script}" || {
+        log "ERROR: Failed to create ConfigMap with script"
         return 1
     }
 
-    # Install requests module if needed
-    log "Installing Python dependencies in pod..."
-    kctl exec -n "${NAMESPACE}" "${exec_pod}" -- \
-        python3 -m pip install --quiet --user requests 2>&1 | grep -v "Requirement already satisfied" || true
+    # Create pod with Python image
+    cat <<EOF | kctl apply -n "${NAMESPACE}" -f - || {
+        log "ERROR: Failed to create Python pod"
+        kctl delete configmap -n "${NAMESPACE}" "${pod_name}-script" 2>/dev/null || true
+        return 1
+    }
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${pod_name}
+spec:
+  restartPolicy: Never
+  containers:
+  - name: python
+    image: python:3.11-slim
+    command: ["sleep", "300"]
+    volumeMounts:
+    - name: script
+      mountPath: /scripts
+  volumes:
+  - name: script
+    configMap:
+      name: ${pod_name}-script
+EOF
+
+    # Wait for pod to be ready
+    log "Waiting for Python pod to be ready..."
+    if ! kctl wait --for=condition=ready pod -n "${NAMESPACE}" "${pod_name}" --timeout=60s 2>/dev/null; then
+        log "ERROR: Python pod did not become ready"
+        kctl delete pod -n "${NAMESPACE}" "${pod_name}" --wait=false 2>/dev/null || true
+        kctl delete configmap -n "${NAMESPACE}" "${pod_name}-script" 2>/dev/null || true
+        return 1
+    fi
+
+    # Install requests module
+    log "Installing Python dependencies..."
+    kctl exec -n "${NAMESPACE}" "${pod_name}" -- \
+        pip install --quiet requests || {
+        log "ERROR: Failed to install Python dependencies"
+        kctl delete pod -n "${NAMESPACE}" "${pod_name}" --wait=false 2>/dev/null || true
+        kctl delete configmap -n "${NAMESPACE}" "${pod_name}-script" 2>/dev/null || true
+        return 1
+    }
 
     # Run comparison
     log "Running comparison..."
@@ -213,8 +244,8 @@ function run_in_kubernetes_pod {
     log "  MN2: ${MN2_URL}"
 
     local rc=0
-    kctl exec -n "${NAMESPACE}" "${exec_pod}" -- \
-        python3 /tmp/compare_mirror_nodes.py \
+    kctl exec -n "${NAMESPACE}" "${pod_name}" -- \
+        python3 /scripts/compare_mirror_nodes.py \
         "${MN1_URL}" \
         "${MN2_URL}" \
         --output /tmp/comparison-report.json \
@@ -222,12 +253,14 @@ function run_in_kubernetes_pod {
         --block-range 0:100 || rc=$?
 
     # Copy result back
-    if kctl cp -n "${NAMESPACE}" "${exec_pod}:/tmp/comparison-report.json" "${OUTPUT_FILE}" 2>/dev/null; then
+    if kctl cp -n "${NAMESPACE}" "${pod_name}:/tmp/comparison-report.json" "${OUTPUT_FILE}" 2>/dev/null; then
         log "Comparison report saved to ${OUTPUT_FILE}"
     fi
 
     # Cleanup
-    kctl exec -n "${NAMESPACE}" "${exec_pod}" -- rm -f /tmp/compare_mirror_nodes.py /tmp/comparison-report.json 2>/dev/null || true
+    log "Cleaning up temporary resources..."
+    kctl delete pod -n "${NAMESPACE}" "${pod_name}" --wait=false 2>/dev/null || true
+    kctl delete configmap -n "${NAMESPACE}" "${pod_name}-script" 2>/dev/null || true
 
     if [[ ${rc} -eq 0 ]]; then
         log ""
