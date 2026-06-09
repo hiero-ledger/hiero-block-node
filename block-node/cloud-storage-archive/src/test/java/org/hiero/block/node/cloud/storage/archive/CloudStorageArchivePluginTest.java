@@ -723,7 +723,7 @@ class CloudStorageArchivePluginTest {
         void resumeAfterCompletedTarStartsNextGroup() throws Exception {
             final long groupSize = Math.powExact(10, GROUPING_LEVEL);
             final CloudStorageArchiveConfig config = makeConfig();
-            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL);
+            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL, "");
 
             // Plant a completed tar for the first group (blocks 0–9) before recovery runs.
             final List<TestBlock> firstGroupBlocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
@@ -742,7 +742,7 @@ class CloudStorageArchivePluginTest {
 
             pluginExecutor.executeSerially();
 
-            final String secondKey = ArchiveKey.format(groupSize, GROUPING_LEVEL);
+            final String secondKey = ArchiveKey.format(groupSize, GROUPING_LEVEL, "");
             assertThat(getAllObjects()).contains(secondKey);
             final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
             assertThat(notifications).isNotEmpty();
@@ -757,7 +757,7 @@ class CloudStorageArchivePluginTest {
         @DisplayName("Plugin resumes from a hanging multipart upload and completes the group correctly")
         void resumeFromHangingUploadCompletesGroup() throws Exception {
             final long groupSize = Math.powExact(10, GROUPING_LEVEL);
-            final String key = ArchiveKey.format(0, GROUPING_LEVEL);
+            final String key = ArchiveKey.format(0, GROUPING_LEVEL, "");
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
 
             final CloudStorageArchiveConfig config = makeConfig();
@@ -792,8 +792,8 @@ class CloudStorageArchivePluginTest {
         void hangingUploadWithNoPartsAbortsAndResumesFromLastCompletedTar() throws Exception {
             final long groupSize = Math.powExact(10, GROUPING_LEVEL);
             final CloudStorageArchiveConfig config = makeConfig();
-            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL);
-            final String secondKey = ArchiveKey.format(groupSize, GROUPING_LEVEL);
+            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL, "");
+            final String secondKey = ArchiveKey.format(groupSize, GROUPING_LEVEL, "");
 
             try (S3Client s3 = openS3Client(config)) {
                 // Complete group 0 (blocks 0–9).
@@ -838,8 +838,8 @@ class CloudStorageArchivePluginTest {
         void resumeFromHangingUploadOnNonFirstGroupCompletesGroup() throws Exception {
             final long groupSize = Math.powExact(10, GROUPING_LEVEL);
             final CloudStorageArchiveConfig config = makeConfig();
-            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL);
-            final String secondKey = ArchiveKey.format(groupSize, GROUPING_LEVEL);
+            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL, "");
+            final String secondKey = ArchiveKey.format(groupSize, GROUPING_LEVEL, "");
             final List<TestBlock> secondGroupBlocks =
                     TestBlockBuilder.generateBlocksInRange((int) groupSize, (int) (groupSize * 2) - 1);
 
@@ -888,7 +888,7 @@ class CloudStorageArchivePluginTest {
         @DisplayName("Blocks before the resume point are silently skipped and upload still completes")
         void blocksBeforeResumePointAreSkippedAndUploadCompletes() throws Exception {
             final long groupSize = Math.powExact(10, GROUPING_LEVEL);
-            final String key = ArchiveKey.format(0, GROUPING_LEVEL);
+            final String key = ArchiveKey.format(0, GROUPING_LEVEL, "");
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
 
             final CloudStorageArchiveConfig config = makeConfig();
@@ -941,7 +941,7 @@ class CloudStorageArchivePluginTest {
         void completedTarRecoveryCallsAddBlockRange() throws Exception {
             final long groupSize = Math.powExact(10, GROUPING_LEVEL);
             final CloudStorageArchiveConfig config = makeConfig();
-            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL);
+            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL, "");
 
             try (S3Client s3 = openS3Client(config)) {
                 final String uploadId =
@@ -974,7 +974,7 @@ class CloudStorageArchivePluginTest {
         @DisplayName("Hanging upload recovery: addBlockRange reports blocks 0 to nextBlockNumber-1 as STORED")
         void hangingUploadRecoveryCallsAddBlockRange() throws Exception {
             final long groupSize = Math.powExact(10, GROUPING_LEVEL);
-            final String key = ArchiveKey.format(0, GROUPING_LEVEL);
+            final String key = ArchiveKey.format(0, GROUPING_LEVEL, "");
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
 
             final CloudStorageArchiveConfig config = makeConfig();

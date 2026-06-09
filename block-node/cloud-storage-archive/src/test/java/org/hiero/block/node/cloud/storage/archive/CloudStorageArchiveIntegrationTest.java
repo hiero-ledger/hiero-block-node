@@ -222,7 +222,7 @@ class CloudStorageArchiveIntegrationTest {
 
         // Wait until S3 has at least one flushed part for group 4's key, then stop P4.
         // This leaves a 1-part hanging multipart upload in S3.
-        awaitPartUploaded(ArchiveKey.format(group4Start, GROUPING_LEVEL));
+        awaitPartUploaded(ArchiveKey.format(group4Start, GROUPING_LEVEL, ""));
         p4.plugin().stop();
 
         // P5 recovers: finds the 1-part upload, completes it, creates a new upload
@@ -239,7 +239,7 @@ class CloudStorageArchiveIntegrationTest {
             sendVerification(p5, generateLargeBlock(bn, 600 * 1024));
         }
 
-        awaitTarInS3(ArchiveKey.format(group4Start, GROUPING_LEVEL));
+        awaitTarInS3(ArchiveKey.format(group4Start, GROUPING_LEVEL, ""));
 
         // Final assertion: all five groups are archived
 

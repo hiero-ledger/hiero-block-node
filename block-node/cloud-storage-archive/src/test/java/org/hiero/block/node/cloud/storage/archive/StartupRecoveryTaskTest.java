@@ -139,7 +139,7 @@ class StartupRecoveryTaskTest {
     @DisplayName("Completed tar group: recovery returns the start of the next group")
     void completedTarGroupReturnsNextGroupStart() throws Exception {
         final long groupSize = Math.powExact(10, GROUPING_LEVEL);
-        final String key = ArchiveKey.format(0, GROUPING_LEVEL);
+        final String key = ArchiveKey.format(0, GROUPING_LEVEL, "");
 
         final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
         try (S3Client s3 = openS3Client()) {
@@ -165,7 +165,7 @@ class StartupRecoveryTaskTest {
         try (S3Client s3 = openS3Client()) {
             for (int g = 0; g < 3; g++) {
                 final long groupStart = (long) g * groupSize;
-                final String key = ArchiveKey.format(groupStart, GROUPING_LEVEL);
+                final String key = ArchiveKey.format(groupStart, GROUPING_LEVEL, "");
                 final List<TestBlock> blocks =
                         TestBlockBuilder.generateBlocksInRange((int) groupStart, (int) (groupStart + groupSize - 1));
                 final String uploadId =
@@ -200,7 +200,7 @@ class StartupRecoveryTaskTest {
 
         try (S3Client s3 = openS3Client()) {
             // Group 0 (blocks 0–9) → "0000/0000/0000/0000/0.tar"
-            final String key0 = ArchiveKey.format(0, GROUPING_LEVEL);
+            final String key0 = ArchiveKey.format(0, GROUPING_LEVEL, "");
             final List<TestBlock> blocks0 = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
             final String uploadId0 =
                     s3.createMultipartUpload(key0, config.storageClass().name(), CONTENT_TYPE);
@@ -208,7 +208,7 @@ class StartupRecoveryTaskTest {
             s3.completeMultipartUpload(key0, uploadId0, List.of(etag0));
 
             // Group at start=1000 (blocks 1000–1009) → "0000/0000/0000/0001/0.tar"
-            final String key1 = ArchiveKey.format(farGroupStart, GROUPING_LEVEL);
+            final String key1 = ArchiveKey.format(farGroupStart, GROUPING_LEVEL, "");
             final List<TestBlock> blocks1 =
                     TestBlockBuilder.generateBlocksInRange((int) farGroupStart, (int) (farGroupStart + groupSize - 1));
             final String uploadId1 =
@@ -224,6 +224,161 @@ class StartupRecoveryTaskTest {
         assertThat(result.trailingBytes()).isNull();
     }
 
+    /// Verifies that when [CloudStorageArchiveConfig#objectKeyPrefix()] is set and the bucket also
+    /// contains objects and a hanging multipart upload under a sibling prefix that sorts after the
+    /// configured one (simulating a shared bucket with e.g. `hiero/mainnet` and `hiero/testnet`):
+    ///
+    /// - The completed-object traversal stays inside the configured prefix and returns the correct
+    ///   [RecoveryResult#currentGroupStart()] (fixing the `findLastKey` bug).
+    /// - The sibling's hanging upload is not counted in `totalUploads` and is not aborted (fixing
+    ///   the `listMultipartUploads` bucket-wide scan bug).
+    @Test
+    @DisplayName("With prefix: sibling completed objects and hanging uploads are ignored")
+    void siblingPrefixObjectsAndUploadsAreIgnored() throws Exception {
+        final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+        final String prefix = "myprefix";
+        // "sibling" sorts after "myprefix" so an unfixed traversal would enter it.
+        final String siblingPrefix = "sibling";
+
+        final ConfigurationBuilder prefixedBuilder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfigWithPrefix(prefix).forEach(prefixedBuilder::withValue);
+        final CloudStorageArchiveConfig prefixedConfig =
+                prefixedBuilder.build().getConfigData(CloudStorageArchiveConfig.class);
+
+        final String siblingHangingKey = ArchiveKey.format(groupSize * 5, GROUPING_LEVEL, siblingPrefix);
+        try (S3Client s3 = new S3Client(
+                config.regionName(),
+                config.endpointUrl(),
+                config.bucketName(),
+                config.accessKey(),
+                config.secretKey())) {
+            // One completed tar under the configured prefix (blocks 0–9).
+            final String configuredKey = ArchiveKey.format(0, GROUPING_LEVEL, prefix);
+            final String uploadId0 = s3.createMultipartUpload(
+                    configuredKey, config.storageClass().name(), CONTENT_TYPE);
+            final String etag0 = s3.multipartUploadPart(
+                    configuredKey,
+                    uploadId0,
+                    1,
+                    buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1)));
+            s3.completeMultipartUpload(configuredKey, uploadId0, List.of(etag0));
+
+            // A completed tar under the sibling prefix at a higher block number — traversal must ignore it.
+            final String siblingKey = ArchiveKey.format(groupSize * 5, GROUPING_LEVEL, siblingPrefix);
+            final String uploadId1 =
+                    s3.createMultipartUpload(siblingKey, config.storageClass().name(), CONTENT_TYPE);
+            final String etag1 = s3.multipartUploadPart(
+                    siblingKey,
+                    uploadId1,
+                    1,
+                    buildTarBytes(
+                            TestBlockBuilder.generateBlocksInRange((int) (groupSize * 5), (int) (groupSize * 6 - 1))));
+            s3.completeMultipartUpload(siblingKey, uploadId1, List.of(etag1));
+
+            // A hanging multipart upload under the sibling prefix — must not be counted or aborted.
+            s3.createMultipartUpload(siblingHangingKey, config.storageClass().name(), CONTENT_TYPE);
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(prefixedConfig).call();
+
+        // Recovery sees only the configured-prefix tar; currentGroupStart is 10, not garbage.
+        assertThat(result.currentGroupStart()).isEqualTo(groupSize);
+        assertThat(result.uploadId()).isNull();
+        assertThat(result.trailingBytes()).isNull();
+        // The sibling's hanging upload must still exist — it was not aborted.
+        try (S3Client s3 = new S3Client(
+                config.regionName(),
+                config.endpointUrl(),
+                config.bucketName(),
+                config.accessKey(),
+                config.secretKey())) {
+            assertThat(s3.listMultipartUploads()).containsKey(siblingHangingKey);
+        }
+    }
+
+    private Map<String, String> pluginConfigWithPrefix(String prefix) {
+        return Map.of(
+                "cloud.storage.archive.groupingLevel", String.valueOf(StartupRecoveryTaskTest.GROUPING_LEVEL),
+                "cloud.storage.archive.partSizeMb", String.valueOf(10),
+                "cloud.storage.archive.endpointUrl", minioEndpoint,
+                "cloud.storage.archive.regionName", "us-east-1",
+                "cloud.storage.archive.bucketName", BUCKET_NAME,
+                "cloud.storage.archive.accessKey", MINIO_USER,
+                "cloud.storage.archive.secretKey", MINIO_PASSWORD,
+                "cloud.storage.archive.objectKeyPrefix", prefix);
+    }
+
+    /// Verifies that when [CloudStorageArchiveConfig#objectKeyPrefix()] is set to a non-empty
+    /// value and the bucket contains a completed tar only under that prefix, recovery correctly
+    /// traverses the prefixed path and returns the start of the next group.
+    ///
+    /// This is the simplest end-to-end exercise of [StartupRecoveryTask#findLastKey] with a prefix:
+    /// no sibling, just one completed tar and an assertion on [RecoveryResult#currentGroupStart()].
+    @Test
+    @DisplayName("Completed tar under configured prefix: recovery returns the start of the next group")
+    void completedTarUnderPrefixReturnsNextGroupStart() throws Exception {
+        final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+        final String prefix = "hiero/mainnet";
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfigWithPrefix(prefix).forEach(builder::withValue);
+        final CloudStorageArchiveConfig prefixedConfig = builder.build().getConfigData(CloudStorageArchiveConfig.class);
+
+        final String key = ArchiveKey.format(0, GROUPING_LEVEL, prefix);
+        try (S3Client s3 = openS3Client()) {
+            final String uploadId =
+                    s3.createMultipartUpload(key, config.storageClass().name(), CONTENT_TYPE);
+            final String etag = s3.multipartUploadPart(
+                    key, uploadId, 1, buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1)));
+            s3.completeMultipartUpload(key, uploadId, List.of(etag));
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(prefixedConfig).call();
+
+        assertThat(result.currentGroupStart()).isEqualTo(groupSize);
+        assertThat(result.uploadId()).isNull();
+        assertThat(result.trailingBytes()).isNull();
+    }
+
+    /// Verifies that when [CloudStorageArchiveConfig#objectKeyPrefix()] is set and the bucket
+    /// contains a single hanging upload under that prefix, recovery correctly parses the group
+    /// start from the prefixed key and returns the expected [RecoveryResult#nextBlockNumber()]
+    /// and [RecoveryResult#trailingBytes()].
+    ///
+    /// This exercises [ArchiveKey#parse] with a non-empty prefix via the
+    /// [StartupRecoveryTask#recoverFromSingleHangingUpload] and [StartupRecoveryTask#rebuildUpload]
+    /// paths.
+    @Test
+    @DisplayName(
+            "Single hanging upload under configured prefix: nextBlockNumber and trailingBytes are extracted correctly")
+    void singleHangingUploadUnderPrefixReturnsResumeState() throws Exception {
+        final String prefix = "hiero/mainnet";
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfigWithPrefix(prefix).forEach(builder::withValue);
+        final CloudStorageArchiveConfig prefixedConfig = builder.build().getConfigData(CloudStorageArchiveConfig.class);
+
+        final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 4);
+        final String key = ArchiveKey.format(0, GROUPING_LEVEL, prefix);
+        final byte[] partBytes = buildTarBytes(blocks);
+        try (S3Client s3 = openS3Client()) {
+            final String uploadId =
+                    s3.createMultipartUpload(key, config.storageClass().name(), CONTENT_TYPE);
+            s3.multipartUploadPart(key, uploadId, 1, partBytes);
+            // deliberately NOT completing — simulate a crash mid-upload
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(prefixedConfig).call();
+
+        assertThat(result.currentGroupStart()).isZero();
+        assertThat(result.uploadId()).isNotNull();
+        assertThat(result.etags()).isEmpty();
+        assertThat(result.nextBlockNumber()).isEqualTo(4L);
+        final int block4HeaderOffset = TarEntries.findLastBlockStart(partBytes);
+        assertThat(result.trailingBytes()).isEqualTo(Arrays.copyOfRange(partBytes, 0, block4HeaderOffset));
+    }
+
     /// Verifies that a single hanging multipart upload causes recovery to locate the last block
     /// start in the boundary part, and return the correct [RecoveryResult#nextBlockNumber()] and
     /// [RecoveryResult#trailingBytes()].
@@ -236,7 +391,7 @@ class StartupRecoveryTaskTest {
     @DisplayName("Single hanging upload: nextBlockNumber and trailingBytes are extracted correctly")
     void singleHangingUploadReturnsResumeState() throws Exception {
         final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 4);
-        final String key = ArchiveKey.format(0, GROUPING_LEVEL);
+        final String key = ArchiveKey.format(0, GROUPING_LEVEL, "");
 
         // Build and capture the exact bytes that are uploaded so we can derive the expected
         // trailingBytes without re-encoding (re-encoding would embed a different mtime, producing
@@ -298,14 +453,14 @@ class StartupRecoveryTaskTest {
 
         try (S3Client s3 = openS3Client()) {
             // Complete groups 0 (blocks 0–9) and 1 (blocks 10–19)
-            final String key0 = ArchiveKey.format(0, 1);
+            final String key0 = ArchiveKey.format(0, 1, "");
             final String uploadId0 =
                     s3.createMultipartUpload(key0, config.storageClass().name(), CONTENT_TYPE);
             final String etag0 = s3.multipartUploadPart(
                     key0, uploadId0, 1, buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, 9)));
             s3.completeMultipartUpload(key0, uploadId0, List.of(etag0));
 
-            final String key1 = ArchiveKey.format(10, 1);
+            final String key1 = ArchiveKey.format(10, 1, "");
             final String uploadId1 =
                     s3.createMultipartUpload(key1, config.storageClass().name(), CONTENT_TYPE);
             final String etag1 = s3.multipartUploadPart(
@@ -313,7 +468,7 @@ class StartupRecoveryTaskTest {
             s3.completeMultipartUpload(key1, uploadId1, List.of(etag1));
 
             // Leave group 2 as a hanging 3-part upload — deliberately NOT completing.
-            final String key2 = ArchiveKey.format(20, 1);
+            final String key2 = ArchiveKey.format(20, 1, "");
             final String uploadId2 =
                     s3.createMultipartUpload(key2, config.storageClass().name(), CONTENT_TYPE);
             s3.multipartUploadPart(key2, uploadId2, 1, Arrays.copyOf(part1, PART_SIZE));
@@ -368,7 +523,7 @@ class StartupRecoveryTaskTest {
         try (S3Client s3 = openS3Client()) {
             for (int g = 0; g < 2; g++) {
                 final long groupStart = (long) g * groupSize;
-                final String key = ArchiveKey.format(groupStart, GROUPING_LEVEL);
+                final String key = ArchiveKey.format(groupStart, GROUPING_LEVEL, "");
                 final List<TestBlock> blocks =
                         TestBlockBuilder.generateBlocksInRange((int) groupStart, (int) (groupStart + groupSize - 1));
                 final String uploadId =
@@ -380,7 +535,7 @@ class StartupRecoveryTaskTest {
             // Leave a hanging 3-part upload for group 2 filled entirely with gibberish bytes.
             // 0x42 bytes will never match the "ustar" magic (0x75 0x73 0x74 0x61 0x72), so no
             // valid tar header will be found in any part.
-            gibberishKey = ArchiveKey.format(2L * groupSize, GROUPING_LEVEL);
+            gibberishKey = ArchiveKey.format(2L * groupSize, GROUPING_LEVEL, "");
             final byte[] gibberishPart = new byte[PART_SIZE];
             Arrays.fill(gibberishPart, (byte) 0x42);
             final byte[] gibberishFinalPart = new byte[1024];
@@ -411,8 +566,8 @@ class StartupRecoveryTaskTest {
     @Test
     @DisplayName("Multiple hanging uploads: all are aborted and recovery falls back to fresh start")
     void multipleHangingUploadsAreAbortedAndFallBack() throws Exception {
-        final String key0 = ArchiveKey.format(0, GROUPING_LEVEL);
-        final String key1 = ArchiveKey.format(10, GROUPING_LEVEL);
+        final String key0 = ArchiveKey.format(0, GROUPING_LEVEL, "");
+        final String key1 = ArchiveKey.format(10, GROUPING_LEVEL, "");
 
         try (S3Client s3 = openS3Client()) {
             s3.createMultipartUpload(key0, config.storageClass().name(), CONTENT_TYPE);

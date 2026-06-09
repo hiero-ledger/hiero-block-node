@@ -17,6 +17,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.stream.Collectors;
 
 /// Determines where [CloudStorageArchivePlugin] should resume uploading after a restart.
 ///
@@ -58,7 +59,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                 config.bucketName(),
                 config.accessKey(),
                 config.secretKey())) {
-            final Map<String, List<String>> uploads = s3.listMultipartUploads();
+            final Map<String, List<String>> uploads = uploadsUnderPrefix(s3.listMultipartUploads());
             final int totalUploads =
                     uploads.values().stream().mapToInt(List::size).sum();
             return switch (totalUploads) {
@@ -74,6 +75,19 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
         }
     }
 
+    /// Filters a raw [S3Client#listMultipartUploads] result to only the entries whose key starts
+    /// with the configured [CloudStorageArchiveConfig#objectKeyPrefix()].
+    private Map<String, List<String>> uploadsUnderPrefix(Map<String, List<String>> all) {
+        final String objectKeyPrefix = config.objectKeyPrefix();
+        if (objectKeyPrefix.isEmpty()) {
+            return all;
+        }
+        final String prefixFilter = objectKeyPrefix + "/";
+        return all.entrySet().stream()
+                .filter(e -> e.getKey().startsWith(prefixFilter))
+                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
     /// Case 1: no hanging uploads — find the last completed tar and return the start of the next group.
     private RecoveryResult recoverFromCompletedObjects(S3Client s3) throws S3ResponseException, IOException {
         final RecoveryResult recoveryResult;
@@ -83,7 +97,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
             recoveryResult = new RecoveryResult(-1, null, null, 0, null);
         } else {
             final long groupSize = Math.powExact(10, config.groupingLevel());
-            final long groupStart = ArchiveKey.parse(lastKey, config.groupingLevel());
+            final long groupStart = ArchiveKey.parse(lastKey, config.groupingLevel(), config.objectKeyPrefix());
             LOGGER.log(
                     TRACE,
                     "Last completed tar group starts at {0}, resuming from {1}",
@@ -97,8 +111,12 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
     /// Right-hand path traversal: descends the virtual S3 directory tree by always following
     /// the alphabetically last common prefix at each level, then pages through the leaf objects
     /// to return the key of the last one, or `null` if the bucket is empty.
+    ///
+    /// When [CloudStorageArchiveConfig#objectKeyPrefix()] is configured the traversal is rooted
+    /// at `{prefix}/` so that sibling prefixes in the same bucket are never visited.
     private String findLastKey(S3Client s3) throws S3ResponseException, IOException {
-        String currentPrefix = "";
+        final String objectKeyPrefix = config.objectKeyPrefix();
+        String currentPrefix = objectKeyPrefix.isEmpty() ? "" : objectKeyPrefix + "/";
         String lastPrefix = findLastCommonPrefix(s3, currentPrefix);
         while (lastPrefix != null) {
             currentPrefix = lastPrefix;
@@ -160,7 +178,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
 
             final PartScanResult scanResult = rebuildUpload(s3, key, newUploadId, newEtags, parts);
             if (scanResult.trailingBytes().length > 0) {
-                final long groupStart = ArchiveKey.parse(key, config.groupingLevel());
+                final long groupStart = ArchiveKey.parse(key, config.groupingLevel(), config.objectKeyPrefix());
                 LOGGER.log(
                         TRACE,
                         "Recovery prepared upload {0} for key {1}; resuming from block {2}",
@@ -199,7 +217,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
     private PartScanResult rebuildUpload(
             S3Client s3, String key, String newUploadId, List<String> newEtags, List<PartInfo> parts)
             throws S3ResponseException, IOException {
-        long blockNumber = ArchiveKey.parse(key, config.groupingLevel());
+        long blockNumber = ArchiveKey.parse(key, config.groupingLevel(), config.objectKeyPrefix());
         byte[] trailingBytes = new byte[0];
 
         // Absolute byte offsets within the S3 object, required for range-download and server-side-copy calls.
