@@ -183,6 +183,6 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         // Get the block provider
         this.blockProvider = context.historicalBlockProvider();
         // Register this service
-        serviceBuilder.registerGrpcService(this);
+        serviceBuilder.registerGrpcService(this, null);
     }
 }

@@ -178,8 +178,8 @@ public class BlockNodePluginTest {
         @Override
         public void init(@NonNull BlockNodeContext context, @NonNull ServiceBuilder serviceBuilder) {
             this.context = context;
-            serviceBuilder.registerGrpcService(testServiceInterface);
-            serviceBuilder.registerHttpService("foo", testHttpService);
+            serviceBuilder.registerGrpcService(testServiceInterface, 40940);
+            serviceBuilder.registerHttpService("foo", 40940, testHttpService);
         }
     }
 
@@ -206,14 +206,14 @@ public class BlockNodePluginTest {
         plugin.init(null, new ServiceBuilder() {
 
             @Override
-            public void registerHttpService(String path, HttpService... service) {
+            public void registerHttpService(String path, Integer port, HttpService... service) {
                 assertEquals("foo", path);
                 assertEquals(1, service.length);
                 assertEquals(testHttpService, service[0]);
             }
 
             @Override
-            public void registerGrpcService(@NonNull ServiceInterface service) {
+            public void registerGrpcService(@NonNull ServiceInterface service, final Integer port) {
                 assertEquals(testServiceInterface, service);
             }
         });
@@ -242,14 +242,14 @@ public class BlockNodePluginTest {
         plugin.init(null, new ServiceBuilder() {
 
             @Override
-            public void registerHttpService(String path, HttpService... service) {
+            public void registerHttpService(String path, Integer port, HttpService... service) {
                 assertEquals("foo", path);
                 assertEquals(1, service.length);
                 assertEquals(testHttpService, service[0]);
             }
 
             @Override
-            public void registerGrpcService(@NonNull ServiceInterface service) {
+            public void registerGrpcService(@NonNull ServiceInterface service, final Integer port) {
                 assertEquals(testServiceInterface, service);
             }
         });

@@ -147,7 +147,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                 .getOrCreateNotLabeled();
 
         // Register this service
-        serviceBuilder.registerGrpcService(this);
+        serviceBuilder.registerGrpcService(this, null);
     }
 
     /**

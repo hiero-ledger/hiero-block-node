@@ -165,7 +165,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         // register us as a service, we need to register the gRPC service in
         // the init method, otherwise the server will be started and we will not
         // have registered at all
-        serviceBuilder.registerGrpcService(this);
+        serviceBuilder.registerGrpcService(this, null);
     }
 
     @Override

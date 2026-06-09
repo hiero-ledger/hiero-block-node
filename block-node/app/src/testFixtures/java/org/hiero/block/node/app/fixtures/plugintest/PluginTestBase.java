@@ -204,10 +204,10 @@ public abstract class PluginTestBase<
                 ? (ServiceBuilder) this
                 : new ServiceBuilder() {
                     @Override
-                    public void registerHttpService(String path, HttpService... service) {}
+                    public void registerHttpService(String path, Integer port, HttpService... service) {}
 
                     @Override
-                    public void registerGrpcService(@NonNull ServiceInterface service) {}
+                    public void registerGrpcService(@NonNull ServiceInterface service, Integer port) {}
                 };
         // initialize the block messaging facility
         historicalBlockFacility.init(blockNodeContext, mockServiceBuilder);

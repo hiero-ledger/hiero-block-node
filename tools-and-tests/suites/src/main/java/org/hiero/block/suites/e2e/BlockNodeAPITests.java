@@ -143,10 +143,14 @@ public class BlockNodeAPITests {
     }
 
     private PbjGrpcClient createGrpcClient() {
+        return createGrpcClientForPort(serverPort);
+    }
+
+    private PbjGrpcClient createGrpcClientForPort(final String port) {
         final Duration timeoutDuration = Duration.ofSeconds(30);
         final Tls tls = Tls.builder().enabled(false).build();
         final WebClient webClient = WebClient.builder()
-                .baseUri("http://localhost:" + serverPort)
+                .baseUri("http://localhost:" + port)
                 .tls(tls)
                 .protocolConfigs(List.of(GrpcClientProtocolConfig.builder()
                         .abortPollTimeExpired(false)
