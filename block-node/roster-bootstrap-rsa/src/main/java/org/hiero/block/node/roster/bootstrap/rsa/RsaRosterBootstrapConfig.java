@@ -36,15 +36,15 @@ import org.hiero.block.node.base.Loggable;
 public record RsaRosterBootstrapConfig(
         // spotless:off
         @Loggable @ConfigProperty(defaultValue = "") String mirrorNodeBaseUrl,
-        @Loggable @ConfigProperty(defaultValue = "5000") @Min(100) int mnInitialQueryIntervalMillis,
-        @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int mnSubsequentQueryIntervalMillis,
+        @Loggable @ConfigProperty(defaultValue = "5_000") @Min(100) int mnInitialQueryIntervalMillis,
+        @Loggable @ConfigProperty(defaultValue = "60_000") @Min(10000) int mnSubsequentQueryIntervalMillis,
         @Loggable @ConfigProperty(defaultValue = "5") int mirrorNodeConnectTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "10") int mirrorNodeReadTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "100") int mirrorNodePageSize,
         @Loggable @ConfigProperty(defaultValue = "") String blockNodeSourcesPath,
-        @Loggable @ConfigProperty(defaultValue = "5000") @Min(100) int bnInitialQueryIntervalMillis,
-        @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int bnSubsequentQueryIntervalMillis,
+        @Loggable @ConfigProperty(defaultValue = "5_000") @Min(100) int bnInitialQueryIntervalMillis,
+        @Loggable @ConfigProperty(defaultValue = "60_000") @Min(10000) int bnSubsequentQueryIntervalMillis,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS,
-        @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
-        @Loggable @ConfigProperty(defaultValue = "104857600") @Min(1) int maxIncomingBufferSize) {}
+        @Loggable @ConfigProperty(defaultValue = "60_000") @Min(10000) int grpcOverallTimeout,
+        @Loggable @ConfigProperty(defaultValue = "104_857_600") @Min(1) int maxIncomingBufferSize) {}
 // spotless:on

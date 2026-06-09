@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
+import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -91,7 +92,7 @@ public class AddressBookFetcher implements AutoCloseable {
                         DEBUG, "Peer [{0}] returned an empty or key-less NodeAddressBook, trying next", node.address());
             } catch (RuntimeException e) {
                 LOGGER.log(
-                        WARNING,
+                        INFO,
                         "Failed to retrieve NodeAddressBook from peer [{0}]: {1}",
                         node.address(),
                         e.getMessage());
@@ -118,23 +119,36 @@ public class AddressBookFetcher implements AutoCloseable {
             }
             LOGGER.log(DEBUG, "Removed unreachable client for peer [{0}], will recreate", node.address());
         }
-        return nodeClientMap.computeIfAbsent(
-                node,
-                n -> new BlockNodeClient(
-                        n, grpcOverallTimeout, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
+        return nodeClientMap.computeIfAbsent(node, this::fromBlockNodeSourceConfig);
     }
 
     /// Returns `true` if the book has at least one entry with a non-blank RSA public key.
     static boolean isValid(NodeAddressBook book) {
         if (book == null || book.nodeAddress().isEmpty()) return false;
-        return book.nodeAddress().stream()
-                .anyMatch(addr -> addr.rsaPubKey() != null && !addr.rsaPubKey().isBlank());
+        for (NodeAddress nodeAddress : book.nodeAddress()) {
+            if (nodeAddress.rsaPubKey() != null && !nodeAddress.rsaPubKey().isBlank()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
         for (BlockNodeClient client : nodeClientMap.values()) {
-            client.close();
+            try {
+                client.close();
+            } catch (IOException e) {
+                LOGGER.log(
+                        WARNING,
+                        "Unable to close BlockNodeClient [{0}]: {1}",
+                        client.getBlockNodeServiceClient().fullName(),
+                        e);
+            }
         }
+    }
+
+    private BlockNodeClient fromBlockNodeSourceConfig(BlockNodeSourceConfig n) {
+        return new BlockNodeClient(n, grpcOverallTimeout, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning());
     }
 }

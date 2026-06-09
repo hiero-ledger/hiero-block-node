@@ -373,11 +373,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         shutdownExecutor(queryBnExecutor, "queryPeerExecutor");
         shutdownExecutor(queryMnExecutor, "queryMnExecutor");
         if (addressBookFetcher != null) {
-            try {
-                addressBookFetcher.close();
-            } catch (IOException e) {
-                LOGGER.log(WARNING, "Error closing AddressBookFetcher: {0}", e.getMessage());
-            }
+            addressBookFetcher.close();
         }
     }
 
