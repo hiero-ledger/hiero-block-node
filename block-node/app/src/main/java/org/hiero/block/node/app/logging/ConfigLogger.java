@@ -70,8 +70,11 @@ public final class ConfigLogger {
                         final String fieldName = component.getName();
                         final Record configRecord = configuration.getConfigData(configType);
                         try {
-                            final String value =
-                                    component.getAccessor().invoke(configRecord).toString();
+                            final Object rawValue = component.getAccessor().invoke(configRecord);
+                            // A null value means an optional property (e.g. a nullable Integer declared with
+                            // ConfigProperty.NULL_DEFAULT_VALUE, such as a per-service port) was not set. Log it
+                            // as "null" rather than throwing an NPE on toString().
+                            final String value = rawValue == null ? "null" : rawValue.toString();
                             // If the field is not annotated as '@Loggable' then it's a sensitive value and needs to
                             // be handled differently.
                             if (component.getAnnotation(Loggable.class) == null) {
