@@ -297,10 +297,12 @@ function generate_mn_overlay {
   done <<< "${block_node_names}"
 
   # Image overrides (workaround, ALL topologies): the default GraalVM-native Mirror Node
-  # images crash on startup in MN 0.155.x/0.156.x. The importer fails on missing reflection
-  # hints for RecordFileConsensusTimestampsRecalculateMigration records; grpc fails binding
-  # CommonProperties (Hibernate DurationMaxValidator no-arg ctor). Use the JVM images
-  # (gcr.io/mirrornode/*) until fixed native images are released; the importer needs more memory.
+  # images crash on startup in MN 0.155.x/0.156.x. importer fails on missing reflection hints
+  # for RecordFileConsensusTimestampsRecalculateMigration records; grpc fails binding
+  # CommonProperties (Hibernate DurationMaxValidator no-arg ctor); rest-java fails the same
+  # class of native-image gap on amd64 (CI). Override these native modules to the JVM images
+  # (gcr.io/mirrornode/*); their native-sized memory limits are too small for the JVM, so bump
+  # them. web3 native and pinger (already JVM) are fine and left as-is.
   # TODO: remove these overrides once MN ships fixed native images.
   local importer_jvm_override="  image:
     registry: gcr.io
@@ -315,6 +317,13 @@ function generate_mn_overlay {
   resources:
     limits:
       memory: 2Gi"
+  local restjava_jvm_override="restjava:
+  image:
+    registry: gcr.io
+    repository: mirrornode/hedera-mirror-rest-java
+  resources:
+    limits:
+      memory: 1Gi"
 
   # Write the overlay. rsa-wrb uses the WRB cutover config (record-stream downloader
   # kept as fallback) plus DISABLE_IMPORTER_SPRING_PROFILES; the default mode reads
@@ -340,6 +349,7 @@ ${importer_jvm_override}
             stream:
                 maxStreamResponseSize: 36MB
 ${grpc_jvm_override}
+${restjava_jvm_override}
 EOF
   else
     cat > "${output_file}" << EOF
@@ -365,6 +375,7 @@ ${importer_jvm_override}
             maxSubscribeAttempts: 10
             responseTimeout: 10s
 ${grpc_jvm_override}
+${restjava_jvm_override}
 EOF
   fi
 
