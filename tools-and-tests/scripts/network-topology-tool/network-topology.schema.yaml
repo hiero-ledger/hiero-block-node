@@ -76,6 +76,11 @@ properties:
     type: string
     description: "Human-readable description"
 
+  verification_mode:
+    type: string
+    enum: [tss, rsa-wrb]
+    description: "Block verification mode: 'tss' (default, TSS/WRAPS signed blocks) or 'rsa-wrb' (Wrapped Record Blocks verified against the RSA roster)"
+
   block_nodes:
     type: object
     description: "Block nodes that receive streams from consensus nodes"
