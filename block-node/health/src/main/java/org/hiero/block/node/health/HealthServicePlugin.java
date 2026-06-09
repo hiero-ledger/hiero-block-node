@@ -10,6 +10,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
 import java.lang.System.Logger;
+import java.util.List;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -31,10 +32,22 @@ public class HealthServicePlugin implements BlockNodePlugin {
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         healthFacility = context.serverHealth();
-        serviceBuilder.registerHttpService(HEALTHZ_PATH, null, httpRules -> httpRules
+        // A null port (the default) shares server.port
+        final Integer port =
+                context.configuration().getConfigData(HealthConfig.class).port();
+        serviceBuilder.registerHttpService(HEALTHZ_PATH, port, httpRules -> httpRules
                 .get(LIVEZ_PATH, this::handleLivez)
                 .get(READYZ_PATH, this::handleReadyz));
         LOGGER.log(DEBUG, "Completed health facility initialization");
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @NonNull
+    public List<Class<? extends Record>> configDataTypes() {
+        return List.of(HealthConfig.class);
     }
 
     /**

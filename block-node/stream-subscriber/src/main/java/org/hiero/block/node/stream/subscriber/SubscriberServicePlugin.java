@@ -68,8 +68,10 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = requireNonNull(context);
-        // register us as a service
-        serviceBuilder.registerGrpcService(this, null);
+        // register us as a service; a null port (the default) shares server.port
+        final Integer port =
+                context.configuration().getConfigData(SubscriberConfig.class).port();
+        serviceBuilder.registerGrpcService(this, port);
     }
 
     @Override

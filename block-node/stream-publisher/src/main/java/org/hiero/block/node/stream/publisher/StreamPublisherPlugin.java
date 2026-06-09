@@ -164,8 +164,10 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         this.context = Objects.requireNonNull(context);
         // register us as a service, we need to register the gRPC service in
         // the init method, otherwise the server will be started and we will not
-        // have registered at all
-        serviceBuilder.registerGrpcService(this, null);
+        // have registered at all. A null port (the default) shares server.port.
+        final Integer port =
+                context.configuration().getConfigData(PublisherConfig.class).port();
+        serviceBuilder.registerGrpcService(this, port);
     }
 
     @Override

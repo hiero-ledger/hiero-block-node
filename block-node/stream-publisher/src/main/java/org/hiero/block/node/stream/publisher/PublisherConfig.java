@@ -39,6 +39,10 @@ import org.hiero.block.node.base.Loggable;
 /// `EndOfStream(DUPLICATE_BLOCK)`. A publisher that is only slightly behind can then
 /// fast-forward without reconnecting; a publisher that is further behind than the
 /// window is still ended so it reconnects from the correct point.
+/// @param port The dedicated port this plugin's gRPC service binds to. When `null` (the default)
+/// the plugin shares the default `server.port`. When set it must be a valid port in `1024`-`65535`;
+/// no `@Min`/`@Max` is declared because those validators reject a `null` value (they would fail when
+/// the property is unset), so the range is enforced by the web server when binding.
 @ConfigData("producer")
 public record PublisherConfig(
         // spotless:off
@@ -52,6 +56,7 @@ public record PublisherConfig(
         @Loggable @ConfigProperty(defaultValue = "15") @Min(10) int consecutiveFullBudgetIntervalsForPenalty,
         @Loggable @ConfigProperty(defaultValue = "30") @Min(2) @Max(600) int penaltyDurationSeconds,
         @Loggable @ConfigProperty(defaultValue = "3600") @Min(600) @Max(86400) long penaltyResetIntervalSeconds,
-        @Loggable @ConfigProperty(defaultValue = "5") @Min(1) @Max(10) int duplicateBlockSkipWindow) {
+        @Loggable @ConfigProperty(defaultValue = "5") @Min(1) @Max(10) int duplicateBlockSkipWindow,
+        @Loggable @ConfigProperty(defaultValue = ConfigProperty.NULL_DEFAULT_VALUE) Integer port) {
         // spotless:on
 }

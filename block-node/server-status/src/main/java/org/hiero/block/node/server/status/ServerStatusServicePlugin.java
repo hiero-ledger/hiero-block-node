@@ -146,8 +146,19 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                         .setDescription("Number of server status details requests"))
                 .getOrCreateNotLabeled();
 
-        // Register this service
-        serviceBuilder.registerGrpcService(this, null);
+        // Register this service; a null port (the default) shares server.port
+        final Integer port =
+                context.configuration().getConfigData(ServerStatusConfig.class).port();
+        serviceBuilder.registerGrpcService(this, port);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @NonNull
+    public List<Class<? extends Record>> configDataTypes() {
+        return List.of(ServerStatusConfig.class);
     }
 
     /**
