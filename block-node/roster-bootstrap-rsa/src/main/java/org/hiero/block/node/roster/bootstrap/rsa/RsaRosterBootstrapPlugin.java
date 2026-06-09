@@ -147,7 +147,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             } else {
                 LOGGER.log(
                         WARNING,
-                        "blockNodeSourcesPath [{0}] is not a regular file, peer query disabled",
+                        "blockNodeSourcesPath [{0}] does not exist or is not a regular file, peer query disabled",
                         config.blockNodeSourcesPath());
             }
         }
