@@ -246,7 +246,8 @@ function do_compare {
     # If running in CI/Kubernetes, run comparison inside a pod
     if [[ -n "${KUBERNETES_SERVICE_HOST:-}" ]] || [[ "${CI:-false}" == "true" ]]; then
         log "CI environment detected, running comparison inside Kubernetes pod"
-        return run_in_kubernetes_pod
+        run_in_kubernetes_pod
+        return $?
     fi
 
     # Local execution (with port-forward)
