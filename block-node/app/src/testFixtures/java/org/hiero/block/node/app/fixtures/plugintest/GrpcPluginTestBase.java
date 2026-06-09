@@ -156,12 +156,12 @@ public abstract class GrpcPluginTestBase<
     }
 
     @Override
-    public void registerHttpService(String path, HttpService... service) {
+    public void registerHttpService(String path, Integer port, HttpService... service) {
         fail("Register http service not expected: " + path);
     }
 
     @Override
-    public void registerGrpcService(@NonNull ServiceInterface service) {
+    public void registerGrpcService(@NonNull ServiceInterface service, Integer port) {
         serviceInterface = service;
     }
 

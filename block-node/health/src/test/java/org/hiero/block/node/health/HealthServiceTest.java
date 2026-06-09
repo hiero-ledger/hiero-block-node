@@ -28,6 +28,10 @@ class HealthServiceTest {
     @Mock
     ServiceBuilder serviceBuilder;
 
+    /** No-op: health plugin no longer reads configuration during init. */
+    @SuppressWarnings("unused")
+    private static void setupContextConfig(BlockNodeContext context) {}
+
     @Test
     public void testHandleLivez() {
         // given
@@ -38,6 +42,7 @@ class HealthServiceTest {
         HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
         Mockito.when(healthFacility.isRunning()).thenReturn(true);
         Mockito.when(context.serverHealth()).thenReturn(healthFacility);
+        setupContextConfig(context);
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
@@ -58,6 +63,7 @@ class HealthServiceTest {
         HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
         Mockito.when(healthFacility.isRunning()).thenReturn(false);
         Mockito.when(context.serverHealth()).thenReturn(healthFacility);
+        setupContextConfig(context);
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
@@ -79,6 +85,7 @@ class HealthServiceTest {
         HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
         Mockito.when(healthFacility.isRunning()).thenReturn(true);
         Mockito.when(context.serverHealth()).thenReturn(healthFacility);
+        setupContextConfig(context);
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
@@ -99,6 +106,7 @@ class HealthServiceTest {
         HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
         Mockito.when(healthFacility.isRunning()).thenReturn(false);
         Mockito.when(context.serverHealth()).thenReturn(healthFacility);
+        setupContextConfig(context);
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
@@ -118,6 +126,7 @@ class HealthServiceTest {
         Mockito.when(httpRules.get(ArgumentMatchers.anyString(), ArgumentMatchers.any()))
                 .thenReturn(httpRules);
         BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
+        setupContextConfig(context);
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
@@ -125,7 +134,10 @@ class HealthServiceTest {
 
         // then
         Mockito.verify(serviceBuilder, Mockito.times(1))
-                .registerHttpService(ArgumentMatchers.eq(HEALTHZ_PATH), httpServiceArgumentCaptor.capture());
+                .registerHttpService(
+                        ArgumentMatchers.eq(HEALTHZ_PATH),
+                        ArgumentMatchers.isNull(),
+                        httpServiceArgumentCaptor.capture());
         HttpService httpService = httpServiceArgumentCaptor.getValue();
         assertNotNull(httpService);
 

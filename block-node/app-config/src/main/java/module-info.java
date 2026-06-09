@@ -6,7 +6,11 @@ module org.hiero.block.node.app.config {
             com.swirlds.config.extensions,
             org.hiero.block.node.app,
             org.hiero.block.node.app.test.fixtures,
-            org.hiero.block.node.stream.publisher;
+            org.hiero.block.node.stream.publisher,
+            org.hiero.block.node.stream.subscriber,
+            org.hiero.block.node.access.service,
+            org.hiero.block.node.server.status,
+            org.hiero.block.node.health;
     // export the node-wide configuration to everything.
     exports org.hiero.block.node.app.config.node;
     exports org.hiero.block.node.app.config.state;

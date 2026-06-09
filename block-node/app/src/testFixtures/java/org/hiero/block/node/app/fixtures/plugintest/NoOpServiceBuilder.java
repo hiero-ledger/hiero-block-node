@@ -3,6 +3,7 @@ package org.hiero.block.node.app.fixtures.plugintest;
 
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.webserver.http.HttpService;
 import org.hiero.block.node.spi.ServiceBuilder;
 
@@ -16,7 +17,7 @@ public final class NoOpServiceBuilder implements ServiceBuilder {
      * No-op implementation, does nothing.
      */
     @Override
-    public void registerHttpService(final String path, final HttpService... service) {
+    public void registerHttpService(final String path, @Nullable final Integer port, final HttpService... service) {
         // No-op implementation, does nothing.
     }
 
@@ -24,7 +25,7 @@ public final class NoOpServiceBuilder implements ServiceBuilder {
      * No-op implementation, does nothing.
      */
     @Override
-    public void registerGrpcService(@NonNull final ServiceInterface service) {
+    public void registerGrpcService(@NonNull final ServiceInterface service, @Nullable final Integer port) {
         // No-op implementation, does nothing.
     }
 }
