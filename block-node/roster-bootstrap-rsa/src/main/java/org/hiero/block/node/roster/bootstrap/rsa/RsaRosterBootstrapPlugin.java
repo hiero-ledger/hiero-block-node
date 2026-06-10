@@ -209,10 +209,11 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     }
 
     private void fetchFromPeer() {
+        final long startTime = System.currentTimeMillis();
         final NodeAddressBook book = addressBookFetcher.getNodeAddressBook();
         if (book != null) {
             applicationStateFacility.updateAddressBook(book);
-            recordSuccessMetrics(book, System.currentTimeMillis(), "Peer BN");
+            recordSuccessMetrics(book, startTime, "Peer BN");
             if (bnScheduledFuture != null) {
                 cancelScheduledFuture(bnScheduledFuture);
                 bnScheduledFuture = null;

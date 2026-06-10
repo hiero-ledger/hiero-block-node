@@ -388,8 +388,6 @@ class RsaRosterBootstrapPluginTest
             return Map.of(
                     "roster.bootstrap.rsa.blockNodeSourcesPath",
                     sourcesPath,
-                    "roster.bootstrap.rsa.peerQueryMaxRetries",
-                    String.valueOf(maxRetries),
                     "roster.bootstrap.rsa.bnInitialQueryIntervalMillis",
                     "100");
         }
@@ -404,9 +402,7 @@ class RsaRosterBootstrapPluginTest
         @DisplayName("Peer success: Mirror Node is never called")
         void peerSuccessMirrorNodeNeverCalled() throws IOException {
             // Set up a test server that returns a valid address book via serverStatusDetail
-            org.hiero.block.node.app.fixtures.server.TestBlockNodeServer server =
-                    new org.hiero.block.node.app.fixtures.server.TestBlockNodeServer(
-                            0, new SimpleInMemoryHistoricalBlockFacility());
+            TestBlockNodeServer server = new TestBlockNodeServer(0, new SimpleInMemoryHistoricalBlockFacility());
 
             final String json =
                     "{\"nodes\":[{\"address\":\"localhost\",\"port\":" + server.port() + ",\"priority\":1}]}";
@@ -449,9 +445,10 @@ class RsaRosterBootstrapPluginTest
                     new RsaRosterBootstrapPlugin(),
                     new SimpleInMemoryHistoricalBlockFacility(),
                     Map.of(
-                            "roster.bootstrap.rsa.blockNodeSourcesPath", sourcesPath,
-                            "roster.bootstrap.rsa.peerQueryMaxRetries", "1",
-                            "roster.bootstrap.rsa.mnInitialQueryIntervalMillis", "100"));
+                            "roster.bootstrap.rsa.blockNodeSourcesPath",
+                            sourcesPath,
+                            "roster.bootstrap.rsa.mnInitialQueryIntervalMillis",
+                            "100"));
 
             // First scheduled task: peer query (will fail — port 1 is unreachable)
             testThreadPoolManager.scheduledExecutor().executeSerially();
@@ -595,8 +592,8 @@ class RsaRosterBootstrapPluginTest
                     "roster.bootstrap.rsa.bnInitialQueryIntervalMillis", String.valueOf(bnInitialQueryIntervalMillis),
                     "roster.bootstrap.rsa.bnSubsequentQueryIntervalMillis",
                             String.valueOf(bnSubsequentQueryIntervalMillis),
-                    "roster.bootstrap.tsa.maxIncomingBufferSize", String.valueOf(maxIncomingBufferSize),
-                    "roster.bootstrap.tsa.grpcOverallTimeout", String.valueOf(grpcOverallTimeout),
+                    "roster.bootstrap.rsa.maxIncomingBufferSize", String.valueOf(maxIncomingBufferSize),
+                    "roster.bootstrap.rsa.grpcOverallTimeout", String.valueOf(grpcOverallTimeout),
                     "roster.bootstrap.rsa.enableTLS", String.valueOf(enableTLS)));
         }
     }

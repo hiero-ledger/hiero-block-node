@@ -42,7 +42,7 @@ public record RsaRosterBootstrapConfig(
         @Loggable @ConfigProperty(defaultValue = "10") int mirrorNodeReadTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "100") int mirrorNodePageSize,
         @Loggable @ConfigProperty(defaultValue = "") String blockNodeSourcesPath,
-        @Loggable @ConfigProperty(defaultValue = "5_000") @Min(100) int bnInitialQueryIntervalMillis,
+        @Loggable @ConfigProperty(defaultValue = "5000") @Min(100) int bnInitialQueryIntervalMillis,
         @Loggable @ConfigProperty(defaultValue = "60_000") @Min(10000) int bnSubsequentQueryIntervalMillis,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS,
         @Loggable @ConfigProperty(defaultValue = "60_000") @Min(10000) int grpcOverallTimeout,
