@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 #
 # genesis-network-to-bn-rsa-roster.sh
 #
