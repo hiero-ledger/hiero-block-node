@@ -4,6 +4,7 @@ package org.hiero.block.node.health;
 import static org.hiero.block.node.health.HealthServicePlugin.*;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import com.swirlds.config.api.Configuration;
 import io.helidon.webserver.http.HttpRules;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http.ServerRequest;
@@ -28,9 +29,12 @@ class HealthServiceTest {
     @Mock
     ServiceBuilder serviceBuilder;
 
-    /** No-op: health plugin no longer reads configuration during init. */
-    @SuppressWarnings("unused")
-    private static void setupContextConfig(BlockNodeContext context) {}
+    /** Stub the context configuration so {@code init} can read {@link HealthConfig} (port unset = null). */
+    private static void setupContextConfig(BlockNodeContext context) {
+        final Configuration configuration = Mockito.mock(Configuration.class);
+        Mockito.when(configuration.getConfigData(HealthConfig.class)).thenReturn(new HealthConfig(null));
+        Mockito.when(context.configuration()).thenReturn(configuration);
+    }
 
     @Test
     public void testHandleLivez() {

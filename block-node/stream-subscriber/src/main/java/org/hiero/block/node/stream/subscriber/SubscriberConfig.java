@@ -29,6 +29,11 @@ import org.hiero.block.node.base.Loggable;
  *     within PBJ's buffer allocation limit (4MB). The default of 1MB provides
  *     headroom for protobuf overhead. If a single item exceeds this limit but is
  *     under 4MB, it will be sent by itself.
+ * @param port The dedicated port this plugin's gRPC service binds to. When {@code null} (the
+ *     default) the plugin shares the default {@code server.port}. When set it must be a valid port
+ *     in {@code 1024}-{@code 65535}; no {@code @Min}/{@code @Max} is declared because those
+ *     validators reject a {@code null} value (they would fail when the property is unset), so the
+ *     range is enforced by the web server when binding.
  */
 // spotless:off
 @ConfigData("subscriber")
@@ -36,5 +41,6 @@ public record SubscriberConfig(
         @Loggable @ConfigProperty(defaultValue = "4000") @Min(100) int liveQueueSize,
         @Loggable @ConfigProperty(defaultValue = "4000") @Min(10) long maximumFutureRequest,
         @Loggable @ConfigProperty(defaultValue = "400") @Min(10) int minimumLiveQueueCapacity,
-        @Loggable @ConfigProperty(defaultValue = "1_048_576") @Min(100_000) int maxChunkSizeBytes) {}
+        @Loggable @ConfigProperty(defaultValue = "1_048_576") @Min(100_000) int maxChunkSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = ConfigProperty.NULL_DEFAULT_VALUE) Integer port) {}
 // spotless:on

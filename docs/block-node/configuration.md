@@ -164,7 +164,9 @@ for the JSON schema.
 
 ### Block Access Plugin Configuration
 
-Currently, no specific options.
+| ENV Variable      | Description                                                                                     | Default |
+|:------------------|:------------------------------------------------------------------------------------------------|--------:|
+| BLOCK_ACCESS_PORT | Dedicated port for the block-access gRPC service. When unset, the service shares `SERVER_PORT`. | (unset) |
 
 ### Files Historic Plugin Configuration
 
@@ -187,7 +189,9 @@ Currently, no specific options.
 
 ### Health Plugin Configuration
 
-Currently, no specific options.
+| ENV Variable | Description                                                                                 | Default |
+|:-------------|:--------------------------------------------------------------------------------------------|--------:|
+| HEALTH_PORT  | Dedicated port for the health HTTP endpoints. When unset, the service shares `SERVER_PORT`. | (unset) |
 
 ### Messaging Plugin Configuration
 
@@ -211,7 +215,9 @@ Currently, no specific options.
 
 ### Server Status Plugin Configuration
 
-Currently, no specific options.
+| ENV Variable       | Description                                                                                      | Default |
+|:-------------------|:-------------------------------------------------------------------------------------------------|--------:|
+| SERVER_STATUS_PORT | Dedicated port for the server-status gRPC service. When unset, the service shares `SERVER_PORT`. | (unset) |
 
 ### Publisher Plugin Configuration
 
@@ -222,6 +228,7 @@ Currently, no specific options.
 | PRODUCER_STALE_RESEND_PRUNE_BUFFER        | Number of blocks behind `lastPersistedBlockNumber` that a `blocksToResend` entry may sit before `handlePersisted` prunes it. Entries within the buffer are still considered fillable by a publisher; entries older than the buffer are dropped (the gap is owned by backfill at that point). Set to ~CN block-history depth. Must be 0 ≤ value ≤ 200.                                                                                                          |                       100 |
 | PRODUCER_FLOW_CONTROL_PAUSE_DELAY_NANOS   | Duration in nanoseconds that `onNext` parks the request-processing thread when a request arrives while the handler is paused. The handler is paused as part of the staged shutdown sequence, which schedules the actual shutdown to run after a fixed delay; parking the next incoming request prevents it from racing that pending shutdown and lets any final outbound messages flush before the connection closes. Must be 100,000 ≤ value ≤ 5,000,000,000. |               100,000,000 |
 | PRODUCER_DUPLICATE_BLOCK_SKIP_WINDOW      | Number of blocks behind `lastPersistedBlockNumber` for which a duplicate block header is answered with `SkipBlock` instead of `EndOfStream(DUPLICATE_BLOCK)`. A publisher only slightly behind can fast-forward without reconnecting; duplicates further behind than the window still close the stream so the publisher reconnects. Must be 1 ≤ value ≤ 10.                                                                                                    |                         5 |
+| PRODUCER_PORT                             | Dedicated port for the publisher gRPC service. When unset, the service shares `SERVER_PORT`.                                                                                                                                                                                                                                                                                                                                                                   |                   (unset) |
 
 ### RSA Bootstrap Plugin Configuration
 
@@ -241,6 +248,7 @@ Currently, no specific options.
 | SUBSCRIBER_LIVE_QUEUE_SIZE             | Queue size (in batches) for transferring live data between messaging and client threads. Must be ≥100. |    4000 |
 | SUBSCRIBER_MAXIMUM_FUTURE_REQUEST      | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                         |    4000 |
 | SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.   |     400 |
+| SUBSCRIBER_PORT                        | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.          | (unset) |
 
 ### TSS Bootstrap Plugin Configuration
 
