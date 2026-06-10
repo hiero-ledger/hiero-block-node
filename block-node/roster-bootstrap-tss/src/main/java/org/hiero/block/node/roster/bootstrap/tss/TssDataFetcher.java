@@ -37,6 +37,8 @@ public class TssDataFetcher implements Closeable {
     private final boolean enableTls;
     /// Maximum incoming buffer size in bytes for the gRPC client.
     private final int maxIncomingBufferSize;
+    /// TSS data is small (key material, not full blocks) — 512 KB is a safe ceiling.
+    private static final int TSS_DATA_MAX_PROTOBUF_MESSAGE_SIZE_BYTES = 512 * 1024;
 
     private final RosterBootstrapTssPlugin.MetricsHolder metrics;
 
@@ -85,7 +87,12 @@ public class TssDataFetcher implements Closeable {
         return nodeClientMap.computeIfAbsent(
                 node,
                 n -> new BlockNodeClient(
-                        n, globalGrpcTimeoutMs, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
+                        n,
+                        globalGrpcTimeoutMs,
+                        enableTls,
+                        maxIncomingBufferSize,
+                        TSS_DATA_MAX_PROTOBUF_MESSAGE_SIZE_BYTES,
+                        n.grpcWebclientTuning()));
     }
 
     /// Perform a serverStatusDetail call per configured node and capture the TssData.
