@@ -195,11 +195,7 @@ function run_in_kubernetes_pod {
     }
 
     # Create pod with Python image
-    cat <<EOF | kctl apply -n "${NAMESPACE}" -f - || {
-        log "ERROR: Failed to create Python pod"
-        kctl delete configmap -n "${NAMESPACE}" "${pod_name}-script" 2>/dev/null || true
-        return 1
-    }
+    if ! cat <<EOF | kctl apply -n "${NAMESPACE}" -f -
 apiVersion: v1
 kind: Pod
 metadata:
@@ -218,6 +214,11 @@ spec:
     configMap:
       name: ${pod_name}-script
 EOF
+    then
+        log "ERROR: Failed to create Python pod"
+        kctl delete configmap -n "${NAMESPACE}" "${pod_name}-script" 2>/dev/null || true
+        return 1
+    fi
 
     # Wait for pod to be ready
     log "Waiting for Python pod to be ready..."
