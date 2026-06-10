@@ -755,6 +755,79 @@ function assert_no_errors {
     fi
 }
 
+# Single node RSA roster verification check.
+# Confirms the RSA roster loaded and blocks are accepted via the RSA proof path (WRB),
+# with no roster mismatches. Note: a number of RSA failures at startup is expected and
+# tolerated — with BN-first deployment the Block Node receives early blocks before the
+# Mirror Node is up and the roster is loaded; those fail until the roster arrives. The
+# correctness signals are: roster loaded, RSA successes accumulating, and zero mismatches
+# (signatures only from nodes in the loaded roster).
+function assert_rsa_roster_verification_single {
+    local target="$1"
+    local min_rsa_success="${2:-1}"
+    local port
+    port=$(get_bn_metrics_port "$target")
+    local metrics
+    metrics=$(curl -s "http://localhost:${port}/metrics" 2>/dev/null)
+
+    if [[ -z "$metrics" ]]; then
+        echo "${target}: Could not fetch metrics"
+        return 1
+    fi
+
+    # Counters export with a trailing _total, so proof counter is *_total_total.
+    local roster_entries rsa_success rsa_failure rsa_mismatch
+    roster_entries=$(echo "$metrics" | grep "^blocknode_roster_entries_loaded " | awk '{print $2}' | head -1)
+    rsa_success=$(echo "$metrics" | grep '^blocknode_verification_proof_total_total{' | grep 'proof_type="rsa"' | grep 'result="success"' | awk '{print $2}' | head -1)
+    rsa_failure=$(echo "$metrics" | grep '^blocknode_verification_proof_total_total{' | grep 'proof_type="rsa"' | grep 'result="failure"' | awk '{print $2}' | head -1)
+    rsa_mismatch=$(echo "$metrics" | grep "^blocknode_rsa_roster_mismatch_total_total " | awk '{print $2}' | head -1)
+
+    roster_entries=$(printf "%.0f" "${roster_entries:-0}" 2>/dev/null || echo "0")
+    rsa_success=$(printf "%.0f" "${rsa_success:-0}" 2>/dev/null || echo "0")
+    rsa_failure=$(printf "%.0f" "${rsa_failure:-0}" 2>/dev/null || echo "0")
+    rsa_mismatch=$(printf "%.0f" "${rsa_mismatch:-0}" 2>/dev/null || echo "0")
+
+    if [[ "$roster_entries" -le 0 ]]; then
+        echo "${target}: RSA roster not loaded (roster_entries_loaded=$roster_entries)"
+        return 1
+    fi
+
+    if [[ "$rsa_mismatch" -gt 0 ]]; then
+        echo "${target}: RSA roster mismatches present (signatures from unknown nodes): $rsa_mismatch"
+        return 1
+    fi
+
+    if [[ "$rsa_success" -lt "$min_rsa_success" ]]; then
+        echo "${target}: RSA verified blocks ($rsa_success) < expected ($min_rsa_success)"
+        return 1
+    fi
+
+    echo "${target}: roster=$roster_entries rsa_success=$rsa_success rsa_failure=$rsa_failure (startup) mismatch=$rsa_mismatch"
+}
+
+function assert_rsa_roster_verification {
+    local target="${1:-all}"
+    local min_rsa_success="${2:-1}"
+
+    if [[ "$target" == "all" ]]; then
+        local failed=0
+        local results=""
+        for bn in $(get_all_block_nodes); do
+            local result
+            if result=$(assert_rsa_roster_verification_single "$bn" "$min_rsa_success"); then
+                results="${results}${result}\n"
+            else
+                results="${results}${result}\n"
+                failed=1
+            fi
+        done
+        echo -e "${results%\\n}"
+        return $failed
+    else
+        assert_rsa_roster_verification_single "$target" "$min_rsa_success"
+    fi
+}
+
 # Helper to get block count from a node with error handling
 function get_block_count {
     local target="$1"
@@ -888,7 +961,7 @@ function assert_signature_transition {
         return 1
     fi
 
-    local script="${SCRIPT_DIR}/../../../scripts/monitor-block-proofs.sh"
+    local script="${SCRIPT_DIR}/monitor-block-proofs.sh"
     if [[ ! -x "$script" ]]; then
         echo "${target}: monitor-block-proofs.sh not found at ${script}"
         return 1
@@ -947,6 +1020,12 @@ function run_assertion {
             local sig_max_block
             sig_max_block=$(echo "$args" | yq '.max_block // 1000')
             assert_signature_transition "$target" "$sig_max_block"
+            ;;
+        rsa-roster-verification)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local min_rsa_success
+            min_rsa_success=$(echo "$args" | yq '.min_rsa_success // 1')
+            assert_rsa_roster_verification "$target" "$min_rsa_success"
             ;;
         *)
             echo "Unknown assertion type: $assert_type"

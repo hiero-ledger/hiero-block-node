@@ -30,154 +30,150 @@ Before you begin, ensure you have:
 
 ## Step 1: Create the Simulator Docker Compose File
 
-1. Create a new file named **`docker-compose-publisher.yaml`** in the root of your project (or any location where you plan to run the test):
+Create `docker-compose-publisher.yaml` in the directory where you plan to run the test, with the following content:
 
-   ```bash
-   touch docker-compose-publisher.yaml
-   ```
-2. Add the following Docker Compose configuration to the file:
+```yaml
+services:
+  simulator-publisher:
+    container_name: simulator-publisher
+    image: ghcr.io/hiero-ledger/hiero-block-node/simulator-image:<BLOCK_NODE_VERSION_TAG>
+    environment:
+      - BLOCK_STREAM_SIMULATOR_MODE=PUBLISHER_CLIENT
+      - GRPC_SERVER_ADDRESS=<BLOCK_NODE_HOST>
+      - GRPC_PORT=40840
+      - GENERATOR_START_BLOCK_NUMBER=0
+      - GENERATOR_END_BLOCK_NUMBER=100
+```
 
-   ```yaml
-   services:
-     simulator-publisher:
-       container_name: simulator-publisher
-       image: ghcr.io/hiero-ledger/hiero-block-node/simulator-image:<BLOCK_NODE_VERSION_TAG>
-       environment:
-         - BLOCK_STREAM_SIMULATOR_MODE=PUBLISHER_CLIENT
-         - GRPC_SERVER_ADDRESS=<BLOCK_NODE_HOST>
-         - GRPC_PORT=40840
-         - GENERATOR_START_BLOCK_NUMBER=0
-         - GENERATOR_END_BLOCK_NUMBER=100
-   ```
+Two placeholders need real values:
 
-- Replace `<BLOCK_NODE_HOST>` with the actual service IP or hostname for your Block Node.
-- Replace `40840` with the gRPC port exposed by your Block Node service.
-- Replace `<BLOCK_NODE_VERSION_TAG>` with the Block Node version you are testing (for example, `0.27.0`). Always use a simulator image tag that matches your Block Node version.
-  See the [package registry](https://github.com/hiero-ledger/hiero-block-node/pkgs/container/hiero-block-node%2Fsimulator-image) for available tags.
+- `<BLOCK_NODE_HOST>` — the Block Node address. See [Choose the Block Node address](#choose-the-block-node-address).
+- `<BLOCK_NODE_VERSION_TAG>` — the simulator image tag matching your Block Node version. See [Pick a simulator image tag](#pick-a-simulator-image-tag).
 
-### **Choose the Correct Block Node Address:**
+The remaining values typically don't need changing for an initial test:
 
-Use the appropriate GRPC_SERVER_ADDRESS value based on where your Block Node is running:
+- `BLOCK_STREAM_SIMULATOR_MODE=PUBLISHER_CLIENT` makes the simulator act as a publisher and stream blocks into the Block Node.
+- `GRPC_PORT=40840` is the Block Node's default gRPC port. If your deployment uses a non-default port (see `server.port` in [configuration.md](../configuration.md)), set it here.
+- `GENERATOR_START_BLOCK_NUMBER` and `GENERATOR_END_BLOCK_NUMBER` define the inclusive block-number range the simulator generates (here, blocks 0 through 100).
 
-- **Local machine (Kubernetes on your VM)**: Use the Kubernetes service IP from the **`EXTERNAL-IP`** column (e.g., **`10.96.15.190`**).
-- **Docker container on the same machine**: Use the Kubernetes service IP since Docker containers can reach Kubernetes services on the host VM, but **`host.docker.internal`** may not work in all cloud environments.
-- **Different machine/network**: Use the public external IP from your cloud provider (if available).
+### Choose the Block Node address
 
-### **Environment Variable Explanation:**
+The `<BLOCK_NODE_HOST>` value depends on where the simulator runs:
 
-The following variables are the minimum required to run the simulator publisher against your Block Node:
+- **From the same VM as the Block Node** (the simulator runs in Docker on the same host as the cluster): use the Kubernetes service IP from `kubectl get svc -n block-node` (the `CLUSTER-IP` or `EXTERNAL-IP` column on the `block-node` service), or the VM's internal IP from `hostname -I`. `localhost` does not work on a typical cloud VM, because the Block Node listens on the cluster service network, not the host loopback. `host.docker.internal` is also unreliable on cloud Linux — use the service or internal IP directly.
+- **From a different machine or network**: use the VM's external IP. Cloud firewalls (including GCP's default) only open SSH, so you must add an inbound rule for the gRPC port before this works.
 
-- **BLOCK_STREAM_SIMULATOR_MODE**: Set to **`PUBLISHER_CLIENT`** so the simulator acts as a publisher and stream blocks to the Block Node.
-- **GRPC_SERVER_ADDRESS**: The Kubernetes service IP of your Block Node (e.g., **`10.96.0.15`**).
-- **GRPC_PORT**: The gRPC port exposed by the Block Node service (e.g., **`40840`**).
-- **GENERATOR_START_BLOCK_NUMBER**: First block number the simulator will generate (for example, **`0`**).
-- **GENERATOR_END_BLOCK_NUMBER**: Last block number the simulator will generate (for example, **`100`**).
+### Pick a simulator image tag
 
-For the complete and official Block Node configuration reference, see the [Block Node configuration document](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/configuration.md).
+The simulator image tag must match your running Block Node version. Read the version from the StatefulSet:
+
+```bash
+kubectl get statefulset block-node-block-node-server -n block-node \
+  -o jsonpath='{.spec.template.spec.containers[0].image}'
+```
+
+> The StatefulSet name `block-node-block-node-server` and the namespace `block-node` assume the default Helm release name `block-node` used by both deployment guides. If you chose a different release name or namespace, substitute them here and in the `kubectl` commands later in this guide.
+
+This returns the full image reference, for example:
+
+```text
+ghcr.io/hiero-ledger/hiero-block-node/block-node-server:0.35.0
+```
+
+The portion after the final `:` (here, `0.35.0`) is the simulator tag to use.
+
+Simulator images are published to the [package registry](https://github.com/hiero-ledger/hiero-block-node/pkgs/container/hiero-block-node%2Fsimulator-image). Not every Block Node release has a matching simulator GA tag - some GA versions only ship `-SNAPSHOT` or `-rc*` tags. If a `:X.Y.Z` tag returns a `not found` error from Docker, use the closest available tag from the registry (commonly `X.Y.Z-rc2` or `X.Y.Z-SNAPSHOT`).
 
 ## Step 2: Run the Docker Compose File
 
-1. From the directory containing **`docker-compose-publisher.yaml`**, run the Docker Compose command to start the simulator:
+From the directory containing `docker-compose-publisher.yaml`, run:
 
-   ```bash
-   docker compose -f docker-compose-publisher.yaml up
-   ```
-2. The simulator will begin publishing test blocks to your Block Node. You will see logs indicating the blocks are being streamed.
-3. The simulator will continue to stream blocks until it reaches the specified block number in the configuration (for example, block 100), at which point it will automatically stop.
+```bash
+docker compose -f docker-compose-publisher.yaml up
+```
+
+The simulator streams blocks to the Block Node and stops automatically when it reaches the `GENERATOR_END_BLOCK_NUMBER` you set. Step 3 explains what to look for in the output.
 
 ## Step 3: Verify Block Streaming
 
-Once the Docker Compose container is running, verify that blocks are being streamed to your Block Node:
+Once the Docker Compose container is running, verify that blocks are being streamed and accepted.
 
-1. **Check Simulator Logs**:
+1. **Check simulator logs**:
 
-   Monitor the terminal where `docker-compose up` is running, the output will show the simulator publishing blocks:
+   In the terminal where `docker compose up` is running, you should see the simulator go through three phases:
 
-   ```bash
+   ```text
    [+] Running 1/1
     ✔ Container simulator-publisher  Recreated                                                                                                                                  0.1s
    Attaching to simulator-publisher
-   simulator-publisher  | Dec 30, 2025 9:49:47 PM org.hiero.block.simulator.BlockStreamSimulator main
-   simulator-publisher  | INFO: Starting Block Stream Simulator!
-   simulator-publisher  | Dec 30, 2025 9:49:47 PM org.hiero.block.simulator.generator.CraftBlockStreamManager <init>
-   simulator-publisher  | INFO: Block Stream Simulator will use Craft mode for block management
-   simulator-publisher  | 2025-12-30 21:49:47.384+0000 INFO    BlockStreamSimulatorApp#start            Block Stream Simulator started initializing components...
-   simulator-publisher  | 2025-12-30 21:49:47.402+0000 INFO    SimulatorConfigurationLogger#log         =======================================================================================
-   simulator-publisher  | 2025-12-30 21:49:47.402+0000 INFO    SimulatorConfigurationLogger#log         Simulator Configuration
-   simulator-publisher  | 2025-12-30 21:49:47.403+0000 INFO    SimulatorConfigurationLogger#log         =======================================================================================
-   simulator-publisher  | 2025-12-30 21:49:47.404+0000 INFO    SimulatorConfigurationLogger#log         blockStream.blockItemsBatchSize=1000
-   simulator-publisher  | 2025-12-30 21:49:47.404+0000 INFO    SimulatorConfigurationLogger#log         blockStream.delayBetweenBlockItems=1500000
-   simulator-publisher  | 2025-12-30 21:49:47.405+0000 INFO    SimulatorConfigurationLogger#log         blockStream.endStreamEarliestBlockNumber=0
-   simulator-publisher  | 2025-12-30 21:49:47.405+0000 INFO    SimulatorConfigurationLogger#log         blockStream.endStreamFrequency=0
-   simulator-publisher  | 2025-12-30 21:49:47.406+0000 INFO    SimulatorConfigurationLogger#log         blockStream.endStreamLatestBlockNumber=0
-   simulator-publisher  | 2025-12-30 21:49:47.406+0000 INFO    SimulatorConfigurationLogger#log         blockStream.endStreamMode=NONE
-   simulator-publisher  | 2025-12-30 21:49:47.406+0000 INFO    SimulatorConfigurationLogger#log         blockStream.lastKnownStatusesCapacity=10
-   simulator-publisher  | 2025-12-30 21:49:47.407+0000 INFO    SimulatorConfigurationLogger#log         blockStream.maxBlockItemsToStream=100000
-   simulator-publisher  | 2025-12-30 21:49:47.407+0000 INFO    SimulatorConfigurationLogger#log         blockStream.midBlockFailOffset=0
-   simulator-publisher  | 2025-12-30 21:49:47.408+0000 INFO    SimulatorConfigurationLogger#log         blockStream.midBlockFailType=NONE
-   simulator-publisher  | 2025-12-30 21:49:47.408+0000 INFO    SimulatorConfigurationLogger#log         blockStream.millisecondsPerBlock=1000
-   simulator-publisher  | 2025-12-30 21:49:47.408+0000 INFO    SimulatorConfigurationLogger#log         blockStream.simulatorMode=PUBLISHER_CLIENT
-   simulator-publisher  | 2025-12-30 21:49:47.409+0000 INFO    SimulatorConfigurationLogger#log         blockStream.streamingMode=MILLIS_PER_BLOCK
-   simulator-publisher  | 2025-12-30 21:49:47.409+0000 INFO    SimulatorConfigurationLogger#log         consumer.endBlockNumber=-1
-   simulator-publisher  | 2025-12-30 21:49:47.409+0000 INFO    SimulatorConfigurationLogger#log         consumer.slowDownForBlockRange=10-30
-   simulator-publisher  | 2025-12-30 21:49:47.410+0000 INFO    SimulatorConfigurationLogger#log         consumer.slowDownMilliseconds=2
-
+   simulator-publisher  | 2026-06-04 10:47:00.123+0000 INFO    BlockStreamSimulatorApp#start            Block Stream Simulator started initializing components...
+   simulator-publisher  | 2026-06-04 10:47:00.234+0000 INFO    SimulatorConfigurationLogger#log         blockStream.simulatorMode=PUBLISHER_CLIENT
+   simulator-publisher  | 2026-06-04 10:47:00.345+0000 INFO    SimulatorConfigurationLogger#log         blockStream.millisecondsPerBlock=1000
+   ...
+   simulator-publisher  | 2026-06-04 10:48:18.776+0000 INFO    PublishStreamObserver#onNext             Received Response: acknowledgement {
+   simulator-publisher  |           block_number: 44
+   simulator-publisher  |         }
+   simulator-publisher  | 2026-06-04 10:48:19.774+0000 INFO    PublishStreamObserver#onNext             Received Response: acknowledgement {
+   simulator-publisher  |           block_number: 45
+   simulator-publisher  |         }
+   ...
+   simulator-publisher  | 2026-06-04 10:50:17.720+0000 INFO    PublisherClientModeHandler#millisPerBlockStreaming Block Stream Simulator has stopped
+   simulator-publisher  | 2026-06-04 10:50:17.720+0000 INFO    PublisherClientModeHandler#millisPerBlockStreaming Number of BlockItems sent by the Block Stream Simulator: 1574
+   simulator-publisher  | 2026-06-04 10:50:17.721+0000 INFO    PublisherClientModeHandler#millisPerBlockStreaming Number of Blocks sent by the Block Stream Simulator: 31
    ```
-2. **Confirm streaming success**:
 
-   At the end of the logs, look for the summary:
+   - **Startup**: Docker Compose attaches to the simulator container, which prints its configuration (`PUBLISHER_CLIENT` mode, block range, pacing) and begins streaming.
+   - **Streaming**: Each `acknowledgement { block_number: N }` line confirms the Block Node received and accepted block `N`.
+   - **Summary**: When the simulator finishes streaming the configured range, it prints the totals and exits. `Number of Blocks sent` should match `GENERATOR_END_BLOCK_NUMBER` − `GENERATOR_START_BLOCK_NUMBER` + 1; the `1574` and `31` shown are from an example run and will differ for yours.
+2. **Verify on the Block Node side**:
+
+   Confirm the Block Node is processing the incoming blocks by tailing its logs and looking for verification-session entries:
 
    ```bash
-   simulator-publisher  | 2025-12-30 21:50:17.720+0000 INFO    PublisherClientModeHandler#millisPerBlockStreaming Block Stream Simulator has stopped
-   simulator-publisher  | 2025-12-30 21:50:17.720+0000 INFO    PublisherClientModeHandler#millisPerBlockStreaming Number of BlockItems sent by the Block Stream Simulator: 1574
-   simulator-publisher  | 2025-12-30 21:50:17.721+0000 INFO     PublisherClientModeHandler#millisPerBlockStreaming Number of Blocks sent by the Block Stream Simulator: 31
+   kubectl logs -n block-node block-node-block-node-server-0 -c block-node-server \
+     | grep ExtendedMerkleTreeSession
    ```
+
+   Healthy output shows one `Created ExtendedMerkleTreeSession for block N` line per block received:
+
+   ```text
+   2026-06-04 10:47:34.942+0000 INFO    [org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession <init>] Created ExtendedMerkleTreeSession for block 0
+   2026-06-04 10:47:35.641+0000 INFO    [org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession <init>] Created ExtendedMerkleTreeSession for block 1
+   2026-06-04 10:47:36.642+0000 INFO    [org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession <init>] Created ExtendedMerkleTreeSession for block 2
+   ```
+
+   > **About `Defaulted container ...` messages:** if you omit `-c block-node-server`, `kubectl` prints which container it picked (the pod has multiple). It's informational; the command still runs correctly. Pass `-c block-node-server` explicitly to suppress it.
 
 ## Step 4: Clean Up After Testing
 
-After testing is complete:
+The Docker Compose container stops automatically when it reaches the last block in the configured range. To stop early or reset the Block Node before another test:
 
-1. The Docker Compose container will automatically stop once it finishes streaming the configured number of test blocks.
-2. To manually clean up resources:
-   1. If the container is still running, stop it with **Ctrl+C** in the terminal where `docker-compose up` is running.
-   2. Then remove the test blocks that were streamed and clean up resources, run:
+1. If the simulator is still running, press **Ctrl+C** in the terminal where `docker compose up` is running.
 
-      ```bash
-      docker compose -f docker-compose-publisher.yaml down
-      ```
+2. Stop and remove the simulator publisher container:
 
-   This will stop and remove the simulator publisher container, allowing you to perform additional testing runs if needed.
+   ```bash
+   docker compose -f docker-compose-publisher.yaml down
+   ```
+3. **(Optional) Reset the Block Node data**, either to run a new test from a clean state or to prepare the deployment to receive real block streams.
 
-### **Resetting the Block Node after simulator testing**
+   > **Caution:** These commands permanently delete all current block data from the Block Node. Only run them in non-production environments, or when you explicitly intend to clear test data.
 
-If you want to run a new simulator test from a clean state, or prepare the same deployment to receive real block streams, reset the Block Node data and restart the Block Node workload.
+   **For single-node Kubernetes deployments**, delete the live and historic data directories inside the Block Node pod, then restart the pod:
 
-> **Caution:** These commands permanently delete all current block data from the Block Node. Only run them in non‑production environments, or when you explicitly intend to clear test data.
+   ```bash
+   kubectl -n ${NAMESPACE} exec ${POD} -c block-node-server \
+     -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
+   kubectl -n ${NAMESPACE} delete pod ${POD}
+   ```
 
-For **single-node Kubernetes deployments**, run:
+   Replace `${NAMESPACE}` and `${POD}` with values from your deployment: `${NAMESPACE}` is the Kubernetes namespace (for example, `block-node`), and `${POD}` is the Block Node pod name from `kubectl get pods -n ${NAMESPACE}` (for example, `block-node-0`).
 
-- Delete live and historic data directories inside the Block Node pod:
+   **For Docker-based Block Node deployments**, run the equivalent inside the Block Node container:
 
-  ```bash
-  kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
-  ```
+   ```bash
+   docker exec <BLOCK_NODE_CONTAINER_NAME> sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
+   docker restart <BLOCK_NODE_CONTAINER_NAME>
+   ```
 
-  > Note: Replace `${NAMESPACE}` and `${POD}` with values from your deployment: `${NAMESPACE}` is the Kubernetes namespace where your Block Node is running (for example, block-node), and `${POD}` is the Block Node pod name returned by `kubectl get pods -n ${NAMESPACE}` (for example, block-node-0).
-
-- Restart the Block Node pod so it starts with a clean data directory:
-
-  ```bash
-  kubectl -n ${NAMESPACE} delete pod ${POD}
-  ```
-
-For **Docker based Block Node deployments**, run the equivalent inside the Block Node container:
-
-```bash
-# Clear live and historic data directories
-docker exec <BLOCK_NODE_CONTAINER_NAME> sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
-
-# Restart the container
-docker restart <BLOCK_NODE_CONTAINER_NAME>
-```
-
-After the pod or container restarts, the Block Node will come up with empty live and historic data directories, ready for a fresh simulator run or to begin consuming real block streams.
+   After the pod or container restarts, the Block Node comes up with empty live and historic data directories, ready for a fresh simulator run or to begin consuming real block streams.
