@@ -3,7 +3,7 @@ import org.gradlex.javamodule.moduleinfo.ExtraJavaModuleInfoPluginExtension
 
 plugins {
     id("org.hiero.gradle.build") version "0.7.8"
-    id("com.hedera.pbj.pbj-compiler") version "0.15.5" apply false
+    id("com.hedera.pbj.pbj-compiler") version "0.15.8" apply false
 }
 
 val hieroGroup = "org.hiero.block-node"
