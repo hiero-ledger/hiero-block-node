@@ -91,6 +91,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             MetricKey.of("app_state_status", ObservableGauge.class).addCategory(METRICS_CATEGORY);
     /** Number of stored blocks between automatic persistence of the block range sets */
     private static final long BLOCK_RANGE_PERSIST_INTERVAL = 1000;
+    /** Max protobuf/JSON message size for application-state files loaded from disk (small). */
+    private static final int MAX_APP_STATE_MESSAGE_SIZE_BYTES = 1 * 1024 * 1024;
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
+    private static final int MAX_APP_STATE_MESSAGE_DEPTH = MAX_APP_STATE_MESSAGE_SIZE_BYTES / 8;
     /** The logger for this class. */
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
     /** The state of the server. */
@@ -742,7 +746,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final Path tssDataJsonPath = appStateConfig.tssBootstrapFilePath();
         if (Files.exists(tssDataJsonPath)) {
             try {
-                TssData tssData = TssData.JSON.parse(Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
+                TssData tssData = TssData.JSON.parse(
+                        Bytes.wrap(Files.readAllBytes(tssDataJsonPath)).toReadableSequentialData(),
+                        false,
+                        true,
+                        MAX_APP_STATE_MESSAGE_DEPTH,
+                        MAX_APP_STATE_MESSAGE_SIZE_BYTES);
                 updateTssData(tssData);
                 LOGGER.log(INFO, "Loaded TssData from file: {0}", tssDataJsonPath);
             } catch (ParseException | IOException e) {
@@ -763,7 +772,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (Files.exists(rsaFilePath)) {
             try {
                 final byte[] raw = Files.readAllBytes(rsaFilePath);
-                final NodeAddressBook book = NodeAddressBook.JSON.parse(Bytes.wrap(raw));
+                final NodeAddressBook book = NodeAddressBook.JSON.parse(
+                        Bytes.wrap(raw).toReadableSequentialData(),
+                        false,
+                        true,
+                        MAX_APP_STATE_MESSAGE_DEPTH,
+                        MAX_APP_STATE_MESSAGE_SIZE_BYTES);
                 validateAddressBook(book, rsaFilePath.toString());
                 pendingAddressBook.set(book);
                 LOGGER.log(
@@ -793,8 +807,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final Path blockRangesPath = appStateConfig.blockRangesFilePath();
         if (Files.exists(blockRangesPath)) {
             try {
-                final BlockRangesState rangeSet =
-                        BlockRangesState.JSON.parse(Bytes.wrap(Files.readAllBytes(blockRangesPath)));
+                final BlockRangesState rangeSet = BlockRangesState.JSON.parse(
+                        Bytes.wrap(Files.readAllBytes(blockRangesPath)).toReadableSequentialData(),
+                        false,
+                        true,
+                        MAX_APP_STATE_MESSAGE_DEPTH,
+                        MAX_APP_STATE_MESSAGE_SIZE_BYTES);
                 rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
                 rangeSet.availableBlocks()
                         .forEach(r -> availableBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));

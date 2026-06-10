@@ -6,7 +6,6 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.PbjRouting.Builder;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -35,13 +34,16 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 public class TestBlockNodeServer {
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
+    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
+
     private final WebServer webServer;
 
     public TestBlockNodeServer(int port, HistoricalBlockFacility historicalBlockFacility) {
         // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
                 .name("pbj")
-                .maxMessageSizeBytes(BlockAccessor.MAX_BLOCK_SIZE_BYTES)
+                .maxMessageSizeBytes(Integer.MAX_VALUE)
                 .build();
 
         // Create the service builder
@@ -115,9 +117,9 @@ public class TestBlockNodeServer {
                         Block block = Block.PROTOBUF.parse(
                                 blockBytes.toReadableSequentialData(),
                                 false,
-                                false,
-                                Codec.DEFAULT_MAX_DEPTH,
-                                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                                true,
+                                MAX_BLOCK_MESSAGE_DEPTH,
+                                Integer.MAX_VALUE);
                         sendBlockItemsInBatches(block.items(), replies);
                         replies.onNext(SubscribeStreamResponse.newBuilder()
                                 .endOfBlock(BlockEnd.newBuilder().blockNumber(i).build())

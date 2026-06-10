@@ -3,7 +3,6 @@ package org.hiero.block.node.spi.historicalblocks;
 
 import static java.lang.System.Logger.Level.WARNING;
 
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import org.hiero.block.internal.BlockUnparsed;
@@ -16,11 +15,11 @@ import org.hiero.block.internal.BlockUnparsed;
  */
 public interface BlockAccessor extends AutoCloseable {
     /**
-     * Maximum protobuf parse size in bytes (125 MB). This matches the consensus node limit
-     * and accommodates the largest known block items (TSS Wraps transition blocks) which
-     * can exceed PBJ's default 2 MB limit.
+     * Maximum parse depth for trusted internal blocks. Each level of message nesting needs at least
+     * ~8 bytes on the wire, so {@code Integer.MAX_VALUE / 8} is a safe upper bound for any
+     * non-degenerate block.
      */
-    int MAX_BLOCK_SIZE_BYTES = 125 * 1024 * 1024;
+    int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
 
     /**
      * The format of the block data. The consumer can choose the format that is most efficient for them.
@@ -39,7 +38,7 @@ public interface BlockAccessor extends AutoCloseable {
     long blockNumber();
 
     /**
-     * Get the block as unparsed {@code BlockUnparsed} Java object.
+     * Get the block as an unparsed {@code BlockUnparsed} Java object.
      *
      * @return the block as a {@code BlockUnparsed} Java object, or null if parsing failed.
      *     Also returns null if the data cannot be read from a source.
@@ -51,7 +50,7 @@ public interface BlockAccessor extends AutoCloseable {
                 return null;
             }
             return BlockUnparsed.PROTOBUF.parse(
-                    rawData.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, MAX_BLOCK_SIZE_BYTES);
+                    rawData.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE);
         } catch (final RuntimeException | ParseException e) {
             final System.Logger LOGGER = System.getLogger(getClass().getName());
             LOGGER.log(WARNING, "Failed to parse block", e);

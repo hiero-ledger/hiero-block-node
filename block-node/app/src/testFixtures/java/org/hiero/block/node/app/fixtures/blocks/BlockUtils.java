@@ -3,7 +3,6 @@ package org.hiero.block.node.app.fixtures.blocks;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.node.base.NodeAddressBook;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -18,13 +17,14 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /*
  * Utility class for getting test blocks.
  * */
 @SuppressWarnings("unused")
 public final class BlockUtils {
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
+    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
 
     /**
      * Converts Block to a List of BlockUnparsed
@@ -85,9 +85,9 @@ public final class BlockUtils {
             blockUnparsed = BlockUnparsed.PROTOBUF.parse(
                     Bytes.wrap(bytes).toReadableSequentialData(),
                     false,
-                    false,
-                    Codec.DEFAULT_MAX_DEPTH,
-                    BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                    true,
+                    MAX_BLOCK_MESSAGE_DEPTH,
+                    Integer.MAX_VALUE);
         }
 
         return new SampleBlockInfo(sampleBlock.getBlockHash(), sampleBlock.getBlockNumber(), blockUnparsed);

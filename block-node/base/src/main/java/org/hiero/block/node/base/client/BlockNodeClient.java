@@ -22,7 +22,6 @@ import java.util.function.ToIntFunction;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.GrpcWebClientTuning;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 public class BlockNodeClient implements AutoCloseable {
     private static final Logger LOGGER = System.getLogger(BlockNodeClient.class.getName());
@@ -125,6 +124,7 @@ public class BlockNodeClient implements AutoCloseable {
      * @param globalTimeoutMs the global gRPC timeout in ms (fallback when tuning values are 0), also used for latch await
      * @param enableTls whether to enable TLS for connections
      * @param maxIncomingBufferSize the maximum incoming buffer size in bytes for gRPC message reception
+     * @param maxProtobufMessageSizeBytes the maximum protobuf message size in bytes accepted while parsing a fetched block
      * @param tuning optional tuning for timeouts and HTTP/2 settings
      */
     public BlockNodeClient(
@@ -132,6 +132,7 @@ public class BlockNodeClient implements AutoCloseable {
             int globalTimeoutMs,
             boolean enableTls,
             int maxIncomingBufferSize,
+            int maxProtobufMessageSizeBytes,
             @Nullable GrpcWebClientTuning tuning) {
 
         this.globalTimeoutMs = globalTimeoutMs;
@@ -149,7 +150,7 @@ public class BlockNodeClient implements AutoCloseable {
                 "application/grpc",
                 GrpcCompression.IDENTITY,
                 GrpcCompression.getDecompressorNames(),
-                BlockAccessor.MAX_BLOCK_SIZE_BYTES,
+                maxProtobufMessageSizeBytes,
                 maxIncomingBufferSize);
 
         webClient = WebClient.builder()

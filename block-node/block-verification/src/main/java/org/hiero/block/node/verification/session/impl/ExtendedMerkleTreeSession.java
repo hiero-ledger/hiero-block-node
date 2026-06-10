@@ -19,7 +19,6 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -37,7 +36,6 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.verification.VerificationServicePlugin;
 import org.hiero.block.node.verification.session.VerificationSession;
 
@@ -46,6 +44,9 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
     /// Byte length of a legacy SHA384 signature (non-TSS blocks).
     private static final int HASH_LENGTH = 48;
+
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
+    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
 
     private final long blockNumber;
     // Stream Hashers
@@ -438,17 +439,13 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             return null;
         }
         SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(
-                signedTxBytes.toReadableSequentialData(),
-                false,
-                false,
-                Codec.DEFAULT_MAX_DEPTH,
-                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                signedTxBytes.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE);
         TransactionBody body = TransactionBody.PROTOBUF.parse(
                 signedTx.bodyBytes().toReadableSequentialData(),
                 false,
-                false,
-                Codec.DEFAULT_MAX_DEPTH,
-                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                true,
+                MAX_BLOCK_MESSAGE_DEPTH,
+                Integer.MAX_VALUE);
         if (!body.hasLedgerIdPublication()) {
             return null;
         }

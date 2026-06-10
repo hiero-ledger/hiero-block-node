@@ -28,6 +28,7 @@ import org.hiero.block.node.base.Loggable;
  *                                  process indefinitely in case something unexpected happens, this would allow for self-recovery
  * @param grpcOverallTimeout single timeout configuration for gRPC Client construction, connectTimeout, readTimeout and pollWaitTime
  * @param maxIncomingBufferSize maximum incoming buffer size in bytes for the gRPC client, must be larger than max block size to account for protobuf metadata and streaming
+ * @param maxProtobufMessageSizeBytes the maximum protobuf message size, in bytes, accepted while parsing a block fetched over the wire during backfill
  * @param enableTLS if enabled will assume block-node client supports tls connection.
  * @param greedy if enabled will search and retrieve blocks beyond latestAcknowledged to ensure BN doesn't fall too far behind.
  */
@@ -45,6 +46,8 @@ public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(500) int perBlockProcessingTimeout,
         @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
         @Loggable @ConfigProperty(defaultValue = "104857600") @Min(10_485_760) @Max(314_572_800) int maxIncomingBufferSize,
+        // defaultValue must match DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES (annotation requires a String literal)
+        @Loggable @ConfigProperty(defaultValue = "131_072_000") @Min(1_048_576) @Max(1_610_612_736) int maxProtobufMessageSizeBytes,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS,
         @Loggable @ConfigProperty(defaultValue = "false") boolean greedy,
         // Queue capacity settings for bounded queues
@@ -52,7 +55,10 @@ public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "10") @Min(1) @Max(100) int liveTailQueueCapacity,
         // Health scoring constants
         @Loggable @ConfigProperty(defaultValue = "1000.0") double healthPenaltyPerFailure,
-        @Loggable @ConfigProperty(defaultValue = "300000") @Min(30000) long maxBackoffMs) {}
+        @Loggable @ConfigProperty(defaultValue = "300000") @Min(30000) long maxBackoffMs) {
+    /** Default for {@code maxProtobufMessageSizeBytes}; must match the {@code @ConfigProperty(defaultValue = ...)} literal above. */
+    public static final int DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES = 131_072_000;
+}
 
 // restore spotless formatting
 // spotless:on

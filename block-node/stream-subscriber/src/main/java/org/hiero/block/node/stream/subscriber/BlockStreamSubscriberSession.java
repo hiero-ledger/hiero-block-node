@@ -9,7 +9,6 @@ import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -111,6 +110,11 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private final AtomicLong nextBlockToSend;
     /** The context for this session */
     private final SessionContext sessionContext;
+    /**
+     * Max protobuf message size, in bytes, accepted while parsing a block streamed to this subscriber.
+     * Captured once from the (immutable) subscriber config at construction rather than read per block.
+     */
+    private final int maxProtobufMessageSizeBytes;
     /** The context of the block node */
     private final BlockNodeContext blockNodeContext;
     /**
@@ -142,6 +146,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         this.sessionReadyLatch = requireNonNull(sessionReadyLatch);
         this.blockNodeContext = requireNonNull(context);
         this.sessionContext = requireNonNull(sessionContext);
+        this.maxProtobufMessageSizeBytes = sessionContext.subscriberConfig.maxProtobufMessageSizeBytes();
         this.latestLiveStreamBlock = new AtomicLong(INITIAL_STATE_SENTINEL);
         this.nextBlockToSend = new AtomicLong(INITIAL_STATE_SENTINEL);
         this.liveBlockQueue = new ArrayBlockingQueue<>(sessionContext.subscriberConfig.liveQueueSize());
@@ -454,12 +459,14 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                         throw new IllegalStateException(message);
                     }
                     final int blockByteSize = (int) blockBytes.length();
+                    // maxProtobufMessageSizeBytes / 8: each level of message nesting needs >= ~8 bytes on the wire,
+                    // so size/8 bounds the deepest a non-degenerate message can nest.
                     final BlockUnparsed block = BlockUnparsed.PROTOBUF.parse(
                             blockBytes.toReadableSequentialData(),
                             false,
-                            false,
-                            Codec.DEFAULT_MAX_DEPTH,
-                            BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                            true,
+                            maxProtobufMessageSizeBytes / 8,
+                            maxProtobufMessageSizeBytes);
                     // We have retrieved the block to send, so send it.
                     sendOneFullBlock(block, blockByteSize);
                     // Trim the queue if necessary, also increment the next block to send.

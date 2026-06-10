@@ -5,7 +5,6 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -26,6 +25,8 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 final class ZipBlockAccessor implements BlockAccessor {
     private static final String FAILED_TO_DELETE_LINK_MESSAGE =
             "Failed to delete accessor link for block: %s, zipFilePath: %s, entryName: %s";
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
+    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
     /** The logger for this class. */
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /** Message logged when the protobuf codec fails to parse data */
@@ -149,9 +150,9 @@ final class ZipBlockAccessor implements BlockAccessor {
                 return Block.JSON.toBytes(Block.PROTOBUF.parse(
                         sourceData.toReadableSequentialData(),
                         false,
-                        false,
-                        Codec.DEFAULT_MAX_DEPTH,
-                        BlockAccessor.MAX_BLOCK_SIZE_BYTES));
+                        true,
+                        MAX_BLOCK_MESSAGE_DEPTH,
+                        Integer.MAX_VALUE));
             } catch (final RuntimeException | ParseException e) {
                 String entryName = blockPathData.blockFileName();
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockNumber, absoluteZipFilePath, entryName);

@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import java.io.IOException;
@@ -23,13 +22,15 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 public class BlockAccessServicePluginTest
         extends GrpcPluginTestBase<BlockAccessServicePlugin, BlockingExecutor, ScheduledExecutorService> {
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
+    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
+
     private final BlockAccessServicePlugin plugin = new BlockAccessServicePlugin();
 
     public BlockAccessServicePluginTest() {
@@ -183,9 +184,9 @@ public class BlockAccessServicePluginTest
         final BlockResponse response = BlockResponse.PROTOBUF.parse(
                 fromPluginBytes.get(0).toReadableSequentialData(),
                 false,
-                false,
-                Codec.DEFAULT_MAX_DEPTH,
-                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                true,
+                MAX_BLOCK_MESSAGE_DEPTH,
+                Integer.MAX_VALUE);
         assertEquals(Code.SUCCESS, response.status());
         assertEquals(466, response.block().items().getFirst().blockHeader().number());
     }

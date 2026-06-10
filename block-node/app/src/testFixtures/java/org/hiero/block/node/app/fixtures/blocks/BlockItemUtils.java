@@ -2,19 +2,20 @@
 package org.hiero.block.node.app.fixtures.blocks;
 
 import com.hedera.hapi.block.stream.BlockItem;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /**
  * Utility class for testing block items.
  */
 public final class BlockItemUtils {
+    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
+    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
+
     /**
      * Converts a BlockItem to a JSON string
      *
@@ -35,11 +36,7 @@ public final class BlockItemUtils {
         try {
             final Bytes bytes = BlockItemUnparsed.PROTOBUF.toBytes(blockItemUnparsed);
             return BlockItem.JSON.toJSON(BlockItem.PROTOBUF.parse(
-                    bytes.toReadableSequentialData(),
-                    false,
-                    false,
-                    Codec.DEFAULT_MAX_DEPTH,
-                    BlockAccessor.MAX_BLOCK_SIZE_BYTES));
+                    bytes.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE));
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -55,11 +52,7 @@ public final class BlockItemUtils {
         try {
             final Bytes bytes = BlockItem.PROTOBUF.toBytes(blockItem);
             return BlockItemUnparsed.PROTOBUF.parse(
-                    bytes.toReadableSequentialData(),
-                    false,
-                    false,
-                    Codec.DEFAULT_MAX_DEPTH,
-                    BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                    bytes.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE);
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -85,11 +78,7 @@ public final class BlockItemUtils {
         try {
             final Bytes bytes = BlockItemUnparsed.PROTOBUF.toBytes(blockItem);
             return BlockItem.PROTOBUF.parse(
-                    bytes.toReadableSequentialData(),
-                    false,
-                    false,
-                    Codec.DEFAULT_MAX_DEPTH,
-                    BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+                    bytes.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE);
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
