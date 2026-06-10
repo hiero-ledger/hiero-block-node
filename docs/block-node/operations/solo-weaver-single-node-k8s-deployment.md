@@ -1,4 +1,4 @@
-# Solo Provisioner Single Node Kubernetes Deployment Guide
+# Virtual Machine Single Node Kubernetes Deployment Guide
 
 ## Overview
 
@@ -23,7 +23,7 @@ Before you begin, ensure you have:
 4. Select a machine type appropriate for your Block Node profile. Solo Provisioner's preflight check measures **physical CPU cores** (not vCPUs), and the `local` profile requires a minimum of 3 physical cores. The recommendations below account for that:
    - **For a `local` profile (testing or learning)**: Choose **`e2-standard-8`** or larger (4 physical cores, 8 vCPUs, 32 GB RAM).
    - **For `previewnet` or `testnet`**: Select a machine with at least ~16 vCPUs (for example, **`e2-standard-16`**) and adequate RAM (≥ 32 GB) for non-mainnet block volume.
-   - **For `mainnet` (Tier 1)**: Solo Provisioner on a single GCP VM is generally not the right deployment shape for production Tier 1. See [Block Node Hardware Specifications](./block-node-hardware-specifications.md) for the canonical hardware target, and follow the [Single Node Kubernetes Deployment](./single-node-k8s-deployment.md#prerequisites) guide as the recommended path.
+   - **For `mainnet` (Tier 1)**: Solo Provisioner on a single GCP VM is generally not the right deployment shape for production Tier 1. See [Block Node Hardware Specifications](./block-node-hardware-specifications.md) for the canonical hardware target, and follow the [Bare Metal Single Node Kubernetes Deployment](./single-node-k8s-deployment.md#prerequisites) guide as the recommended path.
 
      ![Solo Provisioner GCP VM configuration](../../assets/block-node-solo-provisioner-vm-create.png)
 

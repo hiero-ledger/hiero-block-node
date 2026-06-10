@@ -13,14 +13,19 @@ This container streams blocks to your deployed Block Node, verifying connectivit
 
 Before you begin, ensure you have:
 
-- A running Block Node deployment, set up via one of:
-  - [Manual Single-Node Kubernetes Deployment](./single-node-k8s-deployment.md)
-  - [Solo Provisioner Single-Node Kubernetes Deployment](./solo-weaver-single-node-k8s-deployment.md)
-- **[Docker](https://docs.docker.com/get-started/get-docker/) and Docker Compose** installed on the machine where the simulator will run.
-- The **gRPC address and port** of your Block Node: the default port is `40840` (see `server.port` in [configuration.md](../configuration.md)). The address depends on where the simulator runs; [Choose the Block Node address](#choose-the-block-node-address) in Step 1 explains how to pick it.
-- The **installed Block Node version**: this becomes the simulator image tag. [Pick a simulator image tag](#pick-a-simulator-image-tag) in Step 1 explains how to retrieve it.
-- A **gRPC client tool** for verification (optional but recommended):
-  - **Postman** with gRPC support, or
+- A running Block Node deployment on your system using one of the following methods:
+  - [**Bare Metal Single Node Kubernetes Deployment**](./single-node-k8s-deployment.md)
+  - [**Virtual Machine Single Node Kubernetes Deployment**](./solo-weaver-single-node-k8s-deployment.md)
+- **[Docker](https://docs.docker.com/get-started/get-docker/) and Docker Compose** installed and available on your machine where you will run the simulator.
+- The **gRPC** service address and port for your Block Node:
+  - For Local deployment: `localhost:40840`
+  - For cloud deployment server address:
+
+    ```bash
+    kubectl get svc -n block-node
+    ```
+- A gRPC client tool for verification (optional but recommended):
+  - **Postman** (with gRPC support), or
   - **grpcurl** command-line tool
 
 ## Step 1: Create the Simulator Docker Compose File

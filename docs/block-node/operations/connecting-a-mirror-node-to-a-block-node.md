@@ -25,8 +25,8 @@ Before you begin, ensure you have:
 
 - One or more Block Nodes to connect to, using one of the following sources:
   - [**Block Nodes published on the network**](https://hips.hedera.com/all#hip-1137) - for production use against production networks (the typical case).
-  - [**Manual Single-Node Kubernetes Deployment**](./single-node-k8s-deployment.md) - if you are running your own Block Node.
-  - [**Solo Provisioner Single-Node Kubernetes Deployment**](./solo-weaver-single-node-k8s-deployment.md) - if you are running your own Block Node.
+  - [**Bare Metal Single Node Kubernetes Deployment**](./single-node-k8s-deployment.md) - if you are running your own Block Node.
+  - [**Virtual Machine Single Node Kubernetes Deployment**](./solo-weaver-single-node-k8s-deployment.md) - if you are running your own Block Node.
   - [**Block Node Dev Quickstart (Docker)**](../quickstart.md) - for local development and testing.
 - A running Mirror Node deployment ready to be reconfigured to consume from a Block Node:
   - [**Mirror Node Installation Guide**](https://github.com/hiero-ledger/hiero-mirror-node/blob/main/docs/installation.md) - local or Docker Compose install paths.
