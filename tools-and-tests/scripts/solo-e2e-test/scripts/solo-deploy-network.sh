@@ -611,31 +611,52 @@ function deploy_mirror_node {
   fi
 
   log_line ""
-  log_line "Deploying Mirror Node"
-  log_line "---------------------"
+  log_line "Deploying Mirror Nodes"
+  log_line "----------------------"
 
-  local mn_overlay="${OVERLAY_DIR}/mn-mirror-1-values.yaml"
-  [[ ! -f "${mn_overlay}" ]] && fail "ERROR: Mirror Node overlay not found: ${mn_overlay}" 1
-  log_line "  Using generated overlay: %s" "${mn_overlay}"
-  log_line "  --- Mirror Node overlay contents ---"
-  cat "${mn_overlay}"
-  log_line "  --- End Mirror Node overlay ---"
+  # Count Mirror Nodes from topology
+  local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
+  local mn_count
+  mn_count=$(yq '.mirror_nodes | keys | length // 0' "${topology_file}" 2>/dev/null || echo "1")
+
+  if [[ "${mn_count}" -eq 0 ]]; then
+    mn_count=1  # Fallback to single MN for backward compatibility
+  fi
+
+  log_line "  Mirror Nodes to deploy: %s" "${mn_count}"
 
   local mn_args=""
   if [[ -n "${MN_VERSION}" ]]; then
     mn_args="--mirror-node-version ${MN_VERSION}"
   fi
 
-  start_task "Deploying Mirror Node"
-  # shellcheck disable=SC2086
-  solo mirror node add \
-    --deployment "${DEPLOYMENT}" \
-    --pinger \
-    --cluster-ref "${CLUSTER_REF}" \
-    --enable-ingress \
-    ${mn_args} \
-    -f "${mn_overlay}" || fail "ERROR: Failed to deploy Mirror Node" 1
-  end_task
+  # Deploy each Mirror Node
+  for ((i = 1; i <= mn_count; i++)); do
+    local mn_overlay="${OVERLAY_DIR}/mn-mirror-${i}-values.yaml"
+
+    if [[ ! -f "${mn_overlay}" ]]; then
+      log_line "  WARNING: Mirror Node ${i} overlay not found: ${mn_overlay}, skipping"
+      continue
+    fi
+
+    log_line "  Using generated overlay: %s" "${mn_overlay}"
+    if [[ "${VERBOSE}" == "true" ]]; then
+      log_line "  --- Mirror Node ${i} overlay contents ---"
+      cat "${mn_overlay}"
+      log_line "  --- End Mirror Node ${i} overlay ---"
+    fi
+
+    start_task "Deploying Mirror Node ${i}"
+    # shellcheck disable=SC2086
+    solo mirror node add \
+      --deployment "${DEPLOYMENT}" \
+      --pinger \
+      --cluster-ref "${CLUSTER_REF}" \
+      --enable-ingress \
+      ${mn_args} \
+      -f "${mn_overlay}" || fail "ERROR: Failed to deploy Mirror Node ${i}" 1
+    end_task
+  done
 }
 
 function deploy_relay {
