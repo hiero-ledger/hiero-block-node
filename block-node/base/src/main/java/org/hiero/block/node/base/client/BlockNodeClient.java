@@ -22,7 +22,6 @@ import java.util.function.ToIntFunction;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.GrpcWebClientTuning;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 public class BlockNodeClient implements AutoCloseable {
     private static final Logger LOGGER = System.getLogger(BlockNodeClient.class.getName());
