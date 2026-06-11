@@ -111,6 +111,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private final NavigableSet<Long> unacknowledgedStreamedBlocks;
     /// The state of the publisher, true if it is still active.
     private final AtomicBoolean isActive;
+    private final AtomicBoolean shutdownActive;
     /// Remaining message budget for the current interval. Decremented on each `onNext` call.
     /// Refreshed by the manager at the end of each interval, or set to 0 when aggregate budget
     /// is exceeded, or set to -1L when penalized. Long.MIN_VALUE signals shutdown in progress
@@ -150,6 +151,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         blockAction = new AtomicReference<>();
         unacknowledgedStreamedBlocks = new ConcurrentSkipListSet<>();
         isActive = new AtomicBoolean(true);
+        shutdownActive = new AtomicBoolean(false);
         configuration = publisherManager.configuration();
         messageBudget = new AtomicLong(configuration.perHandlerMessageBudget());
     }
@@ -342,23 +344,27 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     /// todo add documentation
     private void checkMidBlockAndShutdown(final long blockNumber, final boolean scheduleWithDelay) {
-        try {
-            if (isCurrentlyMidBlock(blockNumber)) {
-                publisherManager.blockIsEnding(currentStreamingBlockNumber.get(), handlerId);
+        if (!shutdownActive.get()) {
+            try {
+                if (isCurrentlyMidBlock(blockNumber)) {
+                    publisherManager.blockIsEnding(currentStreamingBlockNumber.get(), handlerId);
+                }
+            } finally {
+                shutdownActive.set(true);
+                if (scheduleWithDelay) {
+                    // Set budget to Long.MIN_VALUE so any subsequent onNext calls park
+                    // until shutdown completes. Long.MIN_VALUE is also a signal to the
+                    // refresh task to skip this handler.
+                    messageBudget.set(Long.MIN_VALUE);
+                    // Do not shutdown instantly, allow for final messages to send first.
+                    publisherManager.scheduleAfterDelay(this::shutdown, SHUTDOWN_DELAY_TIME);
+                } else {
+                    // shouldn't be needed, but set just in case.
+                    isActive.compareAndSet(true, false);
+                    shutdown();
+                }
+                resetState();
             }
-        } finally {
-            if (scheduleWithDelay) {
-                // Set budget to Long.MIN_VALUE so any subsequent onNext calls park
-                // until shutdown completes. Long.MIN_VALUE is also a signal to the
-                // refresh task to skip this handler.
-                messageBudget.set(Long.MIN_VALUE);
-                // Do not shutdown instantly, allow for final messages to send first.
-                publisherManager.scheduleAfterDelay(this::shutdown, SHUTDOWN_DELAY_TIME);
-            } else {
-                isActive.compareAndSet(true, false); // shouldn't be needed, but set just in case.
-                shutdown();
-            }
-            resetState();
         }
     }
 

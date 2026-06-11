@@ -1444,11 +1444,6 @@ class LiveStreamPublisherManagerTest {
                         .returns(-1L, endStreamBlockNumberExtractor);
                 // As a pre-check, we expect no onComplete calls
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isZero();
-                // We expect a shutdown to be scheduled
-                // We need to send any request or trigger any pipeline method
-                // to do the actual shutdown
-                publisherHandler.onNext(
-                        TestBlockBuilder.generateBlockWithNumber(0L).asPublishStreamRequestUnparsed());
                 // Invoke the delayed shutdown so it actually runs
                 threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that the latest known block number is still -1L, it was not updated
@@ -1458,10 +1453,6 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
-                publisherHandler2.onNext(
-                        TestBlockBuilder.generateBlockWithNumber(0L).asPublishStreamRequestUnparsed());
-                // Invoke the delayed shutdown so it actually runs
-                threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that the response pipeline has received a PERSISTENCE_FAILED
                 assertThat(responsePipeline2.getOnNextCalls())
                         .hasSize(1)

@@ -356,6 +356,9 @@ class PublisherManagerRegressionTest {
                 .build();
         publisherHandler.onNext(
                 PublishStreamRequestUnparsed.newBuilder().endStream(endStream).build());
+        // !! IMPORTANT !!
+        //    This removes `publisherHandler`, so remainder of this test _must_ use
+        //    `publisherHandler2` or the results will be wrong.
 
         // 3. Backfill persists a block far past the configured prune buffer (default 100).
         //    handlePersisted's prune step must drop blocksToResend entries <= 200 - 100 = 100,
@@ -370,7 +373,7 @@ class PublisherManagerRegressionTest {
         //    END_DUPLICATE — not ACCEPT pulled out of blocksToResend, which would prove
         //    the entry was never pruned. (END_DUPLICATE comes from blockNumber <= lastPersisted,
         //    which only happens if both prune and ack-advancement succeeded.)
-        final BlockAction action = toTest.getActionForBlock(staleResendBlock, null, publisherHandlerId);
+        final BlockAction action = toTest.getActionForBlock(staleResendBlock, null, publisherHandler2.getId());
         assertThat(action)
                 .describedAs(
                         "block %d is already persisted (lastPersisted should be %d). The handler must see "
