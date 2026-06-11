@@ -74,8 +74,15 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     static final MetricKey<LongCounter> METRIC_PEER_ERRORS =
             MetricKey.of("rsa_roster_peer_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
 
+    /// `blocknode:rsa_roster_addressbook_errors` — number of peer gRPC request errors.
+    static final MetricKey<LongCounter> METRIC_ADDRESSBOOK_ERRORS =
+            MetricKey.of("rsa_roster_addressbook_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
+
     /// Holder for peer-query metrics, passed to `AddressBookFetcher`.
-    public record MetricsHolder(LongCounter.Measurement peerRequests, LongCounter.Measurement peerErrors) {
+    public record MetricsHolder(
+            LongCounter.Measurement peerRequests,
+            LongCounter.Measurement peerErrors,
+            LongCounter.Measurement addressBookErrors) {
 
         /// Factory that registers and returns a MetricsHolder.
         public static MetricsHolder create(@NonNull MetricRegistry metricRegistry) {
@@ -87,6 +94,10 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                     metricRegistry
                             .register(LongCounter.builder(METRIC_PEER_ERRORS)
                                     .setDescription("Number of peer gRPC request errors for RSA address book"))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_ADDRESSBOOK_ERRORS)
+                                    .setDescription("Number of invalid address books fetched"))
                             .getOrCreateNotLabeled());
         }
     }

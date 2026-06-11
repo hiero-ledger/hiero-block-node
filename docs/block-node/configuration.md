@@ -241,7 +241,7 @@ for the JSON schema.
 | ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_CONNECT_TIMEOUT_SECONDS | TCP connect timeout when calling the Mirror Node.                                            |         5 |
 | ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_READ_TIMEOUT_SECONDS    | Per-request read timeout when calling the Mirror Node.                                       |        10 |
 | ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_PAGE_SIZE               | Number of nodes requested per paginated Mirror Node call.                                    |       100 |
-| ROSTER_BOOTSTRAP_RSA_BLOCK_NODE_SOURCES_PATH             | File path to the JSON file containing a list of block node servers to query for TSS data.    |        "" |
+| ROSTER_BOOTSTRAP_RSA_BLOCK_NODE_SOURCES_PATH             | File path to the JSON file containing a list of block node servers to query for RSA data.    |        "" |
 | ROSTER_BOOTSTRAP_RSA_BN_INITIAL_QUERY_INTERVAL_MILLIS    | The initial period between queries to the block node until a node address book is found.     |      5000 |
 | ROSTER_BOOTSTRAP_RSA_BN_SUBSEQUENT_QUERY_INTERVAL_MILLIS | The subsequent period between queries to the block node after a node address book is found.  |     60000 |
 | ROSTER_BOOTSTRAP_RSA_GRPC_OVERALL_TIMEOUT                | Overall gRPC timeout (connect, read, poll) in ms.                                            |     60000 |

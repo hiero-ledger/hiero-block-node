@@ -90,6 +90,7 @@ public class AddressBookFetcher implements AutoCloseable {
                             node.address());
                     return book;
                 }
+                metrics.addressBookErrors().increment();
                 LOGGER.log(
                         DEBUG, "Peer [{0}] returned an empty or key-less NodeAddressBook, trying next", node.address());
             } catch (RuntimeException e) {
