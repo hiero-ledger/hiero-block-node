@@ -518,7 +518,7 @@ class RsaRosterBootstrapPluginTest
     // -------------------------------------------------------------------------
 
     private static NodeAddressBook buildAddressBook(final int count) {
-        final List<NodeAddress> addresses = new java.util.ArrayList<>();
+        final List<NodeAddress> addresses = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             addresses.add(
                     NodeAddress.newBuilder().nodeId(i).rsaPubKey("hexkey" + i).build());
@@ -582,7 +582,7 @@ class RsaRosterBootstrapPluginTest
 
         public Map<String, String> build() {
             if (blockNodeSourcesPath == null || blockNodeSourcesPath.isBlank()) {
-                throw new IllegalStateException("backfillSourcePath is required");
+                throw new IllegalStateException("blockNodeSourcesPath is required");
             }
 
             return new HashMap<>(Map.of(

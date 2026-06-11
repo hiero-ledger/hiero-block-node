@@ -2,6 +2,7 @@
 package org.hiero.block.node.roster.bootstrap.rsa;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -60,7 +61,7 @@ class AddressBookFetcherTest {
                 100, // mirrorNodePageSize
                 "", // blockNodeSourcesPath
                 5_000, // bnInitialQueryIntervalMillis
-                60_000, // bnInitialQueryIntervalMillis
+                60_000, // bnSubsequentQueryIntervalMillis
                 false, // enableTLS
                 60_000,
                 104_857_600 // maxIncomingBufferSize
@@ -80,7 +81,7 @@ class AddressBookFetcherTest {
                 BlockNodeSource.newBuilder().nodes(List.of(peer)).build();
         return new AddressBookFetcher(source, testConfig(), metricsHolder) {
             @Override
-            protected BlockNodeClient getNodeClient(BlockNodeSourceConfig ignored) {
+            BlockNodeClient getNodeClient(BlockNodeSourceConfig ignored) {
                 return client;
             }
         };
@@ -177,7 +178,7 @@ class AddressBookFetcherTest {
                     new AddressBookFetcher(
                             BlockNodeSource.newBuilder().nodes(List.of(peer)).build(), testConfig(), metricsHolder) {
                         @Override
-                        protected BlockNodeClient getNodeClient(BlockNodeSourceConfig ignored) {
+                        BlockNodeClient getNodeClient(BlockNodeSourceConfig ignored) {
                             nodeClientMap.put(ignored, client);
                             return client;
                         }
@@ -211,7 +212,7 @@ class AddressBookFetcherTest {
 
             AddressBookFetcher fetcher = new AddressBookFetcher(source, testConfig(), metricsHolder) {
                 @Override
-                protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
+                BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
                     return node.address().equals("failing") ? failingClient : goodClient;
                 }
             };
@@ -229,13 +230,13 @@ class AddressBookFetcherTest {
         @Test
         @DisplayName("null book is invalid")
         void nullIsInvalid() {
-            assertTrue(!AddressBookFetcher.isValid(null));
+            assertFalse(AddressBookFetcher.isValid(null));
         }
 
         @Test
         @DisplayName("empty book is invalid")
         void emptyIsInvalid() {
-            assertTrue(!AddressBookFetcher.isValid(
+            assertFalse(AddressBookFetcher.isValid(
                     NodeAddressBook.newBuilder().nodeAddress(List.of()).build()));
         }
 
@@ -248,7 +249,7 @@ class AddressBookFetcherTest {
         @Test
         @DisplayName("book with only blank keys is invalid")
         void onlyBlankKeysIsInvalid() {
-            assertTrue(!AddressBookFetcher.isValid(bookWith("", "")));
+            assertFalse(AddressBookFetcher.isValid(bookWith("", "")));
         }
     }
 }

@@ -112,17 +112,21 @@ public class AddressBookFetcher implements AutoCloseable {
     ///
     /// @param node the peer node configuration
     /// @return a `BlockNodeClient` for the node
-    protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
-        BlockNodeClient existing = nodeClientMap.get(node);
-        if (existing != null && !existing.isNodeReachable()) {
-            try {
-                nodeClientMap.remove(node).close();
-            } catch (IOException e) {
-                LOGGER.log(WARNING, "Unable to close BlockNodeClient [{0}]: {1}", node.name(), e);
+    BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
+        return nodeClientMap.compute(node, (key, current) -> {
+            if (current != null) {
+                if (current.isNodeReachable()) {
+                    return current;
+                }
+                try {
+                    current.close();
+                } catch (IOException e) {
+                    LOGGER.log(WARNING, "Unable to close BlockNodeClient [{0}]: {1}", key.name(), e);
+                }
             }
-            LOGGER.log(DEBUG, "Removed unreachable client for peer [{0}], will recreate", node.address());
-        }
-        return nodeClientMap.computeIfAbsent(node, this::fromBlockNodeSourceConfig);
+            LOGGER.log(DEBUG, "Client unreachable for peer [{0}], will recreate", key.address());
+            return fromBlockNodeSourceConfig(key);
+        });
     }
 
     /// Returns `true` if the book has at least one entry with a non-blank RSA public key.

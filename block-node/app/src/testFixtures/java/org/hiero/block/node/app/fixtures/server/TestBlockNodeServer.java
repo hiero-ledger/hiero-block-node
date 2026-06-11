@@ -265,7 +265,7 @@ public class TestBlockNodeServer {
         ///
         /// @param count the number of addresses in the `NodeAddressBook`
         private static NodeAddressBook buildAddressBook(final int count) {
-            final List<NodeAddress> addresses = new java.util.ArrayList<>();
+            final List<NodeAddress> addresses = new ArrayList<>();
             for (int i = 0; i < count; i++) {
                 addresses.add(NodeAddress.newBuilder()
                         .nodeId(i)

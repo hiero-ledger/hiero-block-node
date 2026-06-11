@@ -74,7 +74,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     static final MetricKey<LongCounter> METRIC_PEER_ERRORS =
             MetricKey.of("rsa_roster_peer_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
 
-    /// `blocknode:rsa_roster_addressbook_errors` — number of peer gRPC request errors.
+    /// `blocknode:rsa_roster_addressbook_errors` — number of peers returning invalid/empty address books.
     static final MetricKey<LongCounter> METRIC_ADDRESSBOOK_ERRORS =
             MetricKey.of("rsa_roster_addressbook_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
 
@@ -197,7 +197,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     private void startBlockNodeFallback() {
         if (addressBookFetcher == null) {
             LOGGER.log(
-                    WARNING,
+                    INFO,
                     "roster.bootstrap.rsa.blockNodeSourcesPath is blank or not valid."
                             + " set roster.bootstrap.rsa.blockNodeSourcesPath, to check for node address book updates.");
             return;
@@ -239,7 +239,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     private void startMirrorNodeFallback() {
         if (config.mirrorNodeBaseUrl().isBlank()) {
             LOGGER.log(
-                    WARNING,
+                    INFO,
                     "roster.bootstrap.rsa.mirrorNodeBaseUrl is blank and no RSA bootstrap file or peer BN is"
                             + " configured. Provide rsa-bootstrap-roster.json, set"
                             + " roster.bootstrap.rsa.blockNodeSourcesPath, or set"
