@@ -670,8 +670,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         final BatchEventProcessor<E> batchEventProcessor = new BatchEventProcessorBuilder()
                 .build(ringBuffer, barrier, (event, sequence, endOfBatch) -> {
                     // calculate position in the ring buffer
-                    final double percentageBehindHead =
-                            (100d * ((double) (ringBuffer.getCursor() - sequence) / (double) ringBuffer.getBufferSize()));
+                    final double percentageBehindHead = (100d
+                            * ((double) (ringBuffer.getCursor() - sequence) / (double) ringBuffer.getBufferSize()));
                     // send on the event
                     informedEventHandler.onEvent(event, sequence, endOfBatch, percentageBehindHead);
                 });
