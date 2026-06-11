@@ -1,0 +1,20 @@
+{
+  "name": "js-tss-verifier-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify": "tsx src/index.ts",
+    "verify:block0": "tsx src/index.ts ../../block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz",
+    "verify:block467": "tsx src/index.ts ../../block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz ../../block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS/467.blk.gz",
+    "verify:all": "tsx src/index.ts ../../block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz ../../block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS/1.blk.gz ../../block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS/2.blk.gz ../../block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS/3.blk.gz ../../block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS/4.blk.gz ../../block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS/466.blk.gz ../../block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS/467.blk.gz"
+  },
+  "dependencies": {
+    "@noble/curves": "^2.0.1",
+    "fzstd": "^0.1.1",
+    "protobufjs": "^8.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
