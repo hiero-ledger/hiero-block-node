@@ -151,5 +151,5 @@ Use this decision guide to determine which Block Node configuration suits your n
 
 ***To start running a Block Node, read:***
 
-- **Virtual Machine Single Node Kubernetes Deployment Guide** – [step‑by‑step instructions for deploying a single Block Node instance with the Solo Provisioner in a Kubernetes cluster, including environment preparation, deployment, and basic verification.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/solo-weaver-single-node-k8s-deployment.md)
-- **Bare Metal Single Node Kubernetes Deployment** – [instructions for deploying the Block Node Server Helm chart in a single‑node Kubernetes environment, suitable for production setups on bare metal or cloud VMs.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/single-node-k8s-deployment.md)
+- **Virtual Machine Single Node Kubernetes Deployment Guide** – [step‑by‑step instructions for deploying a single Block Node instance with the Solo Provisioner in a Kubernetes cluster, including environment preparation, deployment, and basic verification.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/solo-weaver-single-node-k8s-deployment.md)
+- **Bare Metal Single Node Kubernetes Deployment** – [instructions for deploying the Block Node Server Helm chart in a single‑node Kubernetes environment, suitable for production setups on bare metal or cloud VMs.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/single-node-k8s-deployment.md)
