@@ -33,10 +33,12 @@ public class AddressBookFetcher implements AutoCloseable {
 
     private final BlockNodeSource blockNodeSource;
     /// Global timeout in milliseconds for gRPC calls to block nodes (used as fallback).
-    private final int grpcOverallTimeout;
+    private final int globalGrpcTimeoutMs;
     private final boolean enableTls;
     private final int maxIncomingBufferSize;
     private final MetricsHolder metrics;
+    /// RSA data is small (key material, not full blocks) — 512 KB is a safe ceiling.
+    private static final int RSA_DATA_MAX_PROTOBUF_MESSAGE_SIZE_BYTES = 512 * 1024;
 
     /// Package-private for testing — allows tests to inject mock clients.
     final ConcurrentHashMap<BlockNodeSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
@@ -51,7 +53,7 @@ public class AddressBookFetcher implements AutoCloseable {
             @NonNull RsaRosterBootstrapConfig config,
             @NonNull MetricsHolder metrics) {
         this.blockNodeSource = blockNodeSource;
-        this.grpcOverallTimeout = config.grpcOverallTimeout();
+        this.globalGrpcTimeoutMs = config.grpcOverallTimeout();
         this.enableTls = config.enableTLS();
         this.maxIncomingBufferSize = config.maxIncomingBufferSize();
         this.metrics = metrics;
@@ -149,6 +151,12 @@ public class AddressBookFetcher implements AutoCloseable {
     }
 
     private BlockNodeClient fromBlockNodeSourceConfig(BlockNodeSourceConfig n) {
-        return new BlockNodeClient(n, grpcOverallTimeout, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning());
+        return new BlockNodeClient(
+                n,
+                globalGrpcTimeoutMs,
+                enableTls,
+                maxIncomingBufferSize,
+                RSA_DATA_MAX_PROTOBUF_MESSAGE_SIZE_BYTES,
+                n.grpcWebclientTuning());
     }
 }
