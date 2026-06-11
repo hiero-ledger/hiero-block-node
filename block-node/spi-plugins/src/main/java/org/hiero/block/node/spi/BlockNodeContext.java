@@ -85,8 +85,8 @@ public record BlockNodeContext(
             this.blockNodeVersions = context.blockNodeVersions;
             this.tssData = context.tssData;
             this.nodeAddressBook = context.nodeAddressBook;
-            this.storedBlocks = context.storedBlocks;
-            this.availableBlocks = context.availableBlocks;
+            this.storedBlocks = List.copyOf(context.storedBlocks);
+            this.availableBlocks = List.copyOf(context.availableBlocks);
         }
 
         public Builder tssData(TssData tssData) {

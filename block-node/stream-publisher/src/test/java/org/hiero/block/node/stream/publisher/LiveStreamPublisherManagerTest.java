@@ -8,6 +8,7 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.e
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.sendHeaderOnly;
 
 import com.swirlds.config.api.Configuration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -2832,8 +2833,8 @@ class LiveStreamPublisherManagerTest {
                 null,
                 null,
                 null,
-                null,
-                null);
+                new ArrayList<>(),
+                new ArrayList<>());
     }
 
     /// This method generates a [MetricsHolder] instance with default

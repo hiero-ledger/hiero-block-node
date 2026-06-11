@@ -55,12 +55,10 @@ message ServerStatusDetailResponse {
     proto.NodeAddressBook node_address_book = 4;
 
     /**
-     * Block availability information.<br/>
+     * Stored block range information.<br/>
      * A list of stored block ranges.
      */
     repeated BlockRange stored_ranges = 5;
-
-
 }
 
 /**

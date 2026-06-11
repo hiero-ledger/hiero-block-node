@@ -275,8 +275,8 @@ class CloudStorageArchiveIntegrationTest {
                 null,
                 null,
                 null,
-                null,
-                null);
+                new ArrayList<>(),
+                new ArrayList<>());
 
         final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
         plugin.init(ctx, null);

@@ -16,6 +16,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
@@ -70,7 +71,19 @@ class ZipBlockArchiveTest {
         // we need this test context because we need the health facility to be
         // available for the tests to run
         testContext = new BlockNodeContext(
-                null, null, new TestHealthFacility(), null, null, null, null, null, null, null, null, null, null);
+                null,
+                null,
+                new TestHealthFacility(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new ArrayList<>(),
+                new ArrayList<>());
         // the instance under test
         toTest = new ZipBlockArchive(testContext, testConfig);
     }

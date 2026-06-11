@@ -319,8 +319,8 @@ class AllBlocksHasherHandlerTest {
                 null,
                 null,
                 null,
-                null,
-                null);
+                new ArrayList<>(),
+                new ArrayList<>());
     }
 
     private void persistHasher(final Path hasherPath, final List<byte[]> blockHashes)

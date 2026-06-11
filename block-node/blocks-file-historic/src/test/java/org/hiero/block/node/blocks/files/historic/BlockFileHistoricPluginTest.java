@@ -205,8 +205,8 @@ class BlockFileHistoricPluginTest {
                     null,
                     null,
                     null,
-                    null,
-                    null);
+                    new ArrayList<>(),
+                    new ArrayList<>());
             // call
             final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
             assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));

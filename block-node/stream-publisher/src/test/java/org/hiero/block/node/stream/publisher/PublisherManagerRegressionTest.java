@@ -6,6 +6,7 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.e
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.sendHeaderOnly;
 
 import com.swirlds.config.api.Configuration;
+import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
@@ -406,7 +407,7 @@ class PublisherManagerRegressionTest {
                 null,
                 null,
                 null,
-                null,
-                null);
+                new ArrayList<>(),
+                new ArrayList<>());
     }
 }

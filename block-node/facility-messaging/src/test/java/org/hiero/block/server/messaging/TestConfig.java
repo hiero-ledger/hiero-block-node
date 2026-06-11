@@ -3,6 +3,7 @@ package org.hiero.block.server.messaging;
 
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
+import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -46,8 +47,8 @@ public class TestConfig {
                 null,
                 null,
                 null,
-                null,
-                null);
+                new ArrayList<>(),
+                new ArrayList<>());
     }
 
     public static BlockNodeContext generateContext(final ThreadPoolManager threadPoolManager) {
@@ -63,8 +64,8 @@ public class TestConfig {
                 null,
                 null,
                 null,
-                null,
-                null);
+                new ArrayList<>(),
+                new ArrayList<>());
     }
 
     /**
