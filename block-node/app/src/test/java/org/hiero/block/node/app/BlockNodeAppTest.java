@@ -862,10 +862,10 @@ class BlockNodeAppTest {
     }
 
     /**
-     * Test ApplicationStateFacility.
+     * Test block node ranges from onContextUpdate()
      */
     @Test
-    @DisplayName("Test ApplicationStateFacility")
+    @DisplayName("Test that block node ranges are received via onContextUpdate()")
     void testBlockRangesTriggerOnContextUpdate() throws IOException, InterruptedException {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);

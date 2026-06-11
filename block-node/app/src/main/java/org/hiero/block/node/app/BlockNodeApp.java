@@ -647,7 +647,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 && storedBlockRange.hashCode() == context.storedBlocks().hashCode()
                 && availableBlockRange.hashCode() == context.availableBlocks().hashCode()
                 && storedBlockRange.equals(context.storedBlocks())
-                && availableBlockRange.equals(context.storedBlocks())) {
+                && availableBlockRange.equals(context.availableBlocks())) {
             return false;
         }
 

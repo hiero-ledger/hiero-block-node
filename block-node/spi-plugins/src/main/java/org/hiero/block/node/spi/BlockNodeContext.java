@@ -39,6 +39,8 @@ import org.hiero.metrics.core.MetricRegistry;
  * @param blockNodeVersions the version information associated with a block node
  * @param tssData the tss information needed for block verification
  * @param nodeAddressBook the RSA node address book loaded at startup for WRB proof verification
+ * @param storedBlocks the current range of stored blocks
+ * @param availableBlocks the current range of available blocks
  */
 public record BlockNodeContext(
         Configuration configuration,

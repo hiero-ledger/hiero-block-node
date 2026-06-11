@@ -37,7 +37,7 @@ message ServerStatusDetailResponse {
     BlockNodeVersions version_information = 1;
 
     /**
-     * Block availability information.<br/>
+     * Available block range information.<br/>
      * A list of available block ranges.
      */
     repeated BlockRange available_ranges = 2;
