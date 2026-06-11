@@ -1,0 +1,73 @@
+{{- /*
+SPDX-License-Identifier: Apache-2.0
+*/}}
+Thank you for installing {{ .Chart.Name }} {{ .Chart.AppVersion }}.
+
+Release name: {{ .Release.Name }}
+Namespace:    {{ .Release.Namespace }}
+
+==> Access the Block Node
+
+To reach the Block Node from your local machine, run:
+
+  kubectl port-forward svc/{{ include "hiero-block-node.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Then connect gRPC clients to localhost:{{ .Values.service.port }}.
+
+{{- if or .Values.blockNode.ports.publisher .Values.blockNode.ports.subscriber .Values.blockNode.ports.blockAccess .Values.blockNode.ports.health .Values.blockNode.ports.serverStatus }}
+
+==> Per-Plugin Ports Active
+
+The following plugins have been assigned dedicated ports:
+{{- with .Values.blockNode.ports }}
+{{- if .publisher }}
+  publisher   (PRODUCER_PORT)    → {{ .publisher }}
+{{- end }}
+{{- if .subscriber }}
+  subscriber  (SUBSCRIBER_PORT)  → {{ .subscriber }}
+{{- end }}
+{{- if .blockAccess }}
+  blockAccess (BLOCK_ACCESS_PORT)→ {{ .blockAccess }}
+{{- end }}
+{{- if .health }}
+  health      (HEALTH_PORT)      → {{ .health }}
+{{- end }}
+{{- if .serverStatus }}
+  serverStatus(SERVER_STATUS_PORT)→ {{ .serverStatus }}
+{{- end }}
+{{- end }}
+
+To forward all active plugin ports locally, run:
+
+  kubectl port-forward svc/{{ include "hiero-block-node.fullname" . }} \
+  {{- with .Values.blockNode.ports }}
+  {{- if .publisher }} {{ .publisher }}:{{ .publisher }} \{{- end }}
+  {{- if .subscriber }} {{ .subscriber }}:{{ .subscriber }} \{{- end }}
+  {{- if .blockAccess }} {{ .blockAccess }}:{{ .blockAccess }} \{{- end }}
+  {{- if .health }} {{ .health }}:{{ .health }} \{{- end }}
+  {{- if .serverStatus }} {{ .serverStatus }}:{{ .serverStatus }}{{- end }}
+  {{- end }}
+
+{{- end }}
+
+==> Health Endpoints
+
+{{- $healthPort := default .Values.service.port .Values.blockNode.ports.health }}
+  Liveness:   http://localhost:{{ $healthPort }}{{ .Values.blockNode.health.liveness.endpoint }}
+  Readiness:  http://localhost:{{ $healthPort }}{{ .Values.blockNode.health.readiness.endpoint }}
+
+{{- if and (index .Values.blockNode.config "HEALTH_PORT") (not .Values.blockNode.ports.health) }}
+
+⚠ MIGRATION WARNING ⚠
+  HEALTH_PORT is set in blockNode.config but blockNode.ports.health is not set.
+  The liveness and readiness probes still target service.port ({{ .Values.service.port }}).
+  If HEALTH_PORT differs from service.port, probes WILL FAIL and the pod will not become Ready.
+  Fix: move the value to blockNode.ports.health and remove it from blockNode.config.
+{{- end }}
+
+==> Metrics
+
+  Prometheus metrics: http://localhost:{{ .Values.blockNode.metrics.port }}{{ .Values.blockNode.metrics.path }}
+
+  Port-forward metrics:
+    kubectl port-forward svc/{{ include "hiero-block-node.fullname" . }} {{ .Values.blockNode.metrics.port }}:{{ .Values.blockNode.metrics.port }}

@@ -155,6 +155,26 @@ blockNode:
   # and reference it via blockNode.persistence.plugins.existingClaim with plugins.names set to "".
   # if blank will use same as AppVersion of chart.
   version: ""
+  # Per-plugin port overrides. When null/unset, the plugin shares service.port (default: 40840).
+  # Setting a port here automatically:
+  #   - declares it as a named containerPort in the StatefulSet
+  #   - adds it to the ClusterIP Service
+  #   - injects the corresponding env var (no need to set it in blockNode.config too)
+  #   - allows hostPort binding via blockNode.hostPorts.<portName>
+  # Do NOT also set PRODUCER_PORT/SUBSCRIBER_PORT/etc. in blockNode.config when using this
+  # section — blockNode.ports is the single source of truth for per-plugin ports.
+  ports:
+    # gRPC port for block producers (env: PRODUCER_PORT). hostPorts key: publisher
+    publisher: null
+    # gRPC port for block subscribers (env: SUBSCRIBER_PORT). hostPorts key: subscriber
+    subscriber: null
+    # gRPC/HTTP port for block access/query API (env: BLOCK_ACCESS_PORT). hostPorts key: block-access
+    blockAccess: null
+    # HTTP port for /healthz endpoints (env: HEALTH_PORT). hostPorts key: health
+    # IMPORTANT: when set, liveness and readiness probes are automatically redirected to this port.
+    health: null
+    # HTTP port for server-status endpoint (env: SERVER_STATUS_PORT). hostPorts key: server-status
+    serverStatus: null
   config:
     # Add any additional env configuration here
     # key: value
