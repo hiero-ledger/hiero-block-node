@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+# WRB Differential Test Topology (Minimal): 1 CN, 2 BNs
+#
+# BN1: Receives live blocks from CN1 (normal mode)
+# BN2: Serves pre-wrapped blocks from historic storage (FILES_HISTORIC_ROOT_PATH)
+#
+# This topology validates core WRB functionality without Mirror Nodes:
+# - CN produces blocks
+# - BN1 receives and serves live blocks
+# - WRB CLI wraps blocks
+# - BN2 serves wrapped blocks from historic storage
+# - Both BNs serve identical blocks (validated via gRPC)
+#
+# CN1 → BN1
+# BN2 (historic only)
+#
+# NOTE: grpc_tuning.max_frame_size is set to 8MB to match server.http2.maxFrameSize and handle larger blocks.
+# This can be removed once Block Node v0.27+ is released, as the default
+# will be increased from 2MB to 8MB.
+
+name: wrb-differential-test-minimal
+description: "WRB differential test (minimal): 1 CN, 2 BNs (live + historic), no MN"
+
+block_nodes:
+  block-node-1:
+    address: block-node-1
+    port: 40840
+    greedy: false
+    grpc_tuning:
+      max_frame_size: 8388608  # 8MB to match server.http2.maxFrameSize and handle larger blocks
+
+  block-node-2:
+    address: block-node-2
+    port: 40840
+    greedy: false
+    # BN2 serves from historic storage only - no CN connection, no peers
+    # Will be configured via helm values to use FILES_HISTORIC_ROOT_PATH
+    grpc_tuning:
+      max_frame_size: 8388608
+
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-1]  # Only BN1 receives live blocks from CN
+
+# No Mirror Nodes in minimal topology - focus on core WRB wrapping/serving
+mirror_nodes: {}
+
+relay_nodes: {}
+
+explorer_nodes: {}

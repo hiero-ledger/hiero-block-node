@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Values override for Block Node serving ONLY from historic storage (FILES_HISTORIC_ROOT_PATH)
+#
+# Use case: WRB differential testing - serve pre-wrapped blocks to Mirror Node
+# for comparison against live blocks.
+#
+# This configuration:
+# - Disables live streaming plugins (stream-subscriber)
+# - Enables only historic file plugins (blocks-file-historic)
+# - Mounts wrapped blocks directory as historic storage
+# - Reduces resource requirements (no live processing)
+
+# Reduced resources for historic-only mode (no live processing)
+resources:
+  requests:
+    cpu: "2"
+    memory: "4Gi"
+  limits:
+    cpu: "2"
+    memory: "6Gi"
+
+# Plugin configuration: historic-only mode
+# Remove stream-subscriber (no live CN connection)
+# Keep blocks-file-historic (serve from FILES_HISTORIC_ROOT_PATH)
+# Keep block-access-service (gRPC API)
+# Keep health, server-status, facility-messaging
+plugins:
+  names: "facility-messaging,block-access-service,health,server-status,blocks-file-historic"
+
+blockNode:
+  config:
+    # Optional: Explicitly set FILES_HISTORIC_ROOT_PATH if needed
+    # FILES_HISTORIC_ROOT_PATH: "/opt/hiero/block-node/data/historic"
+
+    # Disable producer for historic-only mode (no new blocks to produce)
+    PRODUCER_TYPE: "NO_OP"
+
+    # Configure historic storage compression (match WRB CLI output)
+    FILES_HISTORIC_COMPRESSION: "ZSTD"
+    FILES_HISTORIC_POWERS_OF_TEN_PER_ZIP_FILE_CONTENTS: "4"  # 10,000 blocks per zip
+    FILES_HISTORIC_MAX_FILES_PER_DIR: "3"  # 3 digits per directory level
+
+  persistence:
+    archive:
+      # Historic storage volume - will be mounted from wrapped blocks directory
+      volumeName: "archive-storage"
+      subPath: "archive-data"
+      mountPath: "/opt/hiero/block-node/data/historic"
+      size: 100Gi  # Adjust based on wrapped blocks size
+
+    # Minimal live storage (not used in historic-only mode)
+    live:
+      volumeName: "live-storage"
+      subPath: "live-data"
+      mountPath: "/opt/hiero/block-node/data/live"
+      size: 1Gi  # Minimal size
+
+# Note: To mount wrapped blocks from host (for kind/local testing),
+# you'll need to either:
+# 1. Use a HostPath volume (via helm chart template modification)
+# 2. Pre-populate the archive PVC with an init container
+# 3. Use an existing PVC that contains the wrapped blocks
+#
+# Example hostPath configuration (add to blockNode.persistence.archive):
+#   hostPath:
+#     path: "/tmp/wrb-cli-phase2-validation/cli-wrapped-blocks"
+#     type: Directory
