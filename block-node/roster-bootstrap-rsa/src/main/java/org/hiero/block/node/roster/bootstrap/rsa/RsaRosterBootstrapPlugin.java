@@ -49,8 +49,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /// 1. If `context.nodeAddressBook()` is non-null: BlockNodeApp loaded it from the
 ///    bootstrap file — emit metrics.
 /// 2. If `blockNodeSourcesPath` is configured: query peer BNs via gRPC `serverStatusDetail`
-///    and extract the `NodeAddressBook`. Retries up to `peerQueryMaxRetries` times. On success,
-///    calls `applicationStateFacility.updateAddressBook()`.
+///    and extract the `NodeAddressBook`. On success, calls `applicationStateFacility.updateAddressBook()`.
 /// 3. If mn query is configured. Call Mirror Node REST API (`GET /api/v1/network/nodes`).
 /// 4. If neither source succeeds and `mirrorNodeBaseUrl` is blank: log `WARNING` and return.
 ///

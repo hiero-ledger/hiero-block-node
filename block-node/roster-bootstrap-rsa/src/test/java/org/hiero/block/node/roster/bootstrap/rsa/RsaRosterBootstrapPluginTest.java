@@ -384,7 +384,7 @@ class RsaRosterBootstrapPluginTest
         @TempDir
         Path tempDir;
 
-        private Map<String, String> peerConfig(String sourcesPath, int maxRetries) {
+        private Map<String, String> peerConfig(String sourcesPath) {
             return Map.of(
                     "roster.bootstrap.rsa.blockNodeSourcesPath",
                     sourcesPath,
@@ -408,10 +408,7 @@ class RsaRosterBootstrapPluginTest
                     "{\"nodes\":[{\"address\":\"localhost\",\"port\":" + server.port() + ",\"priority\":1}]}";
             final String sourcesPath = writePeerSourcesFile(json);
 
-            start(
-                    new RsaRosterBootstrapPlugin(),
-                    new SimpleInMemoryHistoricalBlockFacility(),
-                    peerConfig(sourcesPath, 3));
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), peerConfig(sourcesPath));
 
             // Execute the peer-query task
             testThreadPoolManager.scheduledExecutor().executeSerially();
@@ -458,7 +455,7 @@ class RsaRosterBootstrapPluginTest
         }
 
         @Test
-        @DisplayName("request TssData from a peer bn ")
+        @DisplayName("request Node Address Book from a peer bn ")
         void requestRsaDataFromPeerBN() throws IOException, InterruptedException {
             final TestBlockNodeServer server1 = new TestBlockNodeServer(0, new SimpleInMemoryHistoricalBlockFacility());
             testBlockNodeServers.add(server1);
@@ -481,6 +478,7 @@ class RsaRosterBootstrapPluginTest
                     .bnSubsequentQueryIntervalMillis(10_000)
                     .maxIncomingBufferSize(104_857_600)
                     .enableTLS(false) // start quickly
+                    .grpcOverallTimeout(10_000)
                     .build();
 
             final int[] contextUpdated = {0};
