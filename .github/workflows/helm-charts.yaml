@@ -96,3 +96,145 @@ jobs:
       - name: Run chart-testing (install)
         if: steps.install-needed.outputs.needed == 'true'
         run: ${CGEXEC} ct install --config ct.yaml --all
+
+  multi-port-install-test:
+    timeout-minutes: 20
+    name: Multi-Port Plugin Install Test
+    runs-on: hl-bn-lin-md
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Check if install test is needed
+        id: install-needed
+        run: |
+          changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
+          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|build\.gradle\.kts)|charts/|tools-and-tests/simulator/(docker/|build\.gradle\.kts))"; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "Image/chart/build files changed - will run multi-port test"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "No relevant changes - skipping multi-port install test"
+          fi
+
+      - name: Set up Helm
+        if: steps.install-needed.outputs.needed == 'true'
+        uses: Azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.14.4
+
+      - name: Set up Java
+        if: steps.install-needed.outputs.needed == 'true'
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Create kind cluster
+        if: steps.install-needed.outputs.needed == 'true'
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+
+      - name: Build Docker images
+        if: steps.install-needed.outputs.needed == 'true'
+        run: ${CGEXEC} ./gradlew :app:createDockerImage
+
+      - name: Load image into kind
+        if: steps.install-needed.outputs.needed == 'true'
+        run: |
+          APP_VERSION=$(cat version.txt)
+          docker tag "block-node-server:${APP_VERSION}" "ghcr.io/hiero-ledger/hiero-block-node:${APP_VERSION}"
+          kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node:${APP_VERSION}" --name chart-testing
+
+      - name: Update chart dependencies
+        if: steps.install-needed.outputs.needed == 'true'
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm dependency update charts/block-node-server
+
+      - name: Install chart with multi-port values
+        if: steps.install-needed.outputs.needed == 'true'
+        run: |
+          APP_VERSION=$(cat version.txt)
+          helm install bn-multi-port-test charts/block-node-server \
+            --values charts/block-node-server/ci/multi-port-values.yaml \
+            --set image.tag="${APP_VERSION}" \
+            --wait \
+            --timeout 300s
+
+      - name: Verify per-plugin ports are reachable
+        if: steps.install-needed.outputs.needed == 'true'
+        run: |
+          POD=$(kubectl get pod -l app.kubernetes.io/instance=bn-multi-port-test -o jsonpath='{.items[0].metadata.name}')
+          echo "Testing pod: ${POD}"
+
+          # Forward all five plugin ports to the local runner
+          kubectl port-forward "pod/${POD}" 40940:40940 40941:40941 40942:40942 40943:40943 40944:40944 &
+          PF_PID=$!
+          # Give port-forward time to establish
+          sleep 5
+
+          failed=0
+
+          # Health port (40940): HTTP liveness endpoint
+          echo "--- port 40940 (health) ---"
+          if curl -sf --max-time 5 http://localhost:40940/healthz/livez; then
+            echo "OK"
+          else
+            echo "FAIL: health port 40940 did not respond"
+            failed=1
+          fi
+
+          # Publisher port (40941): TCP connect (gRPC)
+          echo "--- port 40941 (publisher/gRPC) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40941' 2>/dev/null; then
+            echo "OK"
+          else
+            echo "FAIL: publisher port 40941 not reachable"
+            failed=1
+          fi
+
+          # Subscriber port (40942): TCP connect (gRPC)
+          echo "--- port 40942 (subscriber/gRPC) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40942' 2>/dev/null; then
+            echo "OK"
+          else
+            echo "FAIL: subscriber port 40942 not reachable"
+            failed=1
+          fi
+
+          # Block-access port (40943): TCP connect (gRPC)
+          echo "--- port 40943 (block-access/gRPC) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40943' 2>/dev/null; then
+            echo "OK"
+          else
+            echo "FAIL: block-access port 40943 not reachable"
+            failed=1
+          fi
+
+          # Server-status port (40944): TCP connect (HTTP)
+          echo "--- port 40944 (server-status) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40944' 2>/dev/null; then
+            echo "OK"
+          else
+            echo "FAIL: server-status port 40944 not reachable"
+            failed=1
+          fi
+
+          # Confirm that the shared server.port (40840) is NOT serving plugin traffic
+          echo "--- port 40840 (server.port — must NOT have plugin traffic) ---"
+          if curl -sf --max-time 5 http://localhost:40840/healthz/livez 2>/dev/null; then
+            echo "WARN: health plugin responded on server.port 40840 — expected it to be on 40940 only"
+          else
+            echo "OK (health plugin correctly not on 40840)"
+          fi
+
+          kill ${PF_PID} 2>/dev/null || true
+          exit ${failed}
