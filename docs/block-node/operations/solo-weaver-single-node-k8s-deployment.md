@@ -33,9 +33,9 @@ Before you begin, ensure you have:
 
 7. Leave other instance settings at defaults for a standard deployment.
 
-8. Click **Create** to launch the VM.
+8. Click **Create** to launch the VM.
 
-9. Wait until the instance status is **Running** before proceeding.
+9. Wait until the instance status is **Running** before proceeding.
 
 ### Step 2: Install Solo Provisioner
 
@@ -197,12 +197,12 @@ After completing the setup, confirm that your Block Node is deployed and running
       ```bash
       kubectl get pods -A
       ```
-   2. Look for Block Node pods. Ensure they show **`Running`** status and all containers are ready (e.g., **`1/1`** or **`2/2`**).
+   2. Look for Block Node pods. Ensure they show **`Running`** status and all containers are ready (e.g., **`1/1`** or **`2/2`**).
 2. Verify with **K9s** (optional):
 
    If you prefer a text-based Kubernetes dashboard:
 
-   1. Ensure [**Install `k9s`**](https://k9scli.io/) is available on your VM or on a machine that can reach the cluster.
+   1. Ensure [**Install `k9s`**](https://k9scli.io/) is available on your VM or on a machine that can reach the cluster.
 
    2. To Inspect pods, namespaces, and logs. Run:
 
@@ -229,7 +229,7 @@ If the pods are running and healthy, your Block Node is successfully installed a
    sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
    rm grpcurl.tar.gz
    ```
-2. **Download and extract the latest protobuf files** from the official release:
+2. **Download and extract the latest protobuf files** from the official release:
 
    ```bash
    curl -s https://api.github.com/repos/hiero-ledger/hiero-block-node/releases/latest | grep "browser_download_url.*block-node-protobuf.*tgz" | cut -d : -f 2,3 | tr -d \" | wget -qi -
@@ -268,23 +268,23 @@ If the pods are running and healthy, your Block Node is successfully installed a
 
 If you need to permanently remove a Block Node deployment (for decommissioning, upgrades, or migration):
 
-- **Test environments:** Delete the VM from the Compute Engine page in Google Cloud Console to remove all associated resources.
-- **Production nodes:** Follow organizational and project-specific procedures for graceful shutdown, backup, and ongoing monitoring to avoid service interruption or data loss.
+- **Test environments:** Delete the VM from the Compute Engine page in Google Cloud Console to remove all associated resources.
+- **Production nodes:** Follow organizational and project-specific procedures for graceful shutdown, backup, and ongoing monitoring to avoid service interruption or data loss.
 
 ## Troubleshooting
 
 See below for common errors, causes, and solutions during Block Node setup:
 
 1. Error: “Profile not set”
-   - **Cause:** The **`Block Node install`** command was run without specifying a profile.
-   - **Fix:** Re-run with a valid profile, for example:
+   - **Cause:** The **`Block Node install`** command was run without specifying a profile.
+   - **Fix:** Re-run with a valid profile, for example:
 
      ```bash
      sudo solo-provisioner block node install -p testnet
      ```
 2. Error: “Requires super user privilege”
-   - **Cause:** The **`block node install -p`** command was run without **`sudo`**.
-   - **Fix:** Add **`sudo`** before your command:
+   - **Cause:** The **`block node install -p`** command was run without **`sudo`**.
+   - **Fix:** Add **`sudo`** before your command:
 
    ```bash
    sudo solo-provisioner block node install -p testnet
