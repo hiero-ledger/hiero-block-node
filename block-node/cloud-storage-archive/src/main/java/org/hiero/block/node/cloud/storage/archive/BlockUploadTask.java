@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.archive;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.util.Objects.requireNonNull;
@@ -183,8 +184,12 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
                     }
                 } catch (InterruptedException e) {
                     LOGGER.log(TRACE, "Block upload task interrupted", e);
-                    cleanupEmptyUpload(s3, uploadId, etags);
-                    // TODO(1166) Do something with the result of the cleanup (if it is false)
+                    if (!cleanupEmptyUpload(s3, uploadId, etags)) {
+                        LOGGER.log(
+                                DEBUG,
+                                "Incomplete multipart upload {0} was not aborted and may linger in S3",
+                                uploadId);
+                    }
                     throw e;
                 } catch (IOException e) {
                     LOGGER.log(TRACE, "Failed to accumulate block %d".formatted(blockNum), e);
@@ -308,7 +313,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
                     new PersistedNotification(first.getKey(), false, 1_000, first.getValue()));
             LOGGER.log(INFO, "Failed to upload final part for key {0}", key, e);
             partResult = UploadResult.FAILED;
-            // TODO(1166) Make sure that we do our best to upload this block
+            // Consistent with flushPartIfNeeded(): false notification signals failure; no retry here.
         }
         if (partResult == UploadResult.SUCCESS) {
             final Map.Entry<Long, BlockSource> last = blocksInBuffer.lastEntry();
@@ -354,7 +359,6 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
         final String etag = s3.multipartUploadPart(key, uploadId, partNumber, buffer);
         etags.add(etag);
         LOGGER.log(TRACE, "Uploaded part {0}, etag {1}", partNumber, etag);
-        // TODO(1166) catch exception in the method body and return false as method result (otherwise true)
     }
 
     /// Splits `buffer` into a [partSizeBytes]-sized part and a remainder, delegates the upload to
