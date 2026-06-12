@@ -32,6 +32,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.verification.session.HapiVersionSessionFactory;
 import org.hiero.block.node.verification.session.VerificationProofMetrics;
@@ -480,8 +481,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private void sendFailureNotification(final long blockNumber, final BlockSource source) {
         verificationBlocksError.increment();
         // Return a success=false notification to indicate failure and include the block number.
-        VerificationNotification notification =
-                new VerificationNotification(false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, source);
+        VerificationNotification notification = new VerificationNotification(
+                false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, source);
         context.blockMessaging().sendBlockVerification(notification);
     }
 

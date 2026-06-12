@@ -28,6 +28,7 @@ import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.AfterEach;
@@ -231,7 +232,7 @@ class BlockFileRecentPluginTest {
             // send verified block notification with failure
             blockMessaging.sendBlockVerification(new VerificationNotification(
                     false,
-                    FailureType.BAD_BLOCK_PROOF,
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                     blockNumber,
                     Bytes.EMPTY,
                     block.blockUnparsed(),
