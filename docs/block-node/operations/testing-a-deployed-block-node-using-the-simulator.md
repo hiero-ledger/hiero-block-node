@@ -9,6 +9,9 @@ This guide walks you through testing your Block Node deployment using a simulato
 The testing process uses a Docker Compose file to create a simulator publisher container.
 This container streams blocks to your deployed Block Node, verifying connectivity and block processing functionality.
 
+For production-scale load testing using real Consensus Nodes and the Network Load Generator, see
+[Load Testing a Deployed Block Node Using Solo and NLG](./load-testing-a-deployed-block-node-using-solo-and-nlg.md).
+
 ## Prerequisites
 
 Before you begin, ensure you have:
