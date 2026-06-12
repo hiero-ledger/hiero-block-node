@@ -178,3 +178,5 @@ Note 2: Some steps are marked as intermediate, indicating they will change due t
 ```bash
 task clear-release
 ```
+
+> **See also:** [Resetting and Upgrading the Block Node](./resetting-and-upgrading-the-block-node.md) - covers when and why to reset or upgrade, pre- and post-operation checks, rollback, and troubleshooting that complement the one-line commands above.
