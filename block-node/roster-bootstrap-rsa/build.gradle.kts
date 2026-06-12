@@ -3,10 +3,16 @@ plugins { id("org.hiero.gradle.module.library") }
 
 description = "Hiero Block Node RSA Roster Bootstrap Plugin"
 
-mainModuleInfo { runtimeOnly("com.swirlds.config.impl") }
+mainModuleInfo {
+    runtimeOnly("com.swirlds.config.impl")
+    runtimeOnly("com.hedera.pbj.grpc.helidon.config")
+    runtimeOnly("com.hedera.pbj.grpc.client.helidon")
+    runtimeOnly("com.hedera.pbj.grpc.helidon")
+}
 
 testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.hiero.block.node.app.test.fixtures")
     requires("jdk.httpserver")
+    requires("org.mockito")
 }
