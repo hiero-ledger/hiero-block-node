@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package org.hiero.block.api;
+
+option java_package = "org.hiero.block.api.protoc";
+// <<<pbj.java_package = "org.hiero.block.api">>> This comment is special code for setting PBJ Compiler java package
+option java_multiple_files = true;
+
+/// A set of network endpoints representing communication channels required
+/// for a particular system to interact with other systems.
+///
+/// The `active_endpoints` field MUST NOT be empty.
+message NetworkData {
+    /// A list of network endpoints.
+    /// <p>
+    /// This field is REQUIRED.<br/>
+    /// This field MUST NOT be empty.
+    repeated NetworkConnection active_endpoints = 1;
+}
+
+/// A single network endpoint reference, describing communication between
+/// the producing system and a single remote API endpoint.
+/// The connection describes both a `local` and a `remote` endpoint.
+/// Local and remote do not define the direction of communication, any
+/// given connection may be either ingress or egress, depending on context
+/// external to this document.
+///
+/// Both `local` and `remote` are REQUIRED.
+/// Depending on the type of connection, either `local` or `remote` MAY
+/// use "wildcard" syntax, but wildcard syntax MUST NOT be used for both.
+message NetworkConnection {
+    /// A local endpoint that receives requests from the `remote` endpoint or
+    /// that makes requests to the `remote` endpoint.
+    ConnectionReference local = 1;
+
+    /// A remote endpoint that the producing system connects to or that
+    /// connects to the `local` endpoint.
+    ConnectionReference remote = 2;
+
+    /// A category for this connection.
+    /// The intent for this value is to match the traffic management categories
+    /// used by network management systems to apply quality of service rules.
+    ///
+    /// Categories are defined by the producing system, but MUST match agreed
+    /// quality of service tags for the management system that consumes
+    /// this API.
+    string category = 3;
+
+    /// The connection scheme as defined in
+    /// [RFC 3986 Section 3.1](https://www.rfc-editor.org/info/rfc3986/#section-3.1).
+    string scheme = 4;
+
+    /// The IP protocol (TCP or UDP) for this connection
+    IpProtocol protocol = 5;
+
+    /// Flag indicating if TLS is required for this connection.
+    bool tls_required = 6;
+
+    /// An X.509 certificate that acts as issuing authority for the TLS
+    /// handshake for this connection.
+    ///
+    /// If `tls_required` is set to `true` and the `remote` connection is
+    /// specific, then this field is REQUIRED.
+    bytes certificate = 7;
+
+    /// A reference for a single connection.
+    ///
+    /// All fields are REQUIRED.
+    message ConnectionReference {
+        /// A network address.
+        ///
+        /// This may be a FQDN or IP address.
+        /// This value MAY be `*` to indicate "any address".
+        string address = 1;
+
+        /// A network port.
+        ///
+        /// This value MAY be `*` to indicate "any port".
+        string port = 2;
+    }
+
+    /// The Internet Protocol type for this connection
+    enum IpProtocol {
+        /// This indicates that a field is unset.
+        UNIDENTIFIED = 0;
+
+        /// Transmission Control Protocol
+        TCP = 1;
+
+        /// User Datagram Protocol
+        UDP = 2;
+    }
+}
