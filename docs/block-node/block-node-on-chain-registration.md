@@ -58,7 +58,7 @@ The `BlockNodeApi` values:
 | `STATE_PROOF`      | The Block Node State Proof API.                                                                                                               |
 | `OTHER`            | Any other Block Node API; the consumer must consult node-specific documentation and is recommended to query the detail status endpoint first. |
 
-A single endpoint may declare multiple values from this enum if it serves more than one API on the same host/port. Most production deployments split APIs across endpoints - for example, one endpoint for `PUBLISH` and a separate endpoint for `SUBSCRIBE_STREAM` - because the bandwidth and security profiles differ. The default gRPC port for the Block Node is `40840`; see [Block Node Configuration](./configuration.md) for the operator-side configuration of the underlying service.
+A single endpoint may declare multiple values from this enum if it serves more than one API on the same host/port. Most production deployments split APIs across endpoints - for example, one endpoint for `PUBLISH` and a separate endpoint for `SUBSCRIBE_STREAM` - because the bandwidth and security profiles differ. Even when endpoints are spread across different hosts, they all belong to one logical node — any client connecting to any of them must see the same block data. The default gRPC port for the Block Node is `40840`; see [Block Node Configuration](./configuration.md) for the operator-side configuration of the underlying service.
 
 ### Which APIs to declare for your deployment
 
