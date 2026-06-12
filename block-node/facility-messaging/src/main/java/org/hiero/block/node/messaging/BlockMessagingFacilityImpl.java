@@ -401,8 +401,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     if (percentageBehindRingHead > 80 && evicted.compareAndSet(false, true)) {
                         // Check lag BEFORE dispatching: if already too far behind, evict now rather
                         // than calling handleBlockItemsReceived (which might block indefinitely).
-                        unregisterBlockItemHandler(handler);
                         handler.onTooFarBehindError();
+                        unregisterBlockItemHandler(handler);
                         return;
                     }
                     handler.handleBlockItemsReceived(event.get());
@@ -670,8 +670,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         final BatchEventProcessor<E> batchEventProcessor = new BatchEventProcessorBuilder()
                 .build(ringBuffer, barrier, (event, sequence, endOfBatch) -> {
                     // calculate position in the ring buffer
-                    final double percentageBehindHead = (100d
-                            * ((double) (ringBuffer.getCursor() - sequence) / (double) ringBuffer.getBufferSize()));
+                    final double percentageBehindHead =
+                            (100d * ((double) (barrier.getCursor() - sequence) / (double) ringBuffer.getBufferSize()));
                     // send on the event
                     informedEventHandler.onEvent(event, sequence, endOfBatch, percentageBehindHead);
                 });

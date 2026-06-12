@@ -311,7 +311,7 @@ public class BlockNodeAPITests {
 
         awaitLatch(blockItemsSubscribe1Latch, "historical subscription");
         // block items, end block, and success status
-        assertThat(subscribeResponseObserver.getOnNextCalls()).hasSize(4);
+        assertThat(subscribeResponseObserver.getOnNextCalls()).hasSize(3);
         assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
 
         final SubscribeStreamResponse subscribeResponse0 =
