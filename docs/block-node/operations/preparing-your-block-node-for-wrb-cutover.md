@@ -226,9 +226,22 @@ The `roster-bootstrap-rsa` plugin must have the RSA public-key roster at startup
 
 When `roster.bootstrap.rsa.mirrorNodeBaseUrl` is set in your `block-node-values.yaml`, the plugin fetches the roster from the Mirror Node REST API at startup and caches it locally. After `block node reset`, the cached copy is cleared along with the rest of the storage directories and is automatically re-fetched on the next pod start — no manual intervention is needed. Before the cutover window, confirm outbound connectivity to the Mirror Node is available from the BN host.
 
-<!-- src: hiero-block-node@fa8afa83:block-node/roster-bootstrap-rsa/src/main/java/org/hiero/block/node/roster/bootstrap/rsa/RsaRosterBootstrapPlugin.java (fetch + retry + abort logic) -->
+<!-- src: hiero-block-node@fa8afa83:block-node/roster-bootstrap-rsa/src/main/java/org/hiero/block/node/roster/bootstrap/rsa/RsaRosterBootstrapPlugin.java (three-source strategy; concurrent peer BN and Mirror Node queries) -->
 
-> Note: If the Mirror Node URL is configured but the Mirror Node is unreachable, the BN polls indefinitely until the roster is fetched, logging each failed attempt at `ERROR` level. WRB proof verification will not function until the roster is available.
+> Note: If the Mirror Node is unreachable, the plugin polls indefinitely — every 5 seconds until the first roster is fetched, then every 60 seconds for periodic refresh. Both intervals are configurable. WRB proof verification is non-functional until the roster is available.
+
+**Peer Block Node query (optional)**
+
+When `roster.bootstrap.rsa.blockNodeSourcesPath` is set, the plugin also queries configured peer Block Nodes via gRPC to retrieve the address book. This runs concurrently with the Mirror Node query when no bootstrap file is present; whichever responds first provides the initial roster. The peer BN query follows the same two-phase polling schedule (5-second initial interval, 60-second subsequent interval, both configurable). Configure the path to a JSON file listing your peer Block Nodes:
+
+```json
+{
+  "nodes": [
+    { "address": "10.0.0.1", "port": 8080, "priority": 1, "name": "peer-bn-1" },
+    { "address": "10.0.0.2", "port": 8080, "priority": 2, "name": "peer-bn-2" }
+  ]
+}
+```
 
 **Manual file (alternative)**
 
