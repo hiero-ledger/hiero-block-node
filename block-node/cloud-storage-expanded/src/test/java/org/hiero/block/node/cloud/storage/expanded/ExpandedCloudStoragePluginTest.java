@@ -33,6 +33,7 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -104,7 +105,12 @@ class ExpandedCloudStoragePluginTest
     /// the plugin must skip the upload for these notifications.
     private VerificationNotification failedNotification(final long blockNumber) {
         return new VerificationNotification(
-                false, FailureType.BAD_BLOCK_PROOF, blockNumber, Bytes.EMPTY, null, BlockSource.UNKNOWN);
+                false,
+                FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                blockNumber,
+                Bytes.EMPTY,
+                null,
+                BlockSource.UNKNOWN);
     }
 
     /// Drives the plugin's drain loop and polls until at least `expectedCount`
