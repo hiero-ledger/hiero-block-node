@@ -236,7 +236,19 @@ grpcurl -plaintext -emit-defaults \
 
 ## Full uninstall (when reset is not enough)
 
-If you need to remove the Block Node entirely - PVCs, PVs, namespace, the lot - use:
+### Path A: Solo Provisioner-managed deployments
+
+`sudo solo-provisioner block node uninstall` removes the StatefulSet but leaves PVs and PVCs intact — block data is preserved on disk. Note that `reconfigure --with-reset` is an exception to this rule: it wipes data inside volumes and also deletes the PVs and PVCs. If you need to remove PVs and PVCs without a reconfigure, the only supported path is a full cluster teardown:
+
+```bash
+sudo solo-provisioner kube cluster uninstall
+```
+
+> **Caution:** `kube cluster uninstall` tears down the entire Kubernetes cluster and all resources within it. Use only if you intend to decommission the cluster entirely, not just the Block Node.
+
+### Path B: Manual Taskfile-managed deployments
+
+If you need to remove the Block Node entirely — PVCs, PVs, namespace, the lot - use:
 
 ```bash
 task clear-release
