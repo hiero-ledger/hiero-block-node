@@ -37,7 +37,7 @@ message ServerStatusDetailResponse {
     BlockNodeVersions version_information = 1;
 
     /**
-     * Block availability information.<br/>
+     * Available block range information.<br/>
      * A list of available block ranges.
      */
     repeated BlockRange available_ranges = 2;
@@ -53,6 +53,12 @@ message ServerStatusDetailResponse {
      * Node Id, rsa public key information
      */
     proto.NodeAddressBook node_address_book = 4;
+
+    /**
+     * Stored block range information.<br/>
+     * A list of stored block ranges.
+     */
+    repeated BlockRange stored_ranges = 5;
 }
 
 /**

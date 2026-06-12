@@ -4,9 +4,9 @@ package org.hiero.block.node.stream.publisher;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.swirlds.config.api.Configuration;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
-import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.TestUtils;
@@ -314,8 +314,10 @@ class LiveStreamPublisherManagerFlowControlTest {
                 null,
                 null,
                 threadPoolManager,
-                BlockNodeVersions.DEFAULT,
                 null,
-                null);
+                null,
+                null,
+                new ArrayList<>(),
+                new ArrayList<>());
     }
 }

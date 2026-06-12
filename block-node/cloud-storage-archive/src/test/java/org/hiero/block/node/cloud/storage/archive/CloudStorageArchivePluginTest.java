@@ -38,8 +38,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Stream;
-import org.hiero.block.api.BlockNodeVersions;
-import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
@@ -207,9 +205,11 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     null,
-                    BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT,
-                    com.hedera.hapi.node.base.NodeAddressBook.DEFAULT);
+                    null,
+                    null,
+                    null,
+                    new ArrayList<>(),
+                    new ArrayList<>());
             final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
             assertThatNoException().isThrownBy(() -> plugin.init(testContext, null));
         }
@@ -235,9 +235,11 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     null,
-                    BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT,
-                    com.hedera.hapi.node.base.NodeAddressBook.DEFAULT);
+                    null,
+                    null,
+                    null,
+                    new ArrayList<>(),
+                    new ArrayList<>());
             new CloudStorageArchivePlugin().init(testContext, null);
             assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
         }
@@ -297,9 +299,11 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     null,
-                    BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT,
-                    com.hedera.hapi.node.base.NodeAddressBook.DEFAULT);
+                    null,
+                    null,
+                    null,
+                    new ArrayList<>(),
+                    new ArrayList<>());
             new CloudStorageArchivePlugin().init(testContext, null);
             assertThat(messaging.getBlockNotificationHandlerCount()).isOne();
         }
@@ -1316,9 +1320,11 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     testThreadPoolManager,
-                    BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT,
-                    null);
+                    null,
+                    null,
+                    null,
+                    new ArrayList<>(),
+                    new ArrayList<>());
             final CloudStorageArchivePlugin failingPlugin = new CloudStorageArchivePlugin();
             failingPlugin.init(failingContext, null);
             // start() submits the recovery task to the shared BlockingExecutor.

@@ -6,8 +6,8 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.e
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.sendHeaderOnly;
 
 import com.swirlds.config.api.Configuration;
+import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
-import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
@@ -404,8 +404,10 @@ class PublisherManagerRegressionTest {
                 applicationStateFacility,
                 serviceLoader,
                 threadPoolManager,
-                BlockNodeVersions.DEFAULT,
                 null,
-                null);
+                null,
+                null,
+                new ArrayList<>(),
+                new ArrayList<>());
     }
 }

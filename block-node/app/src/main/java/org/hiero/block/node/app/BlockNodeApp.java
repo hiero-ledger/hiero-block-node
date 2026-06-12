@@ -69,6 +69,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
@@ -240,7 +241,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 threadPoolManager,
                 versionInfo(loadedPlugins),
                 null,
-                null);
+                null,
+                new ArrayList<>(),
+                new ArrayList<>());
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders; null port in plugin registrations resolves to server.port
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl(serverConfig.port());
@@ -573,7 +576,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             persistNodeAddressBook(addressBook);
         }
 
-        if (updateBlockNodeContext(tssData, addressBook)) {
+        if (updateBlockNodeContext(tssData, addressBook, storedBlocks, availableBlocks)) {
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
             LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
         }
@@ -632,12 +635,23 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * @param addressBook the NodeAddressBook to consider; may be null
      * @return {@code true} if the BlockNodeContext was updated
      */
-    private boolean updateBlockNodeContext(TssData tssData, NodeAddressBook addressBook) {
-        if (tssData == null && addressBook == null) {
+    private boolean updateBlockNodeContext(
+            TssData tssData, NodeAddressBook addressBook, BlockRangeSet storedBlocks, BlockRangeSet availableBlocks) {
+        BlockNodeContext context = blockNodeContext;
+
+        List<BlockRange> storedBlockRange = toBlockRange(storedBlocks);
+        List<BlockRange> availableBlockRange = toBlockRange(availableBlocks);
+
+        if (tssData == null
+                && addressBook == null
+                && storedBlockRange.hashCode() == context.storedBlocks().hashCode()
+                && availableBlockRange.hashCode() == context.availableBlocks().hashCode()
+                && storedBlockRange.equals(context.storedBlocks())
+                && availableBlockRange.equals(context.availableBlocks())) {
             return false;
         }
 
-        BlockNodeContext.Builder builder = new Builder(blockNodeContext);
+        BlockNodeContext.Builder builder = new Builder(context);
         if (tssData != null) {
             builder.tssData(tssData);
         }
@@ -645,11 +659,31 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (addressBook != null) {
             builder.nodeAddressBook(addressBook);
         }
+
+        if (storedBlockRange.hashCode() != context.storedBlocks().hashCode()
+                || !storedBlockRange.equals(context.storedBlocks())) {
+            builder.storedBlocks(storedBlockRange);
+        }
+
+        if (availableBlockRange.hashCode() != context.availableBlocks().hashCode()
+                || !availableBlockRange.equals(context.availableBlocks())) {
+            builder.availableBlocks(availableBlockRange);
+        }
         LOGGER.log(INFO, "BlockNodeContext updated");
 
         // update the BlockNodeContext
         blockNodeContext = builder.build();
         return true;
+    }
+
+    /**
+     * Convert BlockRangeSet to BlockRange
+     */
+    private List<BlockRange> toBlockRange(BlockRangeSet blockRangeSet) {
+        return blockRangeSet
+                .streamRanges()
+                .map(longRange -> new BlockRange(longRange.start(), longRange.end()))
+                .toList();
     }
 
     /**

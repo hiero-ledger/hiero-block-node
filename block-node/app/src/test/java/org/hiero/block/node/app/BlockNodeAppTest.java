@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
@@ -316,6 +317,8 @@ class BlockNodeAppTest {
         private final AtomicInteger contextUpdated = new AtomicInteger(0);
         private volatile CountDownLatch latch = new CountDownLatch(0);
 
+        private BlockNodeContext context = null;
+
         /** Call before the action under test to set how many `onContextUpdate` calls are expected. */
         void expectContextUpdates(final int count) {
             latch = new CountDownLatch(count);
@@ -335,8 +338,13 @@ class BlockNodeAppTest {
             return contextUpdated.get();
         }
 
+        BlockNodeContext getContext() {
+            return context;
+        }
+
         @Override
         public void onContextUpdate(final BlockNodeContext context) {
+            this.context = context;
             contextUpdated.incrementAndGet();
             latch.countDown();
         }
@@ -851,5 +859,40 @@ class BlockNodeAppTest {
         assertEquals(new LongRange(1000, 1049), availableRanges.getFirst());
 
         app2.stopApplicationStateFacility();
+    }
+
+    /**
+     * Test block node ranges from onContextUpdate()
+     */
+    @Test
+    @DisplayName("Test that block node ranges are received via onContextUpdate()")
+    void testBlockRangesTriggerOnContextUpdate() throws IOException, InterruptedException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+        final TestPlugin testPlugin = new TestPlugin();
+
+        // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
+        blockNodeApp.startApplicationStateFacility();
+        blockNodeApp.loadedPlugins.add(testPlugin);
+        testPlugin.expectContextUpdates(1);
+        blockNodeApp.addStoredBlockRange(new LongRange(0, 999));
+        blockNodeApp.addAvailableBlockRange(new LongRange(1000, 1049));
+
+        // wait for the ApplicationStateFacility scanner to pick up the update
+        testPlugin.awaitContextUpdates(5);
+
+        BlockNodeContext context = testPlugin.getContext();
+        assertNotNull(context);
+        assertFalse(context.availableBlocks().isEmpty());
+        assertFalse(context.storedBlocks().isEmpty());
+        BlockRange availableBlocks = context.availableBlocks().getFirst();
+        BlockRange storedBlocks = context.storedBlocks().getFirst();
+        assertEquals(0L, storedBlocks.rangeStart());
+        assertEquals(1049L, storedBlocks.rangeEnd()); // available blocks updates stored blocks
+        assertEquals(1000L, availableBlocks.rangeStart());
+        assertEquals(1049L, availableBlocks.rangeEnd());
+
+        // stop the ApplicationStateFacility manually as blockNodeApp.shutdown() is not being called
+        blockNodeApp.stopApplicationStateFacility();
     }
 }

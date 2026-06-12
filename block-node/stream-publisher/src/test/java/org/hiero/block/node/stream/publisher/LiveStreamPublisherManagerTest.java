@@ -8,6 +8,7 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.e
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.sendHeaderOnly;
 
 import com.swirlds.config.api.Configuration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +20,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
-import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
@@ -2830,9 +2830,11 @@ class LiveStreamPublisherManagerTest {
                 applicationStateFacility,
                 serviceLoader,
                 threadPoolManager,
-                BlockNodeVersions.DEFAULT,
                 null,
-                null);
+                null,
+                null,
+                new ArrayList<>(),
+                new ArrayList<>());
     }
 
     /// This method generates a [MetricsHolder] instance with default

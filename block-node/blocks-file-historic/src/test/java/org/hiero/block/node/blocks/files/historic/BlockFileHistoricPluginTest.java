@@ -29,7 +29,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -203,9 +202,11 @@ class BlockFileHistoricPluginTest {
                     new TestThreadPoolManager<>(
                             new BlockingExecutor(new LinkedBlockingQueue<>()),
                             new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
-                    BlockNodeVersions.DEFAULT,
                     null,
-                    null);
+                    null,
+                    null,
+                    new ArrayList<>(),
+                    new ArrayList<>());
             // call
             final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
             assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));

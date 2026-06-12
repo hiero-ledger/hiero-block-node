@@ -20,6 +20,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
@@ -186,6 +187,15 @@ public abstract class PluginTestBase<
                 MetricRegistry.builder().setMetricsExporter(testMetricsExporter).build();
         // mock health facility
         final HealthFacility healthFacility = new TestHealthFacility();
+
+        // Block ranges to test with
+        List<BlockRange> storedBlocks = List.of(new BlockRange(0L, 5L), new BlockRange(1_000_000L, 1_000_005L));
+        List<BlockRange> availableBlocks = List.of(
+                new BlockRange(0L, 5L),
+                new BlockRange(1_000_000L, 1_000_005L),
+                new BlockRange(1_000_000_000L, 1_000_000_005L),
+                new BlockRange(1_000_000_000_000L, 1_000_000_000_005L));
+
         // create block node context with no address book
         blockNodeContext = new BlockNodeContext(
                 configuration,
@@ -198,7 +208,9 @@ public abstract class PluginTestBase<
                 testThreadPoolManager,
                 buildBlockNodeVersions(),
                 null,
-                null);
+                null,
+                storedBlocks,
+                availableBlocks);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
@@ -318,7 +330,9 @@ public abstract class PluginTestBase<
                 blockNodeContext.threadPoolManager(),
                 blockNodeContext.blockNodeVersions(),
                 tssData,
-                blockNodeContext.nodeAddressBook());
+                blockNodeContext.nodeAddressBook(),
+                blockNodeContext.storedBlocks(),
+                blockNodeContext.availableBlocks());
         plugin.onContextUpdate(blockNodeContext);
     }
 
@@ -335,7 +349,9 @@ public abstract class PluginTestBase<
                 blockNodeContext.threadPoolManager(),
                 blockNodeContext.blockNodeVersions(),
                 blockNodeContext.tssData(),
-                nodeAddressBook);
+                nodeAddressBook,
+                blockNodeContext.storedBlocks(),
+                blockNodeContext.availableBlocks());
         plugin.onContextUpdate(blockNodeContext);
         return true;
     }

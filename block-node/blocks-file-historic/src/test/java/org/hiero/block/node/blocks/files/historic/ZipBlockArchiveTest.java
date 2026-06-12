@@ -16,13 +16,13 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -79,9 +79,11 @@ class ZipBlockArchiveTest {
                 null,
                 null,
                 null,
-                BlockNodeVersions.DEFAULT,
                 null,
-                null);
+                null,
+                null,
+                new ArrayList<>(),
+                new ArrayList<>());
         // the instance under test
         toTest = new ZipBlockArchive(testContext, testConfig);
     }

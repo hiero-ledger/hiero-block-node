@@ -14,6 +14,7 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
+import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
@@ -254,8 +255,8 @@ public class BlockNodePluginTest {
             }
         });
 
-        BlockNodeContext context =
-                new BlockNodeContext(null, null, null, null, null, null, null, null, null, null, null);
+        BlockNodeContext context = new BlockNodeContext(
+                null, null, null, null, null, null, null, null, null, null, null, new ArrayList<>(), new ArrayList<>());
 
         plugin.onContextUpdate(context);
 

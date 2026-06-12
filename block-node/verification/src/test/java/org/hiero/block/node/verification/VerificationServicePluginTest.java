@@ -600,7 +600,9 @@ class VerificationServicePluginTest
                 blockNodeContext.threadPoolManager(),
                 blockNodeContext.blockNodeVersions(),
                 blockNodeContext.tssData(),
-                book);
+                book,
+                blockNodeContext.storedBlocks(),
+                blockNodeContext.availableBlocks());
     }
 
     /**
