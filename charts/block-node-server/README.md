@@ -220,6 +220,58 @@ plugins:
 
 **Note:** `facility-messaging` is required for the application to start. The `health` plugin is recommended for Kubernetes liveness/readiness probes.
 
+#### Per-Plugin Port Configuration
+
+By default all plugins share a single port (`service.port`, default `40840`). Use `blockNode.ports` to assign each plugin its own dedicated port:
+
+```yaml
+blockNode:
+  ports:
+    # gRPC port for block producers (env: PRODUCER_PORT). hostPorts key: publisher
+    publisher: 40841
+    # gRPC port for block subscribers (env: SUBSCRIBER_PORT). hostPorts key: subscriber
+    subscriber: 40842
+    # gRPC/HTTP port for block access/query API (env: BLOCK_ACCESS_PORT). hostPorts key: block-access
+    blockAccess: 40843
+    # HTTP port for /healthz endpoints (env: HEALTH_PORT). hostPorts key: health
+    # When set, liveness and readiness probes automatically redirect to this port.
+    health: 40844
+    # HTTP port for server-status endpoint (env: SERVER_STATUS_PORT). hostPorts key: server-status
+    serverStatus: 40845
+```
+
+Setting a port here automatically:
+- Declares it as a named `containerPort` in the StatefulSet
+- Adds it to the ClusterIP Service
+- Injects the corresponding environment variable into the pod
+
+> **Do not** also set `PRODUCER_PORT`, `SUBSCRIBER_PORT`, etc. in `blockNode.config` when using `blockNode.ports`. Use `blockNode.ports` as the single source of truth for per-plugin ports to avoid duplicate or conflicting env var values.
+>
+> **Health probe note:** If you set `blockNode.ports.health`, the liveness and readiness probes are automatically redirected to that port. If you set `HEALTH_PORT` in `blockNode.config` instead, the probes will still target the default `service.port` and **will fail** if the two values differ. Prefer `blockNode.ports.health`.
+
+Named ports created by `blockNode.ports` can also be bound to host ports:
+
+```yaml
+blockNode:
+  hostPorts:
+    publisher: 40841
+    subscriber: 40842
+```
+
+##### LoadBalancer and Per-Plugin Ports
+
+The current `loadBalancer` resource exposes a single port pointing to one target port. When plugins are split across ports on a single physical box with a single IP, configure the LoadBalancer to point to the specific plugin port you want to expose externally:
+
+```yaml
+loadBalancer:
+  enabled: true
+  portName: grpc
+  port: 40841        # the external port on the LoadBalancer
+  targetPort: publisher  # matches the containerPort name set by blockNode.ports.publisher
+```
+
+> **Note:** Multi-port LoadBalancer support (exposing publisher and subscriber on separate LB ports simultaneously) is planned as a follow-on. Today, configure separate `targetPort` values per release or use an Ingress/gateway layer above the Service.
+
 #### Disabling Plugins
 
 To deploy without any plugins (bare image), set `plugins.names` to an empty string:
