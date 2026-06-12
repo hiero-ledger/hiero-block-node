@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
@@ -215,6 +216,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             new ArrayList<>();
 
     private ExecutorService messageForwarder;
+    AtomicLong blockItemsReceived = new AtomicLong(0);
 
     /**
      * {@inheritDoc}
@@ -401,10 +403,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     if (percentageBehindRingHead > 80 && evicted.compareAndSet(false, true)) {
                         // Check lag BEFORE dispatching: if already too far behind, evict now rather
                         // than calling handleBlockItemsReceived (which might block indefinitely).
-                        handler.onTooFarBehindError();
                         unregisterBlockItemHandler(handler);
+                        handler.onTooFarBehindError();
                         return;
                     }
+                    BlockItems blockItems = event.get();
+                    long totalBlockItems =
+                            blockItemsReceived.addAndGet(blockItems.blockItems().size());
+                    LOGGER.log(DEBUG, "Total block items = {0} for handler {1}:", totalBlockItems, handlerName);
                     handler.handleBlockItemsReceived(event.get());
                 };
         if (blockItemDisruptor.hasStarted()) {
