@@ -167,7 +167,7 @@ class VerificationServicePluginIntegrationTest
         assertFalse(notification.success(), "Block must NOT verify against an address book containing wrong RSA keys");
         assertEquals(
                 VerificationNotification.FailureType.BAD_BLOCK_PROOF,
-                notification.failureType(),
+                notification.failureInfo().failureType(),
                 "Failed cryptographic verification must surface as BAD_BLOCK_PROOF");
         assertNull(notification.blockHash(), "Block hash must be null on a rejected verification");
         assertNull(notification.block(), "Block content must be null on a rejected verification");

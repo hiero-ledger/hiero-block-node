@@ -56,6 +56,8 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricRegistry;
@@ -452,7 +454,7 @@ class CloudStorageArchivePluginTest {
             assertThatNoException()
                     .isThrownBy(() -> plugin.handleVerification(new VerificationNotification(
                             false,
-                            VerificationNotification.FailureType.BAD_BLOCK_PROOF,
+                            FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                             block.number(),
                             Bytes.EMPTY,
                             block.blockUnparsed(),
