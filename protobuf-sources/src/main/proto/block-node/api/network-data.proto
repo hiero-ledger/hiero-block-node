@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package org.hiero.block.api;
+
+option java_package = "org.hiero.block.api.protoc";
+// <<<pbj.java_package = "org.hiero.block.api">>> This comment is special code for setting PBJ Compiler java package
+option java_multiple_files = true;
+
+message NetworkData {
+    repeated NetworkEndpoint active_endpoints = 1;
+}
+
+message NetworkEndpoint {
+    string local_address = 1;
+    string local_port = 2;
+    string remote_address = 3;
+    string remote_port = 4;
+    string category = 5;
+    string scheme = 6;
+    IpProtocol protocol = 7;
+    bool tls_required = 8;
+    bytes certificate = 9;
+
+    enum IpProtocol {
+        UNIDENTIFIED = 0;
+        TCP = 1;
+        UDP = 2;
+    }
+}
