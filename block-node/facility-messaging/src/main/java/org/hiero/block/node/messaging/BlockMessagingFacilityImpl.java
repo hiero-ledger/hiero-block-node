@@ -410,7 +410,12 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     BlockItems blockItems = event.get();
                     long totalBlockItems =
                             blockItemsReceived.addAndGet(blockItems.blockItems().size());
-                    LOGGER.log(DEBUG, "Total block items = {0} for handler {1}:", totalBlockItems, handlerName);
+                    LOGGER.log(
+                            DEBUG,
+                            "Total Block {0}, block items = {1} for handler {2}:",
+                            blockItems.blockNumber(),
+                            totalBlockItems,
+                            handlerName);
                     handler.handleBlockItemsReceived(event.get());
                 };
         if (blockItemDisruptor.hasStarted()) {
