@@ -41,7 +41,7 @@ Before you begin, ensure you have:
 
 The install script in this section downloads the correct Solo Provisioner binary for your VM's architecture automatically. You don't need to download anything manually. For air-gapped environments or other advanced cases, see [Manual install (advanced)](#manual-install-advanced) at the end of this section.
 
-> All `solo-provisioner` commands except `-h` (help) and `-v` (version) must be run with `sudo`. Running other commands without `sudo` produces permission errors against the state and log files under `/opt/solo/weaver/`.
+> All `solo-provisioner` commands except `-h` (help) and `-v` (version) must be run with `sudo`. Running other commands without `sudo` produces permission errors against the state files under `/opt/solo/weaver/`.
 
 1. In the Google Cloud Console, open your VM's details page. You can also reach the SSH menu from the **Compute Engine > VM instances** list.
 2. Select the **down arrow** next to **SSH**, then choose **View gcloud command**.
@@ -105,7 +105,7 @@ The install script in this section downloads the correct Solo Provisioner binary
 - **Expected output**:
 
   ```bash
-  {"version":"0.18.1","commit":"<git-sha>","goversion":"go1.26.0"}
+  {"version":"<version>","commit":"<git-sha>","goversion":"<go-version>"}
   ```
 
   The exact `version` value will match whichever release the install script downloaded.
@@ -180,11 +180,13 @@ On a successful run you will see a `Completed successfully` summary along with t
      namespace: "block-node"
      release: "block-node"
      chart: "oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server"
-     version: "0.30.2"
+     version: "0.35.1"
      storage:
         basePath: "/mnt/fast-storage"
   ```
 
+> The chart version shown reflects the default bundled with the current Solo Provisioner release. Check the [hiero-block-node releases page](https://github.com/hiero-ledger/hiero-block-node/releases) to confirm the latest available version before deploying.
+>
 > The legacy `block node setup` subcommand is deprecated. Use `block node install` for all Solo Provisioner v0.3.0+ deployments. See [Solo Provisioner v0.3.0 release notes](https://github.com/hashgraph/solo-weaver/releases/tag/v0.3.0).
 
 ### Step 4: Verify the Block Node Deployment
@@ -282,7 +284,7 @@ See below for common errors, causes, and solutions during Block Node setup:
      ```bash
      sudo solo-provisioner block node install -p testnet
      ```
-2. Error: “Requires super user privilege”
+2. Error: “solo-provisioner must be run with superuser privileges”
    - **Cause:** The **`block node install -p`** command was run without **`sudo`**.
    - **Fix:** Add **`sudo`** before your command:
 
