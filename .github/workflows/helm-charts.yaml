@@ -164,6 +164,7 @@ jobs:
         run: |
           APP_VERSION=$(cat version.txt)
           helm install bn-multi-port-test charts/block-node-server \
+            --namespace default \
             --values charts/block-node-server/ci/multi-port-values.yaml \
             --set image.tag="${APP_VERSION}" \
             --wait \
@@ -172,11 +173,11 @@ jobs:
       - name: Verify per-plugin ports are reachable
         if: steps.install-needed.outputs.needed == 'true'
         run: |
-          POD=$(kubectl get pod -l app.kubernetes.io/instance=bn-multi-port-test -o jsonpath='{.items[0].metadata.name}')
+          POD=$(kubectl get pod -n default -l app.kubernetes.io/instance=bn-multi-port-test -o jsonpath='{.items[0].metadata.name}')
           echo "Testing pod: ${POD}"
 
-          # Forward all five plugin ports to the local runner
-          kubectl port-forward "pod/${POD}" 40940:40940 40941:40941 40942:40942 40943:40943 40944:40944 &
+          # Forward all five plugin ports AND the shared server.port to the local runner
+          kubectl port-forward -n default "pod/${POD}" 40840:40840 40940:40940 40941:40941 40942:40942 40943:40943 40944:40944 &
           PF_PID=$!
           # Give port-forward time to establish
           sleep 5
@@ -228,12 +229,14 @@ jobs:
             failed=1
           fi
 
-          # Confirm that the shared server.port (40840) is NOT serving plugin traffic
-          echo "--- port 40840 (server.port — must NOT have plugin traffic) ---"
+          # Confirm that the shared server.port (40840) is NOT serving health plugin traffic.
+          # The health plugin is on 40940; nothing should respond at /healthz/livez on 40840.
+          echo "--- port 40840 (server.port — health plugin must NOT be here) ---"
           if curl -sf --max-time 5 http://localhost:40840/healthz/livez 2>/dev/null; then
-            echo "WARN: health plugin responded on server.port 40840 — expected it to be on 40940 only"
+            echo "FAIL: health plugin is still on 40840 — expected it on 40940 per test config; per-plugin port assignment is not working"
+            failed=1
           else
-            echo "OK (health plugin correctly not on 40840)"
+            echo "OK (health plugin correctly on 40940, not on shared server.port 40840 as configured)"
           fi
 
           kill ${PF_PID} 2>/dev/null || true

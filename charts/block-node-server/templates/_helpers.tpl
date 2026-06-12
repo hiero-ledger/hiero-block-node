@@ -95,7 +95,7 @@ Build JAVA_TOOL_OPTIONS combining logging config and metrics system properties.
 {{/*
 Emit ConfigMap data lines (KEY: "value") for each non-null plugin port in blockNode.ports.
 These are emitted before the blockNode.config range so that explicit config values win on conflict.
-Usage: include "hiero-block-node.pluginPortEnvVars" . | nindent 0
+Usage: include "hiero-block-node.pluginPortEnvVars" .
 */}}
 {{- define "hiero-block-node.pluginPortEnvVars" -}}
 {{- with .Values.blockNode.ports -}}

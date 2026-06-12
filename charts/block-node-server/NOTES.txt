@@ -21,32 +21,25 @@ Then connect gRPC clients to localhost:{{ .Values.service.port }}.
 The following plugins have been assigned dedicated ports:
 {{- with .Values.blockNode.ports }}
 {{- if .publisher }}
-  publisher   (PRODUCER_PORT)    → {{ .publisher }}
+  publisher    (PRODUCER_PORT)     -> {{ .publisher }}
 {{- end }}
 {{- if .subscriber }}
-  subscriber  (SUBSCRIBER_PORT)  → {{ .subscriber }}
+  subscriber   (SUBSCRIBER_PORT)   -> {{ .subscriber }}
 {{- end }}
 {{- if .blockAccess }}
-  blockAccess (BLOCK_ACCESS_PORT)→ {{ .blockAccess }}
+  blockAccess  (BLOCK_ACCESS_PORT) -> {{ .blockAccess }}
 {{- end }}
 {{- if .health }}
-  health      (HEALTH_PORT)      → {{ .health }}
+  health       (HEALTH_PORT)       -> {{ .health }}
 {{- end }}
 {{- if .serverStatus }}
-  serverStatus(SERVER_STATUS_PORT)→ {{ .serverStatus }}
+  serverStatus (SERVER_STATUS_PORT)-> {{ .serverStatus }}
 {{- end }}
 {{- end }}
 
 To forward all active plugin ports locally, run:
 
-  kubectl port-forward svc/{{ include "hiero-block-node.fullname" . }} \
-  {{- with .Values.blockNode.ports }}
-  {{- if .publisher }} {{ .publisher }}:{{ .publisher }} \{{- end }}
-  {{- if .subscriber }} {{ .subscriber }}:{{ .subscriber }} \{{- end }}
-  {{- if .blockAccess }} {{ .blockAccess }}:{{ .blockAccess }} \{{- end }}
-  {{- if .health }} {{ .health }}:{{ .health }} \{{- end }}
-  {{- if .serverStatus }} {{ .serverStatus }}:{{ .serverStatus }}{{- end }}
-  {{- end }}
+  kubectl port-forward svc/{{ include "hiero-block-node.fullname" . }}{{ with .Values.blockNode.ports }}{{ if .publisher }} {{ .publisher }}:{{ .publisher }}{{ end }}{{ if .subscriber }} {{ .subscriber }}:{{ .subscriber }}{{ end }}{{ if .blockAccess }} {{ .blockAccess }}:{{ .blockAccess }}{{ end }}{{ if .health }} {{ .health }}:{{ .health }}{{ end }}{{ if .serverStatus }} {{ .serverStatus }}:{{ .serverStatus }}{{ end }}{{ end }}
 
 {{- end }}
 

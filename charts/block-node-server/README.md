@@ -246,7 +246,7 @@ Setting a port here automatically:
 - Injects the corresponding environment variable into the pod
 
 > **Do not** also set `PRODUCER_PORT`, `SUBSCRIBER_PORT`, etc. in `blockNode.config` when using `blockNode.ports`. Use `blockNode.ports` as the single source of truth for per-plugin ports to avoid duplicate or conflicting env var values.
-
+>
 > **Health probe note:** If you set `blockNode.ports.health`, the liveness and readiness probes are automatically redirected to that port. If you set `HEALTH_PORT` in `blockNode.config` instead, the probes will still target the default `service.port` and **will fail** if the two values differ. Prefer `blockNode.ports.health`.
 
 Named ports created by `blockNode.ports` can also be bound to host ports:
