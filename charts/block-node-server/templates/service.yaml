@@ -23,6 +23,5 @@ spec:
     - name: metrics
       port: {{ .Values.blockNode.metrics.port }}
       targetPort: metrics
-    {{- include "hiero-block-node.pluginServicePorts" . | nindent 4 }}
   selector:
     {{- include "hiero-block-node.selectorLabels" . | nindent 4 }}
