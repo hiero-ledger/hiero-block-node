@@ -20,6 +20,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 
 public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificationHandler, BlockItemHandler {
@@ -29,6 +30,7 @@ public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificatio
     private VerificationSession currentSession;
     private volatile BlockSource blockSource = BlockSource.PUBLISHER;
     private volatile FailureType failureType = FailureType.BAD_BLOCK_PROOF;
+    private volatile boolean isFailureInformational = false;
 
     @Override
     public String name() {
@@ -50,8 +52,8 @@ public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificatio
     public void handleBlockItemsReceived(final BlockItems blockItems) {
         if (blockItems.isStartOfNewBlock()) {
             final long blockNumber = blockItems.blockNumber();
-            currentSession =
-                    new VerificationSession(blockNumber, blocksToFail.remove(blockNumber), blockSource, failureType);
+            currentSession = new VerificationSession(
+                    blockNumber, blocksToFail.remove(blockNumber), blockSource, failureType, isFailureInformational);
         }
         if (currentSession.processBlockItems(blockItems)) {
             // first send the notification, most likely it will be handled on the same thread
@@ -76,6 +78,10 @@ public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificatio
 
     public void setFailureType(final FailureType failureType) {
         this.failureType = Objects.requireNonNull(failureType);
+    }
+
+    public void setFailureInformational(final boolean isFailureInformational) {
+        this.isFailureInformational = isFailureInformational;
     }
 
     public void failBlocks(long... blockNumbers) {
@@ -103,17 +109,20 @@ public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificatio
         private final BlockSource blockSource;
         private final List<BlockItemUnparsed> blockItems;
         private final FailureType failureType;
+        private final boolean isFailureInformational;
 
         private VerificationSession(
                 final long blockNumber,
                 final boolean shouldFail,
                 final BlockSource blockSource,
-                final FailureType failureType) {
+                final FailureType failureType,
+                final boolean isFailureInformational) {
             assertNotNull(blockSource, NULL_SOURCE_MESSAGE);
             this.blockNumber = blockNumber;
             this.shouldFail = shouldFail;
             this.blockSource = blockSource;
             this.failureType = failureType;
+            this.isFailureInformational = isFailureInformational;
             this.blockItems = new ArrayList<>();
         }
 
@@ -124,7 +133,13 @@ public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificatio
 
         private VerificationNotification completeSession() {
             if (shouldFail) {
-                return new VerificationNotification(false, failureType, blockNumber, null, null, blockSource);
+                return new VerificationNotification(
+                        false,
+                        new FailureInfo(failureType, isFailureInformational),
+                        blockNumber,
+                        null,
+                        null,
+                        blockSource);
             } else {
                 // @todo() add a way to either generate a block hash, or be able to add a custom block hash for a given
                 //   block. This is based on needs.

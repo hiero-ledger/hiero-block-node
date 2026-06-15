@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.verification;
+package org.hiero.block.node.block.verification;
 
 // spotless:off
 
@@ -18,12 +18,15 @@ import org.hiero.block.node.base.Loggable;
 /// @param tssParametersFilePath path where TSS parameters (ledger ID, address book, WRAPS VK)
 ///     are persisted across restarts as a serialized `LedgerIdPublicationTransactionBody`.
 ///     Written when block 0 is processed. Loaded on startup to restore full TSS state.
+/// @param activeSessionsBufferSize size of maximum allowed active sessions. When full and a new session needs to
+///     start, room will be made for it by canceling the longest running one. todo(2528) could be lowest block nubmer
 @ConfigData("verification")
 public record VerificationConfig(
     @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin") Path allBlocksHasherFilePath,
     @Loggable @ConfigProperty(defaultValue = "false") boolean allBlocksHasherEnabled,
     @Loggable @ConfigProperty(defaultValue = "false") boolean rebuildAllBlocksHasherFromStore,
     @Loggable @ConfigProperty(defaultValue = "100") int allBlocksHasherPersistenceInterval,
-    @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/verification/tss-parameters.bin") Path tssParametersFilePath) {}
+    @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/verification/tss-parameters.bin") Path tssParametersFilePath,
+    @Loggable @ConfigProperty(defaultValue = "100") int activeSessionsBufferSize){}
 
 // spotless:on
