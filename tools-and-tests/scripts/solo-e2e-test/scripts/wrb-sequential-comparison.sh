@@ -998,6 +998,20 @@ function main {
 
     if [[ "${api_ready}" != "true" ]]; then
         log "WARNING: MN2 REST API not ready after ${timeout}s"
+
+        # Debug: capture MN2 pod logs
+        log "Capturing MN2 pod state for debugging..."
+        local mn2_pod=$(kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" get pods -l app=mirror-2-importer -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+        if [[ -n "${mn2_pod}" ]]; then
+            log "MN2 pod: ${mn2_pod}"
+            log "MN2 pod status:"
+            kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" get pod "${mn2_pod}" -o wide 2>&1 | sed 's/^/  /'
+            log "MN2 pod describe:"
+            kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" describe pod "${mn2_pod}" 2>&1 | tail -50 | sed 's/^/  /'
+            log "MN2 pod logs (last 100 lines):"
+            kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" logs "${mn2_pod}" --tail=100 2>&1 | sed 's/^/  /'
+        fi
+
         log "✅ Phase 1 passed, Phase 2 incomplete"
         return 0
     fi
