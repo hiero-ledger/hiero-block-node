@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+# CI values for multi-port install test.
+# Each plugin is assigned a distinct port; the default server.port (40840) is deliberately
+# left unused by all plugins to verify that per-plugin port routing is working end-to-end.
+#
+# Port assignments:
+#   health      → 40940   (health probes redirect here automatically)
+#   publisher   → 40941
+#   subscriber  → 40942
+#   blockAccess → 40943
+#   serverStatus→ 40944
+#   server.port → 40840   (shared fallback — no plugin should bind here in this test)
+
+blockNode:
+  ports:
+    health: 40940
+    publisher: 40941
+    subscriber: 40942
+    blockAccess: 40943
+    serverStatus: 40944
+  config:
+    SERVER_PORT: "40840"
+    JAVA_OPTS: '-Xms1G -Xmx2G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+  persistence:
+    archive:
+      size: 1Gi
+    live:
+      size: 1Gi
+    logging:
+      size: 500Mi
+    verification:
+      size: 500Mi
+    plugins:
+      size: 500Mi
+
+resources:
+  requests:
+    cpu: "1"
+    memory: "2Gi"
+  limits:
+    cpu: "2"
+    memory: "3Gi"
+
+plugins:
+  names: "facility-messaging,health,server-status,block-access-service,stream-publisher,stream-subscriber"
