@@ -792,15 +792,22 @@ EOF
 function deploy_mn2_to_bn2 {
     log "Deploying MN2 in ${WRB_NAMESPACE} connected to BN2..."
 
-    # Get the Mirror Node image from MN1 deployment
-    local mn_image=$(kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" get deployment mirror-1-importer -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+    # Get the Mirror Node importer and REST images from MN1 deployment
+    local mn_importer_image=$(kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" get deployment mirror-1-importer -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+    local mn_rest_image=$(kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" get deployment mirror-1-rest -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
 
-    if [ -z "${mn_image}" ]; then
-        log "WARNING: Could not get MN1 image, using default"
-        mn_image="hashgraph/hedera-mirror-node:0.156.0"
+    if [ -z "${mn_importer_image}" ]; then
+        log "WARNING: Could not get MN1 importer image, using default"
+        mn_importer_image="gcr.io/mirrornode/hedera-mirror-importer:0.156.0"
     fi
 
-    log "Using Mirror Node image: ${mn_image}"
+    if [ -z "${mn_rest_image}" ]; then
+        log "WARNING: Could not get MN1 REST image, using default"
+        mn_rest_image="gcr.io/mirrornode/hedera-mirror-rest-java:0.156.0"
+    fi
+
+    log "Using Mirror Node importer image: ${mn_importer_image}"
+    log "Using Mirror Node REST image: ${mn_rest_image}"
 
     local mn2_manifest="/tmp/mn2-deployment.yaml"
 
@@ -808,7 +815,7 @@ function deploy_mn2_to_bn2 {
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: mn2-config
+  name: mn2-importer-config
   namespace: ${WRB_NAMESPACE}
 data:
   application.yml: |
@@ -821,7 +828,7 @@ data:
         properties:
           hibernate:
             hbm2ddl:
-              auto: update
+              auto: create
     hiero:
       mirror:
         importer:
@@ -842,18 +849,21 @@ data:
               enabled: false
 ---
 apiVersion: v1
-kind: Service
+kind: ConfigMap
 metadata:
-  name: mirror-2-rest
+  name: mn2-rest-config
   namespace: ${WRB_NAMESPACE}
-spec:
-  type: ClusterIP
-  selector:
-    app: mirror-2-importer
-  ports:
-  - port: 80
-    targetPort: 8080
-    name: http
+data:
+  application.yml: |
+    spring:
+      datasource:
+        url: jdbc:postgresql://mirror-1-postgres-postgresql.${NAMESPACE}.svc.cluster.local:5432/mirror_node_wrb?sslmode=disable
+        username: mirror_node
+        password: mirror_node_pass
+    hiero:
+      mirror:
+        rest:
+          port: 8080
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -872,7 +882,34 @@ spec:
     spec:
       containers:
       - name: importer
-        image: ${mn_image}
+        image: ${mn_importer_image}
+        volumeMounts:
+        - name: config
+          mountPath: /app/application.yml
+          subPath: application.yml
+      volumes:
+      - name: config
+        configMap:
+          name: mn2-importer-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mirror-2-rest
+  namespace: ${WRB_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mirror-2-rest
+  template:
+    metadata:
+      labels:
+        app: mirror-2-rest
+    spec:
+      containers:
+      - name: rest
+        image: ${mn_rest_image}
         ports:
         - containerPort: 8080
         volumeMounts:
@@ -882,17 +919,40 @@ spec:
       volumes:
       - name: config
         configMap:
-          name: mn2-config
+          name: mn2-rest-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mirror-2-rest
+  namespace: ${WRB_NAMESPACE}
+spec:
+  type: ClusterIP
+  selector:
+    app: mirror-2-rest
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
 EOF
 
     kubectl --context "${CONTEXT}" apply -f "${mn2_manifest}"
 
-    # Wait for MN2 to be ready
-    log "Waiting for MN2 pod to be ready..."
+    # Wait for MN2 importer to be ready
+    log "Waiting for MN2 importer pod to be ready..."
     kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" wait --for=condition=ready pod -l app=mirror-2-importer --timeout=300s || {
-        log "ERROR: MN2 pod not ready after 300s"
+        log "ERROR: MN2 importer pod not ready after 300s"
         kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" describe pod -l app=mirror-2-importer || true
         kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" logs -l app=mirror-2-importer --tail=50 || true
+        return 1
+    }
+
+    # Wait for MN2 REST to be ready
+    log "Waiting for MN2 REST pod to be ready..."
+    kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" wait --for=condition=ready pod -l app=mirror-2-rest --timeout=300s || {
+        log "ERROR: MN2 REST pod not ready after 300s"
+        kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" describe pod -l app=mirror-2-rest || true
+        kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" logs -l app=mirror-2-rest --tail=50 || true
         return 1
     }
 
@@ -1001,15 +1061,23 @@ function main {
 
         # Debug: capture MN2 pod logs
         log "Capturing MN2 pod state for debugging..."
-        local mn2_pod=$(kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" get pods -l app=mirror-2-importer -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-        if [[ -n "${mn2_pod}" ]]; then
-            log "MN2 pod: ${mn2_pod}"
-            log "MN2 pod status:"
-            kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" get pod "${mn2_pod}" -o wide 2>&1 | sed 's/^/  /'
-            log "MN2 pod describe:"
-            kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" describe pod "${mn2_pod}" 2>&1 | tail -50 | sed 's/^/  /'
-            log "MN2 pod logs (last 100 lines):"
-            kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" logs "${mn2_pod}" --tail=100 2>&1 | sed 's/^/  /'
+
+        local mn2_importer_pod=$(kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" get pods -l app=mirror-2-importer -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+        if [[ -n "${mn2_importer_pod}" ]]; then
+            log "MN2 importer pod: ${mn2_importer_pod}"
+            log "MN2 importer pod status:"
+            kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" get pod "${mn2_importer_pod}" -o wide 2>&1 | sed 's/^/  /'
+            log "MN2 importer pod logs (last 100 lines):"
+            kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" logs "${mn2_importer_pod}" --tail=100 2>&1 | sed 's/^/  /'
+        fi
+
+        local mn2_rest_pod=$(kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" get pods -l app=mirror-2-rest -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+        if [[ -n "${mn2_rest_pod}" ]]; then
+            log "MN2 REST pod: ${mn2_rest_pod}"
+            log "MN2 REST pod status:"
+            kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" get pod "${mn2_rest_pod}" -o wide 2>&1 | sed 's/^/  /'
+            log "MN2 REST pod logs (last 100 lines):"
+            kubectl --context "${CONTEXT}" --namespace "${WRB_NAMESPACE}" logs "${mn2_rest_pod}" --tail=100 2>&1 | sed 's/^/  /'
         fi
 
         log "✅ Phase 1 passed, Phase 2 incomplete"
