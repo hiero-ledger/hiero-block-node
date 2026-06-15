@@ -217,7 +217,6 @@ spec:
             hostPort: {{ index $hostPorts "metrics" }}
             {{- end }}
             protocol: TCP
-          {{- include "hiero-block-node.pluginContainerPorts" (dict "Values" .Values "hostPorts" $hostPorts) | nindent 10 }}
         envFrom:
           - configMapRef:
               name: {{ include "hiero-block-node.fullname" . }}-config
@@ -259,11 +258,10 @@ spec:
         resources:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-        {{- $healthPort := default .Values.service.port .Values.blockNode.ports.health }}
         livenessProbe:
           httpGet:
             path: {{ .Values.blockNode.health.liveness.endpoint }}
-            port: {{ $healthPort }}
+            port: {{ .Values.service.port }}
           initialDelaySeconds: {{ .Values.blockNode.health.liveness.initialDelaySeconds }}
           periodSeconds: {{ .Values.blockNode.health.liveness.periodSeconds }}
           timeoutSeconds: {{ .Values.blockNode.health.liveness.timeoutSeconds }}
@@ -272,7 +270,7 @@ spec:
         readinessProbe:
           httpGet:
             path: {{ .Values.blockNode.health.readiness.endpoint }}
-            port: {{ $healthPort }}
+            port: {{ .Values.service.port }}
           initialDelaySeconds: {{ .Values.blockNode.health.readiness.initialDelaySeconds }}
           timeoutSeconds: {{ .Values.blockNode.health.readiness.timeoutSeconds }}
       {{- with .Values.nodeSelector }}
