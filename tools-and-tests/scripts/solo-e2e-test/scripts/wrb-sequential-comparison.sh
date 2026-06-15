@@ -860,6 +860,9 @@ data:
         url: jdbc:postgresql://mirror-1-postgres-postgresql.${NAMESPACE}.svc.cluster.local:5432/mirror_node_wrb?sslmode=disable
         username: mirror_node
         password: mirror_node_pass
+      redis:
+        host: mirror-1-redis-node.${NAMESPACE}.svc.cluster.local
+        port: 6379
     hiero:
       mirror:
         rest:
