@@ -35,6 +35,10 @@ blockNode:
       size: 100Mi
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
       # existingClaim: "nano-verification-pvc"
+    applicationStateFacility:
+      size: 100Mi
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "nano-application-state-pvc"
   health:
     readiness:
       initialDelaySeconds: 30

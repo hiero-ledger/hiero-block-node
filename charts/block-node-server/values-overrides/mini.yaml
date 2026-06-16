@@ -27,6 +27,8 @@ blockNode:
       size: 1Gi
     verification:
       size: 100Mi
+    applicationStateFacility:
+      size: 100Mi
   health:
     readiness:
       initialDelaySeconds: 20

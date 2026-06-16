@@ -67,6 +67,11 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.blockNode.persistence.verification.existingClaim }}
         {{- end }}
+        {{- if .Values.blockNode.persistence.applicationStateFacility.existingClaim }}
+        - name: {{ default "application-state-storage" .Values.blockNode.persistence.applicationStateFacility.volumeName }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.blockNode.persistence.applicationStateFacility.existingClaim }}
+        {{- end }}
         {{- if .Values.blockNode.persistence.plugins.existingClaim }}
         - name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
           persistentVolumeClaim:
@@ -242,6 +247,8 @@ spec:
             subPath: {{ .Values.blockNode.persistence.live.subPath }}
           - name: {{ default "verification-storage" .Values.blockNode.persistence.verification.volumeName }}
             mountPath: {{ .Values.blockNode.persistence.verification.mountPath }}
+          - name: {{ default "application-state-storage" .Values.blockNode.persistence.applicationStateFacility.volumeName }}
+            mountPath: {{ .Values.blockNode.persistence.applicationStateFacility.mountPath }}
           {{- if and .Values.blockNode.backfill .Values.blockNode.backfill.sources }}
           - name: block-node-sources
             mountPath: {{ .Values.blockNode.backfill.path }}
@@ -338,6 +345,19 @@ spec:
             storage: {{ .Values.blockNode.persistence.verification.size }}
         {{- if .Values.blockNode.persistence.verification.storageClass }}
         storageClassName: {{ .Values.blockNode.persistence.verification.storageClass }}
+        {{- end }}
+    {{- end }}
+    {{- if not .Values.blockNode.persistence.applicationStateFacility.existingClaim }}
+    - metadata:
+        name: {{ default "application-state-storage" .Values.blockNode.persistence.applicationStateFacility.volumeName }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.blockNode.persistence.applicationStateFacility.size }}
+        {{- if .Values.blockNode.persistence.applicationStateFacility.storageClass }}
+        storageClassName: {{ .Values.blockNode.persistence.applicationStateFacility.storageClass }}
         {{- end }}
     {{- end }}
     {{- if and .Values.plugins.names (not .Values.blockNode.persistence.plugins.existingClaim) }}
