@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.hiero.block.node.cloud.storage.archive.BlockUploadTask.UploadResult;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -40,6 +39,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
@@ -193,6 +193,7 @@ class CloudStorageArchivePluginTest {
         void testInitNullServiceBuilder() {
             final Configuration configuration = ConfigurationBuilder.create()
                     .withConfigDataType(CloudStorageArchiveConfig.class)
+                    .withConfigDataType(NodeConfig.class)
                     .withValue("cloud.storage.archive.endpointUrl", minioEndpoint)
                     .build();
             final HistoricalBlockFacility historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
@@ -222,8 +223,9 @@ class CloudStorageArchivePluginTest {
         @MethodSource("blankOrEmptyFieldConfigs")
         @DisplayName("Plugin not registered when a required config field is blank or empty")
         void testPluginNotRegisteredForMissingField(String fieldName, Map<String, String> configValues) {
-            final ConfigurationBuilder builder =
-                    ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+            final ConfigurationBuilder builder = ConfigurationBuilder.create()
+                    .withConfigDataType(CloudStorageArchiveConfig.class)
+                    .withConfigDataType(NodeConfig.class);
             configValues.forEach(builder::withValue);
             final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
             final BlockNodeContext testContext = new BlockNodeContext(
@@ -283,6 +285,7 @@ class CloudStorageArchivePluginTest {
         void testPluginRegisteredWhenAllConfigFieldsPresent() {
             final Configuration configuration = ConfigurationBuilder.create()
                     .withConfigDataType(CloudStorageArchiveConfig.class)
+                    .withConfigDataType(NodeConfig.class)
                     .withValue("cloud.storage.archive.endpointUrl", "http://localhost:9000")
                     .withValue("cloud.storage.archive.regionName", "us-east-1")
                     .withValue("cloud.storage.archive.accessKey", "minioadmin")
@@ -402,33 +405,41 @@ class CloudStorageArchivePluginTest {
         }
 
         @Test
-        @DisplayName("Block from next group is stashed and replayed when that group's task starts")
+        @DisplayName("Block from next group goes to temp archive and is consolidated when group is complete")
         void testNextGroupBlockStashedAndReplayed() throws Exception {
             final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
             // send one block from group 0–9 to create the first task
             sendVerification(TestBlockBuilder.generateBlocksInRange(5, 5).getFirst());
-            // send a block from group 10–19 — it should be stashed (BLOCK_OUT_OF_RANGE for task 0–9)
+            // send a block from group 10–19 while group 0–9 is active — it should land in the
+            // streaming temp archive queue, since out-of-range blocks go to temp archives immediately
             sendVerification(
                     TestBlockBuilder.generateBlocksInRange(groupSize, groupSize).getFirst());
-            assertThat(plugin.blocksStash).hasSize(1);
+            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize);
             // complete group 0–9 (all except block 5 which was already sent)
             sendVerifications(TestBlockBuilder.generateBlocksInRange(0, 4));
             sendVerifications(TestBlockBuilder.generateBlocksInRange(6, groupSize - 1));
-            pluginExecutor.executeSerially();
-            assertTrue(getAllObjects().contains("0000/0000/0000/0000/0.tar"), "first tar should be uploaded");
-            assertThat(plugin.blocksStash).hasSize(1);
-
-            // send block 11 — creates task for 10–19 and replays block 10 from stash
+            // complete group 10–19: block 19 (last in group) triggers closeActiveTempSegment
+            // and places SEGMENT_END in the queue so TempArchiveUploadTask[10,19] can finalise
             sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize + 1, groupSize + 1)
                     .getFirst());
-            assertThat(plugin.blocksStash).isEmpty();
-            // complete group 10–19 (blocks 10 and 11 already submitted)
             sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize + 2, groupSize * 2 - 1));
+            // segment is now closed — all 10 blocks + sentinel are in the queue
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) groupSize);
+            // runs BlockUploadTask for [0, 9] and TempArchiveUploadTask for [10, 19]
             pluginExecutor.executeSerially();
+            assertTrue(getAllObjects().contains("0000/0000/0000/0000/0.tar"), "first tar should be uploaded");
+            // block 20 drives the production handleVerification path (checkAndDrainTempUploadResults +
+            // checkAndDrainConsolidations), queuing ConsolidationTask for [10,19].  It also starts a
+            // regular BlockUploadTask for group [20,29], so complete that group to avoid a hang.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 2, groupSize * 2)
+                    .getFirst());
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize * 2 + 1, groupSize * 3 - 1));
+            pluginExecutor.executeSerially(); // runs ConsolidationTask for [10,19] then BlockUploadTask for [20,29]
             assertTrue(getAllObjects().contains("0000/0000/0000/0000/1.tar"), "second tar should be uploaded");
+            assertTrue(getAllObjects().contains("0000/0000/0000/0000/2.tar"), "third tar should be uploaded");
 
             final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-            assertEquals(2, notifications.size(), "expected one persisted notification per batch");
+            assertEquals(3, notifications.size(), "expected one persisted notification per batch");
             assertEquals(
                     groupSize - 1L,
                     notifications.get(0).blockNumber(),
@@ -437,7 +448,70 @@ class CloudStorageArchivePluginTest {
                     groupSize * 2 - 1L,
                     notifications.get(1).blockNumber(),
                     "second notification should be for the last block of batch 1");
+            assertEquals(
+                    groupSize * 3 - 1L,
+                    notifications.get(2).blockNumber(),
+                    "third notification should be for the last block of batch 2");
             notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
+        }
+
+        /// Verifies that a gap in the arrival stream for a group's temp archive closes the
+        /// current segment (by placing [TempArchiveUploadTask.SEGMENT_END] in its queue) and
+        /// immediately starts a fresh segment from the gap block.
+        ///
+        /// Scenario: group 10–19 receives blocks 10–12, then block 15 (gap at 13–14).
+        ///   - The first segment [10, 12] receives SEGMENT_END; a second segment starts at 15.
+        ///   - Blocks 16–19 complete the second segment; block 19 (last in group) closes it.
+        ///   - Both tasks run in the same [executeSerially] call as [BlockUploadTask] for
+        ///     group 0–9, since all queues are fully populated before execution begins.
+        @Test
+        @DisplayName("Gap in temp archive stream closes the current segment and starts a fresh one from the gap block")
+        void testGapInTempArchiveStreamClosesSegmentAndStartsFresh() throws Exception {
+            final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
+            // Start group 0–9 regular task
+            sendVerification(TestBlockBuilder.generateBlocksInRange(5, 5).getFirst());
+            // Blocks 10–12 start the first temp archive segment for group 10
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize, groupSize + 2));
+            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize);
+            final BlockingQueue<BlockWithSource> firstSegmentQueue = plugin.tempGroupActiveQueues.get((long) groupSize);
+
+            // Block 15 arrives — gap at 13–14: SEGMENT_END is placed in the first segment's
+            // queue and a new segment starts immediately at block 15
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize + 5, groupSize + 5)
+                    .getFirst());
+            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize); // new segment active
+            assertThat(plugin.tempGroupActiveQueues.get((long) groupSize)).isNotSameAs(firstSegmentQueue);
+            assertThat(plugin.tempUploadFutures).containsKey((long) groupSize); // future for [10,12]
+            assertThat(plugin.tempUploadFutures).containsKey((long) groupSize + 5); // future for [15,?]
+
+            // Blocks 16–19: block 19 (last in group) closes the second segment
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize + 6, groupSize * 2 - 1));
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) groupSize);
+
+            // Complete group 0–9 and run all three tasks in one call
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(0, 4));
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(6, groupSize - 1));
+            // runs BlockUploadTask[0,9], TempArchiveUploadTask[10,12], TempArchiveUploadTask[15,19]
+            pluginExecutor.executeSerially();
+
+            final Set<String> objects = getAllObjects();
+            assertTrue(objects.contains("0000/0000/0000/0000/0.tar"), "group 0–9 tar should be uploaded");
+            assertTrue(
+                    objects.contains(TempArchiveKey.formatTar(groupSize, "")),
+                    "temp archive for segment [10,12] should be uploaded");
+            assertTrue(
+                    objects.contains(TempArchiveKey.formatTar(groupSize + 5, "")),
+                    "temp archive for segment [15,19] should be uploaded");
+
+            // Notification order matches task submission order:
+            // BlockUploadTask[0,9] → block 9, TempArchiveUploadTask[10,12] → block 12,
+            // TempArchiveUploadTask[15,19] → block 19
+            final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+            assertEquals(3, notifications.size(), "expected one notification per segment");
+            assertEquals(groupSize - 1L, notifications.get(0).blockNumber(), "block 9 from group 0–9");
+            assertEquals(groupSize + 2L, notifications.get(1).blockNumber(), "block 12 from segment [10,12]");
+            assertEquals(groupSize * 2 - 1L, notifications.get(2).blockNumber(), "block 19 from segment [15,19]");
+            notifications.forEach(n -> assertTrue(n.succeeded(), "all notifications should be successful"));
         }
 
         /// Verifies that a null [VerificationNotification] is silently ignored: no task is created
@@ -494,53 +568,83 @@ class CloudStorageArchivePluginTest {
         }
 
         /// Verifies that a block two groups ahead (e.g. block 20 while the current task covers
-        /// 0–9) is stashed, remains stashed while the intermediate group (10–19) is processed,
-        /// and is finally replayed when the third group's task starts.
+        /// 0–9) starts a streaming temp archive immediately, is uploaded concurrently with group
+        /// 0–9, and is eventually consolidated into the third group's final tar once block 30 drives
+        /// the production drain path.  Group 10–19 still flows through the regular pipeline because
+        /// no temp data exists for it when block 10 eventually arrives.
+        ///
+        /// Execution order (all blocks for group 20–29 are sent before the first executeSerially so
+        /// that TempArchiveUploadTask can drain its complete queue without blocking):
+        ///   executeSerially 1: BlockUploadTask[0,9] + TempArchiveUploadTask[20,29]
+        ///   executeSerially 2: ConsolidationTask[20,29] + BlockUploadTask[10,19]
+        ///   executeSerially 3: BlockUploadTask[30,39]
+        ///
+        /// Because TempArchiveUploadTask[20,29] runs in the first executeSerially (before
+        /// BlockUploadTask[10,19]), the notification order is [9, 29, 19, 39].
         @Test
-        @DisplayName("Block two groups ahead is stashed and replayed for the correct group")
+        @DisplayName("Block two groups ahead goes to temp buffer and is consolidated for the correct group")
         void testBlockTwoGroupsAheadStashedAndReplayed() throws Exception {
             final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
             // Trigger group 0-9 task with block 0
             sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
-            // Block 20 is two groups ahead — should land in blocksStash
+            // Block 20 is two groups ahead — starts a TempArchiveUploadTask for group 20 immediately
             sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 2, groupSize * 2)
                     .getFirst());
-            assertThat(plugin.blocksStash).containsKey((long) groupSize * 2);
+            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize * 2);
 
             // Complete group 0-9
             sendVerifications(TestBlockBuilder.generateBlocksInRange(1, groupSize - 1));
+            // Complete group 20-29: blocks 21-28 stream into the live queue; block 29 (last in
+            // group) triggers closeActiveTempSegment → SEGMENT_END so the task can finalise
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize * 2 + 1, groupSize * 3 - 2));
+            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize * 2); // still streaming
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 3 - 1, groupSize * 3 - 1)
+                    .getFirst());
+            // segment is now closed — all 10 blocks + sentinel are in the queue
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) groupSize * 2);
+
+            // runs BlockUploadTask for [0, 9] and TempArchiveUploadTask for [20, 29]
             pluginExecutor.executeSerially();
             assertTrue(getAllObjects().contains("0000/0000/0000/0000/0.tar"), "first tar should be uploaded");
-            // Block 20 must still be stashed — it does not belong to group 10-19
-            assertThat(plugin.blocksStash).containsKey((long) groupSize * 2);
 
-            // Complete group 10-19
+            // Complete group 10-19 via the regular pipeline (no temp data for group 10-19):
+            // block 10 drives checkAndDrainTempUploadResults → queues ConsolidationTask[20,29]
+            // and starts BlockUploadTask[10,19]; blocks 11-19 follow into the queue.
             sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize, groupSize * 2 - 1));
+            // runs ConsolidationTask for [20,29] then BlockUploadTask for [10,19]
             pluginExecutor.executeSerially();
             assertTrue(getAllObjects().contains("0000/0000/0000/0000/1.tar"), "second tar should be uploaded");
-            // Block 20 still stashed — the trigger for group 20-29 hasn't arrived yet
-            assertThat(plugin.blocksStash).containsKey((long) groupSize * 2);
-
-            // Complete group 20-29: block 20 is replayed from stash, rest arrive normally
-            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize * 2 + 1, groupSize * 3 - 1));
-            pluginExecutor.executeSerially();
             assertTrue(getAllObjects().contains("0000/0000/0000/0000/2.tar"), "third tar should be uploaded");
-            assertThat(plugin.blocksStash).isEmpty();
+
+            // block 30 drives checkAndDrainConsolidations and starts BlockUploadTask for [30,39]
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 3, groupSize * 3)
+                    .getFirst());
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize * 3 + 1, groupSize * 4 - 1));
+            pluginExecutor.executeSerially(); // runs BlockUploadTask for [30,39]
+            assertTrue(getAllObjects().contains("0000/0000/0000/0000/3.tar"), "fourth tar should be uploaded");
+            assertThat(plugin.tempGroupActiveQueues).isEmpty();
 
             final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-            assertEquals(3, notifications.size(), "expected one persisted notification per batch");
+            assertEquals(4, notifications.size(), "expected one persisted notification per batch");
+            // executeSerially 1: BlockUploadTask[0,9] runs before TempArchiveUploadTask[20,29]
             assertEquals(
                     groupSize - 1L,
                     notifications.get(0).blockNumber(),
-                    "first notification should be for the last block of batch 0");
-            assertEquals(
-                    groupSize * 2 - 1L,
-                    notifications.get(1).blockNumber(),
-                    "second notification should be for the last block of batch 1");
+                    "first notification should be for block 9 (group 0-9)");
             assertEquals(
                     groupSize * 3 - 1L,
+                    notifications.get(1).blockNumber(),
+                    "second notification should be for block 29 (temp archive ran in first executeSerially)");
+            // executeSerially 2: BlockUploadTask[10,19] (ConsolidationTask sends no notifications)
+            assertEquals(
+                    groupSize * 2 - 1L,
                     notifications.get(2).blockNumber(),
-                    "third notification should be for the last block of batch 2");
+                    "third notification should be for block 19 (group 10-19)");
+            // executeSerially 3: BlockUploadTask[30,39]
+            assertEquals(
+                    groupSize * 4 - 1L,
+                    notifications.get(3).blockNumber(),
+                    "fourth notification should be for block 39 (group 30-39)");
             notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
         }
 
@@ -1021,6 +1125,52 @@ class CloudStorageArchivePluginTest {
             assertThat(capturedRanges).containsExactly(new LongRange(0, 3));
         }
 
+        /// Verifies that when `.meta` companion files for temp archives are present in S3, startup
+        /// recovery rebuilds [CloudStorageArchivePlugin#tempArchiveTracker] from them and registers
+        /// each recovered block range with [org.hiero.block.node.spi.ApplicationStateFacility].
+        ///
+        /// Two temp archive pairs (blocks 5–9 in group 0, blocks 20–29 in group 20) are planted
+        /// before recovery runs.  After recovery, the first block notification triggers
+        /// [CloudStorageArchivePlugin#completeRecoveryIfReady], which populates the tracker and
+        /// calls `addStoredBlockRange` for each recovered range.
+        @Test
+        @DisplayName("Temp archive .meta files on S3 are rebuilt into tempArchiveTracker on recovery")
+        void tempArchivesRebuiltFromMetaFilesOnRecovery() throws Exception {
+            final CloudStorageArchiveConfig cfg = makeConfig();
+            try (S3Client s3 = openS3Client(cfg)) {
+                // Group 0: blocks 5–9
+                s3.uploadTextFile(
+                        TempArchiveKey.formatTar(5, cfg.objectKeyPrefix()),
+                        cfg.storageClass().name(),
+                        "dummy-tar");
+                s3.uploadTextFile(
+                        TempArchiveKey.formatMeta(5, cfg.objectKeyPrefix()),
+                        cfg.storageClass().name(),
+                        "9");
+                // Group 20: blocks 20–29
+                s3.uploadTextFile(
+                        TempArchiveKey.formatTar(20, cfg.objectKeyPrefix()),
+                        cfg.storageClass().name(),
+                        "dummy-tar");
+                s3.uploadTextFile(
+                        TempArchiveKey.formatMeta(20, cfg.objectKeyPrefix()),
+                        cfg.storageClass().name(),
+                        "29");
+            }
+
+            // Run startup recovery.
+            pluginExecutor.executeSerially();
+
+            // Send block 30 to trigger completeRecoveryIfReady().
+            sendVerification(TestBlockBuilder.generateBlocksInRange(30, 30).getFirst());
+
+            assertThat(plugin.tempArchiveTracker).containsKey(5L);
+            assertThat(plugin.tempArchiveTracker.get(5L).lastBlock()).isEqualTo(9L);
+            assertThat(plugin.tempArchiveTracker).containsKey(20L);
+            assertThat(plugin.tempArchiveTracker.get(20L).lastBlock()).isEqualTo(29L);
+            assertThat(capturedRanges).contains(new LongRange(5, 9), new LongRange(20, 29));
+        }
+
         private CloudStorageArchiveConfig makeConfig() {
             final ConfigurationBuilder builder =
                     ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
@@ -1144,6 +1294,47 @@ class CloudStorageArchivePluginTest {
 
             pluginExecutor.executeSerially();
             assertThat(plugin.isRecoveryComplete()).isTrue();
+        }
+
+        /// Verifies that blocks stashed during mid-run recovery are replayed to temp archives when
+        /// recovery completes with no in-progress regular group (currentGroupStart == -1).
+        ///
+        /// Without the fix, [CloudStorageArchivePlugin#tryReplayStash] was only called inside the
+        /// `if (currentGroupStart != -1)` branch of [CloudStorageArchivePlugin#completeRecoveryIfReady],
+        /// so stash blocks were permanently stranded when recovery found no in-progress upload.
+        @Test
+        @DisplayName("Blocks stashed during recovery are replayed to temp archive when recovery finds no group")
+        void blocksStashedDuringRecoveryReplayedToTempArchiveOnFreshStart() {
+            final int groupSize = 10;
+
+            // Block 0 starts the regular upload task for [0, 9].
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+            // Run the failing task — immediately returns FAILED.
+            pluginExecutor.executeSerially();
+
+            // Block 1 detects FAILED, triggers mid-run recovery, and is stashed.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(1, 1).getFirst());
+            assertThat(plugin.blocksStash).containsKey(1L);
+
+            // Block 10 arrives while recovery is in progress.  It must land in blocksStash, not
+            // tempGroupActiveQueues, because all blocks are stashed while recoveryFuture != null.
+            sendVerification(
+                    TestBlockBuilder.generateBlocksInRange(groupSize, groupSize).getFirst());
+            assertThat(plugin.blocksStash).containsKey((long) groupSize);
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) groupSize);
+
+            // Drive recovery — bucket is empty, so StartupRecoveryTask returns currentGroupStart=-1.
+            pluginExecutor.executeSerially();
+
+            // Block 11 triggers completeRecoveryIfReady().  tryReplayStash() must be called even
+            // though currentGroupStart==-1; block 10 must be routed to routeToTempArchive rather
+            // than remaining stranded in the stash.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize + 1, groupSize + 1)
+                    .getFirst());
+
+            assertThat(plugin.blocksStash).doesNotContainKey((long) groupSize);
+            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize);
+            assertThat(plugin.tempGroupActiveQueues.get((long) groupSize)).hasSize(2);
         }
 
         private void sendVerification(TestBlock block) {
@@ -1299,8 +1490,9 @@ class CloudStorageArchivePluginTest {
         @DisplayName("Failed recovery task increments failedTasks and leaves successfulTasks at zero")
         void testFailedRecoveryIncrementsFailedTasks() {
             final TestMetricsExporter exporter = new TestMetricsExporter();
-            final ConfigurationBuilder builder =
-                    ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+            final ConfigurationBuilder builder = ConfigurationBuilder.create()
+                    .withConfigDataType(CloudStorageArchiveConfig.class)
+                    .withConfigDataType(NodeConfig.class);
             Map.of(
                             "cloud.storage.archive.groupingLevel", "1",
                             "cloud.storage.archive.partSizeMb", "10",
@@ -1356,6 +1548,286 @@ class CloudStorageArchivePluginTest {
         private void sendVerification(TestBlock block) {
             blockMessaging.sendBlockVerification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+        }
+    }
+
+    /// Tests for the EMB-aware startup behaviour: [CloudStorageArchivePlugin#firstRegularGroupStart]
+    /// computation and routing of pre-EMB blocks to temporary S3 archives instead of the regular
+    /// upload pipeline.
+    @Nested
+    @DisplayName("EMB-Aware Tests")
+    final class EmbAwareTests
+            extends PluginTestBase<CloudStorageArchivePlugin, BlockingExecutor, ScheduledBlockingExecutor> {
+
+        private static final int GROUPING_LEVEL = 1; // groupSize = 10^1 = 10
+        private final BlockingExecutor pluginExecutor;
+
+        EmbAwareTests() {
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            final Map<String, String> config = new HashMap<>(pluginConfig(GROUPING_LEVEL, 10));
+            config.put("block.node.earliestManagedBlock", "5");
+            start(new CloudStorageArchivePlugin(), new SimpleInMemoryHistoricalBlockFacility(), config);
+            pluginExecutor = testThreadPoolManager.executor();
+        }
+
+        void drainRecovery() {
+            pluginExecutor.executeSerially();
+        }
+
+        /// Verifies that [CloudStorageArchivePlugin#firstRegularGroupStart] is computed as the
+        /// first aligned group boundary strictly above EMB.  With EMB=5 and groupSize=10 the first
+        /// aligned group at or above EMB is 10 (since group [0,9] partially precedes EMB=5).
+        @Test
+        @DisplayName("EMB=5 with groupSize=10 produces firstRegularGroupStart=10")
+        void embFiveYieldsFirstRegularGroupStart10() {
+            assertThat(plugin.firstRegularGroupStart).isEqualTo(10L);
+        }
+
+        /// Verifies the boundary-aligned case: when EMB falls exactly on a group boundary the
+        /// group that starts at EMB belongs entirely to the managed range, so [firstRegularGroupStart]
+        /// equals EMB itself.  With EMB=10 and groupSize=10 the ceiling-division formula
+        /// `((emb + groupSize - 1) / groupSize) * groupSize` must produce 10, not 20.
+        @Test
+        @DisplayName("EMB=10 with groupSize=10 (aligned on boundary) produces firstRegularGroupStart=10")
+        void embAlignedOnBoundaryYieldsSameBoundary() {
+            drainRecovery();
+            final Map<String, String> config = new HashMap<>(pluginConfig(GROUPING_LEVEL, 10));
+            config.put("block.node.earliestManagedBlock", "10");
+            start(new CloudStorageArchivePlugin(), new SimpleInMemoryHistoricalBlockFacility(), config);
+            pluginExecutor.executeSerially(); // drain startup recovery for the new plugin instance
+            assertThat(plugin.firstRegularGroupStart).isEqualTo(10L);
+        }
+
+        /// Verifies that blocks below [CloudStorageArchivePlugin#firstRegularGroupStart] are routed
+        /// to the temp-archive buffer rather than starting a regular [BlockUploadTask].
+        ///
+        /// Sending blocks 5–8 (all in group [0,9], below firstRegularGroupStart=10) should
+        /// populate [CloudStorageArchivePlugin#tempGroupActiveQueues] for group 0 and leave
+        /// [CloudStorageArchivePlugin#currentUploadFuture] null.
+        @Test
+        @DisplayName("EMB=5: blocks below firstRegularGroupStart go to temp archive buffer, not regular pipeline")
+        void blocksBelowFirstRegularGroupStartGoToTempBuffer() {
+            drainRecovery();
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(5, 8));
+            assertThat(plugin.currentUploadFuture).isNull();
+            assertThat(plugin.tempGroupActiveQueues).containsKey(0L);
+            assertThat(plugin.tempGroupActiveQueues.get(0L)).hasSize(4);
+        }
+
+        /// Verifies that a block exactly at [CloudStorageArchivePlugin#firstRegularGroupStart]
+        /// starts the regular archive pipeline (not the temp archive path).
+        @Test
+        @DisplayName("EMB=5: block 10 (at firstRegularGroupStart) starts the regular upload pipeline")
+        void blockAtFirstRegularGroupStartStartsRegularPipeline() {
+            drainRecovery();
+            sendVerification(TestBlockBuilder.generateBlocksInRange(10, 10).getFirst());
+            // A regular BlockUploadTask was submitted.
+            assertThat(plugin.currentUploadFuture).isNotNull();
+            // Block 10 was drained from currentGroupPending into the upload queue.
+            assertThat(plugin.currentBlockQueue).hasSize(1);
+        }
+
+        /// Verifies the full pre-EMB temporary-archive path end-to-end: blocks 0–9 (all below
+        /// firstRegularGroupStart=10) are routed to a temp archive, which is then consolidated
+        /// into the final `0.tar` by [ConsolidationTask].
+        ///
+        /// The last block of group 0 (block 9) triggers [CloudStorageArchivePlugin#closeActiveTempSegment],
+        /// uploading a `.tmp` archive.  Block 10 (firstRegularGroupStart) then drives the production
+        /// handleVerification path: it queues [ConsolidationTask] for [0,9] and starts a regular
+        /// [BlockUploadTask] for [10,19].  Both tasks are run together in a single executeSerially call.
+        @Test
+        @DisplayName("EMB=5: pre-EMB blocks 0–9 are consolidated into the final 0.tar via temp archive path")
+        void preEmbBlocksConsolidatedIntoFinalTar() throws Exception {
+            drainRecovery();
+            // Blocks 0–8 stream into the active temp archive queue for group 0.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(0, 8));
+            assertThat(plugin.tempGroupActiveQueues).containsKey(0L);
+
+            // Block 9 (last in group [0,9]) triggers closeActiveTempSegment → SEGMENT_END in queue.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(9, 9).getFirst());
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey(0L);
+
+            // Run TempArchiveUploadTask → uploads 0.tmp + 0.meta.
+            pluginExecutor.executeSerially();
+
+            // Block 10 (firstRegularGroupStart) drives the production handleVerification path,
+            // queuing ConsolidationTask for [0,9] and starting a regular BlockUploadTask for [10,19].
+            // Complete group [10,19] so the BlockUploadTask does not hang in executeSerially.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(10, 10).getFirst());
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(11, 19));
+            pluginExecutor.executeSerially(); // runs ConsolidationTask for [0,9] then BlockUploadTask for [10,19]
+
+            assertTrue(getAllObjects().contains("0000/0000/0000/0000/0.tar"), "consolidated tar should be uploaded");
+            assertThat(getAllObjects()).noneMatch(k -> k.startsWith("tmp/"));
+        }
+
+        /// Verifies the dual-recovery path where [StartupRecoveryTask] returns both a non-empty
+        /// [RecoveryResult#tempArchives] list (pre-EMB blocks stored as temp archives before the
+        /// restart) and a non-negative [RecoveryResult#currentGroupStart] (a hanging multipart
+        /// upload for the first EMB-aligned group).
+        ///
+        /// [completeRecoveryIfReady] must:
+        ///   1. Rebuild [tempArchiveTracker] from the recovered temp archives and call
+        ///      [checkGroupCoverage] so that a fully-covered group is queued for consolidation.
+        ///   2. Resume the regular [BlockUploadTask] for the in-progress group.
+        ///   3. Call [tryReplayStash] only after the tracker and group state are set up, so that
+        ///      stashed blocks are routed to the correct destination without interleaving errors.
+        ///
+        /// S3 state planted before recovery:
+        ///   - Temp archive covering all of group [0, 9] (pre-EMB; firstRegularGroupStart = 10).
+        ///   - Hanging multipart upload for group [10, 19] with tar entries for blocks 10–12.
+        ///
+        /// Blocks 12 (boundary block of the resumed group) and 20 (future group) are stashed
+        /// during recovery.  Block 13 is the trigger that fires completeRecoveryIfReady.
+        ///
+        /// Expected state after block 13 is processed:
+        ///   - tempArchiveTracker holds the entry for blocks 0–9.
+        ///   - pendingConsolidations holds group 0 (checkGroupCoverage detected full coverage).
+        ///   - currentGroupStart = 10; currentUploadFuture is non-null (BlockUploadTask resumed).
+        ///   - Block 12 was drained from stash → upload queue (not stranded in pending).
+        ///   - Block 20 was routed to tempGroupActiveQueues for group 20 (not left in stash).
+        @Test
+        @DisplayName(
+                "Recovery with temp archives + in-progress regular group: tracker rebuilt, consolidation queued, stash replayed without interleaving")
+        void recoveryWithTempArchivesAndInProgressRegularGroupRebuildsTrackerAndReplaysStash() throws Exception {
+            final long groupSize = Math.powExact(10, GROUPING_LEVEL); // 10
+            final CloudStorageArchiveConfig cfg = makeConfig();
+
+            try (S3Client s3 = openS3Client(cfg)) {
+                // Temp archive covering all of group [0, 9] (pre-EMB).
+                s3.uploadTextFile(
+                        TempArchiveKey.formatTar(0, cfg.objectKeyPrefix()),
+                        cfg.storageClass().name(),
+                        "dummy-tar");
+                s3.uploadTextFile(
+                        TempArchiveKey.formatMeta(0, cfg.objectKeyPrefix()),
+                        cfg.storageClass().name(),
+                        String.valueOf(groupSize - 1)); // lastBlock = 9
+
+                // Hanging multipart upload for group [10, 19] with tar entries for blocks 10–12.
+                final String regularKey = ArchiveKey.format(groupSize, GROUPING_LEVEL, cfg.objectKeyPrefix());
+                final String uploadId =
+                        s3.createMultipartUpload(regularKey, cfg.storageClass().name(), "application/x-tar");
+                final List<TestBlock> partialBlocks =
+                        TestBlockBuilder.generateBlocksInRange((int) groupSize, (int) groupSize + 2);
+                s3.multipartUploadPart(regularKey, uploadId, 1, buildTarBytes(partialBlocks, groupSize));
+                // deliberately NOT completing — simulate crash mid-upload
+            }
+
+            // Blocks 12 and 20 arrive while the recovery task is queued; they are stashed.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(12, 12).getFirst());
+            sendVerification(TestBlockBuilder.generateBlocksInRange(20, 20).getFirst());
+            assertThat(plugin.blocksStash).containsKeys(12L, 20L);
+
+            // Run the startup recovery task against the planted S3 state.
+            pluginExecutor.executeSerially();
+
+            // Block 13 triggers completeRecoveryIfReady().
+            sendVerification(TestBlockBuilder.generateBlocksInRange(13, 13).getFirst());
+
+            // 1. tempArchiveTracker rebuilt from the recovered temp archive for blocks 0–9.
+            assertThat(plugin.tempArchiveTracker).containsKey(0L);
+            assertThat(plugin.tempArchiveTracker.get(0L).lastBlock()).isEqualTo(groupSize - 1);
+
+            // 2. checkGroupCoverage detected full coverage of group [0, 9]; queued for consolidation.
+            assertThat(plugin.pendingConsolidations).containsKey(0L);
+
+            // 3. Regular BlockUploadTask resumed for group [10, 19].
+            assertThat(plugin.currentGroupStart).isEqualTo(groupSize);
+            assertThat(plugin.currentUploadFuture).isNotNull();
+
+            // 4. Stashed block 12 (boundary block, nextBlockToQueue=12 after resume) was replayed
+            //    to currentGroupPending and drained to the upload queue; block 13 (the trigger)
+            //    followed immediately — both are now in the queue and pending is empty.
+            assertThat(plugin.currentGroupPending).isEmpty();
+            assertThat(plugin.currentBlockQueue).hasSize(2);
+
+            // 5. Stashed block 20 (future group) was routed to routeToTempArchive and is waiting
+            //    in its temp archive queue — not stranded in blocksStash.
+            assertThat(plugin.blocksStash).isEmpty();
+            assertThat(plugin.tempGroupActiveQueues).containsKey(groupSize * 2);
+            assertThat(plugin.tempGroupActiveQueues.get(groupSize * 2)).hasSize(1);
+        }
+
+        private CloudStorageArchiveConfig makeConfig() {
+            final ConfigurationBuilder builder =
+                    ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+            pluginConfig(GROUPING_LEVEL, 10).forEach(builder::withValue);
+            return builder.build().getConfigData(CloudStorageArchiveConfig.class);
+        }
+
+        private static S3Client openS3Client(CloudStorageArchiveConfig config) throws Exception {
+            return new S3Client(
+                    config.regionName(),
+                    config.endpointUrl(),
+                    config.bucketName(),
+                    config.accessKey(),
+                    config.secretKey());
+        }
+
+        private static byte[] buildTarBytes(List<TestBlock> blocks, long startBlockNum) throws IOException {
+            final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            for (int i = 0; i < blocks.size(); i++) {
+                baos.write(TarEntries.toTarEntry(blocks.get(i).blockUnparsed(), startBlockNum + i));
+            }
+            return baos.toByteArray();
+        }
+
+        private void sendVerifications(List<TestBlock> blocks) {
+            for (final TestBlock block : blocks) {
+                sendVerification(block);
+            }
+        }
+
+        private void sendVerification(TestBlock block) {
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+        }
+    }
+
+    /// Tests for the EMB == 0 path (the production default): [CloudStorageArchivePlugin#firstRegularGroupStart]
+    /// must equal 0 and block 0 must enter the regular upload pipeline rather than the temp archive path.
+    @Nested
+    @DisplayName("EMB=0 Tests")
+    final class EmbZeroTests
+            extends PluginTestBase<CloudStorageArchivePlugin, BlockingExecutor, ScheduledBlockingExecutor> {
+
+        private static final int GROUPING_LEVEL = 1; // groupSize = 10^1 = 10
+
+        EmbZeroTests() {
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            final Map<String, String> config = new HashMap<>(pluginConfig(GROUPING_LEVEL, 10));
+            config.put("block.node.earliestManagedBlock", "0");
+            start(new CloudStorageArchivePlugin(), new SimpleInMemoryHistoricalBlockFacility(), config);
+            testThreadPoolManager.executor().executeSerially();
+        }
+
+        /// Verifies that [CloudStorageArchivePlugin#firstRegularGroupStart] is 0 when EMB is 0,
+        /// so all groups starting from block 0 use the regular upload pipeline.
+        @Test
+        @DisplayName("EMB=0 produces firstRegularGroupStart=0")
+        void embZeroYieldsFirstRegularGroupStart0() {
+            assertThat(plugin.firstRegularGroupStart).isEqualTo(0L);
+        }
+
+        /// Verifies that block 0 (at firstRegularGroupStart=0) starts the regular upload pipeline
+        /// and is not routed to the temp archive path.
+        @Test
+        @DisplayName("EMB=0: block 0 starts the regular upload pipeline, not the temp archive path")
+        void blockZeroStartsRegularPipeline() {
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true,
+                    null,
+                    0L,
+                    Bytes.EMPTY,
+                    TestBlockBuilder.generateBlocksInRange(0, 0).getFirst().blockUnparsed(),
+                    BlockSource.PUBLISHER));
+            assertThat(plugin.currentUploadFuture).isNotNull();
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey(0L);
         }
     }
 }

@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 
 /// Determines where [CloudStorageArchivePlugin] should resume uploading after a restart.
 ///
-/// On startup S3 may be in one of three states:
+/// On startup S3 may be in one of three states for **regular** archives:
 ///
 /// 1. **No hanging multipart uploads** — find the last completed tar file, derive the group start
 ///    from its key, and return `groupStart + groupSize` so that the next upload begins with the
@@ -34,12 +34,15 @@ import java.util.stream.Collectors;
 /// 3. **Multiple hanging multipart uploads** — should never happen in normal operation.  All uploads
 ///    are aborted and the task falls back to Case 1.
 ///
+/// In addition, the task scans the `tmp/` virtual directory to rebuild the
+/// [TempArchiveEntry] list from `.meta` companion objects, and aborts any hanging multipart uploads
+/// for `.tmp` keys (those blocks will be re-delivered by backfill).
+///
 /// Returns a [RecoveryResult] describing whether to start fresh, resume at a group boundary, or
-/// resume an in-progress upload.
+/// resume an in-progress upload, together with the list of completed temporary archives.
 class StartupRecoveryTask implements Callable<RecoveryResult> {
 
     private static final System.Logger LOGGER = System.getLogger(StartupRecoveryTask.class.getName());
-    private static final String CONTENT_TYPE = "application/x-tar";
     /// Maximum number of tar objects to list when searching for the last completed tar.
     private static final int MAX_LIST_RESULTS = 1000;
 
@@ -53,38 +56,53 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
     /// that tells [CloudStorageArchivePlugin] where to resume uploading.
     @Override
     public RecoveryResult call() throws S3ClientInitializationException, S3ResponseException, IOException {
-        try (final S3Client s3 = new S3Client(
-                config.regionName(),
-                config.endpointUrl(),
-                config.bucketName(),
-                config.accessKey(),
-                config.secretKey())) {
-            final Map<String, List<String>> uploads = uploadsUnderPrefix(s3.listMultipartUploads());
-            final int totalUploads =
-                    uploads.values().stream().mapToInt(List::size).sum();
-            return switch (totalUploads) {
-                case 0 -> recoverFromCompletedObjects(s3);
-                case 1 -> {
-                    final Map.Entry<String, List<String>> entry =
-                            uploads.entrySet().iterator().next();
-                    yield recoverFromSingleHangingUpload(
-                            s3, entry.getKey(), entry.getValue().getFirst());
-                }
-                default -> recoverFromMultipleHangingUploads(s3, uploads);
-            };
+        try (final S3Client s3 = S3UploadUtils.createClient(config)) {
+            final Map<String, List<String>> allUploads = s3.listMultipartUploads();
+            final Map<String, List<String>> regularUploads = regularUploadsUnderPrefix(allUploads);
+            final int totalRegularUploads =
+                    regularUploads.values().stream().mapToInt(List::size).sum();
+
+            final RecoveryResult baseResult =
+                    switch (totalRegularUploads) {
+                        case 0 -> recoverFromCompletedObjects(s3);
+                        case 1 -> {
+                            final Map.Entry<String, List<String>> entry =
+                                    regularUploads.entrySet().iterator().next();
+                            yield recoverFromSingleHangingUpload(
+                                    s3, entry.getKey(), entry.getValue().getFirst());
+                        }
+                        default -> recoverFromMultipleHangingUploads(s3, regularUploads);
+                    };
+
+            final List<TempArchiveEntry> tempArchives = recoverTempArchives(s3, allUploads);
+            return withTempArchives(baseResult, tempArchives);
         }
     }
 
-    /// Filters a raw [S3Client#listMultipartUploads] result to only the entries whose key starts
-    /// with the configured [CloudStorageArchiveConfig#objectKeyPrefix()].
-    private Map<String, List<String>> uploadsUnderPrefix(Map<String, List<String>> all) {
+    // Returns a new RecoveryResult identical to [result] but with [tempArchives] set.
+    private RecoveryResult withTempArchives(RecoveryResult result, List<TempArchiveEntry> tempArchives) {
+        return new RecoveryResult(
+                result.currentGroupStart(),
+                result.uploadId(),
+                result.etags(),
+                result.nextBlockNumber(),
+                result.trailingBytes(),
+                tempArchives);
+    }
+
+    /// Filters a raw [S3Client#listMultipartUploads] result to only the **regular** (non-temp)
+    /// entries whose key starts with the configured [CloudStorageArchiveConfig#objectKeyPrefix()].
+    private Map<String, List<String>> regularUploadsUnderPrefix(Map<String, List<String>> all) {
         final String objectKeyPrefix = config.objectKeyPrefix();
-        if (objectKeyPrefix.isEmpty()) {
-            return all;
-        }
-        final String prefixFilter = objectKeyPrefix + "/";
+        final String tmpPfx = TempArchiveKey.tmpPrefix(objectKeyPrefix);
         return all.entrySet().stream()
-                .filter(e -> e.getKey().startsWith(prefixFilter))
+                .filter(e -> {
+                    final String key = e.getKey();
+                    if (!objectKeyPrefix.isEmpty() && !key.startsWith(objectKeyPrefix + "/")) {
+                        return false;
+                    }
+                    return !key.startsWith(tmpPfx);
+                })
                 .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
@@ -94,7 +112,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
         final String lastKey = findLastKey(s3);
         if (lastKey == null) {
             LOGGER.log(TRACE, "No prior state found in S3 bucket, starting fresh");
-            recoveryResult = new RecoveryResult(-1, null, null, 0, null);
+            recoveryResult = new RecoveryResult(-1, null, null, 0, null, null);
         } else {
             final long groupSize = Math.powExact(10, config.groupingLevel());
             final long groupStart = ArchiveKey.parse(lastKey, config.groupingLevel(), config.objectKeyPrefix());
@@ -103,38 +121,43 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                     "Last completed tar group starts at {0}, resuming from {1}",
                     groupStart,
                     groupStart + groupSize);
-            recoveryResult = new RecoveryResult(groupStart + groupSize, null, null, 0, null);
+            recoveryResult = new RecoveryResult(groupStart + groupSize, null, null, 0, null, null);
         }
         return recoveryResult;
     }
 
     /// Right-hand path traversal: descends the virtual S3 directory tree by always following
-    /// the alphabetically last common prefix at each level, then pages through the leaf objects
-    /// to return the key of the last one, or `null` if the bucket is empty.
+    /// the alphabetically last common prefix at each level, skipping the `tmp/` virtual directory,
+    /// then pages through the leaf objects to return the key of the last one, or `null` if the
+    /// bucket is empty.
     ///
     /// When [CloudStorageArchiveConfig#objectKeyPrefix()] is configured the traversal is rooted
     /// at `{prefix}/` so that sibling prefixes in the same bucket are never visited.
     private String findLastKey(S3Client s3) throws S3ResponseException, IOException {
         final String objectKeyPrefix = config.objectKeyPrefix();
+        final String excludedPrefix = TempArchiveKey.tmpPrefix(objectKeyPrefix);
         String currentPrefix = objectKeyPrefix.isEmpty() ? "" : objectKeyPrefix + "/";
-        String lastPrefix = findLastCommonPrefix(s3, currentPrefix);
+        String lastPrefix = findLastCommonPrefixExcluding(s3, currentPrefix, excludedPrefix);
         while (lastPrefix != null) {
             currentPrefix = lastPrefix;
-            lastPrefix = findLastCommonPrefix(s3, currentPrefix);
+            lastPrefix = findLastCommonPrefixExcluding(s3, currentPrefix, excludedPrefix);
         }
         return findLastObject(s3, currentPrefix);
     }
 
-    /// Pages through all common prefixes under [prefix] and returns the alphabetically last one,
-    /// or `null` if there are no common prefixes at that level.
-    private String findLastCommonPrefix(S3Client s3, String prefix) throws S3ResponseException, IOException {
+    /// Pages through all common prefixes under [prefix] and returns the alphabetically last one
+    /// that is not equal to [excluded], or `null` if there are no qualifying common prefixes.
+    private String findLastCommonPrefixExcluding(S3Client s3, String prefix, String excluded)
+            throws S3ResponseException, IOException {
         String lastPrefix = null;
         String token = null;
         boolean hasMore = true;
         while (hasMore) {
             final S3Client.ListPage page = s3.listObjectsPage(prefix, token, "/", MAX_LIST_RESULTS);
-            if (!page.keys().isEmpty()) {
-                lastPrefix = page.keys().getLast();
+            for (final String candidate : page.keys()) {
+                if (!candidate.equals(excluded)) {
+                    lastPrefix = candidate;
+                }
             }
             token = page.continuationToken();
             hasMore = token != null;
@@ -156,6 +179,10 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
             token = page.continuationToken();
             hasMore = token != null;
         }
+        // Filter out any .tmp or .meta objects that might appear at the leaf level
+        if (lastKey != null && (lastKey.endsWith(".tmp") || lastKey.endsWith(".meta"))) {
+            return null;
+        }
         return lastKey;
     }
 
@@ -173,7 +200,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                     key, uploadId, parts.stream().map(PartInfo::etag).toList());
             LOGGER.log(TRACE, "Completed hanging upload to create temporary S3 object at key {0}", key);
             final String newUploadId =
-                    s3.createMultipartUpload(key, config.storageClass().name(), CONTENT_TYPE);
+                    s3.createMultipartUpload(key, config.storageClass().name(), S3UploadUtils.CONTENT_TYPE);
             final List<String> newEtags = new ArrayList<>();
 
             final PartScanResult scanResult = rebuildUpload(s3, key, newUploadId, newEtags, parts);
@@ -186,7 +213,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                         key,
                         scanResult.blockNumber());
                 result = new RecoveryResult(
-                        groupStart, newUploadId, newEtags, scanResult.blockNumber(), scanResult.trailingBytes());
+                        groupStart, newUploadId, newEtags, scanResult.blockNumber(), scanResult.trailingBytes(), null);
             } else {
                 LOGGER.log(DEBUG, "No block start found in any part for key {0}; aborting", key);
                 s3.abortMultipartUpload(key, newUploadId);
@@ -282,5 +309,93 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
             }
         }
         return recoverFromCompletedObjects(s3);
+    }
+
+    /// Scans the `tmp/` virtual directory to rebuild the temporary-archive tracker and aborts any
+    /// hanging multipart uploads for `.tmp` keys (those block ranges will be re-delivered by
+    /// backfill).
+    ///
+    /// Only archives with a companion `.meta` file (written atomically after the multipart upload
+    /// completes) are considered fully durable and included in the returned list.  `.tmp` objects
+    /// without a `.meta` companion are treated as incomplete and their orphaned `.tmp` objects are
+    /// deleted.
+    private List<TempArchiveEntry> recoverTempArchives(S3Client s3, Map<String, List<String>> allUploads)
+            throws S3ResponseException, IOException {
+        final String objectKeyPrefix = config.objectKeyPrefix();
+        final String tmpPfx = TempArchiveKey.tmpPrefix(objectKeyPrefix);
+
+        // Abort hanging temp uploads — those blocks will be re-delivered by backfill.
+        for (final Map.Entry<String, List<String>> entry : allUploads.entrySet()) {
+            if (entry.getKey().startsWith(tmpPfx)) {
+                for (final String uploadId : entry.getValue()) {
+                    try {
+                        s3.abortMultipartUpload(entry.getKey(), uploadId);
+                        LOGGER.log(TRACE, "Aborted hanging temp archive upload for key {0}", entry.getKey());
+                    } catch (S3ResponseException | IOException e) {
+                        LOGGER.log(DEBUG, "Failed to abort temp archive upload {0}", entry.getKey(), e);
+                    }
+                }
+            }
+        }
+
+        // List all objects under the tmp/ prefix — both .tmp tar files and .meta companions.
+        final List<String> tmpDirObjects = listAllObjectsUnderPrefix(s3, tmpPfx);
+        final List<TempArchiveEntry> completedEntries = new ArrayList<>();
+
+        for (final String key : tmpDirObjects) {
+            if (!TempArchiveKey.isTempMetaKey(key, objectKeyPrefix)) {
+                continue;
+            }
+            final long firstBlock = TempArchiveKey.parseFirstBlockFromMeta(key, objectKeyPrefix);
+            final String tarKey = TempArchiveKey.formatTar(firstBlock, objectKeyPrefix);
+            try {
+                final String metaContent = s3.downloadTextFile(key);
+                final long lastBlock = Long.parseLong(metaContent.trim());
+                completedEntries.add(new TempArchiveEntry(tarKey, firstBlock, lastBlock, null));
+                LOGGER.log(TRACE, "Recovered temp archive [{0}, {1}] from meta key {2}", firstBlock, lastBlock, key);
+            } catch (S3ResponseException | IOException | NumberFormatException e) {
+                LOGGER.log(DEBUG, "Could not read temp archive meta {0}, skipping", key, e);
+            }
+        }
+
+        // Delete orphaned .tmp objects (those without a valid .meta companion).
+        for (final String key : tmpDirObjects) {
+            if (!TempArchiveKey.isTempTarKey(key, objectKeyPrefix)) {
+                continue;
+            }
+            final long firstBlock = TempArchiveKey.parseFirstBlockFromTar(key, objectKeyPrefix);
+            final String metaKey = TempArchiveKey.formatMeta(firstBlock, objectKeyPrefix);
+            final boolean hasValidMeta = completedEntries.stream().anyMatch(e -> e.firstBlock() == firstBlock);
+            if (!hasValidMeta) {
+                LOGGER.log(TRACE, "Deleting orphaned temp archive {0} (no valid .meta companion)", key);
+                try {
+                    s3.deleteObject(key);
+                } catch (S3ResponseException | IOException e) {
+                    LOGGER.log(DEBUG, "Failed to delete orphaned temp archive {0}", key, e);
+                }
+                // Also clean up the meta if it exists but was unreadable.
+                try {
+                    s3.deleteObject(metaKey);
+                } catch (S3ResponseException | IOException e) {
+                    LOGGER.log(DEBUG, "Failed to delete orphaned temp archive meta {0}", metaKey, e);
+                }
+            }
+        }
+
+        return completedEntries;
+    }
+
+    /// Lists all object keys under [prefix] by paging through [S3Client#listObjectsPage] calls.
+    private List<String> listAllObjectsUnderPrefix(S3Client s3, String prefix) throws S3ResponseException, IOException {
+        final List<String> keys = new ArrayList<>();
+        String token = null;
+        boolean hasMore = true;
+        while (hasMore) {
+            final S3Client.ListPage page = s3.listObjectsPage(prefix, token, null, MAX_LIST_RESULTS);
+            keys.addAll(page.keys());
+            token = page.continuationToken();
+            hasMore = token != null;
+        }
+        return keys;
     }
 }
