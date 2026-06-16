@@ -404,7 +404,10 @@ plugins:
 blockNode:
   config:
     ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL: "${mn_base_url}"
-    ROSTER_BOOTSTRAP_RSA_INITIAL_QUERY_INTERVAL_MILLIS: "15000"
+    # Poll the Mirror Node frequently so the roster loads ASAP after the MN is up — this
+    # narrows the startup window in which the genesis block (0) can arrive before the roster
+    # and be dropped. See wrb-startup-block-gap-issue: the real fix is no-gap-from-genesis on the BN.
+    ROSTER_BOOTSTRAP_RSA_INITIAL_QUERY_INTERVAL_MILLIS: "3000"
 EOF
   log_line "  Generated BN WRB overlay (roster URL: %s)" "${mn_base_url}"
 }
@@ -547,6 +550,38 @@ EOF
   fi
 }
 
+also# WRAPS v1.0.0 proving keys: downloaded + extracted once into a local cache and handed to Solo via
+# --wraps-key-path on every deploy (no ~2 GB re-download). Pre-staging is required because CN-side
+# runtime download is dropped before genesis on CN v0.75.x — see project-patterns.md (WRAPS on
+# solo-e2e). Solo stages these under its cache dir named `wraps-v0.2.0` (default directoryName,
+# not overridable here), so that directory holds v1.0.0 contents on this setup.
+WRAPS_DOWNLOAD_URL="https://builds.hedera.com/tss/hiero/wraps/v1.0/wraps-v1.0.0.tar.gz"
+WRAPS_KEYS_DIR="${HOME}/.solo/cache/wraps-v1.0.0-keys"
+WRAPS_KEY_FILES="decider_pp.bin decider_vp.bin nova_pp.bin nova_vp.bin"
+
+## Download and extract the WRAPS v1.0.0 proving keys into `keys_dir` once; later deploys reuse them.
+function ensure_wraps_keys_cached {
+  local keys_dir="${1}"
+  local f=""
+  local need_download="false"
+  for f in ${WRAPS_KEY_FILES}; do
+    [[ -f "${keys_dir}/${f}" ]] || need_download="true"
+  done
+
+  if [[ "${need_download}" == "true" ]]; then
+    log_line "Caching WRAPS v1.0.0 proving keys (one-time download + extract, ~2 GB)"
+    mkdir -p "${keys_dir}"
+    local tarball="${keys_dir}/wraps-v1.0.0.tar.gz"
+    curl -fSL "${WRAPS_DOWNLOAD_URL}" -o "${tarball}" || fail "ERROR: Failed to download WRAPS v1.0.0" 1
+    tar -xzf "${tarball}" -C "${keys_dir}" || fail "ERROR: Failed to extract WRAPS v1.0.0 archive" 1
+    rm -f "${tarball}"
+  fi
+
+  for f in ${WRAPS_KEY_FILES}; do
+    [[ -f "${keys_dir}/${f}" ]] || fail "ERROR: WRAPS v1.0.0 key ${f} missing after extract" 1
+  done
+}
+
 function deploy_consensus_nodes {
   log_line ""
   log_line "Deploying Consensus Nodes"
@@ -570,19 +605,24 @@ function deploy_consensus_nodes {
     --node-aliases "${NODE_ALIASES}" || fail "ERROR: Failed to generate consensus keys" 1
   end_task
 
-  start_task "Deploying consensus network"
-  local wraps_arg=""
+  # Pre-stage the WRAPS v1.0.0 keys via --wraps-key-path so the library is ready at genesis (CN
+  # runtime download is too late on CN v0.75.x and the WRAPS proof gets dropped). CN-side download
+  # stays disabled in cn-application.properties. --tss is kept so Solo still patches
+  # block-nodes.json with the TSS message-size limits the large WRAPS genesis block needs.
+  local wraps_key_args=""
   if [[ "${TSS_ENABLED}" == "true" ]]; then
-    wraps_arg="--wraps true"
+    ensure_wraps_keys_cached "${WRAPS_KEYS_DIR}"
+    wraps_key_args="--wraps true --wraps-key-path ${WRAPS_KEYS_DIR}"
   fi
 
+  start_task "Deploying consensus network"
   # shellcheck disable=SC2086
   # adding --dev flag so in case it fails we have more information on details
   eval solo consensus network deploy \
     --deployment "${DEPLOYMENT}" \
     --pvcs true \
     --tss "${TSS_ENABLED}" \
-    ${wraps_arg} \
+    ${wraps_key_args} \
     --node-aliases "${NODE_ALIASES}" \
     --application-properties "${cn_app_properties}" \
     ${cn_args} --dev || fail "ERROR: Failed to deploy consensus network" 1
