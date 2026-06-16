@@ -550,7 +550,7 @@ EOF
   fi
 }
 
-also# WRAPS v1.0.0 proving keys: downloaded + extracted once into a local cache and handed to Solo via
+# WRAPS v1.0.0 proving keys: downloaded + extracted once into a local cache and handed to Solo via
 # --wraps-key-path on every deploy (no ~2 GB re-download). Pre-staging is required because CN-side
 # runtime download is dropped before genesis on CN v0.75.x — see project-patterns.md (WRAPS on
 # solo-e2e). Solo stages these under its cache dir named `wraps-v0.2.0` (default directoryName,
