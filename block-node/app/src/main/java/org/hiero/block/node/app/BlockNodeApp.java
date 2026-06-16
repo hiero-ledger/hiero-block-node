@@ -128,9 +128,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /** Blocks reported as stored by plugins that do not serve them for retrieval */
     final ConcurrentLongRangeSet storedBlocks = new ConcurrentLongRangeSet();
 
-    /** Blocks reported as available by BlockProviderPlugin implementations */
-    final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
-
     /** Block count at the time of the last scheduled persist; only read/written by the scanner thread */
     private long lastPersistedBlockCount = 0;
 
@@ -497,12 +494,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         storedBlocks.add(blockRange);
     }
 
-    @Override
-    public void addAvailableBlockRange(LongRange blockRange) {
-        availableBlocks.add(blockRange);
-        addStoredBlockRange(blockRange);
-    }
-
     /**
      * Allow plugins to update the NodeAddressBook for this BlockNodeApp. The address book is staged
      * in a last-write-wins reference; if {@code updateAddressBook} is called more than once before
@@ -576,7 +567,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             persistNodeAddressBook(addressBook);
         }
 
-        if (updateBlockNodeContext(tssData, addressBook, storedBlocks, availableBlocks)) {
+        if (updateBlockNodeContext(tssData, addressBook, storedBlocks, historicalBlockFacility.availableBlocks())) {
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
             LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
         }
@@ -760,11 +751,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .streamRanges()
                 .map(r -> new BlockRange(r.start(), r.end()))
                 .toList();
-        final List<BlockRange> available = availableBlocks
-                .streamRanges()
-                .map(r -> new BlockRange(r.start(), r.end()))
-                .toList();
-        return new BlockRangesState(stored, available);
+        return new BlockRangesState(stored);
     }
 
     /**
@@ -848,8 +835,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         MAX_APP_STATE_MESSAGE_DEPTH,
                         MAX_APP_STATE_MESSAGE_SIZE_BYTES);
                 rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
-                rangeSet.availableBlocks()
-                        .forEach(r -> availableBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
                 LOGGER.log(INFO, "Loaded block ranges from file: {0}", blockRangesPath);
             } catch (ParseException | IOException | IllegalArgumentException e) {
                 LOGGER.log(ERROR, "Failed to read block ranges file: " + blockRangesPath, e);

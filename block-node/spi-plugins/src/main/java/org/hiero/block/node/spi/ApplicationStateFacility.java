@@ -7,7 +7,7 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * Interface for the Application and block node plugins to exchange state information. The `ApplicationStateFacility`
- * is passed to all block node plugins in the BlockNodeCOntext.
+ * is passed to all block node plugins in the BlockNodeContext.
  * */
 public interface ApplicationStateFacility {
 
@@ -31,17 +31,9 @@ public interface ApplicationStateFacility {
 
     /**
      * Records a contiguous range of blocks as stored (persisted but not necessarily retrievable by
-     * clients). Use `addAvailableBlockRange(LongRange)` when the blocks can also be served.
+     * clients). Block availability for clients is tracked by {@code HistoricalBlockFacility}.
      *
      * @param blockRange the contiguous range of block numbers being reported
      */
     void addStoredBlockRange(LongRange blockRange);
-
-    /**
-     * Records a contiguous range of blocks as available (persisted and retrievable by clients).
-     * Available blocks also count as stored.
-     *
-     * @param blockRange the contiguous range of block numbers being reported
-     */
-    void addAvailableBlockRange(LongRange blockRange);
 }

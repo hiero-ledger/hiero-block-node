@@ -16,7 +16,7 @@ import org.hiero.block.node.base.Loggable;
  *     by this node. Blocks earlier than this might be present, but the node
  *     should not make any particular effort to obtain or store them.
  */
-// spotless:off
+// spotless:off - long annotations on record components must stay on one line
 @ConfigData("block.node")
 public record NodeConfig(
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long earliestManagedBlock) {}

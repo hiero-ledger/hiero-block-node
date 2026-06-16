@@ -40,17 +40,17 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 ### Application State Configuration
 
-| ENV Variable                      | Description                                                                                                |                              Default                              |
-|:----------------------------------|:-----------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
-| APP_STATE_TSS_BOOTSTRAP_FILE_PATH | Path where TSS data (ledger ID, current roster, WRAPS VK) is persisted across restarts.                    | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json |
-| APP_STATE_RSA_BOOTSTRAP_FILE_PATH | Path where RSA data (node address book) is persisted across restarts.                                      | /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json |
-| APP_STATE_BLOCK_RANGES_FILE_PATH  | Path where the set of available and stored block ranges is persisted. Written every 1,000 blocks received. | /opt/hiero/block-node/application-state/block-ranges.json         |
-| APP_STATE_UPDATE_SCAN_INTERVAL    | How often (ms) the application state facility checks for pending TSS data updates. Minimum 100.            | 500                                                               |
-| APP_STATE_UPDATE_INITIAL_DELAY    | Delay (ms) before the application state facility begins its first scan. Minimum 100.                       | 100                                                               |
+| ENV Variable                      | Description                                                                                             |                              Default                              |
+|:----------------------------------|:--------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
+| APP_STATE_TSS_BOOTSTRAP_FILE_PATH | Path where TSS data (ledger ID, current roster, WRAPS VK) is persisted across restarts.                | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json |
+| APP_STATE_RSA_BOOTSTRAP_FILE_PATH | Path where RSA data (node address book) is persisted across restarts.                                   | /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json |
+| APP_STATE_BLOCK_RANGES_FILE_PATH  | Path where the stored block range set is persisted. Written every 1,000 blocks received.                | /opt/hiero/block-node/application-state/block-ranges.json         |
+| APP_STATE_UPDATE_SCAN_INTERVAL    | How often (ms) the application state facility checks for pending TSS data updates. Minimum 100.         | 500                                                               |
+| APP_STATE_UPDATE_INITIAL_DELAY    | Delay (ms) before the application state facility begins its first scan.                                  | 0                                                                 |
 
-Stored blocks are all blocks reported as persisted by any plugin. Available blocks are the subset
-also reported as retrievable (i.e. by a `BlockProviderPlugin`). Both range sets are loaded at
-startup and persisted to disk automatically.
+Stored blocks are all blocks reported as persisted by any plugin. Block availability is derived
+from `HistoricalBlockFacility` at query time and is not persisted separately. The stored block
+range set is loaded at startup and persisted to disk automatically.
 
 ### Metrics Endpoint Configuration
 

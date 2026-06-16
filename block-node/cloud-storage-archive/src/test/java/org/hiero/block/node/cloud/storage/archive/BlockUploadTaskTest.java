@@ -613,8 +613,5 @@ class BlockUploadTaskTest {
         public void addStoredBlockRange(LongRange blockRange) {
             storedRanges.add(blockRange);
         }
-
-        @Override
-        public void addAvailableBlockRange(LongRange blockRange) {}
     }
 }
