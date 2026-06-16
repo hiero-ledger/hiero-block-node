@@ -255,7 +255,7 @@ final NodeAddressBook nodeAddressBook =
         NodeAddressBook.JSON.parse(Bytes.wrap(Files.readAllBytes(filePath)));
 ```
 
-**Default file path:** `/opt/hiero/block-node/node/rsa-bootstrap-roster.json`
+**Default file path:** `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json`
 (Configured via `app.state.rsaBootstrapFilePath`.)
 
 ---
@@ -598,9 +598,9 @@ sequenceDiagram
 
 Bootstrap file path is in the `app.state` namespace (shared application state config):
 
-|             Property             |  Type  |                        Default                         |                          Description                          |
-|----------------------------------|--------|--------------------------------------------------------|---------------------------------------------------------------|
-| `app.state.rsaBootstrapFilePath` | string | `/opt/hiero/block-node/node/rsa-bootstrap-roster.json` | Path to the JSON-serialized `NodeAddressBook` bootstrap file. |
+|             Property             |  Type  |                               Default                               |                          Description                          |
+|----------------------------------|--------|---------------------------------------------------------------------|---------------------------------------------------------------|
+| `app.state.rsaBootstrapFilePath` | string | `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json` | Path to the JSON-serialized `NodeAddressBook` bootstrap file. |
 
 All plugin properties are in the `roster.bootstrap.rsa` namespace:
 
@@ -697,7 +697,7 @@ A script `tools-and-tests/scripts/node-operations/generate-roster-rsa-bootstrap.
 **Expected usage before a Phase 2a cutover:**
 
 ```bash
-generate-rsa-roster-bootstrap.sh --network mainnet --output /opt/hiero/block-node/node/rsa-bootstrap-roster.json
+generate-rsa-roster-bootstrap.sh --network mainnet --output /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json
 ```
 
 Because the plugin polls both the peer BN and Mirror Node at configurable intervals and updates the address book in

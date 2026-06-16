@@ -24,7 +24,7 @@ the roster cannot be loaded.
 ## How it works
 
 1. **File-first:** On startup `BlockNodeApp.loadApplicationState()` checks for a local bootstrap file at
-   `app.state.rsaBootstrapFilePath` (default `/opt/hiero/block-node/node/rsa-bootstrap-roster.json`). If found,
+   `app.state.rsaBootstrapFilePath` (default `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json`). If found,
    the roster is parsed and made available in `BlockNodeContext` before any plugin is started.
 2. **Mirror Node fallback:** If no local file is present, the plugin queries the Hedera Mirror Node REST API
    (`GET /api/v1/network/nodes`, paginated, `order=desc`). The result is written to the bootstrap file via
@@ -52,7 +52,7 @@ Only two fields from each `NodeAddress` entry are populated:
 No metadata fields (network name, generation timestamp, schema version) are embedded.
 Operators wishing to annotate the file should maintain a separate sidecar.
 
-**Default file path:** `/opt/hiero/block-node/node/rsa-bootstrap-roster.json`
+**Default file path:** `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json`
 (Configured via `app.state.rsaBootstrapFilePath`.)
 
 Generate this file before Phase 2a cutover using the operator script:
@@ -60,7 +60,7 @@ Generate this file before Phase 2a cutover using the operator script:
 ```bash
 tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh \
   --network mainnet \
-  --output /opt/hiero/block-node/node/rsa-bootstrap-roster.json
+  --output /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json
 ```
 
 ---
@@ -69,9 +69,9 @@ tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh \
 
 Bootstrap file path is configured in the `app.state` namespace (shared with other application state):
 
-|             Property             |                        Default                         |                              Description                              |
-|----------------------------------|--------------------------------------------------------|-----------------------------------------------------------------------|
-| `app.state.rsaBootstrapFilePath` | `/opt/hiero/block-node/node/rsa-bootstrap-roster.json` | Path to the local bootstrap file (JSON-serialized `NodeAddressBook`). |
+|             Property             |                               Default                               |                              Description                              |
+|----------------------------------|---------------------------------------------------------------------|-----------------------------------------------------------------------|
+| `app.state.rsaBootstrapFilePath` | `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json` | Path to the local bootstrap file (JSON-serialized `NodeAddressBook`). |
 
 Mirror Node fallback is configured in the `roster.bootstrap.rsa` namespace:
 

@@ -32,8 +32,6 @@ blockNode:
                     mountPath: /archive-pvc
                   - name: logging-storage
                     mountPath: /logging-pvc
-                  - name: verification-storage
-                    mountPath: /verification-pvc
                   - name: application-state-storage
                     mountPath: /application-state-pvc
         persistence:
@@ -49,9 +47,6 @@ blockNode:
                 create: false
                 existingClaim: logging-storage-pvc
                 subPath: ""
-            verification:
-                create: false
-                existingClaim: verification-storage-pvc
             applicationStateFacility:
                 create: false
                 existingClaim: application-state-storage-pvc

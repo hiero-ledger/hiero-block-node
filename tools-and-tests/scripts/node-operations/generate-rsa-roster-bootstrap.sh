@@ -39,15 +39,15 @@
 #
 #   1. Pick the network (or an explicit MN URL):
 #        generate-rsa-roster-bootstrap.sh --network mainnet \
-#          --output /opt/hiero/block-node/node/rsa-bootstrap-roster.json
+#          --output /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json
 #
 #      or point at a specific Mirror Node:
 #        generate-rsa-roster-bootstrap.sh \
 #          --mirror-node-url https://mainnet-public.mirrornode.hedera.com \
-#          --output /opt/hiero/block-node/node/rsa-bootstrap-roster.json
+#          --output /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json
 #
 #   2. Inspect the result:
-#        python3 -m json.tool < /opt/hiero/block-node/node/rsa-bootstrap-roster.json | head -40
+#        python3 -m json.tool < /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json | head -40
 #      Confirm the entry count matches the expected number of active nodes.
 #
 #   3. Deploy the file to the configured bootstrap path
@@ -99,7 +99,7 @@ Output shape:
 
 Examples:
   generate-rsa-roster-bootstrap.sh --network mainnet \
-    --output /opt/hiero/block-node/node/rsa-bootstrap-roster.json
+    --output /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json
 
   generate-rsa-roster-bootstrap.sh \
     --mirror-node-url https://testnet.mirrornode.hedera.com > roster.json

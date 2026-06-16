@@ -63,6 +63,6 @@ file can be placed manually into the volume.
 
 ## Configuration
 
-|               Property               |                         Default                         |           Description           |
-|--------------------------------------|---------------------------------------------------------|---------------------------------|
-| `verification.tssParametersFilePath` | `/opt/hiero/block-node/verification/tss-parameters.bin` | TSS parameters persistence path |
+|               Property               |                           Default                            |           Description           |
+|--------------------------------------|--------------------------------------------------------------|---------------------------------|
+| `verification.tssParametersFilePath` | `/opt/hiero/block-node/application-state/tss-parameters.bin` | TSS parameters persistence path |

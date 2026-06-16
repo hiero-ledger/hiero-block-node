@@ -359,7 +359,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
     ///
     /// This matches `SignatureDataExtractor.computeSignedHash(6, ...)` in
     /// `tools-and-tests/tools`. Inlined here because that module cannot be imported from
-    /// `block-node/verification`.
+    /// `block-node/application-state`.
     ///
     /// @param rawRecordStreamFileBytes raw bytes of the `record_file_contents` field
     /// @return 48-byte SHA-384 digest

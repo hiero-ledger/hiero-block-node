@@ -118,7 +118,7 @@ that era's node RSA keys. A block with no available address book fails verificat
 Tier-1 retrieval already exists via `RosterBootstrapTssPlugin.queryPeerTssData()` against the
 special-purpose BN's status API. The only operational step is moving the CLI-produced
 `/mnt/wrb-operations/wrappedBlocks/tss-bootstrap-roster.json` to the BN's
-`/opt/hiero/block-node/node/` — a documented operator/script action, **not** an engineering change.
+`/opt/hiero/block-node/application-state/` — a documented operator/script action, **not** an engineering change.
 Stop the Block Node before copying the file into place and restart after — this avoids concurrent writes to the same location.
 
 ### Reuse summary
@@ -136,7 +136,7 @@ Stop the Block Node before copying the file into place and restart after — thi
 flowchart LR
     subgraph WRBS [WRB server]
         CLI[CLI tools<br/>wrap + push] -->|"bulk-load (historical) / publish (live)"| SP[Special-purpose BN<br/>Tier 0]
-        TSSJSON[tss-bootstrap-roster.json] -. operator copy .-> SPCFG[(BN config<br/>/opt/hiero/block-node/node)]
+        TSSJSON[tss-bootstrap-roster.json] -. operator copy .-> SPCFG[(BN config<br/>/opt/hiero/block-node/application-state)]
     end
     MN[Mirror Node] -->|address-book changes| SP
     ABH[CLI address-book history JSON] -. convert + bootstrap .-> SP
@@ -157,7 +157,7 @@ New / affected configuration (final keys decided per ticket; plugins own their o
 - **CLI live-push**: target BN publish endpoint (and enable/disable of the live distribution path).
 - **TSS (operator step, no config change):** copy
   `/mnt/wrb-operations/wrappedBlocks/tss-bootstrap-roster.json` →
-  `/opt/hiero/block-node/node/`.
+  `/opt/hiero/block-node/application-state/`.
 
 ## Metrics
 

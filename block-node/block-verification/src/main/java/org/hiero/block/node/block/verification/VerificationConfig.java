@@ -22,11 +22,11 @@ import org.hiero.block.node.base.Loggable;
 ///     start, room will be made for it by canceling the longest running one. todo(2528) could be lowest block nubmer
 @ConfigData("verification")
 public record VerificationConfig(
-    @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin") Path allBlocksHasherFilePath,
+    @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/rootHashOfAllPreviousBlocks.bin") Path allBlocksHasherFilePath,
     @Loggable @ConfigProperty(defaultValue = "false") boolean allBlocksHasherEnabled,
     @Loggable @ConfigProperty(defaultValue = "false") boolean rebuildAllBlocksHasherFromStore,
     @Loggable @ConfigProperty(defaultValue = "100") int allBlocksHasherPersistenceInterval,
-    @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/verification/tss-parameters.bin") Path tssParametersFilePath,
+    @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/tss-parameters.bin") Path tssParametersFilePath,
     @Loggable @ConfigProperty(defaultValue = "100") int activeSessionsBufferSize){}
 
 // spotless:on

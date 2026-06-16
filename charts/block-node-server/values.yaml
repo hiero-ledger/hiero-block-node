@@ -133,8 +133,6 @@ blockNode:
           mkdir -p /archive-pvc/archive-data && \
           chown 2000:2000 /archive-pvc/archive-data && \
           chmod 700 /archive-pvc/archive-data && \
-          chown 2000:2000 /verification-pvc && \
-          chmod 700 /verification-pvc
           chown 2000:2000 /application-state-pvc && \
           chmod 700 /application-state-pvc
       volumeMounts:
@@ -142,8 +140,6 @@ blockNode:
           mountPath: /live-pvc
         - name: archive-storage
           mountPath: /archive-pvc
-        - name: verification-storage
-          mountPath: /verification-pvc
         - name: application-state-storage
           mountPath: /application-state-pvc
   # To add plugins not available in Maven (e.g. download from a URL at pod start).
@@ -230,22 +226,12 @@ blockNode:
       # storageClass: "your-storage-class"
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
       # existingClaim: "my-live-pvc"
-    verification:
-      # name of the volume within the statefulset
-      volumeName: "verification-storage"
-      # should match VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH parent directory
-      mountPath: "/opt/hiero/block-node/verification"
-      size: 1Gi
-      # Optionally add a storage class name if needed
-      # storageClass: "your-storage-class"
-      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
-      # existingClaim: "my-verification-pvc"
     applicationStateFacility:
       # name of the volume within the statefulset
       volumeName: "application-state-storage"
       # should match APP_STATE_TSS_DATA_FILE_PATH, APP_STATE_STORED_BLOCKS_FILE_PATH,
       # APP_STATE_AVAILABLE_BLOCKS_FILE_PATH parent directory
-      mountPath: "/opt/hiero/block-node/node"
+      mountPath: "/opt/hiero/block-node/application-state"
       size: 1Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"

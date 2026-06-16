@@ -24,7 +24,5 @@ blockNode:
             size: 10Gi
         logging:
             size: 2Gi
-        verification:
-            size: 500Mi
         applicationStateFacility:
             size: 500Mi
