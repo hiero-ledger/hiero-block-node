@@ -247,6 +247,52 @@ tasks:
     cmds:
       - '"{{.SCRIPTS_DIR}}/monitor-block-proofs.sh" "{{.PROTO_PATH}}" "localhost:40840"'
 
+  verify:wrb:
+    desc: "Verify WRB blocks are accepted via the RSA roster on a Block Node (NODE=n, default: 1). Needs port-forward."
+    vars:
+      NODE: '{{.NODE | default "1"}}'
+    cmds:
+      - |
+        PORT=$((16006 + {{.NODE}}))
+        echo "Verifying RSA-roster WRB verification on Block Node {{.NODE}} (metrics: localhost:${PORT})..."
+        METRICS=$(curl -s --max-time 10 "http://localhost:${PORT}/metrics" 2>/dev/null)
+        if [[ -z "${METRICS}" ]]; then
+          echo "ERROR: Could not fetch metrics on localhost:${PORT}. Is port-forward running? Run: task port-forward"
+          exit 1
+        fi
+
+        # Counters export with a trailing _total, so the proof counter is *_total_total.
+        ROSTER=$(echo "${METRICS}" | grep "^blocknode_roster_entries_loaded " | awk '{print $2}' | head -1)
+        RSA_OK=$(echo "${METRICS}" | grep '^blocknode_verification_proof_total_total{' | grep 'proof_type="rsa"' | grep 'result="success"' | awk '{print $2}' | head -1)
+        RSA_FAIL=$(echo "${METRICS}" | grep '^blocknode_verification_proof_total_total{' | grep 'proof_type="rsa"' | grep 'result="failure"' | awk '{print $2}' | head -1)
+        MISMATCH=$(echo "${METRICS}" | grep "^blocknode_rsa_roster_mismatch_total_total " | awk '{print $2}' | head -1)
+
+        ROSTER=$(printf "%.0f" "${ROSTER:-0}" 2>/dev/null || echo 0)
+        RSA_OK=$(printf "%.0f" "${RSA_OK:-0}" 2>/dev/null || echo 0)
+        RSA_FAIL=$(printf "%.0f" "${RSA_FAIL:-0}" 2>/dev/null || echo 0)
+        MISMATCH=$(printf "%.0f" "${MISMATCH:-0}" 2>/dev/null || echo 0)
+
+        echo "  roster_entries_loaded:              ${ROSTER}"
+        echo "  rsa proofs verified (success):      ${RSA_OK}"
+        echo "  rsa proofs failed (startup window): ${RSA_FAIL}"
+        echo "  rsa_roster_mismatch:                ${MISMATCH}"
+
+        if [[ "${ROSTER}" -le 0 ]]; then
+          echo "FAIL: RSA roster not loaded. Is the roster-bootstrap-rsa plugin enabled and the Mirror Node reachable?"
+          exit 1
+        fi
+        if [[ "${MISMATCH}" -gt 0 ]]; then
+          echo "FAIL: ${MISMATCH} RSA signature(s) from node(s) not in the loaded roster."
+          exit 1
+        fi
+        if [[ "${RSA_OK}" -le 0 ]]; then
+          echo "FAIL: no blocks verified via the RSA proof path yet. Let blocks flow (or run task load:up) and retry."
+          exit 1
+        fi
+
+        echo "PASS: WRB blocks are verified via the RSA roster (success=${RSA_OK}, mismatch=0, roster=${ROSTER})."
+        echo "      Startup-window rsa failures (${RSA_FAIL}, blocks received before the roster loaded) are expected."
+
   status:
     desc: Show network status for all nodes in the topology
     deps: [proto:extract]
