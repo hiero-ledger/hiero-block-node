@@ -3,7 +3,6 @@ package org.hiero.block.node.messaging;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.TRACE;
-import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
@@ -22,7 +21,6 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
@@ -216,7 +214,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             new ArrayList<>();
 
     private ExecutorService messageForwarder;
-    AtomicLong blockItemsReceived = new AtomicLong(0);
 
     /**
      * {@inheritDoc}
@@ -408,16 +405,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         return;
                     }
                     final BlockItems blockItems = event.get();
-                    LOGGER.log(DEBUG, "Received event {0}", blockItems);
-
-                    long totalBlockItems =
-                            blockItemsReceived.addAndGet(blockItems.blockItems().size());
-                    LOGGER.log(
-                            DEBUG,
-                            "Total Block {0}, block items = {1} for handler {2}:",
-                            blockItems.blockNumber(),
-                            totalBlockItems,
-                            handlerName);
                     handler.handleBlockItemsReceived(blockItems);
                 };
         if (blockItemDisruptor.hasStarted()) {
