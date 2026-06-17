@@ -24,7 +24,7 @@ import java.util.Map;
  *
  * This logic mirrors `SigFileUtils.decodePublicKey` in `tools-and-tests/tools`
  * but is inlined here because that module cannot be imported from
- * `block-node/verification`.
+ * `block-node/application-state`.
  *
  * TODO: reconcile with `SigFileUtils.decodePublicKey` and `AddressBookRegistry`
  * which store `rsaPubKey` as hex-encoded *certificate* DER (cert wrapping the

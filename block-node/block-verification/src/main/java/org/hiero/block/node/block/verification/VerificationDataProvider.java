@@ -155,7 +155,7 @@ public final class VerificationDataProvider {
     /// certificate bytes, **without** a `0x` prefix.
     /// This logic mirrors `SigFileUtils.decodePublicKey` in `tools-and-tests/tools`
     /// but is inlined here because that module cannot be imported from
-    /// `block-node/verification`.
+    /// `block-node/application-state`.
     /// ---
     /// Builds an immutable `node_id → PublicKey` map from the given address book.
     /// Entries where `rsaPubKey()` is blank or whose key bytes cannot be decoded

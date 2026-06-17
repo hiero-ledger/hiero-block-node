@@ -40,13 +40,13 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 ### Application State Configuration
 
-| ENV Variable                         | Description                                                                                     |                       Default                        |
-|:-------------------------------------|:------------------------------------------------------------------------------------------------|------------------------------------------------------|
-| APP_STATE_TSS_DATA_FILE_PATH         | Path where TSS data (ledger ID, address book, WRAPS VK) is persisted across restarts.           | /opt/hiero/block-node/node/app-state-data.bin        |
-| APP_STATE_STORED_BLOCKS_FILE_PATH    | Path where the set of stored block ranges is persisted. Written every 1,000 blocks received.    | /opt/hiero/block-node/node/stored-blocks-data.bin    |
-| APP_STATE_AVAILABLE_BLOCKS_FILE_PATH | Path where the set of available block ranges is persisted. Written every 1,000 blocks received. | /opt/hiero/block-node/node/available-blocks-data.bin |
-| APP_STATE_UPDATE_SCAN_INTERVAL       | How often (ms) the application state facility checks for pending TSS data updates. Minimum 100. | 500                                                  |
-| APP_STATE_UPDATE_INITIAL_DELAY       | Delay (ms) before the application state facility begins its first scan. Minimum 100.            | 100                                                  |
+| ENV Variable                      | Description                                                                                                |                              Default                              |
+|:----------------------------------|:-----------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
+| APP_STATE_TSS_BOOTSTRAP_FILE_PATH | Path where TSS data (ledger ID, current roster, WRAPS VK) is persisted across restarts.                    | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json |
+| APP_STATE_RSA_BOOTSTRAP_FILE_PATH | Path where RSA data (node address book) is persisted across restarts.                                      | /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json |
+| APP_STATE_BLOCK_RANGES_FILE_PATH  | Path where the set of available and stored block ranges is persisted. Written every 1,000 blocks received. | /opt/hiero/block-node/application-state/block-ranges.json         |
+| APP_STATE_UPDATE_SCAN_INTERVAL    | How often (ms) the application state facility checks for pending TSS data updates. Minimum 100.            | 500                                                               |
+| APP_STATE_UPDATE_INITIAL_DELAY    | Delay (ms) before the application state facility begins its first scan. Minimum 100.                       | 100                                                               |
 
 Stored blocks are all blocks reported as persisted by any plugin. Available blocks are the subset
 also reported as retrievable (i.e. by a `BlockProviderPlugin`). Both range sets are loaded at
@@ -270,12 +270,12 @@ for the JSON schema.
 
 ### Verification Plugin Configuration
 
-| ENV Variable                                        | Description                                                                    |                                                            Default |
-|:----------------------------------------------------|:-------------------------------------------------------------------------------|-------------------------------------------------------------------:|
-| VERIFICATION_ALL_BLOCKS_HASHER_ENABLED              | Enable the all-blocks hasher to compute and verify a rolling root hash.        |                                                              false |
-| VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH            | Path to the persisted root hash file for all previous blocks.                  | /opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin |
-| VERIFICATION_ALL_BLOCKS_HASHER_PERSISTENCE_INTERVAL | How often (in blocks) the hasher persists its state to disk.                   |                                                                 10 |
-| VERIFICATION_TSS_PARAMETERS_FILE_PATH               | Path to the persisted TSS parameters file (ledger ID, address book, WRAPS VK). |              /opt/hiero/block-node/verification/tss-parameters.bin |
+| ENV Variable                                        | Description                                                                    |                                                                 Default |
+|:----------------------------------------------------|:-------------------------------------------------------------------------------|------------------------------------------------------------------------:|
+| VERIFICATION_ALL_BLOCKS_HASHER_ENABLED              | Enable the all-blocks hasher to compute and verify a rolling root hash.        |                                                                   false |
+| VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH            | Path to the persisted root hash file for all previous blocks.                  | /opt/hiero/block-node/application-state/rootHashOfAllPreviousBlocks.bin |
+| VERIFICATION_ALL_BLOCKS_HASHER_PERSISTENCE_INTERVAL | How often (in blocks) the hasher persists its state to disk.                   |                                                                      10 |
+| VERIFICATION_TSS_PARAMETERS_FILE_PATH               | Path to the persisted TSS parameters file (ledger ID, address book, WRAPS VK). |              /opt/hiero/block-node/application-state/tss-parameters.bin |
 
 > **Note:** `VERIFICATION_ALL_BLOCKS_HASHER_ENABLED` must remain `false` (the default).
 > The all-blocks hasher requires a strictly sequential block stream; out-of-order or

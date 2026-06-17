@@ -339,7 +339,7 @@ tasks:
     cmds:
       - |
         POD_NAME="block-node-{{.NODE}}-0"
-        VERIFICATION_FILE="/opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin"
+        VERIFICATION_FILE="/opt/hiero/block-node/application-state/rootHashOfAllPreviousBlocks.bin"
 
         echo "Resetting Block Node {{.NODE}}..."
 

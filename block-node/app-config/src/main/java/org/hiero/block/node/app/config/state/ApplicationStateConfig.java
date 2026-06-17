@@ -17,7 +17,7 @@ import org.hiero.block.node.base.Loggable;
  *     are persisted across restarts as a serialized {@code TssData}.
  * @param rsaBootstrapFilePath path to the RSA roster bootstrap file (JSON-encoded {@code NodeAddressBook}).
  *     Configured via {@code app.state.rsaBootstrapFilePath}.
- *     Defaults to {@code /opt/hiero/block-node/node/rsa-bootstrap-roster.json}.
+ *     Defaults to {@code /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json}.
  * @param blockRangesFilePath path to the JSON file where both the stored and available block range sets are
  *     persisted together. The file is written automatically every {@code BLOCK_RANGE_PERSIST_INTERVAL}
  *     blocks and on shutdown, then loaded on startup.
@@ -27,9 +27,9 @@ import org.hiero.block.node.base.Loggable;
 @ConfigData("app.state")
 public record ApplicationStateConfig(
         // spotless:off
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/tss-bootstrap-roster.json") Path tssBootstrapFilePath,
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/rsa-bootstrap-roster.json") Path rsaBootstrapFilePath,
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/block-ranges.json") Path blockRangesFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/tss-bootstrap-roster.json") Path tssBootstrapFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json") Path rsaBootstrapFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/block-ranges.json") Path blockRangesFilePath,
         @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long updateScanInterval,
         @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int updateInitialDelay) {
         // spotless:on

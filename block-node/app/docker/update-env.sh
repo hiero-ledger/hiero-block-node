@@ -50,8 +50,9 @@ echo "CLOUD_STORAGE_ARCHIVE_BUCKET_NAME=${CLOUD_STORAGE_ARCHIVE_BUCKET_NAME}" >>
 echo "CLOUD_STORAGE_ARCHIVE_REGION_NAME=${CLOUD_STORAGE_REGION_NAME}" >> .env
 echo "CLOUD_STORAGE_ARCHIVE_ACCESS_KEY=${CLOUD_STORAGE_ACCESS_KEY}" >> .env
 echo "CLOUD_STORAGE_ARCHIVE_SECRET_KEY=${CLOUD_STORAGE_SECRET_KEY}" >> .env
-echo "APP_STATE_DATA_FILE_PATH=/tmp/hiero/block-node/node/app-state-data.json" >> .env
-echo "APP_STATE_RSA_BOOTSTRAP_FILE_PATH=/tmp/hiero/block-node/node/rsa-bootstrap-roster.json" >> .env
+echo "APP_STATE_TSS_BOOTSTRAP_FILE_PATH=/tmp/hiero/block-node/application-state/tss-bootstrap-roster.json" >> .env
+echo "APP_STATE_RSA_BOOTSTRAP_FILE_PATH=/tmp/hiero/block-node/application-state/rsa-bootstrap-roster.json" >> .env
+echo "APP_STATE_BLOCK_RANGES_FILE_PATH=/tmp/hiero/block-node/application-state/block-ranges.json" >> .env
 
 # Output the values
 echo ".env properties:"

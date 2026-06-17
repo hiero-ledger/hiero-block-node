@@ -286,11 +286,11 @@ sequenceDiagram
 
 Configuration class: `VerificationConfig`
 
-|               Property               |                               Default                                |                      Description                       |
-|--------------------------------------|----------------------------------------------------------------------|--------------------------------------------------------|
-| `allBlocksHasherFilePath`            | `/opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin` | Path for the persistent hasher snapshot                |
-| `allBlocksHasherEnabled`             | `true`                                                               | Enable or disable the all-blocks root hash computation |
-| `allBlocksHasherPersistenceInterval` | `10` (blocks)                                                        | How often the hasher snapshot is written to disk       |
+|               Property               |                                  Default                                  |                      Description                       |
+|--------------------------------------|---------------------------------------------------------------------------|--------------------------------------------------------|
+| `allBlocksHasherFilePath`            | `/opt/hiero/block-node/application-state/rootHashOfAllPreviousBlocks.bin` | Path for the persistent hasher snapshot                |
+| `allBlocksHasherEnabled`             | `true`                                                                    | Enable or disable the all-blocks root hash computation |
+| `allBlocksHasherPersistenceInterval` | `10` (blocks)                                                             | How often the hasher snapshot is written to disk       |
 
 ## Metrics
 

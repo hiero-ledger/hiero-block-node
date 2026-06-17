@@ -83,7 +83,7 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: verification-storage-pv
+  name: application-state-storage-pv
   namespace: <NAMESPACE>
 spec:
   accessModes:
@@ -91,13 +91,13 @@ spec:
   capacity:
     storage: 1Gi
   hostPath:
-    path: /mnt/fast-storage/verification
+    path: /mnt/fast-storage/application-state
     type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: verification-storage-pvc
+  name: application-state-storage-pvc
   namespace: <NAMESPACE>
 spec:
   accessModes:
@@ -105,4 +105,4 @@ spec:
   resources:
     requests:
       storage: 1Gi
-  volumeName: verification-storage-pv
+  volumeName: application-state-storage-pv
