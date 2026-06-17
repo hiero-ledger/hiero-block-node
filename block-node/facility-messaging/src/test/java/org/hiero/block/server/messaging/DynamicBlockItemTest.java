@@ -307,13 +307,16 @@ public class DynamicBlockItemTest {
      * When a no-backpressure handler falls more than 80% behind the ring head, it must be evicted
      * and onTooFarBehindError() called even if the handler would otherwise block indefinitely.
      * No further events should be dispatched to the handler after eviction.
+     *
+     * <p>Design note: the ring head advances purely from publishing — no second "fast" handler is
+     * needed. A second handler would be unreliable on a loaded CI runner where the publisher can
+     * outpace both virtual threads, inadvertently evicting the "fast" handler too.
      */
     @Test
     void testNoBackpressureEvictionCheckedBeforeDispatch() throws Exception {
         final int ringSize =
                 TestConfig.getConfig().getConfigData(MessagingConfig.class).blockItemQueueSize();
         final CountDownLatch evicted = new CountDownLatch(1);
-        final AtomicInteger dispatchCount = new AtomicInteger(0);
         // Once evicted is set, any further dispatch is a bug.
         final AtomicBoolean dispatchAfterEviction = new AtomicBoolean(false);
 
@@ -323,7 +326,6 @@ public class DynamicBlockItemTest {
                 if (evicted.getCount() == 0) {
                     dispatchAfterEviction.set(true);
                 }
-                dispatchCount.incrementAndGet();
                 // Block long enough to fall far behind, but not forever.
                 try {
                     Thread.sleep(5);
@@ -338,30 +340,14 @@ public class DynamicBlockItemTest {
             }
         };
 
-        // Fast handler to keep the ring head advancing.
-        final CountDownLatch fastDone = new CountDownLatch(1);
-        final int totalItems = ringSize * 2;
-        final AtomicInteger fastCount = new AtomicInteger(0);
-        final NoBackPressureBlockItemHandler fastHandler = new NoBackPressureBlockItemHandler() {
-            @Override
-            public void handleBlockItemsReceived(BlockItems items) {
-                if (fastCount.incrementAndGet() >= totalItems) {
-                    fastDone.countDown();
-                }
-            }
-
-            @Override
-            public void onTooFarBehindError() {
-                fail("Fast handler should never be evicted");
-            }
-        };
-
         final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
         messagingService.init(TestConfig.getBlockNodeContext(), null);
         messagingService.registerNoBackpressureBlockItemHandler(slowHandler, false, "slow");
-        messagingService.registerNoBackpressureBlockItemHandler(fastHandler, false, "fast");
         messagingService.start();
 
+        // Publishing twice the ring size with no delay: the publisher fills and wraps the ring
+        // far faster than the 5ms/event slow handler can drain it, guaranteeing >80% lag.
+        final int totalItems = ringSize * 2;
         for (int i = 0; i < totalItems; i++) {
             messagingService.sendBlockItems(new BlockItems(
                     List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),
@@ -371,7 +357,6 @@ public class DynamicBlockItemTest {
         }
 
         assertTrue(evicted.await(15, TimeUnit.SECONDS), "Slow handler was never evicted");
-        assertTrue(fastDone.await(15, TimeUnit.SECONDS), "Fast handler did not finish");
         assertFalse(dispatchAfterEviction.get(), "Events were dispatched to handler after eviction");
 
         messagingService.stop();

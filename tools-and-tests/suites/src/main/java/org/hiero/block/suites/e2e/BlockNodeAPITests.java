@@ -305,8 +305,10 @@ public class BlockNodeAPITests {
                 .startBlockNumber(blockNumber)
                 .build();
 
+        // Wait for all 3 expected responses (block items, end-of-block, success status) before
+        // asserting, so there is no race between the latch release and the size check.
         final AtomicReference<CountDownLatch> blockItemsSubscribe1Latch =
-                subscribeResponseObserver.setAndGetOnNextLatch(2);
+                subscribeResponseObserver.setAndGetOnNextLatch(3);
         blockStreamSubscribeServiceClient.subscribeBlockStream(subscribeRequest1, subscribeResponseObserver);
 
         awaitLatch(blockItemsSubscribe1Latch, "historical subscription");
