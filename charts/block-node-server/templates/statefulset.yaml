@@ -62,10 +62,10 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.blockNode.persistence.live.existingClaim }}
         {{- end }}
-        {{- if .Values.blockNode.persistence.applicationStateFacility.existingClaim }}
-        - name: {{ default "application-state-storage" .Values.blockNode.persistence.applicationStateFacility.volumeName }}
+        {{- if .Values.blockNode.persistence.applicationState.existingClaim }}
+        - name: {{ default "application-state-storage" .Values.blockNode.persistence.applicationState.volumeName }}
           persistentVolumeClaim:
-            claimName: {{ .Values.blockNode.persistence.applicationStateFacility.existingClaim }}
+            claimName: {{ .Values.blockNode.persistence.applicationState.existingClaim }}
         {{- end }}
         {{- if .Values.blockNode.persistence.plugins.existingClaim }}
         - name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
@@ -240,8 +240,8 @@ spec:
           - name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
             mountPath: {{ .Values.blockNode.persistence.live.mountPath }}
             subPath: {{ .Values.blockNode.persistence.live.subPath }}
-          - name: {{ default "application-state-storage" .Values.blockNode.persistence.applicationStateFacility.volumeName }}
-            mountPath: {{ .Values.blockNode.persistence.applicationStateFacility.mountPath }}
+          - name: {{ default "application-state-storage" .Values.blockNode.persistence.applicationState.volumeName }}
+            mountPath: {{ .Values.blockNode.persistence.applicationState.mountPath }}
           {{- if and .Values.blockNode.backfill .Values.blockNode.backfill.sources }}
           - name: block-node-sources
             mountPath: {{ .Values.blockNode.backfill.path }}
@@ -327,17 +327,17 @@ spec:
         storageClassName: {{ .Values.blockNode.persistence.live.storageClass }}
         {{- end }}
     {{- end }}
-    {{- if not .Values.blockNode.persistence.applicationStateFacility.existingClaim }}
+    {{- if not .Values.blockNode.persistence.applicationState.existingClaim }}
     - metadata:
-        name: {{ default "application-state-storage" .Values.blockNode.persistence.applicationStateFacility.volumeName }}
+        name: {{ default "application-state-storage" .Values.blockNode.persistence.applicationState.volumeName }}
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: {{ .Values.blockNode.persistence.applicationStateFacility.size }}
-        {{- if .Values.blockNode.persistence.applicationStateFacility.storageClass }}
-        storageClassName: {{ .Values.blockNode.persistence.applicationStateFacility.storageClass }}
+            storage: {{ .Values.blockNode.persistence.applicationState.size }}
+        {{- if .Values.blockNode.persistence.applicationState.storageClass }}
+        storageClassName: {{ .Values.blockNode.persistence.applicationState.storageClass }}
         {{- end }}
     {{- end }}
     {{- if and .Values.plugins.names (not .Values.blockNode.persistence.plugins.existingClaim) }}
