@@ -413,6 +413,164 @@ public class DynamicBlockItemTest {
     }
 
     /**
+     * Regression test: a no-backpressure handler that uses an internal blocking queue (mimicking
+     * {@code LiveBlockHandler}) must never receive the same {@link BlockItems} more than once.
+     *
+     * <p>Root cause: {@code handleBlockItemsReceived} may call a blocking {@code put()} on an internal
+     * bounded queue. While the messaging thread is blocked inside {@code put()}, the ring buffer head
+     * keeps advancing (non-gating — the producer never stalls). If the head advances more than one full
+     * ring revolution before {@code put()} returns, the ring wraps and <em>overwrites</em> slots the
+     * handler has not yet read. When {@code put()} finally unblocks the handler reads those overwritten
+     * slots — which now hold <em>newer</em> events — and enqueues them. Later the handler's sequence
+     * cursor naturally reaches those same newer events and dispatches them a <em>second time</em>,
+     * causing the consumer to see duplicate {@link BlockItems}.
+     *
+     * <p>The eviction threshold (80 %) is meant to prevent wrap-around, but the check only runs between
+     * {@code put()} calls, not during one. This test verifies that each published value is received
+     * <em>at most once</em>.
+     */
+    @Test
+    void testNoBackpressureHandlerWithBlockingInternalQueueDoesNotDeliverDuplicates() throws Exception {
+        final int ringSize =
+                TestConfig.getConfig().getConfigData(MessagingConfig.class).blockItemQueueSize();
+        // Internal transfer queue with a small capacity to force the handler to block in put() quickly.
+        // The eviction fires at > 80 % lag (> 0.8 * ringSize events behind). We size the internal
+        // queue smaller than ringSize * 0.2 so that a fast producer can fill it before 80 % lag is
+        // reached, thereby causing the handler to block during put() while the ring keeps advancing.
+        final int internalQueueCapacity = Math.max(2, ringSize / 10);
+        final java.util.concurrent.BlockingQueue<BlockItems> internalQueue =
+                new java.util.concurrent.ArrayBlockingQueue<>(internalQueueCapacity);
+
+        final AtomicBoolean evicted = new AtomicBoolean(false);
+        // Track every sequence value dispatched; a duplicate means the same event payload was delivered twice.
+        final java.util.concurrent.ConcurrentHashMap<Integer, Integer> seenValues =
+                new java.util.concurrent.ConcurrentHashMap<>();
+        final AtomicInteger duplicateCount = new AtomicInteger(0);
+        final CountDownLatch evictedLatch = new CountDownLatch(1);
+
+        final NoBackPressureBlockItemHandler blockingHandler = new NoBackPressureBlockItemHandler() {
+            @Override
+            public void handleBlockItemsReceived(BlockItems items) {
+                int value = bytesToInt(items.blockItems().getFirst().blockHeader());
+                // Record any duplicate deliveries before blocking in put().
+                if (seenValues.put(value, value) != null) {
+                    duplicateCount.incrementAndGet();
+                }
+                try {
+                    // Blocking put — this is the pattern used by LiveBlockHandler.
+                    internalQueue.put(items);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+
+            @Override
+            public void onTooFarBehindError() {
+                evicted.set(true);
+                evictedLatch.countDown();
+            }
+        };
+
+        // A fast consumer drains the internal queue slowly enough to let it fill but not so slow
+        // that the test takes forever. The goal is to keep the queue nearly full so the handler
+        // blocks on put() while the ring advances.
+        final AtomicBoolean consumerRunning = new AtomicBoolean(true);
+        final Thread consumerThread = Thread.ofVirtual().start(() -> {
+            while (consumerRunning.get() || !internalQueue.isEmpty()) {
+                try {
+                    internalQueue.poll(1, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        });
+
+        final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
+        messagingService.registerNoBackpressureBlockItemHandler(blockingHandler, false, "blocking-internal-queue");
+        messagingService.start();
+
+        // Publish ringSize * 2 events as fast as possible; this should outpace the handler and
+        // trigger the eviction (or expose duplicate delivery if eviction misfires).
+        final int totalItems = ringSize * 2;
+        for (int i = 0; i < totalItems; i++) {
+            messagingService.sendBlockItems(new BlockItems(
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),
+                    i,
+                    true,
+                    false));
+        }
+
+        // Either eviction fires (expected happy path) or the test continues to completion.
+        // Either way, no value should have been delivered twice.
+        evictedLatch.await(15, TimeUnit.SECONDS);
+
+        consumerRunning.set(false);
+        consumerThread.interrupt();
+        consumerThread.join(2000);
+        messagingService.stop();
+
+        assertEquals(
+                0,
+                duplicateCount.get(),
+                "Handler received " + duplicateCount.get() + " duplicate BlockItems deliveries. "
+                        + "A blocking put() inside handleBlockItemsReceived allows the ring buffer to "
+                        + "wrap and overwrite unread slots, causing the same event to be dispatched twice.");
+    }
+
+    /**
+     * Verify that a fast no-backpressure handler receives every item that is sent. Removing the gating
+     * sequence means the ring buffer can wrap and overwrite unread slots, so a handler that keeps up must
+     * still see all events without any being silently dropped.
+     */
+    @Test
+    void testNoBackpressureHandlerReceivesAllItemsWhenFastEnough() throws Exception {
+        final int totalItems = TEST_DATA_COUNT;
+        final CountDownLatch allReceived = new CountDownLatch(1);
+        final AtomicInteger receiveCount = new AtomicInteger(0);
+        final AtomicInteger receiveSum = new AtomicInteger(0);
+
+        final NoBackPressureBlockItemHandler fastHandler = new NoBackPressureBlockItemHandler() {
+            @Override
+            public void handleBlockItemsReceived(BlockItems items) {
+                int value = bytesToInt(items.blockItems().getFirst().blockHeader());
+                receiveSum.addAndGet(value);
+                if (receiveCount.incrementAndGet() >= totalItems) {
+                    allReceived.countDown();
+                }
+            }
+
+            @Override
+            public void onTooFarBehindError() {
+                fail("Fast handler should never be evicted");
+            }
+        };
+
+        final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
+        messagingService.registerNoBackpressureBlockItemHandler(fastHandler, false, "fast-all-items");
+        messagingService.start();
+
+        for (int i = 0; i < totalItems; i++) {
+            messagingService.sendBlockItems(new BlockItems(
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),
+                    i,
+                    true,
+                    false));
+        }
+
+        assertTrue(
+                allReceived.await(20, TimeUnit.SECONDS),
+                "No-backpressure handler did not receive all " + totalItems + " items");
+        assertEquals(totalItems, receiveCount.get(), "Item count mismatch");
+        assertEquals(
+                IntStream.range(0, totalItems).sum(), receiveSum.get(), "Item sum mismatch — some items were lost");
+
+        messagingService.stop();
+    }
+
+    /**
      * Utility method to convert an int to a Bytes object. So that we can send a simple int inside a BlockItem.
      *
      * @param value the int to convert

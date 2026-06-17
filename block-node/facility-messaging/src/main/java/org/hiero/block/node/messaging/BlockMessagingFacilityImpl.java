@@ -407,7 +407,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         handler.onTooFarBehindError();
                         return;
                     }
-                    BlockItems blockItems = event.get();
+                    final BlockItems blockItems = event.get();
                     long totalBlockItems =
                             blockItemsReceived.addAndGet(blockItems.blockItems().size());
                     LOGGER.log(
@@ -416,7 +416,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                             blockItems.blockNumber(),
                             totalBlockItems,
                             handlerName);
-                    handler.handleBlockItemsReceived(event.get());
+                    handler.handleBlockItemsReceived(blockItems);
                 };
         if (blockItemDisruptor.hasStarted()) {
             registerHandler(
