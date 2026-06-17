@@ -305,16 +305,15 @@ public class BlockNodeAPITests {
                 .startBlockNumber(blockNumber)
                 .build();
 
-        // Wait for all 4 expected responses (two block-item batches, end-of-block, success status)
-        // before asserting, so there is no race between the latch release and the size check.
-        // The block is published in two sends: header+round+footer first, then proof via endBlock().
+        // Wait for all 3 expected responses (block items, end-of-block, success status) before
+        // asserting, so there is no race between the latch release and the size check.
         final AtomicReference<CountDownLatch> blockItemsSubscribe1Latch =
-                subscribeResponseObserver.setAndGetOnNextLatch(4);
+                subscribeResponseObserver.setAndGetOnNextLatch(3);
         blockStreamSubscribeServiceClient.subscribeBlockStream(subscribeRequest1, subscribeResponseObserver);
 
         awaitLatch(blockItemsSubscribe1Latch, "historical subscription");
-        // header+round+footer batch, proof batch, end-of-block, and success status
-        assertThat(subscribeResponseObserver.getOnNextCalls()).hasSize(4);
+        // block items (all 4 items in one batch), end-of-block, and success status
+        assertThat(subscribeResponseObserver.getOnNextCalls()).hasSize(3);
         assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
 
         final SubscribeStreamResponse subscribeResponse0 =
@@ -382,50 +381,51 @@ public class BlockNodeAPITests {
 
         // Close publisher connections and wait for the subscribe thread to finish receiving all responses
         // before asserting on subscribe content. The subscribe thread's subscribeBlockStream call only returns
-        // once the subscription ends, guaranteeing all 7 or 8 responses have been delivered.
+        // once the subscription ends, guaranteeing all 6 or 7 responses have been delivered.
         requestStream.closeConnection();
         requestStream2.closeConnection();
         awaitThread(subscribeThread, "live subscribe thread");
 
-        // Block 0 contributes 4 responses: header+round+footer batch, proof batch, end-of-block, success status.
-        // Block 1 contributes 3 or 4: if served from history all items arrive in one batch (3 total);
-        // if served from the live stream the proof arrives separately (4 total).
-        if (subscribeResponseObserver.getOnNextCalls().size() == 7) {
-            // 7 items: block 0 header+round+footer, block 0 proof, end block 0, success,
-            //          block 1 items, end block 1, success
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(4).satisfies(response -> {
+        // When subscribed initially, block 1 was already persisted, so it will be streamed from history.
+        // Then, the session will either supply the block from history, if it is persisted, or from the live stream
+        // if not persisted yet. If it comes from the live stream, we expect one more onNext call, because the
+        // proof will be sent separately to the live queue from the rest of the block.
+        if (subscribeResponseObserver.getOnNextCalls().size() == 6) {
+            // 6 items expected: block 0 items, end block 0, success status, block 1 items, end block 1, success status
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(3).satisfies(response -> {
                 assertThat(response.blockItems().blockItems())
                         .hasSize(blockItems1.length)
                         .first()
                         .returns(blockNumber1, i -> i.blockHeader().number());
             });
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(5).satisfies(response -> {
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(4).satisfies(response -> {
                 assertThat(response.endOfBlock().blockNumber()).isEqualTo(blockNumber1);
             });
             // success status should be the last response
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(6).satisfies(response -> {
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(5).satisfies(response -> {
                 assertThat(response.status()).isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
             });
-        } else if (subscribeResponseObserver.getOnNextCalls().size() == 8) {
-            // 8 items: block 0 header+round+footer, block 0 proof, end block 0, success,
-            //          block 1 items w/o proof, block 1 proof, end block 1, success
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(4).satisfies(response -> {
+        } else if (subscribeResponseObserver.getOnNextCalls().size() == 7) {
+            // 7 items expected:
+            // block 0 items, end block 0, success status, block 1 items w/o proof, block 1 proof, end block 1,
+            // success status
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(3).satisfies(response -> {
                 assertThat(response.blockItems().blockItems())
                         .hasSize(blockItems1.length - 1)
                         .first()
                         .returns(blockNumber1, i -> i.blockHeader().number());
             });
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(5).satisfies(response -> {
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(4).satisfies(response -> {
                 assertThat(response.blockItems().blockItems())
                         .hasSize(1)
                         .first()
                         .returns(blockNumber1, i -> i.blockProof().block());
             });
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(6).satisfies(response -> {
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(5).satisfies(response -> {
                 assertThat(response.endOfBlock().blockNumber()).isEqualTo(blockNumber1);
             });
             // success status should be the last response
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(7).satisfies(response -> {
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(6).satisfies(response -> {
                 assertThat(response.status()).isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
             });
         } else {
