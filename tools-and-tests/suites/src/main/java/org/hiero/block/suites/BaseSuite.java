@@ -174,6 +174,10 @@ public abstract class BaseSuite {
                 .getDockerClient()
                 .restartContainerCmd(genericContainer.getContainerId())
                 .exec();
+        // Wait for the container to accept connections before returning so that callers'
+        // subsequent sleep timers start from a known-ready baseline, not from the moment
+        // the Docker restart command fires (which precedes JVM start by several seconds).
+        Wait.forListeningPort().waitUntilReady(genericContainer);
     }
 
     /**
