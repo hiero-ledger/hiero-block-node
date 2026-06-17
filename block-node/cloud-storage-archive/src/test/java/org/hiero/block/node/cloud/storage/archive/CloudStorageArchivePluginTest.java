@@ -151,6 +151,23 @@ class CloudStorageArchivePluginTest {
                 "cloud.storage.archive.secretKey", MINIO_PASSWORD);
     }
 
+    /// A [CloudStorageArchivePlugin] subclass that overrides [newConsolidationTask] to return a
+    /// failing [Callable] on the first call and delegates to the real [ConsolidationTask] on all
+    /// subsequent calls.  Used by [ConsolidationRetryTests].
+    private static class FailingFirstConsolidationPlugin extends CloudStorageArchivePlugin {
+        private int consolidationCallCount = 0;
+
+        @Override
+        Callable<UploadResult> newConsolidationTask(List<TempArchiveEntry> entries, long groupStart, long groupSize) {
+            if (consolidationCallCount++ == 0) {
+                return () -> {
+                    throw new IOException("simulated consolidation failure");
+                };
+            }
+            return super.newConsolidationTask(entries, groupStart, groupSize);
+        }
+    }
+
     /// A [CloudStorageArchivePlugin] subclass that replaces the real [BlockUploadTask] with a
     /// configurable [Callable].  Used by [MidRunRecoveryTests] and [MidRunExceptionTests] to drive
     /// the upload-failure code path without an active S3 upload.
@@ -164,6 +181,23 @@ class CloudStorageArchivePluginTest {
         @Override
         Callable<UploadResult> newUploadTask(long firstBlock, long groupSize, BlockingQueue<BlockWithSource> queue) {
             return uploadBehavior;
+        }
+    }
+
+    /// A [CloudStorageArchivePlugin] subclass that replaces the real [TempArchiveUploadTask] with a
+    /// configurable [Callable].  Used by [TempUploadFailureTests] to drive the temp-upload-failure
+    /// code path without an active S3 upload.
+    private static class FailingTempArchivePlugin extends CloudStorageArchivePlugin {
+        private final Callable<TempArchiveEntry> tempBehavior;
+
+        FailingTempArchivePlugin(Callable<TempArchiveEntry> tempBehavior) {
+            this.tempBehavior = tempBehavior;
+        }
+
+        @Override
+        Callable<TempArchiveEntry> newTempArchiveUploadTask(
+                String s3Key, long firstBlock, BlockingQueue<BlockWithSource> queue) {
+            return tempBehavior;
         }
     }
 
@@ -1209,27 +1243,19 @@ class CloudStorageArchivePluginTest {
 
     /// Tests that verify mid-run recovery is triggered when an upload task returns [UploadResult.FAILED],
     /// and that the plugin resumes correctly without losing blocks.
+    /// Tests that verify mid-run recovery is triggered when any upload task fails — whether a
+    /// [BlockUploadTask] returns [UploadResult.FAILED], throws an exception, or a
+    /// [TempArchiveUploadTask] throws.  Each test calls [start] directly so it can supply its own
+    /// plugin variant; JUnit creates a fresh instance per test method, so state never leaks.
     @Nested
     @DisplayName("Mid-Run Recovery Tests")
     final class MidRunRecoveryTests
             extends PluginTestBase<CloudStorageArchivePlugin, BlockingExecutor, ScheduledBlockingExecutor> {
 
-        private final BlockingExecutor pluginExecutor;
-
         MidRunRecoveryTests() {
             super(
                     new BlockingExecutor(new LinkedBlockingQueue<>()),
                     new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
-            start(
-                    new FailingUploadPlugin(() -> UploadResult.FAILED),
-                    new SimpleInMemoryHistoricalBlockFacility(),
-                    pluginConfig());
-            pluginExecutor = testThreadPoolManager.executor();
-        }
-
-        @BeforeEach
-        void drainRecovery() {
-            pluginExecutor.executeSerially();
         }
 
         /// Verifies that a task returning [UploadResult.FAILED] triggers recovery:
@@ -1238,6 +1264,13 @@ class CloudStorageArchivePluginTest {
         @Test
         @DisplayName("FAILED upload result stashes pending blocks and submits recovery")
         void failedResultTriggersMidRunRecovery() throws Exception {
+            start(
+                    new FailingUploadPlugin(() -> UploadResult.FAILED),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    pluginConfig());
+            final BlockingExecutor executor = testThreadPoolManager.executor();
+            executor.executeSerially(); // drain startup recovery
+
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 9);
 
             // Simulate blocks 5 and 6 arrived but were not yet drained to the task queue.
@@ -1245,7 +1278,7 @@ class CloudStorageArchivePluginTest {
             sendVerification(blocks.get(6));
 
             // Run the fake upload task.  It returns FAILED immediately.
-            pluginExecutor.executeSerially();
+            executor.executeSerially();
 
             // Block 7 triggers checkCompletedUpload() -> FAILED -> triggerMidRunRecovery().
             // triggerMidRunRecovery() moves currentGroupPending (blocks 5, 6) to blocksStash and
@@ -1259,7 +1292,7 @@ class CloudStorageArchivePluginTest {
                     .isEqualTo(1L);
 
             // Drive the recovery task - empty bucket results in a fresh start.
-            pluginExecutor.executeSerially();
+            executor.executeSerially();
             assertThat(plugin.isRecoveryComplete()).isTrue();
             assertThat(plugin.recoveredNextBlockNumber()).isEqualTo(0L);
         }
@@ -1270,18 +1303,25 @@ class CloudStorageArchivePluginTest {
         @Test
         @DisplayName("Second upload failure while recovery is in progress does not spawn a second recovery task")
         void secondUploadFailureWhileRecoveryInProgressIsIgnored() {
+            start(
+                    new FailingUploadPlugin(() -> UploadResult.FAILED),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    pluginConfig());
+            final BlockingExecutor executor = testThreadPoolManager.executor();
+            executor.executeSerially(); // drain startup recovery
+
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 2);
 
             // First failure through the production path:
             // block 0 arrives -> startNewUploadTask(0) -> fake task T1 queued; block 0 -> pending.
             sendVerification(blocks.get(0));
             // Run T1 — instant FAILED, no exception.
-            pluginExecutor.executeSerially();
+            executor.executeSerially();
             // block 1 arrives -> checkCompletedUpload() detects FAILED -> triggerMidRunRecovery()
             // -> block 0 stashed; recovery task T2 queued (queue size: 1, not yet run).
             sendVerification(blocks.get(1));
 
-            assertThat(pluginExecutor.getQueue()).hasSize(1);
+            assertThat(executor.getQueue()).hasSize(1);
             assertThat(plugin.isRecoveryComplete()).isFalse();
 
             // Second failure while recovery is queued: inject done-FAILED future and send block 2.
@@ -1290,9 +1330,9 @@ class CloudStorageArchivePluginTest {
             plugin.currentUploadFuture = CompletableFuture.completedFuture(UploadResult.FAILED);
             sendVerification(blocks.get(2));
 
-            assertThat(pluginExecutor.getQueue()).hasSize(1);
+            assertThat(executor.getQueue()).hasSize(1);
 
-            pluginExecutor.executeSerially();
+            executor.executeSerially();
             assertThat(plugin.isRecoveryComplete()).isTrue();
         }
 
@@ -1305,12 +1345,19 @@ class CloudStorageArchivePluginTest {
         @Test
         @DisplayName("Blocks stashed during recovery are replayed to temp archive when recovery finds no group")
         void blocksStashedDuringRecoveryReplayedToTempArchiveOnFreshStart() {
+            start(
+                    new FailingUploadPlugin(() -> UploadResult.FAILED),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    pluginConfig());
+            final BlockingExecutor executor = testThreadPoolManager.executor();
+            executor.executeSerially(); // drain startup recovery
+
             final int groupSize = 10;
 
             // Block 0 starts the regular upload task for [0, 9].
             sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
             // Run the failing task — immediately returns FAILED.
-            pluginExecutor.executeSerially();
+            executor.executeSerially();
 
             // Block 1 detects FAILED, triggers mid-run recovery, and is stashed.
             sendVerification(TestBlockBuilder.generateBlocksInRange(1, 1).getFirst());
@@ -1324,7 +1371,7 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) groupSize);
 
             // Drive recovery — bucket is empty, so StartupRecoveryTask returns currentGroupStart=-1.
-            pluginExecutor.executeSerially();
+            executor.executeSerially();
 
             // Block 11 triggers completeRecoveryIfReady().  tryReplayStash() must be called even
             // though currentGroupStart==-1; block 10 must be routed to routeToTempArchive rather
@@ -1337,51 +1384,26 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.tempGroupActiveQueues.get((long) groupSize)).hasSize(2);
         }
 
-        private void sendVerification(TestBlock block) {
-            blockMessaging.sendBlockVerification(new VerificationNotification(
-                    true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
-        }
-    }
-
-    /// Tests that verify recovery is triggered when the upload-task [Future] completes
-    /// exceptionally (i.e. the task threw rather than returning [UploadResult.FAILED]).
-    @Nested
-    @DisplayName("Mid-Run Exception Recovery Tests")
-    final class MidRunExceptionTests
-            extends PluginTestBase<CloudStorageArchivePlugin, BlockingExecutor, ScheduledBlockingExecutor> {
-
-        private final BlockingExecutor pluginExecutor;
-
-        MidRunExceptionTests() {
-            super(
-                    new BlockingExecutor(new LinkedBlockingQueue<>()),
-                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+        /// Verifies that an exception thrown by the upload-task [Future] triggers recovery with the
+        /// same state effects as the [UploadResult.FAILED] path.
+        @Test
+        @DisplayName("Exception from upload task stashes pending blocks and submits recovery")
+        void exceptionFromUploadTaskTriggersMidRunRecovery() throws Exception {
             start(
                     new FailingUploadPlugin(() -> {
                         throw new IOException("simulated S3 failure");
                     }),
                     new SimpleInMemoryHistoricalBlockFacility(),
                     pluginConfig());
-            pluginExecutor = testThreadPoolManager.executor();
-        }
+            final BlockingExecutor executor = testThreadPoolManager.executor();
+            executor.executeSerially(); // drain startup recovery
 
-        @BeforeEach
-        void drainRecovery() {
-            pluginExecutor.executeSerially();
-        }
-
-        /// Verifies that an exception thrown by the upload-task [Future] triggers recovery with the
-        /// same state effects as the [UploadResult.FAILED] path.
-        @Test
-        @DisplayName("Exception from upload task stashes pending blocks and submits recovery")
-        void exceptionFromUploadTaskTriggersMidRunRecovery() throws Exception {
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 9);
-
             sendVerification(blocks.get(5));
 
             // Run the fake task — it throws IOException, so BlockingExecutor wraps it as
             // RuntimeException.
-            assertThatThrownBy(pluginExecutor::executeSerially).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(executor::executeSerially).isInstanceOf(RuntimeException.class);
 
             // Block 6 triggers handleVerification() -> checkCompletedUpload() -> resultNow() throws
             // IllegalStateException -> caught by handleVerification() -> triggerMidRunRecovery()
@@ -1394,9 +1416,61 @@ class CloudStorageArchivePluginTest {
             assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
                     .isEqualTo(1L);
 
-            pluginExecutor.executeSerially();
+            executor.executeSerially();
             assertThat(plugin.isRecoveryComplete()).isTrue();
             assertThat(plugin.recoveredNextBlockNumber()).isEqualTo(0L);
+        }
+
+        /// Verifies that when a [TempArchiveUploadTask] fails, [checkAndDrainTempUploadResults]
+        /// calls [triggerMidRunRecovery] so that [tempArchiveTracker] is rebuilt from S3 and
+        /// group coverage can be re-evaluated once recovery completes.
+        ///
+        /// Without the fix, the failed temp entry was silently dropped from [tempUploadFutures]
+        /// and its blocks were permanently absent from [tempArchiveTracker], leaving the group
+        /// coverage gap unresolvable until the next node restart.
+        @Test
+        @DisplayName("Temp archive upload failure triggers mid-run recovery")
+        void failedTempUploadTriggersMidRunRecovery() throws Exception {
+            final Map<String, String> config = new HashMap<>(pluginConfig(1, 10));
+            config.put("block.node.earliestManagedBlock", "5");
+            start(
+                    new FailingTempArchivePlugin(() -> {
+                        throw new IOException("simulated temp upload failure");
+                    }),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    config);
+            final BlockingExecutor executor = testThreadPoolManager.executor();
+            executor.executeSerially(); // drain startup recovery
+
+            // Blocks 5-8 stream into the temp archive queue for group [0, 9] (below firstRegularGroupStart=10).
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(5, 8));
+            // Block 9 (last in group) closes the segment: SEGMENT_END placed in queue, future submitted.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(9, 9).getFirst());
+            assertThat(plugin.tempUploadFutures).containsKey(5L);
+
+            // Run the failing temp upload task.
+            assertThatThrownBy(executor::executeSerially).isInstanceOf(RuntimeException.class);
+
+            // Block 10 triggers checkAndDrainTempUploadResults() -> failure -> triggerMidRunRecovery().
+            sendVerification(TestBlockBuilder.generateBlocksInRange(10, 10).getFirst());
+
+            assertThat(plugin.tempUploadFutures).isEmpty();
+            assertThat(plugin.currentUploadFuture).isNull();
+            // Block 10 was stashed because recovery is now active.
+            assertThat(plugin.blocksStash).containsKey(10L);
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
+                    .isEqualTo(1L);
+
+            // Drive recovery — empty bucket results in a fresh start.
+            executor.executeSerially();
+            assertThat(plugin.isRecoveryComplete()).isTrue();
+            assertThat(plugin.recoveredNextBlockNumber()).isEqualTo(0L);
+        }
+
+        private void sendVerifications(List<TestBlock> blocks) {
+            for (final TestBlock block : blocks) {
+                sendVerification(block);
+            }
         }
 
         private void sendVerification(TestBlock block) {
@@ -1773,6 +1847,103 @@ class CloudStorageArchivePluginTest {
                 baos.write(TarEntries.toTarEntry(blocks.get(i).blockUnparsed(), startBlockNum + i));
             }
             return baos.toByteArray();
+        }
+
+        private void sendVerifications(List<TestBlock> blocks) {
+            for (final TestBlock block : blocks) {
+                sendVerification(block);
+            }
+        }
+
+        private void sendVerification(TestBlock block) {
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+        }
+    }
+
+    /// Integration tests that verify the plugin-level consolidation retry: when a [ConsolidationTask]
+    /// fails, [checkAndDrainConsolidations] calls [CloudStorageArchivePlugin#checkGroupCoverage] which
+    /// detects that the group is still fully covered in [tempArchiveTracker], re-queues it in
+    /// [pendingConsolidations], and immediately re-submits a new [ConsolidationTask].  On the retry
+    /// the task succeeds, the final tar is committed, and the temporary objects are deleted.
+    @Nested
+    @DisplayName("Consolidation Retry Tests")
+    final class ConsolidationRetryTests
+            extends PluginTestBase<CloudStorageArchivePlugin, BlockingExecutor, ScheduledBlockingExecutor> {
+
+        private static final int GROUPING_LEVEL = 1; // groupSize = 10^1 = 10
+        private final BlockingExecutor pluginExecutor;
+
+        ConsolidationRetryTests() {
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(
+                    new FailingFirstConsolidationPlugin(),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    pluginConfig(GROUPING_LEVEL, 10));
+            pluginExecutor = testThreadPoolManager.executor();
+        }
+
+        @BeforeEach
+        void drainRecovery() {
+            pluginExecutor.executeSerially();
+        }
+
+        @Test
+        @DisplayName("Failed ConsolidationTask is detected, group is re-queued, and the retry produces the final tar")
+        void failedConsolidationRetrySucceeds() throws Exception {
+            final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
+
+            // Block 0 starts the regular BlockUploadTask for group [0,9].
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+            // Blocks 10–19 go to a TempArchiveUploadTask because they are outside the active group [0,9].
+            // Block 19 (last in group [10,19]) closes the active temp segment.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize, groupSize * 2 - 1));
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) groupSize);
+            // Complete group [0,9].
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(1, groupSize - 1));
+
+            // Run BlockUploadTask[0,9] and TempArchiveUploadTask[10,19].
+            pluginExecutor.executeSerially();
+            assertThat(getAllObjects()).contains("0000/0000/0000/0000/0.tar");
+
+            // Block 20: checkAndDrainTempUploadResults picks up the TempArchiveEntry[10,19] future,
+            // checkGroupCoverage detects full coverage, and checkAndDrainConsolidations immediately
+            // submits the FIRST (failing) ConsolidationTask[10,19].  Block 20 also starts
+            // BlockUploadTask[20,29]; blocks 21–29 are drained to its queue.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 2, groupSize * 2)
+                    .getFirst());
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize * 2 + 1, groupSize * 3 - 1));
+
+            // Run the failing ConsolidationTask[10,19]: it throws, so executeSerially re-wraps
+            // the exception as RuntimeException and stops.  BlockUploadTask[20,29] remains queued.
+            try {
+                pluginExecutor.executeSerially();
+            } catch (RuntimeException ignored) {
+                // Expected: the first ConsolidationTask[10,19] threw.
+            }
+            assertThat(getAllObjects()).doesNotContain("0000/0000/0000/0000/1.tar");
+
+            // Block 39 (last in group [30,39]) triggers checkAndDrainConsolidations: it detects
+            // the failed ConsolidationTask[10,19] future, calls checkGroupCoverage (tempArchiveTracker
+            // still holds the [10,19] entry), re-queues group 10 in pendingConsolidations, and
+            // immediately re-submits the SECOND (real, successful) ConsolidationTask[10,19].
+            // Block 39 goes to a single-block temp archive for group [30,39] that closes immediately
+            // because 39 is the last block in its group.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 4 - 1, groupSize * 4 - 1)
+                    .getFirst());
+            assertThat(plugin.consolidationFutures).containsKey((long) groupSize);
+
+            // Run the remaining queued tasks: BlockUploadTask[20,29] (still queued from before),
+            // the retry ConsolidationTask[10,19], and TempArchiveUploadTask[39,39].
+            pluginExecutor.executeSerially();
+
+            // The retry succeeded: the final tar for group [10,19] is now in S3.
+            assertThat(getAllObjects()).contains("0000/0000/0000/0000/1.tar");
+            // ConsolidationTask cleaned up the temporary objects for group [10,19].
+            assertThat(getAllObjects()).doesNotContain(TempArchiveKey.formatTar(groupSize, ""));
+            assertThat(getAllObjects()).doesNotContain(TempArchiveKey.formatMeta(groupSize, ""));
         }
 
         private void sendVerifications(List<TestBlock> blocks) {

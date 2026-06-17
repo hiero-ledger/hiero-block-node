@@ -9,6 +9,7 @@ import static java.util.Objects.requireNonNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -282,12 +283,14 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// [TempArchiveUploadTask] already calls `ApplicationStateFacility.addStoredBlockRange()` per
     /// part, so no additional range registration is needed here.
     private void checkAndDrainTempUploadResults() {
-        // Snapshot done entries before modifying the map to avoid ConcurrentModificationException.
-        final List<Map.Entry<Long, Future<TempArchiveEntry>>> doneEntries = tempUploadFutures.entrySet().stream()
-                .filter(e -> e.getValue().isDone())
-                .toList();
-        for (final Map.Entry<Long, Future<TempArchiveEntry>> entry : doneEntries) {
-            tempUploadFutures.remove(entry.getKey());
+        final Iterator<Map.Entry<Long, Future<TempArchiveEntry>>> it =
+                tempUploadFutures.entrySet().iterator();
+        while (it.hasNext()) {
+            final Map.Entry<Long, Future<TempArchiveEntry>> entry = it.next();
+            if (!entry.getValue().isDone()) {
+                continue;
+            }
+            it.remove();
             try {
                 final TempArchiveEntry result = entry.getValue().resultNow();
                 tempArchiveTracker.put(result.firstBlock(), result);
@@ -296,8 +299,13 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 checkGroupCoverage(groupStart);
                 LOGGER.log(TRACE, "Temp archive completed: blocks [{0}, {1}]", result.firstBlock(), result.lastBlock());
             } catch (IllegalStateException e) {
-                LOGGER.log(INFO, "Temp archive upload failed for firstBlock {0}", entry.getKey(), e);
+                LOGGER.log(
+                        WARNING,
+                        "Temp archive upload failed for firstBlock {0}; triggering mid-run recovery",
+                        entry.getKey(),
+                        e);
                 metricsHolder.failedTasks().increment();
+                triggerMidRunRecovery();
             }
         }
     }
@@ -305,14 +313,17 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// Submits pending [ConsolidationTask]s and drains completed ones.
     private void checkAndDrainConsolidations() {
         // Process completed consolidations.
-        final List<Long> doneGroups = consolidationFutures.entrySet().stream()
-                .filter(e -> e.getValue().isDone())
-                .map(Map.Entry::getKey)
-                .toList();
-        for (final long groupStart : doneGroups) {
-            final Future<UploadResult> future = consolidationFutures.remove(groupStart);
+        final Iterator<Map.Entry<Long, Future<UploadResult>>> it =
+                consolidationFutures.entrySet().iterator();
+        while (it.hasNext()) {
+            final Map.Entry<Long, Future<UploadResult>> entry = it.next();
+            if (!entry.getValue().isDone()) {
+                continue;
+            }
+            final long groupStart = entry.getKey();
+            it.remove();
             try {
-                future.resultNow();
+                entry.getValue().resultNow();
                 tempArchiveTracker.subMap(groupStart, groupStart + groupSize).clear();
                 tempGroupNextExpected.remove(groupStart);
                 metricsHolder.successfulTasks().increment();
@@ -324,14 +335,17 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
             }
         }
 
-        // Submit pending consolidations (snapshot to avoid ConcurrentModificationException).
-        for (final Map.Entry<Long, List<TempArchiveEntry>> entry : new ArrayList<>(pendingConsolidations.entrySet())) {
+        // Submit pending consolidations.
+        final Iterator<Map.Entry<Long, List<TempArchiveEntry>>> pendingIt =
+                pendingConsolidations.entrySet().iterator();
+        while (pendingIt.hasNext()) {
+            final Map.Entry<Long, List<TempArchiveEntry>> entry = pendingIt.next();
             final long groupStart = entry.getKey();
             if (!consolidationFutures.containsKey(groupStart)) {
-                final Future<UploadResult> future = virtualThreadExecutor.submit(
-                        new ConsolidationTask(config, entry.getValue(), groupStart, groupSize));
+                final Future<UploadResult> future =
+                        virtualThreadExecutor.submit(newConsolidationTask(entry.getValue(), groupStart, groupSize));
                 consolidationFutures.put(groupStart, future);
-                pendingConsolidations.remove(groupStart);
+                pendingIt.remove();
                 LOGGER.log(
                         TRACE, "Submitted consolidation task for group [{0}, {1})", groupStart, groupStart + groupSize);
             }
@@ -522,6 +536,11 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 context.applicationStateFacility());
     }
 
+    /// Creates the [Callable] for a new [ConsolidationTask].  Extracted for test overriding.
+    Callable<UploadResult> newConsolidationTask(List<TempArchiveEntry> entries, long groupStart, long groupSize) {
+        return new ConsolidationTask(config, entries, groupStart, groupSize);
+    }
+
     /// Creates the [Callable] for a new [TempArchiveUploadTask].  Extracted for test overriding.
     Callable<TempArchiveEntry> newTempArchiveUploadTask(
             String s3Key, long firstBlock, BlockingQueue<BlockWithSource> queue) {
@@ -668,6 +687,9 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
             final int movedCount = currentGroupPending.size();
             blocksStash.putAll(currentGroupPending);
             currentGroupPending = new TreeMap<>();
+            if (currentUploadFuture != null) {
+                currentUploadFuture.cancel(true);
+            }
             currentUploadFuture = null;
             recoveryFuture = virtualThreadExecutor.submit(new StartupRecoveryTask(config));
             LOGGER.log(TRACE, "Mid-run recovery triggered; {0} pending blocks moved to stash", movedCount);
