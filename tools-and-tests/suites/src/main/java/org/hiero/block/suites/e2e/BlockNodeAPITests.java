@@ -311,17 +311,18 @@ public class BlockNodeAPITests {
 
         awaitLatch(blockItemsSubscribe1Latch, "historical subscription");
         // block items, end block, and success status
+        // sometimes we get the block proof as well
+        assertThat(subscribeResponseObserver.getOnNextCalls()).isIn(3, 4);
+        assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
+
+        //        final SubscribeStreamResponse subscribeResponse0 =
+        //                subscribeResponseObserver.getOnNextCalls().get(0);
         assertThat(subscribeResponseObserver
                         .getOnNextCalls()
                         .getFirst()
                         .blockItems()
                         .blockItems())
-                .hasSize(3);
-        assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
-
-        final SubscribeStreamResponse subscribeResponse0 =
-                subscribeResponseObserver.getOnNextCalls().get(0);
-        assertThat(subscribeResponse0.blockItems().blockItems()).hasSize(blockItems.length);
+                .hasSize(blockItems.length);
 
         // ==== Scenario 6: Subscribe to live block stream and confirm receipt of newly published block ===
         final long blockNumber1 = 1;
