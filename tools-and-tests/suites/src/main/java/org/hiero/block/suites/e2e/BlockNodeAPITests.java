@@ -315,8 +315,6 @@ public class BlockNodeAPITests {
         assertThat(subscribeResponseObserver.getOnNextCalls()).isIn(3, 4);
         assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
 
-        //        final SubscribeStreamResponse subscribeResponse0 =
-        //                subscribeResponseObserver.getOnNextCalls().get(0);
         assertThat(subscribeResponseObserver
                         .getOnNextCalls()
                         .getFirst()
