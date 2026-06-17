@@ -408,10 +408,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         return;
                     }
                     final BlockItems blockItems = event.get();
-                    LOGGER.log(
-                            DEBUG,
-                            "Received event {0}",
-                            blockItems);
+                    LOGGER.log(DEBUG, "Received event {0}", blockItems);
 
                     long totalBlockItems =
                             blockItemsReceived.addAndGet(blockItems.blockItems().size());
