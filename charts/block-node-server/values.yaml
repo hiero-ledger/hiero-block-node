@@ -226,7 +226,7 @@ blockNode:
       # storageClass: "your-storage-class"
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
       # existingClaim: "my-live-pvc"
-    applicationStateFacility:
+    applicationState:
       # name of the volume within the statefulset
       volumeName: "application-state-storage"
       # should match APP_STATE_TSS_DATA_FILE_PATH, APP_STATE_STORED_BLOCKS_FILE_PATH,

@@ -25,7 +25,7 @@ blockNode:
       size: 1Gi
     logging:
       size: 1Gi
-    applicationStateFacility:
+    applicationState:
       size: 100Mi
   health:
     readiness:
