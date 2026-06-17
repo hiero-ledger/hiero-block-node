@@ -317,7 +317,7 @@ public class BlockNodeAPITests {
 
         int responseBlockItemCount = 0;
         for (SubscribeStreamResponse response : subscribeResponseObserver.getOnNextCalls()) {
-            if (response.hasBlockItems())
+            if (response.blockItems() != null)
                 responseBlockItemCount += response.blockItems().blockItems().size();
         }
         assertThat(responseBlockItemCount).isEqualTo(blockItems.length);
@@ -428,6 +428,26 @@ public class BlockNodeAPITests {
             });
             // success status should be the last response
             assertThat(subscribeResponseObserver.getOnNextCalls()).element(6).satisfies(response -> {
+                assertThat(response.status()).isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
+            });
+        } else if (subscribeResponseObserver.getOnNextCalls().size() == 8) {
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(4).satisfies(response -> {
+                assertThat(response.blockItems().blockItems())
+                        .hasSize(blockItems1.length - 1)
+                        .first()
+                        .returns(blockNumber1, i -> i.blockHeader().number());
+            });
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(5).satisfies(response -> {
+                assertThat(response.blockItems().blockItems())
+                        .hasSize(1)
+                        .first()
+                        .returns(blockNumber1, i -> i.blockProof().block());
+            });
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(6).satisfies(response -> {
+                assertThat(response.endOfBlock().blockNumber()).isEqualTo(blockNumber1);
+            });
+            // success status should be the last response
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(7).satisfies(response -> {
                 assertThat(response.status()).isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
             });
         } else {
