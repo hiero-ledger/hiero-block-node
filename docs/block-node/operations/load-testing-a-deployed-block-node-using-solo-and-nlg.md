@@ -61,11 +61,12 @@ solo --version
 For full installation options and troubleshooting, see the
 [Solo Quickstart](https://solo.hiero.org/docs/simple-solo-setup/quickstart/).
 
-## Step 2: Set Up a Solo Test Network with Three Consensus Nodes
+## Step 2: Set Up a Solo Test Network and Connect to Your Block Node
 
-The commands in this step create a temporary Kubernetes cluster and deploy a three-node Hiero
-network inside it. All resources are local and isolated from the live network. For background on
-what each command does, see the
+The commands in this step create a temporary Kubernetes cluster, deploy a three-node Hiero
+network inside it, and point those CNs at your Block Node — all before the CNs start. This
+ensures the Block Node receives every block from block 0 onwards. All resources are local and
+isolated from the live network. For background on what each command does, see the
 [Manual Deployment](https://solo.hiero.org/docs/advanced-solo-setup/network-deployments/manual-deployment/)
 documentation.
 
@@ -135,28 +136,24 @@ export CONSENSUS_NODE_VERSION="v0.73.0"
      --deployment "${SOLO_DEPLOYMENT}" \
      --release-tag "${CONSENSUS_NODE_VERSION}"
    ```
-8. **Start the Consensus Nodes**:
+8. **Point the Consensus Nodes at your Block Node** (before starting them):
+
+   Replace `<BN_IP>` with the external IP or hostname of your Block Node and `<PORT>` with the
+   gRPC port (default `40840`):
+
+   ```bash
+   solo block node add-external \
+     --deployment "${SOLO_DEPLOYMENT}" \
+     --address <BN_IP>:<PORT>
+   ```
+9. **Start the Consensus Nodes**:
 
    ```bash
    solo consensus node start --deployment "${SOLO_DEPLOYMENT}"
    ```
 
-Once the nodes are running, you are ready to connect them to your Block Node.
-
-## Step 3: Connect the Consensus Nodes to Your Block Node
-
-Point the Solo deployment at your external Block Node using `block node add-external`. Replace
-`<BN_IP>` with the external IP or hostname of your Block Node and `<PORT>` with the gRPC port
-(default `40840`):
-
-```bash
-solo block node add-external \
-  --deployment "${SOLO_DEPLOYMENT}" \
-  --address <BN_IP>:<PORT>
-```
-
-The three CNs will begin streaming blocks to the Block Node immediately. Run a quick sanity
-check to confirm the Block Node is receiving blocks:
+Once the CNs are running, run a quick sanity check to confirm the Block Node is receiving
+blocks:
 
 ```bash
 grpcurl -plaintext -emit-defaults \
@@ -172,7 +169,7 @@ downloading the protobuf bundle into `~/bn-proto`, see
 [Testing a Deployed Block Node Using the Simulator](./testing-a-deployed-block-node-using-the-simulator.md#step-5-test-block-node-accessibility-with-grpcurl)
 in the prerequisite grpcurl setup section.
 
-## Step 4: Run Load Tests with NLG
+## Step 3: Run Load Tests with NLG
 
 `rapid-fire load start` deploys the Network Load Generator (NLG) Helm chart into the Solo
 cluster and runs a named test class against the CNs. NLG transactions flow through the CNs,
@@ -230,12 +227,28 @@ solo rapid-fire load stop \
   --test CryptoTransferLoadTest
 ```
 
-## Step 5: Monitor Block Node Performance
+## Step 4: Monitor Block Node Performance
 
 While the load test runs, watch the Block Node to verify it is keeping up with the incoming
 stream.
 
-**Check ingestion via `serverStatus`** (run from outside the cluster):
+**Check ingestion and verification via Prometheus metrics** (primary check):
+
+|             Metric             |                   What to watch for                    |
+|--------------------------------|--------------------------------------------------------|
+| `verification_blocks_verified` | Count of blocks verified and persisted; should grow    |
+| `verification_blocks_failed`   | Verification failures — investigate immediately if > 0 |
+| `verification_blocks_error`    | Internal errors during verification — should stay at 0 |
+| Block ingest rate              | Should track CN output rate; drops indicate lag        |
+| Subscriber backlog             | High values indicate the BN is falling behind          |
+| Storage write latency          | Spikes may indicate I/O saturation                     |
+
+Because the Block Node only persists blocks that pass verification, an advancing
+`lastAvailableBlock` confirms both ingestion and verification are working correctly.
+
+For the full metrics reference, see [configuration.md](../configuration.md#metrics).
+
+**Check ingestion via `serverStatus`** (quick spot-check from outside the cluster):
 
 ```bash
 grpcurl -plaintext -emit-defaults \
@@ -247,32 +260,23 @@ grpcurl -plaintext -emit-defaults \
 
 Poll this every few seconds. `lastAvailableBlock` should increase steadily during the test.
 
-**Tail Block Node logs** for any error or warning signals:
+**Tail Block Node logs** if metrics are unavailable:
 
 ```bash
 BN_POD=$(kubectl get pods -n block-node -o name | head -1)
 kubectl logs -n block-node $BN_POD -c block-node-server --follow \
-  | grep -E "ERROR|WARN|ExtendedMerkleTreeSession|block_number"
+  | grep -E "ERROR|WARN"
 ```
 
-`Created ExtendedMerkleTreeSession for block N` lines confirm blocks are being verified. See
-[Troubleshooting](../troubleshooting.md) for guidance on common error patterns.
+See [Troubleshooting](../troubleshooting.md) for guidance on common error patterns.
 
-**Watch Prometheus metrics** if you have a metrics stack deployed. Key metrics to monitor
-during load testing:
-
-|        Metric         |                What to watch for                |
-|-----------------------|-------------------------------------------------|
-| Block ingest rate     | Should track CN output rate; drops indicate lag |
-| Subscriber backlog    | High values indicate the BN is falling behind   |
-| Storage write latency | Spikes may indicate I/O saturation              |
-
-For the full metrics reference, see [configuration.md](../configuration.md#metrics).
-
-## Step 6: Tear Down the Test Cluster
+## Step 5: Tear Down the Test Cluster
 
 Once you are done testing, remove the NLG and the Solo test cluster. **This does not affect
 your Block Node** — it only removes the temporary CN infrastructure.
+
+> **Firewall cleanup:** If you opened inbound firewall rules to allow the Solo test cluster to
+> reach your Block Node, close them now that the test is complete.
 
 1. **Remove NLG resources**:
 
@@ -295,7 +299,7 @@ your Block Node** — it only removes the temporary CN infrastructure.
    kind delete cluster -n "${SOLO_CLUSTER_NAME}"
    ```
 
-## Step 7: Reset the Block Node
+## Step 6: Reset the Block Node
 
 After the test, the Block Node contains test data from the Solo CNs. Before connecting to the
 live network (or a production BN stream for Tier 2 nodes), reset the block store to start
@@ -340,8 +344,8 @@ This usually means NLG could not submit transactions to the CNs. Check:
 
 **Block Node `lastAvailableBlock` is not advancing**
 
-The BN may be receiving blocks but not persisting them. Check the BN logs for storage or
-verification errors:
+The BN may not be receiving blocks, or blocks are failing verification. Check the BN logs for
+storage or verification errors:
 
 ```bash
 kubectl logs -n block-node $BN_POD -c block-node-server \
