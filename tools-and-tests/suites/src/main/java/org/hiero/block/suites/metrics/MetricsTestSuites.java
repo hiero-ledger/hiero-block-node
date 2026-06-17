@@ -13,6 +13,6 @@ import org.junit.platform.suite.api.Suite;
 @Suite
 @SelectClasses({
     MetricsCommonTests.class,
-    // Add other metrics test classes here as needed
+    MemoryRegressionTests.class,
 })
 public class MetricsTestSuites {}
