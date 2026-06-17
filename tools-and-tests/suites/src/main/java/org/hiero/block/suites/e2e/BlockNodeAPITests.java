@@ -312,7 +312,7 @@ public class BlockNodeAPITests {
         awaitLatch(blockItemsSubscribe1Latch, "historical subscription");
         // block items, end block, and success status
         // sometimes we get the block proof as well
-        assertThat(subscribeResponseObserver.getOnNextCalls()).isIn(3, 4);
+        assertThat(subscribeResponseObserver.getOnNextCalls().size()).isIn(3, 4);
         assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
 
         assertThat(subscribeResponseObserver
