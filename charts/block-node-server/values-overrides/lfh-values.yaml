@@ -47,7 +47,7 @@ blockNode:
                 create: false
                 existingClaim: logging-storage-pvc
                 subPath: ""
-            applicationStateFacility:
+            applicationState:
                 create: false
                 existingClaim: application-state-storage-pvc
 
