@@ -404,8 +404,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         handler.onTooFarBehindError();
                         return;
                     }
-                    final BlockItems blockItems = event.get();
-                    handler.handleBlockItemsReceived(blockItems);
+                    handler.handleBlockItemsReceived(event.get());
                 };
         if (blockItemDisruptor.hasStarted()) {
             registerHandler(
