@@ -90,14 +90,14 @@ sequenceDiagram
     Note over Subscriber: Choose start block N in range F to L + maximumFutureRequest
 
     Subscriber->>BlockNode: subscribeBlockStream(start=N, end=M)
-    Note over BlockNode: Validate request; check future-block constraint
+    Note over BlockNode: Validate request, check future-block constraint
 
     loop For each block in N to M
         loop One or more BlockItemSet messages per block
             BlockNode-->>Subscriber: block_items(BlockItemSet)
         end
         BlockNode-->>Subscriber: end_of_block(BlockEnd with block_number)
-        Note over Subscriber: Block complete; increment expected block number
+        Note over Subscriber: Block complete, increment expected block number
     end
 
     BlockNode-->>Subscriber: status(SUCCESS)
@@ -133,7 +133,7 @@ sequenceDiagram
     participant Live as Live Stream
 
     Subscriber->>BlockNode: subscribeBlockStream(start=N, end=uint64_max)
-    Note over BlockNode: N is available historically; begin hybrid mode
+    Note over BlockNode: N is available historically, begin hybrid mode
 
     loop Historical phase: blocks N to latest_persisted
         BlockNode->>Storage: Fetch block
@@ -141,7 +141,7 @@ sequenceDiagram
         BlockNode-->>Subscriber: block_items + end_of_block per block
     end
 
-    Note over BlockNode: Caught up to live stream; switching to live phase
+    Note over BlockNode: Caught up to live stream, switching to live phase
 
     loop Live phase: new blocks as they arrive
         Live-->>BlockNode: New block available
@@ -193,24 +193,24 @@ sequenceDiagram
     alt Invalid field values
         Subscriber->>BlockNode: subscribeBlockStream(invalid start or end)
         BlockNode-->>Subscriber: status(INVALID_START_BLOCK_NUMBER or INVALID_END_BLOCK_NUMBER)
-        Note over Subscriber: Fix the field value; call serverStatus if start is out of range; retry
+        Note over Subscriber: Fix field value, call serverStatus if start out of range, retry
     else Start block exceeds future-block limit
         Subscriber->>BlockNode: subscribeBlockStream(start=N, end=M)
         BlockNode-->>Subscriber: status(NOT_AVAILABLE)
-        Note over Subscriber: Call serverStatus; confirm start block is within permitted range; retry
+        Note over Subscriber: Call serverStatus, confirm start block within permitted range, retry
     else Block Node internal error mid-stream
         Subscriber->>BlockNode: subscribeBlockStream(start=N, end=uint64_max)
         loop Blocks delivered before error
             BlockNode-->>Subscriber: block_items + end_of_block (blocks N through L)
         end
         BlockNode-->>Subscriber: status(ERROR)
-        Note over Subscriber: Reconnect from block L+1; retry with exponential back-off
+        Note over Subscriber: Reconnect from block L+1, retry with exponential back-off
     else Orderly Block Node shutdown with partial delivery
         loop Blocks delivered before shutdown
             BlockNode-->>Subscriber: block_items + end_of_block (blocks N through K)
         end
         BlockNode-->>Subscriber: status(SUCCESS)
-        Note over Subscriber: Reconnect from block K+1; call serverStatus on another Block Node if needed
+        Note over Subscriber: Reconnect from block K+1, call serverStatus on another Block Node if needed
     end
 ```
 
