@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -89,6 +90,18 @@ class TempArchiveUploadTaskTest {
         MINIO_CONTAINER.stop();
     }
 
+    private static BlockWithSource makeBlock(int dataSize) {
+        final byte[] data = new byte[dataSize];
+        new Random(0).nextBytes(data);
+        final BlockItemUnparsed item = new BlockItemUnparsed(
+                new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+        return new BlockWithSource(
+                BlockUnparsed.newBuilder()
+                        .blockItems(new BlockItemUnparsed[] {item})
+                        .build(),
+                BlockSource.PUBLISHER);
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         final ConfigurationBuilder builder =
@@ -139,18 +152,6 @@ class TempArchiveUploadTaskTest {
         return CloudStorageArchivePlugin.MetricsHolder.createMetrics(MetricRegistry.builder()
                 .setMetricsExporter(new TestMetricsExporter())
                 .build());
-    }
-
-    private static BlockWithSource makeBlock(int dataSize) {
-        final byte[] data = new byte[dataSize];
-        new Random(0).nextBytes(data);
-        final BlockItemUnparsed item = new BlockItemUnparsed(
-                new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
-        return new BlockWithSource(
-                BlockUnparsed.newBuilder()
-                        .blockItems(new BlockItemUnparsed[] {item})
-                        .build(),
-                BlockSource.PUBLISHER);
     }
 
     private TempArchiveUploadTask buildTask(
@@ -392,7 +393,6 @@ class TempArchiveUploadTaskTest {
     }
 
     private static final class NoOpApplicationStateFacility implements ApplicationStateFacility {
-
         @Override
         public void updateTssData(TssData tssData) {}
 
@@ -404,6 +404,27 @@ class TempArchiveUploadTaskTest {
         @Override
         public void addStoredBlockRange(LongRange blockRange) {}
 
-        public void addAvailableBlockRange(LongRange blockRange) {}
+        @Override
+        public NetworkData knownPublishers() {
+            return null;
+        }
+
+        @Override
+        public NetworkData inboundPartners() {
+            return null;
+        }
+
+        @Override
+        public NetworkData outboundPartners() {
+            return null;
+        }
+
+        @Override
+        public NetworkData backfillSources() {
+            return null;
+        }
+
+        @Override
+        public void updateBackfillSources(final NetworkData sources) {}
     }
 }

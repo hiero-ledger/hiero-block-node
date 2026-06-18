@@ -3,6 +3,8 @@ syntax = "proto3";
 
 package org.hiero.block.internal;
 
+import "block-node/api/network-data.proto";
+
 option java_package = "org.hiero.block.internal.protoc";
 // <<<pbj.java_package = "org.hiero.block.internal">>> This comment is special code for setting PBJ Compiler java package
 option java_multiple_files = true;
@@ -39,6 +41,18 @@ message BlockNodeSourceConfig {
    * All tuning parameters are in this sub-message for cleaner organization
    */
   GrpcWebClientTuning grpc_webclient_tuning = 6;
+
+  /**
+   * RFC 3986 connection scheme for this source (e.g. "grpc" or "grpcs").
+   * When empty, the scheme is derived from the source TLS setting, using
+   * `grpc` if TLS is not enabled and `grpcs` if TLS is enabled.
+   */
+  string scheme = 7;
+
+  /**
+   * IP protocol for this source connection.
+   */
+  org.hiero.block.api.NetworkConnection.IpProtocol protocol = 8;
 }
 
 /**

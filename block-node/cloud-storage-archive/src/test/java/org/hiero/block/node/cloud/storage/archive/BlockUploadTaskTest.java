@@ -27,6 +27,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -613,5 +614,28 @@ class BlockUploadTaskTest {
         public void addStoredBlockRange(LongRange blockRange) {
             storedRanges.add(blockRange);
         }
+
+        @Override
+        public NetworkData knownPublishers() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData inboundPartners() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData outboundPartners() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData backfillSources() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public void updateBackfillSources(NetworkData sources) {}
     }
 }

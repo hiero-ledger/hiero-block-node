@@ -44,7 +44,11 @@ message NetworkConnection {
     ///
     /// Categories are defined by the producing system, but MUST match agreed
     /// quality of service tags for the management system that consumes
-    /// this API.
+    /// this API.<br/>
+    /// This value SHALL NOT be modified or transformed by the block node; it
+    /// should be passed through from configuration to output unchanged.
+    /// If not read from configuration, this value SHALL be set to a
+    /// configurable default based on the source of connection information.
     string category = 3;
 
     /// The connection scheme as defined in

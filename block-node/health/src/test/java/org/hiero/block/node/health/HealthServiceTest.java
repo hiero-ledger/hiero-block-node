@@ -2,19 +2,31 @@
 package org.hiero.block.node.health;
 
 import static org.hiero.block.node.health.HealthServicePlugin.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import io.helidon.webserver.http.HttpRules;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
+import java.nio.charset.StandardCharsets;
+import org.hiero.block.api.NetworkData;
+import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestServerRequest;
+import org.hiero.block.node.app.fixtures.plugintest.TestServerResponse;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.*;
+import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -151,5 +163,82 @@ class HealthServiceTest {
         httpService.routing(httpRules);
         Mockito.verify(httpRules, Mockito.times(1)).get(ArgumentMatchers.eq(READYZ_PATH), ArgumentMatchers.any());
         Mockito.verify(httpRules, Mockito.times(1)).get(ArgumentMatchers.eq(LIVEZ_PATH), ArgumentMatchers.any());
+    }
+
+    @Test
+    public void testStatuszRouting() {
+        ArgumentCaptor<HttpService> httpServiceArgumentCaptor = ArgumentCaptor.forClass(HttpService.class);
+        HttpRules httpRules = Mockito.mock(HttpRules.class);
+        Mockito.when(httpRules.get(ArgumentMatchers.anyString(), ArgumentMatchers.any()))
+                .thenReturn(httpRules);
+        BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
+        setupContextConfig(context);
+
+        HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
+        healthServicePlugin.init(context, serviceBuilder);
+
+        // the /statusz service is registered as a second HTTP service with * route
+        Mockito.verify(serviceBuilder, Mockito.times(1))
+                .registerHttpService(
+                        ArgumentMatchers.eq(STATUSZ_PATH),
+                        ArgumentMatchers.isNull(),
+                        httpServiceArgumentCaptor.capture());
+        HttpService httpService = httpServiceArgumentCaptor.getValue();
+        assertNotNull(httpService);
+        httpService.routing(httpRules);
+        Mockito.verify(httpRules, Mockito.times(1)).get(ArgumentMatchers.eq("*"), ArgumentMatchers.any());
+    }
+
+    @Test
+    public void testHandleStatuszInbound() throws ParseException {
+        BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
+        Mockito.when(context.applicationStateFacility()).thenReturn(new TestApplicationStateFacility());
+        setupContextConfig(context);
+
+        HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
+        healthServicePlugin.init(context, serviceBuilder);
+
+        TestServerResponse response = new TestServerResponse();
+        healthServicePlugin.handleStatusz(new TestServerRequest("/statusz/inbound"), response);
+
+        assertEquals(200, response.sentStatus());
+        assertEquals("application/json", response.contentType());
+        NetworkData sent =
+                NetworkData.JSON.parse(Bytes.wrap(((String) response.sentEntity()).getBytes(StandardCharsets.UTF_8)));
+        assertFalse(sent.activeEndpoints().isEmpty());
+    }
+
+    @Test
+    public void testHandleStatuszOutbound() throws ParseException {
+        BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
+        Mockito.when(context.applicationStateFacility()).thenReturn(new TestApplicationStateFacility());
+        setupContextConfig(context);
+
+        HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
+        healthServicePlugin.init(context, serviceBuilder);
+
+        TestServerResponse response = new TestServerResponse();
+        healthServicePlugin.handleStatusz(new TestServerRequest("/statusz/outbound"), response);
+
+        assertEquals(200, response.sentStatus());
+        assertEquals("application/json", response.contentType());
+        NetworkData sent =
+                NetworkData.JSON.parse(Bytes.wrap(((String) response.sentEntity()).getBytes(StandardCharsets.UTF_8)));
+        assertFalse(sent.activeEndpoints().isEmpty());
+    }
+
+    @Test
+    public void testHandleStatuszUnknownSubpath() {
+        BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
+        Mockito.when(context.applicationStateFacility()).thenReturn(new TestApplicationStateFacility());
+        setupContextConfig(context);
+
+        HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
+        healthServicePlugin.init(context, serviceBuilder);
+
+        TestServerResponse response = new TestServerResponse();
+        healthServicePlugin.handleStatusz(new TestServerRequest("/statusz/bogus"), response);
+
+        assertEquals(404, response.sentStatus());
     }
 }
