@@ -412,12 +412,13 @@ public class BlockNodeAPITests {
             // block 0 items, end block 0, success status, block 1 items w/o proof, block 1 proof, end block 1,
             // success status
             assertThat(subscribeResponseObserver.getOnNextCalls()).element(3).satisfies(response -> {
-                if (response.blockItems() != null){
+                if (response.blockItems() != null) {
                     assertThat(response.blockItems().blockItems())
                             .hasSize(blockItems1.length - 1)
                             .first()
                             .returns(blockNumber1, i -> i.blockHeader().number());
-            }});
+                }
+            });
             assertThat(subscribeResponseObserver.getOnNextCalls()).element(4).satisfies(response -> {
                 assertThat(response.blockItems().blockItems())
                         .hasSize(1)
