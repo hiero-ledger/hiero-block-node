@@ -2,6 +2,7 @@
 package org.hiero.block.node.spi;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
+import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
@@ -44,4 +45,46 @@ public interface ApplicationStateFacility {
      * @param blockRange the contiguous range of block numbers being reported
      */
     void addAvailableBlockRange(LongRange blockRange);
+
+    /**
+     * The set of known inbound publishers, loaded from configuration on startup. Reported by the
+     * {@code /statusz/inbound} endpoint.
+     *
+     * @return the known publishers; never {@code null} (empty when none are configured)
+     */
+    NetworkData knownPublishers();
+
+    /**
+     * The set of designated inbound partners, loaded from configuration on startup. Reported by the
+     * {@code /statusz/inbound} endpoint.
+     *
+     * @return the inbound partners; never {@code null} (empty when none are configured)
+     */
+    NetworkData inboundPartners();
+
+    /**
+     * The set of designated outbound partners, loaded from configuration on startup. Reported by the
+     * {@code /statusz/outbound} endpoint.
+     *
+     * @return the outbound partners; never {@code null} (empty when none are configured)
+     */
+    NetworkData outboundPartners();
+
+    /**
+     * The set of backfill source connections most recently reported by the backfill plugin. Backfill
+     * sources are reported by <b>both</b> the {@code /statusz/inbound} and {@code /statusz/outbound}
+     * endpoints, because every backfill source may also backfill from this node.
+     *
+     * @return the backfill sources; never {@code null} (empty when none are configured)
+     */
+    NetworkData backfillSources();
+
+    /**
+     * Registers (or replaces) the set of backfill source connections. Called by the backfill plugin
+     * when it loads its sources, so that all connection information is owned by the Application State
+     * facility rather than read directly from backfill configuration.
+     *
+     * @param sources the backfill source connections to publish
+     */
+    void updateBackfillSources(NetworkData sources);
 }

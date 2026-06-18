@@ -14,8 +14,11 @@ module org.hiero.block.node.health {
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
     requires transitive io.helidon.webserver;
+    requires com.hedera.pbj.runtime;
     requires org.hiero.block.node.base;
+    requires org.hiero.block.protobuf.pbj;
     requires com.github.spotbugs.annotations;
+    requires io.helidon.http;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             HealthServicePlugin;

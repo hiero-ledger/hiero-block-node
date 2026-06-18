@@ -18,7 +18,12 @@ module org.hiero.block.node.app.test.fixtures {
     requires org.hiero.block.protobuf.pbj;
     requires org.hiero.metrics;
     requires com.github.luben.zstd_jni;
+    requires io.helidon.common.context;
+    requires io.helidon.common.parameters;
     requires io.helidon.common.socket;
+    requires io.helidon.common.uri;
+    requires io.helidon.http.media;
+    requires io.helidon.http;
     requires io.helidon.webserver;
     requires java.logging;
     requires org.junit.jupiter.api;

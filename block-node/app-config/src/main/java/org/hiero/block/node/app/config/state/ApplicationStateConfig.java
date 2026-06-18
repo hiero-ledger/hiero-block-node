@@ -21,6 +21,12 @@ import org.hiero.block.node.base.Loggable;
  * @param blockRangesFilePath path to the JSON file where both the stored and available block range sets are
  *     persisted together. The file is written automatically every {@code BLOCK_RANGE_PERSIST_INTERVAL}
  *     blocks and on shutdown, then loaded on startup.
+ * @param knownPublishersFilePath path to the JSON file (a serialized {@code NetworkData}) describing the
+ *     known inbound publishers, loaded on startup and exposed for the {@code /statusz/inbound} endpoint.
+ * @param inboundPartnersFilePath path to the JSON file (a serialized {@code NetworkData}) describing the
+ *     designated inbound partners, loaded on startup and exposed for the {@code /statusz/inbound} endpoint.
+ * @param outboundPartnersFilePath path to the JSON file (a serialized {@code NetworkData}) describing the
+ *     designated outbound partners, loaded on startup and exposed for the {@code /statusz/outbound} endpoint.
  * @param updateScanInterval The amount of milliseconds that the {@code ApplicationStateFacility} waits between
  *     checking to see if there are any {@code TssData} updates to process.
  */
@@ -30,6 +36,9 @@ public record ApplicationStateConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/tss-bootstrap-roster.json") Path tssBootstrapFilePath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json") Path rsaBootstrapFilePath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/block-ranges.json") Path blockRangesFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/known-publishers.json") Path knownPublishersFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/inbound-partners.json") Path inboundPartnersFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/outbound-partners.json") Path outboundPartnersFilePath,
         @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long updateScanInterval,
         @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int updateInitialDelay) {
         // spotless:on

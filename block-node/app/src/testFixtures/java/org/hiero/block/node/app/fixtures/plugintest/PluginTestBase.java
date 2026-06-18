@@ -21,6 +21,7 @@ import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
@@ -363,6 +364,31 @@ public abstract class PluginTestBase<
 
     @Override
     public void addAvailableBlockRange(LongRange blockRange) {
+        // Do nothing
+    }
+
+    @Override
+    public NetworkData knownPublishers() {
+        return TestApplicationStateFacility.DEFAULT_NETWORK_DATA;
+    }
+
+    @Override
+    public NetworkData inboundPartners() {
+        return TestApplicationStateFacility.DEFAULT_NETWORK_DATA;
+    }
+
+    @Override
+    public NetworkData outboundPartners() {
+        return TestApplicationStateFacility.DEFAULT_NETWORK_DATA;
+    }
+
+    @Override
+    public NetworkData backfillSources() {
+        return TestApplicationStateFacility.DEFAULT_NETWORK_DATA;
+    }
+
+    @Override
+    public void updateBackfillSources(NetworkData sources) {
         // Do nothing
     }
 }

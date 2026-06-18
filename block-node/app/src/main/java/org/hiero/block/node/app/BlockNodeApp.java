@@ -52,6 +52,7 @@ import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
@@ -130,6 +131,18 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     /** Blocks reported as available by BlockProviderPlugin implementations */
     final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
+
+    /** Known inbound publishers loaded from configuration on startup; exposed for /statusz/inbound. */
+    private final AtomicReference<NetworkData> knownPublishers = new AtomicReference<>(NetworkData.DEFAULT);
+
+    /** Designated inbound partners loaded from configuration on startup; exposed for /statusz/inbound. */
+    private final AtomicReference<NetworkData> inboundPartners = new AtomicReference<>(NetworkData.DEFAULT);
+
+    /** Designated outbound partners loaded from configuration on startup; exposed for /statusz/outbound. */
+    private final AtomicReference<NetworkData> outboundPartners = new AtomicReference<>(NetworkData.DEFAULT);
+
+    /** Backfill source connections reported by the backfill plugin; exposed for both /statusz endpoints. */
+    private final AtomicReference<NetworkData> backfillSources = new AtomicReference<>(NetworkData.DEFAULT);
 
     /** Block count at the time of the last scheduled persist; only read/written by the scanner thread */
     private long lastPersistedBlockCount = 0;
@@ -503,6 +516,31 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         addStoredBlockRange(blockRange);
     }
 
+    @Override
+    public NetworkData knownPublishers() {
+        return knownPublishers.get();
+    }
+
+    @Override
+    public NetworkData inboundPartners() {
+        return inboundPartners.get();
+    }
+
+    @Override
+    public NetworkData outboundPartners() {
+        return outboundPartners.get();
+    }
+
+    @Override
+    public NetworkData backfillSources() {
+        return backfillSources.get();
+    }
+
+    @Override
+    public void updateBackfillSources(NetworkData sources) {
+        backfillSources.set(sources != null ? sources : NetworkData.DEFAULT);
+    }
+
     /**
      * Allow plugins to update the NodeAddressBook for this BlockNodeApp. The address book is staged
      * in a last-write-wins reference; if {@code updateAddressBook} is called more than once before
@@ -861,6 +899,44 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             } catch (IOException e) {
                 LOGGER.log(ERROR, "Failed to create block ranges directory: " + parent, e);
             }
+        }
+
+        // Load the connection-information sets (JSON-serialized NetworkData) used by the /statusz endpoints.
+        // These are read-only configuration; absent or unreadable files yield an empty set.
+        knownPublishers.set(loadNetworkData(appStateConfig.knownPublishersFilePath()));
+        inboundPartners.set(loadNetworkData(appStateConfig.inboundPartnersFilePath()));
+        outboundPartners.set(loadNetworkData(appStateConfig.outboundPartnersFilePath()));
+    }
+
+    /**
+     * Loads a {@link NetworkData} document from the given JSON file. Missing files and parse failures
+     * are logged and yield {@link NetworkData#DEFAULT} (an empty set) rather than throwing, mirroring
+     * the lenient handling used for other optional application-state files.
+     *
+     * @param path the JSON file to read
+     * @return the parsed NetworkData, or {@link NetworkData#DEFAULT} if absent or unreadable
+     */
+    static NetworkData loadNetworkData(final Path path) {
+        if (path == null || !Files.exists(path)) {
+            LOGGER.log(DEBUG, "Network data file not present, using empty set: {0}", path);
+            return NetworkData.DEFAULT;
+        }
+        try {
+            final NetworkData data = NetworkData.JSON.parse(
+                    Bytes.wrap(Files.readAllBytes(path)).toReadableSequentialData(),
+                    false,
+                    true,
+                    MAX_APP_STATE_MESSAGE_DEPTH,
+                    MAX_APP_STATE_MESSAGE_SIZE_BYTES);
+            LOGGER.log(
+                    INFO,
+                    "Loaded network data from file: {0} ({1} endpoints)",
+                    path,
+                    data.activeEndpoints().size());
+            return data;
+        } catch (ParseException | IOException e) {
+            LOGGER.log(WARNING, "Failed to read network data file: " + path, e);
+            return NetworkData.DEFAULT;
         }
     }
 

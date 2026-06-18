@@ -157,6 +157,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // ready for backfill.
         hasBNSourcesPath = true;
 
+        // Publish the source connections to the Application State facility so the /statusz endpoints
+        // can report them. All connection information is owned by the Application State facility.
+        context.applicationStateFacility()
+                .updateBackfillSources(
+                        BackfillNetworkData.toNetworkData(blockNodeSources, backfillConfiguration.enableTLS()));
+
         // Register the service
         context.blockMessaging().registerBlockNotificationHandler(this, false, "BackfillPlugin");
     }

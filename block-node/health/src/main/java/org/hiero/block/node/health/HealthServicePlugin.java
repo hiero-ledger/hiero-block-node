@@ -11,6 +11,7 @@ import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
 import java.lang.System.Logger;
 import java.util.List;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -22,9 +23,15 @@ public class HealthServicePlugin implements BlockNodePlugin {
     protected static final String HEALTHZ_PATH = "/healthz";
     protected static final String LIVEZ_PATH = "/livez";
     protected static final String READYZ_PATH = "/readyz";
+    protected static final String STATUSZ_PATH = "/statusz";
+    protected static final String INBOUND_PATH = "/inbound";
+    protected static final String OUTBOUND_PATH = "/outbound";
 
     /** The health facility, used for getting server status */
     private HealthFacility healthFacility;
+
+    /** The application state facility, used to obtain connection information for the statusz endpoints */
+    private ApplicationStateFacility applicationStateFacility;
 
     /**
      * {@inheritDoc}
@@ -32,12 +39,16 @@ public class HealthServicePlugin implements BlockNodePlugin {
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         healthFacility = context.serverHealth();
+        applicationStateFacility = context.applicationStateFacility();
         // A null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(HealthConfig.class).port();
         serviceBuilder.registerHttpService(HEALTHZ_PATH, port, httpRules -> httpRules
                 .get(LIVEZ_PATH, this::handleLivez)
                 .get(READYZ_PATH, this::handleReadyz));
+        serviceBuilder.registerHttpService(STATUSZ_PATH, port, httpRules -> httpRules
+                .get(INBOUND_PATH, this::handleStatusz)
+                .get(OUTBOUND_PATH, this::handleStatusz));
         LOGGER.log(DEBUG, "Completed health facility initialization");
     }
 
@@ -88,6 +99,31 @@ public class HealthServicePlugin implements BlockNodePlugin {
             }
         } catch (final RuntimeException e) {
             LOGGER.log(WARNING, "Failed to respond to readiness check due to %s".formatted(e), e);
+        }
+    }
+
+    /**
+     * Handles requests for the {@code /statusz/inbound} and {@code /statusz/outbound} endpoints. Both
+     * routes dispatch here; the request path selects which handler runs. The matching handler builds and
+     * sends its {@link org.hiero.block.api.NetworkData} response synchronously on the (virtual) request
+     * thread.
+     *
+     * @param req the server request
+     * @param res the server response
+     */
+    public final void handleStatusz(@NonNull final ServerRequest req, @NonNull final ServerResponse res) {
+        try {
+            final String path = req.path().path();
+            if (path.endsWith(INBOUND_PATH)) {
+                new InboundStatusHandler(req, res, applicationStateFacility).createAndSendResponse();
+            } else if (path.endsWith(OUTBOUND_PATH)) {
+                new OutboundStatusHandler(req, res, applicationStateFacility).createAndSendResponse();
+            } else {
+                res.status(404).send("Unknown statusz subpath");
+                LOGGER.log(INFO, "Responded code 404 (Unknown statusz subpath) for {0}", path);
+            }
+        } catch (final RuntimeException e) {
+            LOGGER.log(WARNING, "Failed to respond to statusz check due to %s".formatted(e), e);
         }
     }
 }
