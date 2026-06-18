@@ -10,13 +10,13 @@ the appropriate Prometheus / Grafana UI.
 **Use it when:**
 
 - Block ingest or backfill stalls
-- Subscribers / Mirror Nodes cannot connect
+- Subscriber or Mirror Node cannot connect
 - Disk or storage is under pressure
 - Metrics or dashboards look wrong
 
 ---
 
-### 1. Observability & Diagnostics
+### Observability & Diagnostics
 
 Block Nodes are generally robust, but like any distributed system component,
 operators occasionally encounter issues related to networking, storage,
@@ -67,8 +67,6 @@ See the full list in the
 
 ---
 
-### 2. Issue Runbooks (Observe → Diagnose → Fix → Verify)
-
 Use the runbooks below during incidents. Each follows a consistent pattern:
 
 - **Triage** – confirm what is actually broken
@@ -76,9 +74,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
 - **Resolution** – apply fixes
 - **Verification** – confirm recovery
 
-### Runbooks
-
-#### Block Node not receiving new blocks
+### Block Node not receiving new blocks
 
 > **Tip:** Use this runbook when ingest appears stalled and logs show little or no publish activity for new blocks.
 
@@ -117,7 +113,11 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
    - `publisher_open_connections` is stable and non-zero.
    - Logs show continuous block publish / ingest activity.
 
-#### Subscribers/Mirror Nodes cannot connect
+---
+
+### Block Node operator: subscribers cannot connect
+
+> If you operate a Mirror Node that cannot subscribe to a Block Node, see [Mirror Node operator: Mirror Node cannot connect to Block Node](#mirror-node-operator-mirror-node-cannot-connect-to-block-node) instead.
 
 1. **Triage**
    - Confirm symptoms from client side:
@@ -128,7 +128,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
      - No obvious CPU / memory starvation.
 2. **Network and endpoint checks**
    - From a trusted host (for example, Mirror Node):
-     - `nc <IP_OF_BLOCK_NODE> <GRPC_PORT> -vz`
+     - `nc -vz <IP_OF_BLOCK_NODE> <GRPC_PORT>`
        - Success: TCP reachability is OK.
        - Failure: suspect firewall, security group, or local iptables.
      - Optional gRPC sanity checks (requires `grpcurl` and proto files, which can be found in the [Hiero Block Node repo release artifacts](https://github.com/hiero-ledger/hiero-block-node/releases)):
@@ -144,19 +144,15 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
            org.hiero.block.api.BlockStreamSubscribeService/subscribeBlockStream \
            '{"start_block_number": <BLOCK>, "end_block_number": <BLOCK>}'
        ```
-   - Verify:
-     - Correct advertised hostname / IP and port in Block Node config.
-     - DNS or load balancer is pointing to the active node.
+   - Verify the correct advertised hostname / IP and port in Block Node config, and that DNS or load balancer points to the active node.
 3. **TLS and auth**
    - Check client logs for:
      - `x509: certificate has expired or is not yet valid`.
      - Hostname mismatch between certificate and endpoint.
      - Unknown CA / trust failures.
-   - On the Block Node, confirm:
-     - TLS cert and key paths are correct and readable.
-       - Certificates are not expired and chain is complete.
+   - On the Block Node, confirm TLS cert and key paths are correct, readable, and that certificates are not expired and the chain is complete.
 4. **Service configuration**
-   - Ensure the publish / subscribe services are enabled in configuration (for example, `BlockStreamSubscribeService`).
+   - Ensure `BlockStreamSubscribeService` is enabled in the Block Node configuration.
    - Check any rate limits or `max-connections` settings that might be rejecting clients.
 5. **Resolution**
    - Fix endpoint configuration (advertise address / port), update DNS or load balancer if needed.
@@ -164,9 +160,63 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
    - Update firewall / security groups to allow gRPC traffic from subscribers.
 6. **Verification**
    - Confirm clients successfully establish long-lived gRPC streams without continuous reconnects.
-   - Metrics such as `subscriber_open_connections` are stable and `subscriber_errors` do not spike.
+   - `blocknode_subscriber_open_connections` is stable and non-zero; `blocknode_subscriber_errors` is not climbing.
 
-#### Disk full / out of space
+---
+
+### Mirror Node operator: Mirror Node cannot connect to Block Node
+
+> **Tip:** Use this runbook when the Mirror Node's last committed block is not advancing, importer logs show repeated subscribe errors, or all configured Block Nodes are reported as inactive.
+
+1. **Triage**
+   - Confirm symptoms:
+     - Mirror Node importer logs show repeated subscribe failures or all Block Nodes marked inactive.
+     - The Mirror Node's last committed block is not advancing.
+     - `blocknode_subscriber_open_connections` on the Block Node side is zero or not incrementing (if you have access to it).
+2. **Network reachability**
+   - From the Mirror Node host, confirm TCP connectivity to each configured Block Node:
+
+     ```bash
+     nc -vz <BLOCK_NODE_HOST> 40840
+     ```
+
+     - **Success**: `Connection to <BLOCK_NODE_HOST> port 40840 succeeded!` — proceed to the next step.
+     - **Failure**: TCP reachability is broken. Check firewall rules, security groups, and that the Block Node process is running. Confirm the port matches `hiero.mirror.importer.block.nodes[].port` in the Mirror Node configuration.
+3. **Block Node status**
+   - Query `serverStatus` to confirm blocks are available and the gRPC endpoint is responding.
+     See [Step 1 in Connecting a Mirror Node to a Block Node](./operations/connecting-a-mirror-node-to-a-block-node.md#step-1-confirm-each-block-node-is-reachable-and-serving-blocks) for the exact command.
+     - If both `firstAvailableBlock` and `lastAvailableBlock` equal `18446744073709551615`, the Block Node has not yet ingested any blocks — wait before subscribing.
+     - If `serverStatus` itself fails to connect, the Block Node may be unreachable, the port may be wrong, or TLS is required but not configured on the client side.
+4. **Subscribe smoke test**
+   - Attempt a manual `subscribeBlockStream` call from the Mirror Node host to confirm the Block Node will accept a subscription and identify the exact terminal status code.
+     See [Step 3 in Connecting a Mirror Node to a Block Node](./operations/connecting-a-mirror-node-to-a-block-node.md#step-3-smoke-test-the-subscribe-call-from-the-shell-optional) for the exact command.
+   - Match the returned `status` code against the [Troubleshooting table in Connecting a Mirror Node to a Block Node](./operations/connecting-a-mirror-node-to-a-block-node.md#troubleshooting) to identify the specific cause and resolution.
+5. **Mirror Node configuration**
+   - Verify:
+     - `hiero.mirror.importer.block.enabled` is `true`.
+     - `hiero.mirror.importer.block.nodes[].host` and `.port` match the actual Block Node endpoint.
+     - `hiero.mirror.importer.block.nodes[].requiresTls` matches whether the endpoint uses TLS (`false` for plain gRPC, `true` if TLS is terminated at the Block Node or a load balancer in front of it).
+     - `hiero.mirror.importer.block.sourceType` is `BLOCK_NODE` (or `AUTO` to try Block Node first and fall back to block files from cloud storage if the Block Node becomes unavailable).
+6. **Resolution**
+   - After correcting any configuration, restart the Mirror Node importer and re-run the reachability and smoke-test checks above to confirm the fix.
+   - For each specific terminal status code or error message, consult the [Troubleshooting table in Connecting a Mirror Node to a Block Node](./operations/connecting-a-mirror-node-to-a-block-node.md#troubleshooting).
+7. **Verification**
+   - Confirm the Mirror Node's last committed block advances monotonically.
+   - Importer logs show active subscribe sessions without repeated reconnects.
+   - If you operate the Block Node, `blocknode_subscriber_open_connections` is non-zero and `blocknode_subscriber_errors` is not climbing.
+8. **Escalation**
+   - If the steps above do not resolve the issue, collect the following before opening a ticket:
+     - Output of `nc -vz <BLOCK_NODE_HOST> <PORT>`.
+     - Output of the `serverStatus` call (or the error it returned).
+     - Mirror Node importer log excerpt showing subscribe errors (remove sensitive values).
+     - Mirror Node `application.yml` block configuration section (remove credentials).
+     - Block Node version, if available.
+   - If the Block Node returns unexpected status codes, errors, or is unreachable despite correct networking, open an issue in [`hiero-ledger/hiero-block-node`](https://github.com/hiero-ledger/hiero-block-node/issues).
+   - If the Mirror Node configuration appears correct but the importer still does not connect or process blocks as expected, open an issue in [`hiero-ledger/hiero-mirror-node`](https://github.com/hiero-ledger/hiero-mirror-node/issues).
+
+---
+
+### Disk full / out of space
 
 1. **Triage**
    - Confirm symptoms:
@@ -191,7 +241,9 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
    - Confirm `files_recent_total_bytes_stored` (and/or `files_historic_total_bytes_stored`) and host `df -h` fall below alert thresholds.
    - Block ingest resumes normally and no further I/O errors appear in logs.
 
-#### Metrics endpoint not accessible
+---
+
+### Metrics endpoint not accessible
 
 1. **Triage**
    - Confirm that Grafana / Prometheus cannot scrape `/metrics` for this Block Node.
@@ -229,7 +281,9 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
    - Confirm the Prometheus target is `UP` and `up\{job="block-node-metrics", instance="\<node\>"\} == 1`.
    - Grafana dashboards populate and scrape errors clear.
 
-#### Blocks are not being backfilled
+---
+
+### Blocks are not being backfilled
 
 1. **Triage**
    - Confirm symptoms:
@@ -257,17 +311,18 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
 
 ---
 
-### 3. Quick Reference Table (Summary)
+### Quick Reference Table
 
 The table below is a **summary-only quick reference**. Use the runbooks above for full diagnosis and remediation steps.
 
-|                 **Issue**                 |                         **Symptoms**                          |                                              **Diagnosis**                                               |                                           **Resolution**                                           |
-|-------------------------------------------|---------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| Node not receiving new blocks             | Ingest appears stalled, logs show no publish activity         | Check firewall / TLS on ingest port (default `40840`), Consensus Node logs                               | Open inbound port, verify mutual TLS certs, ensure node is authorized / whitelisted by upstream CN |
-| Subscribers / Mirror Nodes cannot connect | gRPC connection refused or TLS handshake errors               | Wrong endpoint, expired cert, or service disabled in config                                              | Verify advertise address / port, renew TLS certs, enable `BlockStreamSubscribeService`             |
-| Disk full / out of space                  | Node crashes or refuses new blocks                            | `df -h`, `files_recent_total_bytes_stored` nearing limit                                                 | Prune old blocks (partial-history), expand volume, or migrate to archive node                      |
-| Metrics endpoint not accessible           | Grafana dashboards empty, Prometheus target `DOWN`            | Port `16007` blocked or metrics disabled via config                                                      | Open port, enable metrics, fix Prometheus scrape job                                               |
-| Blocks not being backfilled               | Log entries show backfill warnings, missing historical ranges | Check `blocknode_backfill*` metrics, `BLOCK_NODE_EARLIEST_MANAGED_BLOCK` / `BACKFILL_START_BLOCK` config | Fix earliest-block config, restart node if required, ensure healthy upstream archival source       |
+|                    **Issue**                     |                               **Symptoms**                                |                                              **Diagnosis**                                               |                                                                  **Resolution**                                                                   |
+|--------------------------------------------------|---------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| Node not receiving new blocks                    | Ingest appears stalled, logs show no publish activity                     | Check firewall / TLS on ingest port (default `40840`), Consensus Node logs                               | Open inbound port, verify mutual TLS certs, ensure node is authorized / whitelisted by upstream CN                                                |
+| Block Node operator: subscribers cannot connect  | gRPC connection failures; clients repeatedly reconnecting                 | TLS cert check; endpoint config; `BlockStreamSubscribeService` enabled                                   | Fix endpoint or firewall; renew TLS certs; enable `BlockStreamSubscribeService`                                                                   |
+| Mirror Node operator: Mirror Node cannot connect | MN block height not advancing; repeated subscribe errors in importer logs | `nc` reachability; `serverStatus` output; subscribe smoke test; MN `block.*` config                      | Fix endpoint or firewall; correct `requiresTls`; see [connecting guide](./operations/connecting-a-mirror-node-to-a-block-node.md#troubleshooting) |
+| Disk full / out of space                         | Node crashes or refuses new blocks                                        | `df -h`, `files_recent_total_bytes_stored` nearing limit                                                 | Prune old blocks (partial-history), expand volume, or migrate to archive node                                                                     |
+| Metrics endpoint not accessible                  | Grafana dashboards empty, Prometheus target `DOWN`                        | Port `16007` blocked or metrics disabled via config                                                      | Open port, enable metrics, fix Prometheus scrape job                                                                                              |
+| Blocks not being backfilled                      | Log entries show backfill warnings, missing historical ranges             | Check `blocknode_backfill*` metrics, `BLOCK_NODE_EARLIEST_MANAGED_BLOCK` / `BACKFILL_START_BLOCK` config | Fix earliest-block config, restart node if required, ensure healthy upstream archival source                                                      |
 
 ---
 
