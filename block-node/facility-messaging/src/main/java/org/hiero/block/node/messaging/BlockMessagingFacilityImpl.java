@@ -677,6 +677,12 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         // Dynamically add sequences to the ring buffer
         if (handler.isGating()) {
             ringBuffer.addGatingSequences(batchEventProcessor.getSequence());
+        } else {
+            // Non-gating (no-backpressure) handlers must start from the current cursor so they
+            // only receive future events. The default starting sequence is -1, which causes the
+            // processor to replay every past event still in the ring buffer — for a backfill
+            // subscriber this fills liveBlockQueue and bypasses the historical read path.
+            batchEventProcessor.getSequence().set(ringBuffer.getCursor());
         }
         // Create the new virtual thread to power the batch processor
         final Thread handlerThread = cpuIntensiveHandler
