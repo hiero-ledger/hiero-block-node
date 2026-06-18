@@ -188,10 +188,24 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
             effectiveStartBlock = Math.max(effectiveStartBlock, state.lastCopiedBlock + 1);
         }
 
+        // Pre-scan: count work remaining so we can render a real progress bar.
+        // Mirrors the filtering applied during the copy walk: zip files only,
+        // not in staging/links/zipwork, not already tracked in state, not before start block.
+        long scanStart = System.nanoTime();
+        ScanResult scan = scanWorkToDo(sourceDir, state, effectiveStartBlock);
+        long scanMs = (System.nanoTime() - scanStart) / 1_000_000L;
+        System.out.printf(
+                "  Scanned source: %,d file(s) to process (%s) in %dms%n",
+                scan.fileCount, formatBytes(scan.totalBytes), scanMs);
+        System.out.println();
+
         // Copy files
         AtomicLong copiedFiles = new AtomicLong(state.totalFilesCopied);
         AtomicLong skippedFiles = new AtomicLong(0);
         AtomicLong copiedBytes = new AtomicLong(state.totalBytesCopied);
+
+        ProgressTracker progress = new ProgressTracker(scan.fileCount, scan.totalBytes, dryRun);
+        progress.start();
 
         try {
             long finalEffectiveStartBlock = effectiveStartBlock;
@@ -233,6 +247,8 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
                                 state.copiedFiles.add(relativePath.toString());
                                 updateBlockNumber(state, file);
                             }
+                            // Pre-scan counted this file (it didn't check dest); keep the bar accurate.
+                            progress.advance(sourceSize);
                             return FileVisitResult.CONTINUE;
                         } else {
                             System.out.println(Ansi.AUTO.string(
@@ -263,14 +279,12 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
                         // Save state periodically (every 10 files)
                         if (state.totalFilesCopied % 10 == 0) {
                             saveState(stateFilePath, state);
-                            System.out.printf(
-                                    "Copied %d files (%s), last block: %d%n",
-                                    state.totalFilesCopied, formatBytes(state.totalBytesCopied), state.lastCopiedBlock);
                         }
                     }
 
                     copiedFiles.set(state.totalFilesCopied);
                     copiedBytes.set(state.totalBytesCopied);
+                    progress.advance(attrs.size());
 
                     return FileVisitResult.CONTINUE;
                 }
@@ -287,10 +301,13 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
                 }
             });
         } catch (IOException e) {
+            progress.finish();
             System.err.println("Error during bulk load: " + e.getMessage());
             e.printStackTrace();
             return 1;
         }
+
+        progress.finish();
 
         // Save final state
         if (!dryRun) {
@@ -298,6 +315,8 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
         }
 
         // Print summary
+        long elapsedMs = progress.elapsedMs();
+        long bytesThisRun = progress.bytesProcessedThisRun();
         System.out.println();
         System.out.println(Ansi.AUTO.string("@|yellow === Bulk Load Summary ===|@"));
         System.out.println("Total files copied: " + state.totalFilesCopied);
@@ -305,6 +324,10 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
         System.out.println("Total bytes copied: " + formatBytes(state.totalBytesCopied));
         System.out.println("Last copied block: " + state.lastCopiedBlock);
         System.out.println("State file: " + stateFilePath);
+        System.out.println("Elapsed: " + formatDuration(elapsedMs));
+        if (elapsedMs > 0 && bytesThisRun > 0) {
+            System.out.println("Average throughput: " + formatRate(bytesThisRun, elapsedMs));
+        }
 
         if (dryRun) {
             System.out.println();
@@ -413,6 +436,198 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
             return String.format("%.2f MB", bytes / (1024.0 * 1024.0));
         } else {
             return String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+        }
+    }
+
+    private static String formatDuration(long millis) {
+        if (millis < 1000) {
+            return millis + "ms";
+        }
+        long totalSeconds = millis / 1000;
+        long h = totalSeconds / 3600;
+        long m = (totalSeconds % 3600) / 60;
+        long s = totalSeconds % 60;
+        if (h > 0) {
+            return String.format("%dh %dm %ds", h, m, s);
+        } else if (m > 0) {
+            return String.format("%dm %ds", m, s);
+        } else {
+            return s + "s";
+        }
+    }
+
+    private static String formatRate(long bytes, long millis) {
+        if (millis <= 0) {
+            return "--";
+        }
+        double mbps = (bytes / (1024.0 * 1024.0)) / (millis / 1000.0);
+        return String.format("%.2f MB/s", mbps);
+    }
+
+    /** Result of the pre-scan: how many files and bytes are expected to be processed. */
+    private static class ScanResult {
+        final long fileCount;
+        final long totalBytes;
+
+        ScanResult(long fileCount, long totalBytes) {
+            this.fileCount = fileCount;
+            this.totalBytes = totalBytes;
+        }
+    }
+
+    /**
+     * Walk the source tree applying the same filters as the copy pass, but only counting
+     * files/bytes to be processed. This is a stat-only walk (no file reads) so it's cheap
+     * even on large trees.
+     */
+    private ScanResult scanWorkToDo(Path source, LoadState state, long effectiveStartBlock) throws IOException {
+        AtomicLong files = new AtomicLong();
+        AtomicLong bytes = new AtomicLong();
+        Files.walkFileTree(source, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                String name = dir.getFileName() == null ? "" : dir.getFileName().toString();
+                if (name.equals("staging") || name.equals("links") || name.equals("zipwork")) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                if (!file.toString().endsWith(".zip")) {
+                    return FileVisitResult.CONTINUE;
+                }
+                Path rel = source.relativize(file);
+                if (state.copiedFiles.contains(rel.toString())) {
+                    return FileVisitResult.CONTINUE;
+                }
+                if (effectiveStartBlock >= 0 && shouldSkipBasedOnBlockNumber(file, effectiveStartBlock)) {
+                    return FileVisitResult.CONTINUE;
+                }
+                files.incrementAndGet();
+                bytes.addAndGet(attrs.size());
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        return new ScanResult(files.get(), bytes.get());
+    }
+
+    /**
+     * Renders a single-line progress bar with files done, percent, throughput and ETA.
+     * Updates are throttled to at most one per {@link #UPDATE_INTERVAL_MS}. On a TTY the line
+     * is overwritten with carriage-return; off a TTY (logs, CI) each update gets its own line
+     * so the output stays readable when captured.
+     */
+    static final class ProgressTracker {
+        private static final long UPDATE_INTERVAL_MS = 200L;
+        private static final int BAR_WIDTH = 30;
+
+        private final long totalFiles;
+        private final long totalBytes;
+        private final boolean dryRun;
+        private final boolean isTty;
+
+        private long startNanos;
+        private long lastPrintMs;
+        private long filesDone;
+        private long bytesDone;
+
+        ProgressTracker(long totalFiles, long totalBytes, boolean dryRun) {
+            this.totalFiles = totalFiles;
+            this.totalBytes = totalBytes;
+            this.dryRun = dryRun;
+            this.isTty = System.console() != null;
+        }
+
+        void start() {
+            startNanos = System.nanoTime();
+            lastPrintMs = 0;
+            if (totalFiles > 0 && !dryRun) {
+                render(true);
+            }
+        }
+
+        synchronized void advance(long fileBytes) {
+            filesDone++;
+            bytesDone += Math.max(0L, fileBytes);
+            if (dryRun || totalFiles == 0) {
+                return;
+            }
+            long nowMs = elapsedMs();
+            if (nowMs - lastPrintMs >= UPDATE_INTERVAL_MS || filesDone == totalFiles) {
+                render(false);
+                lastPrintMs = nowMs;
+            }
+        }
+
+        void finish() {
+            if (dryRun || totalFiles == 0) {
+                return;
+            }
+            // Force a final render so the bar shows the end state even if we never hit the
+            // throttle window on the last file.
+            render(false);
+            // Move past the progress line so subsequent output starts on a fresh line.
+            System.out.println();
+        }
+
+        long elapsedMs() {
+            return (System.nanoTime() - startNanos) / 1_000_000L;
+        }
+
+        long bytesProcessedThisRun() {
+            return bytesDone;
+        }
+
+        private void render(boolean initial) {
+            long elapsed = elapsedMs();
+            double fraction = totalFiles == 0 ? 0.0 : Math.min(1.0, filesDone / (double) totalFiles);
+            int filled = (int) Math.round(fraction * BAR_WIDTH);
+            StringBuilder bar = new StringBuilder(BAR_WIDTH + 2);
+            bar.append('[');
+            for (int i = 0; i < BAR_WIDTH; i++) {
+                bar.append(i < filled ? '#' : '.');
+            }
+            bar.append(']');
+
+            String rate = (elapsed > 0 && bytesDone > 0) ? formatRate(bytesDone, elapsed) : "--";
+            String etaStr;
+            if (filesDone == 0 || elapsed == 0) {
+                etaStr = "--";
+            } else if (filesDone >= totalFiles) {
+                etaStr = "0s";
+            } else {
+                // ETA based on bytes-per-ms when we have meaningful byte progress; fall back
+                // to files-per-ms when files exist but every entry was zero-byte.
+                double remaining;
+                if (totalBytes > 0 && bytesDone > 0) {
+                    double bytesPerMs = bytesDone / (double) elapsed;
+                    remaining = (totalBytes - bytesDone) / bytesPerMs;
+                } else {
+                    double filesPerMs = filesDone / (double) elapsed;
+                    remaining = (totalFiles - filesDone) / filesPerMs;
+                }
+                etaStr = formatDuration((long) Math.max(0, remaining));
+            }
+
+            String line = String.format(
+                    "  %s %,d/%,d (%d%%) | %s/%s | %s | ETA %s",
+                    bar,
+                    filesDone,
+                    totalFiles,
+                    (int) Math.round(fraction * 100),
+                    formatBytes(bytesDone),
+                    formatBytes(totalBytes),
+                    rate,
+                    etaStr);
+
+            if (isTty && !initial) {
+                System.out.print('\r' + line);
+                System.out.flush();
+            } else {
+                System.out.println(line);
+            }
         }
     }
 }
