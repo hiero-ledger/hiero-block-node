@@ -233,18 +233,29 @@ Mirror Node base URLs by network:
 
 > Note: If the Mirror Node is unreachable, the plugin polls indefinitely — every 5 seconds until the first roster is fetched, then every 60 seconds for periodic refresh. Both intervals are configurable. WRB proof verification is non-functional until the roster is available.
 
-**Peer Block Node query (optional)**
+**Peer Block Node query**
 
-When `roster.bootstrap.rsa.blockNodeSourcesPath` is set, the plugin also queries configured peer Block Nodes via gRPC to retrieve the address book. This runs concurrently with the Mirror Node query when no bootstrap file is present; whichever responds first provides the initial roster. The peer BN query follows the same two-phase polling schedule (5-second initial interval, 60-second subsequent interval, both configurable). Configure the path to a JSON file listing your peer Block Nodes:
+All Tier 1 Block Nodes should have at least one peer Block Node source configured; more than one is recommended for redundancy. When `roster.bootstrap.rsa.blockNodeSourcesPath` is set, the plugin queries configured peer Block Nodes via gRPC to retrieve the roster. This runs concurrently with the Mirror Node query; whichever responds first provides the initial roster. The peer BN query follows the same two-phase polling schedule (5-second initial interval, 60-second subsequent interval, both configurable).
+
+This is the **same file** referenced by `BACKFILL_BLOCK_NODE_SOURCES_PATH` — configuring it once serves both the roster-bootstrap-rsa plugin and the backfill plugin. Set the path in your Helm values overlay:
+
+```yaml
+config:
+  BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/config/block-node-sources.json"
+```
+
+The file format is a JSON object with a `nodes` array:
 
 ```json
 {
   "nodes": [
-    { "address": "10.0.0.1", "port": 8080, "priority": 1, "name": "peer-bn-1" },
-    { "address": "10.0.0.2", "port": 8080, "priority": 2, "name": "peer-bn-2" }
+    { "address": "peer1.example.com", "port": 40840, "priority": 1, "name": "peer-bn-1" },
+    { "address": "peer2.example.com", "port": 40840, "priority": 2, "name": "peer-bn-2" }
   ]
 }
 ```
+
+Configure this file via your Helm chart's ConfigMap or values override mechanism. Use the endpoints provided by your Hashgraph PoC.
 
 **Manual file (alternative)**
 
@@ -302,15 +313,18 @@ If you are directed by your Hashgraph PoC to configure a specific backfill sourc
    helm -n block-node upgrade <release-name> <chart> -f block-node-values.yaml
    helm -n block-node get values <release-name> | grep -i backfill
    ```
-2. The `block-node-sources.json` file format is a JSON array of Block Node endpoints. Configure the file at the path set above using your Helm chart's ConfigMap or values override mechanism. Use the hostname and port provided by your Hashgraph PoC:
+2. The `block-node-sources.json` file format is a JSON object with a `nodes` array. Configure the file via your Helm chart's ConfigMap or values override mechanism. Use the hostname and port provided by your Hashgraph PoC:
 
    ```json
-   [
-     {
-       "address": "<host-provided-by-hashgraph-poc>",
-       "port": 40840
-     }
-   ]
+   {
+     "nodes": [
+       {
+         "address": "<host-provided-by-hashgraph-poc>",
+         "port": 40840,
+         "priority": 1
+       }
+     ]
+   }
    ```
 
    > Note: Even when backfilling from a special-purpose BN, all blocks are cryptographically verified by the BN's verification plugin before they are stored. Block legitimacy is confirmed regardless of the backfill source.
