@@ -4,7 +4,7 @@ codecov:
 # Only comment on PRs initially and when coverage changes
 comment:
   layout: "diff, flags, files"
-  behavior: new # deletes old comment and posts a new one
+  behavior: default # update if possible, otherwise post new
   require_changes: true
 
 coverage:
