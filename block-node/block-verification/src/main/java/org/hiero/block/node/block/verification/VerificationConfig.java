@@ -23,6 +23,9 @@ import org.hiero.block.node.base.Loggable;
 /// @param allSourcesRequireOrdering if true, strict ordering of the next expected block to verify will be enforced
 ///     for blocks received from any source. If false, only
 ///     [org.hiero.block.node.spi.blockmessaging.BlockSource#PUBLISHER] will be strictly ordered.
+/// @param dumpEnabled whether to write failing block bytes and metadata to disk for diagnostics (off by default)
+/// @param dumpDirectoryPath directory where bad-block dump files are written
+/// @param dumpRetentionDays how many days to retain dump files before the daily purge removes them
 @ConfigData("verification")
 public record VerificationConfig(
     @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/rootHashOfAllPreviousBlocks.bin") Path allBlocksHasherFilePath,
@@ -31,6 +34,9 @@ public record VerificationConfig(
     @Loggable @ConfigProperty(defaultValue = "100") int allBlocksHasherPersistenceInterval,
     @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/tss-parameters.bin") Path tssParametersFilePath,
     @Loggable @ConfigProperty(defaultValue = "100") int activeSessionsBufferSize,
-    @Loggable @ConfigProperty(defaultValue = "true") boolean allSourcesRequireOrdering){}
+    @Loggable @ConfigProperty(defaultValue = "true") boolean allSourcesRequireOrdering,
+    @Loggable @ConfigProperty(defaultValue = "false") boolean dumpEnabled,
+    @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/verification/dumps") Path dumpDirectoryPath,
+    @Loggable @ConfigProperty(defaultValue = "7") int dumpRetentionDays){}
 
 // spotless:on

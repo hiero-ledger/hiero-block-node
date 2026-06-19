@@ -9,6 +9,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
+import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.metrics.SessionResultMetrics;
 import org.hiero.block.node.block.verification.session.BlockVerificationSession.SessionKey;
 import org.hiero.block.node.block.verification.verifier.BlockVerificationResult;
@@ -25,6 +26,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     private static final int MAX_RECENTLY_VERIFIED_BLOCKS = 100; // todo(2528) make configurable?
     private final BlockNodeContext context;
     private final SessionResultMetrics sessionResultMetrics;
+    private final BadBlockDumper badBlockDumper;
     final AtomicLong lastVerifiedBlock;
     final long blockNumber;
     final BlockSource blockSource;
@@ -36,6 +38,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     public SessionResultHandler(
             final BlockNodeContext context,
             final SessionResultMetrics sessionResultMetrics,
+            final BadBlockDumper badBlockDumper,
             final AtomicLong lastVerifiedBlock,
             final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks,
             final long blockNumber,
@@ -44,6 +47,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
             final SessionKey sessionKey) {
         this.context = Objects.requireNonNull(context);
         this.sessionResultMetrics = Objects.requireNonNull(sessionResultMetrics);
+        this.badBlockDumper = Objects.requireNonNull(badBlockDumper);
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
         this.blockSource = Objects.requireNonNull(blockSource);
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
@@ -134,7 +138,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
                                 null,
                                 blockSource);
                     case CompletionException ce -> {
-                        LOGGER.log(Level.INFO, message, ce);
+                        LOGGER.log(Level.WARNING, message, ce.getCause() != null ? ce.getCause() : ce);
                         yield processCompletionException(ce);
                     }
                     default -> {
@@ -158,13 +162,15 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         final Throwable cause = ce.getCause();
         if (cause instanceof VerificationSessionFailedException vfe) {
             // instanceof covers null also
-            return new VerificationNotification(
+            final VerificationNotification notification = new VerificationNotification(
                     false,
                     getFailureInfo(vfe.getBlockNumber(), vfe.getFailureType()),
                     vfe.getBlockNumber(),
                     null,
-                    null,
+                    vfe.getBlock(),
                     vfe.getBlockSource());
+            badBlockDumper.attemptDump(notification, vfe.getHapiVersion());
+            return notification;
         } else {
             return new VerificationNotification(
                     false,

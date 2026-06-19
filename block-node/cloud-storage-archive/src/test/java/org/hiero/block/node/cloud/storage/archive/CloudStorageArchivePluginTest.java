@@ -615,7 +615,7 @@ class CloudStorageArchivePluginTest {
             assertThatNoException()
                     .isThrownBy(() -> plugin.handleVerification(new VerificationNotification(
                             false,
-                            FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                            FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                             block.number(),
                             Bytes.EMPTY,
                             block.blockUnparsed(),

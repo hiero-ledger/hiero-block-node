@@ -115,6 +115,10 @@ public final class BlockHasher implements Supplier<HashingResult> {
                             switch (kind) {
                                 case BLOCK_HEADER -> {
                                     this.blockHeader = standardParse(BlockHeader.PROTOBUF, item.blockHeader());
+                                    if (this.blockHeader.number() != this.blockNumber) {
+                                        throw new VerificationSessionFailedException(
+                                                blockNumber, SessionFailureType.INVALID_BLOCK_HEADER, blockSource);
+                                    }
                                     this.hapiProtoVersion = this.blockHeader.hapiProtoVersion();
                                     if (this.hapiProtoVersion == null) {
                                         throw new VerificationSessionFailedException(

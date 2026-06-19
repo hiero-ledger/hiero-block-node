@@ -64,7 +64,8 @@ class AllBlocksHasherHandlerTest {
     @Test
     void initializesFromGenesisWhenStoreEmpty() throws Exception {
         final Path hasherFile = tempDir.resolve("hasher.bin");
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config =
+                new VerificationConfig(hasherFile, true, 10, Path.of(""), false, Path.of("/tmp/verification-dumps"), 7);
         final HistoricalBlockFacility facility = new HistoricalBlockFacility() {
             @Override
             public BlockAccessor block(long blockNumber) {
@@ -89,7 +90,8 @@ class AllBlocksHasherHandlerTest {
     void rebuildsFromStoreWhenFileMissing() throws Exception {
         final BlockChainData chain = buildBlockChain(10);
         final Path hasherFile = tempDir.resolve("rebuild.bin");
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config =
+                new VerificationConfig(hasherFile, true, 10, Path.of(""), false, Path.of("/tmp/verification-dumps"), 7);
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -106,7 +108,8 @@ class AllBlocksHasherHandlerTest {
         persistHasher(hasherFile, chain.blockHashes());
         final long originalSize = Files.size(hasherFile);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config =
+                new VerificationConfig(hasherFile, true, 10, Path.of(""), false, Path.of("/tmp/verification-dumps"), 7);
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -124,7 +127,8 @@ class AllBlocksHasherHandlerTest {
         final List<byte[]> partialHashes = chain.blockHashes().subList(0, 5);
         persistHasher(hasherFile, partialHashes);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config =
+                new VerificationConfig(hasherFile, true, 10, Path.of(""), false, Path.of("/tmp/verification-dumps"), 7);
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -142,7 +146,8 @@ class AllBlocksHasherHandlerTest {
                 chain.blockHashes().subList(0, chain.blockHashes().size() - 1);
         persistHasher(hasherFile, partialHashes);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config =
+                new VerificationConfig(hasherFile, true, 10, Path.of(""), false, Path.of("/tmp/verification-dumps"), 7);
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -160,7 +165,8 @@ class AllBlocksHasherHandlerTest {
         final List<byte[]> partialHashes = new ArrayList<byte[]>();
         persistHasher(hasherFile, partialHashes);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, false, 10, Path.of(""));
+        final VerificationConfig config = new VerificationConfig(
+                hasherFile, false, 10, Path.of(""), false, Path.of("/tmp/verification-dumps"), 7);
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -180,7 +186,8 @@ class AllBlocksHasherHandlerTest {
         final List<byte[]> longerChainHashes = longerChain.blockHashes();
         persistHasher(hasherFile, longerChainHashes);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10, Path.of(""));
+        final VerificationConfig config =
+                new VerificationConfig(hasherFile, true, 10, Path.of(""), false, Path.of("/tmp/verification-dumps"), 7);
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 

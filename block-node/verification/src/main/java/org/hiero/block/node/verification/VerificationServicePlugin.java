@@ -19,6 +19,8 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.security.PublicKey;
 import java.util.List;
@@ -124,6 +126,10 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Bytes previousBlockHash;
     /** The block number of the last successfully verified block (live-stream or sequential backfill). */
     private long previousVerifiedBlockNumber = -1;
+    /** HAPI proto version from the most recently parsed block header; used in dump metadata. */
+    private SemanticVersion currentHapiVersion;
+    /** Dumps failing blocks to disk for post-incident diagnostics when configured. */
+    private BadBlockDumper badBlockDumper;
 
     /** Handler for root hash for all previous blocks hasher operations and lifecycle. */
     AllBlocksHasherHandler allBlocksHasherHandler;
@@ -231,6 +237,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         context.blockMessaging().registerBlockNotificationHandler(this, false, "VerificationServicePlugin");
         // initialize metrics
         initMetrics(context);
+        // initialize bad-block dumper
+        badBlockDumper = new BadBlockDumper(verificationConfig, resolveHostname());
         LOGGER.log(DEBUG, "VerificationServicePlugin initialized successfully.");
         // initialize all previous blocks hasher if enabled and available
         initAllBlocksHasherIfEnabled();
@@ -305,9 +313,18 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // specify that we are cpu intensive and should be run on a separate non-virtual thread
         context.blockMessaging().registerBlockItemHandler(this, true, VerificationServicePlugin.class.getSimpleName());
         // we do not need to unregister the handler as it will be unregistered when the message service is stopped
+        badBlockDumper.start(context.threadPoolManager());
         LOGGER.log(DEBUG, "VerificationServicePlugin started successfully.");
 
         allBlocksHasherHandler.start();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void stop() {
+        badBlockDumper.stop();
     }
 
     // ==== BlockItemHandler Methods ===================================================================================
@@ -347,6 +364,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 final Bytes previousHash =
                         currentBlockNumber == previousVerifiedBlockNumber + 1 ? previousBlockHash : null;
                 SemanticVersion semanticVersion = blockHeader.hapiProtoVersionOrThrow();
+                currentHapiVersion = semanticVersion;
                 // create a new verification session for the new block based on hapi version on block header.
                 currentSession = HapiVersionSessionFactory.createSession(
                         currentBlockNumber,
@@ -393,8 +411,16 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
                                 this.previousBlockHash.toByteArray());
                     } else {
-                        LOGGER.log(INFO, "Verification failed for block={0}", currentBlockNumber);
-                        sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
+                        LOGGER.log(
+                                WARNING,
+                                "Verification failed for block={0}, failureType={1}",
+                                currentBlockNumber,
+                                notification.failureInfo().failureType());
+                        badBlockDumper.attemptDump(notification, currentHapiVersion);
+                        sendFailureNotification(
+                                currentBlockNumber,
+                                BlockSource.PUBLISHER,
+                                notification.failureInfo().failureType());
                     }
 
                     // end working time
@@ -408,12 +434,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 }
             } else {
                 verificationBlocksFailed.increment();
-                sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
+                sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER, FailureType.INVALID_BLOCK_HEADER);
             }
         } catch (final RuntimeException | ParseException e) {
             LOGGER.log(WARNING, "Failed to verify BlockItems.", e);
             verificationBlocksFailed.increment();
-            sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
+            sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER, FailureType.UNKNOWN_ERROR);
         }
     }
 
@@ -479,12 +505,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         activeTssPublication = publication;
     }
 
-    private void sendFailureNotification(final long blockNumber, final BlockSource source) {
+    private void sendFailureNotification(
+            final long blockNumber, final BlockSource source, final FailureType failureType) {
         verificationBlocksError.increment();
-        // Return a success=false notification to indicate failure and include the block number.
-        VerificationNotification notification = new VerificationNotification(
-                false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, source);
-        context.blockMessaging().sendBlockVerification(notification);
+        context.blockMessaging()
+                .sendBlockVerification(new VerificationNotification(
+                        false, FailureInfo.standard(failureType), blockNumber, null, null, source));
     }
 
     /**
@@ -505,7 +531,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             if (notification.blockNumber() != blockHeader.number()) {
                 final String message = "Block number {0} in backfill does not match block {1} in header.";
                 LOGGER.log(WARNING, message, notification.blockNumber(), blockHeader.number());
-                sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL);
+                sendFailureNotification(
+                        notification.blockNumber(), BlockSource.BACKFILL, FailureType.INVALID_BLOCK_HEADER);
             } else {
                 VerificationSession backfillSession = HapiVersionSessionFactory.createSession(
                         notification.blockNumber(),
@@ -539,6 +566,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                             allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
                                     backfillNotification.blockHash().toByteArray());
                         }
+                    } else {
+                        badBlockDumper.attemptDump(backfillNotification, blockHeader.hapiProtoVersionOrThrow());
                     }
                     // send the verification notification for the backfilled block
                     context.blockMessaging().sendBlockVerification(backfillNotification);
@@ -547,12 +576,21 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                             WARNING,
                             "Backfill verification returned null notification for block={0}",
                             notification.blockNumber());
-                    sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL);
+                    sendFailureNotification(
+                            notification.blockNumber(), BlockSource.BACKFILL, FailureType.UNKNOWN_ERROR);
                 }
             }
         } catch (RuntimeException | ParseException e) {
             LOGGER.log(WARNING, "Failed to handle backfill notification ", e);
-            sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL);
+            sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL, FailureType.UNKNOWN_ERROR);
+        }
+    }
+
+    private static String resolveHostname() {
+        try {
+            return InetAddress.getLocalHost().getHostName();
+        } catch (final UnknownHostException e) {
+            return "unknown";
         }
     }
 }

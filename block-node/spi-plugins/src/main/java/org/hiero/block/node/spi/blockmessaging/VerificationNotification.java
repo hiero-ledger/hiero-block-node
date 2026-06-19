@@ -10,7 +10,7 @@ import java.util.Objects;
 /// @param failureInfo the failure info; must be `null` if verification is successful and `non-null` otherwise
 /// @param blockNumber the block number this notification is for
 /// @param blockHash   the hash of the block, if verification is successful
-/// @param block       the block, if verification is successful
+/// @param block       the block, if verification is successful; may also be present on failure for diagnostics
 /// @param source      the source of the message
 public record VerificationNotification(
         boolean success,
@@ -30,8 +30,6 @@ public record VerificationNotification(
 
     /// The type of failure when verification fails.
     public enum FailureType {
-        /// This type indicates that the proof was bad
-        BAD_BLOCK_PROOF,
         /// This type indicates that the block could not be parsed
         UNABLE_TO_PARSE,
         /// This type indicates that the block is missing a mandatory item
@@ -48,7 +46,18 @@ public record VerificationNotification(
         /// This type indicates that the session was cancelled
         CANCELLED,
         /// This type indicates that an unknown error occurred
-        UNKNOWN_ERROR
+        UNKNOWN_ERROR,
+        /// This type indicates that the block footer is absent when finalization is attempted
+        MISSING_FOOTER,
+        /// This type indicates that the proof structure is malformed (e.g., duplicate proofs, RSA engine error)
+        MALFORMED_PROOF_STRUCTURE,
+        /// This type indicates that the state-proof merkle-path chain fails verification
+        STATE_PROOF_INVALID,
+        /// This type indicates that the cryptographic signature (RSA or TSS) does not match
+        SIGNATURE_MISMATCH,
+        /// This type indicates that the block header is structurally invalid or internally inconsistent
+        /// (e.g., the block number in the header does not match the expected block number)
+        INVALID_BLOCK_HEADER
     }
 
     /// A simple record that shows us the reason of failed verification.

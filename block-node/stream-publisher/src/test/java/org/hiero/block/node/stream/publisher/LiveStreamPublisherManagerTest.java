@@ -777,7 +777,7 @@ class LiveStreamPublisherManagerTest {
                 // Source must be publisher.
                 final VerificationNotification notification = new VerificationNotification(
                         false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                         block.number(),
                         null,
                         null,
@@ -840,7 +840,7 @@ class LiveStreamPublisherManagerTest {
                 // Source must be publisher.
                 final VerificationNotification notification = new VerificationNotification(
                         false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                         block.number() - 1L,
                         null,
                         null,
@@ -871,7 +871,7 @@ class LiveStreamPublisherManagerTest {
                 final long streamedBlockNumber = 0L;
                 final VerificationNotification notification = new VerificationNotification(
                         false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                         streamedBlockNumber,
                         null,
                         null,
@@ -900,7 +900,7 @@ class LiveStreamPublisherManagerTest {
                 final long streamedBlockNumber = 1L;
                 final VerificationNotification notification = new VerificationNotification(
                         false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                         streamedBlockNumber,
                         null,
                         null,
@@ -948,7 +948,7 @@ class LiveStreamPublisherManagerTest {
                 // We can now build a verification notification with failed verification.
                 final VerificationNotification notification = new VerificationNotification(
                         false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                         block.number(),
                         null,
                         null,
@@ -1021,7 +1021,7 @@ class LiveStreamPublisherManagerTest {
                 // We can now build a verification notification with failed verification.
                 final VerificationNotification notification = new VerificationNotification(
                         false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                         block.number(),
                         null,
                         null,
@@ -1075,7 +1075,7 @@ class LiveStreamPublisherManagerTest {
                 // Build a verification notification with failed verification.
                 final VerificationNotification notification = new VerificationNotification(
                         false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                         block.number(),
                         null,
                         null,
@@ -1149,7 +1149,7 @@ class LiveStreamPublisherManagerTest {
                 // Build a verification notification with failed verification.
                 final VerificationNotification notification = new VerificationNotification(
                         false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                         testBlock.number(),
                         null,
                         null,
@@ -1591,12 +1591,7 @@ class LiveStreamPublisherManagerTest {
 
                 // Block 1 fails verification → blocksToResend = {1}.
                 toTest.handleVerification(new VerificationNotification(
-                        false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
-                        1L,
-                        null,
-                        null,
-                        BlockSource.PUBLISHER));
+                        false, FailureInfo.standard(FailureType.UNKNOWN_ERROR), 1L, null, null, BlockSource.PUBLISHER));
 
                 responsePipeline.clear();
                 responsePipeline2.clear();
@@ -1639,19 +1634,9 @@ class LiveStreamPublisherManagerTest {
 
                 // Both blocks 1 and 2 fail verification → blocksToResend = {1, 2}.
                 toTest.handleVerification(new VerificationNotification(
-                        false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
-                        1L,
-                        null,
-                        null,
-                        BlockSource.PUBLISHER));
+                        false, FailureInfo.standard(FailureType.UNKNOWN_ERROR), 1L, null, null, BlockSource.PUBLISHER));
                 toTest.handleVerification(new VerificationNotification(
-                        false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
-                        2L,
-                        null,
-                        null,
-                        BlockSource.PUBLISHER));
+                        false, FailureInfo.standard(FailureType.UNKNOWN_ERROR), 2L, null, null, BlockSource.PUBLISHER));
 
                 responsePipeline.clear();
                 responsePipeline2.clear();
@@ -2497,7 +2482,7 @@ class LiveStreamPublisherManagerTest {
                 // Handling a failed verification notification will schedule the block that failed to be resent
                 toTest.handleVerification(new VerificationNotification(
                         false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                         blockThatFailsVerification.number(),
                         null,
                         null,

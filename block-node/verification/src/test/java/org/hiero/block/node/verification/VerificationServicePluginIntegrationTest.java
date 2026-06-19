@@ -152,12 +152,12 @@ class VerificationServicePluginIntegrationTest
     }
 
     @Test
-    @DisplayName("WRB block is rejected with BAD_BLOCK_PROOF when signed by keys that do not match the address book")
+    @DisplayName("WRB block is rejected with SIGNATURE_MISMATCH when signed by keys that do not match the address book")
     void realWrbBlock_rejectedWithWrongKeys() throws Exception {
         // Build an address book that claims the same node IDs the solo capture uses (0..3) but
         // whose RSA public keys are freshly generated — i.e. signatures over the real payload will
         // never verify under these keys. This exercises the engine.verify(...) == false branch in
-        // ExtendedMerkleTreeSession#verifyRsaProof, which returns BAD_BLOCK_PROOF immediately on
+        // ExtendedMerkleTreeSession#verifyRsaProof, which returns SIGNATURE_MISMATCH immediately on
         // the first signature that fails to verify.
         final NodeAddressBook wrongKeysBook = buildAddressBookWithFreshRsaKeys(4);
         final SampleBlockInfo soloBlock = BlockUtils.getSampleBlockInfo(SAMPLE_BLOCKS_WRB.SOLO_4N_BLOCK_0);
@@ -167,9 +167,9 @@ class VerificationServicePluginIntegrationTest
         assertNotNull(notification, "Plugin must emit a VerificationNotification");
         assertFalse(notification.success(), "Block must NOT verify against an address book containing wrong RSA keys");
         assertEquals(
-                VerificationNotification.FailureType.BAD_BLOCK_PROOF,
+                VerificationNotification.FailureType.SIGNATURE_MISMATCH,
                 notification.failureInfo().failureType(),
-                "Failed cryptographic verification must surface as BAD_BLOCK_PROOF");
+                "Failed cryptographic verification must surface as SIGNATURE_MISMATCH");
         assertNull(notification.blockHash(), "Block hash must be null on a rejected verification");
         assertNull(notification.block(), "Block content must be null on a rejected verification");
     }

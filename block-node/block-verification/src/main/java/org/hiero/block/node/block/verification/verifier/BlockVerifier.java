@@ -59,7 +59,11 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
                         final SessionFailureType result = verifier.verify();
                         if (result != null) {
                             throw new VerificationSessionFailedException(
-                                    hashingResult.blockNumber(), result, hashingResult.blockSource());
+                                    hashingResult.blockNumber(),
+                                    result,
+                                    hashingResult.blockSource(),
+                                    hashingResult.block(),
+                                    hashingResult.hapiProtoVersion());
                         }
                     }
                     // todo(2528) consider the below metric to only calculate verification time, not since

@@ -247,7 +247,7 @@ class BackfillPersistenceAwaiterTest {
             // when - verification failed
             subject.handleVerification(new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                     blockNumber,
                     null,
                     null,
@@ -284,7 +284,7 @@ class BackfillPersistenceAwaiterTest {
             // when - verification failure from PUBLISHER source
             subject.handleVerification(new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    FailureInfo.standard(FailureType.UNKNOWN_ERROR),
                     blockNumber,
                     null,
                     null,
