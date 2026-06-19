@@ -231,14 +231,17 @@ function load_topology {
   # New schema: if section exists with nodes, deploy; if section is empty or missing, skip
   if [[ "${has_mirror_nodes}" -gt 0 ]]; then
     SKIP_MIRROR="false"
+    log_line "  Mirror Node decision: Deploy (has_mirror_nodes=${has_mirror_nodes})"
   elif [[ "${has_mirror_nodes}" == "0" ]] && yq -e '.mirror_nodes' "${topology_file}" >/dev/null 2>&1; then
     # Section exists but empty - skip
     SKIP_MIRROR="true"
+    log_line "  Mirror Node decision: Skip (mirror_nodes: {} exists but empty)"
   else
     # Fall back to components section
     local mirror_enabled
     mirror_enabled=$(yq '.components.mirror_node // true' "${topology_file}" 2>/dev/null)
     [[ "${mirror_enabled}" == "false" ]] && SKIP_MIRROR="true"
+    log_line "  Mirror Node decision: Fallback to components.mirror_node=${mirror_enabled}"
   fi
 
   if [[ "${has_relay_nodes}" -gt 0 ]]; then
@@ -644,8 +647,10 @@ function deploy_consensus_nodes {
 }
 
 function deploy_mirror_node {
+  log_line ""
+  log_line "deploy_mirror_node called with SKIP_MIRROR=${SKIP_MIRROR}"
+
   if [[ "${SKIP_MIRROR}" == "true" ]]; then
-    log_line ""
     log_line "Skipping Mirror Node deployment (disabled in topology)"
     return 0
   fi

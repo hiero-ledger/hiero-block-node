@@ -36,6 +36,7 @@ BN2_POD_NAME_PATTERN="block-node-2"  # Adjust if using different naming
 
 LOCAL_WORK_DIR="/tmp/wrb-cli-phase2-validation"
 LOCAL_WRAPPED_DIR="${LOCAL_WORK_DIR}/cli-wrapped-blocks"
+LOCAL_RECORDS_DIR="${LOCAL_WORK_DIR}/record-files"
 
 # BN2 paths (inside container)
 BN2_HISTORIC_PATH="/opt/hiero/block-node/data/historic"
@@ -127,17 +128,50 @@ function do_copy_blocks {
         return 1
     fi
 
+    # Also copy signature files (.rcd_sig) from record files directory
+    # Mirror Node needs these to verify wrapped record blocks
+    log "Copying signature files to BN2..."
+    if [[ -d "${LOCAL_RECORDS_DIR}" ]]; then
+        local sig_count
+        sig_count=$(find "${LOCAL_RECORDS_DIR}" -type f -name "*.rcd_sig*" 2>/dev/null | wc -l | tr -d '[:space:]')
+
+        if [[ "${sig_count}" -gt 0 ]]; then
+            log "Found ${sig_count} signature file(s) to copy"
+
+            # Copy signature files to BN2's historic path
+            if kctl cp -n "${NAMESPACE}" "${LOCAL_RECORDS_DIR}/." "${bn2_pod}:${BN2_HISTORIC_PATH}/" 2>&1 | tee -a /tmp/kubectl-cp-output.log; then
+                log "Successfully copied signature files to BN2"
+            else
+                log "WARNING: Failed to copy signature files to BN2"
+                log "Mirror Node may fail to verify wrapped blocks without signatures"
+            fi
+        else
+            log "WARNING: No signature files found in ${LOCAL_RECORDS_DIR}"
+            log "Mirror Node may fail to verify wrapped blocks without signatures"
+        fi
+    else
+        log "WARNING: Record files directory not found: ${LOCAL_RECORDS_DIR}"
+        log "Mirror Node may fail to verify wrapped blocks without signatures"
+    fi
+
     # Verify files were copied
     log "Verifying copied files..."
-    local copied_count
+    local copied_count sig_copied_count
     copied_count=$(kctl exec -n "${NAMESPACE}" "${bn2_pod}" -- \
         find "${BN2_HISTORIC_PATH}" -type f -name "*.zip" 2>/dev/null | wc -l | tr -d '[:space:]')
+    sig_copied_count=$(kctl exec -n "${NAMESPACE}" "${bn2_pod}" -- \
+        find "${BN2_HISTORIC_PATH}" -type f -name "*.rcd_sig*" 2>/dev/null | wc -l | tr -d '[:space:]')
 
-    log "Copied ${copied_count} zip file(s) to BN2"
+    log "Copied ${copied_count} zip file(s) and ${sig_copied_count} signature file(s) to BN2"
 
     if [[ "${copied_count}" -eq 0 ]]; then
         log "ERROR: No zip files found in BN2 after copy"
         return 1
+    fi
+
+    if [[ "${sig_copied_count}" -eq 0 ]]; then
+        log "WARNING: No signature files found in BN2 after copy"
+        log "Mirror Node may fail RSA verification without signatures"
     fi
 
     # List directory structure for verification

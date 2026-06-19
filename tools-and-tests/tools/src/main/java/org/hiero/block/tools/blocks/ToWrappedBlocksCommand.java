@@ -599,11 +599,36 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                                                 addressBookRegistry.getAddressBookForBlock(parsed.blockTime());
                                         final byte[] signedHash =
                                                 parsed.recordFile().signedHash();
+
+                                        // Debug logging for signature validation
+                                        final int totalSigFiles =
+                                                parsed.signatureFiles().size();
+                                        System.out.println("[SIGNATURE DEBUG] Block "
+                                                + parsed.recordFile().blockTime() + ": Found " + totalSigFiles
+                                                + " signature files");
+                                        System.out.println("[SIGNATURE DEBUG] Address book has "
+                                                + ab.nodeAddress().size() + " nodes");
+
                                         final List<RecordFileSignature> sigs = parsed.signatureFiles().stream()
                                                 .parallel()
-                                                .filter(psf -> psf.isValid(signedHash, ab))
+                                                .filter(psf -> {
+                                                    boolean valid = psf.isValid(signedHash, ab);
+                                                    if (!valid) {
+                                                        System.err.println("[SIGNATURE DEBUG] Signature from node 0.0."
+                                                                + psf.accountNum() + " FAILED validation");
+                                                    } else {
+                                                        System.out.println("[SIGNATURE DEBUG] Signature from node 0.0."
+                                                                + psf.accountNum() + " PASSED validation");
+                                                    }
+                                                    return valid;
+                                                })
                                                 .map(psf -> psf.toRecordFileSignature(ab))
                                                 .toList();
+
+                                        System.out.println("[SIGNATURE DEBUG] Block "
+                                                + parsed.recordFile().blockTime() + ": " + sigs.size() + "/"
+                                                + totalSigFiles + " signatures passed validation");
+
                                         return new PreVerifiedBlock(parsed, ab, sigs);
                                     },
                                     parseAndVerifyPool));

@@ -29,15 +29,23 @@ public class SigFileUtils {
     /**
      * Extract the node account number from a signature file path.
      * Expected filename format: node_0.0.X.rcd_sig
+     * For Solo/test networks, accepts timestamp-only format (e.g., 2026-06-12T20_49_41.947631330Z.rcd_sig)
+     * and defaults to node 3 (Solo's default node account).
      *
      * @param path the signature file path
-     * @return the parsed node account number, or null if it cannot be determined
+     * @return the parsed node account number, or 3 for Solo/test network format
      */
     public static int extractNodeAccountNumFromSignaturePath(Path path) {
         final String fileName = path.getFileName().toString();
         final String prefix = "node_0.0.";
         final int idx = fileName.indexOf(prefix);
-        if (idx < 0) throw new RuntimeException("Invalid signature file name: " + fileName);
+        if (idx < 0) {
+            // Solo/test network format (timestamp-only): assume node 3 (Solo's default)
+            if (fileName.matches("\\d{4}-\\d{2}-\\d{2}T.*\\.rcd_sig.*")) {
+                return 3;
+            }
+            throw new RuntimeException("Invalid signature file name: " + fileName);
+        }
         int start = idx + prefix.length();
         int end = fileName.indexOf('.', start);
         if (end < 0) end = fileName.length();
