@@ -8,15 +8,13 @@ import static java.util.Objects.requireNonNull;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.SortedMap;
-import java.util.TreeMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -112,7 +110,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
 
     // Staging area for within-group blocks that arrived before their predecessor(s).
     // Blocks are moved to `currentBlockQueue` in ascending block-number order by drainPendingToQueue().
-    SortedMap<Long, BlockWithSource> currentGroupPending = new TreeMap<>();
+    ConcurrentSkipListMap<Long, BlockWithSource> currentGroupPending = new ConcurrentSkipListMap<>();
     // The block number that drainPendingToQueue() will enqueue next.
     private long nextBlockToQueue = -1;
 
@@ -127,7 +125,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// Completed temporary archive entries keyed by [TempArchiveEntry#firstBlock()].
     /// Rebuilt from S3 meta files during startup recovery and updated as temp uploads complete.
     /// Accessed only from the notification handler thread.
-    final NavigableMap<Long, TempArchiveEntry> tempArchiveTracker = new TreeMap<>();
+    final NavigableMap<Long, TempArchiveEntry> tempArchiveTracker = new ConcurrentSkipListMap<>();
 
     /// Live queues for streaming temp archive segments, one per aligned group.
     /// A queue is created and a [TempArchiveUploadTask] is submitted as soon as the first block
@@ -136,31 +134,31 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// `TempArchiveUploadTask.SEGMENT_END` sentinel is placed in the queue so the task
     /// can finalise the upload.  Keyed by aligned groupStart.
     /// Accessed only from the notification handler thread.
-    final Map<Long, BlockingQueue<BlockWithSource>> tempGroupActiveQueues = new HashMap<>();
+    final Map<Long, BlockingQueue<BlockWithSource>> tempGroupActiveQueues = new ConcurrentHashMap<>();
 
     /// Tracks the next expected block number per group for contiguous-run gap detection.
     /// Keyed by aligned groupStart.
     /// Accessed only from the notification handler thread.
-    final Map<Long, Long> tempGroupNextExpected = new HashMap<>();
+    final Map<Long, Long> tempGroupNextExpected = new ConcurrentHashMap<>();
 
     /// In-flight temp archive upload futures keyed by the firstBlock of the uploaded segment.
     /// Accessed only from the notification handler thread.
-    final NavigableMap<Long, Future<TempArchiveEntry>> tempUploadFutures = new TreeMap<>();
+    final ConcurrentSkipListMap<Long, Future<TempArchiveEntry>> tempUploadFutures = new ConcurrentSkipListMap<>();
 
     /// Blocks that could not be routed to a temp archive because
     /// [CloudStorageArchiveConfig#maxConcurrentTempArchives()] was already reached.
     /// Drained in block-number order whenever a slot frees up.
     /// Accessed only from the notification handler thread.
-    final NavigableMap<Long, BlockWithSource> tempOverflowStash = new TreeMap<>();
+    final ConcurrentSkipListMap<Long, BlockWithSource> tempOverflowStash = new ConcurrentSkipListMap<>();
 
     /// Groups whose temp archives fully cover [groupStart, groupStart+groupSize), queued for
     /// consolidation.  Keyed by groupStart.
     /// Accessed only from the notification handler thread.
-    final NavigableMap<Long, List<TempArchiveEntry>> pendingConsolidations = new TreeMap<>();
+    final ConcurrentSkipListMap<Long, List<TempArchiveEntry>> pendingConsolidations = new ConcurrentSkipListMap<>();
 
     /// In-flight consolidation task futures keyed by groupStart.
     /// Accessed only from the notification handler thread.
-    final Map<Long, Future<UploadResult>> consolidationFutures = new HashMap<>();
+    final ConcurrentHashMap<Long, Future<UploadResult>> consolidationFutures = new ConcurrentHashMap<>();
 
     /// {@inheritDoc}
     @Override
@@ -270,7 +268,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 } else {
                     metricsHolder.successfulTasks().increment();
                     currentUploadFuture = null;
-                    currentGroupPending = new TreeMap<>();
+                    currentGroupPending = new ConcurrentSkipListMap<>();
                     LOGGER.log(TRACE, "Upload task completed successfully");
                 }
             }
@@ -686,7 +684,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         if (recoveryFuture == null) {
             final int movedCount = currentGroupPending.size();
             blocksStash.putAll(currentGroupPending);
-            currentGroupPending = new TreeMap<>();
+            currentGroupPending = new ConcurrentSkipListMap<>();
             if (currentUploadFuture != null) {
                 currentUploadFuture.cancel(true);
             }
