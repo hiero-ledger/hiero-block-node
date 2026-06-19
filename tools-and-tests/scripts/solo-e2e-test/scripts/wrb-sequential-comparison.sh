@@ -34,6 +34,10 @@ MN_WRB_CAPTURE_DIR="/tmp/mn-wrb-responses"
 BLOCK_RANGE="0:100"
 MIN_TRANSACTIONS=10
 
+# Mirror Node version used for both MN1 (Solo deployment) and the standalone MN2.
+# Override with MIRROR_NODE_VERSION env var. Use a GA version, not 'main' or 'latest'.
+MIRROR_NODE_VERSION="${MIRROR_NODE_VERSION:-v0.156.0}"
+
 # Work directories
 WORK_DIR="/tmp/wrb-test-$$"
 RECORD_FILES_DIR="${WORK_DIR}/record-files"
@@ -164,10 +168,10 @@ importer:
             responseTimeout: 10s
 EOF
 
-        # Deploy Mirror Node with v0.156.0+
+        # Deploy Mirror Node (version from MIRROR_NODE_VERSION env var)
         solo mirror node add \
             --deployment "${DEPLOYMENT}" \
-            --mirror-node-version "v0.156.0" \
+            --mirror-node-version "${MIRROR_NODE_VERSION}" \
             --pinger \
             --cluster-ref "${CONTEXT}" \
             -f "${overlay_file}" || {
@@ -721,8 +725,8 @@ function compare_phase_responses {
     log "Comparing Phase 1 vs Phase 2 responses..."
 
     if [ ! -d "${MN_CAPTURE_DIR}" ] || [ ! -d "${MN_WRB_CAPTURE_DIR}" ]; then
-        log "WARNING: Missing response directories, skipping comparison"
-        return 0
+        log "ERROR: Missing response directories, cannot run differential comparison"
+        return 1
     fi
 
     python3 "${PYTHON_DIR}/compare_captured_responses.py" \
@@ -730,9 +734,9 @@ function compare_phase_responses {
         "${MN_WRB_CAPTURE_DIR}" \
         --output /tmp/comparison-report.json \
         --verbose || {
-        log "⚠️  Responses differ between Phase 1 and Phase 2"
-        log "This is expected if block production continued between phases"
-        return 0
+        log "✗ Phase 1 vs Phase 2 differential comparison FAILED"
+        log "  Report: /tmp/comparison-report.json"
+        return 1
     }
 
     log "✓ Phase 1 and Phase 2 responses match"
@@ -1014,14 +1018,18 @@ function deploy_mn2_to_bn2 {
     local mn_importer_image=$(kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" get deployment mirror-1-importer -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
     local mn_rest_image=$(kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" get deployment mirror-1-rest -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
 
+    # Fallback to the configured GA version with the leading 'v' stripped to match
+    # the Docker image tag convention (e.g. v0.156.0 -> 0.156.0).
+    local mn_image_tag="${MIRROR_NODE_VERSION#v}"
+
     if [ -z "${mn_importer_image}" ]; then
-        log "WARNING: Could not get MN1 importer image, using default"
-        mn_importer_image="gcr.io/mirrornode/hedera-mirror-importer:0.156.0"
+        log "WARNING: Could not get MN1 importer image, using default for version ${MIRROR_NODE_VERSION}"
+        mn_importer_image="gcr.io/mirrornode/hedera-mirror-importer:${mn_image_tag}"
     fi
 
     if [ -z "${mn_rest_image}" ]; then
-        log "WARNING: Could not get MN1 REST image, using default"
-        mn_rest_image="gcr.io/mirrornode/hedera-mirror-rest-java:0.156.0"
+        log "WARNING: Could not get MN1 REST image, using default for version ${MIRROR_NODE_VERSION}"
+        mn_rest_image="gcr.io/mirrornode/hedera-mirror-rest-java:${mn_image_tag}"
     fi
 
     log "Using Mirror Node importer image: ${mn_importer_image}"
@@ -1172,66 +1180,6 @@ spec:
       - name: init-scripts
         configMap:
           name: mn2-postgres-init
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mn2-rest-config
-  namespace: ${WRB_NAMESPACE}
-data:
-  application.yml: |
-    hiero:
-      mirror:
-        common:
-          shard: 0
-          realm: 0
-        rest:
-          cache:
-            entityId:
-              maxAge: 600
-              maxSize: 100000
-            response:
-              enabled: false
-            token:
-              maxSize: 50000
-          db:
-            host: mirror-1-postgres-postgresql.${NAMESPACE}.svc.cluster.local
-            port: 5432
-            name: mirror_node_wrb
-            username: mirror_node
-            password: mirror_node_pass
-            pool:
-              connectionTimeout: 30000
-              maxConnections: 50
-              statementTimeout: 30000
-            tls:
-              enabled: false
-          log:
-            level: INFO
-          openapi:
-            enabled: false
-            specVersion: openapi
-            validation:
-              enabled: false
-          port: 5551
-          query:
-            maxRecordFileCloseInterval: 2m
-            maxScheduledTransactionConsensusTimestampRange: 30d
-            maxTimestampRange: 7d
-            maxTransactionConsensusTimestampRange: 30d
-            maxTransactionsTimestampRange: 1h
-            maxValidStartTimestampDrift: 24h
-            transactions:
-              precedingTransactionTypes: []
-          redis:
-            enabled: true
-            sentinel:
-              enabled: false
-            uri: redis://mirror-1-redis-node.${NAMESPACE}.svc.cluster.local:6379
-          response:
-            limit:
-              default: 25
-              max: 100
 ---
 apiVersion: apps/v1
 kind: Deployment
