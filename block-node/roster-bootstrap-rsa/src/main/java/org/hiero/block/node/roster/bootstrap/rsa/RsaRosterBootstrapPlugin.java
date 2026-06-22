@@ -27,6 +27,8 @@ import java.util.concurrent.TimeUnit;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.MirrorNodeNodesResponse;
 import org.hiero.block.internal.NodeEntry;
+import org.hiero.block.internal.RangedAddressBookHistory;
+import org.hiero.block.internal.RangedNodeAddressBook;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -79,6 +81,10 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     static final MetricKey<LongCounter> METRIC_ADDRESSBOOK_ERRORS =
             MetricKey.of("rsa_roster_addressbook_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
 
+    /// `blocknode:roster_eras_loaded` — number of distinct block-range eras in the loaded history.
+    static final MetricKey<ObservableGauge> METRIC_ROSTER_ERAS_LOADED =
+            MetricKey.of("roster_eras_loaded", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
     /// Holder for peer-query metrics, passed to `AddressBookFetcher`.
     public record MetricsHolder(
             LongCounter.Measurement peerRequests,
@@ -117,6 +123,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     // Metric values stored after startup so ObservableGauge can read them
     private volatile long rosterEntriesLoaded = 0L;
     private volatile long rosterLoadDurationMs = 0L;
+    private volatile long rosterErasLoaded = 0L;
 
     /// {@inheritDoc}
     @Override
@@ -138,6 +145,9 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         metricRegistry.register(ObservableGauge.builder(METRIC_ROSTER_LOAD_DURATION_MS)
                 .setDescription("Time to load the RSA roster at startup in ms")
                 .observe(() -> rosterLoadDurationMs));
+        metricRegistry.register(ObservableGauge.builder(METRIC_ROSTER_ERAS_LOADED)
+                .setDescription("Number of distinct block-range eras in the loaded address book history")
+                .observe(() -> rosterErasLoaded));
 
         // Initialise the peer fetcher if a sources file is configured
         if (!config.blockNodeSourcesPath().isBlank()) {
@@ -170,17 +180,26 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         this.context = updatedContext;
     }
 
-    /// Implements three bootstrap strategies:
-    /// 1. File already loaded → record metrics.
-    /// 2. Peer BN query (if configured) → schedule address book refreshes
-    /// 3. Mirror Node configured, schedule address book refreshes.
+    /// Implements the bootstrap strategy:
+    /// 1. History file loaded (preferred) → record history metrics; no periodic refresh
+    ///    (history updates are an operator / T3 concern).
+    /// 2. Single address book loaded → record book metrics; schedule periodic peer BN and Mirror
+    ///    Node refreshes as before.
+    /// 3. Neither loaded → start concurrent peer BN and Mirror Node fallback queries.
     @Override
     public void start() {
         long startTimeMillis = System.currentTimeMillis();
-        NodeAddressBook book = context.nodeAddressBook();
 
+        // Prefer the block-number-keyed history over the legacy single-book
+        final RangedAddressBookHistory history = context.nodeAddressBookHistory();
+        if (history != null) {
+            recordHistoryMetrics(history, startTimeMillis);
+            return;
+        }
+
+        final NodeAddressBook book = context.nodeAddressBook();
         if (book != null) {
-            // Step 1: bootstrap file was pre-loaded by BlockNodeApp
+            // Single-book file was pre-loaded by BlockNodeApp
             recordSuccessMetrics(book, startTimeMillis, "File");
             schedulePeriodicBlockNodeRefresh();
             schedulePeriodicMirrorNodeRefresh();
@@ -368,6 +387,22 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 "RSA roster available: {0} entries obtained from {1} in {2}ms",
                 rosterEntriesLoaded,
                 source,
+                rosterLoadDurationMs);
+    }
+
+    private void recordHistoryMetrics(RangedAddressBookHistory history, long startTimeMillis) {
+        rosterErasLoaded = history.addressBooks().size();
+        rosterEntriesLoaded = history.addressBooks().stream()
+                .map(RangedNodeAddressBook::addressBook)
+                .filter(book -> book != null)
+                .mapToLong(book -> book.nodeAddress().size())
+                .sum();
+        rosterLoadDurationMs = System.currentTimeMillis() - startTimeMillis;
+        LOGGER.log(
+                INFO,
+                "RSA address book history available: {0} eras, {1} total entries loaded in {2}ms",
+                rosterErasLoaded,
+                rosterEntriesLoaded,
                 rosterLoadDurationMs);
     }
 

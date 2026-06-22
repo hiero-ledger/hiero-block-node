@@ -3,6 +3,7 @@ package org.hiero.block.node.app.fixtures.plugintest;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import org.hiero.block.internal.RangedAddressBookHistory;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -210,6 +211,7 @@ public abstract class PluginTestBase<
                 buildBlockNodeVersions(),
                 null,
                 null,
+                null,
                 storedBlocks,
                 availableBlocks);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
@@ -332,6 +334,7 @@ public abstract class PluginTestBase<
                 blockNodeContext.blockNodeVersions(),
                 tssData,
                 blockNodeContext.nodeAddressBook(),
+                blockNodeContext.nodeAddressBookHistory(),
                 blockNodeContext.storedBlocks(),
                 blockNodeContext.availableBlocks());
         plugin.onContextUpdate(blockNodeContext);
@@ -351,6 +354,28 @@ public abstract class PluginTestBase<
                 blockNodeContext.blockNodeVersions(),
                 blockNodeContext.tssData(),
                 nodeAddressBook,
+                blockNodeContext.nodeAddressBookHistory(),
+                blockNodeContext.storedBlocks(),
+                blockNodeContext.availableBlocks());
+        plugin.onContextUpdate(blockNodeContext);
+        return true;
+    }
+
+    @Override
+    public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
+        blockNodeContext = new BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metricRegistry(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.applicationStateFacility(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                blockNodeContext.blockNodeVersions(),
+                blockNodeContext.tssData(),
+                blockNodeContext.nodeAddressBook(),
+                history,
                 blockNodeContext.storedBlocks(),
                 blockNodeContext.availableBlocks());
         plugin.onContextUpdate(blockNodeContext);

@@ -121,6 +121,7 @@ class BlockNodeAppTest {
         for (String file : List.of(
                 "build/tmp/data/block/node/tss-bootstrap-roster.json",
                 "build/resources/test/data/config/rsa-bootstrap-roster.json",
+                "build/tmp/data/block/node/rsa-address-book-history.json",
                 "build/tmp/data/block/node/block-ranges.json")) {
             try {
                 Files.deleteIfExists(Path.of(file));
@@ -568,6 +569,147 @@ class BlockNodeAppTest {
                 app::startApplicationStateFacility,
                 "Corrupt RSA file must throw IllegalStateException");
         app.stopApplicationStateFacility();
+    }
+
+    /**
+     * When the history file exists it is loaded and exposed in nodeAddressBookHistory.
+     */
+    @Test
+    @DisplayName("loadApplicationState with history file populates nodeAddressBookHistory")
+    void loadApplicationStateHistoryFilePopulatesHistory() throws Exception {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final Path historyPath = app.blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .rsaAddressBookHistoryFilePath();
+
+        // Write a two-era history file
+        Files.createDirectories(historyPath.getParent());
+        final org.hiero.block.internal.RangedAddressBookHistory history = buildTwoEraHistory();
+        Files.write(historyPath, org.hiero.block.internal.RangedAddressBookHistory.JSON
+                .toBytes(history)
+                .toByteArray());
+
+        app.startApplicationStateFacility();
+
+        final org.hiero.block.internal.RangedAddressBookHistory loaded =
+                app.blockNodeContext.nodeAddressBookHistory();
+        assertNotNull(loaded, "History file must populate nodeAddressBookHistory");
+        assertEquals(2, loaded.addressBooks().size(), "Two eras must be loaded");
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * When only the single-book RSA file exists (no history file) the backward-compat bridge
+     * wraps it into a single open-ended era in nodeAddressBookHistory.
+     */
+    @Test
+    @DisplayName("loadApplicationState with only single-book file wraps it into a single-era history")
+    void loadApplicationStateSingleBookWrappedAsHistory() throws Exception {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final ApplicationStateConfig cfg =
+                app.blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
+        final Path rsaPath = cfg.rsaBootstrapFilePath();
+        final Path historyPath = cfg.rsaAddressBookHistoryFilePath();
+
+        // Ensure the history file does not exist
+        Files.deleteIfExists(historyPath);
+
+        // Write a valid single-book RSA file (needs a real RSA key to pass validateAddressBook)
+        final java.security.KeyPairGenerator kpg = java.security.KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        final String hexKey = HexFormat.of().formatHex(kpg.generateKeyPair().getPublic().getEncoded());
+        final NodeAddressBook book = NodeAddressBook.newBuilder()
+                .nodeAddress(NodeAddress.newBuilder().nodeId(1).rsaPubKey(hexKey).build())
+                .build();
+        Files.createDirectories(rsaPath.getParent());
+        Files.write(rsaPath, NodeAddressBook.JSON.toBytes(book).toByteArray());
+
+        app.startApplicationStateFacility();
+
+        final org.hiero.block.internal.RangedAddressBookHistory history =
+                app.blockNodeContext.nodeAddressBookHistory();
+        assertNotNull(history, "Single-book must be wrapped into a history");
+        assertEquals(1, history.addressBooks().size(), "Wrapped history must have exactly one era");
+        assertEquals(0L, history.addressBooks().getFirst().startBlock());
+        assertEquals(0L, history.addressBooks().getFirst().endBlock(), "Wrapped era must be open-ended");
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * A corrupt history file must throw IllegalStateException.
+     */
+    @Test
+    @DisplayName("loadApplicationState with corrupt history file throws IllegalStateException")
+    void loadApplicationStateCorruptHistoryFileThrows() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final Path historyPath = app.blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .rsaAddressBookHistoryFilePath();
+        Files.createDirectories(historyPath.getParent());
+        Files.write(historyPath, new byte[] {(byte) 0xFF, (byte) 0xFE, 0x00});
+
+        assertThrows(
+                IllegalStateException.class,
+                app::startApplicationStateFacility,
+                "Corrupt history file must throw IllegalStateException");
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * A history file with zero entries must throw IllegalStateException.
+     */
+    @Test
+    @DisplayName("loadApplicationState with empty history file throws IllegalStateException")
+    void loadApplicationStateEmptyHistoryFileThrows() throws Exception {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final Path historyPath = app.blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .rsaAddressBookHistoryFilePath();
+        Files.createDirectories(historyPath.getParent());
+        Files.write(
+                historyPath,
+                org.hiero.block.internal.RangedAddressBookHistory.JSON
+                        .toBytes(org.hiero.block.internal.RangedAddressBookHistory.DEFAULT)
+                        .toByteArray());
+
+        assertThrows(
+                IllegalStateException.class,
+                app::startApplicationStateFacility,
+                "Empty history file must throw IllegalStateException");
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * Builds a two-era RangedAddressBookHistory with synthetic keys for use in tests.
+     * Only startBlock/endBlock are checked by load logic; no key validation at history load time.
+     */
+    private static org.hiero.block.internal.RangedAddressBookHistory buildTwoEraHistory() {
+        final NodeAddressBook era1 = NodeAddressBook.newBuilder()
+                .nodeAddress(NodeAddress.newBuilder().nodeId(1L).rsaPubKey("aaaa").build())
+                .build();
+        final NodeAddressBook era2 = NodeAddressBook.newBuilder()
+                .nodeAddress(NodeAddress.newBuilder().nodeId(2L).rsaPubKey("bbbb").build())
+                .build();
+        return org.hiero.block.internal.RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(
+                        org.hiero.block.internal.RangedNodeAddressBook.newBuilder()
+                                .addressBook(era1)
+                                .startBlock(0L)
+                                .endBlock(999L)
+                                .build(),
+                        org.hiero.block.internal.RangedNodeAddressBook.newBuilder()
+                                .addressBook(era2)
+                                .startBlock(1000L)
+                                .endBlock(0L)
+                                .build()))
+                .build();
     }
 
     /**

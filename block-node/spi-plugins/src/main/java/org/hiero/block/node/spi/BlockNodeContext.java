@@ -3,6 +3,7 @@ package org.hiero.block.node.spi;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.swirlds.config.api.Configuration;
+import org.hiero.block.internal.RangedAddressBookHistory;
 import java.util.List;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockRange;
@@ -38,7 +39,11 @@ import org.hiero.metrics.core.MetricRegistry;
  * @param threadPoolManager the thread pool manager for the block node
  * @param blockNodeVersions the version information associated with a block node
  * @param tssData the tss information needed for block verification
- * @param nodeAddressBook the RSA node address book loaded at startup for WRB proof verification
+ * @param nodeAddressBook the RSA node address book loaded at startup for WRB proof verification;
+ *     used by single-book deployments. {@code null} when only the history is available.
+ * @param nodeAddressBookHistory the block-number-keyed RSA address book history for historical
+ *     WRB verification; takes precedence over {@code nodeAddressBook} when non-{@code null}.
+ *     {@code null} when no history file has been loaded.
  * @param storedBlocks the current range of stored blocks
  * @param availableBlocks the current range of available blocks
  */
@@ -54,6 +59,7 @@ public record BlockNodeContext(
         BlockNodeVersions blockNodeVersions,
         TssData tssData,
         NodeAddressBook nodeAddressBook,
+        RangedAddressBookHistory nodeAddressBookHistory,
         List<BlockRange> storedBlocks,
         List<BlockRange> availableBlocks) {
 
@@ -70,6 +76,7 @@ public record BlockNodeContext(
         BlockNodeVersions blockNodeVersions;
         TssData tssData;
         NodeAddressBook nodeAddressBook;
+        RangedAddressBookHistory nodeAddressBookHistory;
         List<BlockRange> storedBlocks;
         List<BlockRange> availableBlocks;
 
@@ -85,28 +92,34 @@ public record BlockNodeContext(
             this.blockNodeVersions = context.blockNodeVersions;
             this.tssData = context.tssData;
             this.nodeAddressBook = context.nodeAddressBook;
+            this.nodeAddressBookHistory = context.nodeAddressBookHistory;
             this.storedBlocks = List.copyOf(context.storedBlocks);
             this.availableBlocks = List.copyOf(context.availableBlocks);
         }
 
         public Builder tssData(TssData tssData) {
             this.tssData = tssData;
-            return this; // Returns the builder for chaining
+            return this;
         }
 
         public Builder nodeAddressBook(NodeAddressBook nodeAddressBook) {
             this.nodeAddressBook = nodeAddressBook;
-            return this; // Returns the builder for chaining
+            return this;
+        }
+
+        public Builder nodeAddressBookHistory(RangedAddressBookHistory nodeAddressBookHistory) {
+            this.nodeAddressBookHistory = nodeAddressBookHistory;
+            return this;
         }
 
         public Builder storedBlocks(List<BlockRange> storedBlocks) {
             this.storedBlocks = storedBlocks;
-            return this; // Returns the builder for chaining
+            return this;
         }
 
         public Builder availableBlocks(List<BlockRange> availableBlocks) {
             this.availableBlocks = availableBlocks;
-            return this; // Returns the builder for chaining
+            return this;
         }
 
         public BlockNodeContext build() {
@@ -122,6 +135,7 @@ public record BlockNodeContext(
                     this.blockNodeVersions,
                     this.tssData,
                     this.nodeAddressBook,
+                    this.nodeAddressBookHistory,
                     this.storedBlocks,
                     this.availableBlocks);
         }

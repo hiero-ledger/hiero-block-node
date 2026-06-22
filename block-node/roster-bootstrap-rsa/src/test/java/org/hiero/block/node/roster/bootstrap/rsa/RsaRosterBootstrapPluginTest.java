@@ -22,6 +22,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
+import org.hiero.block.internal.RangedAddressBookHistory;
+import org.hiero.block.internal.RangedNodeAddressBook;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
@@ -147,6 +149,91 @@ class RsaRosterBootstrapPluginTest
 
             assertEquals(4, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
             assertTrue(getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_LOAD_DURATION_MS) >= 0);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Pre-loaded address book history (simulates BlockNodeApp loading history file)
+    //
+    // updateAddressBookHistory(history) replaces the full BlockNodeApp scheduler cycle:
+    //   loadApplicationState() → pendingAddressBookHistory.set() → scanner tick
+    //   → BlockNodeContext rebuilt → plugin.onContextUpdate() called
+    //
+    // By the time doStart() is called, plugin.context.nodeAddressBookHistory() is
+    // non-null, so start() takes the "history-loaded" branch.
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("Pre-loaded address book history (BlockNodeApp loaded history file)")
+    class PreloadedAddressBookHistory {
+
+        @Test
+        @DisplayName("start() records era count and total entry count for a multi-era history")
+        void multiEraHistoryMetrics() {
+            // era1: 3 nodes, era2: 2 nodes → total 5 entries, 2 eras
+            final RangedAddressBookHistory history = buildHistory(
+                    ranged(buildAddressBook(3), 0L, 1000L),
+                    ranged(buildAddressBook(2), 1001L, 0L));
+
+            doInit(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
+            updateAddressBookHistory(history);
+            doStart();
+
+            assertEquals(2L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED));
+            assertEquals(5L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
+            assertTrue(getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_LOAD_DURATION_MS) >= 0);
+        }
+
+        @Test
+        @DisplayName("history with a single era reports 1 era and the correct entry count")
+        void singleEraHistoryMetrics() {
+            final RangedAddressBookHistory history = buildHistory(ranged(buildAddressBook(4), 0L, 0L));
+
+            doInit(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
+            updateAddressBookHistory(history);
+            doStart();
+
+            assertEquals(1L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED));
+            assertEquals(4L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
+        }
+
+        @Test
+        @DisplayName("history takes precedence: no Mirror Node fetch is scheduled")
+        void historyPreventsMirrorNodeFetch() {
+            // Even when a mirrorNodeBaseUrl is configured, loading the history means the plugin
+            // returns early in start() — the scheduled executor must stay idle.
+            final RangedAddressBookHistory history = buildHistory(ranged(buildAddressBook(2), 0L, 0L));
+
+            doInit(
+                    new RsaRosterBootstrapPlugin(),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    null,
+                    Map.of("roster.bootstrap.rsa.mirrorNodeBaseUrl", "http://localhost:9999"),
+                    Map.of());
+            updateAddressBookHistory(history);
+            doStart();
+
+            // No tasks should have been submitted to the scheduled executor
+            assertEquals(
+                    0L,
+                    testThreadPoolManager.scheduledExecutor().getTaskCount(),
+                    "No Mirror Node task should be scheduled when history is pre-loaded");
+        }
+
+        @Test
+        @DisplayName("history absent, single address book present → plugin uses single-book path")
+        void fallsBackToSingleBookWhenHistoryAbsent() {
+            // No history in context but a single address book is present → existing path used
+            final NodeAddressBook book = buildAddressBook(3);
+            doInit(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
+            updateAddressBook(book);
+            doStart();
+
+            assertEquals(0L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED),
+                    "Era gauge must be 0 in single-book mode");
+            assertEquals(3L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
+            assertNotNull(blockNodeContext.nodeAddressBook());
+            assertNull(blockNodeContext.nodeAddressBookHistory());
         }
     }
 
@@ -524,6 +611,20 @@ class RsaRosterBootstrapPluginTest
                     NodeAddress.newBuilder().nodeId(i).rsaPubKey("hexkey" + i).build());
         }
         return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
+    }
+
+    private static RangedNodeAddressBook ranged(NodeAddressBook book, long start, long end) {
+        return RangedNodeAddressBook.newBuilder()
+                .addressBook(book)
+                .startBlock(start)
+                .endBlock(end)
+                .build();
+    }
+
+    private static RangedAddressBookHistory buildHistory(RangedNodeAddressBook... entries) {
+        return RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(entries))
+                .build();
     }
 
     private void createTestBlockNodeSourcesFile(BlockNodeSource blockNodeSource, String configPath) throws IOException {

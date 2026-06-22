@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
+import org.hiero.block.internal.RangedAddressBookHistory;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,6 +64,12 @@ public class BlockNodePluginTest {
 
         @Override
         public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
+            // do nothing
+            return false;
+        }
+
+        @Override
+        public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
             // do nothing
             return false;
         }
@@ -125,6 +132,12 @@ public class BlockNodePluginTest {
         }
 
         @Override
+        public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
+            // do nothing
+            return false;
+        }
+
+        @Override
         public void addStoredBlockRange(LongRange blockRange) {
             // do nothing
         }
@@ -165,6 +178,11 @@ public class BlockNodePluginTest {
 
         @Override
         public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
+            return false;
+        }
+
+        @Override
+        public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
             return false;
         }
 
@@ -305,7 +323,7 @@ public class BlockNodePluginTest {
         });
 
         BlockNodeContext context = new BlockNodeContext(
-                null, null, null, null, null, null, null, null, null, null, null, new ArrayList<>(), new ArrayList<>());
+                null, null, null, null, null, null, null, null, null, null, null, null, new ArrayList<>(), new ArrayList<>());
 
         plugin.onContextUpdate(context);
 

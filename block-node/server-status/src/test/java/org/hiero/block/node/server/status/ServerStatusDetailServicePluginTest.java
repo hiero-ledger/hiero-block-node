@@ -160,6 +160,7 @@ public class ServerStatusDetailServicePluginTest
                 blockNodeContext.blockNodeVersions(),
                 buildTssData(),
                 blockNodeContext.nodeAddressBook(),
+                blockNodeContext.nodeAddressBookHistory(),
                 blockNodeContext.storedBlocks(),
                 blockNodeContext.availableBlocks());
 
@@ -205,6 +206,7 @@ public class ServerStatusDetailServicePluginTest
                 blockNodeContext.blockNodeVersions(),
                 blockNodeContext.tssData(),
                 book,
+                blockNodeContext.nodeAddressBookHistory(),
                 blockNodeContext.storedBlocks(),
                 blockNodeContext.availableBlocks());
         plugin.onContextUpdate(ctxWithBook);

@@ -18,6 +18,12 @@ import org.hiero.block.node.base.Loggable;
  * @param rsaBootstrapFilePath path to the RSA roster bootstrap file (JSON-encoded {@code NodeAddressBook}).
  *     Configured via {@code app.state.rsaBootstrapFilePath}.
  *     Defaults to {@code /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json}.
+ *     Single-book deployments that have not yet migrated to the history file continue to use this path.
+ * @param rsaAddressBookHistoryFilePath path to the block-number-keyed RSA address book history file
+ *     (JSON-encoded {@code RangedAddressBookHistory}). When present this file takes precedence over
+ *     {@code rsaBootstrapFilePath} for historical WRB verification. The file is produced by operator
+ *     tooling (T3) that converts the CLI's timestamp-keyed address book history into block-number ranges.
+ *     Defaults to {@code /opt/hiero/block-node/application-state/rsa-address-book-history.json}.
  * @param blockRangesFilePath path to the JSON file where the stored block range set is persisted.
  *     The file is written automatically every {@code BLOCK_RANGE_PERSIST_INTERVAL} blocks and on
  *     shutdown, then loaded on startup. Block availability is derived from
@@ -38,6 +44,7 @@ public record ApplicationStateConfig(
         // spotless:off
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/tss-bootstrap-roster.json") Path tssBootstrapFilePath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json") Path rsaBootstrapFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/rsa-address-book-history.json") Path rsaAddressBookHistoryFilePath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/block-ranges.json") Path blockRangesFilePath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/known-publishers.json") Path knownPublishersFilePath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/inbound-partners.json") Path inboundPartnersFilePath,

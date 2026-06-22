@@ -206,6 +206,7 @@ class BlockFileHistoricPluginTest {
                     null,
                     null,
                     null,
+                    null,
                     new ArrayList<>(),
                     new ArrayList<>());
             // call
