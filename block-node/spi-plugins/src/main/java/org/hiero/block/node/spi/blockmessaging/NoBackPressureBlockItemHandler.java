@@ -13,4 +13,9 @@ public interface NoBackPressureBlockItemHandler extends BlockItemHandler {
      * items.
      */
     void onTooFarBehindError();
+
+    @Override
+    default boolean isGating() {
+        return false;
+    }
 }

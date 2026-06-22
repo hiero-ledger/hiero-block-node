@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -33,7 +34,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
@@ -311,12 +311,16 @@ public class BlockNodeAPITests {
 
         awaitLatch(blockItemsSubscribe1Latch, "historical subscription");
         // block items, end block, and success status
-        assertThat(subscribeResponseObserver.getOnNextCalls()).hasSize(3);
+        // sometimes we get 3 calls, sometimes 4
+        assertThat(subscribeResponseObserver.getOnNextCalls().size()).isIn(3, 4);
         assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
 
-        final SubscribeStreamResponse subscribeResponse0 =
-                subscribeResponseObserver.getOnNextCalls().get(0);
-        assertThat(subscribeResponse0.blockItems().blockItems()).hasSize(blockItems.length);
+        int responseBlockItemCount = 0;
+        for (SubscribeStreamResponse response : subscribeResponseObserver.getOnNextCalls()) {
+            if (response.blockItems() != null)
+                responseBlockItemCount += response.blockItems().blockItems().size();
+        }
+        assertThat(responseBlockItemCount).isEqualTo(blockItems.length);
 
         // ==== Scenario 6: Subscribe to live block stream and confirm receipt of newly published block ===
         final long blockNumber1 = 1;
@@ -384,55 +388,63 @@ public class BlockNodeAPITests {
         requestStream2.closeConnection();
         awaitThread(subscribeThread, "live subscribe thread");
 
-        // When subscribed initially, block 1 was already persisted, so it will be streamed from history.
-        // Then, the session will either supply the block from history, if it is persisted, or from the live stream
-        // if not persisted yet. If it comes from the live stream, we expect one more onNext call, because the
-        // proof will be sent separately to the live queue from the rest of the block.
-        if (subscribeResponseObserver.getOnNextCalls().size() == 6) {
-            // 6 items expected: block 0 items, end block 0, success status, block 1 items, end block 1, success status
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(3).satisfies(response -> {
-                assertThat(response.blockItems().blockItems())
-                        .hasSize(blockItems1.length)
-                        .first()
-                        .returns(blockNumber1, i -> i.blockHeader().number());
-            });
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(4).satisfies(response -> {
-                assertThat(response.endOfBlock().blockNumber()).isEqualTo(blockNumber1);
-            });
-            // success status should be the last response
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(5).satisfies(response -> {
-                assertThat(response.status()).isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
-            });
-        } else if (subscribeResponseObserver.getOnNextCalls().size() == 7) {
-            // 7 items expected:
-            // block 0 items, end block 0, success status, block 1 items w/o proof, block 1 proof, end block 1,
-            // success status
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(3).satisfies(response -> {
-                assertThat(response.blockItems().blockItems())
-                        .hasSize(blockItems1.length - 1)
-                        .first()
-                        .returns(blockNumber1, i -> i.blockHeader().number());
-            });
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(4).satisfies(response -> {
-                assertThat(response.blockItems().blockItems())
-                        .hasSize(1)
-                        .first()
-                        .returns(blockNumber1, i -> i.blockProof().block());
-            });
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(5).satisfies(response -> {
-                assertThat(response.endOfBlock().blockNumber()).isEqualTo(blockNumber1);
-            });
-            // success status should be the last response
-            assertThat(subscribeResponseObserver.getOnNextCalls()).element(6).satisfies(response -> {
-                assertThat(response.status()).isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
-            });
-        } else {
-            final String responses = subscribeResponseObserver.getOnNextCalls().stream()
-                    .map(SubscribeStreamResponse::toString)
-                    .collect(Collectors.joining(", "));
-            final int size = subscribeResponseObserver.getOnNextCalls().size();
-            fail("Unexpected number of subscribe responses: %d, Responses: %s".formatted(size, responses));
+        // The `subscribeResponseObserver.getOnNextCalls()` is not deterministic now that live streams are non-gating
+        // The best way to test the responses and block items is by creating lists and checking the non-blockitems and
+        // blockitems separately
+        List<BlockItem> responseBlockItems = new ArrayList<>();
+        List<SubscribeStreamResponse> responses = new ArrayList<>();
+        for (SubscribeStreamResponse response : subscribeResponseObserver.getOnNextCalls()) {
+            if (response.blockItems() != null)
+                responseBlockItems.addAll(response.blockItems().blockItems());
+            else responses.add(response);
         }
+
+        assertThat(responses).hasSize(4);
+        assertThat(responses).element(0).satisfies(response -> {
+            assertThat(response.endOfBlock().blockNumber()).isEqualTo(0);
+        });
+        assertThat(responses).element(1).satisfies(response -> {
+            assertThat(response.status()).isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
+        });
+        assertThat(responses).element(2).satisfies(response -> {
+            assertThat(response.endOfBlock().blockNumber()).isEqualTo(1);
+        });
+        assertThat(responses).element(3).satisfies(response -> {
+            assertThat(response.status()).isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
+        });
+
+        assertThat(responseBlockItems).hasSize(8);
+        assertThat(responseBlockItems).element(0).satisfies(blockItem -> {
+            assertThat(blockItem.blockHeader()).isNotNull();
+            assertThat(blockItem.blockHeader().number()).isEqualTo(0);
+        });
+        assertThat(responseBlockItems).element(1).satisfies(blockItem -> {
+            assertThat(blockItem.roundHeader()).isNotNull();
+            assertThat(blockItem.roundHeader().roundNumber()).isEqualTo(0);
+        });
+        assertThat(responseBlockItems).element(2).satisfies(blockItem -> {
+            assertThat(blockItem.blockFooter()).isNotNull();
+        });
+        assertThat(responseBlockItems).element(3).satisfies(blockItem -> {
+            assertThat(blockItem.blockProof()).isNotNull();
+            assertThat(blockItem.blockProof().block()).isEqualTo(0);
+        });
+        assertThat(responseBlockItems).element(4).satisfies(blockItem -> {
+            assertThat(blockItem.blockHeader()).isNotNull();
+            assertThat(blockItem.blockHeader().number()).isEqualTo(1);
+        });
+        assertThat(responseBlockItems).element(5).satisfies(blockItem -> {
+            assertThat(blockItem.roundHeader()).isNotNull();
+            assertThat(blockItem.roundHeader().roundNumber()).isEqualTo(10);
+        });
+        assertThat(responseBlockItems).element(6).satisfies(blockItem -> {
+            assertThat(blockItem.blockFooter()).isNotNull();
+        });
+        assertThat(responseBlockItems).element(7).satisfies(blockItem -> {
+            assertThat(blockItem.blockProof()).isNotNull();
+            assertThat(blockItem.blockProof().block()).isEqualTo(1);
+        });
+
         blockStreamPublishServiceClient.close();
         blockStreamPublishServiceClient2.close();
         blockStreamSubscribeServiceClient.close();
