@@ -819,6 +819,33 @@ class BlockNodeAppTest {
     }
 
     /**
+     * Verifies that context.availableBlocks() is derived from the historical block facility,
+     * not maintained as a separate field in BlockNodeApp.
+     */
+    @Test
+    @DisplayName("context.availableBlocks() is derived from the historical block facility")
+    void testAvailableBlocksInContextComesFromHistoricalFacility() throws InterruptedException {
+        final TestPlugin testPlugin = new TestPlugin();
+        blockNodeApp.loadedPlugins.add(testPlugin);
+        testPlugin.expectContextUpdates(1);
+
+        blockNodeApp.startApplicationStateFacility();
+
+        testPlugin.awaitContextUpdates(5);
+
+        final BlockNodeContext context = testPlugin.getContext();
+        assertNotNull(context);
+        final List<BlockRange> available = context.availableBlocks();
+        assertEquals(2, available.size());
+        assertEquals(0L, available.get(0).rangeStart());
+        assertEquals(10L, available.get(0).rangeEnd());
+        assertEquals(20L, available.get(1).rangeStart());
+        assertEquals(30L, available.get(1).rangeEnd());
+
+        blockNodeApp.stopApplicationStateFacility();
+    }
+
+    /**
      * Block ranges persisted on stop are reloaded by a fresh BlockNodeApp.
      */
     @Test

@@ -10,11 +10,17 @@ option java_multiple_files = true;
 import "block-node/api/node_service.proto";
 
 /**
- * Persisted state of the stored block range set.
+ * Persisted state of the stored and available block range sets.<br/>
+ * Both fields are persisted together in a single file so the two sets
+ * remain consistent across restarts.
  */
 message BlockRangesState {
     /**
      * All block ranges that have been stored by this node.
      */
     repeated org.hiero.block.api.BlockRange stored_blocks = 1;
+    /**
+     * The subset of stored blocks that are currently available for retrieval.
+     */
+    repeated org.hiero.block.api.BlockRange available_blocks = 2;
 }

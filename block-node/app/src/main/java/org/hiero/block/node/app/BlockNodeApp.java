@@ -751,7 +751,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .streamRanges()
                 .map(r -> new BlockRange(r.start(), r.end()))
                 .toList();
-        return new BlockRangesState(stored);
+        final List<BlockRange> available = historicalBlockFacility
+                .availableBlocks()
+                .streamRanges()
+                .map(r -> new BlockRange(r.start(), r.end()))
+                .toList();
+        return new BlockRangesState(stored, available);
     }
 
     /**
