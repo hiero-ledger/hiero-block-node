@@ -129,12 +129,12 @@ message RangedNodeAddressBook {
 
 **Invariants operators and T3 tooling must maintain:**
 
-| Invariant | Description |
-|---|---|
-| Ordered ascending | Entries must be sorted by `start_block` (lowest first). |
-| Non-overlapping | No two entries may cover the same block number. |
-| Open-ended last entry | The final entry should use `end_block = 0` to cover all future blocks ≥ `start_block`. |
-| Non-empty | The file must contain at least one entry; an empty list causes the BN to fail at startup. |
+|       Invariant       |                                        Description                                        |
+|-----------------------|-------------------------------------------------------------------------------------------|
+| Ordered ascending     | Entries must be sorted by `start_block` (lowest first).                                   |
+| Non-overlapping       | No two entries may cover the same block number.                                           |
+| Open-ended last entry | The final entry should use `end_block = 0` to cover all future blocks ≥ `start_block`.    |
+| Non-empty             | The file must contain at least one entry; an empty list causes the BN to fail at startup. |
 
 **Codec:** `RangedAddressBookHistory.JSON` (PBJ-generated). File is written/read using the same
 atomic `.tmp`-then-rename pattern as the single-book `rsa-bootstrap-roster.json`.

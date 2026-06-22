@@ -171,9 +171,8 @@ class RsaRosterBootstrapPluginTest
         @DisplayName("start() records era count and total entry count for a multi-era history")
         void multiEraHistoryMetrics() {
             // era1: 3 nodes, era2: 2 nodes → total 5 entries, 2 eras
-            final RangedAddressBookHistory history = buildHistory(
-                    ranged(buildAddressBook(3), 0L, 1000L),
-                    ranged(buildAddressBook(2), 1001L, 0L));
+            final RangedAddressBookHistory history =
+                    buildHistory(ranged(buildAddressBook(3), 0L, 1000L), ranged(buildAddressBook(2), 1001L, 0L));
 
             doInit(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
             updateAddressBookHistory(history);
@@ -229,7 +228,9 @@ class RsaRosterBootstrapPluginTest
             updateAddressBook(book);
             doStart();
 
-            assertEquals(0L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED),
+            assertEquals(
+                    0L,
+                    getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED),
                     "Era gauge must be 0 in single-book mode");
             assertEquals(3L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
             assertNotNull(blockNodeContext.nodeAddressBook());

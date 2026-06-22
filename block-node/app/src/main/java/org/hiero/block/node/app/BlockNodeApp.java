@@ -808,11 +808,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                     filePath,
                     history.addressBooks().size());
         } catch (IOException e) {
-            LOGGER.log(
-                    WARNING,
-                    "Failed to persist RSA address book history to {0}: {1}",
-                    filePath,
-                    e.getMessage());
+            LOGGER.log(WARNING, "Failed to persist RSA address book history to {0}: {1}", filePath, e.getMessage());
         }
     }
 
@@ -923,8 +919,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         historyFilePath,
                         history.addressBooks().size());
             } catch (IOException e) {
-                throw new IllegalStateException(
-                        "Failed to read RSA address book history file: " + historyFilePath, e);
+                throw new IllegalStateException("Failed to read RSA address book history file: " + historyFilePath, e);
             } catch (ParseException e) {
                 throw new IllegalStateException(
                         "Corrupt RSA address book history file at " + historyFilePath

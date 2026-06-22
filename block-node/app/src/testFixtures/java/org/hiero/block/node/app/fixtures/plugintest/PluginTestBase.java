@@ -3,7 +3,6 @@ package org.hiero.block.node.app.fixtures.plugintest;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.node.base.NodeAddressBook;
-import org.hiero.block.internal.RangedAddressBookHistory;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -24,6 +23,7 @@ import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
+import org.hiero.block.internal.RangedAddressBookHistory;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.spi.ApplicationStateFacility;

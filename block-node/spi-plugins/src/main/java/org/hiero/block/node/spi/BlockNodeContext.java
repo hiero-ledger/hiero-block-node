@@ -3,11 +3,11 @@ package org.hiero.block.node.spi;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.swirlds.config.api.Configuration;
-import org.hiero.block.internal.RangedAddressBookHistory;
 import java.util.List;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.TssData;
+import org.hiero.block.internal.RangedAddressBookHistory;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;

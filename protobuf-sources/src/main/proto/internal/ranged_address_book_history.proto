@@ -40,7 +40,7 @@ message RangedAddressBookHistory {
  * A node address book scoped to a specific block-number range.
  *
  * The address book is valid for all blocks whose block number satisfies:
- *   start_block <= block_number <= end_block
+ *   start_block &le; block_number &le; end_block
  *
  * When end_block is 0 the entry is open-ended: it covers all blocks with
  * block number >= start_block. Only the last entry in a
@@ -56,15 +56,15 @@ message RangedNodeAddressBook {
 
     /**
      * The first block number for which this address book is valid (inclusive).
-     * Must be > 0 for all entries except a genesis entry which may start at 0.
+     * Must be &gt; 0 for all entries except a genesis entry which may start at 0.
      */
     uint64 start_block = 2;
 
     /**
      * The last block number for which this address book is valid (inclusive).
      * A value of 0 is a sentinel meaning open-ended: this address book covers
-     * all blocks with block number >= start_block.
-     * All entries except the last MUST have end_block > 0.
+     * all blocks with block number &ge; start_block.
+     * All entries except the last MUST have end_block &gt; 0.
      */
     uint64 end_block = 3;
 }

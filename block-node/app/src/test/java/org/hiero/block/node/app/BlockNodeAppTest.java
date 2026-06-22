@@ -587,14 +587,15 @@ class BlockNodeAppTest {
         // Write a two-era history file
         Files.createDirectories(historyPath.getParent());
         final org.hiero.block.internal.RangedAddressBookHistory history = buildTwoEraHistory();
-        Files.write(historyPath, org.hiero.block.internal.RangedAddressBookHistory.JSON
-                .toBytes(history)
-                .toByteArray());
+        Files.write(
+                historyPath,
+                org.hiero.block.internal.RangedAddressBookHistory.JSON
+                        .toBytes(history)
+                        .toByteArray());
 
         app.startApplicationStateFacility();
 
-        final org.hiero.block.internal.RangedAddressBookHistory loaded =
-                app.blockNodeContext.nodeAddressBookHistory();
+        final org.hiero.block.internal.RangedAddressBookHistory loaded = app.blockNodeContext.nodeAddressBookHistory();
         assertNotNull(loaded, "History file must populate nodeAddressBookHistory");
         assertEquals(2, loaded.addressBooks().size(), "Two eras must be loaded");
         app.stopApplicationStateFacility();
@@ -620,17 +621,18 @@ class BlockNodeAppTest {
         // Write a valid single-book RSA file (needs a real RSA key to pass validateAddressBook)
         final java.security.KeyPairGenerator kpg = java.security.KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
-        final String hexKey = HexFormat.of().formatHex(kpg.generateKeyPair().getPublic().getEncoded());
+        final String hexKey =
+                HexFormat.of().formatHex(kpg.generateKeyPair().getPublic().getEncoded());
         final NodeAddressBook book = NodeAddressBook.newBuilder()
-                .nodeAddress(NodeAddress.newBuilder().nodeId(1).rsaPubKey(hexKey).build())
+                .nodeAddress(
+                        NodeAddress.newBuilder().nodeId(1).rsaPubKey(hexKey).build())
                 .build();
         Files.createDirectories(rsaPath.getParent());
         Files.write(rsaPath, NodeAddressBook.JSON.toBytes(book).toByteArray());
 
         app.startApplicationStateFacility();
 
-        final org.hiero.block.internal.RangedAddressBookHistory history =
-                app.blockNodeContext.nodeAddressBookHistory();
+        final org.hiero.block.internal.RangedAddressBookHistory history = app.blockNodeContext.nodeAddressBookHistory();
         assertNotNull(history, "Single-book must be wrapped into a history");
         assertEquals(1, history.addressBooks().size(), "Wrapped history must have exactly one era");
         assertEquals(0L, history.addressBooks().getFirst().startBlock());
@@ -692,10 +694,12 @@ class BlockNodeAppTest {
      */
     private static org.hiero.block.internal.RangedAddressBookHistory buildTwoEraHistory() {
         final NodeAddressBook era1 = NodeAddressBook.newBuilder()
-                .nodeAddress(NodeAddress.newBuilder().nodeId(1L).rsaPubKey("aaaa").build())
+                .nodeAddress(
+                        NodeAddress.newBuilder().nodeId(1L).rsaPubKey("aaaa").build())
                 .build();
         final NodeAddressBook era2 = NodeAddressBook.newBuilder()
-                .nodeAddress(NodeAddress.newBuilder().nodeId(2L).rsaPubKey("bbbb").build())
+                .nodeAddress(
+                        NodeAddress.newBuilder().nodeId(2L).rsaPubKey("bbbb").build())
                 .build();
         return org.hiero.block.internal.RangedAddressBookHistory.newBuilder()
                 .addressBooks(List.of(
