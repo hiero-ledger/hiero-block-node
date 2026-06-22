@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
     api(platform("io.netty:netty-bom:4.2.15.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.83.0"))
+    api(platform("com.google.cloud:libraries-bom:26.84.0"))
 }
 
 dependencies.constraints {
     val daggerVersion = "2.59.2"
-    val grpcIoVersion = "1.81.0"
+    val grpcIoVersion = "1.82.0"
     val hederaCryptographyVersion = "3.8.1"
     val helidonVersion = "4.4.1"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
