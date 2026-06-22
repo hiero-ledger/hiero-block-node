@@ -1,29 +1,28 @@
 # Block Node Hardware Specifications
 
 This document defines the minimum hardware requirements and storage/network
-benchmark targets for running a Block Node (BN) in a production mainnet
-environment.
-
-## Table of Contents
-
-1. [Minimum Server Specifications](#minimum-tier-1-server-specifications)
-2. [Storage Benchmark Targets](#storage-benchmark-targets)
-3. [Network Requirements](#network-requirements)
-4. [Network Throughput and Storage Growth Estimates](#network-throughput-and-storage-growth-estimates)
-5. [Additional Considerations](#additional-considerations)
+benchmark targets for running a Block Node (BN) in a production environment.
+It covers Tier 1 mainnet, Tier 2 rolling-history, and testnet/previewnet
+deployments.
 
 ---
 
-## Minimum Tier 1 Server Specifications
+## Which specification applies to you
+
+|                       Node type                        |        Network        |                                  See section                                  |
+|--------------------------------------------------------|-----------------------|-------------------------------------------------------------------------------|
+| Tier 1 — receives stream directly from Consensus Nodes | Mainnet               | [Tier 1 Mainnet Server Specifications](#tier-1-mainnet-server-specifications) |
+| Tier 2 — receives stream from another Block Node       | Mainnet               | [Tier 2 Server Specifications](#tier-2-server-specifications)                 |
+| Any tier                                               | Testnet or Previewnet | [Testnet and Previewnet Sizing](#testnet-and-previewnet-sizing)               |
+
+---
+
+## Tier 1 Mainnet Server Specifications
 
 Two deployment profiles are supported based on how block history is stored at
 the Tier 1 level:
 
-> Note: Tier 2 operators have the flexibility of choice. Here we recommend they
-> adopt the Local Full History specs and customize their HDD storage size based
-> on their business needs, depreciation cycles, and deployed plugins.
-
-### 1. Local Full History (LFH)
+### Local Full History (LFH)
 
 All block history is stored locally on the server. The NVMe holds recent/live
 blocks and live state; the bulk disk holds the long-term compressed block
@@ -38,7 +37,7 @@ archive.
 | Network           | 2 × 10 Gbps NICs                                                                                                            |
 | OS                | Linux host OS (Ubuntu 24.04 LTS or Debian 13.x LTS recommended)                                                             |
 
-### 2. Remote Full History (RFH)
+### Remote Full History (RFH)
 
 Block history is stored remotely (e.g. cloud object store). The NVMe holds
 recent/live blocks and live state only; historical data is offloaded to object
@@ -54,33 +53,115 @@ storage.
 
 #### Recommendations
 
-* NICs: 25 Gbps or higher are recommended for better throughput and
+- NICs: 25 Gbps or higher are recommended for better throughput and
   future-proofing, although 10 Gbps is the stated minimum.
-* Bulk storage: 500 TB is recommended for LFH to accommodate long-term block
+- Bulk storage: 500 TB is recommended for LFH to accommodate long-term block
   history and state growth. A lower 300 TB is considered adequate, potentially
   with a shorter upgrade timeline, and 100 TB is the minimum requirement for
   Tier 1.
-* Servers may be sourced from bare metal providers or cloud providers offering
+- Servers may be sourced from bare metal providers or cloud providers offering
   dedicated instances. LFH configurations require significant storage capacity
   and are typically sourced from bare metal providers or purchased outright for
   self hosting or colocation.
-* **Enterprise NVMe sizing**: Enterprise-grade drives marketed as "8 TB" are
+- **Enterprise NVMe sizing**: Enterprise-grade drives marketed as "8 TB" are
   commonly shipped at lower usable capacities (e.g. 7.84 TB, 7.68 TB, or
   6.4 TB) due to overprovisioning for endurance. These capacities are
   acceptable provided the application's usable space requirement is met: 7.5 TB.
-* **OS disk**: A **separate dedicated drive for the OS is strongly recommended** so
+- **OS disk**: A **separate dedicated drive for the OS is strongly recommended** so
   that the OS does not compete with the application for NVMe space and disk I/O. This
   is not always possible due to port and drive slot limitations on some server models, but it should be
   prioritized when possible.
   If no separate OS drive is available and the OS must share the Fast NVMe:
-  * A minimum of **at least the application's working set** of NVMe space must
+  - A minimum of **at least the application's working set** of NVMe space must
     remain available to the block node at all times; do not allow the OS
     partition to grow unbounded, and allow at least 10 GB for OCI image storage.
-  * Logs and other ephemeral OS data should be **eagerly reclaimed** (e.g. via
+  - Logs and other ephemeral OS data should be **eagerly reclaimed** (e.g. via
     aggressive log rotation) to avoid crowding out application I/O.
-  * Scheduled maintenance tasks (log rotation, `tmpwatch`, `journald` vacuum,
+  - Scheduled maintenance tasks (log rotation, `tmpwatch`, `journald` vacuum,
     etc.) should **not** be configured to run at or near UTC midnight, when
     block-node I/O activity is typically elevated.
+
+---
+
+## Tier 2 Server Specifications
+
+[Tier 2 Block Nodes](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/Block-Node-Types.md)
+receive their block stream from another Block Node rather than directly from
+Consensus Nodes. Most Tier 2 nodes are expected to operate as Rolling-History
+nodes, retaining only a configurable window of recent blocks. Tier 2 nodes are
+still required to verify the block stream they receive, but are not required to
+store the full history of the network.
+
+### Rolling-History (Partial History) Tier 2
+
+A Rolling-History Tier 2 node does not store full blockchain history. CPU and
+RAM requirements match Tier 1 because the same verification and persistence
+pipeline runs. The `stream-publisher` plugin is not deployed, so there is no
+inbound stream from Consensus Nodes. Bulk HDD storage is sized to the retention
+window rather than the full block history.
+
+|     Component     |                          Minimum Specification                          |
+|-------------------|-------------------------------------------------------------------------|
+| CPU               | 24 cores / 48 threads, single socket, ≥ 2.0 GHz base clock              |
+| RAM               | 256 GB                                                                  |
+| Fast NVMe Disk    | 7.5 TB NVMe SSD (recent blocks + live state)                            |
+| Bulk Storage Disk | Size to retention window (see table below)                              |
+| Network           | 10 Gbps NIC minimum (see [Network Requirements](#network-requirements)) |
+| OS                | Linux host OS (Ubuntu 24.04 LTS or Debian 13.x LTS recommended)         |
+
+**Bulk storage by retention window (at 10K TPS mainnet, 20% headroom):**
+
+| Retention | On-disk estimate (zstd, 20% headroom) |
+|-----------|--------------------------------------:|
+| 7 days    |                                2.8 TB |
+| 30 days   |                               11.9 TB |
+| 90 days   |                               35.6 TB |
+| 1 year    |                              144.5 TB |
+
+Estimates use the same block-size model as the mainnet tables below:
+`Block_zstd = 88,963 + 372.8 × T bytes` (T = transactions per block at 10K TPS
+mainnet). The 7.5 TB NVMe tier supports approximately 19 days of blocks at 10K
+TPS with 20% headroom. Operators retaining longer windows should provision
+additional HDD bulk storage.
+
+### Full History Tier 2
+
+Tier 2 nodes that choose to store the complete block history should use the
+[Tier 1 LFH specification](#local-full-history-lfh).
+
+---
+
+## Testnet and Previewnet Sizing
+
+Testnet and previewnet run at significantly lower TPS than mainnet, reducing
+both CPU load and storage requirements.
+
+### Recommended VM sizing
+
+For automated deployment using [Solo Provisioner](https://github.com/hashgraph/solo-weaver),
+select a machine with at least 16 vCPUs and 32 GB RAM (for example,
+GCP `e2-standard-16`) for `previewnet` or `testnet` profiles. For local testing
+and learning deployments, `e2-standard-8` (4 physical cores, 8 vCPUs, 32 GB
+RAM) is the minimum. See the
+[Virtual Machine Single Node Kubernetes Deployment Guide](./solo-weaver-single-node-k8s-deployment.md)
+for the full step-by-step walkthrough.
+
+> **Note:** Solo Provisioner (`sudo solo-provisioner block node install -p testnet`
+> or `-p previewnet`) handles storage provisioning automatically based on the
+> selected profile. Manual sizing from this section is needed only when
+> deploying outside the Solo Provisioner flow.
+
+### Storage estimates
+
+Applying the block size model at lower TPS:
+
+| TPS | On-disk / block (zstd) | Per day (zstd) | Per month (zstd) |
+|----:|-----------------------:|---------------:|-----------------:|
+| 100 |                0.13 MB |          11 GB |           330 GB |
+| 500 |                0.28 MB |          24 GB |           715 GB |
+
+Actual testnet block sizes vary with transaction mix; these figures serve as
+planning estimates. Storage requirements are significantly smaller than mainnet.
 
 ---
 
@@ -100,23 +181,23 @@ across all drives in the configuration, not per-drive requirements.
 
 #### Notes
 
-* IOPS profile numbers are averages; peak IOPS will be defined by the speed of
+- IOPS profile numbers are averages; peak IOPS will be defined by the speed of
   cache, not the speed of the disk itself.
-* The Fast NVMe disk serves recent/live block storage and live state management;
+- The Fast NVMe disk serves recent/live block storage and live state management;
   the Bulk Disk serves the historic block archive in LFH configurations.
-* P99 latency targets apply only to the Fast NVMe tier. Bulk Disk latency is
+- P99 latency targets apply only to the Fast NVMe tier. Bulk Disk latency is
   workload-dependent and not explicitly bounded.
 
 #### Bulk tier hardware
 
-* **Medium**: HDD is the intended medium for the bulk tier. SSD or NVMe is not
+- **Medium**: HDD is the intended medium for the bulk tier. SSD or NVMe is not
   required at the 100 TB+ capacity and is typically cost-prohibitive at that
   scale.
-* **Aggregate, not per-drive**: The IOPS and bandwidth targets are aggregate
+- **Aggregate, not per-drive**: The IOPS and bandwidth targets are aggregate
   across all drives in the configuration, not per-drive requirements.
   Achievable with at least 12 drives in RAID-0; fewer may be sufficient
   depending on the specific hardware.
-* **Caching layer**: With sufficient physical drives, a dedicated read/write
+- **Caching layer**: With sufficient physical drives, a dedicated read/write
   cache layer in front of the bulk drives is not needed and is not
   recommended.
 
@@ -132,9 +213,9 @@ across all drives in the configuration, not per-drive requirements.
 
 #### Notes
 
-* Consensus Nodes (CNs) and Block Nodes (BNs) must have strong and stable
+- Consensus Nodes (CNs) and Block Nodes (BNs) must have strong and stable
   network connections without excessive latency.
-* Excessive (over 30ms) inter-node latency risks stream backpressure and
+- Excessive (over 30ms) inter-node latency risks stream backpressure and
   increased buffering requirements.
 
 ---
@@ -155,12 +236,12 @@ T = transactions per block = TPS × block_interval
 
 #### Assumptions used in the tables below
 
-* Block interval: 1 second (1 block/sec — conservative; mainnet in early 2026
+- Block interval: 1 second (1 block/sec — conservative; mainnet in early 2026
   runs at 0.5 blocks/sec)
-* Compression ratio: 2.39× (zstd, from v3 mixed-workload model)
-* Worst-case egress subscribers: 33 (13 Block Nodes backfilling +
+- Compression ratio: 2.39× (zstd, from v3 mixed-workload model)
+- Worst-case egress subscribers: 33 (13 Block Nodes backfilling +
   10 Mirror Nodes + 10 DApps)
-* Worst-case ingress: 4 parallel catch-up streams from Consensus Nodes
+- Worst-case ingress: 4 parallel catch-up streams from Consensus Nodes
   (workload assumption for capacity planning, not a software-enforced limit;
   the actual per-node TCP connection cap is configured by
   `server.maxTcpConnections`, default 1000)
@@ -249,17 +330,17 @@ uncompressed stream. All figures use the raw (uncompressed) wire size.
 
 ## Additional Considerations
 
-* **Clock speed**: Base CPU clock speed must be ≥ 2.0 GHz. Higher clock speeds
+- **Clock speed**: Base CPU clock speed must be ≥ 2.0 GHz. Higher clock speeds
   reduce per-block processing latency, which is important for keeping up with
   mainnet block production rates.
-* **CPU socket configuration**: Only single-socket configurations have been
+- **CPU socket configuration**: Only single-socket configurations have been
   tested. Dual-socket configurations are not recommended until explicitly
   validated; operators using dual-socket hardware do so at their own risk and
   should expect potential NUMA-related performance issues.
-* **PCIe generation**: PCIe 4.0 or higher is required to sustain the combined
+- **PCIe generation**: PCIe 4.0 or higher is required to sustain the combined
   NVMe and network maximum throughput targets above. PCIe 3.0 configurations may
   be bandwidth-limited.
-* **OS disk**: A separate dedicated OS drive is strongly recommended. If the OS
+- **OS disk**: A separate dedicated OS drive is strongly recommended. If the OS
   shares the Fast NVMe disk, ensure sufficient capacity remains reserved for the
   application, reclaim ephemeral data aggressively, and avoid scheduling
   maintenance tasks at UTC midnight. Allow at least 10 GB for OCI image storage.
