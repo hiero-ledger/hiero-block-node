@@ -383,7 +383,7 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
             long zipFirstBlock = Long.parseLong(numStr);
 
             // Each zip contains 10,000 blocks
-            long zipLastBlock = zipFirstBlock + 10_000 - 1;
+            long zipLastBlock = zipFirstBlock + BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP - 1;
 
             // Update last copied block
             state.lastCopiedBlock = Math.max(state.lastCopiedBlock, zipLastBlock);
