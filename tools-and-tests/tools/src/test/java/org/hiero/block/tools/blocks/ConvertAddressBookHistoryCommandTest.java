@@ -325,6 +325,15 @@ class ConvertAddressBookHistoryCommandTest {
         }
 
         @Test
+        @DisplayName("Default --output points at the BN's application-state directory")
+        void defaultOutputUsesBnApplicationStateDir() {
+            assertEquals(
+                    Path.of("/opt/hiero/block-node/application-state/rsa-bootstrap-roster-history.json"),
+                    ConvertAddressBookHistoryCommand.DEFAULT_OUTPUT_PATH,
+                    "default output must land where the BN bootstrap reads from");
+        }
+
+        @Test
         @DisplayName("--help prints usage with the command name and key options")
         void helpOutput() {
             java.io.StringWriter out = new java.io.StringWriter();

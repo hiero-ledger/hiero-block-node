@@ -70,10 +70,18 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             required = true)
     private Path inputFile;
 
+    /**
+     * Default output path mirrors today's single-book layout (see
+     * {@code ApplicationStateConfig.rsaBootstrapFilePath}) so that, by default, the file lands
+     * where the BN's historical-roster bootstrap (T4) is expected to read it from.
+     */
+    static final Path DEFAULT_OUTPUT_PATH =
+            Path.of("/opt/hiero/block-node/application-state/rsa-bootstrap-roster-history.json");
+
     @Option(
             names = {"-o", "--output"},
-            description = "Path to write the roster history JSON (default: rsa-bootstrap-roster-history.json)")
-    private Path outputFile = Path.of("rsa-bootstrap-roster-history.json");
+            description = "Path to write the roster history JSON (default: ${DEFAULT-VALUE})")
+    private Path outputFile = DEFAULT_OUTPUT_PATH;
 
     @Option(
             names = {"--block-times-file"},
