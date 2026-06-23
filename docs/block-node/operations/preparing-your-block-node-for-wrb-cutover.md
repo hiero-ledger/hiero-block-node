@@ -71,13 +71,13 @@ sudo solo-provisioner block node check --profile=mainnet
 
 The Block Node uses five persistent volumes. Confirm each is mounted and has adequate free space before upgrading. The `solo-provisioner block node check` preflight validates storage requirements for the configured profile.
 
-|     Volume     |                                                  Default mount path                                                  | Minimum free space |                Purpose                 |
-|----------------|----------------------------------------------------------------------------------------------------------------------|--------------------|----------------------------------------|
-| `live`         | `blockNode.persistence.live.mountPath` (default `/opt/hiero/block-node/data/live`)                                   | 1 GB               | Recent block stream and live state     |
-| `archive`      | `blockNode.persistence.archive.mountPath` (default `/opt/hiero/block-node/data/historic`)                            | 1 GB               | Compressed historic block archive      |
-| `verification` | `blockNode.persistence.verification.mountPath` (default `/opt/hiero/block-node/verification`)                        | 500 MB             | Block hash state and verification data |
-| `logging`      | `blockNode.persistence.logging.mountPath` (default `/opt/hiero/block-node/logs`)                                     | 1 GB               | Application logs                       |
-| `plugins`      | `blockNode.persistence.plugins` (not mounted by default; present only when additional plugins are explicitly loaded) | —                  | Plugin JARs                            |
+|     Volume     |                                      Default mount path                                       | Minimum free space |                                         Purpose                                         |
+|----------------|-----------------------------------------------------------------------------------------------|--------------------|-----------------------------------------------------------------------------------------|
+| `live`         | `blockNode.persistence.live.mountPath` (default `/opt/hiero/block-node/data/live`)            | 6 TB               | Recent block stream and live state                                                      |
+| `archive`      | `blockNode.persistence.archive.mountPath` (default `/opt/hiero/block-node/data/historic`)     | 90 TB              | Compressed historic block archive                                                       |
+| `verification` | `blockNode.persistence.verification.mountPath` (default `/opt/hiero/block-node/verification`) | 500 MB             | Block hash state and verification data                                                  |
+| `logging`      | `blockNode.persistence.logging.mountPath` (default `/opt/hiero/block-node/logs`)              | 10 GB              | Application logs                                                                        |
+| `plugins`      | `blockNode.persistence.plugins`                                                               | —                  | Plugin JARs; always mounted but may contain no JARs until plugins are explicitly loaded |
 
 > Note: The exact mount paths depend on your Helm values. Run `helm -n block-node get values <release-name>` to inspect your installation's overrides.
 
@@ -137,7 +137,7 @@ Complete the subsection below that matches the upgrade you are preparing for. Fu
 
 ### WRB streaming cutover prep
 
-**Applies to:** the Consensus Node release that activates Wrapped Record Block (WRB) streaming — currently scheduled for CN release 0.77.0. The exact release may change if release testing surfaces a blocker; your Hashgraph PoC will confirm the target release before the maintenance window.
+**Applies to:** the Consensus Node release that activates Wrapped Record Block (WRB) streaming — currently scheduled for CN release 0.75.0. The exact release may change if release testing surfaces a blocker; your Hashgraph PoC will confirm the target release before the maintenance window.
 
 For the full network cutover timeline — phases, CN-side WRB catch-up, TSS ceremony, and Jumpstart Data — see [Cutover Process and Timeline](../Cutover-Process.md).
 
