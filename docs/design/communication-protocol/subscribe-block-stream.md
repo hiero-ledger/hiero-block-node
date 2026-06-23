@@ -57,10 +57,10 @@ Each `SubscribeStreamResponse` carries exactly one of three variants:
 
 - A `BlockItemSet` SHALL NOT span more than one block.
 - The `BlockHeader` appears exactly once per block, in the first `block_items` message for that block, and MUST be the first item in that set.
-- The `BlockProof` appears exactly once per block, in the last `block_items` message for that block, and MUST be the last item in that set.
-- All `block_items` messages between the header and proof carry intermediate block items with no header or proof.
+- The `BlockFooter` appears exactly once per block and is the last non-proof block item. One or more `BlockProof` items follow the `BlockFooter`.
+- All `block_items` messages between the header and footer carry intermediate block items with no header or footer.
 
-When reassembling a block from the stream, a new block begins on each `BlockHeader` and is complete when the corresponding `BlockProof` is received and confirmed by the subsequent `end_of_block` message.
+When reassembling a block from the stream, a new block begins on each `BlockHeader`, is complete when the corresponding `BlockFooter` is received, is followed by one or more `BlockProof` items, and terminated by a single `end_of_block` message.
 
 **`end_of_block`** — a `BlockEnd` message carrying the `block_number` of the completed block. The Block Node sends exactly one `end_of_block` per block, emitted immediately after all `block_items` for that block. The message immediately following a `BlockEnd` is either a new `block_items` starting with a `BlockHeader`, or the terminal `status`.
 
@@ -76,7 +76,7 @@ block_items...  end_of_block(M)
 status(SUCCESS)
 ```
 
-For an indefinite request (`end_block_number` = `uint64_max`) the `status` message is sent only when the stream is closed by an error or a Block Node shutdown.
+For an indefinite request (`end_block_number` = `uint64_max`) the `status` message is sent only when the stream is closed by an error, a Block Node shutdown, or when the stream reaches maximum connection duration (typically around 600,000 blocks, if enabled).
 
 ### Base protocol diagram
 
@@ -109,11 +109,13 @@ sequenceDiagram
 
 In bounded-range mode (`start_block_number` = N, `end_block_number` = M where M ≥ N) the Block Node reads the requested blocks from persistent storage. The stream ends with `status(SUCCESS)` once block M has been fully delivered.
 
-If a block in the requested range is not found in storage, the Block Node closes the stream with `NOT_AVAILABLE`.
+If `end_block_number` M extends beyond the latest persisted block, the Block Node transitions to live-stream delivery for the remaining blocks rather than returning `NOT_AVAILABLE`. `NOT_AVAILABLE` is returned mid-stream only when a specific block cannot be provided at all — for example, because it was pruned from storage after the request was accepted.
 
 ### Live streaming
 
 In live-only mode (both fields = `uint64_max`) the Block Node attaches the subscriber to the live block queue and begins delivery from the next complete block it receives. No historical blocks are delivered. If the Block Node is mid-block at connection time, delivery begins after that block completes.
+
+> **Note:** Live blocks are delivered concurrently with verification and are therefore not guaranteed to be verified before delivery. Live blocks may contain errors, may be repeated, or may be incomplete. Receivers are responsible for handling these conditions and are encouraged to verify each block using all attached `BlockProof` items.
 
 ### Hybrid streaming
 
@@ -122,6 +124,8 @@ In from-start-indefinite mode (`start_block_number` = N, `end_block_number` = `u
 This is the most common pattern for Mirror Nodes, which require a contiguous block history from a known checkpoint through the current tip and onward.
 
 > **Note:** The Block Node maintains a live-block queue per session. If a subscriber processes historical blocks more slowly than the Block Node receives new live blocks, older live-queue entries may be dropped to prevent the queue from filling. Dropped entries are not lost: the Block Node re-reads those blocks from persistent storage when the historical phase catches up to them.
+>
+> **Note:** Blocks delivered from the live queue are not verified before delivery. Live blocks may contain errors, may be repeated, or may be incomplete. Receivers are responsible for handling these conditions and are encouraged to verify each block using all attached `BlockProof` items.
 
 ### Streaming mode diagram
 
@@ -165,14 +169,14 @@ A request for a start block within the permitted future window but not yet produ
 
 > **Note:** `NOT_AVAILABLE` (not `INVALID_START_BLOCK_NUMBER`) is returned when `start_block_number` is too far ahead of the current tip. `INVALID_START_BLOCK_NUMBER` is returned only when `start_block_number` is below `first_available_block` or is otherwise structurally invalid.
 
-## Error codes
+## Result Codes
 
 The terminal `status` message carries one of the following `Code` values. The Block Node sends exactly one `status` per session, as the final message.
 
 | Code                         | Value | When returned                                                                                                                    | Subscriber action                                                                     |
 |:-----------------------------|:-----:|:---------------------------------------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------------------------|
 | `UNKNOWN`                    |   0   | Software defect; SHALL NOT be intentionally set                                                                                  | Treat as `ERROR`; reconnect with exponential back-off                                 |
-| `SUCCESS`                    |   1   | All requested blocks delivered, or orderly Block Node shutdown                                                                   | If more blocks are expected, reconnect from the last received `block_number` + 1      |
+| `SUCCESS`                    |   1   | All requested blocks delivered, orderly Block Node shutdown, or maximum connection duration reached (if enabled)                 | If more blocks are expected, reconnect from the last received `block_number` + 1      |
 | `INVALID_REQUEST`            |   2   | Request is structurally malformed (defensive code; not triggered by a well-formed gRPC call with valid uint64 fields)            | Fix the request; do not retry unchanged                                               |
 | `ERROR`                      |   3   | Block Node internal error                                                                                                        | Reconnect with exponential back-off; try a different Block Node if the error persists |
 | `INVALID_START_BLOCK_NUMBER` |   4   | `start_block_number` is below `first_available_block` or is otherwise invalid                                                    | Call `serverStatus`; correct `start_block_number`; retry                              |
@@ -181,7 +185,7 @@ The terminal `status` message carries one of the following `Code` values. The Bl
 
 When the Block Node shuts down gracefully it closes each open session with `status(SUCCESS)`. New connection attempts received during shutdown are immediately closed with `NOT_AVAILABLE`.
 
-Because `SUCCESS` does not imply all requested blocks were delivered (orderly shutdown is also reported as `SUCCESS`), subscribers MUST NOT assume delivery is complete on receiving `SUCCESS` for an indefinite or partially-delivered stream.
+Because `SUCCESS` does not imply all requested blocks were delivered (orderly shutdown and connection limit are also reported as `SUCCESS`), subscribers MUST NOT assume delivery is complete on receiving `SUCCESS` for an indefinite or partially-delivered stream.
 
 ### Error handling diagram
 
@@ -219,8 +223,8 @@ sequenceDiagram
 If the stream closes for any reason, the subscriber SHOULD:
 
 1. Record the `block_number` from the last `end_of_block` message received. Use `block_number + 1` as `start_block_number` for the next request. If no `end_of_block` was received before the stream closed, reconnect using the original `start_block_number`.
-2. Call `serverStatus` to confirm the new start block is within the available range on the target Block Node.
-3. Issue a new `subscribeBlockStream` request from that start block, applying exponential back-off if consecutive attempts fail.
-4. Consider falling back to a different Block Node if errors on the primary persist.
+2. Call `serverStatus` to confirm the new start block is within the available range on the target Block Node, or not overly far in the future.
+3. Apply exponential back-off if consecutive attempts fail across multiple Block Nodes.
+4. Switch to a different Block Node and issue a new `subscribeBlockStream` request from that start block.
 
-The Block Node streams blocks in strict ascending order with no gaps within a session. If a block in the requested range cannot be provided mid-stream (for example because it was pruned from storage after the request was accepted), the Block Node closes the stream with `NOT_AVAILABLE`. On receiving `NOT_AVAILABLE` mid-stream, call `serverStatus` and reconnect from the earliest block that covers the needed range, potentially from a different Block Node.
+The Block Node makes a reasonable effort to stream blocks in strict ascending order with no gaps within a session, but some exceptions may occur, particularly for "live" blocks. If a block in the requested range cannot be provided mid-stream (for example because it was pruned from storage after the request was accepted), the Block Node closes the stream with `NOT_AVAILABLE`. On receiving `NOT_AVAILABLE` mid-stream, call `serverStatus` and reconnect from the earliest block that covers the needed range, potentially from a different Block Node.
