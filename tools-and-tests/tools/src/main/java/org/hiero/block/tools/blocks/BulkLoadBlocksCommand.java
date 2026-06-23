@@ -292,7 +292,7 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
                     // Skip staging, links, and zipwork directories if they exist in source
-                    String dirName = dir.getFileName().toString();
+                    String dirName = dir.getFileName() == null ? "" : dir.getFileName().toString();
                     if (dirName.equals("staging") || dirName.equals("links") || dirName.equals("zipwork")) {
                         System.out.println(Ansi.AUTO.string("@|yellow Skipping directory:|@ " + dirName));
                         return FileVisitResult.SKIP_SUBTREE;
