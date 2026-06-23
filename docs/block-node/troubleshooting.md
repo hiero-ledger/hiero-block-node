@@ -145,14 +145,14 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
            '{"start_block_number": <BLOCK>, "end_block_number": <BLOCK>}'
        ```
    - Verify the correct advertised hostname / IP and port in Block Node config, and that DNS or load balancer points to the active node.
-3. **TLS and auth**
+3. **TLS and auth (if TLS is enabled)**
    - Check client logs for:
      - `x509: certificate has expired or is not yet valid`.
      - Hostname mismatch between certificate and endpoint.
      - Unknown CA / trust failures.
    - On the Block Node, confirm TLS cert and key paths are correct, readable, and that certificates are not expired and the chain is complete.
 4. **Service configuration**
-   - Ensure `BlockStreamSubscribeService` is enabled in the Block Node configuration.
+   - Ensure `stream-subscriber` is present in the Block Node plugin configuration.
    - Check any rate limits or `max-connections` settings that might be rejecting clients.
 5. **Resolution**
    - Fix endpoint configuration (advertise address / port), update DNS or load balancer if needed.
@@ -318,7 +318,7 @@ The table below is a **summary-only quick reference**. Use the runbooks above fo
 |                    **Issue**                     |                               **Symptoms**                                |                                              **Diagnosis**                                               |                                                                  **Resolution**                                                                   |
 |--------------------------------------------------|---------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
 | Node not receiving new blocks                    | Ingest appears stalled, logs show no publish activity                     | Check firewall / TLS on ingest port (default `40840`), Consensus Node logs                               | Open inbound port, verify mutual TLS certs, ensure node is authorized / whitelisted by upstream CN                                                |
-| Block Node operator: subscribers cannot connect  | gRPC connection failures; clients repeatedly reconnecting                 | TLS cert check; endpoint config; `BlockStreamSubscribeService` enabled                                   | Fix endpoint or firewall; renew TLS certs; enable `BlockStreamSubscribeService`                                                                   |
+| Block Node operator: subscribers cannot connect  | gRPC connection failures; clients repeatedly reconnecting                 | TLS cert check (if TLS is enabled); endpoint config; `stream-subscriber` plugin present                  | Fix endpoint or firewall; renew TLS certs (if TLS is enabled); add `stream-subscriber` to plugin configuration                                    |
 | Mirror Node operator: Mirror Node cannot connect | MN block height not advancing; repeated subscribe errors in importer logs | `nc` reachability; `serverStatus` output; subscribe smoke test; MN `block.*` config                      | Fix endpoint or firewall; correct `requiresTls`; see [connecting guide](./operations/connecting-a-mirror-node-to-a-block-node.md#troubleshooting) |
 | Disk full / out of space                         | Node crashes or refuses new blocks                                        | `df -h`, `files_recent_total_bytes_stored` nearing limit                                                 | Prune old blocks (partial-history), expand volume, or migrate to archive node                                                                     |
 | Metrics endpoint not accessible                  | Grafana dashboards empty, Prometheus target `DOWN`                        | Port `16007` blocked or metrics disabled via config                                                      | Open port, enable metrics, fix Prometheus scrape job                                                                                              |
