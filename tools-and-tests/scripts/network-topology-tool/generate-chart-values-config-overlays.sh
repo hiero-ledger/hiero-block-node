@@ -160,102 +160,121 @@ function get_service_dns {
   echo "${service_name}.${namespace}.svc.cluster.local"
 }
 
-# Generate Block Node overlay for a block node with peers
-# Only generates overlay if the block node has peers configured
+# Generate Block Node overlay for a block node with peers and/or plugin_ports.
+# Only generates the overlay file when there is something to emit.
 function generate_bn_overlay {
   local bn_name="${1}"
   local output_file="${2}"
 
-  # Check if this block node has peers (yq returns "null" string if not present)
+  # Determine if this block node has peers
   local has_peers
   has_peers=$(yq ".block_nodes[\"${bn_name}\"].peers // \"\"" "${TOPOLOGY_FILE}" 2>/dev/null)
-
-  if [[ -z "${has_peers}" ]] || [[ "${has_peers}" == "null" ]]; then
-    return 0  # No peers, no overlay needed
+  local peer_count=0
+  if [[ -n "${has_peers}" ]] && [[ "${has_peers}" != "null" ]]; then
+    peer_count=$(yq ".block_nodes[\"${bn_name}\"].peers | length" "${TOPOLOGY_FILE}" 2>/dev/null)
   fi
 
-  # Get peer count
-  local peer_count
-  peer_count=$(yq ".block_nodes[\"${bn_name}\"].peers | length" "${TOPOLOGY_FILE}" 2>/dev/null)
-
-  if [[ "${peer_count}" -eq 0 ]]; then
-    return 0  # No peers found
+  # Determine if this block node has plugin_ports
+  local raw_plugin_ports
+  raw_plugin_ports=$(yq ".block_nodes[\"${bn_name}\"].plugin_ports // \"\"" "${TOPOLOGY_FILE}" 2>/dev/null)
+  local has_plugin_ports="false"
+  if [[ -n "${raw_plugin_ports}" ]] && [[ "${raw_plugin_ports}" != "null" ]]; then
+    has_plugin_ports="true"
   fi
 
-  # Get peer names - simple extraction (handles string array)
-  local peer_names
-  peer_names=$(yq -r ".block_nodes[\"${bn_name}\"].peers[]" "${TOPOLOGY_FILE}" 2>/dev/null)
-
-  if [[ -z "${peer_names}" ]]; then
-    return 0  # No peers found
+  # Nothing to generate
+  if [[ "${peer_count}" -eq 0 ]] && [[ "${has_plugin_ports}" == "false" ]]; then
+    return 0
   fi
 
-  # Build sources array
+  # Build backfill sources array (only when peers are configured)
   local sources=""
-  local priority=1
-  while IFS= read -r peer; do
-    [[ -z "${peer}" ]] && continue
+  local greedy_mode="false"
 
-    local peer_port
-    peer_port=$(yq ".block_nodes[\"${peer}\"].port // 40840" "${TOPOLOGY_FILE}")
-    local peer_dns
-    peer_dns=$(get_service_dns "${peer}" "${NAMESPACE}")
+  if [[ "${peer_count}" -gt 0 ]]; then
+    local peer_names
+    peer_names=$(yq -r ".block_nodes[\"${bn_name}\"].peers[]" "${TOPOLOGY_FILE}" 2>/dev/null)
 
-    # Read gRPC tuning from the peer node (if configured)
-    local grpc_tuning=""
-    local max_frame_size
-    max_frame_size=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.max_frame_size // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
-    local initial_window_size
-    initial_window_size=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.initial_window_size // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
-    local initial_buffer_size
-    initial_buffer_size=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.initial_buffer_size // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
-    local connect_timeout
-    connect_timeout=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.connect_timeout // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
-    local read_timeout
-    read_timeout=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.read_timeout // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
+    if [[ -z "${peer_names}" ]]; then
+      peer_count=0  # Treat as no peers if names could not be read
+    else
+      local priority=1
+      while IFS= read -r peer; do
+        [[ -z "${peer}" ]] && continue
 
-    # Build grpc_webclient_tuning block if any tuning is configured
-    if [[ "${max_frame_size}" -gt 0 ]] || [[ "${initial_window_size}" -gt 0 ]] || \
-       [[ "${initial_buffer_size}" -gt 0 ]] || [[ "${connect_timeout}" -gt 0 ]] || \
-       [[ "${read_timeout}" -gt 0 ]]; then
-      grpc_tuning="
+        local peer_port
+        peer_port=$(yq ".block_nodes[\"${peer}\"].port // 40840" "${TOPOLOGY_FILE}")
+        local peer_dns
+        peer_dns=$(get_service_dns "${peer}" "${NAMESPACE}")
+
+        # Read gRPC tuning from the peer node (if configured)
+        local grpc_tuning=""
+        local max_frame_size
+        max_frame_size=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.max_frame_size // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
+        local initial_window_size
+        initial_window_size=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.initial_window_size // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
+        local initial_buffer_size
+        initial_buffer_size=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.initial_buffer_size // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
+        local connect_timeout
+        connect_timeout=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.connect_timeout // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
+        local read_timeout
+        read_timeout=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.read_timeout // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
+
+        if [[ "${max_frame_size}" -gt 0 ]] || [[ "${initial_window_size}" -gt 0 ]] || \
+           [[ "${initial_buffer_size}" -gt 0 ]] || [[ "${connect_timeout}" -gt 0 ]] || \
+           [[ "${read_timeout}" -gt 0 ]]; then
+          grpc_tuning="
         grpc_webclient_tuning:"
-      [[ "${max_frame_size}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
+          [[ "${max_frame_size}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
           max_frame_size: ${max_frame_size}"
-      [[ "${initial_window_size}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
+          [[ "${initial_window_size}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
           initial_window_size: ${initial_window_size}"
-      [[ "${initial_buffer_size}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
+          [[ "${initial_buffer_size}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
           initial_buffer_size: ${initial_buffer_size}"
-      [[ "${connect_timeout}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
+          [[ "${connect_timeout}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
           connect_timeout: ${connect_timeout}"
-      [[ "${read_timeout}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
+          [[ "${read_timeout}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
           read_timeout: ${read_timeout}"
-    fi
+        fi
 
-    sources="${sources}
+        sources="${sources}
       - address: \"${peer_dns}\"
         port: ${peer_port}
         priority: ${priority}${grpc_tuning}"
-    priority=$((priority + 1))
-  done <<< "${peer_names}"
+        priority=$((priority + 1))
+      done <<< "${peer_names}"
 
-  # Read greedy mode from topology (defaults to false if not specified)
-  local greedy_mode
-  greedy_mode=$(yq ".block_nodes[\"${bn_name}\"].greedy // false" "${TOPOLOGY_FILE}" 2>/dev/null)
+      greedy_mode=$(yq ".block_nodes[\"${bn_name}\"].greedy // false" "${TOPOLOGY_FILE}" 2>/dev/null)
+    fi
+  fi
 
-  # Write the overlay
-  cat > "${output_file}" << EOF
-# Generated by generate-chart-values-config-overlays.sh from topology: ${TOPOLOGY_NAME}
-# Block Node: ${bn_name}
-blockNode:
-  config:
-    BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
-    BACKFILL_GREEDY: "${greedy_mode}"
-  backfill:
-    path: "/opt/hiero/block-node/backfill"
-    filename: "block-node-sources.json"
-    sources:${sources}
-EOF
+  # Write the overlay with a single blockNode: root (avoids duplicate-key issues in YAML)
+  {
+    echo "# Generated by generate-chart-values-config-overlays.sh from topology: ${TOPOLOGY_NAME}"
+    echo "# Block Node: ${bn_name}"
+    echo "blockNode:"
+
+    # Per-plugin port overrides (blockNode.ports). Keys are passed through as-is — use
+    # camelCase to match the Helm chart (publisher, subscriber, blockAccess, health, serverStatus).
+    if [[ "${has_plugin_ports}" == "true" ]]; then
+      echo "  ports:"
+      while IFS="=" read -r key value; do
+        [[ -z "${key}" ]] && continue
+        echo "    ${key}: ${value}"
+      done < <(yq -r ".block_nodes[\"${bn_name}\"].plugin_ports | to_entries[] | .key + \"=\" + (.value | tostring)" "${TOPOLOGY_FILE}" 2>/dev/null)
+    fi
+
+    # Backfill config (blockNode.config + blockNode.backfill)
+    if [[ "${peer_count}" -gt 0 ]]; then
+      echo "  config:"
+      echo "    BACKFILL_BLOCK_NODE_SOURCES_PATH: \"/opt/hiero/block-node/backfill/block-node-sources.json\""
+      echo "    BACKFILL_GREEDY: \"${greedy_mode}\""
+      echo "  backfill:"
+      echo "    path: \"/opt/hiero/block-node/backfill\""
+      echo "    filename: \"block-node-sources.json\""
+      echo "    sources:${sources}"
+    fi
+  } > "${output_file}"
 
   log_line "Generated BN overlay: %s" "${output_file}"
 }
@@ -444,6 +463,78 @@ function generate_bn_priority_mappings {
   done <<< "${bn_names}"
 }
 
+# Generate CN block-nodes.json files for consensus nodes whose block nodes have non-default
+# publisher (streamingPort) or serverStatus (servicePort) plugin ports.
+# streamingPort = plugin_ports.publisher // topology port // 40840
+# servicePort   = plugin_ports.serverStatus // topology port // 40840
+function generate_cn_block_nodes_json {
+  local output_dir="${1}"
+
+  local has_cn_section
+  has_cn_section=$(yq '.consensus_nodes | keys | length // 0' "${TOPOLOGY_FILE}" 2>/dev/null)
+  [[ "${has_cn_section}" -eq 0 ]] && return 0
+
+  local cn_names
+  cn_names=$(yq -r '.consensus_nodes | keys[]' "${TOPOLOGY_FILE}" 2>/dev/null)
+  [[ -z "${cn_names}" ]] && return 0
+
+  while IFS= read -r cn_name; do
+    [[ -z "${cn_name}" ]] && continue
+
+    local bn_list
+    bn_list=$(yq -r ".consensus_nodes[\"${cn_name}\"].block_nodes[]" "${TOPOLOGY_FILE}" 2>/dev/null)
+    [[ -z "${bn_list}" ]] && continue
+
+    # Only generate if at least one BN in this CN's list has a non-default publisher or serverStatus port
+    local needs_custom_config="false"
+    while IFS= read -r bn_name; do
+      [[ -z "${bn_name}" ]] && continue
+      local pub_port ss_port
+      pub_port=$(yq ".block_nodes[\"${bn_name}\"].plugin_ports.publisher // \"\"" "${TOPOLOGY_FILE}" 2>/dev/null)
+      ss_port=$(yq ".block_nodes[\"${bn_name}\"].plugin_ports.serverStatus // \"\"" "${TOPOLOGY_FILE}" 2>/dev/null)
+      if [[ -n "${pub_port}" && "${pub_port}" != "null" ]] || \
+         [[ -n "${ss_port}" && "${ss_port}" != "null" ]]; then
+        needs_custom_config="true"
+        break
+      fi
+    done <<< "${bn_list}"
+    [[ "${needs_custom_config}" == "false" ]] && continue
+
+    local nodes_json=""
+    local priority=1
+    local first="true"
+
+    while IFS= read -r bn_name; do
+      [[ -z "${bn_name}" ]] && continue
+
+      local bn_dns
+      bn_dns=$(get_service_dns "${bn_name}" "${NAMESPACE}")
+
+      local default_port
+      default_port=$(yq ".block_nodes[\"${bn_name}\"].port // 40840" "${TOPOLOGY_FILE}" 2>/dev/null)
+
+      local streaming_port service_port
+      streaming_port=$(yq ".block_nodes[\"${bn_name}\"].plugin_ports.publisher // ${default_port}" "${TOPOLOGY_FILE}" 2>/dev/null)
+      service_port=$(yq ".block_nodes[\"${bn_name}\"].plugin_ports.serverStatus // ${default_port}" "${TOPOLOGY_FILE}" 2>/dev/null)
+
+      [[ "${first}" != "true" ]] && nodes_json="${nodes_json},"
+      nodes_json="${nodes_json}
+    {
+      \"address\": \"${bn_dns}\",
+      \"streamingPort\": ${streaming_port},
+      \"servicePort\": ${service_port},
+      \"priority\": ${priority}
+    }"
+      first="false"
+      priority=$((priority + 1))
+    done <<< "${bn_list}"
+
+    local output_file="${output_dir}/cn-${cn_name}-block-nodes.json"
+    printf '{\n  "nodes": [%s\n  ],\n  "blockItemBatchSize": 256\n}\n' "${nodes_json}" > "${output_file}"
+    log_line "Generated CN block-nodes.json: %s" "${output_file}"
+  done <<< "${cn_names}"
+}
+
 function validate_prerequisites {
   if ! command -v yq >/dev/null 2>&1; then
     fail "ERROR: yq is required but not found. Install from: https://github.com/mikefarah/yq" 1
@@ -496,6 +587,9 @@ function main {
 
   # Generate BN priority mappings for Solo --priority-mapping
   generate_bn_priority_mappings "${OUTPUT_DIR}"
+
+  # Generate CN block-nodes.json overrides when publisher/serverStatus use non-default ports
+  generate_cn_block_nodes_json "${OUTPUT_DIR}"
 
   # Count priority mapping files
   local mapping_count

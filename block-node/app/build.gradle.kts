@@ -137,8 +137,9 @@ dependencies {
 
     // Extended functionality
     blockNodePlugins(project(":backfill"))
-    blockNodePlugins(project(":s3-archive"))
-    blockNodePlugins(project(":cloud-storage-expanded"))
+    // when running the BN locally, we don't need or want to have the S3 plugins by default
+    // blockNodePlugins(project(":cloud-storage-expanded"))
+    // blockNodePlugins(project(":cloud-storage-archive"))
 }
 
 /** Sets block node storage environment variables for the given data directory. */

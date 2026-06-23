@@ -15,6 +15,7 @@ block_nodes:
     address: block-node-1
     port: 40840
 
+
 consensus_nodes:
   node1:
     block_nodes: [block-node-1]
