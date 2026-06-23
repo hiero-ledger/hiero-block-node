@@ -20,11 +20,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.internal.BlockNodeSource;
+import org.hiero.block.internal.MirrorNodeBlocksResponse;
 import org.hiero.block.internal.MirrorNodeNodesResponse;
 import org.hiero.block.internal.NodeEntry;
 import org.hiero.block.internal.RangedAddressBookHistory;
@@ -38,25 +42,26 @@ import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
-/// Loads the consensus node RSA roster at Block Node startup and publishes it to all plugins via
-/// `ApplicationStateFacility.updateAddressBook()`.
+/// Loads the RSA address-book history at Block Node startup and publishes it to all plugins via
+/// {@link ApplicationStateFacility#updateAddressBookHistory}.
 ///
-/// File loading and persistence are handled by `BlockNodeApp`: it reads the bootstrap file
-/// in `loadApplicationState()` before plugins are initialised, and persists the file in
-/// `updateAddressBook()` after a fetch. This plugin's sole responsibility is to
-/// check whether the address book was already loaded (`context.nodeAddressBook() != null`) and,
-/// if not, to fetch it from a peer block node or the Mirror Node.
+/// File loading is handled by {@code BlockNodeApp}: it reads the history file (or the legacy
+/// single-book file) in {@code loadApplicationState()} before plugins are initialised. This
+/// plugin's sole responsibility is to check whether the history was already loaded and, if not,
+/// to fetch it from a peer block node or the Mirror Node.
 ///
 /// **Startup sequence:**
 ///
-/// 1. If `context.nodeAddressBook()` is non-null: BlockNodeApp loaded it from the
-///    bootstrap file — emit metrics.
-/// 2. If `blockNodeSourcesPath` is configured: query peer BNs via gRPC `serverStatusDetail`
-///    and extract the `NodeAddressBook`. On success, calls `applicationStateFacility.updateAddressBook()`.
-/// 3. If mn query is configured. Call Mirror Node REST API (`GET /api/v1/network/nodes`).
-/// 4. If neither source succeeds and `mirrorNodeBaseUrl` is blank: log `WARNING` and return.
+/// 1. If {@code context.nodeAddressBookHistory()} is non-null: history was pre-loaded — emit
+///    metrics and return (no periodic refresh; history updates are an operator concern).
+/// 2. If {@code context.nodeAddressBook()} is non-null: a single-book file was pre-loaded —
+///    emit metrics and schedule periodic peer BN / Mirror Node refreshes.
+/// 3. Otherwise, start concurrent peer BN and Mirror Node fallback queries. The Mirror Node
+///    path builds a full {@link org.hiero.block.internal.RangedAddressBookHistory} by converting
+///    each node entry's timestamp range to a block-number range via the blocks API.
+/// 4. If neither source succeeds and {@code mirrorNodeBaseUrl} is blank: log WARNING and return.
 ///
-/// See `docs/design/wrb-streaming/bootstrap-roster-plugin.md` for the full design.
+/// See {@code docs/design/wrb-streaming/bootstrap-roster-plugin.md} for the full design.
 public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
     private static final System.Logger LOGGER = System.getLogger(RsaRosterBootstrapPlugin.class.getName());
@@ -240,10 +245,11 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
     private void fetchFromPeer() {
         final long startTime = System.currentTimeMillis();
-        final NodeAddressBook book = addressBookFetcher.getNodeAddressBook();
-        if (book != null) {
-            applicationStateFacility.updateAddressBook(book);
-            recordSuccessMetrics(book, startTime, "Peer BN");
+        final RangedAddressBookHistory bookHistory =
+                addressBookFetcher.getRangedNodeAddressBookHistory(context.nodeAddressBookHistory());
+        if (bookHistory != null) {
+            applicationStateFacility.updateAddressBookHistory(bookHistory);
+            recordHistoryMetrics(bookHistory, startTime);
             if (bnScheduledFuture != null) {
                 cancelScheduledFuture(bnScheduledFuture);
                 bnScheduledFuture = null;
@@ -285,39 +291,42 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 TimeUnit.MILLISECONDS);
     }
 
-    /// Fetches the node address book from the Mirror Node REST API with pagination.
-    /// Scheduled repeatedly until it succeeds or is cancelled.
+    /// Fetches all historical and current node entries from the Mirror Node REST API, converts
+    /// each unique timestamp era to a block-number range, and builds a {@link RangedAddressBookHistory}.
+    ///
+    /// For each group of nodes sharing the same (from, to) timestamp pair:
+    /// <ol>
+    ///   <li>The Mirror Node blocks API ({@code /api/v1/blocks?timestamp=gte:...}) resolves
+    ///       the first block in the era.</li>
+    ///   <li>For closed eras ({@code to} is non-blank) a second call resolves the last block.</li>
+    ///   <li>Open-ended eras ({@code to} is blank) use {@code endBlock = 0} as the sentinel.</li>
+    /// </ol>
     private void fetchFromMirrorNode() {
         long startTimeMillis = System.currentTimeMillis();
         try (final HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
                 .build()) {
 
-            final List<NodeAddress> addresses = new ArrayList<>();
+            // Collect all node entries grouped by (from|to) era key, preserving insertion order
+            final Map<String, List<NodeEntry>> eraGroups = new LinkedHashMap<>();
             String nextUrl = config.mirrorNodeBaseUrl() + "/api/v1/network/nodes?limit=" + config.mirrorNodePageSize()
                     + "&order=desc";
 
-            outer:
             while (nextUrl != null) {
                 final MirrorNodeNodesResponse response = fetchAndParse(client, nextUrl);
-                if (response == null) {
-                    return;
-                }
+                if (response == null) return;
                 for (final NodeEntry entry : response.nodes()) {
-                    if (entry.timestamp() != null && !entry.timestamp().to().isBlank()) {
-                        break outer;
-                    }
                     if (entry.publicKey().isBlank()) {
                         LOGGER.log(WARNING, "Mirror Node: node {0} has no public_key — skipped", entry.nodeId());
                         continue;
                     }
-                    final String hexKey = entry.publicKey().startsWith("0x")
-                            ? entry.publicKey().substring(2)
-                            : entry.publicKey();
-                    addresses.add(NodeAddress.newBuilder()
-                            .nodeId(entry.nodeId())
-                            .rsaPubKey(hexKey)
-                            .build());
+                    final String from =
+                            entry.timestamp() != null ? entry.timestamp().from() : "";
+                    final String to =
+                            entry.timestamp() != null ? entry.timestamp().to() : "";
+                    eraGroups
+                            .computeIfAbsent(from + "|" + to, k -> new ArrayList<>())
+                            .add(entry);
                 }
                 final String rawNext =
                         response.links() == null ? null : response.links().next();
@@ -326,18 +335,62 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                         : rawNext.startsWith("http") ? rawNext : config.mirrorNodeBaseUrl() + rawNext;
             }
 
-            if (addresses.isEmpty()) {
+            if (eraGroups.isEmpty()) {
                 LOGGER.log(
                         WARNING,
-                        "Mirror Node returned zero nodes with a non-blank public_key from {0}.",
+                        "Mirror Node returned zero nodes with a valid public_key from {0}.",
                         config.mirrorNodeBaseUrl());
                 return;
             }
 
-            final NodeAddressBook book =
-                    NodeAddressBook.newBuilder().nodeAddress(addresses).build();
-            applicationStateFacility.updateAddressBook(book);
-            recordSuccessMetrics(book, startTimeMillis, "Mirror Node");
+            // Convert each era's timestamp pair to a block range and build RangedNodeAddressBook entries
+            final List<RangedNodeAddressBook> rangedBooks = new ArrayList<>();
+            for (final Map.Entry<String, List<NodeEntry>> eraEntry : eraGroups.entrySet()) {
+                final String eraKey = eraEntry.getKey();
+                final int pipeIdx = eraKey.indexOf('|');
+                final String from = eraKey.substring(0, pipeIdx);
+                final String to = eraKey.substring(pipeIdx + 1);
+
+                final long[] blockRange = fetchBlockRange(client, from, to);
+                if (blockRange == null) {
+                    LOGGER.log(WARNING, "Could not resolve block range for era from={0} to={1} — skipped", from, to);
+                    continue;
+                }
+
+                final List<NodeAddress> addresses = eraEntry.getValue().stream()
+                        .map(entry -> {
+                            final String hexKey = entry.publicKey().startsWith("0x")
+                                    ? entry.publicKey().substring(2)
+                                    : entry.publicKey();
+                            return NodeAddress.newBuilder()
+                                    .nodeId(entry.nodeId())
+                                    .rsaPubKey(hexKey)
+                                    .build();
+                        })
+                        .toList();
+
+                rangedBooks.add(RangedNodeAddressBook.newBuilder()
+                        .addressBook(NodeAddressBook.newBuilder()
+                                .nodeAddress(addresses)
+                                .build())
+                        .startBlock(blockRange[0])
+                        .endBlock(blockRange[1])
+                        .build());
+            }
+
+            if (rangedBooks.isEmpty()) {
+                LOGGER.log(WARNING, "Could not build any address book eras from Mirror Node data.");
+                return;
+            }
+
+            rangedBooks.sort(Comparator.comparingLong(RangedNodeAddressBook::startBlock));
+
+            final RangedAddressBookHistory history = RangedAddressBookHistory.newBuilder()
+                    .addressBooks(rangedBooks)
+                    .build();
+
+            recordHistoryMetrics(history, startTimeMillis);
+            applicationStateFacility.updateAddressBookHistory(history);
 
             if (mnScheduledFuture != null) {
                 cancelScheduledFuture(mnScheduledFuture);
@@ -345,6 +398,53 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 schedulePeriodicMirrorNodeRefresh();
             }
         }
+    }
+
+    /// Converts a (from, to) timestamp pair to a [startBlock, endBlock] pair by querying the
+    /// Mirror Node blocks API. Returns {@code null} if the block range cannot be determined.
+    ///
+    /// Blank timestamps are treated as sentinels: blank {@code from} means genesis (startBlock=0)
+    /// with no API call; blank {@code to} means open-ended (endBlock=0) with no API call.
+    private long[] fetchBlockRange(final HttpClient client, final String from, final String to) {
+        final long startBlock;
+        if (from == null || from.isBlank()) {
+            startBlock = 0L; // no from-timestamp → treat as genesis
+        } else {
+            final MirrorNodeBlocksResponse startResp = fetchAndParseBlocks(
+                    client, config.mirrorNodeBaseUrl() + "/api/v1/blocks?timestamp=gte:" + from + "&order=asc&limit=1");
+            if (startResp == null || startResp.blocks().isEmpty()) return null;
+            startBlock = startResp.blocks().get(0).number();
+        }
+
+        if (to == null || to.isBlank()) {
+            return new long[] {startBlock, 0L}; // open-ended
+        }
+
+        final MirrorNodeBlocksResponse endResp = fetchAndParseBlocks(
+                client, config.mirrorNodeBaseUrl() + "/api/v1/blocks?timestamp=lte:" + to + "&order=desc&limit=1");
+        if (endResp == null || endResp.blocks().isEmpty()) return null;
+        return new long[] {startBlock, endResp.blocks().get(0).number()};
+    }
+
+    private MirrorNodeBlocksResponse fetchAndParseBlocks(final HttpClient client, final String url) {
+        try {
+            final HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(config.mirrorNodeReadTimeoutSeconds()))
+                    .GET()
+                    .build();
+            final HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return MirrorNodeBlocksResponse.JSON.parse(Bytes.wrap(response.body()));
+            }
+            LOGGER.log(WARNING, "HTTP {0} from Mirror Node blocks API at {1}", response.statusCode(), url);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            LOGGER.log(WARNING, "Interrupted while fetching blocks from {0}", url);
+        } catch (IOException | ParseException | RuntimeException e) {
+            LOGGER.log(WARNING, "Failed to fetch blocks from {0}: {1}", url, e.getMessage());
+        }
+        return null;
     }
 
     private MirrorNodeNodesResponse fetchAndParse(final HttpClient client, final String url) {

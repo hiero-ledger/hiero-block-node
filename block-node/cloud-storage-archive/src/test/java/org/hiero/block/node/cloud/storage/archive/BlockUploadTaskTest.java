@@ -605,7 +605,6 @@ class BlockUploadTaskTest {
         @Override
         public void updateTssData(TssData tssData) {}
 
-        @Override
         public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
             return true;
         }

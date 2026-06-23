@@ -302,8 +302,9 @@ class RsaRosterBootstrapPluginTest
         }
 
         @Test
-        @DisplayName("Single-page response loads all nodes into the address book")
+        @DisplayName("Single-page response builds a one-era history from timestampless nodes")
         void singlePageLoadsAllNodes() {
+            // Nodes without timestamps → blank from/to → open-ended era at startBlock=0 (no blocks API call).
             registerStaticHandler(
                     "/api/v1/network/nodes",
                     200,
@@ -312,16 +313,21 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
-            assertNotNull(book);
-            assertEquals(2, book.nodeAddress().size());
-            assertEquals(1L, book.nodeAddress().getFirst().nodeId());
-            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
+            final RangedAddressBookHistory history = blockNodeContext.nodeAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            final NodeAddressBook era0 = history.addressBooks().get(0).addressBook();
+            assertEquals(2, era0.nodeAddress().size());
+            assertEquals(1L, era0.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", era0.nodeAddress().getFirst().rsaPubKey());
+            assertEquals(0L, history.addressBooks().get(0).startBlock());
+            assertEquals(0L, history.addressBooks().get(0).endBlock()); // open-ended
         }
 
         @Test
-        @DisplayName("Paginated response collects nodes from all pages")
+        @DisplayName("Paginated response collects nodes from all pages into the history")
         void paginatedResponseCollectsAllNodes() {
+            // Both pages have nodes without timestamps → same era key → one era with 2 nodes.
             final AtomicInteger callCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
                 final String body = callCount.getAndIncrement() == 0
@@ -337,11 +343,13 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
-            assertNotNull(book);
-            assertEquals(2, book.nodeAddress().size());
-            assertEquals(1L, book.nodeAddress().get(0).nodeId());
-            assertEquals(2L, book.nodeAddress().get(1).nodeId());
+            final RangedAddressBookHistory history = blockNodeContext.nodeAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            final NodeAddressBook era0 = history.addressBooks().get(0).addressBook();
+            assertEquals(2, era0.nodeAddress().size());
+            assertEquals(1L, era0.nodeAddress().get(0).nodeId());
+            assertEquals(2L, era0.nodeAddress().get(1).nodeId());
         }
 
         @Test
@@ -359,32 +367,51 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
-            assertNotNull(book);
-            assertEquals(1, book.nodeAddress().size());
-            assertEquals(2L, book.nodeAddress().getFirst().nodeId());
-            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
+            final RangedAddressBookHistory history = blockNodeContext.nodeAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            final NodeAddressBook era0 = history.addressBooks().get(0).addressBook();
+            assertEquals(1, era0.nodeAddress().size());
+            assertEquals(2L, era0.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", era0.nodeAddress().getFirst().rsaPubKey()); // 0x prefix stripped
         }
 
         @Test
-        @DisplayName("Only active entries (timestamp.to=null) are collected; superseded entries stop pagination")
-        void mixedActiveAndHistoricalEntriesOnlyLoadsActive() {
-            // Single handler serves page 1 on first call and records subsequent calls.
-            // Page 1 contains two active entries followed by one superseded (historical) entry.
-            // The plugin must stop at the historical entry and never request page 2.
-            final AtomicInteger callCount = new AtomicInteger(0);
+        @DisplayName("All entries (active and historical) are included in history; pagination continues")
+        void allEntriesIncludedInHistory() {
+            // Nodes have timestamps → blocks endpoint called to resolve block ranges.
+            // Simple blocks handler: returns block number = (long)(timestamp * 100).
+            server.createContext("/api/v1/blocks", exchange -> {
+                final String query =
+                        exchange.getRequestURI().getQuery(); // e.g. "timestamp=gte:1000.0&order=asc&limit=1"
+                long blockNum = 0;
+                for (final String param : query.split("&")) {
+                    if (param.startsWith("timestamp=gte:")) {
+                        blockNum = Math.round(Double.parseDouble(param.substring("timestamp=gte:".length())) * 100);
+                    } else if (param.startsWith("timestamp=lte:")) {
+                        blockNum = Math.round(Double.parseDouble(param.substring("timestamp=lte:".length())) * 100) - 1;
+                    }
+                }
+                final String body = "{\"blocks\":[{\"number\":" + blockNum + "}],\"links\":{\"next\":null}}";
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+                exchange.close();
+            });
+
+            final AtomicInteger nodeCallCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
-                final int call = callCount.getAndIncrement();
+                final int call = nodeCallCount.getAndIncrement();
                 final String body;
                 if (call == 0) {
-                    // Page 1: two active (to=null), then one historical (to!=null) — signals end of active entries.
                     body = "{\"nodes\":["
                             + "{\"node_id\":0,\"public_key\":\"aabbcc\",\"timestamp\":{\"from\":\"1000.0\",\"to\":null}},"
                             + "{\"node_id\":1,\"public_key\":\"ddeeff\",\"timestamp\":{\"from\":\"900.0\",\"to\":null}},"
                             + "{\"node_id\":0,\"public_key\":\"oldkey\",\"timestamp\":{\"from\":\"800.0\",\"to\":\"900.0\"}}"
                             + "],\"links\":{\"next\":\"/api/v1/network/nodes?page=2\"}}";
                 } else {
-                    // Page 2 — should never be fetched.
                     body = "{\"nodes\":[],\"links\":{\"next\":null}}";
                 }
                 final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
@@ -398,19 +425,23 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
-            assertNotNull(book);
-            // Only the two active entries (node 0 and node 1) should be present.
-            assertEquals(2, book.nodeAddress().size());
-            assertEquals(0L, book.nodeAddress().get(0).nodeId());
-            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
-            assertEquals(1L, book.nodeAddress().get(1).nodeId());
-            assertEquals("ddeeff", book.nodeAddress().get(1).rsaPubKey());
-            assertEquals(1, callCount.get(), "Page 2 must not be fetched after a superseded entry stops iteration");
+            final RangedAddressBookHistory history = blockNodeContext.nodeAddressBookHistory();
+            assertNotNull(history);
+            // Three distinct eras: [800→~89999], [900→open], [1000→open] — sorted by startBlock
+            assertEquals(3, history.addressBooks().size());
+            assertEquals(2, nodeCallCount.get(), "Page 2 must be fetched to exhaust all entries");
+            // Earliest era (800.0): startBlock = 80000, endBlock = 89999
+            assertEquals(80000L, history.addressBooks().get(0).startBlock());
+            // Middle era (900.0): startBlock = 90000, open-ended
+            assertEquals(90000L, history.addressBooks().get(1).startBlock());
+            assertEquals(0L, history.addressBooks().get(1).endBlock());
+            // Latest era (1000.0): startBlock = 100000, open-ended
+            assertEquals(100000L, history.addressBooks().get(2).startBlock());
+            assertEquals(0L, history.addressBooks().get(2).endBlock());
         }
 
         @Test
-        @DisplayName("HTTP 500 triggers retry and succeeds on the next attempt")
+        @DisplayName("HTTP 500 triggers retry; second attempt builds a one-era history")
         void http500TriggersRetryThenSucceeds() throws InterruptedException {
             final AtomicInteger callCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
@@ -441,23 +472,27 @@ class RsaRosterBootstrapPluginTest
 
             // First task is the 500 error
             testThreadPoolManager.scheduledExecutor().executeSerially();
-            // Second task should succeed
+            // Second task should succeed — nodes without timestamps → open-ended era at startBlock=0
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
-            assertNotNull(book);
-            assertEquals(1, book.nodeAddress().size());
-            assertEquals(1, book.nodeAddress().getFirst().nodeId());
-            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
+            final RangedAddressBookHistory history = blockNodeContext.nodeAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            final NodeAddressBook era0 = history.addressBooks().get(0).addressBook();
+            assertEquals(1, era0.nodeAddress().size());
+            assertEquals(1L, era0.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", era0.nodeAddress().getFirst().rsaPubKey());
 
-            // Third task should also succeed
+            // Third task: node 2 — different book, but same era structure (startBlock=0, endBlock=0)
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book2 = blockNodeContext.nodeAddressBook();
-            assertNotNull(book2);
-            assertEquals(1, book2.nodeAddress().size());
-            assertEquals(2, book2.nodeAddress().getFirst().nodeId());
-            assertEquals("ddeeff", book2.nodeAddress().getFirst().rsaPubKey());
+            final RangedAddressBookHistory history2 = blockNodeContext.nodeAddressBookHistory();
+            assertNotNull(history2);
+            assertEquals(1, history2.addressBooks().size());
+            final NodeAddressBook era0v2 = history2.addressBooks().get(0).addressBook();
+            assertEquals(1, era0v2.nodeAddress().size());
+            assertEquals(2L, era0v2.nodeAddress().getFirst().nodeId());
+            assertEquals("ddeeff", era0v2.nodeAddress().getFirst().rsaPubKey());
         }
     }
 
@@ -570,24 +605,26 @@ class RsaRosterBootstrapPluginTest
                     .build();
 
             final int[] contextUpdated = {0};
-            final NodeAddressBook[] nodeAddressBooks = {null};
+            final RangedAddressBookHistory[] histories = {null};
             CountDownLatch latch = new CountDownLatch(1);
 
-            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(contextUpdated, nodeAddressBooks, latch);
+            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(contextUpdated, histories, latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), configOverride);
             testThreadPoolManager.scheduledExecutor().executeSerially();
             latch.await();
 
             assertTrue(contextUpdated[0] > 0);
-            assertNotNull(nodeAddressBooks[0]);
+            assertNotNull(histories[0]);
+            assertEquals(1, histories[0].addressBooks().size());
 
             // These are magic numbers, yes. The {@link TestBlockNodeServer} does not yet have a way to pass in TssData
             // to
             // hand back to testers. Using the values that are passed back to make sure the statusDetails api is
             // being called. Todo: add TssData flexibility to {@link TestBlockNodeServer}
-            assertEquals(0L, nodeAddressBooks[0].nodeAddress().getFirst().nodeId());
-            assertEquals(1L, nodeAddressBooks[0].nodeAddress().get(1).nodeId());
+            final NodeAddressBook peerBook = histories[0].addressBooks().get(0).addressBook();
+            assertEquals(0L, peerBook.nodeAddress().getFirst().nodeId());
+            assertEquals(1L, peerBook.nodeAddress().get(1).nodeId());
         }
     }
 
@@ -700,19 +737,19 @@ class RsaRosterBootstrapPluginTest
 
     private class TestBootstrapPlugin extends RsaRosterBootstrapPlugin {
         private final int[] contextUpdated;
-        private final NodeAddressBook[] nodeAddressBooks;
+        private final RangedAddressBookHistory[] histories;
         private final CountDownLatch latch;
 
-        private TestBootstrapPlugin(int[] contextUpdated, NodeAddressBook[] nodeAddressBooks, CountDownLatch latch) {
+        private TestBootstrapPlugin(int[] contextUpdated, RangedAddressBookHistory[] histories, CountDownLatch latch) {
             this.contextUpdated = contextUpdated;
-            this.nodeAddressBooks = nodeAddressBooks;
+            this.histories = histories;
             this.latch = latch;
         }
 
         @Override
         public void onContextUpdate(BlockNodeContext context) {
             contextUpdated[0]++;
-            nodeAddressBooks[0] = context.nodeAddressBook();
+            histories[0] = context.nodeAddressBookHistory();
             latch.countDown();
         }
     }

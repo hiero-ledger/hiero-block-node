@@ -45,7 +45,9 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -59,6 +61,7 @@ import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.internal.RangedAddressBookHistory;
+import org.hiero.block.internal.RangedNodeAddressBook;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
@@ -130,6 +133,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     /// Pending address book history loaded at startup; consumed by the first checkForApplicationStateUpdates run.
     private final AtomicReference<RangedAddressBookHistory> pendingAddressBookHistory = new AtomicReference<>();
+
+    /** Cached O(log n) index built from the current address book history; rebuilt whenever history changes. */
+    private volatile NavigableMap<Long, RangedNodeAddressBook> addressBookIndex = new TreeMap<>();
 
     /// Blocks reported as stored by plugins that do not serve them for retrieval
     final ConcurrentLongRangeSet storedBlocks = new ConcurrentLongRangeSet();
@@ -559,6 +565,41 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         return true;
     }
 
+    /**
+     * Stages a single {@link NodeAddressBook} for the next scanner tick. The book is validated
+     * before queuing: null, empty, and all-blank-key books are silently rejected.
+     *
+     * <p>This is a non-interface helper used by {@code BlockNodeApp} itself and its tests.
+     * Plugins should prefer {@link #updateAddressBookHistory(RangedAddressBookHistory)}.
+     *
+     * @param nodeAddressBook the book to stage; null or invalid books are ignored
+     * @return {@code true} if queued, {@code false} if rejected
+     */
+    public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
+        if (nodeAddressBook == null) return false;
+        if (!hasValidKey(nodeAddressBook)) return false;
+        pendingAddressBook.set(nodeAddressBook);
+        return true;
+    }
+
+    /**
+     * Returns the {@link NodeAddressBook} whose block range covers {@code blockNum}, using the
+     * cached index built from the current {@link RangedAddressBookHistory}.
+     *
+     * @param blockNum the block number to look up
+     * @return the matching {@link NodeAddressBook}, or {@code null} if no era covers it
+     */
+    @Override
+    public NodeAddressBook getAddressBookForBlock(long blockNum) {
+        return AddressBookHistoryLookup.findAddressBookForBlock(addressBookIndex, blockNum);
+    }
+
+    private static boolean hasValidKey(NodeAddressBook book) {
+        if (book == null || book.nodeAddress().isEmpty()) return false;
+        return book.nodeAddress().stream()
+                .anyMatch(a -> a.rsaPubKey() != null && !a.rsaPubKey().isBlank());
+    }
+
     /// UncaughtExceptionHandler for logging uncaught exceptions
     static void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
         LOGGER.log(WARNING, "Uncaught exception in ApplicationStateFacility thread: " + thread.getName(), throwable);
@@ -607,6 +648,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final RangedAddressBookHistory addressBookHistory = pendingAddressBookHistory.getAndSet(null);
         if (addressBookHistory != null) {
             persistNodeAddressBookHistory(addressBookHistory);
+            addressBookIndex = AddressBookHistoryLookup.buildIndex(addressBookHistory);
         }
 
         if (updateBlockNodeContext(tssData, addressBook, storedBlocks, historicalBlockFacility.availableBlocks())) {

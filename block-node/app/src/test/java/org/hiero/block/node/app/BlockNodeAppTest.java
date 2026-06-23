@@ -564,10 +564,11 @@ class BlockNodeAppTest {
         Files.createDirectories(rsaPath.getParent());
         Files.write(rsaPath, new byte[] {(byte) 0xFF, (byte) 0xFE, 0x00});
 
-        assertThrows(
-                IllegalStateException.class,
-                app::startApplicationStateFacility,
-                "Corrupt RSA file must throw IllegalStateException");
+        app.startApplicationStateFacility();
+
+        assertNull(app.getAddressBookForBlock(0));
+        assertNull(app.getAddressBookForBlock(100));
+
         app.stopApplicationStateFacility();
     }
 
@@ -655,10 +656,11 @@ class BlockNodeAppTest {
         Files.createDirectories(historyPath.getParent());
         Files.write(historyPath, new byte[] {(byte) 0xFF, (byte) 0xFE, 0x00});
 
-        assertThrows(
-                IllegalStateException.class,
-                app::startApplicationStateFacility,
-                "Corrupt history file must throw IllegalStateException");
+        app.startApplicationStateFacility();
+
+        assertNull(app.getAddressBookForBlock(0));
+        assertNull(app.getAddressBookForBlock(100));
+
         app.stopApplicationStateFacility();
     }
 
@@ -681,10 +683,11 @@ class BlockNodeAppTest {
                         .toBytes(org.hiero.block.internal.RangedAddressBookHistory.DEFAULT)
                         .toByteArray());
 
-        assertThrows(
-                IllegalStateException.class,
-                app::startApplicationStateFacility,
-                "Empty history file must throw IllegalStateException");
+        app.startApplicationStateFacility();
+
+        assertNull(app.getAddressBookForBlock(0));
+        assertNull(app.getAddressBookForBlock(100));
+
         app.stopApplicationStateFacility();
     }
 

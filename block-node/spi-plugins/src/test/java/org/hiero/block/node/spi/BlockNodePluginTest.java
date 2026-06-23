@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
@@ -60,12 +59,6 @@ public class BlockNodePluginTest {
         @Override
         public void updateTssData(TssData tssData) {
             // do nothing
-        }
-
-        @Override
-        public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
-            // do nothing
-            return false;
         }
 
         @Override
@@ -126,12 +119,6 @@ public class BlockNodePluginTest {
         }
 
         @Override
-        public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
-            // do nothing
-            return false;
-        }
-
-        @Override
         public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
             // do nothing
             return false;
@@ -174,11 +161,6 @@ public class BlockNodePluginTest {
         @Override
         public void updateTssData(TssData tssData) {
             // do nothing
-        }
-
-        @Override
-        public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
-            return false;
         }
 
         @Override

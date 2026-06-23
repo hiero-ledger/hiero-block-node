@@ -9,11 +9,14 @@ import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
+import org.hiero.block.internal.RangedAddressBookHistory;
+import org.hiero.block.internal.RangedNodeAddressBook;
 import org.hiero.block.node.base.client.BlockNodeClient;
 import org.hiero.block.node.roster.bootstrap.rsa.RsaRosterBootstrapPlugin.MetricsHolder;
 
@@ -60,6 +63,28 @@ public class AddressBookFetcher implements AutoCloseable {
         for (BlockNodeSourceConfig node : blockNodeSource.nodes()) {
             LOGGER.log(INFO, "Loaded peer block node: {0}", node);
         }
+    }
+
+    /// Queries each configured peer and returns a {@link RangedAddressBookHistory} wrapping the
+    /// first valid book as a single open-ended era (startBlock=0, endBlock=0).
+    ///
+    /// When {@code currentHistory} is non-null and non-empty this method returns {@code null}
+    /// immediately: a peer's single book cannot improve a history that was loaded from a history
+    /// file or built from Mirror Node data.
+    ///
+    /// @param currentHistory the history already loaded, or {@code null} if none
+    /// @return a single-era history, or {@code null} if peers have nothing useful to offer
+    public RangedAddressBookHistory getRangedNodeAddressBookHistory(RangedAddressBookHistory currentHistory) {
+        if (currentHistory != null && !currentHistory.addressBooks().isEmpty()) return null;
+        final NodeAddressBook book = getNodeAddressBook();
+        if (book == null) return null;
+        return RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(book)
+                        .startBlock(0L)
+                        .endBlock(0L)
+                        .build()))
+                .build();
     }
 
     /// Queries each configured peer in order and returns the first valid `NodeAddressBook`.

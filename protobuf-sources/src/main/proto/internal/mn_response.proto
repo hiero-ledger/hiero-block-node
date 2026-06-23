@@ -26,3 +26,20 @@ message TimestampRange {
     string from = 1;
     string to = 2;
 }
+
+/**
+ * Response from the Mirror Node GET /api/v1/blocks endpoint.
+ * Used to convert address-book timestamp ranges into block number ranges.
+ */
+message MirrorNodeBlocksResponse {
+    repeated BlockEntry blocks = 1;
+    LinkEntry links = 2;
+}
+
+/**
+ * A single block entry from the Mirror Node blocks response.
+ * Only the block number is used; other fields are ignored.
+ */
+message BlockEntry {
+    int64 number = 1;
+}

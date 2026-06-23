@@ -340,7 +340,6 @@ public abstract class PluginTestBase<
         plugin.onContextUpdate(blockNodeContext);
     }
 
-    @Override
     public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
         blockNodeContext = new BlockNodeContext(
                 blockNodeContext.configuration(),
