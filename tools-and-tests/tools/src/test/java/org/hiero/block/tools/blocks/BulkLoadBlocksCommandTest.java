@@ -12,6 +12,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -223,7 +224,7 @@ class BulkLoadBlocksCommandTest {
             BulkLoadBlocksCommand.LoadState initialState = new BulkLoadBlocksCommand.LoadState();
             initialState.sourceDir = sourceDir.toAbsolutePath().toString();
             initialState.destDir = destDir.toAbsolutePath().toString();
-            initialState.copiedFiles = List.of("00000s.zip");
+            initialState.copiedFiles = new HashSet<>(List.of("00000s.zip"));
             initialState.lastCopiedBlock = 9999;
             initialState.totalFilesCopied = 1;
             initialState.totalBytesCopied = 100;
@@ -304,7 +305,7 @@ class BulkLoadBlocksCommandTest {
             BulkLoadBlocksCommand.LoadState state = new BulkLoadBlocksCommand.LoadState();
             state.sourceDir = sourceDir.toAbsolutePath().toString();
             state.destDir = destDir.toAbsolutePath().toString();
-            state.copiedFiles = List.of("00000s.zip", "10000s.zip");
+            state.copiedFiles = new HashSet<>(List.of("00000s.zip", "10000s.zip"));
             state.lastCopiedBlock = 19999;
             state.totalFilesCopied = 2;
 

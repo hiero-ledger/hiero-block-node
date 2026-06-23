@@ -11,10 +11,11 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
@@ -112,7 +113,7 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
         public String destDir;
 
         @JsonProperty
-        public List<String> copiedFiles = new ArrayList<>();
+        public Set<String> copiedFiles = new HashSet<>();
 
         @JsonProperty
         public long lastCopiedBlock = -1;
@@ -292,7 +293,8 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
                     // Skip staging, links, and zipwork directories if they exist in source
-                    String dirName = dir.getFileName() == null ? "" : dir.getFileName().toString();
+                    String dirName =
+                            dir.getFileName() == null ? "" : dir.getFileName().toString();
                     if (dirName.equals("staging") || dirName.equals("links") || dirName.equals("zipwork")) {
                         System.out.println(Ansi.AUTO.string("@|yellow Skipping directory:|@ " + dirName));
                         return FileVisitResult.SKIP_SUBTREE;
@@ -414,10 +416,8 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
             String numStr = fileName.substring(0, fileName.length() - 5); // Remove "s.zip"
             long zipFirstBlock = Long.parseLong(numStr);
 
-            // Determine the last block in this zip
-            // Assume powersOfTen=4 (10,000 blocks per zip) as that's the default
-            long blocksPerZip = 10_000;
-            long zipLastBlock = zipFirstBlock + blocksPerZip - 1;
+            // Determine the last block in this zip using the configured zip size
+            long zipLastBlock = zipFirstBlock + BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP - 1;
 
             // Skip if the entire zip is before the start block
             return zipLastBlock < startBlock;
