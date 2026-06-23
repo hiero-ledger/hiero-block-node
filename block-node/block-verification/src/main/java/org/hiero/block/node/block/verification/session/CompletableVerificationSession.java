@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.hasher.BlockHasher;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
@@ -34,6 +35,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     private final VerificationDataProvider verificationDataProvider;
     private final ConcurrentLinkedDeque<BlockItems> blockItemsDeque;
     private final ConcurrentSkipListSet<SessionKey> finishedSessions;
+    private final VerificationConfig verificationConfig;
     private volatile CompletableFuture<BlockVerificationResult> sessionCompletionChain;
 
     /// Constructor.
@@ -47,6 +49,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
             final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks,
             final ExecutorService executor,
             final BlockNodeContext context,
+            final VerificationConfig verificationConfig,
             final ConcurrentSkipListSet<SessionKey> finishedSessions) {
         if (blockNumber < 0) {
             throw new IllegalArgumentException("Block number must be non-negative");
@@ -62,6 +65,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         this.executor = Objects.requireNonNull(executor);
         this.isCancelled = new AtomicBoolean(false);
         this.blockItemsDeque = new ConcurrentLinkedDeque<>();
+        this.verificationConfig = Objects.requireNonNull(verificationConfig);
         this.finishedSessions = Objects.requireNonNull(finishedSessions);
     }
 
@@ -97,7 +101,8 @@ public final class CompletableVerificationSession implements BlockVerificationSe
                 verificationDataProvider);
         final BlockVerifier verifier = new BlockVerifier(
                 isCancelled, metricsHolder.proofVerificationMetrics(), System.nanoTime(), verificationDataProvider);
-        final ResultOrderingManager resultOrderManager = new ResultOrderingManager(isCancelled, lastVerifiedBlock);
+        final ResultOrderingManager resultOrderManager =
+                new ResultOrderingManager(isCancelled, lastVerifiedBlock, verificationConfig);
         final SessionResultHandler sessionResultHandler = new SessionResultHandler(
                 context,
                 metricsHolder.sessionResultMetrics(),

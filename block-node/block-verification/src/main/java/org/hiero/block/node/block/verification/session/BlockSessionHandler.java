@@ -146,6 +146,7 @@ public final class BlockSessionHandler {
                 recentlyVerifiedBlocks,
                 executor,
                 context,
+                verificationConfig,
                 finishedSessions);
     }
 

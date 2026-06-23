@@ -20,6 +20,9 @@ import org.hiero.block.node.base.Loggable;
 ///     Written when block 0 is processed. Loaded on startup to restore full TSS state.
 /// @param activeSessionsBufferSize size of maximum allowed active sessions. When full and a new session needs to
 ///     start, room will be made for it by canceling the longest running one. todo(2528) could be lowest block nubmer
+/// @param allSourcesRequireOrdering if true, strict ordering of the next expected block to verify will be enforced
+///     for blocks received from any source. If false, only
+///     [org.hiero.block.node.spi.blockmessaging.BlockSource#PUBLISHER] will be strictly ordered.
 @ConfigData("verification")
 public record VerificationConfig(
     @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/rootHashOfAllPreviousBlocks.bin") Path allBlocksHasherFilePath,
@@ -27,6 +30,7 @@ public record VerificationConfig(
     @Loggable @ConfigProperty(defaultValue = "false") boolean rebuildAllBlocksHasherFromStore,
     @Loggable @ConfigProperty(defaultValue = "100") int allBlocksHasherPersistenceInterval,
     @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/tss-parameters.bin") Path tssParametersFilePath,
-    @Loggable @ConfigProperty(defaultValue = "100") int activeSessionsBufferSize){}
+    @Loggable @ConfigProperty(defaultValue = "100") int activeSessionsBufferSize,
+    @Loggable @ConfigProperty(defaultValue = "true") boolean allSourcesRequireOrdering){}
 
 // spotless:on
