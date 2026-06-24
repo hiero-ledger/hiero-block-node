@@ -718,8 +718,7 @@ class RsaRosterBootstrapPluginTest
         @DisplayName("Blocks API returns empty list → fetchBlockRange returns null → era skipped")
         void blocksApiEmptyListCausesEraToBeSkipped() {
             // Nodes have timestamps, blocks API returns an empty blocks list.
-            registerStaticHandler(
-                    "/api/v1/blocks", 200, "{\"blocks\":[],\"links\":{\"next\":null}}");
+            registerStaticHandler("/api/v1/blocks", 200, "{\"blocks\":[],\"links\":{\"next\":null}}");
             registerStaticHandler(
                     "/api/v1/network/nodes",
                     200,
@@ -777,13 +776,23 @@ class RsaRosterBootstrapPluginTest
             // First run: full build → history with startBlock=100000
             testThreadPoolManager.scheduledExecutor().executeSerially();
             assertNotNull(blockNodeContext.rangedAddressBookHistory());
-            assertEquals(1, blockNodeContext.rangedAddressBookHistory().addressBooks().size());
+            assertEquals(
+                    1,
+                    blockNodeContext.rangedAddressBookHistory().addressBooks().size());
 
             // Second run: incremental — blocks API returns 500 → blockRange null → no update
             testThreadPoolManager.scheduledExecutor().executeSerially();
             // History unchanged from first run
-            assertEquals(1, blockNodeContext.rangedAddressBookHistory().addressBooks().size());
-            assertEquals(100000L, blockNodeContext.rangedAddressBookHistory().addressBooks().get(0).startBlock());
+            assertEquals(
+                    1,
+                    blockNodeContext.rangedAddressBookHistory().addressBooks().size());
+            assertEquals(
+                    100000L,
+                    blockNodeContext
+                            .rangedAddressBookHistory()
+                            .addressBooks()
+                            .get(0)
+                            .startBlock());
         }
     }
 
