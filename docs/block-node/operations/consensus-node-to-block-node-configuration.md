@@ -2,6 +2,10 @@
 
 ## Overview
 
+> **Scope:** On Hedera mainnet and testnet, `application.properties` is overwritten on each release by the Network Management Tool (NMT), and `block-nodes.json` is generated and installed by NMT at deployment time. Manual edits to either file on managed nodes will be overwritten. This guide applies to private or permissioned networks where operators manage configuration directly.
+>
+> Private networks should also be aware that certain CN releases will introduce new default values — for example, the default streaming behaviour may change from writing records to local disk to streaming blocks to Block Nodes automatically. When a private network upgrades to such a release, a `block-nodes.json` file still needs to be installed to identify which Block Node(s) to stream to.
+
 A Consensus Node (CN) produces a stream of block data and by default writes it only to local disk.
 To route that stream to a Block Node instead, two CN settings must point to streaming-enabled values and a `block-nodes.json` configuration file must exist on disk.
 Without this setup, a deployed Block Node receives nothing — the CN silently ignores it.
@@ -25,8 +29,9 @@ Before you begin, ensure you have:
   `data/config` directory.
   See [hiero-consensus-node releases](https://github.com/hiero-ledger/hiero-consensus-node/releases)
   for available versions.
-- Network access from the CN host to the Block Node host on TCP port 40840 (the Block Node's default gRPC port).
-  Confirm reachability with `nc -vz <BN_HOST> 40840` before proceeding.
+- Network access from the CN host to the Block Node host on the Block Node's gRPC port.
+  Port `40840` is the historical default, but starting with Block Node 0.36 each service uses a separate port — consult your Helm values or release notes for the current publish-service port.
+  Confirm reachability with `nc -vz <BN_HOST> <PORT>` before proceeding.
 
 ## Step 1 — Verify stream configuration on the Consensus Node
 
@@ -46,6 +51,8 @@ Set in `application.properties` as `blockStream.writerMode=<value>`.
 
 The current default is `FILE_AND_GRPC`.
 If your CN was configured with `FILE` (the value used before WRB streaming was enabled), change it to `FILE_AND_GRPC` or `GRPC`.
+
+> Note: The defaults for both `writerMode` and `streamMode` match the Hedera mainnet configuration and are hard-coded in `BlockStreamConfig.java`. Verify your CN's effective values rather than assuming the default applies.
 
 ### blockStream.streamMode
 
@@ -74,7 +81,7 @@ The file must be named exactly `block-nodes.json` and placed in the directory co
 blockNode.blockNodeConnectionFileDir = data/config   # default
 ```
 
-The path is relative to the CN working directory (typically the node's root directory).
+The path is relative to the CN working directory. On mainnet and testnet this directory is managed by NMT and may change between releases; confirm the active path in the CN process environment or release notes before proceeding.
 
 ### File schema
 
@@ -158,11 +165,11 @@ If you see instead:
 
 ### On the Block Node
 
-Once the CN is streaming, the Block Node metric `blocknode_publisher_block_items_received` will begin incrementing.
+Once the CN is streaming, the Block Node metric `blocknode_publisher_block_items_received_total` will begin incrementing.
 Monitor it via the Block Node metrics endpoint (default port `16007`) or via Grafana.
 
 ```bash
-curl -s http://<BN_HOST>:16007/metrics | grep blocknode_publisher_block_items_received
+curl -s http://<BN_HOST>:16007/metrics | grep blocknode_publisher_block_items_received_total
 ```
 
 A steadily increasing value confirms the Block Node is receiving blocks from the CN.
@@ -185,14 +192,14 @@ The defaults are appropriate for most deployments.
 
 ## Troubleshooting
 
-|                                                    Symptom                                                    |                                                                   Likely cause                                                                    |                                                                                                         Resolution                                                                                                          |
-|---------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `blocknode_publisher_block_items_received` stays at `0` after setup                                           | The CN has not established a streaming connection. Any of the three causes below may apply.                                                       | Check the CN logs for the error messages listed in Step 3. Confirm `blockStream.writerMode` is not `FILE` and `block-nodes.json` is present in the correct directory.                                                       |
-| CN log: `Streaming is not enabled; block node connection manager will not be started`                         | `blockStream.writerMode` is set to `FILE`.                                                                                                        | Set `blockStream.writerMode=FILE_AND_GRPC` in `application.properties` and restart the CN.                                                                                                                                  |
-| CN log: `Block node configuration file does not exist at PATH`                                                | `block-nodes.json` is absent or in the wrong directory.                                                                                           | Create the file at the path shown in the log, or set `blockNode.blockNodeConnectionFileDir` to the directory that contains the file.                                                                                        |
-| CN log: `No block nodes available for streaming`                                                              | The CN cannot reach any Block Node listed in `block-nodes.json` — either the address/port is wrong or a firewall is blocking the connection.      | Verify the `address` and `streamingPort` values in `block-nodes.json`. Run `nc -vz <address> <streamingPort>` from the CN host. Open TCP port 40840 inbound on the BN host if the test fails.                               |
-| `nc -vz <BN_HOST> 40840` fails from the CN host                                                               | Port 40840 is blocked between the CN and BN hosts.                                                                                                | Check host firewall rules on both the CN and BN hosts. Open TCP inbound on port 40840 on the BN host. If running in Kubernetes, check network policy and security group rules.                                              |
-| The `address` in `block-nodes.json` resolves to the wrong host or not at all                                  | The hostname is not resolvable from the CN host's DNS.                                                                                            | Run `nslookup <address>` or `dig <address>` from the CN host. Use an IP address instead of a hostname if DNS resolution is unreliable.                                                                                      |
-| CN logs show a successful connection but the BN still shows `blocknode_publisher_block_items_received` at `0` | The CN connected to the `servicePort` (status API) but may be streaming to the wrong `streamingPort`, or the BN's publisher plugin is not loaded. | Confirm `streamingPort` in `block-nodes.json` matches the port the BN's publisher plugin listens on (default `40840`). Check the BN logs for publisher plugin startup messages.                                             |
-| `block-nodes.json` was updated but the CN did not reload the configuration                                    | Some editors replace files atomically (write to a temp file then rename), which may not trigger the inotify create event the CN watches for.      | Check CN logs for file-watcher errors. If the reload did not fire, delete the file and recreate it — the CN also watches for create events and will reload on the new file.                                                 |
-| The CN frequently switches between Block Nodes                                                                | The primary Block Node's acknowledgement latency is exceeding `blockNode.highLatencyThreshold` (`30s` by default) on consecutive blocks.          | Check Block Node performance (CPU, memory, disk I/O). Increase `blockNode.highLatencyEventsBeforeSwitching` to tolerate more high-latency events before switching. See [Block Node Troubleshooting](../troubleshooting.md). |
+|                                                       Symptom                                                       |                                                                   Likely cause                                                                    |                                                                                                         Resolution                                                                                                          |
+|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `blocknode_publisher_block_items_received_total` stays at `0` after setup                                           | The CN has not established a streaming connection. Any of the three causes below may apply.                                                       | Check the CN logs for the error messages listed in Step 3. Confirm `blockStream.writerMode` is not `FILE` and `block-nodes.json` is present in the correct directory.                                                       |
+| CN log: `Streaming is not enabled; block node connection manager will not be started`                               | `blockStream.writerMode` is set to `FILE`.                                                                                                        | Set `blockStream.writerMode=FILE_AND_GRPC` in `application.properties` and restart the CN.                                                                                                                                  |
+| CN log: `Block node configuration file does not exist at PATH`                                                      | `block-nodes.json` is absent or in the wrong directory.                                                                                           | Create the file at the path shown in the log, or set `blockNode.blockNodeConnectionFileDir` to the directory that contains the file.                                                                                        |
+| CN log: `No block nodes available for streaming`                                                                    | The CN cannot reach any Block Node listed in `block-nodes.json` — either the address/port is wrong or a firewall is blocking the connection.      | Verify the `address` and `streamingPort` values in `block-nodes.json`. Run `nc -vz <address> <streamingPort>` from the CN host. Open TCP port 40840 inbound on the BN host if the test fails.                               |
+| `nc -vz <BN_HOST> 40840` fails from the CN host                                                                     | Port 40840 is blocked between the CN and BN hosts.                                                                                                | Check host firewall rules on both the CN and BN hosts. Open TCP inbound on port 40840 on the BN host. If running in Kubernetes, check network policy and security group rules.                                              |
+| The `address` in `block-nodes.json` resolves to the wrong host or not at all                                        | The hostname is not resolvable from the CN host's DNS.                                                                                            | Run `nslookup <address>` or `dig <address>` from the CN host. Use an IP address instead of a hostname if DNS resolution is unreliable.                                                                                      |
+| CN logs show a successful connection but the BN still shows `blocknode_publisher_block_items_received_total` at `0` | The CN connected to the `servicePort` (status API) but may be streaming to the wrong `streamingPort`, or the BN's publisher plugin is not loaded. | Confirm `streamingPort` in `block-nodes.json` matches the port the BN's publisher plugin listens on (default `40840`). Check the BN logs for publisher plugin startup messages.                                             |
+| `block-nodes.json` was updated but the CN did not reload the configuration                                          | Some editors replace files atomically (write to a temp file then rename), which may not trigger the inotify create event the CN watches for.      | Check CN logs for file-watcher errors. If the reload did not fire, delete the file and recreate it — the CN also watches for create events and will reload on the new file.                                                 |
+| The CN frequently switches between Block Nodes                                                                      | The primary Block Node's acknowledgement latency is exceeding `blockNode.highLatencyThreshold` (`30s` by default) on consecutive blocks.          | Check Block Node performance (CPU, memory, disk I/O). Increase `blockNode.highLatencyEventsBeforeSwitching` to tolerate more high-latency events before switching. See [Block Node Troubleshooting](../troubleshooting.md). |
