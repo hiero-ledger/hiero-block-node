@@ -690,6 +690,150 @@ class BlockNodeAppTest {
     }
 
     /**
+     * updateAddressBookHistory rejects an incoming history whose last era starts at the same block
+     * as the current one — context must remain unchanged.
+     */
+    @Test
+    @DisplayName("updateAddressBookHistory: same-era history does not replace current context")
+    void updateAddressBookHistoryIgnoresNonNewerHistory() throws IOException, InterruptedException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final TestPlugin testPlugin = new TestPlugin();
+        app.startApplicationStateFacility();
+        app.loadedPlugins.add(testPlugin);
+
+        // Seed the context with a one-era history (startBlock=100)
+        final RangedAddressBookHistory initial = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(NodeAddressBook.newBuilder()
+                                .nodeAddress(NodeAddress.newBuilder()
+                                        .nodeId(1)
+                                        .rsaPubKey("aaaa")
+                                        .build())
+                                .build())
+                        .startBlock(100L)
+                        .endBlock(0L)
+                        .build()))
+                .build();
+        testPlugin.expectContextUpdates(1);
+        app.updateAddressBookHistory(initial);
+        testPlugin.awaitContextUpdates(5);
+
+        // Try to replace it with a history whose last era has the same startBlock=100 (not newer)
+        final RangedAddressBookHistory stale = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(NodeAddressBook.newBuilder()
+                                .nodeAddress(NodeAddress.newBuilder()
+                                        .nodeId(99)
+                                        .rsaPubKey("zzzz")
+                                        .build())
+                                .build())
+                        .startBlock(100L)
+                        .endBlock(0L)
+                        .build()))
+                .build();
+        testPlugin.expectContextUpdates(0);
+        app.updateAddressBookHistory(stale);
+        // Give the scanner a moment to process (or confirm it doesn't)
+        Thread.sleep(200);
+
+        // Context must still hold the initial history
+        final RangedAddressBookHistory ctx = app.blockNodeContext.rangedAddressBookHistory();
+        assertNotNull(ctx);
+        assertEquals(
+                1L,
+                ctx.addressBooks()
+                        .getFirst()
+                        .addressBook()
+                        .nodeAddress()
+                        .getFirst()
+                        .nodeId());
+        assertEquals(
+                "aaaa",
+                ctx.addressBooks()
+                        .getFirst()
+                        .addressBook()
+                        .nodeAddress()
+                        .getFirst()
+                        .rsaPubKey());
+
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * updateAddressBookHistory accepts an incoming history whose last era starts at a higher block.
+     */
+    @Test
+    @DisplayName("updateAddressBookHistory: newer history (higher startBlock) replaces current context")
+    void updateAddressBookHistoryAcceptsNewerHistory() throws IOException, InterruptedException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final TestPlugin testPlugin = new TestPlugin();
+        app.startApplicationStateFacility();
+        app.loadedPlugins.add(testPlugin);
+
+        // Seed with startBlock=100
+        final RangedAddressBookHistory v1 = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(NodeAddressBook.newBuilder()
+                                .nodeAddress(NodeAddress.newBuilder()
+                                        .nodeId(1)
+                                        .rsaPubKey("aaaa")
+                                        .build())
+                                .build())
+                        .startBlock(100L)
+                        .endBlock(0L)
+                        .build()))
+                .build();
+        testPlugin.expectContextUpdates(1);
+        app.updateAddressBookHistory(v1);
+        testPlugin.awaitContextUpdates(5);
+
+        // Update with a two-era history whose last era has startBlock=200 (newer)
+        final RangedAddressBookHistory v2 = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(
+                        RangedNodeAddressBook.newBuilder()
+                                .addressBook(NodeAddressBook.newBuilder()
+                                        .nodeAddress(NodeAddress.newBuilder()
+                                                .nodeId(1)
+                                                .rsaPubKey("aaaa")
+                                                .build())
+                                        .build())
+                                .startBlock(100L)
+                                .endBlock(199L)
+                                .build(),
+                        RangedNodeAddressBook.newBuilder()
+                                .addressBook(NodeAddressBook.newBuilder()
+                                        .nodeAddress(NodeAddress.newBuilder()
+                                                .nodeId(2)
+                                                .rsaPubKey("bbbb")
+                                                .build())
+                                        .build())
+                                .startBlock(200L)
+                                .endBlock(0L)
+                                .build()))
+                .build();
+        testPlugin.expectContextUpdates(1);
+        app.updateAddressBookHistory(v2);
+        testPlugin.awaitContextUpdates(5);
+
+        final RangedAddressBookHistory ctx = app.blockNodeContext.rangedAddressBookHistory();
+        assertNotNull(ctx);
+        assertEquals(2, ctx.addressBooks().size());
+        assertEquals(200L, ctx.addressBooks().getLast().startBlock());
+        assertEquals(
+                "bbbb",
+                ctx.addressBooks()
+                        .getLast()
+                        .addressBook()
+                        .nodeAddress()
+                        .getFirst()
+                        .rsaPubKey());
+
+        app.stopApplicationStateFacility();
+    }
+
+    /**
      * Builds a two-era RangedAddressBookHistory with synthetic keys for use in tests.
      * Only startBlock/endBlock are checked by load logic; no key validation at history load time.
      */

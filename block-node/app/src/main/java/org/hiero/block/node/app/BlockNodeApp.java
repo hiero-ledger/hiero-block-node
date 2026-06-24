@@ -715,6 +715,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             BlockRangeSet availableBlocks) {
         BlockNodeContext context = blockNodeContext;
 
+        // Discard addressBookHistory if it is not strictly newer than the one already in context.
+        if (addressBookHistory != null && !isNewerHistory(addressBookHistory, context.rangedAddressBookHistory())) {
+            addressBookHistory = null;
+        }
+
         List<BlockRange> storedBlockRange = toBlockRange(storedBlocks);
         List<BlockRange> availableBlockRange = toBlockRange(availableBlocks);
 
@@ -756,6 +761,27 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // update the BlockNodeContext
         blockNodeContext = builder.build();
         return true;
+    }
+
+    /// Returns {@code true} when {@code incoming} represents a strictly newer address-book history
+    /// than {@code current}, meaning it should replace the existing context value.
+    ///
+    /// "Newer" is defined as:
+    /// <ul>
+    ///   <li>The current history is null or empty (always accept the first history).</li>
+    ///   <li>The incoming history's last era starts at a higher block number.</li>
+    ///   <li>Equal last-era start blocks but more total eras (defensive; should not occur in
+    ///       normal operation).</li>
+    /// </ul>
+    private static boolean isNewerHistory(RangedAddressBookHistory incoming, RangedAddressBookHistory current) {
+        if (current == null || current.addressBooks().isEmpty()) return true;
+        if (incoming.addressBooks().isEmpty()) return false;
+        final long currentLast = current.addressBooks().getLast().startBlock();
+        final long incomingLast = incoming.addressBooks().getLast().startBlock();
+        return incomingLast > currentLast
+                || (incomingLast == currentLast
+                        && incoming.addressBooks().size()
+                                > current.addressBooks().size());
     }
 
     /// Merge two sets of block ranges into a single list of block ranges.
