@@ -311,18 +311,17 @@ function generate_mn_overlay {
     bn_dns=$(get_service_dns "${bn}" "${NAMESPACE}")
 
     nodes_config="${nodes_config}
-              - host: ${bn_dns}
-                port: ${bn_port}"
+              - endpoints:
+                  - host: ${bn_dns}
+                    port: ${bn_port}"
   done <<< "${block_node_names}"
 
   # Image overrides (workaround, ALL topologies): the default GraalVM-native Mirror Node
-  # images crash on startup in MN 0.155.x/0.156.x. importer fails on missing reflection hints
-  # for RecordFileConsensusTimestampsRecalculateMigration records; grpc fails binding
-  # CommonProperties (Hibernate DurationMaxValidator no-arg ctor); rest-java fails the same
-  # class of native-image gap on amd64 (CI). Override these native modules to the JVM images
-  # (gcr.io/mirrornode/*); their native-sized memory limits are too small for the JVM, so bump
-  # them. web3 native and pinger (already JVM) are fine and left as-is.
-  # TODO: remove these overrides once MN ships fixed native images.
+  # images crash on startup due to missing reflection hints for several classes. Override
+  # the affected modules to the JVM images (gcr.io/mirrornode/*); their native-sized memory
+  # limits are too small for the JVM, so bump them. web3 native and pinger (already JVM)
+  # are fine and left as-is.
+  # TODO: remove these overrides once MN ships fully fixed native images.
   local importer_jvm_override="  image:
     registry: gcr.io
     repository: mirrornode/hedera-mirror-importer
