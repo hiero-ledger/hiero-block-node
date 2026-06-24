@@ -3,7 +3,6 @@ package org.hiero.block.node.app;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -810,25 +809,40 @@ class BlockNodeAppTest {
     }
 
     /**
-     * Verifies that {@code addStoredBlockRange} updates storedBlocks and leaves availableBlocks unchanged.
+     * Verifies that {@code addStoredBlockRange} updates storedBlocks.
      */
     @Test
-    @DisplayName("addStoredBlockRange updates storedBlocks only")
-    void testAddStoredBlockRangeUpdatesOnlyStoredBlocks() {
+    @DisplayName("addStoredBlockRange updates storedBlocks")
+    void testAddStoredBlockRangeUpdatesStoredBlocks() {
         blockNodeApp.addStoredBlockRange(new LongRange(0, 9));
         assertTrue(blockNodeApp.storedBlocks.contains(0, 9));
-        assertFalse(blockNodeApp.availableBlocks.contains(0, 9));
     }
 
     /**
-     * Verifies that {@code addAvailableBlockRange} updates both storedBlocks and availableBlocks.
+     * Verifies that context.availableBlocks() is derived from the historical block facility,
+     * not maintained as a separate field in BlockNodeApp.
      */
     @Test
-    @DisplayName("addAvailableBlockRange updates both storedBlocks and availableBlocks")
-    void testAddAvailableBlockRangeUpdatesBothSets() {
-        blockNodeApp.addAvailableBlockRange(new LongRange(10, 19));
-        assertTrue(blockNodeApp.storedBlocks.contains(10, 19));
-        assertTrue(blockNodeApp.availableBlocks.contains(10, 19));
+    @DisplayName("context.availableBlocks() is derived from the historical block facility")
+    void testAvailableBlocksInContextComesFromHistoricalFacility() throws InterruptedException {
+        final TestPlugin testPlugin = new TestPlugin();
+        blockNodeApp.loadedPlugins.add(testPlugin);
+        testPlugin.expectContextUpdates(1);
+
+        blockNodeApp.startApplicationStateFacility();
+
+        testPlugin.awaitContextUpdates(5);
+
+        final BlockNodeContext context = testPlugin.getContext();
+        assertNotNull(context);
+        final List<BlockRange> available = context.availableBlocks();
+        assertEquals(2, available.size());
+        assertEquals(0L, available.get(0).rangeStart());
+        assertEquals(10L, available.get(0).rangeEnd());
+        assertEquals(20L, available.get(1).rangeStart());
+        assertEquals(30L, available.get(1).rangeEnd());
+
+        blockNodeApp.stopApplicationStateFacility();
     }
 
     /**
@@ -842,7 +856,7 @@ class BlockNodeAppTest {
 
         app.startApplicationStateFacility();
         app.addStoredBlockRange(new LongRange(0, 999));
-        app.addAvailableBlockRange(new LongRange(1000, 1049));
+        app.addStoredBlockRange(new LongRange(1000, 1049));
         app.addStoredBlockRange(new LongRange(1050, 1099));
         app.stopApplicationStateFacility();
 
@@ -852,11 +866,6 @@ class BlockNodeAppTest {
         final List<LongRange> storedRanges = app2.storedBlocks.streamRanges().toList();
         assertEquals(1, storedRanges.size());
         assertEquals(new LongRange(0, 1099), storedRanges.getFirst());
-
-        final List<LongRange> availableRanges =
-                app2.availableBlocks.streamRanges().toList();
-        assertEquals(1, availableRanges.size());
-        assertEquals(new LongRange(1000, 1049), availableRanges.getFirst());
 
         app2.stopApplicationStateFacility();
     }
@@ -874,23 +883,18 @@ class BlockNodeAppTest {
         // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
         blockNodeApp.startApplicationStateFacility();
         blockNodeApp.loadedPlugins.add(testPlugin);
-        testPlugin.expectContextUpdates(1);
         blockNodeApp.addStoredBlockRange(new LongRange(0, 999));
-        blockNodeApp.addAvailableBlockRange(new LongRange(1000, 1049));
+        testPlugin.expectContextUpdates(1);
+        blockNodeApp.addStoredBlockRange(new LongRange(1000, 1049));
 
         // wait for the ApplicationStateFacility scanner to pick up the update
-        testPlugin.awaitContextUpdates(5);
+        testPlugin.awaitContextUpdates(11);
 
         BlockNodeContext context = testPlugin.getContext();
         assertNotNull(context);
-        assertFalse(context.availableBlocks().isEmpty());
-        assertFalse(context.storedBlocks().isEmpty());
-        BlockRange availableBlocks = context.availableBlocks().getFirst();
         BlockRange storedBlocks = context.storedBlocks().getFirst();
         assertEquals(0L, storedBlocks.rangeStart());
-        assertEquals(1049L, storedBlocks.rangeEnd()); // available blocks updates stored blocks
-        assertEquals(1000L, availableBlocks.rangeStart());
-        assertEquals(1049L, availableBlocks.rangeEnd());
+        assertEquals(1049L, storedBlocks.rangeEnd());
 
         // stop the ApplicationStateFacility manually as blockNodeApp.shutdown() is not being called
         blockNodeApp.stopApplicationStateFacility();

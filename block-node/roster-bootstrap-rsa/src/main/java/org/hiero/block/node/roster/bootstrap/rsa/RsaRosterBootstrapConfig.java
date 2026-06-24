@@ -35,7 +35,7 @@ import org.hiero.block.node.base.Loggable;
 /// @param maxIncomingBufferSize maximum incoming gRPC message buffer size in bytes
 @ConfigData("roster.bootstrap.rsa")
 public record RsaRosterBootstrapConfig(
-        // spotless:off
+        // spotless:off - long annotations on record components must stay on one line
         @Loggable @ConfigProperty(defaultValue = "") String mirrorNodeBaseUrl,
         @Loggable @ConfigProperty(defaultValue = "5_000") @Min(100) int mnInitialQueryIntervalMillis,
         @Loggable @ConfigProperty(defaultValue = "60_000") @Min(10_000) int mnSubsequentQueryIntervalMillis,

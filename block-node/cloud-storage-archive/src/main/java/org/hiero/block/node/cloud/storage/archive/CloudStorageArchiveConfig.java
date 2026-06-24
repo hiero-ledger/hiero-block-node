@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.node.base.Loggable;
 
-// spotless:off
+// spotless:off - long annotations on record components must stay on one line
 @ConfigData("cloud.storage.archive")
 public record CloudStorageArchiveConfig(
 

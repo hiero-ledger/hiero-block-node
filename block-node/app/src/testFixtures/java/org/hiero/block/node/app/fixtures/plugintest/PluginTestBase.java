@@ -360,9 +360,4 @@ public abstract class PluginTestBase<
     public void addStoredBlockRange(LongRange blockRange) {
         // Do nothing
     }
-
-    @Override
-    public void addAvailableBlockRange(LongRange blockRange) {
-        // Do nothing
-    }
 }

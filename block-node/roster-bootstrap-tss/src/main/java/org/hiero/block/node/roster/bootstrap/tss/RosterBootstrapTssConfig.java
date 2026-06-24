@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.roster.bootstrap.tss;
 
-// spotless:off
+// spotless:off - long annotations on record components must stay on one line
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;

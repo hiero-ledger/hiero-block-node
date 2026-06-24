@@ -38,7 +38,7 @@ import org.hiero.block.node.base.Loggable;
  *     validators reject a {@code null} value (they would fail when the property is unset), so the
  *     range is enforced by the web server when binding.
  */
-// spotless:off
+// spotless:off - long annotations on record components must stay on one line
 @ConfigData("subscriber")
 public record SubscriberConfig(
         @Loggable @ConfigProperty(defaultValue = "4000") @Min(100) int liveQueueSize,

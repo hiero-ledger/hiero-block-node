@@ -70,11 +70,6 @@ public class BlockNodePluginTest {
         public void addStoredBlockRange(LongRange blockRange) {
             // do nothing
         }
-
-        @Override
-        public void addAvailableBlockRange(LongRange blockRange) {
-            // do nothing
-        }
     }
 
     @Test
@@ -107,16 +102,10 @@ public class BlockNodePluginTest {
         public void addStoredBlockRange(LongRange blockRange) {
             // do nothing
         }
-
-        @Override
-        public void addAvailableBlockRange(LongRange blockRange) {
-            // do nothing
-        }
     }
 
     private static class TestApplicationStateFacilityWithRange implements ApplicationStateFacility {
         LongRange lastStoredRange;
-        LongRange lastAvailableRange;
 
         @Override
         public void updateTssData(TssData tssData) {
@@ -131,11 +120,6 @@ public class BlockNodePluginTest {
         @Override
         public void addStoredBlockRange(LongRange blockRange) {
             this.lastStoredRange = blockRange;
-        }
-
-        @Override
-        public void addAvailableBlockRange(LongRange blockRange) {
-            this.lastAvailableRange = blockRange;
         }
     }
 
@@ -160,17 +144,6 @@ public class BlockNodePluginTest {
         LongRange range = new LongRange(0, 9);
         facility.addStoredBlockRange(range);
         assertEquals(range, facility.lastStoredRange);
-        assertNull(facility.lastAvailableRange);
-    }
-
-    @Test
-    @DisplayName("Test ApplicationStateFacility.addAvailableBlockRange() records available range")
-    void testAddAvailableBlockRange() {
-        TestApplicationStateFacilityWithRange facility = new TestApplicationStateFacilityWithRange();
-        LongRange range = new LongRange(10, 99);
-        facility.addAvailableBlockRange(range);
-        assertEquals(range, facility.lastAvailableRange);
-        assertNull(facility.lastStoredRange);
     }
 
     private static class TestBlockNodePlugin implements BlockNodePlugin {

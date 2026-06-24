@@ -48,7 +48,7 @@ import org.hiero.block.node.base.Loggable;
 ///                             variables or IAM instance role.
 /// @param uploadTimeoutSeconds maximum seconds to wait for in-flight uploads during
 ///                             `stop()` before treating them as failed. Default: 60.
-// spotless:off
+// spotless:off - long annotations on record components must stay on one line
 @ConfigData("cloud.storage.expanded")
 public record ExpandedCloudStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "") String endpointUrl,

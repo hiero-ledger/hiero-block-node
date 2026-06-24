@@ -26,7 +26,7 @@ import org.hiero.block.node.base.Loggable;
  * @param backlogSize the maximum length of the queue of incoming connections on the server socket.
  * @param writeQueueLength the number of buffers queued for write operations
  */
-// spotless:off
+// spotless:off - long annotations on record components must stay on one line
 @ConfigData("server")
 public record ServerConfig(
         @Loggable @ConfigProperty(defaultValue = "131_072_000")

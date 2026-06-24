@@ -45,7 +45,7 @@ import org.hiero.block.node.base.Loggable;
 /// the property is unset), so the range is enforced by the web server when binding.
 @ConfigData("producer")
 public record PublisherConfig(
-        // spotless:off
+        // spotless:off - long annotations on record components must stay on one line
         @Loggable @ConfigProperty(defaultValue = "9_223_372_036_854_775_807") @Min(100_000L) long batchForwardLimit,
         @Loggable @ConfigProperty(defaultValue = "300") @Min(0L) long publisherUnavailabilityTimeout,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(3) @Max(50) int MaxFutureBlocksBeforeStalled,

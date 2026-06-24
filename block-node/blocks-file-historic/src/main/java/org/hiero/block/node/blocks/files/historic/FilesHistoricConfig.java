@@ -27,7 +27,7 @@ import org.hiero.block.node.base.Loggable;
  */
 @ConfigData("files.historic")
 public record FilesHistoricConfig(
-        // spotless:off
+        // spotless:off - long annotations on record components must stay on one line
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/historic") Path rootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents,
