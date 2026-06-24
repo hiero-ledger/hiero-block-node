@@ -183,24 +183,33 @@ public class LiveSequential implements Runnable {
     private String startDate;
 
     @Option(
+            names = {"--push-enabled"},
+            description = "Enable live-push of each wrapped block to a Block Node as it is produced. "
+                    + "Off by default. Operationally, leave this off until the historical backfill "
+                    + "(see 'blocks bulk-load') has populated the target BN; then turn this on for "
+                    + "the steady-state live feed. Requires --push-bn-host.")
+    private boolean pushEnabled = false;
+
+    @Option(
             names = {"--push-bn-host"},
-            description = "Optional. If set, each wrapped block is pushed to this Block Node "
-                    + "host:port via the Publish gRPC stream as it is produced.")
+            description = "Block Node host to push to. Required when --push-enabled is set. Can be "
+                    + "configured ahead of time and gated on later via --push-enabled.")
     private String pushBnHost;
 
     @Option(
             names = {"--push-bn-port"},
             description =
-                    "Block Node Publish port to push to (default: 40840). Ignored if " + "--push-bn-host is not set.")
+                    "Block Node Publish port to push to (default: 40840). Ignored unless " + "--push-enabled is set.")
     private int pushBnPort = 40840;
 
     @Option(
             names = {"--push-queue-capacity"},
             description = "Bounded backpressure queue between the wrap thread and the push worker "
-                    + "(default: 32). When full, the wrap thread blocks; nothing is dropped.")
+                    + "(default: 32). When full, the wrap thread blocks; nothing is dropped. "
+                    + "Ignored unless --push-enabled is set.")
     private int pushQueueCapacity = 32;
 
-    /** Live-push client; null when --push-bn-host is not set. */
+    /** Live-push client; null unless push is enabled and configured. */
     private LiveBlockPushClient pushClient;
 
     /** Blocks at or below this number are already on the BN; skip pushing them. */
@@ -341,11 +350,14 @@ public class LiveSequential implements Runnable {
                     + "]"
                     + " day=" + initialState.dayDate);
 
-            // Optional: live-push to a Block Node. If --push-bn-host was provided, set up the
-            // push client so the wrap thread can hand each validated block off to it as it is
-            // produced. The push subsystem owns its own thread + bounded queue (see
-            // LiveBlockPushClient javadoc).
-            if (pushBnHost != null && !pushBnHost.isBlank()) {
+            // Optional: live-push to a Block Node. Gated by --push-enabled so the host can be
+            // configured ahead of time but the feature stays off until the operator flips it on
+            // (typically after the historical backfill has populated the target BN). The push
+            // subsystem owns its own thread + bounded queue (see LiveBlockPushClient javadoc).
+            if (pushEnabled) {
+                if (pushBnHost == null || pushBnHost.isBlank()) {
+                    throw new IllegalArgumentException("--push-enabled requires --push-bn-host to be set");
+                }
                 pushClient = new LiveBlockPushClient(
                         pushBnHost, pushBnPort, pushQueueCapacity, LiveBlockPushClient.loadDefaultWebConfig());
                 pushSkipUpToInclusive = pushClient.queryLastAvailableBlock();
@@ -354,6 +366,10 @@ public class LiveSequential implements Runnable {
                         + " BN lastAvailableBlock=" + pushSkipUpToInclusive
                         + " (blocks <= this are skipped from push)");
                 pushClient.start();
+            } else if (pushBnHost != null && !pushBnHost.isBlank()) {
+                System.out.println("[live-sequential] Live push configured (host=" + pushBnHost + ":"
+                        + pushBnPort + ") but disabled (--push-enabled not set). "
+                        + "Run with --push-enabled to turn on after backfill completes.");
             }
 
             // Create producer-consumer queue
