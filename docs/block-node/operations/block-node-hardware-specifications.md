@@ -95,19 +95,25 @@ store the full history of the network.
 ### Rolling-History (Partial History) Tier 2
 
 A Rolling-History Tier 2 node does not store full blockchain history. CPU and
-RAM requirements match Tier 1 because the same verification and persistence
-pipeline runs. The `stream-publisher` plugin is not deployed, so there is no
-inbound stream from Consensus Nodes. Bulk HDD storage is sized to the retention
-window rather than the full block history.
+RAM requirements match Tier 1 — the primary driver is the State Management task
+(which handles live state and serves downstream subscribers), not verification
+or persistence alone. Exact minimums for nodes that do not manage live state
+have not yet been formally benchmarked. The `stream-publisher` plugin is not
+deployed, so there is no inbound stream from Consensus Nodes. Bulk HDD storage
+is sized to the retention window rather than the full block history.
 
-|     Component     |                          Minimum Specification                          |
-|-------------------|-------------------------------------------------------------------------|
-| CPU               | 24 cores / 48 threads, single socket, ≥ 2.0 GHz base clock              |
-| RAM               | 256 GB                                                                  |
-| Fast NVMe Disk    | 7.5 TB NVMe SSD (recent blocks + live state)                            |
-| Bulk Storage Disk | Size to retention window (see table below)                              |
-| Network           | 10 Gbps NIC minimum (see [Network Requirements](#network-requirements)) |
-| OS                | Linux host OS (Ubuntu 24.04 LTS or Debian 13.x LTS recommended)         |
+|     Component     |                               Minimum Specification                               |
+|-------------------|-----------------------------------------------------------------------------------|
+| CPU               | 24 cores / 48 threads, single socket, ≥ 2.0 GHz base clock                        |
+| RAM               | 256 GB                                                                            |
+| Fast NVMe Disk    | 7.5 TB NVMe SSD (recent blocks + live state; partially optional — see note below) |
+| Bulk Storage Disk | Size to retention window (see table below)                                        |
+| Network           | 10 Gbps NIC minimum (see [Network Requirements](#network-requirements))           |
+| OS                | Linux host OS (Ubuntu 24.04 LTS or Debian 13.x LTS recommended)                   |
+
+> **Note:** The Fast NVMe Disk is at least partially optional for Rolling-History Tier 2 nodes. Its
+> necessity depends on whether the node manages live state and serves downstream subscribers. Consult
+> your Hashgraph PoC for the current recommended configuration if you are not managing live state.
 
 **Bulk storage by retention window (at 10K TPS mainnet, 20% headroom):**
 
@@ -126,7 +132,7 @@ additional HDD bulk storage.
 
 ### Full History Tier 2
 
-Tier 2 nodes that choose to store the complete block history should use the
+Tier 2 nodes that choose to store the complete block history and manage live state should use the
 [Tier 1 LFH specification](#local-full-history-lfh).
 
 ---
