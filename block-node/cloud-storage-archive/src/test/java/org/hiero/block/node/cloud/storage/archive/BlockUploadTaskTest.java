@@ -137,7 +137,7 @@ class BlockUploadTaskTest {
 
     /// Verifies that when [BlockUploadTask#doUploadPart] throws during a mid-loop flush, all
     /// blocks whose tar bytes were in the buffer at the time of failure receive a failed
-    /// [PersistedNotification], and [BlockUploadTask.UploadResult#FAILED] is returned.
+    /// [PersistedNotification], and [UploadResult#FAILED] is returned.
     @Test
     @DisplayName("Failed part upload sends false persisted notifications for all buffered blocks")
     void testFailedfulUploadReturnsFailure() throws Exception {
@@ -170,8 +170,8 @@ class BlockUploadTaskTest {
             queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
         }
 
-        final BlockUploadTask.UploadResult result = task.call();
-        assertThat(result).isEqualTo(BlockUploadTask.UploadResult.FAILED);
+        final UploadResult result = task.call();
+        assertThat(result).isEqualTo(UploadResult.FAILED);
 
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
         assertThat(notifications).isNotEmpty().allSatisfy(n -> {
@@ -218,7 +218,7 @@ class BlockUploadTaskTest {
             queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
         }
 
-        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.FAILED);
+        assertThat(task.call()).isEqualTo(UploadResult.FAILED);
 
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
         assertThat(notifications).hasSize(1);
@@ -228,7 +228,7 @@ class BlockUploadTaskTest {
         assertThat(notification.blockSource()).isEqualTo(BlockSource.PUBLISHER);
     }
 
-    /// Verifies that [BlockUploadTask#call] returns [BlockUploadTask.UploadResult#SUCCESS] when
+    /// Verifies that [BlockUploadTask#call] returns [UploadResult#SUCCESS] when
     /// all blocks are uploaded successfully, and that every block receives a successful
     /// [PersistedNotification].
     @Test
@@ -262,8 +262,8 @@ class BlockUploadTaskTest {
             queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
         }
 
-        final BlockUploadTask.UploadResult result = task.call();
-        assertThat(result).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+        final UploadResult result = task.call();
+        assertThat(result).isEqualTo(UploadResult.SUCCESS);
 
         assertThat(getAllObjects()).contains("0000/0000/0000/0000/0.tar");
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
@@ -309,7 +309,7 @@ class BlockUploadTaskTest {
             queue.put(new BlockWithSource(block, source));
         }
 
-        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+        assertThat(task.call()).isEqualTo(UploadResult.SUCCESS);
 
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
         assertThat(notifications).hasSize(1);
@@ -351,7 +351,7 @@ class BlockUploadTaskTest {
             queue.put(new BlockWithSource(block, null));
         }
 
-        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+        assertThat(task.call()).isEqualTo(UploadResult.SUCCESS);
 
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
         assertThat(notifications).hasSize(1);
@@ -395,7 +395,7 @@ class BlockUploadTaskTest {
                     BlockSource.PUBLISHER));
         }
 
-        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+        assertThat(task.call()).isEqualTo(UploadResult.SUCCESS);
 
         assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_BLOCKS_WRITTEN.name()))
                 .isEqualTo(groupSize);
@@ -438,7 +438,7 @@ class BlockUploadTaskTest {
                     BlockSource.PUBLISHER));
         }
 
-        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.FAILED);
+        assertThat(task.call()).isEqualTo(UploadResult.FAILED);
 
         assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_BLOCKS_WRITTEN.name()))
                 .isZero();
@@ -483,7 +483,7 @@ class BlockUploadTaskTest {
                     BlockSource.PUBLISHER));
         }
 
-        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+        assertThat(task.call()).isEqualTo(UploadResult.SUCCESS);
 
         assertThat(asf.storedRanges).hasSize(1);
         assertThat(asf.storedRanges.getFirst()).isEqualTo(new LongRange(0, groupSize - 1));
@@ -526,7 +526,7 @@ class BlockUploadTaskTest {
                     BlockSource.PUBLISHER));
         }
 
-        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+        assertThat(task.call()).isEqualTo(UploadResult.SUCCESS);
 
         assertThat(asf.storedRanges).hasSizeGreaterThan(1);
         // Ranges must be contiguous and together cover all blocks from 0 to groupSize-1.
@@ -572,7 +572,7 @@ class BlockUploadTaskTest {
                     BlockSource.PUBLISHER));
         }
 
-        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.FAILED);
+        assertThat(task.call()).isEqualTo(UploadResult.FAILED);
 
         assertThat(asf.storedRanges).isEmpty();
     }

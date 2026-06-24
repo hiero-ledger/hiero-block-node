@@ -585,6 +585,134 @@ class StartupRecoveryTaskTest {
         }
     }
 
+    /// Verifies that when the `tmp/` directory is empty (no objects, no hanging uploads),
+    /// [StartupRecoveryTask] returns an empty [RecoveryResult#tempArchives()] list.
+    @Test
+    @DisplayName("Empty tmp/ directory yields an empty tempArchives list")
+    void emptyTmpDirectoryYieldsEmptyTempArchivesList() throws Exception {
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.tempArchives()).isNotNull();
+        assertThat(result.tempArchives()).isEmpty();
+    }
+
+    /// Verifies that two fully durable temp archives (each represented by a `.tmp` object and a
+    /// companion `.meta` file) are correctly reconstructed into [TempArchiveEntry] records whose
+    /// [TempArchiveEntry#firstBlock()] and [TempArchiveEntry#lastBlock()] match the planted data.
+    @Test
+    @DisplayName("Completed temp archives: two meta+tar pairs rebuild two TempArchiveEntry records")
+    void completedTempArchivesRebuiltFromMetaFiles() throws Exception {
+        try (S3Client s3 = openS3Client()) {
+            // Plant two completed temp archive pairs.
+            final String tarKey0 = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
+            final String metaKey0 = TempArchiveKey.formatMeta(0, config.objectKeyPrefix());
+            s3.uploadTextFile(tarKey0, config.storageClass().name(), "dummy-tar-content");
+            s3.uploadTextFile(metaKey0, config.storageClass().name(), "9");
+
+            final String tarKey10 = TempArchiveKey.formatTar(10, config.objectKeyPrefix());
+            final String metaKey10 = TempArchiveKey.formatMeta(10, config.objectKeyPrefix());
+            s3.uploadTextFile(tarKey10, config.storageClass().name(), "dummy-tar-content");
+            s3.uploadTextFile(metaKey10, config.storageClass().name(), "19");
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.tempArchives()).hasSize(2);
+        final TempArchiveEntry entry0 = result.tempArchives().stream()
+                .filter(e -> e.firstBlock() == 0L)
+                .findFirst()
+                .orElseThrow();
+        assertThat(entry0.lastBlock()).isEqualTo(9L);
+        assertThat(entry0.uploadId()).isNull();
+
+        final TempArchiveEntry entry10 = result.tempArchives().stream()
+                .filter(e -> e.firstBlock() == 10L)
+                .findFirst()
+                .orElseThrow();
+        assertThat(entry10.lastBlock()).isEqualTo(19L);
+        assertThat(entry10.uploadId()).isNull();
+    }
+
+    /// Verifies that a hanging multipart upload targeting a `.tmp` key is aborted during recovery
+    /// and is not included in the returned [RecoveryResult#tempArchives()] list.
+    @Test
+    @DisplayName("Hanging temp upload: aborted during recovery and absent from tempArchives")
+    void hangingTempUploadIsAbortedAndNotInResult() throws Exception {
+        final String tarKey = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
+        try (S3Client s3 = openS3Client()) {
+            // Leave a hanging multipart upload for a .tmp key — no parts uploaded.
+            s3.createMultipartUpload(tarKey, config.storageClass().name(), "application/x-tar");
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.tempArchives()).isEmpty();
+        try (S3Client s3 = openS3Client()) {
+            assertThat(s3.listMultipartUploads()).doesNotContainKey(tarKey);
+        }
+    }
+
+    /// Verifies that a `.tmp` object without a companion `.meta` file (orphaned) is deleted from
+    /// S3 during recovery and does not appear in [RecoveryResult#tempArchives()].
+    @Test
+    @DisplayName("Orphaned .tmp without .meta is deleted from S3 and absent from tempArchives")
+    void orphanedTmpObjectDeletedIfNoMeta() throws Exception {
+        final String tarKey = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
+        try (S3Client s3 = openS3Client()) {
+            // Upload a .tmp object with no companion .meta.
+            s3.uploadTextFile(tarKey, config.storageClass().name(), "orphaned-tar-content");
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.tempArchives()).isEmpty();
+        try (S3Client s3 = openS3Client()) {
+            assertThat(s3.listObjects(tarKey, 1)).doesNotContain(tarKey);
+        }
+    }
+
+    /// Verifies that when the bucket contains both a completed regular `.tar` and objects under
+    /// `tmp/`, [findLastKey] excludes the `tmp/` virtual directory and returns the correct
+    /// [RecoveryResult#currentGroupStart()] based on the completed regular tar.
+    ///
+    /// With groupSize=10, a completed tar for group 0 (blocks 0–9) produces
+    /// [RecoveryResult#currentGroupStart()] == 10.  The presence of `.meta` objects under `tmp/`
+    /// must not distract [findLastKey] into the `tmp/` subtree and produce a wrong group start.
+    @Test
+    @DisplayName("findLastKey excludes the tmp/ directory: regular tar still found correctly")
+    void findLastKeyIgnoresTmpDirectory() throws Exception {
+        final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+        final String regularKey = ArchiveKey.format(0, GROUPING_LEVEL, "");
+
+        try (S3Client s3 = openS3Client()) {
+            // Completed regular tar for group 0.
+            final String uploadId =
+                    s3.createMultipartUpload(regularKey, config.storageClass().name(), CONTENT_TYPE);
+            final String etag = s3.multipartUploadPart(
+                    regularKey,
+                    uploadId,
+                    1,
+                    buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1)));
+            s3.completeMultipartUpload(regularKey, uploadId, List.of(etag));
+
+            // Some objects under tmp/ — these must not influence findLastKey.
+            final String metaKey = TempArchiveKey.formatMeta(0, config.objectKeyPrefix());
+            final String tarKey = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
+            s3.uploadTextFile(tarKey, config.storageClass().name(), "dummy");
+            s3.uploadTextFile(metaKey, config.storageClass().name(), "9");
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        // The regular tar for group 0 (blocks 0–9) must be the last found key.
+        assertThat(result.currentGroupStart()).isEqualTo(groupSize);
+        assertThat(result.uploadId()).isNull();
+        // The temp archive must still be recovered.
+        assertThat(result.tempArchives()).hasSize(1);
+        assertThat(result.tempArchives().getFirst().firstBlock()).isZero();
+        assertThat(result.tempArchives().getFirst().lastBlock()).isEqualTo(9L);
+    }
+
     private S3Client openS3Client() throws Exception {
         return new S3Client(
                 config.regionName(), config.endpointUrl(), config.bucketName(), config.accessKey(), config.secretKey());

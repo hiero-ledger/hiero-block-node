@@ -28,5 +28,12 @@ import java.util.List;
 ///                          by [BlockUploadTask] to seed its accumulation buffer so that the
 ///                          previously-started S3 part is completed correctly on resume;
 ///                          non-null when [uploadId] is non-null
+/// @param tempArchives      temporary archives found in S3 during startup; `null` on mid-run
+///                          recovery paths that skip the temporary-archive scan
 record RecoveryResult(
-        long currentGroupStart, String uploadId, List<String> etags, long nextBlockNumber, byte[] trailingBytes) {}
+        long currentGroupStart,
+        String uploadId,
+        List<String> etags,
+        long nextBlockNumber,
+        byte[] trailingBytes,
+        List<TempArchiveEntry> tempArchives) {}

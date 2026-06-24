@@ -15,6 +15,7 @@ public record CloudStorageArchiveConfig(
 
     @Loggable @ConfigProperty(defaultValue = "5") @Max(6) @Min(1) int groupingLevel,
     @Loggable @ConfigProperty(defaultValue = "10") @Max(2047) @Min(5) int partSizeMb,
+    @Loggable @ConfigProperty(defaultValue = "4") @Max(16) @Min(1) int maxConcurrentTempArchives,
     @Loggable @ConfigProperty(defaultValue = "") String endpointUrl,
     @Loggable @ConfigProperty(defaultValue = "") String regionName,
     @ConfigProperty(defaultValue = "") String accessKey,
