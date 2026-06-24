@@ -9,6 +9,7 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.hapi.block.stream.Block;
@@ -96,10 +97,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private static final long BLOCK_RANGE_PERSIST_INTERVAL = 1000;
     /// Max protobuf/JSON message size for application-state files loaded from disk (small).
     private static final int MAX_APP_STATE_MESSAGE_SIZE_BYTES = 1 * 1024 * 1024;
-    /// Max protobuf parse depth: each level of message nesting needs >= \~8 bytes on the wire, so size/8 bounds the
-    // deepest a non-degenerate message can nest.
-    private static final int MAX_APP_STATE_MESSAGE_DEPTH = MAX_APP_STATE_MESSAGE_SIZE_BYTES / 8;
-    /// The logger for this class.
+    /** The logger for this class. */
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
     /// The state of the server.
     private final AtomicReference<State> state = new AtomicReference<>(State.STARTING);
@@ -768,7 +766,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         Bytes.wrap(Files.readAllBytes(tssDataJsonPath)).toReadableSequentialData(),
                         false,
                         true,
-                        MAX_APP_STATE_MESSAGE_DEPTH,
+                        MAX_PARSE_DEPTH,
                         MAX_APP_STATE_MESSAGE_SIZE_BYTES);
                 updateTssData(tssData);
                 LOGGER.log(INFO, "Loaded TssData from file: {0}", tssDataJsonPath);
@@ -794,7 +792,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         Bytes.wrap(raw).toReadableSequentialData(),
                         false,
                         true,
-                        MAX_APP_STATE_MESSAGE_DEPTH,
+                        MAX_PARSE_DEPTH,
                         MAX_APP_STATE_MESSAGE_SIZE_BYTES);
                 validateAddressBook(book, rsaFilePath.toString());
                 pendingAddressBook.set(book);
@@ -829,7 +827,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         Bytes.wrap(Files.readAllBytes(blockRangesPath)).toReadableSequentialData(),
                         false,
                         true,
-                        MAX_APP_STATE_MESSAGE_DEPTH,
+                        MAX_PARSE_DEPTH,
                         MAX_APP_STATE_MESSAGE_SIZE_BYTES);
                 rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
                 LOGGER.log(INFO, "Loaded block ranges from file: {0}", blockRangesPath);

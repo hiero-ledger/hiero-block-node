@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
@@ -55,7 +57,7 @@ public class GenerateTestnetAddressBookHistory implements Runnable {
                     throw new IllegalStateException(
                             "Bundled resource not found on classpath: " + GENESIS_ADDRESS_BOOK_RESOURCE);
                 }
-                addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in));
+                addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in), false, MAX_PARSE_DEPTH);
             }
 
             System.out.println("Loaded genesis address book with "

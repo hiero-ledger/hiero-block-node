@@ -4,6 +4,7 @@ package org.hiero.block.node.roster.bootstrap.tss;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -100,7 +101,8 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
             Path blockNodeSourcesPath = Path.of(sourcesPath);
             if (Files.isRegularFile(blockNodeSourcesPath)) {
                 try {
-                    return BlockNodeSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
+                    return BlockNodeSource.JSON.parse(
+                            Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)), false, MAX_PARSE_DEPTH);
                 } catch (ParseException | IOException e) {
                     // do nothing
                 }

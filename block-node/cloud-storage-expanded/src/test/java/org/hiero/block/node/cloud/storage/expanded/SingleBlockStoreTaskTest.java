@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.expanded;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -245,11 +246,11 @@ class SingleBlockStoreTaskTest {
 
         // Decompress and parse — must round-trip back to the original block number
         final byte[] decompressed = CompressionType.ZSTD.decompress(capturedPayload.getFirst());
-        final BlockUnparsed parsed = BlockUnparsed.PROTOBUF.parseStrict(Bytes.wrap(decompressed));
+        final BlockUnparsed parsed = BlockUnparsed.PROTOBUF.parse(Bytes.wrap(decompressed), true, MAX_PARSE_DEPTH);
         assertEquals(
                 blockNumber,
                 BlockHeader.PROTOBUF
-                        .parse(parsed.blockItems().getFirst().blockHeaderOrThrow())
+                        .parse(parsed.blockItems().getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH)
                         .number(),
                 "Block header number must survive ZSTD compress→decompress→parse round-trip");
     }

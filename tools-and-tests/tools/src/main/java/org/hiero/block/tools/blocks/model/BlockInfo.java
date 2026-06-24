@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.node.base.Transaction;
@@ -233,7 +235,7 @@ public class BlockInfo {
             byte[] uncompressedData = data[1];
 
             long start = System.currentTimeMillis();
-            final Block block = Block.PROTOBUF.parse(Bytes.wrap(uncompressedData));
+            final Block block = Block.PROTOBUF.parse(Bytes.wrap(uncompressedData), false, MAX_PARSE_DEPTH);
             long end = System.currentTimeMillis();
 
             return blockInfo(
@@ -314,20 +316,26 @@ public class BlockInfo {
                 .filter(BlockItem::hasSignedTransaction)
                 .map(item -> {
                     try {
-                        final Transaction transaction = Transaction.PROTOBUF.parse(item.signedTransaction());
+                        final Transaction transaction =
+                                Transaction.PROTOBUF.parse(item.signedTransaction(), false, MAX_PARSE_DEPTH);
                         final TransactionBody transactionBody;
                         if (transaction.signedTransactionBytes().length() > 0) {
-                            transactionBody = TransactionBody.PROTOBUF.parse(SignedTransaction.PROTOBUF
-                                    .parse(transaction.signedTransactionBytes())
-                                    .bodyBytes());
+                            transactionBody = TransactionBody.PROTOBUF.parse(
+                                    SignedTransaction.PROTOBUF
+                                            .parse(transaction.signedTransactionBytes(), false, MAX_PARSE_DEPTH)
+                                            .bodyBytes(),
+                                    false,
+                                    MAX_PARSE_DEPTH);
                         } else {
-                            transactionBody = TransactionBody.PROTOBUF.parse(transaction.bodyBytes());
+                            transactionBody =
+                                    TransactionBody.PROTOBUF.parse(transaction.bodyBytes(), false, MAX_PARSE_DEPTH);
                         }
                         final DataOneOfType kind = transactionBody.data().kind();
                         if (kind == DataOneOfType.UNSET) { // should never happen, unless there is a bug somewhere
                             unknownTransactionInfo.add("    " + TransactionBody.JSON.toJSON(transactionBody));
                             unknownTransactionInfo.add("    "
-                                    + Transaction.JSON.toJSON(Transaction.PROTOBUF.parse(item.signedTransaction())));
+                                    + Transaction.JSON.toJSON(Transaction.PROTOBUF.parse(
+                                            item.signedTransaction(), false, MAX_PARSE_DEPTH)));
                             unknownTransactionInfo.add("    " + BlockItem.JSON.toJSON(item));
                         } else if (kind == DataOneOfType.STATE_SIGNATURE_TRANSACTION) {
                             numOfSystemTransactions.getAndIncrement();

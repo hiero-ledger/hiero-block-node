@@ -3,6 +3,7 @@ package org.hiero.block.node.blocks.files.recent;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
@@ -25,8 +26,6 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 final class BlockFileBlockAccessor implements BlockAccessor {
     /** The logger for this class. */
     private static final System.Logger LOGGER = System.getLogger(BlockFileBlockAccessor.class.getName());
-    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
-    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
     /** Message logged when the protobuf codec fails to parse data */
     private static final String FAILED_TO_PARSE_MESSAGE = "Failed to parse block from file %s.";
     /** Message logged when data cannot be read from a block file */
@@ -84,11 +83,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
             return rawData == null
                     ? null
                     : BlockUnparsed.PROTOBUF.parse(
-                            rawData.toReadableSequentialData(),
-                            false,
-                            true,
-                            MAX_BLOCK_MESSAGE_DEPTH,
-                            Integer.MAX_VALUE);
+                            rawData.toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
         } catch (final RuntimeException | ParseException e) {
             LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock), e);
             return null;
@@ -163,11 +158,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
         if (sourceData != null) {
             try {
                 return Block.JSON.toBytes(Block.PROTOBUF.parse(
-                        sourceData.toReadableSequentialData(),
-                        false,
-                        true,
-                        MAX_BLOCK_MESSAGE_DEPTH,
-                        Integer.MAX_VALUE));
+                        sourceData.toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE));
             } catch (final RuntimeException | ParseException e) {
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock);
                 LOGGER.log(WARNING, message, e);

@@ -4,6 +4,7 @@ package org.hiero.block.node.backfill;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -351,7 +352,7 @@ final class BackfillRunner {
      */
     private long extractBlockNumber(BlockUnparsed blockUnparsed) throws ParseException {
         return BlockHeader.PROTOBUF
-                .parse(blockUnparsed.blockItems().getFirst().blockHeaderOrThrow())
+                .parse(blockUnparsed.blockItems().getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH)
                 .number();
     }
 }

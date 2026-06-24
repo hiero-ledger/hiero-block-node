@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.unparsed;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -83,7 +84,8 @@ public class UnparsedRecordBlockV6 extends UnparsedRecordBlock {
             }
 
             // Parse protobuf portion
-            final RecordStreamFile rsf = RecordStreamFile.PROTOBUF.parse(new ReadableStreamingData(in));
+            final RecordStreamFile rsf =
+                    RecordStreamFile.PROTOBUF.parse(new ReadableStreamingData(in), false, MAX_PARSE_DEPTH);
             final SemanticVersion hapiVersion = rsf.hapiProtoVersion();
 
             // Compute the entire file hash for signature validation

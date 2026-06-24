@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.wrapped;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 import static org.hiero.block.tools.records.SigFileUtils.verifyRsaSha384;
 import static org.hiero.block.tools.utils.Sha384.hashSha384;
 
@@ -334,7 +335,8 @@ public class BalanceProtobufValidator {
             }
 
             // Parse protobuf signature file
-            SignatureFile signatureFile = SignatureFile.PROTOBUF.parse(new ReadableStreamingData(sin));
+            SignatureFile signatureFile =
+                    SignatureFile.PROTOBUF.parse(new ReadableStreamingData(sin), false, MAX_PARSE_DEPTH);
             if (signatureFile.fileSignature() == null) {
                 return false;
             }

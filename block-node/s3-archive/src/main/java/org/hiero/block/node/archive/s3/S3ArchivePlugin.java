@@ -6,6 +6,7 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -341,7 +342,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                     if (headerBytes == null) {
                         throw new IllegalStateException("Block header is null");
                     }
-                    final BlockHeader header = BlockHeader.PROTOBUF.parse(headerBytes);
+                    final BlockHeader header = BlockHeader.PROTOBUF.parse(headerBytes, false, MAX_PARSE_DEPTH);
                     if (header.blockTimestamp() == null) {
                         throw new IllegalStateException("Block header firstTransactionConsensusTime is null");
                     }

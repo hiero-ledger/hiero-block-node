@@ -4,6 +4,7 @@ package org.hiero.block.node.blocks.files.historic;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 
 import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.block.stream.Block;
@@ -644,7 +645,8 @@ class ZipBlockArchiveTest {
                     final Bytes expectedValue = first10BlocksWithExpectedEntryNames.get(
                             entry.getFileName().toString());
                     try (final InputStream in = Files.newInputStream(entry)) {
-                        final Block readBlock = Block.PROTOBUF.parse(Bytes.wrap(in.readAllBytes()));
+                        final Block readBlock =
+                                Block.PROTOBUF.parse(Bytes.wrap(in.readAllBytes()), false, MAX_PARSE_DEPTH);
                         final Bytes actualValue = Block.PROTOBUF.toBytes(readBlock);
                         assertThat(actualValue).isEqualTo(expectedValue);
                         assertThat(actualValue.toHex()).isEqualTo(expectedValue.toHex());

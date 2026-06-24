@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+
 import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
@@ -135,10 +137,11 @@ public final class TssEnablementValidation implements BlockValidation {
         if (t.hasBody()) {
             return t.body();
         } else if (t.bodyBytes().length() > 0) {
-            return TransactionBody.PROTOBUF.parse(t.bodyBytes());
+            return TransactionBody.PROTOBUF.parse(t.bodyBytes(), false, MAX_PARSE_DEPTH);
         } else if (t.signedTransactionBytes().length() > 0) {
-            final SignedTransaction st = SignedTransaction.PROTOBUF.parse(t.signedTransactionBytes());
-            return TransactionBody.PROTOBUF.parse(st.bodyBytes());
+            final SignedTransaction st =
+                    SignedTransaction.PROTOBUF.parse(t.signedTransactionBytes(), false, MAX_PARSE_DEPTH);
+            return TransactionBody.PROTOBUF.parse(st.bodyBytes(), false, MAX_PARSE_DEPTH);
         }
         return null;
     }
@@ -146,7 +149,8 @@ public final class TssEnablementValidation implements BlockValidation {
     private static Instant extractBlockInstant(final BlockUnparsed block) throws ParseException {
         for (final BlockItemUnparsed item : block.blockItems()) {
             if (item.hasBlockHeader()) {
-                final BlockHeader header = BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow());
+                final BlockHeader header =
+                        BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow(), false, MAX_PARSE_DEPTH);
                 final Timestamp ts = header.blockTimestampOrThrow();
                 return Instant.ofEpochSecond(ts.seconds(), ts.nanos());
             }

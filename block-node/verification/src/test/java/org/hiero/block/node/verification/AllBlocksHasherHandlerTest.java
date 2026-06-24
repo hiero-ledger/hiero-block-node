@@ -2,6 +2,7 @@
 package org.hiero.block.node.verification;
 
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
@@ -287,7 +288,7 @@ class AllBlocksHasherHandlerTest {
         final List<BlockItemUnparsed> parsedItems = new ArrayList<>(blockItems.size());
 
         for (final BlockItem item : blockItems) {
-            parsedItems.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item)));
+            parsedItems.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item), false, MAX_PARSE_DEPTH));
         }
 
         final Bytes previousBlockHash = prevHash == null ? null : Bytes.wrap(prevHash);

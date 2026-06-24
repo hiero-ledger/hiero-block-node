@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
@@ -179,7 +181,8 @@ public class FetchMissingTransactions implements Runnable {
         }
         final byte[] recordBytes = new byte[recordLength];
         System.arraycopy(data, offset, recordBytes, 0, recordLength);
-        final TransactionRecord transactionRecord = TransactionRecord.PROTOBUF.parse(Bytes.wrap(recordBytes));
+        final TransactionRecord transactionRecord =
+                TransactionRecord.PROTOBUF.parse(Bytes.wrap(recordBytes), false, MAX_PARSE_DEPTH);
         offset += recordLength;
 
         // Read second record: Transaction
@@ -193,7 +196,7 @@ public class FetchMissingTransactions implements Runnable {
         }
         final byte[] txBytes = new byte[txLength];
         System.arraycopy(data, offset, txBytes, 0, txLength);
-        final Transaction transaction = Transaction.PROTOBUF.parse(Bytes.wrap(txBytes));
+        final Transaction transaction = Transaction.PROTOBUF.parse(Bytes.wrap(txBytes), false, MAX_PARSE_DEPTH);
 
         return new RecordStreamItem(transaction, transactionRecord);
     }

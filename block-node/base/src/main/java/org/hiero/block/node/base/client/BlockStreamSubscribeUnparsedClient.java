@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.api.BlockStreamSubscribeServiceInterface.FULL_NAME;
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -100,7 +101,9 @@ public class BlockStreamSubscribeUnparsedClient {
      * Extracts the block number from a block header item.
      */
     private static long extractBlockNumberFromBlockHeader(BlockItemUnparsed itemUnparsed) throws ParseException {
-        return BlockHeader.PROTOBUF.parse(itemUnparsed.blockHeaderOrThrow()).number();
+        return BlockHeader.PROTOBUF
+                .parse(itemUnparsed.blockHeaderOrThrow(), false, MAX_PARSE_DEPTH)
+                .number();
     }
 
     /**

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -904,7 +906,7 @@ public class ValidateBlocksCommand implements Runnable {
 
                             // Compute speed multiplier (consensus-time / wall-clock)
                             BlockHeader parsedHeader = BlockHeader.PROTOBUF.parse(
-                                    block.blockItems().getFirst().blockHeaderOrThrow());
+                                    block.blockItems().getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH);
                             Timestamp blockTs = parsedHeader.blockTimestampOrThrow();
                             long blockEpochMillis = blockTs.seconds() * 1000L + blockTs.nanos() / 1_000_000L;
                             long currentNanos = System.nanoTime();

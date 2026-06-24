@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -253,7 +254,7 @@ class VerificationServicePluginTest
     void shouldFailOnBlockHeaderNumberMismatch() throws ParseException, IOException {
         BlockUtils.SampleBlockInfo sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
         BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
-                sampleBlockInfo.blockUnparsed().blockItems().getFirst().blockHeaderOrThrow());
+                sampleBlockInfo.blockUnparsed().blockItems().getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH);
 
         long blockNumber = blockHeader.number() + 1;
         plugin.handleBlockItemsReceived(
@@ -369,7 +370,8 @@ class VerificationServicePluginTest
 
         // Verify the file contains a valid LedgerIdPublicationTransactionBody
         Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssParametersFile));
-        LedgerIdPublicationTransactionBody persisted = LedgerIdPublicationTransactionBody.PROTOBUF.parse(fileBytes);
+        LedgerIdPublicationTransactionBody persisted =
+                LedgerIdPublicationTransactionBody.PROTOBUF.parse(fileBytes, false, MAX_PARSE_DEPTH);
         assertEquals(
                 VerificationServicePlugin.activeLedgerId,
                 persisted.ledgerId(),
@@ -555,7 +557,7 @@ class VerificationServicePluginTest
         BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
         BlockUnparsed tssBlockN = loadTssBlock("test-blocks/CN_0_73_TSS_WRAPS/467.blk.gz");
         long blockNNumber = BlockHeader.PROTOBUF
-                .parse(tssBlockN.blockItems().getFirst().blockHeaderOrThrow())
+                .parse(tssBlockN.blockItems().getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH)
                 .number();
 
         // Process block 0 via live stream — bootstraps TSS parameters
@@ -579,7 +581,7 @@ class VerificationServicePluginTest
     private static BlockUnparsed loadTssBlock(String resourcePath) throws IOException, ParseException {
         try (InputStream stream = TestUtils.class.getModule().getResourceAsStream(resourcePath);
                 GZIPInputStream gzip = new GZIPInputStream(stream)) {
-            return BlockUnparsed.PROTOBUF.parse(Bytes.wrap(gzip.readAllBytes()));
+            return BlockUnparsed.PROTOBUF.parse(Bytes.wrap(gzip.readAllBytes()), false, MAX_PARSE_DEPTH);
         }
     }
 

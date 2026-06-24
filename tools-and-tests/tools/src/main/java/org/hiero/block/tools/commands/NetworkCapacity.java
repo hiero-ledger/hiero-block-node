@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
@@ -97,7 +99,7 @@ public class NetworkCapacity implements Runnable {
         System.out.println("Starting in Server Mode");
 
         HelidonWebServerConfig webServerConfig =
-                HelidonWebServerConfig.JSON.parse(Bytes.wrap(Files.readAllBytes(configFile)));
+                HelidonWebServerConfig.JSON.parse(Bytes.wrap(Files.readAllBytes(configFile)), false, MAX_PARSE_DEPTH);
 
         // Log the config loaded
         System.out.printf("Client configuration loaded: %s%n", webServerConfig);
@@ -121,7 +123,7 @@ public class NetworkCapacity implements Runnable {
         System.out.println("Starting in Client Mode");
 
         HelidonWebClientConfig clientConfig =
-                HelidonWebClientConfig.JSON.parse(Bytes.wrap(Files.readAllBytes(configFile)));
+                HelidonWebClientConfig.JSON.parse(Bytes.wrap(Files.readAllBytes(configFile)), false, MAX_PARSE_DEPTH);
 
         // Log the config loaded
         System.out.printf("Client configuration loaded: %s%n", clientConfig);

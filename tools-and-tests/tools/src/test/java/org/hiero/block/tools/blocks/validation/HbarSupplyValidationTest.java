@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -55,7 +56,7 @@ class HbarSupplyValidationTest {
 
     private static BlockUnparsed toUnparsed(Block block) {
         try {
-            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block), false, MAX_PARSE_DEPTH);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

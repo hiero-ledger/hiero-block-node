@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.capacity;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
@@ -181,7 +183,7 @@ public class NetworkCapacityServer {
         private long parseBlockNumber(BlockItemUnparsed headerItem) {
             try {
                 BlockHeader header = BlockHeader.PROTOBUF.parse(
-                        headerItem.blockHeaderOrThrow().toReadableSequentialData());
+                        headerItem.blockHeaderOrThrow().toReadableSequentialData(), false, MAX_PARSE_DEPTH);
                 return header.number();
             } catch (ParseException e) {
                 return currentBlockNumber + 1;

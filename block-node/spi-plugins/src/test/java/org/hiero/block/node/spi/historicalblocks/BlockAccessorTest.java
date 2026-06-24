@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.historicalblocks;
 
+import static org.hiero.block.node.spi.historicalblocks.BlockAccessor.MAX_PARSE_DEPTH;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -82,7 +83,7 @@ public class BlockAccessorTest {
     @DisplayName("Test blockUnparsed method")
     void testBlockUnparsed() throws ParseException {
         BlockAccessor accessor = new TestBlockAccessor();
-        BlockUnparsed blockUnparsed = BlockUnparsed.PROTOBUF.parse(SAMPLE_BLOCK_PROTOBUF_BYTES);
+        BlockUnparsed blockUnparsed = BlockUnparsed.PROTOBUF.parse(SAMPLE_BLOCK_PROTOBUF_BYTES, false, MAX_PARSE_DEPTH);
         assertEquals(blockUnparsed, accessor.blockUnparsed());
         // create a parsing failure
         BlockAccessor emptyAccessor = new ParseFailureBlockAccessor();

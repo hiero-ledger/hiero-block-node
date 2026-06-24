@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 import static org.hiero.block.tools.records.RecordFileDates.instantToRecordFileName;
 import static org.hiero.block.tools.utils.TestBlocks.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -85,7 +86,8 @@ public class ParsedRecordBlockTest {
             final List<ParsedSignatureFile> signatureFiles = loadV6SignatureFiles();
 
             // Parse sidecar file
-            final SidecarFile sidecarFile = SidecarFile.PROTOBUF.parse(Bytes.wrap(V6_TEST_BLOCK_SIDECAR_BYTES));
+            final SidecarFile sidecarFile =
+                    SidecarFile.PROTOBUF.parse(Bytes.wrap(V6_TEST_BLOCK_SIDECAR_BYTES), false, MAX_PARSE_DEPTH);
 
             v6ParsedBlock = new ParsedRecordBlock(parsedRecordFile, signatureFiles, List.of(sidecarFile));
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 import static org.hiero.block.tools.records.RecordFileDates.instantToBlockTimeLong;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -73,7 +74,9 @@ public class TestBlocks {
             V5_TEST_BLOCK_ADDRESS_BOOK = NodeAddressBook.PROTOBUF.parse(
                     Bytes.wrap(Objects.requireNonNull(ParsedV2RecordFileTest.class.getResourceAsStream(
                                     "/record-files/example-v5/" + V5_TEST_BLOCK_DATE_STR + "/address_book.bin"))
-                            .readAllBytes()));
+                            .readAllBytes()),
+                    false,
+                    MAX_PARSE_DEPTH);
             V5_TEST_BLOCK_BYTES = Objects.requireNonNull(
                             ParsedV2RecordFileTest.class.getResourceAsStream("/record-files/example-v5/"
                                     + V5_TEST_BLOCK_DATE_STR + "/" + V5_TEST_BLOCK_RECORD_FILE_NAME))
@@ -108,7 +111,9 @@ public class TestBlocks {
             V6_TEST_BLOCK_ADDRESS_BOOK = NodeAddressBook.PROTOBUF.parse(
                     Bytes.wrap(Objects.requireNonNull(ParsedV2RecordFileTest.class.getResourceAsStream(
                                     "/record-files/example-v6/" + V6_TEST_BLOCK_DATE_STR + "/address_book.bin"))
-                            .readAllBytes()));
+                            .readAllBytes()),
+                    false,
+                    MAX_PARSE_DEPTH);
             V6_TEST_BLOCK_BYTES = Objects.requireNonNull(
                             ParsedV2RecordFileTest.class.getResourceAsStream("/record-files/example-v6/"
                                     + V6_TEST_BLOCK_DATE_STR + "/" + V6_TEST_BLOCK_RECORD_FILE_NAME))

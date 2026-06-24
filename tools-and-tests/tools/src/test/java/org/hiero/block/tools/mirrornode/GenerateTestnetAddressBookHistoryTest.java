@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
+import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -45,7 +46,8 @@ class GenerateTestnetAddressBookHistoryTest {
         @DisplayName("Resource parses as valid NodeAddressBook")
         void testResourceParsesAsNodeAddressBook() throws Exception {
             try (InputStream in = getClass().getResourceAsStream(GENESIS_ADDRESS_BOOK_RESOURCE)) {
-                NodeAddressBook addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in));
+                NodeAddressBook addressBook =
+                        NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in), false, MAX_PARSE_DEPTH);
                 assertNotNull(addressBook, "Parsed address book should not be null");
                 assertFalse(addressBook.nodeAddress().isEmpty(), "Address book should have nodes");
             }
@@ -55,7 +57,8 @@ class GenerateTestnetAddressBookHistoryTest {
         @DisplayName("Address book contains exactly 7 testnet nodes")
         void testAddressBookHasSevenNodes() throws Exception {
             try (InputStream in = getClass().getResourceAsStream(GENESIS_ADDRESS_BOOK_RESOURCE)) {
-                NodeAddressBook addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in));
+                NodeAddressBook addressBook =
+                        NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in), false, MAX_PARSE_DEPTH);
                 assertEquals(7, addressBook.nodeAddress().size(), "Testnet should have 7 nodes (0.0.3 through 0.0.9)");
             }
         }
@@ -64,7 +67,8 @@ class GenerateTestnetAddressBookHistoryTest {
         @DisplayName("Node account IDs are 0.0.3 through 0.0.9")
         void testNodeAccountIds() throws Exception {
             try (InputStream in = getClass().getResourceAsStream(GENESIS_ADDRESS_BOOK_RESOURCE)) {
-                NodeAddressBook addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in));
+                NodeAddressBook addressBook =
+                        NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in), false, MAX_PARSE_DEPTH);
                 List<Long> accountNums = addressBook.nodeAddress().stream()
                         .map(node -> node.nodeAccountId().accountNum())
                         .sorted()
@@ -77,7 +81,8 @@ class GenerateTestnetAddressBookHistoryTest {
         @DisplayName("All nodes have RSA public keys")
         void testAllNodesHavePublicKeys() throws Exception {
             try (InputStream in = getClass().getResourceAsStream(GENESIS_ADDRESS_BOOK_RESOURCE)) {
-                NodeAddressBook addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in));
+                NodeAddressBook addressBook =
+                        NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in), false, MAX_PARSE_DEPTH);
                 for (var node : addressBook.nodeAddress()) {
                     assertNotNull(node.rsaPubKey(), "Node " + node.nodeId() + " should have an RSA public key");
                     assertFalse(
@@ -98,7 +103,7 @@ class GenerateTestnetAddressBookHistoryTest {
             // Load the address book
             NodeAddressBook addressBook;
             try (InputStream in = getClass().getResourceAsStream(GENESIS_ADDRESS_BOOK_RESOURCE)) {
-                addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in));
+                addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in), false, MAX_PARSE_DEPTH);
             }
 
             // Build the history (same logic as the command)
@@ -121,8 +126,8 @@ class GenerateTestnetAddressBookHistoryTest {
             assertTrue(jsonBytes.length > 0, "JSON output should not be empty");
 
             // Parse it back to verify round-trip
-            AddressBookHistory parsed =
-                    AddressBookHistory.JSON.parse(new ReadableStreamingData(new ByteArrayInputStream(jsonBytes)));
+            AddressBookHistory parsed = AddressBookHistory.JSON.parse(
+                    new ReadableStreamingData(new ByteArrayInputStream(jsonBytes)), false, MAX_PARSE_DEPTH);
             assertNotNull(parsed, "Parsed history should not be null");
             assertEquals(1, parsed.addressBooks().size(), "History should have exactly one entry");
         }
@@ -132,7 +137,7 @@ class GenerateTestnetAddressBookHistoryTest {
         void testGenesisTimestampEncoding() throws Exception {
             NodeAddressBook addressBook;
             try (InputStream in = getClass().getResourceAsStream(GENESIS_ADDRESS_BOOK_RESOURCE)) {
-                addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in));
+                addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in), false, MAX_PARSE_DEPTH);
             }
 
             Instant genesis = Instant.parse(TESTNET_GENESIS_TIMESTAMP);
@@ -149,7 +154,7 @@ class GenerateTestnetAddressBookHistoryTest {
                 AddressBookHistory.JSON.write(history, out);
             }
             AddressBookHistory parsed = AddressBookHistory.JSON.parse(
-                    new ReadableStreamingData(new ByteArrayInputStream(baos.toByteArray())));
+                    new ReadableStreamingData(new ByteArrayInputStream(baos.toByteArray())), false, MAX_PARSE_DEPTH);
 
             Timestamp parsedTimestamp = parsed.addressBooks().getFirst().blockTimestampOrThrow();
             assertEquals(genesis.getEpochSecond(), parsedTimestamp.seconds(), "Seconds should match genesis");
@@ -161,7 +166,7 @@ class GenerateTestnetAddressBookHistoryTest {
         void testRoundTripPreservesNodeCount() throws Exception {
             NodeAddressBook addressBook;
             try (InputStream in = getClass().getResourceAsStream(GENESIS_ADDRESS_BOOK_RESOURCE)) {
-                addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in));
+                addressBook = NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(in), false, MAX_PARSE_DEPTH);
             }
 
             Instant genesis = Instant.parse(TESTNET_GENESIS_TIMESTAMP);
@@ -178,7 +183,7 @@ class GenerateTestnetAddressBookHistoryTest {
                 AddressBookHistory.JSON.write(history, out);
             }
             AddressBookHistory parsed = AddressBookHistory.JSON.parse(
-                    new ReadableStreamingData(new ByteArrayInputStream(baos.toByteArray())));
+                    new ReadableStreamingData(new ByteArrayInputStream(baos.toByteArray())), false, MAX_PARSE_DEPTH);
 
             NodeAddressBook parsedBook = parsed.addressBooks().getFirst().addressBook();
             assertEquals(7, parsedBook.nodeAddress().size(), "Round-tripped address book should still have 7 nodes");
