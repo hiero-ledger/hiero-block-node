@@ -131,6 +131,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.currentGroupStart()).isEqualTo(-1);
         assertThat(result.uploadId()).isNull();
         assertThat(result.trailingBytes()).isNull();
+        assertThat(result.lastHandedOffBlock()).isEqualTo(-1L);
     }
 
     /// Verifies that a completed tar for the first group causes recovery to return the start of
@@ -154,6 +155,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.currentGroupStart()).isEqualTo(groupSize);
         assertThat(result.uploadId()).isNull();
         assertThat(result.trailingBytes()).isNull();
+        assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize - 1);
     }
 
     /// Verifies that when three tar groups are already completed, recovery returns the start of
@@ -180,6 +182,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.currentGroupStart()).isEqualTo(groupSize * 3);
         assertThat(result.uploadId()).isNull();
         assertThat(result.trailingBytes()).isNull();
+        assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize * 3 - 1);
     }
 
     /// Verifies that when completed tars live in two different 4th-level S3 "folders"
@@ -222,6 +225,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.currentGroupStart()).isEqualTo(farGroupStart + groupSize);
         assertThat(result.uploadId()).isNull();
         assertThat(result.trailingBytes()).isNull();
+        assertThat(result.lastHandedOffBlock()).isEqualTo(farGroupStart + groupSize - 1);
     }
 
     /// Verifies that when [CloudStorageArchiveConfig#objectKeyPrefix()] is set and the bucket also
@@ -286,6 +290,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.currentGroupStart()).isEqualTo(groupSize);
         assertThat(result.uploadId()).isNull();
         assertThat(result.trailingBytes()).isNull();
+        assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize - 1);
         // The sibling's hanging upload must still exist — it was not aborted.
         try (S3Client s3 = new S3Client(
                 config.regionName(),
@@ -339,6 +344,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.currentGroupStart()).isEqualTo(groupSize);
         assertThat(result.uploadId()).isNull();
         assertThat(result.trailingBytes()).isNull();
+        assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize - 1);
     }
 
     /// Verifies that when [CloudStorageArchiveConfig#objectKeyPrefix()] is set and the bucket
@@ -377,6 +383,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.nextBlockNumber()).isEqualTo(4L);
         final int block4HeaderOffset = TarEntries.findLastBlockStart(partBytes);
         assertThat(result.trailingBytes()).isEqualTo(Arrays.copyOfRange(partBytes, 0, block4HeaderOffset));
+        assertThat(result.lastHandedOffBlock()).isEqualTo(3L);
     }
 
     /// Verifies that a single hanging multipart upload causes recovery to locate the last block
@@ -414,6 +421,7 @@ class StartupRecoveryTaskTest {
         // trailingBytes must be partBytes[0..block4HeaderOffset) — the prefix before block 4's header.
         final int block4HeaderOffset = TarEntries.findLastBlockStart(partBytes);
         assertThat(result.trailingBytes()).isEqualTo(Arrays.copyOfRange(partBytes, 0, block4HeaderOffset));
+        assertThat(result.lastHandedOffBlock()).isEqualTo(3L);
     }
 
     /// Verifies that a single hanging multipart upload is correctly recovered even when two
@@ -486,6 +494,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.etags()).hasSize(2); // parts 1 and 2 server-side copied into the new upload
         assertThat(result.nextBlockNumber()).isEqualTo(28L);
         assertThat(result.trailingBytes()).isEqualTo(Arrays.copyOfRange(part3, 0, boundaryOffset));
+        assertThat(result.lastHandedOffBlock()).isEqualTo(27L);
     }
 
     private static byte[] concat(byte[]... arrays) {
@@ -555,6 +564,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.etags()).isNull();
         assertThat(result.nextBlockNumber()).isZero();
         assertThat(result.trailingBytes()).isNull();
+        assertThat(result.lastHandedOffBlock()).isEqualTo(2L * groupSize - 1);
         try (S3Client s3 = openS3Client()) {
             assertThat(s3.listMultipartUploads()).isEmpty();
             assertThat(s3.listObjects(gibberishKey, 1)).doesNotContain(gibberishKey);
@@ -579,6 +589,7 @@ class StartupRecoveryTaskTest {
         // All uploads aborted; bucket has no completed objects → fresh start.
         assertThat(result.currentGroupStart()).isEqualTo(-1L);
         assertThat(result.uploadId()).isNull();
+        assertThat(result.lastHandedOffBlock()).isEqualTo(-1L);
         // Confirm MinIO has no remaining multipart uploads.
         try (S3Client s3 = openS3Client()) {
             assertThat(s3.listMultipartUploads()).isEmpty();
@@ -631,6 +642,8 @@ class StartupRecoveryTaskTest {
                 .orElseThrow();
         assertThat(entry10.lastBlock()).isEqualTo(19L);
         assertThat(entry10.uploadId()).isNull();
+        // Base is -1 (fresh start, no regular tars); temp archives push it to max(lastBlock) = 19.
+        assertThat(result.lastHandedOffBlock()).isEqualTo(19L);
     }
 
     /// Verifies that a hanging multipart upload targeting a `.tmp` key is aborted during recovery
@@ -711,6 +724,8 @@ class StartupRecoveryTaskTest {
         assertThat(result.tempArchives()).hasSize(1);
         assertThat(result.tempArchives().getFirst().firstBlock()).isZero();
         assertThat(result.tempArchives().getFirst().lastBlock()).isEqualTo(9L);
+        // base = groupSize - 1 = 9; temp archive lastBlock = 9 → max = 9.
+        assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize - 1);
     }
 
     private S3Client openS3Client() throws Exception {

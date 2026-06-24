@@ -22,7 +22,8 @@ public record CloudStorageArchiveConfig(
     @ConfigProperty(defaultValue = "") String secretKey,
     @Loggable @ConfigProperty(defaultValue = "") String bucketName,
     @Loggable @ConfigProperty(defaultValue = "") String objectKeyPrefix,
-    @Loggable @ConfigProperty(defaultValue = "STANDARD") S3StorageClass storageClass) {
+    @Loggable @ConfigProperty(defaultValue = "STANDARD") S3StorageClass storageClass,
+    @Loggable @ConfigProperty(defaultValue = "5") @Max(10) @Min(1) int gapBufferSize) {
     // spotless:on
 
     // AWS S3 storage class values: https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html
