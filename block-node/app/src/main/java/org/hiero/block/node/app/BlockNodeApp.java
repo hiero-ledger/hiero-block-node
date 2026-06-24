@@ -57,11 +57,11 @@ import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
-import org.hiero.block.internal.RangedAddressBookHistory;
-import org.hiero.block.internal.RangedNodeAddressBook;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
@@ -560,7 +560,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      */
     @Override
     public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
-        if (history == null || history.equals(blockNodeContext.nodeAddressBookHistory())) return false;
+        if (history == null || history.equals(blockNodeContext.rangedAddressBookHistory())) return false;
         pendingAddressBookHistory.set(history);
         return true;
     }
@@ -738,7 +738,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         }
 
         if (addressBookHistory != null) {
-            builder.nodeAddressBookHistory(addressBookHistory);
+            builder.rangedAddressBookHistory(addressBookHistory);
         }
 
         // The next two items must remain in order (available first, stored second).
@@ -980,7 +980,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             final NodeAddressBook singleBook = pendingAddressBook.get();
             if (singleBook != null) {
                 final RangedAddressBookHistory wrapped = RangedAddressBookHistory.newBuilder()
-                        .addressBooks(List.of(org.hiero.block.internal.RangedNodeAddressBook.newBuilder()
+                        .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
                                 .addressBook(singleBook)
                                 .startBlock(0L)
                                 .endBlock(0L)

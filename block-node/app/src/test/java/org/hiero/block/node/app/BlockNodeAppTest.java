@@ -35,6 +35,8 @@ import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
@@ -587,16 +589,12 @@ class BlockNodeAppTest {
 
         // Write a two-era history file
         Files.createDirectories(historyPath.getParent());
-        final org.hiero.block.internal.RangedAddressBookHistory history = buildTwoEraHistory();
-        Files.write(
-                historyPath,
-                org.hiero.block.internal.RangedAddressBookHistory.JSON
-                        .toBytes(history)
-                        .toByteArray());
+        final RangedAddressBookHistory history = buildTwoEraHistory();
+        Files.write(historyPath, RangedAddressBookHistory.JSON.toBytes(history).toByteArray());
 
         app.startApplicationStateFacility();
 
-        final org.hiero.block.internal.RangedAddressBookHistory loaded = app.blockNodeContext.nodeAddressBookHistory();
+        final RangedAddressBookHistory loaded = app.blockNodeContext.rangedAddressBookHistory();
         assertNotNull(loaded, "History file must populate nodeAddressBookHistory");
         assertEquals(2, loaded.addressBooks().size(), "Two eras must be loaded");
         app.stopApplicationStateFacility();
@@ -633,7 +631,7 @@ class BlockNodeAppTest {
 
         app.startApplicationStateFacility();
 
-        final org.hiero.block.internal.RangedAddressBookHistory history = app.blockNodeContext.nodeAddressBookHistory();
+        final RangedAddressBookHistory history = app.blockNodeContext.rangedAddressBookHistory();
         assertNotNull(history, "Single-book must be wrapped into a history");
         assertEquals(1, history.addressBooks().size(), "Wrapped history must have exactly one era");
         assertEquals(0L, history.addressBooks().getFirst().startBlock());
@@ -679,8 +677,8 @@ class BlockNodeAppTest {
         Files.createDirectories(historyPath.getParent());
         Files.write(
                 historyPath,
-                org.hiero.block.internal.RangedAddressBookHistory.JSON
-                        .toBytes(org.hiero.block.internal.RangedAddressBookHistory.DEFAULT)
+                RangedAddressBookHistory.JSON
+                        .toBytes(RangedAddressBookHistory.DEFAULT)
                         .toByteArray());
 
         app.startApplicationStateFacility();
@@ -695,7 +693,7 @@ class BlockNodeAppTest {
      * Builds a two-era RangedAddressBookHistory with synthetic keys for use in tests.
      * Only startBlock/endBlock are checked by load logic; no key validation at history load time.
      */
-    private static org.hiero.block.internal.RangedAddressBookHistory buildTwoEraHistory() {
+    private static RangedAddressBookHistory buildTwoEraHistory() {
         final NodeAddressBook era1 = NodeAddressBook.newBuilder()
                 .nodeAddress(
                         NodeAddress.newBuilder().nodeId(1L).rsaPubKey("aaaa").build())
@@ -704,14 +702,14 @@ class BlockNodeAppTest {
                 .nodeAddress(
                         NodeAddress.newBuilder().nodeId(2L).rsaPubKey("bbbb").build())
                 .build();
-        return org.hiero.block.internal.RangedAddressBookHistory.newBuilder()
+        return RangedAddressBookHistory.newBuilder()
                 .addressBooks(List.of(
-                        org.hiero.block.internal.RangedNodeAddressBook.newBuilder()
+                        RangedNodeAddressBook.newBuilder()
                                 .addressBook(era1)
                                 .startBlock(0L)
                                 .endBlock(999L)
                                 .build(),
-                        org.hiero.block.internal.RangedNodeAddressBook.newBuilder()
+                        RangedNodeAddressBook.newBuilder()
                                 .addressBook(era2)
                                 .startBlock(1000L)
                                 .endBlock(0L)

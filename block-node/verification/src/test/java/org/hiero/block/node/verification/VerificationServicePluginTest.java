@@ -604,7 +604,7 @@ class VerificationServicePluginTest
                 blockNodeContext.blockNodeVersions(),
                 blockNodeContext.tssData(),
                 book,
-                blockNodeContext.nodeAddressBookHistory(),
+                blockNodeContext.rangedAddressBookHistory(),
                 blockNodeContext.storedBlocks(),
                 blockNodeContext.availableBlocks());
     }

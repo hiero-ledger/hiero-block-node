@@ -59,6 +59,11 @@ message ServerStatusDetailResponse {
      * A list of stored block ranges.
      */
     repeated BlockRange stored_ranges = 5;
+
+    /**
+     * Address Book history by block range
+     */
+    RangedAddressBookHistory ranged_address_book_history = 6;
 }
 
 /**
@@ -274,3 +279,64 @@ service BlockNodeService {
      */
     rpc serverStatusDetail(ServerStatusRequest) returns (ServerStatusDetailResponse);
 }
+
+/**
+ * An ordered history of node address books, each scoped to a contiguous
+ * block-number range. Used by the Block Node to select the address book
+ * that was in effect when a given block was produced, enabling verification
+ * of historical Wrapped Record Blocks (WRBs) against the correct era's
+ * RSA public keys.
+ *
+ * Entries MUST be ordered by start_block ascending and MUST NOT overlap.
+ * The last entry typically has end_block = 0, meaning it covers all block
+ * numbers >= start_block with no upper bound (open-ended).
+ *
+ * On-disk format: JSON-serialized via PBJ's RangedAddressBookHistory.JSON
+ * codec, written to the path configured by app.state.rsaAddressBookHistoryFilePath
+ * (default: /opt/hiero/block-node/application-state/rsa-address-book-history.json).
+ *
+ * This format is the input consumed by T3 (CLI push) and produced by operator
+ * tooling that converts the CLI's timestamp-keyed address book history into
+ * block-number ranges.
+ */
+message RangedAddressBookHistory {
+    /**
+     * An ordered list of block-range-scoped address books, from oldest (lowest
+     * start_block) to newest.
+     */
+    repeated RangedNodeAddressBook address_books = 1;
+}
+
+/**
+ * A node address book scoped to a specific block-number range.
+ *
+ * The address book is valid for all blocks whose block number satisfies:
+ *   start_block &le; block_number &le; end_block
+ *
+ * When end_block is 0 the entry is open-ended: it covers all blocks with
+ * block number >= start_block. Only the last entry in a
+ * RangedAddressBookHistory should have end_block = 0.
+ */
+message RangedNodeAddressBook {
+    /**
+     * The node address book containing the RSA public keys that were in
+     * effect for this block-number range. Only the nodeId and RSA_PubKey
+     * fields of each NodeAddress entry are used for WRB verification.
+     */
+    proto.NodeAddressBook address_book = 1;
+
+    /**
+     * The first block number for which this address book is valid (inclusive).
+     * Must be &gt; 0 for all entries except a genesis entry which may start at 0.
+     */
+    uint64 start_block = 2;
+
+    /**
+     * The last block number for which this address book is valid (inclusive).
+     * A value of 0 is a sentinel meaning open-ended: this address book covers
+     * all blocks with block number &ge; start_block.
+     * All entries except the last MUST have end_block &gt; 0.
+     */
+    uint64 end_block = 3;
+}
+

@@ -3,8 +3,8 @@ package org.hiero.block.node.spi;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import org.hiero.block.api.NetworkData;
+import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
-import org.hiero.block.internal.RangedAddressBookHistory;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**

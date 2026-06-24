@@ -6,8 +6,8 @@ import com.swirlds.config.api.Configuration;
 import java.util.List;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
-import org.hiero.block.internal.RangedAddressBookHistory;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -41,7 +41,7 @@ import org.hiero.metrics.core.MetricRegistry;
  * @param tssData the tss information needed for block verification
  * @param nodeAddressBook the RSA node address book loaded at startup for WRB proof verification;
  *     used by single-book deployments. {@code null} when only the history is available.
- * @param nodeAddressBookHistory the block-number-keyed RSA address book history for historical
+ * @param rangedAddressBookHistory the block-number-keyed RSA address book history for historical
  *     WRB verification; takes precedence over {@code nodeAddressBook} when non-{@code null}.
  *     {@code null} when no history file has been loaded.
  * @param storedBlocks the current range of stored blocks
@@ -59,7 +59,7 @@ public record BlockNodeContext(
         BlockNodeVersions blockNodeVersions,
         TssData tssData,
         NodeAddressBook nodeAddressBook,
-        RangedAddressBookHistory nodeAddressBookHistory,
+        RangedAddressBookHistory rangedAddressBookHistory,
         List<BlockRange> storedBlocks,
         List<BlockRange> availableBlocks) {
 
@@ -76,7 +76,7 @@ public record BlockNodeContext(
         BlockNodeVersions blockNodeVersions;
         TssData tssData;
         NodeAddressBook nodeAddressBook;
-        RangedAddressBookHistory nodeAddressBookHistory;
+        public RangedAddressBookHistory rangedAddressBookHistory;
         List<BlockRange> storedBlocks;
         List<BlockRange> availableBlocks;
 
@@ -92,7 +92,7 @@ public record BlockNodeContext(
             this.blockNodeVersions = context.blockNodeVersions;
             this.tssData = context.tssData;
             this.nodeAddressBook = context.nodeAddressBook;
-            this.nodeAddressBookHistory = context.nodeAddressBookHistory;
+            this.rangedAddressBookHistory = context.rangedAddressBookHistory;
             this.storedBlocks = List.copyOf(context.storedBlocks);
             this.availableBlocks = List.copyOf(context.availableBlocks);
         }
@@ -107,8 +107,8 @@ public record BlockNodeContext(
             return this;
         }
 
-        public Builder nodeAddressBookHistory(RangedAddressBookHistory nodeAddressBookHistory) {
-            this.nodeAddressBookHistory = nodeAddressBookHistory;
+        public Builder rangedAddressBookHistory(RangedAddressBookHistory rangedAddressBookHistory) {
+            this.rangedAddressBookHistory = rangedAddressBookHistory;
             return this;
         }
 
@@ -135,7 +135,7 @@ public record BlockNodeContext(
                     this.blockNodeVersions,
                     this.tssData,
                     this.nodeAddressBook,
-                    this.nodeAddressBookHistory,
+                    this.rangedAddressBookHistory,
                     this.storedBlocks,
                     this.availableBlocks);
         }

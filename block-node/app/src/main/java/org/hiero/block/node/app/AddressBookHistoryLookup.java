@@ -5,8 +5,8 @@ import com.hedera.hapi.node.base.NodeAddressBook;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.NavigableMap;
 import java.util.TreeMap;
-import org.hiero.block.internal.RangedAddressBookHistory;
-import org.hiero.block.internal.RangedNodeAddressBook;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 
 /// Utility for building an index from a {@link RangedAddressBookHistory} and performing
 /// O(log n) lookups of the address book in effect for a given block number.

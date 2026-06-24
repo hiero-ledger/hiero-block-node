@@ -22,8 +22,8 @@ import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
+import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
-import org.hiero.block.internal.RangedAddressBookHistory;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.spi.ApplicationStateFacility;
@@ -334,7 +334,7 @@ public abstract class PluginTestBase<
                 blockNodeContext.blockNodeVersions(),
                 tssData,
                 blockNodeContext.nodeAddressBook(),
-                blockNodeContext.nodeAddressBookHistory(),
+                blockNodeContext.rangedAddressBookHistory(),
                 blockNodeContext.storedBlocks(),
                 blockNodeContext.availableBlocks());
         plugin.onContextUpdate(blockNodeContext);
@@ -353,7 +353,7 @@ public abstract class PluginTestBase<
                 blockNodeContext.blockNodeVersions(),
                 blockNodeContext.tssData(),
                 nodeAddressBook,
-                blockNodeContext.nodeAddressBookHistory(),
+                blockNodeContext.rangedAddressBookHistory(),
                 blockNodeContext.storedBlocks(),
                 blockNodeContext.availableBlocks());
         plugin.onContextUpdate(blockNodeContext);
