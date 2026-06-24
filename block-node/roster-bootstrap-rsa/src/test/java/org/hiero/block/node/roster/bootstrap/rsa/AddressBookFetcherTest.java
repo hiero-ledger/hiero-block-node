@@ -251,6 +251,38 @@ class AddressBookFetcherTest {
     }
 
     @Nested
+    @DisplayName("close")
+    class CloseTests {
+
+        @Test
+        @DisplayName("close swallows IOException from a client that fails to close")
+        void closeSwallowsIoException() throws Exception {
+            BlockNodeSourceConfig peer = peer("localhost", 8080);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.serverStatusDetail(any()))
+                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+                            .rangedAddressBookHistory(historyWith("aabbcc"))
+                            .build());
+            when(serviceClient.fullName()).thenReturn("localhost:8080");
+
+            BlockNodeClient client = mock(BlockNodeClient.class);
+            when(client.isNodeReachable()).thenReturn(true);
+            when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
+            org.mockito.Mockito.doThrow(new java.io.IOException("simulated close failure"))
+                    .when(client)
+                    .close();
+
+            AddressBookFetcher fetcher = fetcherWithClient(peer, client);
+            // Populate nodeClientMap by fetching
+            fetcher.getRangedNodeAddressBookHistory();
+
+            // close() must not propagate IOException from the underlying client
+            org.junit.jupiter.api.Assertions.assertDoesNotThrow(fetcher::close);
+        }
+    }
+
+    @Nested
     @DisplayName("isValid")
     class IsValidTests {
 

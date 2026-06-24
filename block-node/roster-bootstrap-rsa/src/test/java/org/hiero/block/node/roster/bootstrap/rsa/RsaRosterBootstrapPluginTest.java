@@ -679,6 +679,112 @@ class RsaRosterBootstrapPluginTest
                             .getFirst()
                             .rsaPubKey());
         }
+
+        @Test
+        @DisplayName("All nodes have blank keys → eraGroups empty → no history update")
+        void allBlankKeysResultsInNoHistory() {
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":[{\"node_id\":1,\"public_key\":\"\"},{\"node_id\":2,\"public_key\":\"  \"}],"
+                            + "\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            assertNull(blockNodeContext.rangedAddressBookHistory(), "No history when all keys are blank");
+        }
+
+        @Test
+        @DisplayName("Blocks API returns 500 → eras with timestamps are skipped → no history update")
+        void blocksApi500CausesErasToBeSkipped() {
+            // Nodes have timestamps, so fetchBlockRange is called. Blocks API returns 500 → null returned.
+            registerStaticHandler("/api/v1/blocks", 500, "");
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\","
+                            + "\"timestamp\":{\"from\":\"1000.0\",\"to\":null}}],"
+                            + "\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            // All eras skipped → rangedBooks empty → no update
+            assertNull(blockNodeContext.rangedAddressBookHistory(), "No history when blocks API always returns 500");
+        }
+
+        @Test
+        @DisplayName("Blocks API returns empty list → fetchBlockRange returns null → era skipped")
+        void blocksApiEmptyListCausesEraToBeSkipped() {
+            // Nodes have timestamps, blocks API returns an empty blocks list.
+            registerStaticHandler(
+                    "/api/v1/blocks", 200, "{\"blocks\":[],\"links\":{\"next\":null}}");
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\","
+                            + "\"timestamp\":{\"from\":\"1000.0\",\"to\":null}}],"
+                            + "\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            assertNull(blockNodeContext.rangedAddressBookHistory(), "No history when blocks API returns empty list");
+        }
+
+        @Test
+        @DisplayName("Incremental: blocks API fails during new-era check → blockRange null → no update")
+        void incrementalBlocksApiFailSkipsEraCheck() {
+            // Blocks handler: succeeds on first call (full build), then returns 500.
+            final AtomicInteger blocksCallCount = new AtomicInteger(0);
+            server.createContext("/api/v1/blocks", exchange -> {
+                final int call = blocksCallCount.getAndIncrement();
+                if (call == 0) {
+                    // First call: return block 100000 for full build
+                    final String body = "{\"blocks\":[{\"number\":100000}],\"links\":{\"next\":null}}";
+                    final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    try (var out = exchange.getResponseBody()) {
+                        out.write(bytes);
+                    }
+                } else {
+                    // Subsequent calls: fail so incremental blockRange lookup returns null
+                    exchange.sendResponseHeaders(500, -1);
+                }
+                exchange.close();
+            });
+
+            // Nodes handler: first call (full build) returns one era; second (incremental) returns new era
+            final AtomicInteger nodeCallCount = new AtomicInteger(0);
+            server.createContext("/api/v1/network/nodes", exchange -> {
+                final int call = nodeCallCount.getAndIncrement();
+                final String body = call == 0
+                        ? "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\","
+                                + "\"timestamp\":{\"from\":\"1000.0\",\"to\":null}}],\"links\":{\"next\":null}}"
+                        : "{\"nodes\":[{\"node_id\":2,\"public_key\":\"ddeeff\","
+                                + "\"timestamp\":{\"from\":\"1100.0\",\"to\":null}}],\"links\":{\"next\":null}}";
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+                exchange.close();
+            });
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            // First run: full build → history with startBlock=100000
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            assertNotNull(blockNodeContext.rangedAddressBookHistory());
+            assertEquals(1, blockNodeContext.rangedAddressBookHistory().addressBooks().size());
+
+            // Second run: incremental — blocks API returns 500 → blockRange null → no update
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            // History unchanged from first run
+            assertEquals(1, blockNodeContext.rangedAddressBookHistory().addressBooks().size());
+            assertEquals(100000L, blockNodeContext.rangedAddressBookHistory().addressBooks().get(0).startBlock());
+        }
     }
 
     // -------------------------------------------------------------------------
