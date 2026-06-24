@@ -297,149 +297,63 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// timestamp pair is resolved to a block range, and a complete history is constructed.
     ///
     /// <p><b>Incremental update</b> (when history already exists): pages are fetched newest-first
-    /// ({@code order=desc}) and pagination stops as soon as an era with a block range already
+    /// ({@code order=desc}) and pagination stops as soon as an era whose block range is already
     /// present in the current history is encountered. If no new eras are found the method returns
     /// immediately. When new eras are found the previously open-ended last era is closed
     /// ({@code endBlock = newStartBlock - 1}) and the new eras are appended.
     private void fetchFromMirrorNode() {
-        long startTimeMillis = System.currentTimeMillis();
+        final long startTimeMillis = System.currentTimeMillis();
         final RangedAddressBookHistory currentHistory = context.rangedAddressBookHistory();
-        final long currentLastStartBlock =
-                (currentHistory != null && !currentHistory.addressBooks().isEmpty())
-                        ? currentHistory.addressBooks().getLast().startBlock()
-                        : Long.MIN_VALUE; // sentinel: full-build path, no early-stop
+        final boolean hasHistory =
+                currentHistory != null && !currentHistory.addressBooks().isEmpty();
+        final long currentLastStartBlock = hasHistory
+                ? currentHistory.addressBooks().getLast().startBlock()
+                : Long.MIN_VALUE; // sentinel: full-build path, never triggers early-stop
 
         try (final HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
                 .build()) {
 
-            // Collect node entries grouped by (from|to) era key, preserving insertion order.
-            // In incremental mode, pagination stops when we reach an era already in our history.
-            final Map<String, List<NodeEntry>> eraGroups = new LinkedHashMap<>();
-            // Pre-resolved block ranges (populated during incremental-mode pagination to avoid re-fetching)
-            final Map<String, long[]> eraBlockRanges = new LinkedHashMap<>();
-            String nextUrl = config.mirrorNodeBaseUrl() + "/api/v1/network/nodes?limit=" + config.mirrorNodePageSize()
-                    + "&order=desc";
-            boolean earlyStop = false;
-
-            while (nextUrl != null && !earlyStop) {
-                final MirrorNodeNodesResponse response = fetchAndParse(client, nextUrl);
-                if (response == null) return;
-                for (final NodeEntry entry : response.nodes()) {
-                    if (entry.publicKey().isBlank()) {
-                        LOGGER.log(WARNING, "Mirror Node: node {0} has no public_key — skipped", entry.nodeId());
-                        continue;
-                    }
-                    final String from =
-                            entry.timestamp() != null ? entry.timestamp().from() : "";
-                    final String to =
-                            entry.timestamp() != null ? entry.timestamp().to() : "";
-                    final String eraKey = from + "|" + to;
-
-                    // Incremental mode: resolve the block range the first time we see each era key
-                    // so we can decide whether to include it or stop pagination.
-                    if (currentHistory != null && !eraGroups.containsKey(eraKey)) {
-                        final long[] blockRange = fetchBlockRange(client, from, to);
-                        if (blockRange == null) continue;
-                        if (blockRange[0] <= currentLastStartBlock) {
-                            // Reached an era we already have — everything older is also known.
-                            earlyStop = true;
-                            break;
-                        }
-                        eraBlockRanges.put(eraKey, blockRange);
-                    }
-
-                    eraGroups.computeIfAbsent(eraKey, k -> new ArrayList<>()).add(entry);
-                }
-                if (!earlyStop) {
-                    final String rawNext =
-                            response.links() == null ? null : response.links().next();
-                    nextUrl = (rawNext == null || rawNext.isBlank())
-                            ? null
-                            : rawNext.startsWith("http") ? rawNext : config.mirrorNodeBaseUrl() + rawNext;
-                }
-            }
-
-            if (eraGroups.isEmpty()) {
+            final Map<String, Era> eras = collectEras(client, currentLastStartBlock);
+            if (eras == null) return; // Mirror Node unavailable — already logged by fetchAndParse
+            if (eras.isEmpty()) {
                 if (currentHistory == null) {
                     LOGGER.log(
                             WARNING,
                             "Mirror Node returned zero nodes with a valid public_key from {0}.",
                             config.mirrorNodeBaseUrl());
                 }
-                // Incremental path with no new eras: nothing to do.
                 return;
             }
 
-            // Convert each era's timestamp pair to a block range and build RangedNodeAddressBook entries.
-            // In incremental mode the ranges were already resolved during pagination.
+            // Build a RangedNodeAddressBook per era. Every era has a resolved block range by
+            // construction (see collectEras), so this always yields at least one book.
             final List<RangedNodeAddressBook> rangedBooks = new ArrayList<>();
-            for (final Map.Entry<String, List<NodeEntry>> eraEntry : eraGroups.entrySet()) {
-                final String eraKey = eraEntry.getKey();
-                final int pipeIdx = eraKey.indexOf('|');
-                final String from = eraKey.substring(0, pipeIdx);
-                final String to = eraKey.substring(pipeIdx + 1);
-
-                final long[] blockRange =
-                        currentHistory != null ? eraBlockRanges.get(eraKey) : fetchBlockRange(client, from, to);
-                if (blockRange == null) {
-                    LOGGER.log(WARNING, "Could not resolve block range for era from={0} to={1} — skipped", from, to);
-                    continue;
-                }
-
-                final List<NodeAddress> addresses = eraEntry.getValue().stream()
-                        .map(entry -> {
-                            final String hexKey = entry.publicKey().startsWith("0x")
-                                    ? entry.publicKey().substring(2)
-                                    : entry.publicKey();
-                            return NodeAddress.newBuilder()
-                                    .nodeId(entry.nodeId())
-                                    .rsaPubKey(hexKey)
-                                    .build();
-                        })
+            for (final Era era : eras.values()) {
+                final List<NodeAddress> addresses = era.entries().stream()
+                        .map(entry -> NodeAddress.newBuilder()
+                                .nodeId(entry.nodeId())
+                                .rsaPubKey(
+                                        entry.publicKey().startsWith("0x")
+                                                ? entry.publicKey().substring(2)
+                                                : entry.publicKey())
+                                .build())
                         .toList();
 
                 rangedBooks.add(RangedNodeAddressBook.newBuilder()
                         .addressBook(NodeAddressBook.newBuilder()
                                 .nodeAddress(addresses)
                                 .build())
-                        .startBlock(blockRange[0])
-                        .endBlock(blockRange[1])
+                        .startBlock(era.blockRange()[0])
+                        .endBlock(era.blockRange()[1])
                         .build());
-            }
-
-            if (rangedBooks.isEmpty()) {
-                LOGGER.log(WARNING, "Could not build any address book eras from Mirror Node data.");
-                return;
             }
 
             rangedBooks.sort(Comparator.comparingLong(RangedNodeAddressBook::startBlock));
 
-            final RangedAddressBookHistory history;
-            if (currentHistory != null && !currentHistory.addressBooks().isEmpty()) {
-                // Incremental: close the previously open-ended last era and append new eras.
-                final long minNewStartBlock = rangedBooks.getFirst().startBlock();
-                final List<RangedNodeAddressBook> updatedBooks = new ArrayList<>();
-                final List<RangedNodeAddressBook> existing = currentHistory.addressBooks();
-                for (int i = 0; i < existing.size() - 1; i++) {
-                    updatedBooks.add(existing.get(i));
-                }
-                final RangedNodeAddressBook lastEra = existing.getLast();
-                updatedBooks.add(RangedNodeAddressBook.newBuilder()
-                        .addressBook(lastEra.addressBook())
-                        .startBlock(lastEra.startBlock())
-                        .endBlock(minNewStartBlock - 1)
-                        .build());
-                updatedBooks.addAll(rangedBooks);
-                history = RangedAddressBookHistory.newBuilder()
-                        .addressBooks(updatedBooks)
-                        .build();
-            } else {
-                history = RangedAddressBookHistory.newBuilder()
-                        .addressBooks(rangedBooks)
-                        .build();
-            }
-
+            final RangedAddressBookHistory history = RangedAddressBookHistory.newBuilder()
+                    .addressBooks(mergeWithExisting(currentHistory, rangedBooks))
+                    .build();
             recordHistoryMetrics(history, startTimeMillis);
             applicationStateFacility.updateAddressBookHistory(history);
 
@@ -449,6 +363,75 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 schedulePeriodicMirrorNodeRefresh();
             }
         }
+    }
+
+    /// A single address-book era collected from the Mirror Node: its resolved {@code [startBlock,
+    /// endBlock]} range and the node entries that belong to it.
+    private record Era(long[] blockRange, List<NodeEntry> entries) {}
+
+    /// Paginates the Mirror Node nodes API (newest-first) and groups entries by their {@code
+    /// (from|to)} era key, preserving insertion order. The block range for an era is resolved the
+    /// first time the era is seen; pagination stops early once an era already present in the current
+    /// history is reached (its start block is {@code <= currentLastStartBlock}).
+    ///
+    /// Returns {@code null} if the Mirror Node could not be reached (already logged), or a
+    /// (possibly empty) map of era key to {@link Era} otherwise.
+    private Map<String, Era> collectEras(final HttpClient client, final long currentLastStartBlock) {
+        final Map<String, Era> eras = new LinkedHashMap<>();
+        String nextUrl = config.mirrorNodeBaseUrl() + "/api/v1/network/nodes?limit=" + config.mirrorNodePageSize()
+                + "&order=desc";
+
+        pagination:
+        while (nextUrl != null) {
+            final MirrorNodeNodesResponse response = fetchAndParse(client, nextUrl);
+            if (response == null) return null;
+            for (final NodeEntry entry : response.nodes()) {
+                if (entry.publicKey().isBlank()) {
+                    LOGGER.log(WARNING, "Mirror Node: node {0} has no public_key — skipped", entry.nodeId());
+                    continue;
+                }
+                final String from =
+                        entry.timestamp() != null ? entry.timestamp().from() : "";
+                final String to = entry.timestamp() != null ? entry.timestamp().to() : "";
+                final String eraKey = from + "|" + to;
+
+                Era era = eras.get(eraKey);
+                if (era == null) {
+                    final long[] blockRange = fetchBlockRange(client, from, to);
+                    if (blockRange == null) continue;
+                    if (blockRange[0] <= currentLastStartBlock) break pagination;
+                    era = new Era(blockRange, new ArrayList<>());
+                    eras.put(eraKey, era);
+                }
+                era.entries().add(entry);
+            }
+            final String rawNext =
+                    response.links() == null ? null : response.links().next();
+            nextUrl = (rawNext == null || rawNext.isBlank())
+                    ? null
+                    : rawNext.startsWith("http") ? rawNext : config.mirrorNodeBaseUrl() + rawNext;
+        }
+        return eras;
+    }
+
+    /// Merges newly discovered eras with the existing history: carries forward all prior eras
+    /// (closing the previously open-ended last one against the first new era), then appends the new
+    /// eras. {@code newBooks} must be sorted ascending by start block.
+    private List<RangedNodeAddressBook> mergeWithExisting(
+            final RangedAddressBookHistory currentHistory, final List<RangedNodeAddressBook> newBooks) {
+        final List<RangedNodeAddressBook> allBooks = new ArrayList<>();
+        if (currentHistory != null && !currentHistory.addressBooks().isEmpty()) {
+            final List<RangedNodeAddressBook> existing = currentHistory.addressBooks();
+            allBooks.addAll(existing.subList(0, existing.size() - 1));
+            final RangedNodeAddressBook lastEra = existing.getLast();
+            allBooks.add(RangedNodeAddressBook.newBuilder()
+                    .addressBook(lastEra.addressBook())
+                    .startBlock(lastEra.startBlock())
+                    .endBlock(newBooks.getFirst().startBlock() - 1)
+                    .build());
+        }
+        allBooks.addAll(newBooks);
+        return allBooks;
     }
 
     /// Converts a (from, to) timestamp pair to a [startBlock, endBlock] pair by querying the
