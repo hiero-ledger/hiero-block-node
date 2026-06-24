@@ -404,7 +404,6 @@ class TempArchiveUploadTaskTest {
         @Override
         public void addStoredBlockRange(LongRange blockRange) {}
 
-        @Override
         public void addAvailableBlockRange(LongRange blockRange) {}
     }
 }

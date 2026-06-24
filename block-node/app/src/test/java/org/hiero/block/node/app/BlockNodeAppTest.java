@@ -883,12 +883,12 @@ class BlockNodeAppTest {
         // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
         blockNodeApp.startApplicationStateFacility();
         blockNodeApp.loadedPlugins.add(testPlugin);
-        testPlugin.expectContextUpdates(1);
         blockNodeApp.addStoredBlockRange(new LongRange(0, 999));
+        testPlugin.expectContextUpdates(1);
         blockNodeApp.addStoredBlockRange(new LongRange(1000, 1049));
 
         // wait for the ApplicationStateFacility scanner to pick up the update
-        testPlugin.awaitContextUpdates(5);
+        testPlugin.awaitContextUpdates(11);
 
         BlockNodeContext context = testPlugin.getContext();
         assertNotNull(context);

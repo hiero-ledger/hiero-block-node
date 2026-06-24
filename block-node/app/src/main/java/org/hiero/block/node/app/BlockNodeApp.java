@@ -5,6 +5,7 @@ import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
@@ -39,6 +40,7 @@ import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -77,71 +79,73 @@ import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
-/** Main class for the block node server */
+/// Main class for the block node server
 public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
-    /** Constant mapped to PbjProtocolProvider.CONFIG_NAME in the PBJ Helidon Plugin */
+    /// Constant mapped to PbjProtocolProvider.CONFIG\_NAME in the PBJ Helidon Plugin
     public static final String PBJ_PROTOCOL_PROVIDER_CONFIG_NAME = "pbj";
-    /** Metric key for the oldest historical block available */
+    /// Metric key for the oldest historical block available
     public static final MetricKey<ObservableGauge> METRIC_APP_HISTORICAL_OLDEST_BLOCK =
             MetricKey.of("app_historical_oldest_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for the newest historical block available */
+    /// Metric key for the newest historical block available
     public static final MetricKey<ObservableGauge> METRIC_APP_HISTORICAL_NEWEST_BLOCK =
             MetricKey.of("app_historical_newest_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for the current state status of the app */
+    /// Metric key for the current state status of the app
     public static final MetricKey<ObservableGauge> METRIC_APP_STATE_STATUS =
             MetricKey.of("app_state_status", ObservableGauge.class).addCategory(METRICS_CATEGORY);
-    /** Number of stored blocks between automatic persistence of the block range sets */
+    /// Number of stored blocks between automatic persistence of the block range sets
     private static final long BLOCK_RANGE_PERSIST_INTERVAL = 1000;
-    /** Max protobuf/JSON message size for application-state files loaded from disk (small). */
+    /// Max protobuf/JSON message size for application-state files loaded from disk (small).
     private static final int MAX_APP_STATE_MESSAGE_SIZE_BYTES = 1 * 1024 * 1024;
-    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
+    /// Max protobuf parse depth: each level of message nesting needs >= \~8 bytes on the wire, so size/8 bounds the
+    // deepest a non-degenerate message can nest.
     private static final int MAX_APP_STATE_MESSAGE_DEPTH = MAX_APP_STATE_MESSAGE_SIZE_BYTES / 8;
-    /** The logger for this class. */
+    /// The logger for this class.
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
-    /** The state of the server. */
+    /// The state of the server.
     private final AtomicReference<State> state = new AtomicReference<>(State.STARTING);
-    /** The single WebServer instance serving all ports via named sockets. Package-private for testing. */
+    /// The single WebServer instance serving all ports via named sockets. Package-private for testing.
     final WebServer webServer;
-    /** All configured ports: primary first, then extra. Package-private for testing. */
+    /// All configured ports: primary first, then extra. Package-private for testing.
     final Set<Integer> allPorts;
-    /** The server configuration. */
+    /// The server configuration.
     private final ServerConfig serverConfig;
-    /** The historical block node facility */
+    /// The historical block node facility
     private final HistoricalBlockFacilityImpl historicalBlockFacility;
-    /** Should the shutdown() method exit the JVM. */
+    /// Should the shutdown() method exit the JVM.
     private final boolean shouldExitJvmOnShutdown;
 
-    /** The block node context. It is marked as volatile for thread safety.
-     * It is written by the scheduled scanner thread, read by plugin threads.
-     * Plugins should take care to make a copy of the BlockNodeContext before they use it so that they get a consistent
-     * BlockNodeContext */
+    /// The block node context. It is marked as volatile for thread safety.
+    /// It is written by the scheduled scanner thread, read by plugin threads.
+    /// Plugins should take care to make a copy of the BlockNodeContext before
+    /// they use it so that they get a consistent BlockNodeContext
     volatile BlockNodeContext blockNodeContext;
-    /** list of all loaded plugins. Package so accessible for testing. */
+    /// list of all loaded plugins. Package so accessible for testing.
     final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
 
-    /** Create a ConcurrentLinkedQueue to hold TssData updates */
+    /// Create a ConcurrentLinkedQueue to hold TssData updates
     private final ConcurrentLinkedQueue<TssData> tssDataUpdates = new ConcurrentLinkedQueue<>();
 
-    /** Pending address book loaded at startup; consumed by the first checkForApplicationStateUpdates run. */
+    /// Pending address book loaded at startup; consumed by the first checkForApplicationStateUpdates run.
     private final AtomicReference<NodeAddressBook> pendingAddressBook = new AtomicReference<>();
 
-    /** Blocks reported as stored by plugins that do not serve them for retrieval */
+    /// Blocks reported as stored by plugins that do not serve them for retrieval
     final ConcurrentLongRangeSet storedBlocks = new ConcurrentLongRangeSet();
 
-    /** Block count at the time of the last scheduled persist; only read/written by the scanner thread */
+    /// Block count at the time of the last scheduled persist; only read/written by the scanner thread
     private long lastPersistedBlockCount = 0;
 
-    /** The ScheduledExecutorService used by the ApplicationStateFacility to check for TssData updates */
+    /// The ScheduledExecutorService used by the ApplicationStateFacility to check for TssData updates
     private ScheduledExecutorService applicationStateExecutor;
 
-    /**
-     * Constructor for the BlockNodeApp class. This constructor initializes the server configuration,
-     * loads the plugins, and creates the web server.
-     *
-     * @param serviceLoader Optional function to load the service loader, if null then the default will be used
-     * @param shouldExitJvmOnShutdown if true, the JVM will exit on shutdown, otherwise it will not
-     * @throws IOException if there is an error starting the server
-     */
+    /// Constructor for the BlockNodeApp class.
+    /// This constructor initializes the server configuration, loads the
+    /// plugins, and creates the web server.
+    ///
+    /// @param serviceLoader Optional function to load the service loader, if
+    ///     null then the default will be used
+    /// @param shouldExitJvmOnShutdown if true, the JVM will exit on shutdown,
+    ///     otherwise it will not
+    /// @throws IOException if there is an error starting the server
     public BlockNodeApp(final ServiceLoaderFunction serviceLoader, final boolean shouldExitJvmOnShutdown)
             throws IOException {
         this.shouldExitJvmOnShutdown = shouldExitJvmOnShutdown;
@@ -305,9 +309,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .observe(() -> state.get().ordinal()));
     }
 
-    /**
-     * Build the BlockNodeVersions for this BlockNodeServer
-     */
+    /// Build the BlockNodeVersions for this BlockNodeServer
     protected final BlockNodeVersions versionInfo(final List<BlockNodePlugin> plugins) {
         final List<PluginVersion> pluginVersions = new ArrayList<>();
         for (final BlockNodePlugin plugin : plugins) {
@@ -321,20 +323,19 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .build();
     }
 
-    /**
-     * Builds a single {@link WebServer}. The first port in the set becomes the default socket;
-     * remaining ports are registered as named sockets ({@code "port-<portNumber>"}) so that all
-     * listeners share the same server process. The set must be non-empty.
-     *
-     * @param ports all ports to listen on; first element is the default socket
-     * @param http2Config the HTTP/2 configuration applied to every socket
-     * @param pbjConfig the PBJ protocol configuration applied to every socket
-     * @param socketOptions the socket-level options applied to every socket
-     * @param cfg the server configuration (timeouts, backlog, etc.)
-     * @param grpcBuilders per-port PBJ gRPC routing builders
-     * @param httpBuilders per-port HTTP routing builders
-     * @return a fully configured but not yet started {@link WebServer}
-     */
+    /// Builds a single [WebServer].
+    /// The first port in the set becomes the default socket; remaining ports
+    /// are registered as named sockets (`"port-<portNumber>"`) so that all
+    /// listeners share the same server process. The set must be non-empty.
+    ///
+    /// @param ports all ports to listen on; first element is the default socket
+    /// @param http2Config the HTTP/2 configuration applied to every socket
+    /// @param pbjConfig the PBJ protocol configuration applied to every socket
+    /// @param socketOptions the socket-level options applied to every socket
+    /// @param cfg the server configuration (timeouts, backlog, etc.)
+    /// @param grpcBuilders per-port PBJ gRPC routing builders
+    /// @param httpBuilders per-port HTTP routing builders
+    /// @return a fully configured but not yet started [WebServer]
     private static WebServer buildWebServer(
             Set<Integer> ports,
             Http2Config http2Config,
@@ -343,7 +344,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             ServerConfig cfg,
             Map<Integer, PbjRouting.Builder> grpcBuilders,
             Map<Integer, HttpRouting.Builder> httpBuilders) {
-        final var portIterator = ports.iterator();
+        final Iterator<Integer> portIterator = ports.iterator();
         final int primaryPort = portIterator.next();
         final WebServerConfig.Builder wsBuilder = WebServerConfig.builder().port(primaryPort);
         configureSocket(wsBuilder, primaryPort, http2Config, pbjConfig, socketOptions, cfg, grpcBuilders, httpBuilders);
@@ -381,10 +382,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (grpc != null) builder.addRouting(grpc);
     }
 
-    /**
-     * Starts the block node server. This method initializes all the plugins, starts the web server,
-     * and starts the metrics.
-     */
+    /// Starts the block node server. This method initializes all the plugins, starts the web server,
+    /// and starts the metrics.
     public void start() {
         LOGGER.log(INFO, "Starting BlockNode Server...");
         webServer.start();
@@ -410,17 +409,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         .collect(Collectors.joining(", ")));
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    /// {@inheritDoc}
     @Override
     public State blockNodeState() {
         return state.get();
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    /// {@inheritDoc}
     @Override
     public void shutdown(String className, String reason) {
         state.set(State.SHUTTING_DOWN);
@@ -453,20 +448,16 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (shouldExitJvmOnShutdown) System.exit(0);
     }
 
-    /**
-     * Main entrypoint for the block node server
-     *
-     * @param args Command line arguments. Not used at present.
-     * @throws IOException if there is an error starting the server
-     */
+    /// Main entrypoint for the block node server
+    ///
+    /// @param args Command line arguments. Not used at present.
+    /// @throws IOException if there is an error starting the server
     public static void main(final String[] args) throws IOException {
         BlockNodeApp server = new BlockNodeApp(new ServiceLoaderFunction(), true);
         server.start();
     }
 
-    /**
-     *  Start the loadedPlugins. Use a separate method to make starting plugins testable
-     */
+    /// Start the loadedPlugins. Use a separate method to make starting plugins testable
     protected void startPlugins(List<BlockNodePlugin> plugins) {
         // Start all the facilities & plugins asynchronously
         LOGGER.log(INFO, "Asynchronously Starting plugins:");
@@ -477,13 +468,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         });
     }
 
-    /**
-     * Allow plugins to update the TssData for this BlockNodeApp. Uses a concurrentList to capture all TssData
-     * updates between scans. The ApplicationStateFacility scans for updates on a separate thread and will process any
-     * TssData updates that are newer than the current TssData.
-     *
-     * @param tssData - The TssData to be updated on the `BlockNodeContext`
-     */
+    /// Allow plugins to update the TssData for this BlockNodeApp.
+    /// Uses a concurrentList to capture all TssData updates between scans.
+    /// The ApplicationStateFacility scans for updates on a separate
+    /// thread and will process any TssData updates that are newer than
+    /// the current TssData.
+    ///
+    /// @param tssData The TssData to be updated on the \`BlockNodeContext\`
     @Override
     public void updateTssData(TssData tssData) {
         if (tssData != null) tssDataUpdates.add(tssData);
@@ -494,15 +485,15 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         storedBlocks.add(blockRange);
     }
 
-    /**
-     * Allow plugins to update the NodeAddressBook for this BlockNodeApp. The address book is staged
-     * in a last-write-wins reference; if {@code updateAddressBook} is called more than once before
-     * the next {@code checkForApplicationStateUpdates} scan tick, only the most recent book is used.
-     * Null, empty, or all-blank-key books will ```return false;```
-     *
-     * @param nodeAddressBook the NodeAddressBook to store in BlockNodeContext
-     * @return true if the address book is queued for update, false if it was not
-     */
+    /// Allow plugins to update the NodeAddressBook for this BlockNodeApp.
+    /// The address book is staged in a last-write-wins reference; if
+    /// `updateAddressBook` is called more than once before the next
+    /// `checkForApplicationStateUpdates` scan tick, only the most
+    /// recent book is used. Null, empty, or all-blank-key books will
+    ///  `return false;`
+    ///
+    /// @param nodeAddressBook the NodeAddressBook to store in BlockNodeContext
+    /// @return true if the address book is queued for update, false if it was not
     @Override
     public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
         if (nodeAddressBook == null || nodeAddressBook.equals(blockNodeContext.nodeAddressBook())) return false;
@@ -516,17 +507,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         return true;
     }
 
-    /**
-     * UncaughtExceptionHandler for logging uncaught exceptions
-     */
+    /// UncaughtExceptionHandler for logging uncaught exceptions
     static void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
         LOGGER.log(WARNING, "Uncaught exception in ApplicationStateFacility thread: " + thread.getName(), throwable);
     }
 
-    /**
-     * Starts the ApplicationStateFacility. The thread will be used to check if there are any TssData updates to
-     * process.
-     */
+    /// Starts the ApplicationStateFacility.
+    /// The thread will be used to check if there are any TssData updates to process.
     void startApplicationStateFacility() {
         LOGGER.log(INFO, "ApplicationStateFacility start called");
 
@@ -598,11 +585,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         persistBlockRanges();
     }
 
-    /**
-     * Get the latest TssData to update.
-     *
-     * @return The TssData to update or null if no updates pending.
-     */
+    /// Get the latest TssData to update.
+    ///
+    /// @return The TssData to update or null if no updates pending.
     private TssData getPendingTssData() {
         boolean updated = false;
         TssData currTssData = blockNodeContext.tssData();
@@ -617,15 +602,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         return updated ? currTssData : null;
     }
 
-    /**
-     * Update the BlockNodeContext if either the provided TssData or NodeAddressBook is valid.
-     * TssData is considered valid if it is non-null and its {@code validFromBlock} is greater than
-     * the current context value. NodeAddressBook is considered valid if it is non-null.
-     *
-     * @param tssData     the TssData to consider; may be null
-     * @param addressBook the NodeAddressBook to consider; may be null
-     * @return {@code true} if the BlockNodeContext was updated
-     */
+    /// Update the BlockNodeContext if either the provided TssData or NodeAddressBook is valid.
+    /// TssData is considered valid if it is non-null and its `validFromBlock` is greater than
+    /// the current context value. NodeAddressBook is considered valid if it is non-null.
+    ///
+    /// @param tssData the TssData to consider; may be null
+    /// @param addressBook the NodeAddressBook to consider; may be null
+    /// @return `true` if the BlockNodeContext was updated
     private boolean updateBlockNodeContext(
             TssData tssData, NodeAddressBook addressBook, BlockRangeSet storedBlocks, BlockRangeSet availableBlocks) {
         BlockNodeContext context = blockNodeContext;
@@ -651,25 +634,40 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             builder.nodeAddressBook(addressBook);
         }
 
+        // The next two items must remain in order (available first, stored second).
+        if (availableBlockRange.hashCode() != context.availableBlocks().hashCode()
+                || !availableBlockRange.equals(context.availableBlocks())) {
+            builder.availableBlocks(availableBlockRange);
+            storedBlockRange = mergeRanges(storedBlocks, availableBlocks);
+        }
         if (storedBlockRange.hashCode() != context.storedBlocks().hashCode()
                 || !storedBlockRange.equals(context.storedBlocks())) {
             builder.storedBlocks(storedBlockRange);
         }
 
-        if (availableBlockRange.hashCode() != context.availableBlocks().hashCode()
-                || !availableBlockRange.equals(context.availableBlocks())) {
-            builder.availableBlocks(availableBlockRange);
-        }
-        LOGGER.log(INFO, "BlockNodeContext updated");
-
+        LOGGER.log(TRACE, "BlockNodeContext updated");
         // update the BlockNodeContext
         blockNodeContext = builder.build();
         return true;
     }
 
-    /**
-     * Convert BlockRangeSet to BlockRange
-     */
+    /// Merge two sets of block ranges into a single list of block ranges.
+    /// This is a very expensive method, O(n<sup>2</sup>), so it should be used
+    /// carefully. Perhaps a future update to BlockRangeSet will add a more
+    /// efficient merge process.
+    ///
+    /// @param storedBlocks a set of stored blocks to merge into the result.
+    /// @param availableBlocks a set of available blocks to merge into the result.
+    private List<BlockRange> mergeRanges(final BlockRangeSet storedBlocks, final BlockRangeSet availableBlocks) {
+        ConcurrentLongRangeSet combined = new ConcurrentLongRangeSet();
+        combined.addAll(storedBlocks.streamRanges().toList());
+        combined.addAll(availableBlocks.streamRanges().toList());
+        return combined.streamRanges()
+                .map(longRange -> new BlockRange(longRange.start(), longRange.end()))
+                .toList();
+    }
+
+    /// Convert BlockRangeSet to BlockRange
     private List<BlockRange> toBlockRange(BlockRangeSet blockRangeSet) {
         return blockRangeSet
                 .streamRanges()
@@ -677,12 +675,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .toList();
     }
 
-    /**
-     * Persist the TssData
-     * Persists the TssData to the file path specified in the ApplicationStateConfig class.
-     *
-     * @param tssData The TssData to persist
-     */
+    /// Persist the TssData
+    /// Persists the TssData to the file path specified in the ApplicationStateConfig class.
+    ///
+    /// @param tssData The TssData to persist
     private void persistTssData(TssData tssData) {
         final Path appStateDataFilePath = blockNodeContext
                 .configuration()
@@ -725,9 +721,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         }
     }
 
-    /**
-     * Persists both block range sets as JSON to the single file specified in the ApplicationStateConfig.
-     */
+    /// Persists both block range sets as JSON to the single file specified in the ApplicationStateConfig.
     private void persistBlockRanges() {
         final Path filePath = blockNodeContext
                 .configuration()
@@ -759,12 +753,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         return new BlockRangesState(stored, available);
     }
 
-    /**
-     * Loads all ApplicationState from file paths specified in the ApplicationStateConfig class.
-     * Must be called after the BlockNodeContext is created and all plugins have been init'd.
-     *
-     * @param configuration the current configuration
-     */
+    /// Loads all ApplicationState from file paths specified in the ApplicationStateConfig class.
+    /// Must be called after the BlockNodeContext is created and all plugins have been init'd.
+    ///
+    /// @param configuration the current configuration
     private void loadApplicationState(final Configuration configuration) {
         final ApplicationStateConfig appStateConfig = configuration.getConfigData(ApplicationStateConfig.class);
 
@@ -854,13 +846,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         }
     }
 
-    /**
-     * Validates that the NodeAddressBook has at least one entry with a non-blank RSA_PubKey.
-     *
-     * @param book the address book to validate
-     * @param source human-readable source name for error messages
-     * @throws IllegalStateException if the book is empty or has no usable entries
-     */
+    /// Validates that the NodeAddressBook has at least one entry with a non-blank RSA\_PubKey.
+    ///
+    /// @param book the address book to validate
+    /// @param source human-readable source name for error messages
+    /// @throws IllegalStateException if the book is empty or has no usable entries
     static void validateAddressBook(final NodeAddressBook book, final String source) {
         if (book.nodeAddress().isEmpty()) {
             throw new IllegalStateException(
