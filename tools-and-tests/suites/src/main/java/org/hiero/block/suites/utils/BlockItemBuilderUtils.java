@@ -12,6 +12,7 @@ import com.hedera.hapi.block.stream.input.EventHeader;
 import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Timestamp;
@@ -436,6 +437,102 @@ public final class BlockItemBuilderUtils {
                 .block(blockNumber)
                 .build();
         return new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof));
+    }
+
+    /**
+     * Creates a verifiable block carrying an explicit {@code startOfBlockStateRootHash} in its footer
+     * and (optionally) a {@code state_changes} item, with a block proof signature that
+     * {@code ExtendedMerkleTreeSession} accepts (legacy {@code SHA384(blockRootHash)} path).
+     * The block root hash is computed exactly as that session computes it — folding the header into the
+     * output subtree, the round header into the consensus subtree, the {@code state_changes} item into
+     * the state-changes subtree, and threading the chosen {@code startOfBlockStateRootHash} — so the
+     * block both verifies and drives a real state apply.
+     *
+     * <p>Use {@link #computeBlockHashWithState} to chain the next block's {@code previousBlockHash}.
+     *
+     * @param blockNumber the block number
+     * @param previousBlockHash the previous block's root hash (null ⇒ zero hash, genesis)
+     * @param startOfBlockStateRootHash the state root hash the state plugin must match before applying
+     *     this block (under lag-1, the hash of the state after the previous block)
+     * @param stateChanges the state changes to carry, or null/empty for a state-change-free block
+     */
+    public static BlockItem[] createVerifiableBlockWithState(
+            final long blockNumber,
+            final Bytes previousBlockHash,
+            final Bytes startOfBlockStateRootHash,
+            final StateChanges stateChanges) {
+        final boolean hasChanges =
+                stateChanges != null && !stateChanges.stateChanges().isEmpty();
+        final List<BlockItem> items = new ArrayList<>();
+        items.add(sampleBlockHeader(blockNumber));
+        items.add(sampleRoundHeader(blockNumber * 10L));
+        if (hasChanges) {
+            items.add(new BlockItem(new OneOf<>(ItemOneOfType.STATE_CHANGES, stateChanges)));
+        }
+        items.add(blockFooterWithState(previousBlockHash, startOfBlockStateRootHash));
+
+        final Bytes blockHash =
+                computeBlockHashWithState(blockNumber, previousBlockHash, startOfBlockStateRootHash, stateChanges);
+        final Bytes blockSignature = HashingUtilities.noThrowSha384HashOf(blockHash);
+        final TssSignedBlockProof tssSignedBlockProof =
+                TssSignedBlockProof.newBuilder().blockSignature(blockSignature).build();
+        final BlockProof blockProof = BlockProof.newBuilder()
+                .signedBlockProof(tssSignedBlockProof)
+                .block(blockNumber)
+                .build();
+        items.add(new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof)));
+        return items.toArray(new BlockItem[0]);
+    }
+
+    /**
+     * Computes the block root hash for a block created by
+     * {@link #createVerifiableBlockWithState(long, Bytes, Bytes, StateChanges)}, matching
+     * {@code ExtendedMerkleTreeSession}'s computation. Use the returned hash as the
+     * {@code previousBlockHash} of the next block.
+     */
+    public static Bytes computeBlockHashWithState(
+            final long blockNumber,
+            final Bytes previousBlockHash,
+            final Bytes startOfBlockStateRootHash,
+            final StateChanges stateChanges) {
+        final NaiveStreamingTreeHasher outputHasher = new NaiveStreamingTreeHasher();
+        outputHasher.addLeaf(HashingUtilities.getBlockItemHash(sampleBlockHeaderUnparsed(blockNumber)));
+        final NaiveStreamingTreeHasher consensusHasher = new NaiveStreamingTreeHasher();
+        consensusHasher.addLeaf(HashingUtilities.getBlockItemHash(sampleRoundHeaderUnparsed(blockNumber * 10L)));
+        final NaiveStreamingTreeHasher inputHasher = new NaiveStreamingTreeHasher();
+        final NaiveStreamingTreeHasher stateHasher = new NaiveStreamingTreeHasher();
+        if (stateChanges != null && !stateChanges.stateChanges().isEmpty()) {
+            final BlockItemUnparsed stateChangesItem = BlockItemUnparsed.newBuilder()
+                    .stateChanges(StateChanges.PROTOBUF.toBytes(stateChanges))
+                    .build();
+            stateHasher.addLeaf(HashingUtilities.getBlockItemHash(stateChangesItem));
+        }
+        final NaiveStreamingTreeHasher traceHasher = new NaiveStreamingTreeHasher();
+
+        final Bytes prevHashInput =
+                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]);
+        final Bytes startHash = startOfBlockStateRootHash != null ? startOfBlockStateRootHash : Bytes.EMPTY;
+
+        return HashingUtilities.computeFinalBlockHash(
+                new Timestamp(123L, 456),
+                prevHashInput,
+                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]), // allPrevBlocksRoot = zeros (hasher disabled)
+                startHash,
+                inputHasher,
+                outputHasher,
+                consensusHasher,
+                stateHasher,
+                traceHasher);
+    }
+
+    private static BlockItem blockFooterWithState(
+            final Bytes previousBlockHash, final Bytes startOfBlockStateRootHash) {
+        final Bytes prevHash =
+                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]);
+        final Bytes startHash = startOfBlockStateRootHash != null ? startOfBlockStateRootHash : Bytes.EMPTY;
+        final BlockFooter footer =
+                new BlockFooter(prevHash, Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]), startHash);
+        return new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, footer));
     }
 
     public static BlockItemUnparsed[] createSimpleBlockUnparsedWithNumber(final long blockNumber) {
