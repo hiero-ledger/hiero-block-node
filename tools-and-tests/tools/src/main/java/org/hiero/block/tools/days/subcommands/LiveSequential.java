@@ -94,6 +94,7 @@ import org.hiero.block.tools.mirrornode.FetchBlockQuery;
 import org.hiero.block.tools.mirrornode.FixBlockTime;
 import org.hiero.block.tools.mirrornode.MirrorNodeBlockQueryOrder;
 import org.hiero.block.tools.mirrornode.UpdateBlockData;
+import org.hiero.block.tools.push.LiveBlockPushClient;
 import org.hiero.block.tools.records.RecordFileUtils;
 import org.hiero.block.tools.records.model.parsed.ParsedRecordBlock;
 import org.hiero.block.tools.records.model.parsed.RecordBlockConverter;
@@ -180,6 +181,30 @@ public class LiveSequential implements Runnable {
             names = {"--start-date"},
             description = "Start date in YYYY-MM-DD format (default: auto-detect from mirror node)")
     private String startDate;
+
+    @Option(
+            names = {"--push-bn-host"},
+            description = "Optional. If set, each wrapped block is pushed to this Block Node "
+                    + "host:port via the Publish gRPC stream as it is produced.")
+    private String pushBnHost;
+
+    @Option(
+            names = {"--push-bn-port"},
+            description =
+                    "Block Node Publish port to push to (default: 40840). Ignored if " + "--push-bn-host is not set.")
+    private int pushBnPort = 40840;
+
+    @Option(
+            names = {"--push-queue-capacity"},
+            description = "Bounded backpressure queue between the wrap thread and the push worker "
+                    + "(default: 32). When full, the wrap thread blocks; nothing is dropped.")
+    private int pushQueueCapacity = 32;
+
+    /** Live-push client; null when --push-bn-host is not set. */
+    private LiveBlockPushClient pushClient;
+
+    /** Blocks at or below this number are already on the BN; skip pushing them. */
+    private long pushSkipUpToInclusive = -1L;
 
     /** State persisted to JSON for resumability. Compatible with DownloadLive2 format. */
     private static class State {
@@ -316,6 +341,21 @@ public class LiveSequential implements Runnable {
                     + "]"
                     + " day=" + initialState.dayDate);
 
+            // Optional: live-push to a Block Node. If --push-bn-host was provided, set up the
+            // push client so the wrap thread can hand each validated block off to it as it is
+            // produced. The push subsystem owns its own thread + bounded queue (see
+            // LiveBlockPushClient javadoc).
+            if (pushBnHost != null && !pushBnHost.isBlank()) {
+                pushClient = new LiveBlockPushClient(
+                        pushBnHost, pushBnPort, pushQueueCapacity, LiveBlockPushClient.loadDefaultWebConfig());
+                pushSkipUpToInclusive = pushClient.queryLastAvailableBlock();
+                System.out.println("[live-sequential] Live push enabled: target=" + pushBnHost + ":"
+                        + pushBnPort + " queueCapacity=" + pushQueueCapacity
+                        + " BN lastAvailableBlock=" + pushSkipUpToInclusive
+                        + " (blocks <= this are skipped from push)");
+                pushClient.start();
+            }
+
             // Create producer-consumer queue
             final BlockingQueue<ValidatedBlock> queue = new LinkedBlockingQueue<>(32);
             final AtomicReference<Throwable> wrapError = new AtomicReference<>(null);
@@ -341,6 +381,12 @@ public class LiveSequential implements Runnable {
                             () -> {
                                 System.out.println("[live-sequential] Shutdown requested...");
                                 downloadManager.close();
+                                if (pushClient != null) {
+                                    System.out.println("[live-sequential] Draining live-push client (queue="
+                                            + pushClient.queueDepth() + " acked=" + pushClient.acked()
+                                            + " submitted=" + pushClient.submitted() + ")...");
+                                    pushClient.shutdown();
+                                }
                             },
                             "live-sequential-shutdown"));
 
@@ -356,6 +402,11 @@ public class LiveSequential implements Runnable {
             Throwable wrapErr = wrapError.get();
             if (wrapErr != null) {
                 throw new RuntimeException("Wrap+validate thread failed", wrapErr);
+            }
+
+            if (pushClient != null) {
+                System.out.println("[live-sequential] Draining live-push client...");
+                pushClient.shutdown();
             }
 
             System.out.println("[live-sequential] Complete.");
@@ -1106,6 +1157,19 @@ public class LiveSequential implements Runnable {
 
         // Run all validation checks
         runBlockValidations(wrappedBytes, blockNum, vc, ls, checkpointDir);
+
+        // Live-push to a Block Node if configured. Done after the block is fully validated and
+        // committed to the local zip; the push subsystem is fully decoupled (its own thread +
+        // bounded queue) so a slow/unreachable BN only stalls the push, not the local pipeline,
+        // unless the queue fills (in which case the wrap thread blocks here rather than dropping).
+        if (pushClient != null && blockNum > pushSkipUpToInclusive) {
+            try {
+                pushClient.pushBlock(blockNum, wrapped);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw ie;
+            }
+        }
 
         // Collect signature stats
         SignatureBlockStats blockStats = vc.signatureValidation().popBlockStats(blockNum);
