@@ -65,8 +65,11 @@ Detailed Steps:
    `HistoricalBlockFacility` dispatches internally to whichever storage tier currently holds that block:
    `BlockFileRecentPlugin` (backed by fast NVMe, holds recent and live-stream blocks) for newer blocks, or
    `BlockFileHistoricPlugin` (backed by bulk HDD, holds the compressed historic archive) for deep history.
-   Blocks in either tier were verified by `VerificationServicePlugin` before persistence, so any successful
-   response contains a fully verified block including its `BlockProof`.
+   These two storage plugins are what the core team has built so far; the plugin interface allows operators
+   and third parties to build additional storage backends.
+   Responses include all `BlockProof` items attached to the block. Recipients must verify these proofs
+   independently — a block served by a Block Node should not be assumed verified simply because it was
+   stored there.
 5. The plugin calls `accessor.blockUnparsed()` to retrieve the block as raw bytes (`BlockUnparsed`). This deliberately
    avoids proto deserialization for two reasons: performance (large blocks do not need to be re-parsed to be forwarded),
    and forward compatibility (the block's proto encoding is returned as-is regardless of any version differences between
@@ -118,7 +121,7 @@ sequenceDiagram
 
 Detailed Steps:
 
-1. A subscriber (typically a Mirror Node) sends a `subscribeBlockStream` server-streaming request specifying
+1. A subscriber sends a `subscribeBlockStream` server-streaming request specifying
    `start_block_number` and `end_block_number`. Both are unsigned 64-bit integers; the sentinel value `uint64_max`
    (stored as `UNKNOWN_BLOCK_NUMBER = -1L` in Java) signals "first available" for start and "indefinite" for end.
 2. `SubscriberServicePlugin` builds a server-streaming pipeline and delegates incoming requests to
@@ -140,8 +143,8 @@ Detailed Steps:
 5. **Live phase** (modes 1 and 3): the session registers a `LiveBlockHandler` (implementing
    `NoBackPressureBlockItemHandler`) on `BlockMessagingFacility`. New blocks published by `StreamPublisherPlugin`
    travel through `BlockMessagingFacility`'s LMAX Disruptor ring buffer and are forwarded to the subscriber
-   pipeline in real time. The handler is "no back-pressure" because slow subscribers are disconnected rather
-   than blocking the publish path.
+   pipeline in real time. The handler is "no back-pressure" because slow subscribers are switched between
+   "historical" and "live" as needed rather than blocking the publish path.
 6. When all requested blocks are delivered (or the node shuts down), the session sends `status(SUCCESS)` and the gRPC
    stream closes. Active sessions are tracked in the handler's `openSessions` map and deregistered on completion.
 7. **Reconnect**: the Block Node itself is stateless with respect to subscriber position. On disconnect, the client
@@ -206,7 +209,7 @@ Detailed Steps:
 
 1. `BackfillPlugin` runs two complementary gap-detection triggers. A periodic autonomous scanner runs
    `detectAndScheduleGaps()` on a `scheduleAtFixedRate` loop (interval: `backfillConfiguration.scanInterval()`).
-   In addition, when `BlockMessagingFacility` broadcasts a `NewestBlockKnownToNetworkNotification` (a new block seen
+   In addition, when the `stream-publisher` plugin broadcasts a `NewestBlockKnownToNetworkNotification` (a newer block seen
    on the network), the plugin calls `handleNewestBlockKnownToNetwork()` to trigger a live-tail check immediately
    without waiting for the next scheduled scan.
 2. Gap detection: the plugin queries its current stored block ranges, then uses `BackfillFetcher` to call
