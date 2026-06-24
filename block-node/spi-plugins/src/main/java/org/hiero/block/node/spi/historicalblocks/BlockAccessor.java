@@ -14,10 +14,7 @@ import org.hiero.block.internal.BlockUnparsed;
  * but that attempt is unsuccessful.
  */
 public interface BlockAccessor extends AutoCloseable {
-    /**
-     * Maximum nesting depth for all PBJ codec parse calls. Must match
-     * {@code ParseConstants.MAX_PARSE_DEPTH} in the base module.
-     */
+    /** Maximum nesting depth for PBJ codec parse calls. Mirrors {@code ParseHelper.MAX_PARSE_DEPTH}. */
     int MAX_PARSE_DEPTH = 256;
 
     /**

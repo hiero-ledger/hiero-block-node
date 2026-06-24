@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
 import static org.hiero.block.tools.records.RecordFileDates.instantToRecordFileName;
 import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
@@ -238,8 +238,7 @@ public record ParsedRecordFile(
                         }
                         // Parse the transaction from an explicit Bytes slice so the protobuf parser only reads
                         // the transaction bytes and does not consume later record fields.
-                        Transaction txn =
-                                Transaction.PROTOBUF.parse(in.slice(in.position(), txnLength), false, MAX_PARSE_DEPTH);
+                        Transaction txn = standardParse(Transaction.PROTOBUF, in.slice(in.position(), txnLength));
                         in.skip(txnLength);
                         if (in.remaining() < 4) {
                             throw new IOException("Insufficient bytes for transaction record length in v2 record file");
@@ -249,8 +248,8 @@ public record ParsedRecordFile(
                         if (txnRecordLength <= 0 || txnRecordLength > in.remaining()) {
                             throw new IOException("Invalid transaction record length in v2 record file");
                         }
-                        TransactionRecord txnRecord = TransactionRecord.PROTOBUF.parse(
-                                in.slice(in.position(), txnRecordLength), false, MAX_PARSE_DEPTH);
+                        TransactionRecord txnRecord =
+                                standardParse(TransactionRecord.PROTOBUF, in.slice(in.position(), txnRecordLength));
                         in.skip(txnRecordLength);
                         recordStreamItems.add(new RecordStreamItem(txn, txnRecord));
                     }
@@ -308,14 +307,14 @@ public record ParsedRecordFile(
                             throw new IOException(
                                     "Invalid transaction record length in record file: " + transactionRecordLength);
                         }
-                        final TransactionRecord txnRecord = TransactionRecord.PROTOBUF.parse(
-                                in.readBytes(transactionRecordLength), false, MAX_PARSE_DEPTH);
+                        final TransactionRecord txnRecord =
+                                standardParse(TransactionRecord.PROTOBUF, in.readBytes(transactionRecordLength));
                         final int transactionLength = in.readInt();
                         if (transactionLength <= 0 || transactionLength > in.remaining() - HASH_OBJECT_SIZE_BYTES) {
                             throw new IOException("Invalid transaction length in record file: " + transactionLength);
                         }
                         final Transaction transaction =
-                                Transaction.PROTOBUF.parse(in.readBytes(transactionLength), false, MAX_PARSE_DEPTH);
+                                standardParse(Transaction.PROTOBUF, in.readBytes(transactionLength));
                         recordStreamItems.add(new RecordStreamItem(transaction, txnRecord));
                     }
                     if (in.remaining() != HASH_OBJECT_SIZE_BYTES) {
@@ -348,8 +347,7 @@ public record ParsedRecordFile(
                     // compute the entire file hash used for signature verification
                     final byte[] fileHash = hashSha384(recordFileBytes);
                     // V6 is nice and easy as it is all protobuf encoded after the first version integer
-                    final RecordStreamFile recordStreamFile =
-                            RecordStreamFile.PROTOBUF.parse(in, false, MAX_PARSE_DEPTH);
+                    final RecordStreamFile recordStreamFile = standardParse(RecordStreamFile.PROTOBUF, in);
                     // For v6 the block hash is the end-running-hash accessed via endObjectRunningHash()
                     if (recordStreamFile.endObjectRunningHash() == null) {
                         throw new IllegalStateException("No end object running hash in record file");

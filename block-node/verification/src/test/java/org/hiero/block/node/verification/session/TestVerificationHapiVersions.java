@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification.session;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -39,8 +39,7 @@ class TestVerificationHapiVersions {
         VerificationServicePlugin.tssParametersPersisted = false;
         BlockUtils.SampleBlockInfo block0 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
         List<BlockItemUnparsed> items = block0.blockUnparsed().blockItems();
-        long blockNumber = BlockHeader.PROTOBUF
-                .parse(items.getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH)
+        long blockNumber = standardParse(BlockHeader.PROTOBUF, items.getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
                 blockNumber, BlockSource.UNKNOWN, null, null, null, Map.of(), VerificationProofMetrics.NONE);
@@ -62,7 +61,7 @@ class TestVerificationHapiVersions {
         assertFalse(blockItems.isEmpty(), sampleName + ": blockItems should not be empty");
 
         final BlockHeader blockHeader =
-                BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH);
+                standardParse(BlockHeader.PROTOBUF, blockItems.getFirst().blockHeaderOrThrow());
         final long blockNumber = blockHeader.number();
 
         // If session creation or processing ever regresses, we want fast, high-signal failures

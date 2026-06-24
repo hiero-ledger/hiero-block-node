@@ -9,7 +9,7 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.hapi.block.stream.Block;
@@ -762,12 +762,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final Path tssDataJsonPath = appStateConfig.tssBootstrapFilePath();
         if (Files.exists(tssDataJsonPath)) {
             try {
-                TssData tssData = TssData.JSON.parse(
-                        Bytes.wrap(Files.readAllBytes(tssDataJsonPath)).toReadableSequentialData(),
-                        false,
-                        true,
-                        MAX_PARSE_DEPTH,
-                        MAX_APP_STATE_MESSAGE_SIZE_BYTES);
+                TssData tssData = standardParse(TssData.JSON, Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
                 updateTssData(tssData);
                 LOGGER.log(INFO, "Loaded TssData from file: {0}", tssDataJsonPath);
             } catch (ParseException | IOException e) {
@@ -788,12 +783,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (Files.exists(rsaFilePath)) {
             try {
                 final byte[] raw = Files.readAllBytes(rsaFilePath);
-                final NodeAddressBook book = NodeAddressBook.JSON.parse(
-                        Bytes.wrap(raw).toReadableSequentialData(),
-                        false,
-                        true,
-                        MAX_PARSE_DEPTH,
-                        MAX_APP_STATE_MESSAGE_SIZE_BYTES);
+                final NodeAddressBook book = standardParse(NodeAddressBook.JSON, Bytes.wrap(raw));
                 validateAddressBook(book, rsaFilePath.toString());
                 pendingAddressBook.set(book);
                 LOGGER.log(
@@ -823,12 +813,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final Path blockRangesPath = appStateConfig.blockRangesFilePath();
         if (Files.exists(blockRangesPath)) {
             try {
-                final BlockRangesState rangeSet = BlockRangesState.JSON.parse(
-                        Bytes.wrap(Files.readAllBytes(blockRangesPath)).toReadableSequentialData(),
-                        false,
-                        true,
-                        MAX_PARSE_DEPTH,
-                        MAX_APP_STATE_MESSAGE_SIZE_BYTES);
+                final BlockRangesState rangeSet =
+                        standardParse(BlockRangesState.JSON, Bytes.wrap(Files.readAllBytes(blockRangesPath)));
                 rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
                 LOGGER.log(INFO, "Loaded block ranges from file: {0}", blockRangesPath);
             } catch (ParseException | IOException | IllegalArgumentException e) {

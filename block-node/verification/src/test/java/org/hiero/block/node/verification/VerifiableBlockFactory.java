@@ -3,7 +3,7 @@ package org.hiero.block.node.verification;
 
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
 import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
@@ -112,7 +112,7 @@ final class VerifiableBlockFactory {
 
     private static BlockItemUnparsed toUnparsed(BlockItem item) {
         try {
-            return BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item), false, MAX_PARSE_DEPTH);
+            return standardParse(BlockItemUnparsed.PROTOBUF, BlockItem.PROTOBUF.toBytes(item));
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }

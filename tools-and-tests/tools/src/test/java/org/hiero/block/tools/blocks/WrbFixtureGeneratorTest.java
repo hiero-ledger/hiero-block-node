@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_ADDRESS_BOOK;
@@ -330,7 +330,7 @@ class WrbFixtureGeneratorTest {
         try (InputStream is = WrbFixtureGeneratorTest.class.getResourceAsStream(resourcePath)) {
             Objects.requireNonNull(is, "Missing resource: " + resourcePath);
             try (GZIPInputStream gzipIn = new GZIPInputStream(is)) {
-                return Block.PROTOBUF.parse(Bytes.wrap(gzipIn.readAllBytes()), false, MAX_PARSE_DEPTH);
+                return standardParse(Block.PROTOBUF, Bytes.wrap(gzipIn.readAllBytes()));
             }
         }
     }

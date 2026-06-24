@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIOException;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
@@ -273,7 +273,7 @@ class BlockFileBlockAccessorTest {
             // test accessor.blockUnparsed() and then parse to Block
             final BlockUnparsed unparsed = toTest.blockUnparsed();
             assertThat(unparsed).isNotNull();
-            final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed), false, MAX_PARSE_DEPTH);
+            final Block actual = standardParse(Block.PROTOBUF, BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
         }
 
@@ -301,7 +301,7 @@ class BlockFileBlockAccessorTest {
             // test accessor.blockUnparsed() and parse
             final BlockUnparsed unparsed = toTest.blockUnparsed();
             assertThat(unparsed).isNotNull();
-            final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed), false, MAX_PARSE_DEPTH);
+            final Block actual = standardParse(Block.PROTOBUF, BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
             // calling close will drop the hard link, and accessor will no longer
             // be able to find the data
@@ -319,8 +319,7 @@ class BlockFileBlockAccessorTest {
             // assert that the second accessor can retrieve the same data as did the first one
             final BlockUnparsed unparsed2 = toTest2.blockUnparsed();
             assertThat(unparsed2).isNotNull();
-            final Block actual2 =
-                    Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed2), false, MAX_PARSE_DEPTH);
+            final Block actual2 = standardParse(Block.PROTOBUF, BlockUnparsed.PROTOBUF.toBytes(unparsed2));
             assertThat(actual2).isEqualTo(expected);
         }
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.roster.bootstrap.rsa;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -29,8 +29,7 @@ class MirrorNodeNodesResponseTest {
                   "links": { "next": null }
                 }
                 """;
-        final MirrorNodeNodesResponse response =
-                MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), false, MAX_PARSE_DEPTH);
+        final MirrorNodeNodesResponse response = standardParse(MirrorNodeNodesResponse.JSON, Bytes.wrap(json));
         assertEquals(1, response.nodes().size());
         assertEquals(0L, response.nodes().getFirst().nodeId());
         assertEquals("0xdeadbeef", response.nodes().getFirst().publicKey());
@@ -50,8 +49,7 @@ class MirrorNodeNodesResponseTest {
                   "links": { "next": "/api/v1/network/nodes?limit=100&order=asc&node.id=gt:1" }
                 }
                 """;
-        final MirrorNodeNodesResponse response =
-                MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), false, MAX_PARSE_DEPTH);
+        final MirrorNodeNodesResponse response = standardParse(MirrorNodeNodesResponse.JSON, Bytes.wrap(json));
         assertEquals(2, response.nodes().size());
         assertEquals(0L, response.nodes().get(0).nodeId());
         assertEquals("aabbcc", response.nodes().get(0).publicKey());
@@ -72,8 +70,7 @@ class MirrorNodeNodesResponseTest {
                   "links": { "next": null }
                 }
                 """;
-        final MirrorNodeNodesResponse response =
-                MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), false, MAX_PARSE_DEPTH);
+        final MirrorNodeNodesResponse response = standardParse(MirrorNodeNodesResponse.JSON, Bytes.wrap(json));
         assertEquals(1, response.nodes().size());
         assertTrue(response.nodes().getFirst().publicKey().isBlank());
     }
@@ -87,8 +84,7 @@ class MirrorNodeNodesResponseTest {
                   "links": { "next": null }
                 }
                 """;
-        final MirrorNodeNodesResponse response =
-                MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), false, MAX_PARSE_DEPTH);
+        final MirrorNodeNodesResponse response = standardParse(MirrorNodeNodesResponse.JSON, Bytes.wrap(json));
         assertEquals(List.of(), response.nodes());
         assertNotNull(response.links());
         assertTrue(response.links().next().isBlank());
@@ -102,8 +98,7 @@ class MirrorNodeNodesResponseTest {
                   "links": { "next": null }
                 }
                 """;
-        final MirrorNodeNodesResponse response =
-                MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), false, MAX_PARSE_DEPTH);
+        final MirrorNodeNodesResponse response = standardParse(MirrorNodeNodesResponse.JSON, Bytes.wrap(json));
         assertEquals(List.of(), response.nodes());
         assertNotNull(response.links());
         assertTrue(response.links().next().isBlank());
@@ -117,8 +112,7 @@ class MirrorNodeNodesResponseTest {
                   "nodes": [ { "node_id": 0, "public_key": "aabb" } ]
                 }
                 """;
-        final MirrorNodeNodesResponse response =
-                MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), false, MAX_PARSE_DEPTH);
+        final MirrorNodeNodesResponse response = standardParse(MirrorNodeNodesResponse.JSON, Bytes.wrap(json));
         assertEquals(1, response.nodes().size());
         assertNull(response.links());
     }
@@ -132,8 +126,7 @@ class MirrorNodeNodesResponseTest {
                   "links": { "next": "   " }
                 }
                 """;
-        final MirrorNodeNodesResponse response =
-                MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), false, MAX_PARSE_DEPTH);
+        final MirrorNodeNodesResponse response = standardParse(MirrorNodeNodesResponse.JSON, Bytes.wrap(json));
         assertNotNull(response.links());
         // PBJ preserves whitespace; isBlank() correctly treats whitespace-only next as "no next page"
         assertTrue(response.links().next().isBlank());
@@ -148,8 +141,7 @@ class MirrorNodeNodesResponseTest {
                   "links": { "next": "/api/v1/network/nodes?limit=100&node.id=gt:5" }
                 }
                 """;
-        final MirrorNodeNodesResponse response =
-                MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), false, MAX_PARSE_DEPTH);
+        final MirrorNodeNodesResponse response = standardParse(MirrorNodeNodesResponse.JSON, Bytes.wrap(json));
         assertNotNull(response.links());
         assertEquals(
                 "/api/v1/network/nodes?limit=100&node.id=gt:5", response.links().next());
@@ -176,8 +168,7 @@ class MirrorNodeNodesResponseTest {
                   "links": { "next": null }
                 }
                 """;
-        final MirrorNodeNodesResponse response =
-                MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), true, MAX_PARSE_DEPTH);
+        final MirrorNodeNodesResponse response = standardParse(MirrorNodeNodesResponse.JSON, Bytes.wrap(json));
         assertEquals(2, response.nodes().size());
 
         final NodeEntry active = response.nodes().getFirst();
@@ -200,8 +191,7 @@ class MirrorNodeNodesResponseTest {
                   "links": { "next": null }
                 }
                 """;
-        final MirrorNodeNodesResponse response =
-                MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), false, MAX_PARSE_DEPTH);
+        final MirrorNodeNodesResponse response = standardParse(MirrorNodeNodesResponse.JSON, Bytes.wrap(json));
         assertNull(response.nodes().getFirst().timestamp(), "Absent timestamp field must be null");
     }
 }

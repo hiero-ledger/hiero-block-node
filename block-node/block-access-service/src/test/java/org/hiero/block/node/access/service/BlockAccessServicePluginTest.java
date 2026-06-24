@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.access.service;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -69,7 +69,7 @@ public class BlockAccessServicePluginTest
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
         // parse the response
-        BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0), false, MAX_PARSE_DEPTH);
+        BlockResponse response = standardParse(BlockResponse.PROTOBUF, fromPluginBytes.get(0));
         // check that the status is success
         assertEquals(Code.SUCCESS, response.status());
         // check that the block number is correct
@@ -86,7 +86,7 @@ public class BlockAccessServicePluginTest
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
         // parse the response
-        BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0), false, MAX_PARSE_DEPTH);
+        BlockResponse response = standardParse(BlockResponse.PROTOBUF, fromPluginBytes.get(0));
         // check that the status is NOT AVAILABLE
         assertEquals(Code.NOT_AVAILABLE, response.status());
         // check block is null
@@ -102,7 +102,7 @@ public class BlockAccessServicePluginTest
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
         // parse the response
-        BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0), false, MAX_PARSE_DEPTH);
+        BlockResponse response = standardParse(BlockResponse.PROTOBUF, fromPluginBytes.get(0));
         // check that the status is success
         assertEquals(Code.SUCCESS, response.status());
         // check that the block number is correct
@@ -121,7 +121,7 @@ public class BlockAccessServicePluginTest
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
         // parse the response
-        BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0), false, MAX_PARSE_DEPTH);
+        BlockResponse response = standardParse(BlockResponse.PROTOBUF, fromPluginBytes.get(0));
         // check that the status is NOT_AVAILABLE
         assertEquals(Code.NOT_AVAILABLE, response.status());
     }
@@ -135,7 +135,7 @@ public class BlockAccessServicePluginTest
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
         // parse the response
-        BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0), false, MAX_PARSE_DEPTH);
+        BlockResponse response = standardParse(BlockResponse.PROTOBUF, fromPluginBytes.get(0));
         // check that the status is NOT_AVAILABLE
         assertEquals(Code.INVALID_REQUEST, response.status());
     }
@@ -148,7 +148,7 @@ public class BlockAccessServicePluginTest
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
         // parse the response
-        BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0), false, MAX_PARSE_DEPTH);
+        BlockResponse response = standardParse(BlockResponse.PROTOBUF, fromPluginBytes.get(0));
         // check that the status is success
         assertEquals(Code.SUCCESS, response.status());
         // check that the block number is correct
@@ -163,7 +163,7 @@ public class BlockAccessServicePluginTest
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
         // parse the response
-        BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0), false, MAX_PARSE_DEPTH);
+        BlockResponse response = standardParse(BlockResponse.PROTOBUF, fromPluginBytes.get(0));
         // check that the status is NOT_AVAILABLE
         assertEquals(Code.INVALID_REQUEST, response.status());
     }
@@ -180,8 +180,7 @@ public class BlockAccessServicePluginTest
         toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
 
         assertEquals(1, fromPluginBytes.size());
-        final BlockResponse response = BlockResponse.PROTOBUF.parse(
-                fromPluginBytes.get(0).toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
+        final BlockResponse response = standardParse(BlockResponse.PROTOBUF, fromPluginBytes.get(0));
         assertEquals(Code.SUCCESS, response.status());
         assertEquals(466, response.block().items().getFirst().blockHeader().number());
     }

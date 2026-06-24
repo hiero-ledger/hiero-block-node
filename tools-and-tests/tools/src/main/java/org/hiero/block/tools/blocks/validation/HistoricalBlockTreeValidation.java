@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.utils.PrettyPrint.simpleHash;
 
 import com.hedera.hapi.block.stream.output.BlockFooter;
@@ -71,7 +71,7 @@ public final class HistoricalBlockTreeValidation implements BlockValidation {
         try {
             for (final BlockItemUnparsed item : block.blockItems()) {
                 if (item.hasBlockFooter()) {
-                    footer = BlockFooter.PROTOBUF.parse(item.blockFooterOrThrow(), false, MAX_PARSE_DEPTH);
+                    footer = standardParse(BlockFooter.PROTOBUF, item.blockFooterOrThrow());
                     break;
                 }
             }

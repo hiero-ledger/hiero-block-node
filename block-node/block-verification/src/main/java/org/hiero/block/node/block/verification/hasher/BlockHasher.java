@@ -2,7 +2,7 @@
 package org.hiero.block.node.block.verification.hasher;
 
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.output.BlockFooter;
@@ -114,8 +114,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                     item.item().kind();
                             switch (kind) {
                                 case BLOCK_HEADER -> {
-                                    this.blockHeader =
-                                            BlockHeader.PROTOBUF.parse(item.blockHeader(), false, MAX_PARSE_DEPTH);
+                                    this.blockHeader = standardParse(BlockHeader.PROTOBUF, item.blockHeader());
                                     this.hapiProtoVersion = this.blockHeader.hapiProtoVersion();
                                     if (this.hapiProtoVersion == null) {
                                         throw new VerificationSessionFailedException(
@@ -147,11 +146,9 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                     outputTreeHasher.addLeaf(getBlockItemHash(item));
                                 }
                                 case BLOCK_FOOTER ->
-                                    this.blockFooter =
-                                            BlockFooter.PROTOBUF.parse(item.blockFooter(), false, MAX_PARSE_DEPTH);
+                                    this.blockFooter = standardParse(BlockFooter.PROTOBUF, item.blockFooter());
                                 case BLOCK_PROOF -> {
-                                    final BlockProof blockProof =
-                                            BlockProof.PROTOBUF.parse(item.blockProof(), false, MAX_PARSE_DEPTH);
+                                    final BlockProof blockProof = standardParse(BlockProof.PROTOBUF, item.blockProof());
                                     blockProofs.add(blockProof);
                                 }
                             }
@@ -238,10 +235,10 @@ public final class BlockHasher implements Supplier<HashingResult> {
         if (signedTxBytes == null || signedTxBytes.length() == 0) {
             return null;
         } else {
-            final SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(
-                    signedTxBytes.toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
-            final TransactionBody body = TransactionBody.PROTOBUF.parse(
-                    signedTx.bodyBytes().toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
+            final SignedTransaction signedTx =
+                    standardParse(SignedTransaction.PROTOBUF, signedTxBytes.toReadableSequentialData());
+            final TransactionBody body =
+                    standardParse(TransactionBody.PROTOBUF, signedTx.bodyBytes().toReadableSequentialData());
             return body.ledgerIdPublication();
         }
     }

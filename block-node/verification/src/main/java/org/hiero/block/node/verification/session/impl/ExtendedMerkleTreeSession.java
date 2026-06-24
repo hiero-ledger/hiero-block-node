@@ -9,7 +9,7 @@ import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNode;
 import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNodeSingleChild;
 import static org.hiero.block.common.hasher.HashingUtilities.hashLeaf;
 import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.cryptography.tss.TSS;
 import com.hedera.hapi.block.stream.BlockProof;
@@ -186,7 +186,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
             switch (kind) {
                 case BLOCK_HEADER -> {
-                    this.blockHeader = BlockHeader.PROTOBUF.parse(item.blockHeader(), false, MAX_PARSE_DEPTH);
+                    this.blockHeader = standardParse(BlockHeader.PROTOBUF, item.blockHeader());
                     outputTreeHasher.addLeaf(getBlockItemHash(item));
                 }
                 case ROUND_HEADER, EVENT_HEADER -> consensusHeaderHasher.addLeaf(getBlockItemHash(item));
@@ -210,11 +210,10 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     outputTreeHasher.addLeaf(getBlockItemHash(item));
                 }
                 // save footer for later
-                case BLOCK_FOOTER ->
-                    this.blockFooter = BlockFooter.PROTOBUF.parse(item.blockFooter(), false, MAX_PARSE_DEPTH);
+                case BLOCK_FOOTER -> this.blockFooter = standardParse(BlockFooter.PROTOBUF, item.blockFooter());
                 // append block proofs
                 case BLOCK_PROOF -> {
-                    BlockProof blockProof = BlockProof.PROTOBUF.parse(item.blockProof(), false, MAX_PARSE_DEPTH);
+                    BlockProof blockProof = standardParse(BlockProof.PROTOBUF, item.blockProof());
                     blockProofs.add(blockProof);
                 }
             }
@@ -365,10 +364,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         if (signedTxBytes == null || signedTxBytes.length() == 0) {
             return null;
         }
-        SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(
-                signedTxBytes.toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
-        TransactionBody body = TransactionBody.PROTOBUF.parse(
-                signedTx.bodyBytes().toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
+        SignedTransaction signedTx = standardParse(SignedTransaction.PROTOBUF, signedTxBytes);
+        TransactionBody body = standardParse(TransactionBody.PROTOBUF, signedTx.bodyBytes());
         if (!body.hasLedgerIdPublication()) {
             return null;
         }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification.session.impl;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -55,8 +55,9 @@ class TssBlockProofVerificationTest {
         VerificationServicePlugin.activeTssPublication = null;
         VerificationServicePlugin.tssParametersPersisted = false;
         // Process block 0 through a session to initialize native TSS state and extract ledger ID
-        long blockNumber = BlockHeader.PROTOBUF
-                .parse(wrapsBlock0.blockItems().getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH)
+        long blockNumber = standardParse(
+                        BlockHeader.PROTOBUF,
+                        wrapsBlock0.blockItems().getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
                 blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
@@ -110,13 +111,13 @@ class TssBlockProofVerificationTest {
     private static BlockUnparsed loadBlock(String resourcePath) throws IOException, ParseException {
         try (InputStream stream = TestUtils.class.getModule().getResourceAsStream(resourcePath);
                 GZIPInputStream gzip = new GZIPInputStream(stream)) {
-            return BlockUnparsed.PROTOBUF.parse(Bytes.wrap(gzip.readAllBytes()), false, MAX_PARSE_DEPTH);
+            return standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(gzip.readAllBytes()));
         }
     }
 
     private static Bytes computeBlockHash(BlockUnparsed block, Bytes ledgerId) throws ParseException {
-        long blockNumber = BlockHeader.PROTOBUF
-                .parse(block.blockItems().getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH)
+        long blockNumber = standardParse(
+                        BlockHeader.PROTOBUF, block.blockItems().getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
                 blockNumber, BlockSource.PUBLISHER, null, null, ledgerId, Map.of(), VerificationProofMetrics.NONE);
@@ -131,7 +132,7 @@ class TssBlockProofVerificationTest {
             if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
                 continue;
             }
-            BlockProof proof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow(), false, MAX_PARSE_DEPTH);
+            BlockProof proof = standardParse(BlockProof.PROTOBUF, item.blockProofOrThrow());
             if (proof.hasSignedBlockProof()) {
                 return proof.signedBlockProof().blockSignature();
             }

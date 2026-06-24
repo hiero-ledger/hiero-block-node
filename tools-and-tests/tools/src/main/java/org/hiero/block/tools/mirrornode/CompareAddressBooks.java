@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -90,7 +90,7 @@ public class CompareAddressBooks implements Runnable {
         }
 
         try (var in = new ReadableStreamingData(Files.newInputStream(file))) {
-            return AddressBookHistory.JSON.parse(in, false, MAX_PARSE_DEPTH);
+            return standardParse(AddressBookHistory.JSON, in);
         } catch (Exception e) {
             throw new IOException("Failed to parse address book history from " + file + ": " + e.getMessage(), e);
         }

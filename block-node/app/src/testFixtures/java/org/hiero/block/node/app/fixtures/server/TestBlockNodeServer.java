@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.server;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
@@ -116,8 +116,7 @@ public class TestBlockNodeServer {
                 } else {
                     try (BlockAccessor accessor = historicalBlockFacility.block(i)) {
                         final Bytes blockBytes = accessor.blockBytes(BlockAccessor.Format.PROTOBUF);
-                        Block block = Block.PROTOBUF.parse(
-                                blockBytes.toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
+                        Block block = standardParse(Block.PROTOBUF, blockBytes);
                         sendBlockItemsInBatches(block.items(), replies);
                         replies.onNext(SubscribeStreamResponse.newBuilder()
                                 .endOfBlock(BlockEnd.newBuilder().blockNumber(i).build())

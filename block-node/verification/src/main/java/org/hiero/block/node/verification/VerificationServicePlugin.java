@@ -5,7 +5,7 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.cryptography.tss.TSS;
 import com.hedera.cryptography.wraps.WRAPSVerificationKey;
@@ -217,7 +217,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             try {
                 Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssParametersFile));
                 LedgerIdPublicationTransactionBody publication =
-                        LedgerIdPublicationTransactionBody.PROTOBUF.parse(fileBytes, false, MAX_PARSE_DEPTH);
+                        standardParse(LedgerIdPublicationTransactionBody.PROTOBUF, fileBytes);
                 initializeTssParameters(publication);
                 tssParametersPersisted = true;
                 LOGGER.log(INFO, "Loaded TSS parameters from file: {0}", tssParametersFile);
@@ -332,8 +332,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 verificationBlocksReceived.increment();
                 // we already checked that firstItem has blockHeader
                 currentBlockNumber = blockItems.blockNumber();
-                BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
-                        blockItems.blockItems().getFirst().blockHeader(), false, MAX_PARSE_DEPTH);
+                BlockHeader blockHeader = standardParse(
+                        BlockHeader.PROTOBUF, blockItems.blockItems().getFirst().blockHeader());
                 if (currentBlockNumber != blockHeader.number()) {
                     final String message = "Block number {0} in block items does not match block {1} in header.";
                     LOGGER.log(INFO, message, currentBlockNumber, blockHeader.number());
@@ -499,8 +499,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             // log the backfilled block notification received
             LOGGER.log(DEBUG, "Received backfill notification for block={0}", notification.blockNumber());
             // create a new verification session for the backfilled block
-            BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
-                    notification.block().blockItems().getFirst().blockHeader(), false, MAX_PARSE_DEPTH);
+            BlockHeader blockHeader = standardParse(
+                    BlockHeader.PROTOBUF,
+                    notification.block().blockItems().getFirst().blockHeader());
             if (notification.blockNumber() != blockHeader.number()) {
                 final String message = "Block number {0} in backfill does not match block {1} in header.";
                 LOGGER.log(WARNING, message, notification.blockNumber(), blockHeader.number());

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.blocks;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -34,7 +34,7 @@ public final class BlockUtils {
      */
     public static BlockUnparsed toBlockUnparsed(Block block) {
         try {
-            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block), false, MAX_PARSE_DEPTH);
+            return standardParse(BlockUnparsed.PROTOBUF, Block.PROTOBUF.toBytes(block));
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -48,7 +48,7 @@ public final class BlockUtils {
      */
     public static Block toBlock(BlockUnparsed block) {
         try {
-            return Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(block), false, MAX_PARSE_DEPTH);
+            return standardParse(Block.PROTOBUF, BlockUnparsed.PROTOBUF.toBytes(block));
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -69,7 +69,7 @@ public final class BlockUtils {
             if (stream == null) {
                 throw new IOException("Address book fixture not found on classpath: " + resourcePath);
             }
-            return NodeAddressBook.JSON.parse(Bytes.wrap(stream.readAllBytes()), false, MAX_PARSE_DEPTH);
+            return standardParse(NodeAddressBook.JSON, Bytes.wrap(stream.readAllBytes()));
         }
     }
 
@@ -82,8 +82,7 @@ public final class BlockUtils {
                         TestUtils.class.getModule().getResourceAsStream("test-blocks/" + sampleBlock.getBlockName());
                 final GZIPInputStream gzipInputStream = new GZIPInputStream(stream)) {
             byte[] bytes = gzipInputStream.readAllBytes();
-            blockUnparsed = BlockUnparsed.PROTOBUF.parse(
-                    Bytes.wrap(bytes).toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
+            blockUnparsed = standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(bytes));
         }
 
         return new SampleBlockInfo(sampleBlock.getBlockHash(), sampleBlock.getBlockNumber(), blockUnparsed);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification.session.impl;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -49,7 +49,7 @@ class ExtendedMerkleTreeSessionTest {
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
 
         BlockHeader blockHeader =
-                BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH);
+                standardParse(BlockHeader.PROTOBUF, blockItems.getFirst().blockHeaderOrThrow());
         long blockNumber = blockHeader.number();
 
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
@@ -91,8 +91,7 @@ class ExtendedMerkleTreeSessionTest {
     void shouldVerifyTssWrapsBlock_throughSession() throws IOException, ParseException {
         BlockUnparsed block = loadBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
         List<BlockItemUnparsed> items = block.blockItems();
-        long blockNumber = BlockHeader.PROTOBUF
-                .parse(items.getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH)
+        long blockNumber = standardParse(BlockHeader.PROTOBUF, items.getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
                 blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
@@ -143,14 +142,14 @@ class ExtendedMerkleTreeSessionTest {
     void shouldFailWithDuplicateTssProofs() throws IOException, ParseException {
         BlockUtils.SampleBlockInfo sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
         List<BlockItemUnparsed> originalItems = sampleBlockInfo.blockUnparsed().blockItems();
-        long blockNumber = BlockHeader.PROTOBUF
-                .parse(originalItems.getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH)
+        long blockNumber = standardParse(
+                        BlockHeader.PROTOBUF, originalItems.getFirst().blockHeaderOrThrow())
                 .number();
 
         BlockItemUnparsed tssProofItem = null;
         for (BlockItemUnparsed item : originalItems) {
             if (item.item().kind() == BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
-                BlockProof proof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow(), false, MAX_PARSE_DEPTH);
+                BlockProof proof = standardParse(BlockProof.PROTOBUF, item.blockProofOrThrow());
                 if (proof.hasSignedBlockProof()) {
                     tssProofItem = item;
                     break;
@@ -175,8 +174,7 @@ class ExtendedMerkleTreeSessionTest {
     private static ExtendedMerkleTreeSession createAndProcessSession(BlockUnparsed block, Bytes ledgerId)
             throws ParseException {
         List<BlockItemUnparsed> items = block.blockItems();
-        long blockNumber = BlockHeader.PROTOBUF
-                .parse(items.getFirst().blockHeaderOrThrow(), false, MAX_PARSE_DEPTH)
+        long blockNumber = standardParse(BlockHeader.PROTOBUF, items.getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
                 blockNumber, BlockSource.PUBLISHER, null, null, ledgerId, Map.of(), VerificationProofMetrics.NONE);
@@ -187,7 +185,7 @@ class ExtendedMerkleTreeSessionTest {
     private static BlockUnparsed loadBlock(String resourcePath) throws IOException, ParseException {
         try (InputStream stream = TestUtils.class.getModule().getResourceAsStream(resourcePath);
                 GZIPInputStream gzip = new GZIPInputStream(stream)) {
-            return BlockUnparsed.PROTOBUF.parse(Bytes.wrap(gzip.readAllBytes()), false, MAX_PARSE_DEPTH);
+            return standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(gzip.readAllBytes()));
         }
     }
 }

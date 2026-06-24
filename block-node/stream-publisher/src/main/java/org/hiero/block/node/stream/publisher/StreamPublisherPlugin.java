@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.publisher;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -145,14 +145,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         return switch (blockStreamPublisherServiceMethod) {
             case publishBlockStream ->
                 Pipelines.<PublishStreamRequestUnparsed, PublishStreamResponse>bidiStreaming()
-                        .mapRequest(
-                                bytes -> PublishStreamRequestUnparsed.PROTOBUF.parse(
-                                        bytes.toReadableSequentialData(), // input data
-                                        false, // strictMode
-                                        true, // parseUnknownFields
-                                        MAX_PARSE_DEPTH,
-                                        maxMessageSize) // maxMessageSize
-                                )
+                        .mapRequest(bytes -> standardParse(PublishStreamRequestUnparsed.PROTOBUF, bytes))
                         .method(r -> initiatePublisherHandler(r, correlationId))
                         .respondTo(replies)
                         .mapResponse(PublishStreamResponse.PROTOBUF::toBytes)

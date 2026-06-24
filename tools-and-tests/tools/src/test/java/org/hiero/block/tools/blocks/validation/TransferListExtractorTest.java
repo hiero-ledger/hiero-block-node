@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -93,7 +93,7 @@ class TransferListExtractorTest {
         Bytes bytes = toRecordFileItemBytes(List.of(rsi), List.of());
 
         // Full parse for reference
-        RecordFileItem fullParsed = RecordFileItem.PROTOBUF.parse(bytes, false, MAX_PARSE_DEPTH);
+        RecordFileItem fullParsed = standardParse(RecordFileItem.PROTOBUF, bytes);
         List<AccountAmount> fullAmounts = fullParsed
                 .recordFileContentsOrThrow()
                 .recordStreamItems()
@@ -154,7 +154,7 @@ class TransferListExtractorTest {
         Bytes bytes = toRecordFileItemBytes(List.of(rsi), List.of());
 
         // Full parse
-        RecordFileItem fullParsed = RecordFileItem.PROTOBUF.parse(bytes, false, MAX_PARSE_DEPTH);
+        RecordFileItem fullParsed = standardParse(RecordFileItem.PROTOBUF, bytes);
         TokenTransferList fullTtl = fullParsed
                 .recordFileContentsOrThrow()
                 .recordStreamItems()
@@ -196,7 +196,7 @@ class TransferListExtractorTest {
         Bytes bytes = toRecordFileItemBytes(List.of(rsi), List.of());
 
         // Full parse
-        RecordFileItem fullParsed = RecordFileItem.PROTOBUF.parse(bytes, false, MAX_PARSE_DEPTH);
+        RecordFileItem fullParsed = standardParse(RecordFileItem.PROTOBUF, bytes);
         NftTransfer fullNft = fullParsed
                 .recordFileContentsOrThrow()
                 .recordStreamItems()
@@ -353,7 +353,7 @@ class TransferListExtractorTest {
         Bytes bytes = toRecordFileItemBytes(List.of(rsi1, rsi2), List.of());
 
         // Full parse delta
-        RecordFileItem full = RecordFileItem.PROTOBUF.parse(bytes, false, MAX_PARSE_DEPTH);
+        RecordFileItem full = standardParse(RecordFileItem.PROTOBUF, bytes);
         long fullDelta = 0;
         for (RecordStreamItem rsi : full.recordFileContentsOrThrow().recordStreamItems()) {
             for (AccountAmount aa : rsi.recordOrThrow().transferListOrThrow().accountAmounts()) {

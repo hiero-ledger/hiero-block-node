@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -44,7 +44,7 @@ class TssEnablementValidationTest {
 
     private static BlockUnparsed toUnparsed(Block block) {
         try {
-            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block), false, MAX_PARSE_DEPTH);
+            return standardParse(BlockUnparsed.PROTOBUF, Block.PROTOBUF.toBytes(block));
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
@@ -128,7 +128,7 @@ class TssEnablementValidationTest {
 
             // Verify the bin file is parseable as TssData
             Bytes fileBytes = Bytes.wrap(Files.readAllBytes(binPath));
-            TssData parsed = TssData.PROTOBUF.parse(fileBytes, false, MAX_PARSE_DEPTH);
+            TssData parsed = standardParse(TssData.PROTOBUF, fileBytes);
             assertEquals(LEDGER_ID, parsed.ledgerId());
         }
     }

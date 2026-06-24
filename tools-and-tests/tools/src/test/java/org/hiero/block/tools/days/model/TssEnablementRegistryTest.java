@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.model;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -196,7 +196,7 @@ class TssEnablementRegistryTest {
 
             assertTrue(Files.exists(binFile));
             Bytes fileBytes = Bytes.wrap(Files.readAllBytes(binFile));
-            TssData parsed = TssData.PROTOBUF.parse(fileBytes, false, MAX_PARSE_DEPTH);
+            TssData parsed = standardParse(TssData.PROTOBUF, fileBytes);
             assertEquals(LEDGER_ID, parsed.ledgerId());
             assertEquals(WRAPS_VK, parsed.wrapsVerificationKey());
             assertEquals(2, parsed.currentRosterOrThrow().rosterEntries().size());
@@ -228,7 +228,7 @@ class TssEnablementRegistryTest {
 
             assertTrue(Files.exists(jsonFile));
             Bytes fileBytes = Bytes.wrap(Files.readAllBytes(jsonFile));
-            TssData parsed = TssData.JSON.parse(fileBytes.toReadableSequentialData(), false, MAX_PARSE_DEPTH);
+            TssData parsed = standardParse(TssData.JSON, fileBytes);
             assertEquals(LEDGER_ID, parsed.ledgerId());
             assertEquals(WRAPS_VK, parsed.wrapsVerificationKey());
             assertEquals(2, parsed.currentRosterOrThrow().rosterEntries().size());

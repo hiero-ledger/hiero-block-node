@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.records.RecordFileDates.instantToBlockTimeLong;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -71,12 +71,11 @@ public class TestBlocks {
 
     static {
         try {
-            V5_TEST_BLOCK_ADDRESS_BOOK = NodeAddressBook.PROTOBUF.parse(
+            V5_TEST_BLOCK_ADDRESS_BOOK = standardParse(
+                    NodeAddressBook.PROTOBUF,
                     Bytes.wrap(Objects.requireNonNull(ParsedV2RecordFileTest.class.getResourceAsStream(
                                     "/record-files/example-v5/" + V5_TEST_BLOCK_DATE_STR + "/address_book.bin"))
-                            .readAllBytes()),
-                    false,
-                    MAX_PARSE_DEPTH);
+                            .readAllBytes()));
             V5_TEST_BLOCK_BYTES = Objects.requireNonNull(
                             ParsedV2RecordFileTest.class.getResourceAsStream("/record-files/example-v5/"
                                     + V5_TEST_BLOCK_DATE_STR + "/" + V5_TEST_BLOCK_RECORD_FILE_NAME))
@@ -108,12 +107,11 @@ public class TestBlocks {
 
     static {
         try {
-            V6_TEST_BLOCK_ADDRESS_BOOK = NodeAddressBook.PROTOBUF.parse(
+            V6_TEST_BLOCK_ADDRESS_BOOK = standardParse(
+                    NodeAddressBook.PROTOBUF,
                     Bytes.wrap(Objects.requireNonNull(ParsedV2RecordFileTest.class.getResourceAsStream(
                                     "/record-files/example-v6/" + V6_TEST_BLOCK_DATE_STR + "/address_book.bin"))
-                            .readAllBytes()),
-                    false,
-                    MAX_PARSE_DEPTH);
+                            .readAllBytes()));
             V6_TEST_BLOCK_BYTES = Objects.requireNonNull(
                             ParsedV2RecordFileTest.class.getResourceAsStream("/record-files/example-v6/"
                                     + V6_TEST_BLOCK_DATE_STR + "/" + V6_TEST_BLOCK_RECORD_FILE_NAME))

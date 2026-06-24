@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.model;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.utils.TimeUtils.toTimestamp;
 
 import com.hedera.hapi.node.tss.LedgerIdNodeContribution;
@@ -115,7 +115,7 @@ public class TssEnablementRegistry {
      */
     public void reloadFromFile(final Path jsonFile) {
         try (var in = new ReadableStreamingData(Files.newInputStream(jsonFile))) {
-            TssPublicationHistory history = TssPublicationHistory.JSON.parse(in, false, MAX_PARSE_DEPTH);
+            TssPublicationHistory history = standardParse(TssPublicationHistory.JSON, in);
             publications.clear();
             publications.addAll(history.publications());
         } catch (IOException | ParseException e) {

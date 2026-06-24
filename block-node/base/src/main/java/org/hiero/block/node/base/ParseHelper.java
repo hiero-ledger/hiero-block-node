@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: Apache-2.0
+package org.hiero.block.node.base;
+
+import com.hedera.pbj.runtime.Codec;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.ReadableSequentialData;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
+
+/**
+ * Convenience helpers for PBJ codec parsing.
+ *
+ * <p>PBJ 0.15.9 reduced {@code Codec.DEFAULT_MAX_DEPTH} from 512 to 128, which is insufficient
+ * for block stream data. All parse call sites must use these helpers so the depth and unknown-field
+ * settings are applied consistently and cannot silently regress (see issue #3056).
+ */
+public final class ParseHelper {
+
+    private static final int MAX_PARSE_DEPTH = 256;
+
+    private ParseHelper() {}
+
+    /**
+     * Parse protobuf/JSON bytes using standard settings: strict=false, unknownFields=true,
+     * depth=256, no size limit. Input data is already in memory so a size cap adds no protection.
+     */
+    public static <T> T standardParse(final Codec<T> codec, final Bytes input) throws ParseException {
+        return codec.parse(input.toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
+    }
+
+    /**
+     * Parse from a {@link ReadableSequentialData} using standard settings: strict=false,
+     * unknownFields=true, depth=256, no size limit.
+     */
+    public static <T> T standardParse(final Codec<T> codec, final ReadableSequentialData input) throws ParseException {
+        return codec.parse(input, false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
+    }
+}

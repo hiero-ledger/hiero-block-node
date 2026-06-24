@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_ADDRESS_BOOK;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_BYTES;
@@ -112,7 +112,7 @@ public class RecordBlockConverterTest {
             final ParsedRecordFile parsedRecordFile = ParsedRecordFile.parse(recordFile);
             final List<ParsedSignatureFile> signatureFiles = loadV6SignatureFiles();
             final SidecarFile sidecarFile =
-                    SidecarFile.PROTOBUF.parse(Bytes.wrap(V6_TEST_BLOCK_SIDECAR_BYTES), false, MAX_PARSE_DEPTH);
+                    standardParse(SidecarFile.PROTOBUF, Bytes.wrap(V6_TEST_BLOCK_SIDECAR_BYTES));
 
             v6ParsedBlock = new ParsedRecordBlock(parsedRecordFile, signatureFiles, List.of(sidecarFile));
 

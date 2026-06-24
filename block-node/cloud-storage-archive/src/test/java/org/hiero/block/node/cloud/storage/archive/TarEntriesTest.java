@@ -2,7 +2,7 @@
 package org.hiero.block.node.cloud.storage.archive;
 
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.generateBlocksInRange;
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -84,8 +84,7 @@ class TarEntriesTest {
 
     private boolean checkBlockFileContents(Path blockFile, TestBlock expected) throws IOException, ParseException {
         final byte[] bytes = Files.readAllBytes(blockFile);
-        final Block block =
-                Block.PROTOBUF.parse(Bytes.wrap(CompressionType.ZSTD.decompress(bytes)), false, MAX_PARSE_DEPTH);
+        final Block block = standardParse(Block.PROTOBUF, Bytes.wrap(CompressionType.ZSTD.decompress(bytes)));
         return expected.block().equals(block);
     }
 }

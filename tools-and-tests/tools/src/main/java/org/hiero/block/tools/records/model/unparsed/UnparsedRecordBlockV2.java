@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.unparsed;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
@@ -137,7 +137,7 @@ public class UnparsedRecordBlockV2 extends UnparsedRecordBlock {
                 }
                 // Parse the transaction from an explicit Bytes slice so the protobuf parser only reads
                 // the transaction bytes and does not consume subsequent record fields.
-                Transaction txn = Transaction.PROTOBUF.parse(in.readBytes(txnLength), false, MAX_PARSE_DEPTH);
+                Transaction txn = standardParse(Transaction.PROTOBUF, in.readBytes(txnLength));
                 transactions.add(txn);
                 if (in.remaining() < 4) {
                     warningMessages.append("Insufficient bytes for transaction record length in v2 record file\n");

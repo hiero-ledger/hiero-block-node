@@ -5,7 +5,7 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.common.hasher.HashingUtilities.EMPTY_TREE_HASH;
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -220,7 +220,7 @@ public class AllBlocksHasherHandler {
         try (final InputStream is = new BufferedInputStream(Files.newInputStream(hasherPath))) {
             final Bytes snapshotBytes = Bytes.wrap(is.readAllBytes());
             final AllPreviousBlocksRootHashHasherSnapshot snapshot =
-                    AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF.parse(snapshotBytes, false, MAX_PARSE_DEPTH);
+                    standardParse(AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF, snapshotBytes);
             final long leafCount = snapshot.leafCount();
             final List<byte[]> intermediateHashes = snapshot.intermediateHashes().stream()
                     .map(Bytes::toByteArray)
@@ -316,7 +316,7 @@ public class AllBlocksHasherHandler {
                     if (!block.blockItems().isEmpty()) {
                         final BlockItemUnparsed first = block.blockItems().getFirst();
                         if (first != null && first.hasBlockHeader()) {
-                            result = BlockHeader.PROTOBUF.parse(first.blockHeader(), false, MAX_PARSE_DEPTH);
+                            result = standardParse(BlockHeader.PROTOBUF, first.blockHeader());
                         }
                     }
                 }

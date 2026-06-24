@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
@@ -66,8 +66,8 @@ public class GenerateAddressBookFromBinFile implements Runnable {
             System.out.println("Read " + binData.length + " bytes");
 
             // Parse protobuf
-            NodeAddressBook addressBook = NodeAddressBook.PROTOBUF.parse(
-                    new ReadableStreamingData(new java.io.ByteArrayInputStream(binData)), false, MAX_PARSE_DEPTH);
+            NodeAddressBook addressBook = standardParse(
+                    NodeAddressBook.PROTOBUF, new ReadableStreamingData(new java.io.ByteArrayInputStream(binData)));
 
             System.out.println(
                     "Parsed address book with " + addressBook.nodeAddress().size() + " nodes");

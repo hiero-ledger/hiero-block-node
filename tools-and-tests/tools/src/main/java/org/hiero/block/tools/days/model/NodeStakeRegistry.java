@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.model;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.utils.TimeUtils.toTimestamp;
 
 import com.hedera.hapi.node.base.Timestamp;
@@ -53,7 +53,7 @@ public class NodeStakeRegistry {
      */
     public NodeStakeRegistry(Path jsonFile) {
         try (var in = new ReadableStreamingData(Files.newInputStream(jsonFile))) {
-            NodeStakeHistory history = NodeStakeHistory.JSON.parse(in, false, MAX_PARSE_DEPTH);
+            NodeStakeHistory history = standardParse(NodeStakeHistory.JSON, in);
             stakeSnapshots.addAll(history.stakeSnapshots());
         } catch (IOException | ParseException e) {
             throw new UncheckedIOException(
@@ -82,7 +82,7 @@ public class NodeStakeRegistry {
      */
     public void reloadFromFile(Path jsonFile) {
         try (var in = new ReadableStreamingData(Files.newInputStream(jsonFile))) {
-            NodeStakeHistory history = NodeStakeHistory.JSON.parse(in, false, MAX_PARSE_DEPTH);
+            NodeStakeHistory history = standardParse(NodeStakeHistory.JSON, in);
             stakeSnapshots.clear();
             stakeSnapshots.addAll(history.stakeSnapshots());
         } catch (IOException | ParseException e) {

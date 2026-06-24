@@ -2,7 +2,7 @@
 package org.hiero.block.node.server.status;
 
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -60,8 +60,7 @@ public class ServerStatusServicePluginTest
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
         assertEquals(1, fromPluginBytes.size());
 
-        final ServerStatusResponse response =
-                ServerStatusResponse.PROTOBUF.parse(fromPluginBytes.getFirst(), false, MAX_PARSE_DEPTH);
+        final ServerStatusResponse response = standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getFirst());
 
         assertNotNull(response);
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.firstAvailableBlock());
@@ -84,8 +83,7 @@ public class ServerStatusServicePluginTest
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
         assertEquals(1, fromPluginBytes.size());
 
-        final ServerStatusResponse response =
-                ServerStatusResponse.PROTOBUF.parse(fromPluginBytes.getLast(), false, MAX_PARSE_DEPTH);
+        final ServerStatusResponse response = standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getLast());
 
         assertNotNull(response);
         assertEquals(0, response.firstAvailableBlock());

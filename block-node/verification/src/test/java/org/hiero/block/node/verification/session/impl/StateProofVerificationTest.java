@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification.session.impl;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -200,7 +200,7 @@ class StateProofVerificationTest {
             if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
                 continue;
             }
-            BlockProof proof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow(), false, MAX_PARSE_DEPTH);
+            BlockProof proof = standardParse(BlockProof.PROTOBUF, item.blockProofOrThrow());
             if (proof.hasBlockStateProof()) {
                 return proof.blockStateProof().paths().get(1).siblings().size();
             }
@@ -219,7 +219,7 @@ class StateProofVerificationTest {
             if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
                 continue;
             }
-            BlockProof proof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow(), false, MAX_PARSE_DEPTH);
+            BlockProof proof = standardParse(BlockProof.PROTOBUF, item.blockProofOrThrow());
             if (!proof.hasBlockStateProof()) {
                 continue;
             }
@@ -267,7 +267,7 @@ class StateProofVerificationTest {
             if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
                 continue;
             }
-            BlockProof proof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow(), false, MAX_PARSE_DEPTH);
+            BlockProof proof = standardParse(BlockProof.PROTOBUF, item.blockProofOrThrow());
             if (!proof.hasBlockStateProof()) {
                 continue;
             }
@@ -332,7 +332,7 @@ class StateProofVerificationTest {
             if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
                 continue;
             }
-            BlockProof proof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow(), false, MAX_PARSE_DEPTH);
+            BlockProof proof = standardParse(BlockProof.PROTOBUF, item.blockProofOrThrow());
             if (!proof.hasBlockStateProof()) {
                 continue;
             }

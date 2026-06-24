@@ -4,7 +4,7 @@ package org.hiero.block.node.blocks.files.historic;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -479,8 +479,7 @@ class BlockFileHistoricPluginTest {
                     assertThat(zipEntryPath).exists().isRegularFile();
                     final byte[] zipEntryBytes =
                             blockPath.compressionType().decompress(Files.readAllBytes(zipEntryPath));
-                    final BlockUnparsed actual =
-                            BlockUnparsed.PROTOBUF.parse(Bytes.wrap(zipEntryBytes), false, MAX_PARSE_DEPTH);
+                    final BlockUnparsed actual = standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(zipEntryBytes));
                     assertThat(actual).isEqualTo(expectedBlocks.get(i));
                     // assert that the block file exists
                     assertThat(Files.exists(zipFs.getPath(blockPath.blockFileName())))

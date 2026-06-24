@@ -5,7 +5,7 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -146,8 +146,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
 
         try {
-            blockNodeSources = BlockNodeSource.JSON.parse(
-                    Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)), false, MAX_PARSE_DEPTH);
+            blockNodeSources =
+                    standardParse(BlockNodeSource.JSON, Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
         } catch (ParseException | IOException e) {
             final String parseFailedMsg =
                     "Failed to parse block node sources from path: [%s], backfill will not run: %s"

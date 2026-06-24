@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.model;
 
-import static org.hiero.block.node.base.ParseConstants.MAX_PARSE_DEPTH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.hedera.hapi.node.addressbook.NodeCreateTransactionBody;
@@ -56,7 +56,7 @@ public class AddressBookRegistryTest {
             for (int i = 0; i < numOfTransactions; i++) {
                 int len = in.readInt();
                 Bytes tbBytes = in.readBytes(len);
-                transactionBodies.add(TransactionBody.PROTOBUF.parse(tbBytes, false, MAX_PARSE_DEPTH));
+                transactionBodies.add(standardParse(TransactionBody.PROTOBUF, tbBytes));
             }
             AddressBookRegistry addressBookRegistry = new AddressBookRegistry();
             String changes = addressBookRegistry.updateAddressBook(Instant.now(), transactionBodies);
@@ -106,7 +106,7 @@ public class AddressBookRegistryTest {
             for (int i = 0; i < numOfTransactions; i++) {
                 int len = in.readInt();
                 Bytes tbBytes = in.readBytes(len);
-                transactionBodies.add(TransactionBody.PROTOBUF.parse(tbBytes, false, MAX_PARSE_DEPTH));
+                transactionBodies.add(standardParse(TransactionBody.PROTOBUF, tbBytes));
             }
 
             AddressBookRegistry addressBookRegistry = new AddressBookRegistry();
@@ -193,7 +193,7 @@ public class AddressBookRegistryTest {
             for (int i = 0; i < numOfTransactions; i++) {
                 int len = in.readInt();
                 Bytes tbBytes = in.readBytes(len);
-                transactionBodies.add(TransactionBody.PROTOBUF.parse(tbBytes, false, MAX_PARSE_DEPTH));
+                transactionBodies.add(standardParse(TransactionBody.PROTOBUF, tbBytes));
             }
 
             AddressBookRegistry addressBookRegistry = new AddressBookRegistry();
@@ -257,7 +257,7 @@ public class AddressBookRegistryTest {
             for (int i = 0; i < numOfTransactions; i++) {
                 int len = in.readInt();
                 Bytes tbBytes = in.readBytes(len);
-                transactionBodies.add(TransactionBody.PROTOBUF.parse(tbBytes, false, MAX_PARSE_DEPTH));
+                transactionBodies.add(standardParse(TransactionBody.PROTOBUF, tbBytes));
             }
 
             AddressBookRegistry registry1 = new AddressBookRegistry();
