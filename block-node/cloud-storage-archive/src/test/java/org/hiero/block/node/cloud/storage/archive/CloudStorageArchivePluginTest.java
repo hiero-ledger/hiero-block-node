@@ -1825,6 +1825,69 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.tempGroupActiveQueues.get(groupSize * 2)).hasSize(1);
         }
 
+        /// Verifies that [drainOverflowStash] drains all stashed blocks for a second pre-EMB group
+        /// even when [CloudStorageArchiveConfig#maxConcurrentTempArchives] is 1.
+        ///
+        /// With EMB=15 and groupSize=10 both groups [0,9] and [10,19] are pre-EMB
+        /// (firstRegularGroupStart=20).  maxConcurrentTempArchives=1 means group [10,19]'s blocks
+        /// go to [tempOverflowStash] while group [0,9]'s task occupies the single slot.  Once that
+        /// slot is freed the drain must continue past the block that starts the group [10,19] segment
+        /// and deliver all remaining stash blocks to the already-active queue — without requiring an
+        /// additional slot.
+        @Test
+        @DisplayName("maxConcurrentTempArchives=1: interleaved pre-EMB groups drain overflow stash completely")
+        void overflowStashDrainsCompletelyWhenGroupHasActiveQueue() throws Exception {
+            drainRecovery();
+            plugin.stop(); // unregister the EMB=5 plugin so only the new one handles blocks
+            final Map<String, String> config = new HashMap<>(pluginConfig(GROUPING_LEVEL, 10));
+            config.put("block.node.earliestManagedBlock", "15");
+            config.put("cloud.storage.archive.maxConcurrentTempArchives", "1");
+            start(new CloudStorageArchivePlugin(), new SimpleInMemoryHistoricalBlockFacility(), config);
+            pluginExecutor.executeSerially(); // drain startup recovery for the new plugin instance
+
+            assertThat(plugin.firstRegularGroupStart).isEqualTo(20L);
+
+            // Block 0 claims the single temp archive slot for group [0,9].
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+            assertThat(plugin.tempGroupActiveQueues).containsKey(0L);
+            assertThat(plugin.tempUploadFutures).hasSize(1);
+
+            // Blocks 10–19 arrive while the slot is full; all land in the overflow stash.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(10, 19));
+            assertThat(plugin.tempOverflowStash).hasSize(10);
+
+            // Complete group [0,9]: blocks 1–9 stream into the active queue; block 9 closes it.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(1, 9));
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey(0L);
+
+            // Run TempArchiveUploadTask[0,9] to completion, freeing the slot.
+            pluginExecutor.executeSerially();
+
+            // Block 20 (firstRegularGroupStart) triggers:
+            //   1. checkAndDrainTempUploadResults — group [0,9] entry moves to tempArchiveTracker
+            //   2. drainOverflowStash — all 10 stashed blocks routed to group [10,19]; segment closed
+            //   3. tryStartNewUploadTask(20) — regular BlockUploadTask[20,29] started
+            sendVerification(TestBlockBuilder.generateBlocksInRange(20, 20).getFirst());
+            assertThat(plugin.tempOverflowStash).isEmpty();
+            assertThat(plugin.tempArchiveTracker).containsKey(0L);
+
+            // Complete group [20,29] so BlockUploadTask[20,29] can finish.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(21, 29));
+
+            // Run TempArchiveUploadTask[10,19], ConsolidationTask[0,9], BlockUploadTask[20,29].
+            pluginExecutor.executeSerially();
+
+            // Block 30 drives checkAndDrainTempUploadResults: group [10,19] entry enters the tracker.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(30, 30).getFirst());
+
+            assertThat(plugin.tempArchiveTracker).containsKey(10L);
+            assertThat(plugin.tempArchiveTracker.get(10L).lastBlock()).isEqualTo(19L);
+            assertThat(plugin.tempOverflowStash).isEmpty();
+            assertTrue(
+                    getAllObjects().contains(ArchiveKey.format(0, GROUPING_LEVEL, "")),
+                    "group [0,9] should be consolidated into its final tar");
+        }
+
         private CloudStorageArchiveConfig makeConfig() {
             final ConfigurationBuilder builder =
                     ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);

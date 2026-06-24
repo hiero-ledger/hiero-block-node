@@ -353,11 +353,23 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// Re-routes blocks from [tempOverflowStash] in block-number order while upload slots are free.
     /// Called after [checkAndDrainTempUploadResults] so that any just-freed slots are visible.
     /// Skipped during recovery to avoid racing with the recovery result.
+    ///
+    /// A block is always eligible to drain if its group already has an active streaming queue
+    /// (adding to an existing segment costs no new slot).  A block whose group has no active queue
+    /// is eligible only when a free slot is available.  The loop stops at the first ineligible entry
+    /// so that the stash stays in ascending-key order for the next drain cycle.
     private void drainOverflowStash() {
         if (recoveryFuture == null) {
-            while (!tempOverflowStash.isEmpty() && tempUploadFutures.size() < config.maxConcurrentTempArchives()) {
-                final Map.Entry<Long, BlockWithSource> entry = tempOverflowStash.pollFirstEntry();
-                routeToTempArchive(entry.getKey(), entry.getValue());
+            while (!tempOverflowStash.isEmpty()) {
+                final Map.Entry<Long, BlockWithSource> first = tempOverflowStash.firstEntry();
+                final long blockNum = first.getKey();
+                final long groupStart = (blockNum / groupSize) * groupSize;
+                if (!tempGroupActiveQueues.containsKey(groupStart)
+                        && tempUploadFutures.size() >= config.maxConcurrentTempArchives()) {
+                    break;
+                }
+                tempOverflowStash.pollFirstEntry();
+                routeToTempArchive(blockNum, first.getValue());
             }
         }
     }
@@ -367,10 +379,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     private void checkGroupCoverage(long groupStart) {
         final long groupEnd = groupStart + groupSize - 1;
 
-        // Only consider completed (non-in-flight) archives within this group's range.
         final List<TempArchiveEntry> entries =
                 tempArchiveTracker.subMap(groupStart, true, groupEnd, true).values().stream()
-                        .filter(e -> e.uploadId() == null)
                         .toList();
 
         // Walk entries in block-number order, advancing the coverage cursor.
@@ -709,8 +719,11 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         consolidationFutures.values().forEach(f -> f.cancel(true));
         currentGroupPending.clear();
         currentBlockQueue.clear();
+        tempArchiveTracker.clear();
         tempGroupActiveQueues.clear();
+        tempGroupNextExpected.clear();
         tempUploadFutures.clear();
+        tempOverflowStash.clear();
         pendingConsolidations.clear();
         consolidationFutures.clear();
         if (configValid) {
