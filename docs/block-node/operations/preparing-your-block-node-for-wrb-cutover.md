@@ -62,7 +62,7 @@ Run the Solo Provisioner hardware preflight check before the upgrade. This valid
 sudo solo-provisioner block node check --profile=mainnet
 ```
 
-- **Expected:** each step shows a green checkmark and "success".
+- **Expected:** each step shows a green checkmark (✅) and "success".
 - **If a step fails:** it reports the specific requirement not met. For hardware minimums, see [Block Node Hardware Specifications](./block-node-hardware-specifications.md). The preflight counts physical CPU cores, not vCPUs.
 
 > Note: The `--profile=mainnet` flag is required. Omitting it returns `profile flag is required`.
@@ -75,11 +75,13 @@ The Block Node uses five persistent volumes. Confirm each is mounted and has ade
 |----------------|-----------------------------------------------------------------------------------------------|--------------------|-----------------------------------------------------------------------------------------|
 | `live`         | `blockNode.persistence.live.mountPath` (default `/opt/hiero/block-node/data/live`)            | 6 TB               | Recent block stream and live state                                                      |
 | `archive`      | `blockNode.persistence.archive.mountPath` (default `/opt/hiero/block-node/data/historic`)     | 90 TB              | Compressed historic block archive                                                       |
-| `verification` | `blockNode.persistence.verification.mountPath` (default `/opt/hiero/block-node/verification`) | 500 MB             | Block hash state and verification data                                                  |
-| `logging`      | `blockNode.persistence.logging.mountPath` (default `/opt/hiero/block-node/logs`)              | 10 GB              | Application logs                                                                        |
+| `verification` | `blockNode.persistence.verification.mountPath` (default `/opt/hiero/block-node/verification`) | 50 GB              | Block hash state and verification data                                                  |
+| `logging`      | `blockNode.persistence.logging.mountPath` (default `/opt/hiero/block-node/logs`)              | 100 GB             | Application logs                                                                        |
 | `plugins`      | `blockNode.persistence.plugins`                                                               | —                  | Plugin JARs; always mounted but may contain no JARs until plugins are explicitly loaded |
 
 > Note: The exact mount paths depend on your Helm values. Run `helm -n block-node get values <release-name>` to inspect your installation's overrides.
+>
+> Note: In the next Block Node version, `blockNode.persistence.verification.mountPath` will be replaced by `blockNode.persistence.applicationState.mountPath`. Check the Helm chart release notes for your target version before running volume-size checks.
 
 Confirm all volumes are mounted and visible inside the pod:
 
@@ -141,7 +143,7 @@ Complete the subsection below that matches the upgrade you are preparing for. Fu
 
 For the full network cutover timeline — phases, CN-side WRB catch-up, TSS ceremony, and Jumpstart Data — see [Cutover Process and Timeline](../Cutover-Process.md).
 
-**What is changing:** from the cutover release onwards, Consensus Nodes cease producing record streams and begin producing Block Streams with full TSS and WRAPS signatures. Any preview blocks stored by the Block Node before the cutover are invalid and must be discarded before the BN can receive and store authoritative WRB history. Do not skip the reset step even if the BN appears to be functioning normally.
+**What is changing:** from the cutover release onwards, Consensus Nodes begin producing Wrapped Recordfile Blocks with aggregated RSA signature Block Proofs. The production of Record files uploaded to S3 storage will continue until the cutover to TSS and Block Streams in a later release. Any preview blocks stored by the Block Node before the cutover are invalid and must be discarded before the BN can receive and store authoritative WRB history. Do not skip the reset step even if the BN appears to be functioning normally.
 
 > **Note:** Before beginning the WRB cutover steps, confirm that the Consensus Nodes peered with this Block Node are no longer streaming preview blocks. Ingesting blocks from a CN that is still in preview mode will store invalid data that requires another reset to clear.
 
@@ -209,7 +211,7 @@ Add `roster-bootstrap-rsa` to your plugin list in `block-node-values.yaml`. Appe
 
 ```yaml
 plugins:
-  names: facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill,roster-bootstrap-rsa
+  names: facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill,roster-bootstrap-rsa,roster-bootstrap-tss
 ```
 
 **Mirror Node auto-fetch (mainnet cohort default)**
@@ -268,13 +270,18 @@ kubectl -n block-node exec $BN_POD -c block-node-server -- \
 
 - **If the file is missing after reset:** re-deliver it from your off-host backup using the mechanism in your cohort's `block-node-values.yaml`.
 
-In either case, confirm the roster loaded cleanly after the pod starts:
+In either case, confirm the roster loaded cleanly after the pod starts by querying `serverStatusDetail` — the response should contain a non-empty `rosterHash` field:
 
 ```bash
-kubectl -n block-node logs $BN_POD -c block-node-server | grep -i "roster\|bootstrap\|rsa"
+grpcurl -plaintext -emit-defaults \
+  -import-path ~/bn-proto \
+  -proto block-node/api/node_service.proto \
+  -d '{}' \
+  "$BLOCK_NODE_HOST:40840" \
+  org.hiero.block.api.BlockNodeService/serverStatusDetail
 ```
 
-- **Expected:** no `WARNING` or `ERROR` lines referencing the roster.
+- **Expected:** the response includes a non-empty `rosterHash` field, confirming the RSA roster is loaded and active.
 
 #### Configure backfill sources (if required)
 
@@ -353,7 +360,7 @@ After completing all applicable checks, confirm the BN is ready before the maint
 | Pod is running                            | `kubectl -n block-node get pods`                                              | `1/1 Running`                                                        |
 | Hardware preflight passes                 | `sudo solo-provisioner block node check --profile=mainnet`                    | All steps green                                                      |
 | Block store cleared (WRB only)            | `grpcurl ... BlockNodeService/serverStatus`                                   | `firstAvailableBlock = uint64_max`                                   |
-| RSA roster loaded (WRB only)              | `kubectl -n block-node logs $BN_POD -c block-node-server \| grep -i roster`   | No WARNING or ERROR                                                  |
+| RSA roster loaded (WRB only)              | `grpcurl ... BlockNodeService/serverStatusDetail`                             | Non-empty `rosterHash` in response                                   |
 | Greedy backfill enabled (WRB only)        | `helm -n block-node get values <release-name> \| grep BACKFILL_GREEDY`        | `BACKFILL_GREEDY: "true"`                                            |
 | Backfill active (WRB only, if configured) | `kubectl -n block-node logs $BN_POD -c block-node-server \| grep -i backfill` | Fetching or completed (if `BACKFILL_BLOCK_NODE_SOURCES_PATH` is set) |
 | Alloy shipping                            | `kubectl -n grafana-alloy get pods`                                           | `1/1 Running`                                                        |
