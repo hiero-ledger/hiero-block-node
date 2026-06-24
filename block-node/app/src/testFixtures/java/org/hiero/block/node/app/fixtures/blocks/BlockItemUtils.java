@@ -35,7 +35,7 @@ public final class BlockItemUtils {
     public static String toBlockItemJson(BlockItemUnparsed blockItemUnparsed) {
         try {
             final Bytes bytes = BlockItemUnparsed.PROTOBUF.toBytes(blockItemUnparsed);
-            return BlockItem.JSON.toJSON(standardParse(BlockItem.PROTOBUF, bytes));
+            return BlockItem.JSON.toJSON(standardParse(BlockItem.PROTOBUF, bytes, Integer.MAX_VALUE));
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -50,7 +50,7 @@ public final class BlockItemUtils {
     public static BlockItemUnparsed toBlockItemUnparsed(BlockItem blockItem) {
         try {
             final Bytes bytes = BlockItem.PROTOBUF.toBytes(blockItem);
-            return standardParse(BlockItemUnparsed.PROTOBUF, bytes);
+            return standardParse(BlockItemUnparsed.PROTOBUF, bytes, Integer.MAX_VALUE);
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -75,7 +75,7 @@ public final class BlockItemUtils {
     public static BlockItem toBlockItem(BlockItemUnparsed blockItem) {
         try {
             final Bytes bytes = BlockItemUnparsed.PROTOBUF.toBytes(blockItem);
-            return standardParse(BlockItem.PROTOBUF, bytes);
+            return standardParse(BlockItem.PROTOBUF, bytes, Integer.MAX_VALUE);
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }

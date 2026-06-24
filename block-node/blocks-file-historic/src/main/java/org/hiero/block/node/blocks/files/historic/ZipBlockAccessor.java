@@ -146,7 +146,7 @@ final class ZipBlockAccessor implements BlockAccessor {
     private Bytes getJsonBytesFromProtobufBytes(final Bytes sourceData) {
         if (sourceData != null) {
             try {
-                return Block.JSON.toBytes(standardParse(Block.PROTOBUF, sourceData));
+                return Block.JSON.toBytes(standardParse(Block.PROTOBUF, sourceData, Integer.MAX_VALUE));
             } catch (final RuntimeException | ParseException e) {
                 String entryName = blockPathData.blockFileName();
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockNumber, absoluteZipFilePath, entryName);

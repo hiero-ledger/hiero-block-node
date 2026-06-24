@@ -21,17 +21,35 @@ public final class ParseHelper {
 
     /**
      * Parse protobuf/JSON bytes using standard settings: strict=false, unknownFields=true,
-     * depth=256, no size limit. Input data is already in memory so a size cap adds no protection.
+     * depth=256, maxSize={@link Codec#DEFAULT_MAX_SIZE}.
      */
     public static <T> T standardParse(final Codec<T> codec, final Bytes input) throws ParseException {
-        return codec.parse(input.toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
+        return codec.parse(input.toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, Codec.DEFAULT_MAX_SIZE);
+    }
+
+    /**
+     * Parse protobuf/JSON bytes with a custom size limit. Use when the input is known to exceed
+     * {@link Codec#DEFAULT_MAX_SIZE} (e.g. full block payloads).
+     */
+    public static <T> T standardParse(final Codec<T> codec, final Bytes input, final int maxSize)
+            throws ParseException {
+        return codec.parse(input.toReadableSequentialData(), false, true, MAX_PARSE_DEPTH, maxSize);
     }
 
     /**
      * Parse from a {@link ReadableSequentialData} using standard settings: strict=false,
-     * unknownFields=true, depth=256, no size limit.
+     * unknownFields=true, depth=256, maxSize={@link Codec#DEFAULT_MAX_SIZE}.
      */
     public static <T> T standardParse(final Codec<T> codec, final ReadableSequentialData input) throws ParseException {
-        return codec.parse(input, false, true, MAX_PARSE_DEPTH, Integer.MAX_VALUE);
+        return codec.parse(input, false, true, MAX_PARSE_DEPTH, Codec.DEFAULT_MAX_SIZE);
+    }
+
+    /**
+     * Parse from a {@link ReadableSequentialData} with a custom size limit. Use when the input
+     * is known to exceed {@link Codec#DEFAULT_MAX_SIZE} (e.g. full block payloads).
+     */
+    public static <T> T standardParse(final Codec<T> codec, final ReadableSequentialData input, final int maxSize)
+            throws ParseException {
+        return codec.parse(input, false, true, MAX_PARSE_DEPTH, maxSize);
     }
 }

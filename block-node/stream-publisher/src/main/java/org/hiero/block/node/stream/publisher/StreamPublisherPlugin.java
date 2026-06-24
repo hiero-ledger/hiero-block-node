@@ -145,7 +145,8 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         return switch (blockStreamPublisherServiceMethod) {
             case publishBlockStream ->
                 Pipelines.<PublishStreamRequestUnparsed, PublishStreamResponse>bidiStreaming()
-                        .mapRequest(bytes -> standardParse(PublishStreamRequestUnparsed.PROTOBUF, bytes))
+                        .mapRequest(
+                                bytes -> standardParse(PublishStreamRequestUnparsed.PROTOBUF, bytes, maxMessageSize))
                         .method(r -> initiatePublisherHandler(r, correlationId))
                         .respondTo(replies)
                         .mapResponse(PublishStreamResponse.PROTOBUF::toBytes)

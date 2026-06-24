@@ -80,7 +80,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     public BlockUnparsed blockUnparsed() {
         try {
             final Bytes rawData = blockBytes(Format.PROTOBUF);
-            return rawData == null ? null : standardParse(BlockUnparsed.PROTOBUF, rawData);
+            return rawData == null ? null : standardParse(BlockUnparsed.PROTOBUF, rawData, Integer.MAX_VALUE);
         } catch (final RuntimeException | ParseException e) {
             LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock), e);
             return null;
@@ -154,7 +154,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     private Bytes getJsonBytesFromProtobufBytes(final Bytes sourceData) {
         if (sourceData != null) {
             try {
-                return Block.JSON.toBytes(standardParse(Block.PROTOBUF, sourceData));
+                return Block.JSON.toBytes(standardParse(Block.PROTOBUF, sourceData, Integer.MAX_VALUE));
             } catch (final RuntimeException | ParseException e) {
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock);
                 LOGGER.log(WARNING, message, e);

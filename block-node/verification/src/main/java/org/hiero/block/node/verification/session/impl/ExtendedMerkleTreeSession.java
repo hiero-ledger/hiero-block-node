@@ -364,8 +364,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         if (signedTxBytes == null || signedTxBytes.length() == 0) {
             return null;
         }
-        SignedTransaction signedTx = standardParse(SignedTransaction.PROTOBUF, signedTxBytes);
-        TransactionBody body = standardParse(TransactionBody.PROTOBUF, signedTx.bodyBytes());
+        SignedTransaction signedTx = standardParse(SignedTransaction.PROTOBUF, signedTxBytes, Integer.MAX_VALUE);
+        TransactionBody body = standardParse(TransactionBody.PROTOBUF, signedTx.bodyBytes(), Integer.MAX_VALUE);
         if (!body.hasLedgerIdPublication()) {
             return null;
         }

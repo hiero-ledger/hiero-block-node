@@ -236,9 +236,9 @@ public final class BlockHasher implements Supplier<HashingResult> {
             return null;
         } else {
             final SignedTransaction signedTx =
-                    standardParse(SignedTransaction.PROTOBUF, signedTxBytes.toReadableSequentialData());
+                    standardParse(SignedTransaction.PROTOBUF, signedTxBytes, Integer.MAX_VALUE);
             final TransactionBody body =
-                    standardParse(TransactionBody.PROTOBUF, signedTx.bodyBytes().toReadableSequentialData());
+                    standardParse(TransactionBody.PROTOBUF, signedTx.bodyBytes(), Integer.MAX_VALUE);
             return body.ledgerIdPublication();
         }
     }

@@ -460,7 +460,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                         throw new IllegalStateException(message);
                     }
                     final int blockByteSize = (int) blockBytes.length();
-                    final BlockUnparsed block = standardParse(BlockUnparsed.PROTOBUF, blockBytes);
+                    final BlockUnparsed block =
+                            standardParse(BlockUnparsed.PROTOBUF, blockBytes, maxProtobufMessageSizeBytes);
                     // We have retrieved the block to send, so send it.
                     sendOneFullBlock(block, blockByteSize);
                     // Trim the queue if necessary, also increment the next block to send.

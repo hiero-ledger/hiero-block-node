@@ -135,7 +135,7 @@ final class BlockStagingFileAccessor implements BlockAccessor {
     private Bytes getJsonBytesFromProtobufBytes(final Bytes sourceData) {
         if (sourceData != null) {
             try {
-                return Block.JSON.toBytes(standardParse(Block.PROTOBUF, sourceData));
+                return Block.JSON.toBytes(standardParse(Block.PROTOBUF, sourceData, Integer.MAX_VALUE));
             } catch (final UncheckedIOException | ParseException e) {
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockFilePath);
                 LOGGER.log(WARNING, message, e);

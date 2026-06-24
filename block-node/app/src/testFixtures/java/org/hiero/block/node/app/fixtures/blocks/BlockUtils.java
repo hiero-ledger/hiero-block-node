@@ -82,7 +82,7 @@ public final class BlockUtils {
                         TestUtils.class.getModule().getResourceAsStream("test-blocks/" + sampleBlock.getBlockName());
                 final GZIPInputStream gzipInputStream = new GZIPInputStream(stream)) {
             byte[] bytes = gzipInputStream.readAllBytes();
-            blockUnparsed = standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(bytes));
+            blockUnparsed = standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(bytes), Integer.MAX_VALUE);
         }
 
         return new SampleBlockInfo(sampleBlock.getBlockHash(), sampleBlock.getBlockNumber(), blockUnparsed);
