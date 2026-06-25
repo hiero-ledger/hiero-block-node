@@ -379,10 +379,4 @@ class StateProofVerifierTest {
         }
         return new TestBlock(block.number(), new BlockUnparsed(items));
     }
-
-    private static Stream<Arguments> blocksWithDirectTssProof() throws IOException, ParseException {
-        return Stream.of(
-                Arguments.of(ResourceTestBlockBuilder.load(StateProof.BLOCK_0)),
-                Arguments.of(ResourceTestBlockBuilder.load(StateProof.BLOCK_4)));
-    }
 }

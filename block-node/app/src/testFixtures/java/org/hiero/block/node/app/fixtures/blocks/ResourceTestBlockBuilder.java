@@ -105,16 +105,6 @@ public class ResourceTestBlockBuilder {
     /// Each constant maps to a `test-blocks/WRB/<network>/<blockNumber>.blk.gz` resource and
     /// carries the name of the network folder so callers can fetch the matching
     /// [NodeAddressBook] via [#loadAddressBook(String)].
-    ///
-    /// Hashes are intentionally empty: the integration tests that consume these blocks assert that
-    /// the verifier emits a non-null block hash, but not its specific value. Populate them via
-    /// `WrbAddressBookFixtureGeneratorTest` if a strict-hash assertion is needed later.
-    ///
-    /// Only solo-network blocks are wired in right now. The `v6-block.blk.gz` sample under
-    /// `tools-and-tests/.../record-files/wrb/` was evaluated as a second source but its block
-    /// header carries HAPI 0.63.x, below the 0.72.0 minimum at which `HapiVersionSessionFactory`
-    /// dispatches to the WRB-capable `ExtendedMerkleTreeSession`. Add it back once the
-    /// verifier accepts older HAPI versions, or once a newer mainnet WRB capture is available.
     public enum WRB implements ResourceBlock {
         /// Solo-network genesis WRB block — the only one in this batch containing tss-init metadata.
         SOLO_4N_BLOCK_0(
