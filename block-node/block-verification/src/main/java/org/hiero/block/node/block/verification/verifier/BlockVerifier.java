@@ -101,7 +101,7 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
                 verifiers.add(new RSAProofVerifier(
                         proofVerificationMetrics,
                         hashingResult.blockNumber(),
-                        verificationDataProvider,
+                        verificationDataProvider.currentRSAPublicKeys(),
                         proof.signedRecordFileProof(),
                         hashingResult.signedWRBPayload(),
                         sha384WithRSASig));
