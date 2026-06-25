@@ -180,7 +180,7 @@ public class BlockAccessServicePluginTest
         toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
 
         assertEquals(1, fromPluginBytes.size());
-        final BlockResponse response = standardParse(BlockResponse.PROTOBUF, fromPluginBytes.get(0));
+        final BlockResponse response = standardParse(BlockResponse.PROTOBUF, fromPluginBytes.get(0), Integer.MAX_VALUE);
         assertEquals(Code.SUCCESS, response.status());
         assertEquals(466, response.block().items().getFirst().blockHeader().number());
     }

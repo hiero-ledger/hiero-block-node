@@ -116,7 +116,7 @@ public class TestBlockNodeServer {
                 } else {
                     try (BlockAccessor accessor = historicalBlockFacility.block(i)) {
                         final Bytes blockBytes = accessor.blockBytes(BlockAccessor.Format.PROTOBUF);
-                        Block block = standardParse(Block.PROTOBUF, blockBytes);
+                        Block block = standardParse(Block.PROTOBUF, blockBytes, Integer.MAX_VALUE);
                         sendBlockItemsInBatches(block.items(), replies);
                         replies.onNext(SubscribeStreamResponse.newBuilder()
                                 .endOfBlock(BlockEnd.newBuilder().blockNumber(i).build())
