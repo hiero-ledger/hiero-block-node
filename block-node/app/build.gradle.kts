@@ -91,10 +91,10 @@ application {
 // Core runtime dependencies only - NO plugins
 // Plugins are loaded dynamically from the plugins directory at runtime
 mainModuleInfo {
-    runtimeOnly("com.swirlds.config.impl")
-    runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
+    runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("org.hiero.metrics.openmetrics.httpserver")
+    runtimeOnly("io.helidon.logging.jul")
 }
 
 // Authoritative list of block node plugins. When adding a new plugin, add it here
@@ -193,29 +193,28 @@ tasks.register<JavaExec>("runWithCleanStorage") {
 
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
-
+    requires("org.assertj.core")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
     requires("org.mockito")
-    requires("org.assertj.core")
 
-    // Plugins needed for integration tests (e.g., testMain which starts the full app)
-    runtimeOnly("org.hiero.block.node.messaging")
+    runtimeOnly("org.hiero.block.node.access.service")
+    runtimeOnly("org.hiero.block.node.archive.s3cloud")
+    runtimeOnly("org.hiero.block.node.backfill")
+    runtimeOnly("org.hiero.block.node.blocks.files.historic")
+    runtimeOnly("org.hiero.block.node.blocks.files.recent")
+    runtimeOnly("org.hiero.block.node.cloud.storage.archive")
+    runtimeOnly("org.hiero.block.node.cloud.storage.expanded")
     runtimeOnly("org.hiero.block.node.health")
+    runtimeOnly("org.hiero.block.node.messaging")
+    runtimeOnly("org.hiero.block.node.roster.bootstrap.rsa")
+    runtimeOnly("org.hiero.block.node.roster.bootstrap.tss")
     runtimeOnly("org.hiero.block.node.server.status")
     runtimeOnly("org.hiero.block.node.stream.publisher")
     runtimeOnly("org.hiero.block.node.stream.subscriber")
-    runtimeOnly("org.hiero.block.node.roster.bootstrap.tss")
-    runtimeOnly("org.hiero.block.node.roster.bootstrap.rsa")
     runtimeOnly("org.hiero.block.node.verification")
-    runtimeOnly("org.hiero.block.node.blocks.files.recent")
-    runtimeOnly("org.hiero.block.node.blocks.files.historic")
-    runtimeOnly("org.hiero.block.node.access.service")
-    runtimeOnly("org.hiero.block.node.backfill")
-    runtimeOnly("org.hiero.block.node.archive.s3cloud")
-    runtimeOnly("org.hiero.block.node.cloud.storage.archive")
-    runtimeOnly("org.hiero.block.node.cloud.storage.expanded")
 
+    // Plugins needed for integration tests (e.g., testMain which starts the full app)
     exportsTo("com.swirlds.config.impl")
 }
 
