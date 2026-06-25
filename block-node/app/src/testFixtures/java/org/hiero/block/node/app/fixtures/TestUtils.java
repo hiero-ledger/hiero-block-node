@@ -69,6 +69,7 @@ public class TestUtils {
                 blockNodeVersions,
                 null,
                 null,
+                null,
                 storedBlocks,
                 availableBlocks);
     }

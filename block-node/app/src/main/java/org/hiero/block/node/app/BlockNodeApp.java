@@ -651,7 +651,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             addressBookIndex = AddressBookHistoryLookup.buildIndex(addressBookHistory);
         }
 
-        if (updateBlockNodeContext(tssData, addressBook, storedBlocks, historicalBlockFacility.availableBlocks())) {
+        if (updateBlockNodeContext(
+                tssData, addressBook, addressBookHistory, storedBlocks, historicalBlockFacility.availableBlocks())) {
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
         }
 
@@ -970,12 +971,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final Path historyFilePath = appStateConfig.rsaAddressBookHistoryFilePath();
         if (Files.exists(historyFilePath)) {
             try {
-                final RangedAddressBookHistory history = RangedAddressBookHistory.JSON.parse(
-                        Bytes.wrap(Files.readAllBytes(historyFilePath)).toReadableSequentialData(),
-                        false,
-                        true,
-                        MAX_APP_STATE_MESSAGE_DEPTH,
-                        MAX_APP_STATE_MESSAGE_SIZE_BYTES);
+                final RangedAddressBookHistory history = standardParse(
+                        RangedAddressBookHistory.JSON,
+                        Bytes.wrap(Files.readAllBytes(historyFilePath)).toReadableSequentialData());
                 if (history.addressBooks().isEmpty()) {
                     throw new IllegalStateException(
                             "RSA address book history file contains no entries: " + historyFilePath);

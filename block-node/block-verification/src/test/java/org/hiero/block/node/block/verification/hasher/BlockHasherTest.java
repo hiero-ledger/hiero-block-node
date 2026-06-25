@@ -85,6 +85,7 @@ class BlockHasherTest {
                 null,
                 null,
                 null,
+                null,
                 null);
         verificationDataProvider = new VerificationDataProvider(context);
     }
