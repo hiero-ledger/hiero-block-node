@@ -16,5 +16,7 @@ import org.hiero.block.node.base.Loggable;
  */
 @ConfigData("health")
 public record HealthConfig(
-        @Loggable @ConfigProperty(defaultValue = ConfigProperty.NULL_DEFAULT_VALUE)
-        Integer port) {}
+        // spotless:off
+        @Loggable @ConfigProperty(defaultValue = ConfigProperty.NULL_DEFAULT_VALUE) Integer port) {
+        // spotless:on
+}

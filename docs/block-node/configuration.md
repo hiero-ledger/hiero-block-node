@@ -45,6 +45,9 @@ Each plugin has its own properties, but this focuses on core options and core pl
 | APP_STATE_TSS_BOOTSTRAP_FILE_PATH | Path where TSS data (ledger ID, current roster, WRAPS VK) is persisted across restarts.         | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json |
 | APP_STATE_RSA_BOOTSTRAP_FILE_PATH | Path where RSA data (node address book) is persisted across restarts.                           | /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json |
 | APP_STATE_BLOCK_RANGES_FILE_PATH  | Path where the stored block range set is persisted. Written every 1,000 blocks received.        | /opt/hiero/block-node/application-state/block-ranges.json         |
+| KNOWN_PUBLISHERS_FILE_PATH        | Path where connections for known publisher are persisted. Read only on start.                   | /opt/hiero/block-node/application-state/known-publishers.json     |
+| INBOUND_PARTNERS_FILE_PATH        | Path where connections for designated inbound partners are persisted. Read only on start.       | /opt/hiero/block-node/application-state/inbound-partners.json     |
+| OUTBOUND_PARTNERS_FILE_PATH       | Path where connections for designated outbound partners are persisted. Read only on start.      | /opt/hiero/block-node/application-state/outbound-partners.json    |
 | APP_STATE_UPDATE_SCAN_INTERVAL    | How often (ms) the application state facility checks for pending TSS data updates. Minimum 100. | 500                                                               |
 | APP_STATE_UPDATE_INITIAL_DELAY    | Delay (ms) before the application state facility begins its first scan.                         | 0                                                                 |
 

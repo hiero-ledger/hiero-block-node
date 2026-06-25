@@ -16,6 +16,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.util.ArrayList;
 import java.util.List;
+import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.DisplayName;
@@ -70,6 +71,31 @@ public class BlockNodePluginTest {
         public void addStoredBlockRange(LongRange blockRange) {
             // do nothing
         }
+
+        @Override
+        public NetworkData knownPublishers() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData inboundPartners() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData outboundPartners() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData backfillSources() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public void updateBackfillSources(NetworkData sources) {
+            // do nothing
+        }
     }
 
     @Test
@@ -102,6 +128,31 @@ public class BlockNodePluginTest {
         public void addStoredBlockRange(LongRange blockRange) {
             // do nothing
         }
+
+        @Override
+        public NetworkData knownPublishers() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData inboundPartners() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData outboundPartners() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData backfillSources() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public void updateBackfillSources(NetworkData sources) {
+            // do nothing
+        }
     }
 
     private static class TestApplicationStateFacilityWithRange implements ApplicationStateFacility {
@@ -120,6 +171,31 @@ public class BlockNodePluginTest {
         @Override
         public void addStoredBlockRange(LongRange blockRange) {
             this.lastStoredRange = blockRange;
+        }
+
+        @Override
+        public NetworkData knownPublishers() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData inboundPartners() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData outboundPartners() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public NetworkData backfillSources() {
+            return NetworkData.DEFAULT;
+        }
+
+        @Override
+        public void updateBackfillSources(NetworkData sources) {
+            // do nothing
         }
     }
 

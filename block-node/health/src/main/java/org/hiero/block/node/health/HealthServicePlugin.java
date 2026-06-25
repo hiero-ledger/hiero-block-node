@@ -11,51 +11,57 @@ import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
 import java.lang.System.Logger;
 import java.util.List;
+import org.hiero.block.api.NetworkData;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.health.HealthFacility;
 
-/** Provides implementation for the health endpoints of the server. */
+/// Provides implementation for the health endpoints of the server.
 public class HealthServicePlugin implements BlockNodePlugin {
     private final Logger LOGGER = System.getLogger(getClass().getName());
     protected static final String HEALTHZ_PATH = "/healthz";
     protected static final String LIVEZ_PATH = "/livez";
     protected static final String READYZ_PATH = "/readyz";
+    protected static final String STATUSZ_PATH = "/statusz";
+    protected static final String INBOUND_PATH = STATUSZ_PATH + "/inbound";
+    protected static final String OUTBOUND_PATH = STATUSZ_PATH + "/outbound";
 
-    /** The health facility, used for getting server status */
+    /// The health facility, used for getting server status
     private HealthFacility healthFacility;
 
-    /**
-     * {@inheritDoc}
-     */
+    /// The application state facility, used to obtain connection information
+    /// for the statusz endpoints
+    private ApplicationStateFacility applicationStateFacility;
+
+    /// {@inheritDoc}
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         healthFacility = context.serverHealth();
+        applicationStateFacility = context.applicationStateFacility();
         // A null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(HealthConfig.class).port();
         serviceBuilder.registerHttpService(HEALTHZ_PATH, port, httpRules -> httpRules
                 .get(LIVEZ_PATH, this::handleLivez)
                 .get(READYZ_PATH, this::handleReadyz));
+        serviceBuilder.registerHttpService(STATUSZ_PATH, port, httpRules -> httpRules.get("*", this::handleStatusz));
         LOGGER.log(DEBUG, "Completed health facility initialization");
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    /// {@inheritDoc}
     @Override
     @NonNull
     public List<Class<? extends Record>> configDataTypes() {
         return List.of(HealthConfig.class);
     }
 
-    /**
-     * Handles the request for liveness endpoint, that it most be defined on routing implementation.
-     *
-     * @param req the server request
-     * @param res the server response
-     */
+    /// Handles the request for liveness endpoint, that must be defined
+    /// in the routing implementation.
+    ///
+    /// @param req the server request
+    /// @param res the server response
     public final void handleLivez(@NonNull final ServerRequest req, @NonNull final ServerResponse res) {
         try {
             if (healthFacility.isRunning()) {
@@ -70,13 +76,11 @@ public class HealthServicePlugin implements BlockNodePlugin {
         }
     }
 
-    /**
-     * Handles the request for readiness endpoint, that it most be defined on routing
-     * implementation.
-     *
-     * @param req the server request
-     * @param res the server response
-     */
+    /// Handles the request for readiness endpoint, that must be defined
+    /// in the routing implementation.
+    ///
+    /// @param req the server request
+    /// @param res the server response
     public final void handleReadyz(@NonNull final ServerRequest req, @NonNull final ServerResponse res) {
         try {
             if (healthFacility.isRunning()) {
@@ -88,6 +92,30 @@ public class HealthServicePlugin implements BlockNodePlugin {
             }
         } catch (final RuntimeException e) {
             LOGGER.log(WARNING, "Failed to respond to readiness check due to %s".formatted(e), e);
+        }
+    }
+
+    /// Handles requests for the `/statusz` endpoints. The request subpath
+    /// selects which handler runs. The matching handler builds and sends its
+    /// [NetworkData] response synchronously on the request thread.
+    ///
+    /// @param req the server request
+    /// @param res the server response
+    public final void handleStatusz(@NonNull final ServerRequest req, @NonNull final ServerResponse res) {
+        try {
+            final String path = req.path().path();
+            NetworkData temp;
+            if (path.endsWith(INBOUND_PATH)) {
+                new InboundStatusHandler(req, res, applicationStateFacility).createAndSendResponse();
+            } else if (path.endsWith(OUTBOUND_PATH)) {
+                new OutboundStatusHandler(req, res, applicationStateFacility).createAndSendResponse();
+            } else {
+                LOGGER.log(INFO, "Responded code 404 (Unknown statusz subpath) for {0}", path);
+                res.status(404).send("Unknown statusz subpath");
+            }
+        } catch (final RuntimeException e) {
+            LOGGER.log(WARNING, "Failed to respond to statusz check due to %s".formatted(e), e);
+            res.status(500).send();
         }
     }
 }

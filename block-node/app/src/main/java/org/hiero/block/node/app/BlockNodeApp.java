@@ -55,6 +55,7 @@ import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
@@ -129,6 +130,18 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// Blocks reported as stored by plugins that do not serve them for retrieval
     final ConcurrentLongRangeSet storedBlocks = new ConcurrentLongRangeSet();
 
+    /// Known inbound publishers loaded from configuration on startup; exposed for /statusz/inbound.
+    private final AtomicReference<NetworkData> knownPublishers = new AtomicReference<>(NetworkData.DEFAULT);
+
+    /// Designated inbound partners loaded from configuration on startup; exposed for /statusz/inbound.
+    private final AtomicReference<NetworkData> inboundPartners = new AtomicReference<>(NetworkData.DEFAULT);
+
+    /// Designated outbound partners loaded from configuration on startup; exposed for /statusz/outbound.
+    private final AtomicReference<NetworkData> outboundPartners = new AtomicReference<>(NetworkData.DEFAULT);
+
+    /// Backfill source connections reported by the backfill plugin; exposed for both /statusz endpoints.
+    private final AtomicReference<NetworkData> backfillSources = new AtomicReference<>(NetworkData.DEFAULT);
+
     /// Block count at the time of the last scheduled persist; only read/written by the scanner thread
     private long lastPersistedBlockCount = 0;
 
@@ -150,7 +163,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // ==== LOAD LOGGING CONFIG ====================================================================================
         final boolean externalLogging = System.getProperty("java.util.logging.config.file") != null;
         if (externalLogging) {
-            LOGGER.log(INFO, "External logging configuration found");
+            LOGGER.log(DEBUG, "External logging configuration found");
         } else {
             // load the logging configuration from the classpath and make it colorful
             try (var loggingConfigIn = BlockNodeApp.class.getClassLoader().getResourceAsStream("logging.properties")) {
@@ -163,7 +176,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 LOGGER.log(INFO, "Failed to load logging configuration", e);
             }
             CleanColorfulFormatter.makeLoggingColorful();
-            LOGGER.log(INFO, "Using default logging configuration");
+            LOGGER.log(DEBUG, "Using default logging configuration");
         }
         // tell helidon to use the same logging configuration
         System.setProperty("io.helidon.logging.config.disabled", "true");
@@ -177,7 +190,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             final String[] moduleClassPathArray = moduleClassPath.split(":");
             for (String module : moduleClassPathArray) {
                 if (module.contains("hiero")) {
-                    LOGGER.log(INFO, "    " + module);
+                    LOGGER.log(INFO, "    {0}", module);
                 }
             }
         }
@@ -248,9 +261,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl(serverConfig.port());
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
-        LOGGER.log(INFO, "Initializing plugins:");
         for (BlockNodePlugin plugin : loadedPlugins) {
-            LOGGER.log(INFO, "    " + plugin.name());
+            LOGGER.log(INFO, "    {0}", plugin.name());
             plugin.init(blockNodeContext, serviceBuilder);
         }
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
@@ -383,7 +395,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// Starts the block node server. This method initializes all the plugins, starts the web server,
     /// and starts the metrics.
     public void start() {
-        LOGGER.log(INFO, "Starting BlockNode Server...");
         webServer.start();
         LOGGER.log(
                 INFO,
@@ -431,7 +442,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         webServer.stop();
         // Stop all the facilities &  plugins
         for (BlockNodePlugin plugin : loadedPlugins) {
-            LOGGER.log(INFO, "Stopping plugin: {0}", plugin.name());
+            LOGGER.log(INFO, "    {0}", plugin.name());
             plugin.stop();
         }
         // Stop metrics
@@ -442,7 +453,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             LOGGER.log(DEBUG, "Could not properly close metric registry.", e);
         }
         // finally exit
-        LOGGER.log(INFO, "Bye bye");
+        LOGGER.log(INFO, "System Exiting");
         if (shouldExitJvmOnShutdown) System.exit(0);
     }
 
@@ -458,10 +469,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// Start the loadedPlugins. Use a separate method to make starting plugins testable
     protected void startPlugins(List<BlockNodePlugin> plugins) {
         // Start all the facilities & plugins asynchronously
-        LOGGER.log(INFO, "Asynchronously Starting plugins:");
         // Asynchronously start the plugins
         plugins.parallelStream().forEach(plugin -> {
-            LOGGER.log(INFO, "    " + plugin.name());
             plugin.start();
         });
     }
@@ -483,6 +492,31 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         storedBlocks.add(blockRange);
     }
 
+    @Override
+    public NetworkData knownPublishers() {
+        return knownPublishers.get();
+    }
+
+    @Override
+    public NetworkData inboundPartners() {
+        return inboundPartners.get();
+    }
+
+    @Override
+    public NetworkData outboundPartners() {
+        return outboundPartners.get();
+    }
+
+    @Override
+    public NetworkData backfillSources() {
+        return backfillSources.get();
+    }
+
+    @Override
+    public void updateBackfillSources(NetworkData sources) {
+        backfillSources.set(sources != null ? sources : NetworkData.DEFAULT);
+    }
+
     /// Allow plugins to update the NodeAddressBook for this BlockNodeApp.
     /// The address book is staged in a last-write-wins reference; if
     /// `updateAddressBook` is called more than once before the next
@@ -498,7 +532,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         try {
             validateAddressBook(nodeAddressBook, "runtime update");
         } catch (IllegalStateException e) {
-            LOGGER.log(WARNING, "Rejecting invalid address book update: {0}", e.getMessage());
+            LOGGER.log(INFO, "Rejecting invalid address book update: {0}", e);
             return false;
         }
         pendingAddressBook.set(nodeAddressBook);
@@ -513,8 +547,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// Starts the ApplicationStateFacility.
     /// The thread will be used to check if there are any TssData updates to process.
     void startApplicationStateFacility() {
-        LOGGER.log(INFO, "ApplicationStateFacility start called");
-
         // ==== LOAD APPLICATION STATE =================================================================================
         loadApplicationState(blockNodeContext.configuration());
 
@@ -554,7 +586,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
         if (updateBlockNodeContext(tssData, addressBook, storedBlocks, historicalBlockFacility.availableBlocks())) {
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
-            LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
         }
 
         // Persist block ranges whenever the running total crosses a BLOCK_RANGE_PERSIST_INTERVAL boundary.
@@ -685,7 +716,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         try {
             Bytes serialized = TssData.JSON.toBytes(tssData);
             Files.write(appStateDataFilePath, serialized.toByteArray());
-            LOGGER.log(INFO, "Persisted TssData to file: {0}", appStateDataFilePath);
         } catch (IOException e) {
             LOGGER.log(WARNING, "Failed to persist TssData to %s: %s".formatted(appStateDataFilePath, e), e);
         }
@@ -704,18 +734,17 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException e) {
                 LOGGER.log(
-                        WARNING,
+                        DEBUG,
                         "Atomic move not supported on this filesystem for {0}; falling back to non-atomic replace",
                         filePath);
                 Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING);
             }
-            LOGGER.log(INFO, "Persisted RSA address book to file: {0}", filePath);
         } catch (IOException e) {
             LOGGER.log(
-                    WARNING,
+                    INFO,
                     "Failed to persist RSA address book to {0}: {1} — will re-fetch on next startup",
                     filePath,
-                    e.getMessage());
+                    e);
         }
     }
 
@@ -732,7 +761,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             Files.deleteIfExists(filePath);
             Files.createLink(filePath, tmp);
             Files.deleteIfExists(tmp);
-            LOGGER.log(INFO, "Persisted block ranges to file: {0}", filePath);
         } catch (IOException e) {
             LOGGER.log(WARNING, "Failed to persist block ranges to %s".formatted(filePath), e);
         }
@@ -764,9 +792,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             try {
                 TssData tssData = standardParse(TssData.JSON, Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
                 updateTssData(tssData);
-                LOGGER.log(INFO, "Loaded TssData from file: {0}", tssDataJsonPath);
             } catch (ParseException | IOException e) {
-                LOGGER.log(ERROR, "Failed to read TssData file: " + tssDataJsonPath, e);
+                LOGGER.log(WARNING, "Failed to read TssData file: " + tssDataJsonPath, e);
             }
         } else {
             // make sure the directory is created for the writes
@@ -774,7 +801,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             try {
                 Files.createDirectories(parent);
             } catch (IOException e) {
-                LOGGER.log(ERROR, "Failed to create TssData directory: " + parent, e);
+                LOGGER.log(WARNING, "Failed to create TssData directory: " + parent, e);
             }
         }
 
@@ -786,18 +813,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 final NodeAddressBook book = standardParse(NodeAddressBook.JSON, Bytes.wrap(raw));
                 validateAddressBook(book, rsaFilePath.toString());
                 pendingAddressBook.set(book);
-                LOGGER.log(
-                        INFO,
-                        "Loaded RSA address book from file: {0} ({1} entries)",
-                        rsaFilePath,
-                        book.nodeAddress().size());
             } catch (IOException e) {
                 throw new IllegalStateException("Failed to read RSA bootstrap file: " + rsaFilePath, e);
             } catch (ParseException e) {
-                throw new IllegalStateException(
-                        "Corrupt RSA bootstrap file at " + rsaFilePath
-                                + " — delete and restart to re-fetch from Mirror Node",
-                        e);
+                final String message =
+                        "Corrupt RSA bootstrap file at %s — delete and restart to re-fetch from Mirror Node"
+                                .formatted(rsaFilePath);
+                throw new IllegalStateException(message, e);
             }
         } else {
             // make sure the directory is created for the writes
@@ -818,15 +840,44 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
                 LOGGER.log(INFO, "Loaded block ranges from file: {0}", blockRangesPath);
             } catch (ParseException | IOException | IllegalArgumentException e) {
-                LOGGER.log(ERROR, "Failed to read block ranges file: " + blockRangesPath, e);
+                LOGGER.log(WARNING, "Failed to read block ranges file: " + blockRangesPath, e);
             }
         } else {
             Path parent = blockRangesPath.getParent();
             try {
                 Files.createDirectories(parent);
             } catch (IOException e) {
-                LOGGER.log(ERROR, "Failed to create block ranges directory: " + parent, e);
+                LOGGER.log(WARNING, "Failed to create block ranges directory: " + parent, e);
             }
+        }
+
+        // Load the connection-information sets (JSON-serialized NetworkData) used by the /statusz endpoints.
+        // These are read-only configuration; absent or unreadable files yield an empty set.
+        knownPublishers.set(loadNetworkData(appStateConfig.knownPublishersFilePath()));
+        inboundPartners.set(loadNetworkData(appStateConfig.inboundPartnersFilePath()));
+        outboundPartners.set(loadNetworkData(appStateConfig.outboundPartnersFilePath()));
+    }
+
+    /// Loads a [NetworkData] document from the given JSON file.
+    /// Missing files and parse failures are logged and yield
+    /// [NetworkData#DEFAULT] (an empty set) rather than throwing, mirroring
+    /// the lenient handling used for other optional application-state files.
+    ///
+    /// @param path the JSON file to read
+    /// @return the parsed NetworkData, or [NetworkData#DEFAULT] if
+    ///     absent or unreadable
+    static NetworkData loadNetworkData(final Path path) {
+        if (path == null || !Files.exists(path)) {
+            LOGGER.log(DEBUG, "Network data file not present, using empty set: {0}", path);
+            return NetworkData.DEFAULT;
+        }
+        try {
+            final NetworkData data = standardParse(
+                    NetworkData.JSON, Bytes.wrap(Files.readAllBytes(path)), MAX_APP_STATE_MESSAGE_SIZE_BYTES);
+            return data;
+        } catch (ParseException | IOException e) {
+            LOGGER.log(INFO, "Failed to read network data file %s.".formatted(path), e);
+            return NetworkData.DEFAULT;
         }
     }
 
@@ -838,14 +889,15 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     static void validateAddressBook(final NodeAddressBook book, final String source) {
         if (book.nodeAddress().isEmpty()) {
             throw new IllegalStateException(
-                    "RSA address book from " + source + " contains no entries — cannot verify WRB proofs");
+                    "RSA address book from %s contains no entries — cannot verify WRB proofs".formatted(source));
         }
         final long declared = book.nodeAddress().stream()
                 .filter(a -> !a.rsaPubKey().isBlank())
                 .count();
+        final String noValidKeyMessage =
+                "RSA address book from %s has %s entries but none have a valid RSA_PubKey".formatted(source, declared);
         if (declared == 0) {
-            throw new IllegalStateException("RSA address book from " + source + " has "
-                    + book.nodeAddress().size() + " entries but none have a non-blank RSA_PubKey");
+            throw new IllegalStateException(noValidKeyMessage);
         }
         long usable = 0;
         final HexFormat hex = HexFormat.of();
@@ -866,12 +918,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 kf.generatePublic(new X509EncodedKeySpec(keyBytes));
                 usable++;
             } catch (InvalidKeySpecException | IllegalArgumentException e) {
-                LOGGER.log(WARNING, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e.getMessage());
+                LOGGER.log(INFO, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e);
             }
         }
         if (usable == 0) {
-            throw new IllegalStateException("RSA address book from " + source + " has "
-                    + book.nodeAddress().size() + " entries but none have a valid RSA_PubKey");
+            throw new IllegalStateException(noValidKeyMessage);
         }
     }
 }
