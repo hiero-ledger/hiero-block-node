@@ -112,6 +112,12 @@ tasks:
     desc: Destroy Kind cluster and clean up Solo config
     cmds:
       - |
+        # Kill any orphaned Solo processes holding the deployment lock, then release the
+        # K8s Lease. A background 'solo block node add' can survive cluster teardown and
+        # actively renew the Lease in the new cluster, blocking the next deployment.
+        pkill -f "solo block node" 2>/dev/null || true
+        kubectl delete lease solo-network -n "{{.NAMESPACE}}" --ignore-not-found=true 2>/dev/null || true
+
         echo "Cleaning up Solo local config..."
         if solo deployment config delete -d "{{.DEPLOYMENT}}" -q 2>/dev/null; then
           echo "  Solo deployment config deleted"

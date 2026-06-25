@@ -104,6 +104,10 @@ properties:
             description: "Enable greedy backfill mode (defaults to false)"
           grpc_tuning:
             $ref: "#/$defs/grpcTuning"
+          plugin_ports:
+            type: object
+            description: "Per-plugin port overrides. Keys match blockNode.ports in the Helm chart (camelCase: publisher, subscriber, blockAccess, health, serverStatus). publisher defaults to service.port (40840) when unset."
+            additionalProperties: { $ref: "#/$defs/port" }
 
   consensus_nodes:
     type: object

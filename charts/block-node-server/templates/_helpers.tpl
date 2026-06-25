@@ -119,90 +119,58 @@ Usage: include "hiero-block-node.pluginPortEnvVars" .
 
 {{/*
 Emit Service port entries for each non-null plugin port in blockNode.ports.
+Multiple plugins that share the same port number emit only one Service port entry
+(Kubernetes rejects duplicate port numbers within a Service).
 Usage: include "hiero-block-node.pluginServicePorts" . | nindent 4
 */}}
 {{- define "hiero-block-node.pluginServicePorts" -}}
+{{- $seen := dict -}}
 {{- with .Values.blockNode.ports -}}
-{{- if .publisher }}
-- name: publisher
-  port: {{ .publisher }}
-  targetPort: publisher
+{{- $entries := list (list "publisher" .publisher) (list "subscriber" .subscriber) (list "block-access" .blockAccess) (list "health" .health) (list "server-status" .serverStatus) -}}
+{{- range $entries -}}
+{{- $name := index . 0 -}}
+{{- $port := index . 1 -}}
+{{- if $port -}}
+{{- $key := toString $port -}}
+{{- if not (hasKey $seen $key) -}}
+{{- $_ := set $seen $key true }}
+- name: {{ $name }}
+  port: {{ $port }}
+  targetPort: {{ $port }}
   protocol: TCP
 {{- end -}}
-{{- if .subscriber }}
-- name: subscriber
-  port: {{ .subscriber }}
-  targetPort: subscriber
-  protocol: TCP
 {{- end -}}
-{{- if .blockAccess }}
-- name: block-access
-  port: {{ .blockAccess }}
-  targetPort: block-access
-  protocol: TCP
-{{- end -}}
-{{- if .health }}
-- name: health
-  port: {{ .health }}
-  targetPort: health
-  protocol: TCP
-{{- end -}}
-{{- if .serverStatus }}
-- name: server-status
-  port: {{ .serverStatus }}
-  targetPort: server-status
-  protocol: TCP
 {{- end -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
 Emit container port entries for each non-null plugin port in blockNode.ports.
+Multiple plugins that share the same port number emit only one container port entry
+(Kubernetes rejects duplicate containerPort numbers within a container).
 Accepts a dict context: (dict "Values" .Values "hostPorts" $hostPorts)
 Usage: include "hiero-block-node.pluginContainerPorts" (dict "Values" .Values "hostPorts" $hostPorts) | nindent 10
 */}}
 {{- define "hiero-block-node.pluginContainerPorts" -}}
+{{- $seen := dict -}}
 {{- $hp := .hostPorts -}}
 {{- with .Values.blockNode.ports -}}
-{{- if .publisher }}
-- name: publisher
-  containerPort: {{ .publisher }}
-  {{- if hasKey $hp "publisher" }}
-  hostPort: {{ index $hp "publisher" }}
+{{- $entries := list (list "publisher" .publisher) (list "subscriber" .subscriber) (list "block-access" .blockAccess) (list "health" .health) (list "server-status" .serverStatus) -}}
+{{- range $entries -}}
+{{- $name := index . 0 -}}
+{{- $port := index . 1 -}}
+{{- if $port -}}
+{{- $key := toString $port -}}
+{{- if not (hasKey $seen $key) -}}
+{{- $_ := set $seen $key true }}
+- name: {{ $name }}
+  containerPort: {{ $port }}
+  {{- if hasKey $hp $name }}
+  hostPort: {{ index $hp $name }}
   {{- end }}
   protocol: TCP
 {{- end -}}
-{{- if .subscriber }}
-- name: subscriber
-  containerPort: {{ .subscriber }}
-  {{- if hasKey $hp "subscriber" }}
-  hostPort: {{ index $hp "subscriber" }}
-  {{- end }}
-  protocol: TCP
 {{- end -}}
-{{- if .blockAccess }}
-- name: block-access
-  containerPort: {{ .blockAccess }}
-  {{- if hasKey $hp "block-access" }}
-  hostPort: {{ index $hp "block-access" }}
-  {{- end }}
-  protocol: TCP
-{{- end -}}
-{{- if .health }}
-- name: health
-  containerPort: {{ .health }}
-  {{- if hasKey $hp "health" }}
-  hostPort: {{ index $hp "health" }}
-  {{- end }}
-  protocol: TCP
-{{- end -}}
-{{- if .serverStatus }}
-- name: server-status
-  containerPort: {{ .serverStatus }}
-  {{- if hasKey $hp "server-status" }}
-  hostPort: {{ index $hp "server-status" }}
-  {{- end }}
-  protocol: TCP
 {{- end -}}
 {{- end -}}
 {{- end -}}

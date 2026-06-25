@@ -308,7 +308,8 @@ function generate_overlays {
 
   # Clean output directory to avoid stale overlays from previous topology runs
   rm -f "${overlay_dir}"/bn-*.yaml "${overlay_dir}"/mn-*.yaml \
-        "${overlay_dir}"/bn-*-priority-mapping.txt 2>/dev/null
+        "${overlay_dir}"/bn-*-priority-mapping.txt \
+        "${overlay_dir}"/cn-*-block-nodes.json 2>/dev/null
 
   start_task "Generating Helm overlays from topology"
   local generator_output
@@ -417,6 +418,12 @@ function deploy_block_nodes {
   log_line "Deploying Block Nodes"
   log_line "---------------------"
 
+  # Kill any orphaned Solo processes that may be holding the deployment lock, then release
+  # the K8s Lease. A stale 'solo block node add' from a prior run actively renews the Lease
+  # across cluster teardown/recreate, blocking the next deployment attempt.
+  pkill -f "solo block node" 2>/dev/null || true
+  kubectl delete lease solo-network -n "${NAMESPACE}" --ignore-not-found=true 2>/dev/null || true
+
   local bn_args=""
   if [[ -n "${BN_VERSION}" ]]; then
     bn_args="--chart-version ${BN_VERSION}"
@@ -447,7 +454,7 @@ function deploy_block_nodes {
 
     if [[ -f "${bn_overlay}" ]]; then
       overlay_args="${overlay_args} -f ${bn_overlay}"
-      log_line "  Using backfill overlay for block-node-${i}"
+      log_line "  Using generated overlay for block-node-${i}"
     fi
 
     # rsa-wrb: append the shared WRB overlay enabling the roster-bootstrap-rsa plugin.
@@ -641,6 +648,54 @@ function deploy_consensus_nodes {
     --deployment "${DEPLOYMENT}" \
     --node-aliases "${NODE_ALIASES}" || fail "ERROR: Failed to start consensus nodes" 1
   end_task
+}
+
+# Apply generated CN block-nodes.json files to CN pods when the topology sets
+# non-default publisher (streamingPort) or serverStatus (servicePort) ports.
+# Solo's block node add always writes block-nodes.json with port 40840 for both fields;
+# this step overwrites that file when the topology specifies different ports.
+function apply_cn_block_nodes_configs {
+  local overlay_dir="${OVERLAY_DIR}"
+
+  local config_files
+  config_files=$(find "${overlay_dir}" -maxdepth 1 -name "cn-*-block-nodes.json" -type f 2>/dev/null)
+  [[ -z "${config_files}" ]] && return 0
+
+  log_line ""
+  log_line "Applying CN block-nodes.json port overrides"
+  log_line "--------------------------------------------"
+
+  local config_path="/opt/hgcapp/services-hedera/HapiApp2.0/data/config/block-nodes.json"
+
+  while IFS= read -r config_file; do
+    [[ -z "${config_file}" ]] && continue
+
+    local cn_name
+    cn_name=$(basename "${config_file}" | sed 's/^cn-//' | sed 's/-block-nodes\.json$//')
+    local cn_pod="network-${cn_name}-0"
+
+    start_task "Applying block-nodes.json to %s" "${cn_pod}"
+
+    local attempts=0
+    until kubectl exec "${cn_pod}" -n "${NAMESPACE}" -c root-container -- true 2>/dev/null; do
+      attempts=$((attempts + 1))
+      if [[ "${attempts}" -ge 30 ]]; then
+        end_task "TIMEOUT (pod not ready after 30s)"
+        break
+      fi
+      sleep 1
+    done
+    if [[ "${attempts}" -ge 30 ]]; then
+      continue
+    fi
+
+    if kubectl exec -i "${cn_pod}" -n "${NAMESPACE}" -c root-container -- \
+        bash -c "cat > ${config_path}" < "${config_file}"; then
+      end_task
+    else
+      end_task "FAILED"
+    fi
+  done <<< "${config_files}"
 }
 
 function deploy_mirror_node {
@@ -853,6 +908,7 @@ function main {
   # polls the Mirror Node indefinitely, so it tolerates the MN starting later.
   deploy_block_nodes
   deploy_consensus_nodes
+  apply_cn_block_nodes_configs
   deploy_mirror_node
   deploy_relay
   deploy_explorer
