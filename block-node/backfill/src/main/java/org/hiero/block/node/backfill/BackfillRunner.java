@@ -4,6 +4,7 @@ package org.hiero.block.node.backfill;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -350,8 +351,9 @@ final class BackfillRunner {
      * Extracts the block number from an unparsed block by parsing its header.
      */
     private long extractBlockNumber(BlockUnparsed blockUnparsed) throws ParseException {
-        return BlockHeader.PROTOBUF
-                .parse(blockUnparsed.blockItems().getFirst().blockHeaderOrThrow())
+        return standardParse(
+                        BlockHeader.PROTOBUF,
+                        blockUnparsed.blockItems().getFirst().blockHeaderOrThrow())
                 .number();
     }
 }

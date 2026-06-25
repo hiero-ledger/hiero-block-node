@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.wrapped;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.records.RecordFileDates.instantToBlockTimeLong;
 import static org.hiero.block.tools.records.SigFileUtils.verifyRsaSha384;
 import static org.hiero.block.tools.utils.Sha384.hashSha384;
@@ -371,7 +372,7 @@ public class FetchBalanceCheckpointsCommand implements Callable<Integer> {
                 return false;
             }
 
-            SignatureFile signatureFile = SignatureFile.PROTOBUF.parse(new ReadableStreamingData(sin));
+            SignatureFile signatureFile = standardParse(SignatureFile.PROTOBUF, new ReadableStreamingData(sin));
             if (signatureFile.fileSignature() == null) {
                 return false;
             }

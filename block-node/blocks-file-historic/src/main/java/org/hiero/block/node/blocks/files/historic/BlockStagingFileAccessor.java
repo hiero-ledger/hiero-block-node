@@ -2,6 +2,7 @@
 package org.hiero.block.node.blocks.files.historic;
 
 import static java.lang.System.Logger.Level.WARNING;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
@@ -23,8 +24,6 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
  * input and output formats.
  */
 final class BlockStagingFileAccessor implements BlockAccessor {
-    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
-    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
     /** Message logged when the protobuf codec fails to parse data */
     private static final String FAILED_TO_PARSE_MESSAGE = "Failed to parse block from file %s.";
     /** Message logged when data cannot be read from a block file */
@@ -136,12 +135,7 @@ final class BlockStagingFileAccessor implements BlockAccessor {
     private Bytes getJsonBytesFromProtobufBytes(final Bytes sourceData) {
         if (sourceData != null) {
             try {
-                return Block.JSON.toBytes(Block.PROTOBUF.parse(
-                        sourceData.toReadableSequentialData(),
-                        false,
-                        true,
-                        MAX_BLOCK_MESSAGE_DEPTH,
-                        Integer.MAX_VALUE));
+                return Block.JSON.toBytes(standardParse(Block.PROTOBUF, sourceData, Integer.MAX_VALUE));
             } catch (final UncheckedIOException | ParseException e) {
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockFilePath);
                 LOGGER.log(WARNING, message, e);

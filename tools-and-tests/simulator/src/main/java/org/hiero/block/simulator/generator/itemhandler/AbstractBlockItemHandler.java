@@ -15,6 +15,8 @@ import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
  */
 abstract class AbstractBlockItemHandler implements ItemHandler {
 
+    private static final int MAX_PARSE_DEPTH = 256;
+
     static final Timestamp FIXED_TIMESTAMP = Timestamp.newBuilder()
             .setSeconds(1734953412) // Fixed timestamp for deterministic consistency in tests
             .build();
@@ -33,7 +35,7 @@ abstract class AbstractBlockItemHandler implements ItemHandler {
     @Override
     public BlockItemUnparsed unparseBlockItem() throws BlockSimulatorParsingException {
         try {
-            return BlockItemUnparsed.PROTOBUF.parse(Bytes.wrap(getItem().toByteArray()));
+            return BlockItemUnparsed.PROTOBUF.parse(Bytes.wrap(getItem().toByteArray()), false, MAX_PARSE_DEPTH);
         } catch (ParseException e) {
             throw new BlockSimulatorParsingException(e);
         }

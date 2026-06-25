@@ -2,6 +2,7 @@
 package org.hiero.block.node.base.tar;
 
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.generateLargeBlockWithNumber;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -134,8 +135,9 @@ public class TaredBlockIteratorTest {
     private void checkBlockFileContents(Path blockFile, BlockAccessor blockAccessor)
             throws IOException, ParseException {
         byte[] bytes = Files.readAllBytes(blockFile);
-        Block block = Block.PROTOBUF.parse(Bytes.wrap(Zstd.decompress(bytes, (int) Zstd.getFrameContentSize(bytes))));
-        Block expected = Block.PROTOBUF.parse(blockAccessor.blockBytes(BlockAccessor.Format.PROTOBUF));
+        Block block = standardParse(
+                Block.PROTOBUF, Bytes.wrap(Zstd.decompress(bytes, (int) Zstd.getFrameContentSize(bytes))));
+        Block expected = standardParse(Block.PROTOBUF, blockAccessor.blockBytes(BlockAccessor.Format.PROTOBUF));
         assertEquals(expected, block, "Block file contents do not match expected block");
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.unparsed;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
 import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.readV5HashObject;
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
@@ -149,7 +150,7 @@ public class UnparsedRecordBlockV5 extends UnparsedRecordBlock {
                     isValid = false;
                     break; // cannot continue parsing
                 }
-                final Transaction transaction = Transaction.PROTOBUF.parse(in.readBytes(transactionLength));
+                final Transaction transaction = standardParse(Transaction.PROTOBUF, in.readBytes(transactionLength));
                 transactions.add(transaction);
             }
             if (in.remaining() != HASH_OBJECT_SIZE_BYTES) {

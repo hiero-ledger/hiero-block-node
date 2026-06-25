@@ -6,6 +6,7 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.common.hasher.HashingUtilities.EMPTY_TREE_HASH;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -261,7 +262,7 @@ public class AllBlocksHasherHandler {
         final Path hasherFilePath = verificationConfig.allBlocksHasherFilePath().toAbsolutePath();
         try (var inputStream = new BufferedInputStream(Files.newInputStream(hasherFilePath))) {
             Bytes snapshotBytes = Bytes.wrap(inputStream.readAllBytes());
-            var snapshot = AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF.parse(snapshotBytes);
+            var snapshot = standardParse(AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF, snapshotBytes);
             long leafCount = snapshot.leafCount();
             List<byte[]> intermediateHashes = snapshot.intermediateHashes().stream()
                     .map(Bytes::toByteArray)
@@ -310,8 +311,8 @@ public class AllBlocksHasherHandler {
                 if (blockReader != null) {
                     final BlockUnparsed block = blockReader.blockUnparsed();
                     // is safe to assume first item is always block header
-                    final BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
-                            block.blockItems().getFirst().blockHeader());
+                    final BlockHeader blockHeader = standardParse(
+                            BlockHeader.PROTOBUF, block.blockItems().getFirst().blockHeader());
                     BlockItems blockItemsMessage = new BlockItems(block.blockItems(), blockNumber, true, true);
                     // Pass null, null so the session uses the block footer's authoritative values
                     final VerificationSession session = HapiVersionSessionFactory.createSession(

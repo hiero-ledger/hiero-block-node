@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.expanded;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -243,11 +244,12 @@ class ExpandedCloudStoragePluginIntegrationTest
 
         // Decompress and parse — must round-trip back to the original block
         final byte[] decompressed = CompressionType.ZSTD.decompress(response.body());
-        final BlockUnparsed parsed = BlockUnparsed.PROTOBUF.parseStrict(Bytes.wrap(decompressed));
+        final BlockUnparsed parsed = standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(decompressed));
         assertEquals(
                 blockNumber,
-                BlockHeader.PROTOBUF
-                        .parse(parsed.blockItems().getFirst().blockHeaderOrThrow())
+                standardParse(
+                                BlockHeader.PROTOBUF,
+                                parsed.blockItems().getFirst().blockHeaderOrThrow())
                         .number(),
                 "Decompressed block header number must match the original block number");
     }

@@ -7,6 +7,7 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.nio.file.FileVisitResult.CONTINUE;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.blocks.files.recent.RecentBlockPath.BLOCK_FILE_EXTENSION;
 import static org.hiero.block.node.spi.blockmessaging.BlockSource.UNKNOWN;
 
@@ -394,7 +395,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     private BlockHeader getBlockHeader(final BlockUnparsed block) {
         Bytes headerBytes = block.blockItems().getFirst().blockHeader();
         try {
-            return BlockHeader.PROTOBUF.parse(headerBytes);
+            return standardParse(BlockHeader.PROTOBUF, headerBytes);
         } catch (final ParseException e) {
             LOGGER.log(INFO, "Failed to parse block header", e);
             return null;

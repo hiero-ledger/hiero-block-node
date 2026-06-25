@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.app.test.fixtures {
-    exports org.hiero.block.node.app.fixtures;
     exports org.hiero.block.node.app.fixtures.async;
     exports org.hiero.block.node.app.fixtures.blocks;
+    exports org.hiero.block.node.app.fixtures.logging;
     exports org.hiero.block.node.app.fixtures.pipeline;
     exports org.hiero.block.node.app.fixtures.plugintest;
     exports org.hiero.block.node.app.fixtures.server;
-    exports org.hiero.block.node.app.fixtures.logging;
+    exports org.hiero.block.node.app.fixtures;
 
     requires com.hedera.pbj.grpc.helidon.config;
     requires com.hedera.pbj.grpc.helidon;
@@ -14,6 +14,7 @@ module org.hiero.block.node.app.test.fixtures {
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
     requires org.hiero.block.node.app.config;
+    requires org.hiero.block.node.base;
     requires org.hiero.block.node.spi;
     requires org.hiero.block.protobuf.pbj;
     requires org.hiero.metrics;

@@ -4,6 +4,7 @@ package org.hiero.block.node.roster.bootstrap.rsa;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -144,7 +145,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             if (Files.isRegularFile(sourcesPath)) {
                 try {
                     final BlockNodeSource blockNodeSource =
-                            BlockNodeSource.JSON.parse(Bytes.wrap(Files.readAllBytes(sourcesPath)));
+                            standardParse(BlockNodeSource.JSON, Bytes.wrap(Files.readAllBytes(sourcesPath)));
                     addressBookFetcher =
                             new AddressBookFetcher(blockNodeSource, config, MetricsHolder.create(metricRegistry));
                 } catch (ParseException | IOException e) {
@@ -337,7 +338,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                     .build();
             final HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
-                return MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(response.body()));
+                return standardParse(MirrorNodeNodesResponse.JSON, Bytes.wrap(response.body()));
             }
             lastCause = new IOException("HTTP " + response.statusCode() + " from " + url);
         } catch (InterruptedException ie) {

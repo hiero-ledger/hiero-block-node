@@ -4,6 +4,7 @@ package org.hiero.block.node.stream.publisher;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
 import com.hedera.hapi.block.stream.BlockItem;
@@ -52,7 +53,7 @@ class StreamPublisherPluginTest {
     // ASSERTION MAPPERS
     private static final Function<Bytes, PublishStreamResponse> bytesToPublishStreamResponseMapper = bytes -> {
         try {
-            return PublishStreamResponse.PROTOBUF.parse(bytes);
+            return standardParse(PublishStreamResponse.PROTOBUF, bytes);
         } catch (final ParseException e) {
             throw new UncheckedParseException(e);
         }

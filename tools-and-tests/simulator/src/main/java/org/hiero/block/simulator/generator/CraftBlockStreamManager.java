@@ -54,6 +54,8 @@ import org.hiero.block.simulator.startup.SimulatorStartupData;
 public class CraftBlockStreamManager implements BlockStreamManager {
     private final Logger LOGGER = System.getLogger(getClass().getName());
 
+    private static final int MAX_PARSE_DEPTH = 256;
+
     // Service
     private final Random random;
 
@@ -319,10 +321,10 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private void updateCurrentBlockHash() throws ParseException {
         com.hedera.hapi.block.stream.output.BlockHeader blockHeader =
                 com.hedera.hapi.block.stream.output.BlockHeader.PROTOBUF.parse(
-                        Bytes.wrap(currentBlockHeader.toByteArray()));
+                        Bytes.wrap(currentBlockHeader.toByteArray()), false, MAX_PARSE_DEPTH);
         com.hedera.hapi.block.stream.output.BlockFooter blockFooter =
                 com.hedera.hapi.block.stream.output.BlockFooter.PROTOBUF.parse(
-                        Bytes.wrap(currentBlockFooter.toByteArray()));
+                        Bytes.wrap(currentBlockFooter.toByteArray()), false, MAX_PARSE_DEPTH);
 
         currentBlockHash = HashingUtilities.computeFinalBlockHash(
                         blockHeader.blockTimestamp(),

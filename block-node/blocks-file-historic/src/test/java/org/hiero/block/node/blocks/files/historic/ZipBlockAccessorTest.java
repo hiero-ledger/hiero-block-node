@@ -3,6 +3,7 @@ package org.hiero.block.node.blocks.files.historic;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.google.common.jimfs.Configuration;
@@ -334,7 +335,7 @@ class ZipBlockAccessorTest {
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final BlockUnparsed unparsed = toTest.blockUnparsed();
             assertThat(unparsed).isNotNull();
-            final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed));
+            final Block actual = standardParse(Block.PROTOBUF, BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
         }
 
@@ -359,7 +360,7 @@ class ZipBlockAccessorTest {
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final BlockUnparsed unparsed = toTest.blockUnparsed();
             assertThat(unparsed).isNotNull();
-            final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed));
+            final Block actual = standardParse(Block.PROTOBUF, BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
             // now we close the accessor
             toTest.close();
@@ -374,7 +375,7 @@ class ZipBlockAccessorTest {
             // now we should be able to access the block again
             final BlockUnparsed unparsed2 = toTest2.blockUnparsed();
             assertThat(unparsed2).isNotNull();
-            final Block actual2 = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed2));
+            final Block actual2 = standardParse(Block.PROTOBUF, BlockUnparsed.PROTOBUF.toBytes(unparsed2));
             assertThat(actual2).isEqualTo(expected);
         }
 

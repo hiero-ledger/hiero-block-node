@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.model;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.utils.TimeUtils.toTimestamp;
 
 import com.hedera.hapi.node.addressbook.NodeCreateTransactionBody;
@@ -71,7 +72,7 @@ public class AddressBookRegistry {
      */
     public AddressBookRegistry(Path jsonFile) {
         try (var in = new ReadableStreamingData(Files.newInputStream(jsonFile))) {
-            AddressBookHistory history = AddressBookHistory.JSON.parse(in);
+            AddressBookHistory history = standardParse(AddressBookHistory.JSON, in);
             addressBooks.addAll(history.addressBooks());
         } catch (IOException | ParseException e) {
             throw new RuntimeException("Error loading Address Book History JSON file " + jsonFile, e);
@@ -101,7 +102,7 @@ public class AddressBookRegistry {
      */
     public void reloadFromFile(Path jsonFile) {
         try (var in = new ReadableStreamingData(Files.newInputStream(jsonFile))) {
-            AddressBookHistory history = AddressBookHistory.JSON.parse(in);
+            AddressBookHistory history = standardParse(AddressBookHistory.JSON, in);
             addressBooks.clear();
             addressBooks.addAll(history.addressBooks());
         } catch (IOException | ParseException e) {
@@ -360,10 +361,10 @@ public class AddressBookRegistry {
             if (t.hasBody()) {
                 body = t.body();
             } else if (t.bodyBytes().length() > 0) {
-                body = TransactionBody.PROTOBUF.parse(t.bodyBytes());
+                body = standardParse(TransactionBody.PROTOBUF, t.bodyBytes());
             } else if (t.signedTransactionBytes().length() > 0) {
-                final SignedTransaction st = SignedTransaction.PROTOBUF.parse(t.signedTransactionBytes());
-                body = TransactionBody.PROTOBUF.parse(st.bodyBytes());
+                final SignedTransaction st = standardParse(SignedTransaction.PROTOBUF, t.signedTransactionBytes());
+                body = standardParse(TransactionBody.PROTOBUF, st.bodyBytes());
             } else {
                 // no transaction body or signed bytes, ignore
                 throw new ParseException("Transaction has no body or signed bytes");
@@ -405,7 +406,7 @@ public class AddressBookRegistry {
     public static NodeAddressBook loadGenesisAddressBook(String resourceName) throws ParseException {
         try (var in = new ReadableStreamingData(Objects.requireNonNull(
                 AddressBookRegistry.class.getClassLoader().getResourceAsStream(resourceName)))) {
-            return NodeAddressBook.PROTOBUF.parse(in);
+            return standardParse(NodeAddressBook.PROTOBUF, in);
         }
     }
 
@@ -417,7 +418,7 @@ public class AddressBookRegistry {
      * @throws ParseException if there is an error parsing the address book
      */
     public static NodeAddressBook readAddressBook(byte[] bytes) throws ParseException {
-        return NodeAddressBook.PROTOBUF.parse(Bytes.wrap(bytes));
+        return standardParse(NodeAddressBook.PROTOBUF, Bytes.wrap(bytes));
     }
 
     /**

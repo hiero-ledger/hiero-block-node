@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.days.model.AddressBookRegistry.nodeIdForNode;
 import static org.hiero.block.tools.records.SigFileUtils.extractNodeAccountNumFromSignaturePath;
 import static org.hiero.block.tools.records.SigFileUtils.verifyRsaSha384;
@@ -145,8 +146,8 @@ public class ParsedSignatureFile {
                 }
                 case 6: { // version 6 record file signature file
                     // Parse protobuf portion
-                    final com.hedera.hapi.streams.SignatureFile signatureFile =
-                            com.hedera.hapi.streams.SignatureFile.PROTOBUF.parse(new ReadableStreamingData(sin));
+                    final com.hedera.hapi.streams.SignatureFile signatureFile = standardParse(
+                            com.hedera.hapi.streams.SignatureFile.PROTOBUF, new ReadableStreamingData(sin));
                     if (signatureFile.fileSignature() == null) {
                         throw new IOException("Invalid signature file, missing file signature in " + sigFile.path());
                     }

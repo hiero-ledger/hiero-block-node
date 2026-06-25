@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
+
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.ParseException;
@@ -137,8 +139,8 @@ public class GenerateTestnetGenesisAddressBook implements Runnable {
 
                     System.out.println(
                             "Found genesis entry (timestamp=1), " + protoBytes.length + " bytes of protobuf");
-                    return NodeAddressBook.PROTOBUF.parse(
-                            new ReadableStreamingData(new ByteArrayInputStream(protoBytes)));
+                    return standardParse(
+                            NodeAddressBook.PROTOBUF, new ReadableStreamingData(new ByteArrayInputStream(protoBytes)));
                 }
             }
 

@@ -9,6 +9,7 @@ import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNode;
 import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNodeSingleChild;
 import static org.hiero.block.common.hasher.HashingUtilities.hashLeaf;
 import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.cryptography.tss.TSS;
 import com.hedera.hapi.block.stream.BlockProof;
@@ -59,9 +60,6 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
     /** Byte length of a legacy SHA384 signature (non-TSS blocks). */
     private static final int HASH_LENGTH = 48;
-
-    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
-    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
 
     /**
      * Reusable `SHA384withRSA` engine per thread — avoids per-call `Signature.getInstance()` cost.
@@ -188,7 +186,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
             switch (kind) {
                 case BLOCK_HEADER -> {
-                    this.blockHeader = BlockHeader.PROTOBUF.parse(item.blockHeader());
+                    this.blockHeader = standardParse(BlockHeader.PROTOBUF, item.blockHeader());
                     outputTreeHasher.addLeaf(getBlockItemHash(item));
                 }
                 case ROUND_HEADER, EVENT_HEADER -> consensusHeaderHasher.addLeaf(getBlockItemHash(item));
@@ -212,10 +210,10 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     outputTreeHasher.addLeaf(getBlockItemHash(item));
                 }
                 // save footer for later
-                case BLOCK_FOOTER -> this.blockFooter = BlockFooter.PROTOBUF.parse(item.blockFooter());
+                case BLOCK_FOOTER -> this.blockFooter = standardParse(BlockFooter.PROTOBUF, item.blockFooter());
                 // append block proofs
                 case BLOCK_PROOF -> {
-                    BlockProof blockProof = BlockProof.PROTOBUF.parse(item.blockProof());
+                    BlockProof blockProof = standardParse(BlockProof.PROTOBUF, item.blockProof());
                     blockProofs.add(blockProof);
                 }
             }
@@ -366,14 +364,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         if (signedTxBytes == null || signedTxBytes.length() == 0) {
             return null;
         }
-        SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(
-                signedTxBytes.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE);
-        TransactionBody body = TransactionBody.PROTOBUF.parse(
-                signedTx.bodyBytes().toReadableSequentialData(),
-                false,
-                true,
-                MAX_BLOCK_MESSAGE_DEPTH,
-                Integer.MAX_VALUE);
+        SignedTransaction signedTx = standardParse(SignedTransaction.PROTOBUF, signedTxBytes, Integer.MAX_VALUE);
+        TransactionBody body = standardParse(TransactionBody.PROTOBUF, signedTx.bodyBytes(), Integer.MAX_VALUE);
         if (!body.hasLedgerIdPublication()) {
             return null;
         }

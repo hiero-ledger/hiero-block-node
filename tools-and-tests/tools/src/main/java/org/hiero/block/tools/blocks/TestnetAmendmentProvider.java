@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
+
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.node.base.AccountAmount;
 import com.hedera.hapi.node.base.AccountID;
@@ -134,7 +136,7 @@ public class TestnetAmendmentProvider implements AmendmentProvider {
                 byte[] protoBytes = new byte[length];
                 dis.readFully(protoBytes);
                 try {
-                    items.add(RecordStreamItem.PROTOBUF.parse(Bytes.wrap(protoBytes)));
+                    items.add(standardParse(RecordStreamItem.PROTOBUF, Bytes.wrap(protoBytes)));
                 } catch (ParseException e) {
                     throw new IOException("Failed to parse RecordStreamItem", e);
                 }

@@ -8,7 +8,7 @@ dependencies.constraints {
     val daggerVersion = "2.59.2"
     val grpcIoVersion = "1.82.0"
     val hederaCryptographyVersion = "3.9.0"
-    val helidonVersion = "4.4.1"
+    val helidonVersion = "4.5.0"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.35.0"
     val hederaVersion = "0.75.0-rc.5"
@@ -18,7 +18,7 @@ dependencies.constraints {
     val buckyVersion = "0.1.0-rc5"
     val s3MockVersion = "4.11.0"
 
-    api("com.github.luben:zstd-jni:1.5.7-10") { because("com.github.luben.zstd_jni") }
+    api("com.github.luben:zstd-jni:1.5.7-11") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.10.2") {
         because("com.github.spotbugs.annotations")
     }

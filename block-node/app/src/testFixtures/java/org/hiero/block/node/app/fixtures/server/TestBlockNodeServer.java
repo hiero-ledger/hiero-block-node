@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.server;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
+
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.node.base.NodeAddress;
@@ -36,8 +38,6 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 public class TestBlockNodeServer {
-    /** Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire, so size/8 bounds the deepest a non-degenerate message can nest. */
-    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
 
     private final WebServer webServer;
 
@@ -116,12 +116,7 @@ public class TestBlockNodeServer {
                 } else {
                     try (BlockAccessor accessor = historicalBlockFacility.block(i)) {
                         final Bytes blockBytes = accessor.blockBytes(BlockAccessor.Format.PROTOBUF);
-                        Block block = Block.PROTOBUF.parse(
-                                blockBytes.toReadableSequentialData(),
-                                false,
-                                true,
-                                MAX_BLOCK_MESSAGE_DEPTH,
-                                Integer.MAX_VALUE);
+                        Block block = standardParse(Block.PROTOBUF, blockBytes, Integer.MAX_VALUE);
                         sendBlockItemsInBatches(block.items(), replies);
                         replies.onNext(SubscribeStreamResponse.newBuilder()
                                 .endOfBlock(BlockEnd.newBuilder().blockNumber(i).build())

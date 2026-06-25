@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.utils.PrettyPrint.simpleHash;
@@ -76,7 +77,7 @@ public final class BlockChainValidation implements BlockValidation {
         try {
             for (final BlockItemUnparsed item : block.blockItems()) {
                 if (item.hasBlockFooter()) {
-                    footer = BlockFooter.PROTOBUF.parse(item.blockFooterOrThrow());
+                    footer = standardParse(BlockFooter.PROTOBUF, item.blockFooterOrThrow());
                     break;
                 }
             }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -39,7 +40,7 @@ class NodeStakeUpdateValidationTest {
 
     private static BlockUnparsed toUnparsed(Block block) {
         try {
-            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+            return standardParse(BlockUnparsed.PROTOBUF, Block.PROTOBUF.toBytes(block));
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
@@ -166,12 +167,12 @@ public class BlockStreamBlockHasher {
         if (!firstItem.hasBlockHeader()) {
             throw new IllegalArgumentException("Block is missing BlockHeader");
         }
-        final BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(firstItem.blockHeaderOrThrow());
+        final BlockHeader blockHeader = standardParse(BlockHeader.PROTOBUF, firstItem.blockHeaderOrThrow());
         // find and selectively parse block footer
         BlockFooter blockFooter = null;
         for (final BlockItemUnparsed item : block.blockItems()) {
             if (item.hasBlockFooter()) {
-                blockFooter = BlockFooter.PROTOBUF.parse(item.blockFooterOrThrow());
+                blockFooter = standardParse(BlockFooter.PROTOBUF, item.blockFooterOrThrow());
                 break;
             }
         }
@@ -265,7 +266,8 @@ public class BlockStreamBlockHasher {
                 }
                 case FILTERED_SINGLE_ITEM -> {
                     // Filtered items contain a pre-computed hash; parse to extract it
-                    final var filteredItem = com.hedera.hapi.block.stream.FilteredSingleItem.PROTOBUF.parse(
+                    final var filteredItem = standardParse(
+                            com.hedera.hapi.block.stream.FilteredSingleItem.PROTOBUF,
                             blockItem.filteredSingleItemOrThrow());
                     Bytes hash = filteredItem.itemHash();
                     switch (filteredItem.tree()) {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
+
 import com.hedera.hapi.streams.RecordStreamItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -175,7 +177,7 @@ public class MissingTransactionsLoader {
         dis.readFully(protoBytes);
 
         try {
-            return RecordStreamItem.PROTOBUF.parse(Bytes.wrap(protoBytes));
+            return standardParse(RecordStreamItem.PROTOBUF, Bytes.wrap(protoBytes));
         } catch (ParseException e) {
             throw new IOException("Failed to parse RecordStreamItem", e);
         }

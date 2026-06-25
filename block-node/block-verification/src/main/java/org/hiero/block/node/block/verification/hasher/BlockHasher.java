@@ -2,6 +2,7 @@
 package org.hiero.block.node.block.verification.hasher;
 
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.output.BlockFooter;
@@ -43,9 +44,6 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 /// The hasher is responsible for receiving a block as items and to dynamically hash the items.
 /// Eventually, a [HashingResult] is produced.
 public final class BlockHasher implements Supplier<HashingResult> {
-    /// Max protobuf parse depth: each level of message nesting needs >= ~8 bytes on the wire,
-    /// so size/8 bounds the deepest a non-degenerate message can nest.
-    private static final int MAX_BLOCK_MESSAGE_DEPTH = Integer.MAX_VALUE / 8;
     private static final long DATA_BUSY_WAIT_TIME_NANOS = TimeUnit.MICROSECONDS.toNanos(200);
     private final long blockNumber;
     private final BlockSource blockSource;
@@ -116,7 +114,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                     item.item().kind();
                             switch (kind) {
                                 case BLOCK_HEADER -> {
-                                    this.blockHeader = BlockHeader.PROTOBUF.parse(item.blockHeader());
+                                    this.blockHeader = standardParse(BlockHeader.PROTOBUF, item.blockHeader());
                                     this.hapiProtoVersion = this.blockHeader.hapiProtoVersion();
                                     if (this.hapiProtoVersion == null) {
                                         throw new VerificationSessionFailedException(
@@ -147,9 +145,10 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                     this.rawRecordFileItemProtoBytes = item.recordFileOrThrow();
                                     outputTreeHasher.addLeaf(getBlockItemHash(item));
                                 }
-                                case BLOCK_FOOTER -> this.blockFooter = BlockFooter.PROTOBUF.parse(item.blockFooter());
+                                case BLOCK_FOOTER ->
+                                    this.blockFooter = standardParse(BlockFooter.PROTOBUF, item.blockFooter());
                                 case BLOCK_PROOF -> {
-                                    final BlockProof blockProof = BlockProof.PROTOBUF.parse(item.blockProof());
+                                    final BlockProof blockProof = standardParse(BlockProof.PROTOBUF, item.blockProof());
                                     blockProofs.add(blockProof);
                                 }
                             }
@@ -236,14 +235,10 @@ public final class BlockHasher implements Supplier<HashingResult> {
         if (signedTxBytes == null || signedTxBytes.length() == 0) {
             return null;
         } else {
-            final SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(
-                    signedTxBytes.toReadableSequentialData(), false, true, MAX_BLOCK_MESSAGE_DEPTH, Integer.MAX_VALUE);
-            final TransactionBody body = TransactionBody.PROTOBUF.parse(
-                    signedTx.bodyBytes().toReadableSequentialData(),
-                    false,
-                    true,
-                    MAX_BLOCK_MESSAGE_DEPTH,
-                    Integer.MAX_VALUE);
+            final SignedTransaction signedTx =
+                    standardParse(SignedTransaction.PROTOBUF, signedTxBytes, Integer.MAX_VALUE);
+            final TransactionBody body =
+                    standardParse(TransactionBody.PROTOBUF, signedTx.bodyBytes(), Integer.MAX_VALUE);
             return body.ledgerIdPublication();
         }
     }

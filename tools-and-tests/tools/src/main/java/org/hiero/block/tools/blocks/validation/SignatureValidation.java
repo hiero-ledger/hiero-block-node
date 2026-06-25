@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
+
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -114,7 +116,7 @@ public final class SignatureValidation implements BlockValidation {
         try {
             for (final BlockItemUnparsed item : block.blockItems()) {
                 if (item.hasBlockProof()) {
-                    blockProof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow());
+                    blockProof = standardParse(BlockProof.PROTOBUF, item.blockProofOrThrow());
                     break;
                 }
             }
@@ -166,7 +168,7 @@ public final class SignatureValidation implements BlockValidation {
                     recordFileBytes = item.recordFileOrThrow();
                 }
                 if (item.hasBlockHeader()) {
-                    blockHeader = BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow());
+                    blockHeader = standardParse(BlockHeader.PROTOBUF, item.blockHeaderOrThrow());
                 }
             }
         } catch (ParseException e) {

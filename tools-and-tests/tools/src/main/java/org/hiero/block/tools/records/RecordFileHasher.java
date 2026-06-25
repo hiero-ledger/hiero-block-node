@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
 
 import com.hedera.hapi.node.base.SemanticVersion;
@@ -68,7 +69,7 @@ public class RecordFileHasher {
                 case 6 -> {
                     // V6 is nice and easy as it is all protobuf encoded after the first version integer
                     final RecordStreamFile recordStreamFile =
-                            RecordStreamFile.PROTOBUF.parse(new ReadableStreamingData(in));
+                            standardParse(RecordStreamFile.PROTOBUF, new ReadableStreamingData(in));
                     // For v6 the block hash is the end running hash which is accessed via endObjectRunningHash()
                     if (recordStreamFile.endObjectRunningHash() == null) {
                         throw new IllegalStateException("No end object running hash in record file");

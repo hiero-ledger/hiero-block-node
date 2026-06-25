@@ -6,6 +6,7 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -459,14 +460,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                         throw new IllegalStateException(message);
                     }
                     final int blockByteSize = (int) blockBytes.length();
-                    // maxProtobufMessageSizeBytes / 8: each level of message nesting needs >= ~8 bytes on the wire,
-                    // so size/8 bounds the deepest a non-degenerate message can nest.
-                    final BlockUnparsed block = BlockUnparsed.PROTOBUF.parse(
-                            blockBytes.toReadableSequentialData(),
-                            false,
-                            true,
-                            maxProtobufMessageSizeBytes / 8,
-                            maxProtobufMessageSizeBytes);
+                    final BlockUnparsed block =
+                            standardParse(BlockUnparsed.PROTOBUF, blockBytes, maxProtobufMessageSizeBytes);
                     // We have retrieved the block to send, so send it.
                     sendOneFullBlock(block, blockByteSize);
                     // Trim the queue if necessary, also increment the next block to send.
@@ -755,8 +750,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
 
     private void sendOneFullBlock(final BlockUnparsed nextBlock, final int blockByteSize) throws ParseException {
         if (nextBlock.blockItems().getFirst().hasBlockHeader()) {
-            final BlockHeader header =
-                    BlockHeader.PROTOBUF.parse(nextBlock.blockItems().getFirst().blockHeader());
+            final BlockHeader header = standardParse(
+                    BlockHeader.PROTOBUF, nextBlock.blockItems().getFirst().blockHeader());
             if (header.number() == nextBlockToSend.get()) {
                 final int maxChunkBytes = sessionContext.subscriberConfig.maxChunkSizeBytes();
                 if (blockByteSize <= maxChunkBytes) {

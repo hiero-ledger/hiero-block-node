@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT;
@@ -410,7 +411,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             final Bytes headerBytes = first.blockHeader();
             if (headerBytes != null) {
                 try {
-                    header = BlockHeader.PROTOBUF.parse(headerBytes);
+                    header = standardParse(BlockHeader.PROTOBUF, headerBytes);
                 } catch (final ParseException e) {
                     LOGGER.log(DEBUG, "[{0}] Failed to parse BlockHeader due to {1}", correlationIdPrefix, e);
                     // if we have reached this block, this means that the

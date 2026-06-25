@@ -2,6 +2,7 @@
 package org.hiero.block.node.server.status;
 
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -81,7 +82,7 @@ public class ServerStatusDetailServicePluginTest
         assertEquals(1, fromPluginBytes.size());
 
         final ServerStatusDetailResponse response =
-                ServerStatusDetailResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
+                standardParse(ServerStatusDetailResponse.PROTOBUF, fromPluginBytes.getFirst());
 
         final List<BlockRange> storedRanges = response.storedRanges();
         assertFalse(storedRanges.isEmpty());
@@ -167,7 +168,8 @@ public class ServerStatusDetailServicePluginTest
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
         assertEquals(1, fromPluginBytes.size());
 
-        ServerStatusDetailResponse response = ServerStatusDetailResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
+        ServerStatusDetailResponse response =
+                standardParse(ServerStatusDetailResponse.PROTOBUF, fromPluginBytes.getFirst());
 
         BlockNodeVersions blockNodeVersions = response.versionInformation();
         assertNotNull(blockNodeVersions);
@@ -212,7 +214,7 @@ public class ServerStatusDetailServicePluginTest
         assertEquals(1, fromPluginBytes.size());
 
         final ServerStatusDetailResponse response =
-                ServerStatusDetailResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
+                standardParse(ServerStatusDetailResponse.PROTOBUF, fromPluginBytes.getFirst());
 
         assertTrue(response.hasNodeAddressBook());
         final NodeAddressBook returned = response.nodeAddressBook();
@@ -236,7 +238,7 @@ public class ServerStatusDetailServicePluginTest
         assertEquals(1, fromPluginBytes.size());
 
         final ServerStatusDetailResponse response =
-                ServerStatusDetailResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
+                standardParse(ServerStatusDetailResponse.PROTOBUF, fromPluginBytes.getFirst());
 
         assertFalse(response.hasNodeAddressBook());
         assertNull(response.nodeAddressBook());

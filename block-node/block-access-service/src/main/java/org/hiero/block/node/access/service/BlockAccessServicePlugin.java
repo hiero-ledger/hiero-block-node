@@ -4,6 +4,7 @@ package org.hiero.block.node.access.service;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
@@ -74,7 +75,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         return switch (blockAccessServiceMethod) {
             case getBlock ->
                 Pipelines.<BlockRequest, BlockResponseUnparsed>unary()
-                        .mapRequest(bytes -> BlockRequest.PROTOBUF.parse(bytes.toReadableSequentialData()))
+                        .mapRequest(bytes -> standardParse(BlockRequest.PROTOBUF, bytes))
                         .method(this::getBlockUnparsed)
                         .mapResponse(BlockResponseUnparsed.PROTOBUF::toBytes)
                         .respondTo(replies)

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
+
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.ServiceOptions;
 import com.google.cloud.storage.Blob;
@@ -448,8 +450,8 @@ public class GenerateAddressBookFromMirrorNode implements Runnable {
         byte[] fileDataBytes = HEX_FORMAT.parseHex(hexData);
 
         // Parse protobuf
-        NodeAddressBook addressBook =
-                NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(new ByteArrayInputStream(fileDataBytes)));
+        NodeAddressBook addressBook = standardParse(
+                NodeAddressBook.PROTOBUF, new ReadableStreamingData(new ByteArrayInputStream(fileDataBytes)));
 
         return new DatedNodeAddressBook(timestamp, addressBook);
     }
