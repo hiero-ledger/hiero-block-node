@@ -18,9 +18,11 @@ on:
         type: string
         default: "latest"
       mirror-node-version:
+        # Pinned: MN v0.157.0+ (HIP-1137) broke Solo CLI's block node env var injection.
+        # Track https://github.com/hiero-ledger/solo/issues/4863 to unpin.
         description: "Mirror Node version ('latest', 'rc', or tag like 'v0.146.0')"
         type: string
-        default: "latest"
+        default: "v0.156.0"
       relay-version:
         description: "Relay version ('latest' or tag like 'v0.75.0')"
         type: string
@@ -110,9 +112,11 @@ on:
         required: false
         default: "latest"
       mirror-node-version:
+        # Pinned: MN v0.157.0+ (HIP-1137) broke Solo CLI's block node env var injection.
+        # Track https://github.com/hiero-ledger/solo/issues/4863 to unpin.
         description: "Mirror Node version ('latest', 'rc' or tag like 'v0.150.0')"
         required: false
-        default: "latest"
+        default: "v0.156.0"
       relay-version:
         description: "Relay version ('latest' or tag like 'v0.75.0')"
         required: false

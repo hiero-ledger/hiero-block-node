@@ -311,9 +311,8 @@ function generate_mn_overlay {
     bn_dns=$(get_service_dns "${bn}" "${NAMESPACE}")
 
     nodes_config="${nodes_config}
-              - endpoints:
-                  - host: ${bn_dns}
-                    port: ${bn_port}"
+              - host: ${bn_dns}
+                port: ${bn_port}"
   done <<< "${block_node_names}"
 
   # Image overrides (workaround, ALL topologies): the default GraalVM-native Mirror Node
