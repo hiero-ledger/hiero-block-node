@@ -487,6 +487,14 @@ function deploy_block_nodes {
       fi
     fi
 
+    # Memory override applied LAST so it wins over the packaged chart's tiny
+    # placeholder JVM limits (-Xmx24m / 2Gi) that OOM the BN around block ~428.
+    local bn_memory_overlay="${SCRIPT_DIR}/../overrides/bn-memory.yaml"
+    if [[ -f "${bn_memory_overlay}" ]]; then
+      overlay_args="${overlay_args} -f ${bn_memory_overlay}"
+      log_line "  Applying BN memory override for block-node-${i}"
+    fi
+
     start_task "Deploying Block Node ${i}"
     # shellcheck disable=SC2086
     solo block node add \
