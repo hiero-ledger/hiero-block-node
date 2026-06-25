@@ -186,11 +186,31 @@ public final class BlockUtils {
      */
     public enum SAMPLE_BLOCKS_WRB implements SampleBlock {
         /** Solo-network genesis WRB block — the only one in this batch containing tss-init metadata. */
-        SOLO_4N_BLOCK_0("WRB/SOLO_4N/0.blk.gz", "", 0, "SOLO_4N"),
-        SOLO_4N_BLOCK_1("WRB/SOLO_4N/1.blk.gz", "", 1, "SOLO_4N"),
-        SOLO_4N_BLOCK_2("WRB/SOLO_4N/2.blk.gz", "", 2, "SOLO_4N"),
-        SOLO_4N_BLOCK_3("WRB/SOLO_4N/3.blk.gz", "", 3, "SOLO_4N"),
-        SOLO_4N_BLOCK_4("WRB/SOLO_4N/4.blk.gz", "", 4, "SOLO_4N");
+        SOLO_4N_BLOCK_0(
+                "WRB/SOLO_4N/0.blk.gz",
+                "52ad6e3386c1ba1c976cb0c1abd348becefaf3541fc0bb7ea5d4fa19dbe596d16cbbb4899328081b0eec6d88befb1340",
+                0,
+                "SOLO_4N"),
+        SOLO_4N_BLOCK_1(
+                "WRB/SOLO_4N/1.blk.gz",
+                "8b420d35ba2f564444fcea007a6b74a3f3564c2da670ef059fa51f2e54397db8716803222abf0f3dce9f8b66218c6705",
+                1,
+                "SOLO_4N"),
+        SOLO_4N_BLOCK_2(
+                "WRB/SOLO_4N/2.blk.gz",
+                "a35667c3417ea24fcd1aeb7272d6094bc8a3d2b2ed04ee1cb7050bede41e29231eeb12b74cc85e4ba04a63bbc1ff04ff",
+                2,
+                "SOLO_4N"),
+        SOLO_4N_BLOCK_3(
+                "WRB/SOLO_4N/3.blk.gz",
+                "19b193e72f90d86bd3b848e17208a08567114f09d19479c1b43231751b238db99d0547b484469183948192216da3eb25",
+                3,
+                "SOLO_4N"),
+        SOLO_4N_BLOCK_4(
+                "WRB/SOLO_4N/4.blk.gz",
+                "dcf7b335327e738b7cb98461af62f42c56b76b0b51be363f340f1edd22362eeb5eba93522f433113586bc8be4720dbd6",
+                4,
+                "SOLO_4N");
 
         private final String blockName;
         private final Bytes blockHash;

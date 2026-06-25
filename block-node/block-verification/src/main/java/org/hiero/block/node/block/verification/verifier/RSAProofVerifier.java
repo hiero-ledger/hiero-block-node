@@ -15,7 +15,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.metrics.ProofVerificationMetrics;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
 
@@ -24,7 +23,7 @@ public final class RSAProofVerifier implements ProofVerifier {
     private static final System.Logger LOGGER = System.getLogger(RSAProofVerifier.class.getName());
     private final ProofVerificationMetrics proofVerificationMetrics;
     private final long blockNumber;
-    private final VerificationDataProvider verificationDataProvider;
+    private final Map<Long, PublicKey> rsaKeyByNodeId;
     private final SignedRecordFileProof proof;
     private final int version;
     private final byte[] signedWRBPayload;
@@ -34,13 +33,13 @@ public final class RSAProofVerifier implements ProofVerifier {
     public RSAProofVerifier(
             final ProofVerificationMetrics proofVerificationMetrics,
             final long blockNumber,
-            final VerificationDataProvider verificationDataProvider,
+            final Map<Long, PublicKey> rsaKeyByNodeId,
             final SignedRecordFileProof proof,
             final byte[] signedWRBPayload,
             final Signature sha384WithRSA) {
         this.proofVerificationMetrics = Objects.requireNonNull(proofVerificationMetrics);
         this.blockNumber = blockNumber;
-        this.verificationDataProvider = Objects.requireNonNull(verificationDataProvider);
+        this.rsaKeyByNodeId = Objects.requireNonNull(rsaKeyByNodeId);
         this.proof = proof;
         this.version = proof.version();
         this.signedWRBPayload = Objects.requireNonNull(signedWRBPayload);
@@ -68,7 +67,6 @@ public final class RSAProofVerifier implements ProofVerifier {
     public SessionFailureType verify() {
         final SessionFailureType result;
         // Guard: address book must be loaded before any WRB arrives
-        final Map<Long, PublicKey> rsaKeyByNodeId = verificationDataProvider.currentRSAPublicKeys();
         if (rsaKeyByNodeId.isEmpty()) {
             LOGGER.log(
                     ERROR,
