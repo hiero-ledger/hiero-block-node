@@ -11,12 +11,14 @@ import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROP
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
+import static org.hiero.block.node.spi.historicalblocks.BlockAccessor.MAX_PARSE_DEPTH;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
@@ -25,6 +27,7 @@ import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.ListenerConfig;
+import io.helidon.webserver.ListenerConfig.BuilderBase;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http.HttpRouting;
@@ -57,9 +60,9 @@ import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
-import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
@@ -127,9 +130,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     /// Create a ConcurrentLinkedQueue to hold TssData updates
     private final ConcurrentLinkedQueue<TssData> tssDataUpdates = new ConcurrentLinkedQueue<>();
-
-    /// Pending address book loaded at startup; consumed by the first checkForApplicationStateUpdates run.
-    private final AtomicReference<NodeAddressBook> pendingAddressBook = new AtomicReference<>();
 
     /// Pending address book history loaded at startup; consumed by the first checkForApplicationStateUpdates run.
     private final AtomicReference<RangedAddressBookHistory> pendingAddressBookHistory = new AtomicReference<>();
@@ -381,7 +381,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     private static void configureSocket(
-            ListenerConfig.BuilderBase<?, ?> builder,
+            BuilderBase<?, ?> builder,
             int port,
             Http2Config http2Config,
             PbjConfig pbjConfig,
@@ -528,36 +528,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         backfillSources.set(sources != null ? sources : NetworkData.DEFAULT);
     }
 
-    /// Allow plugins to update the NodeAddressBook for this BlockNodeApp.
-    /// The address book is staged in a last-write-wins reference; if
-    /// `updateAddressBook` is called more than once before the next
-    /// `checkForApplicationStateUpdates` scan tick, only the most
-    /// recent book is used. Null, empty, or all-blank-key books will
-    ///  `return false;`
+    /// Stages the supplied {@link RangedAddressBookHistory} for the next
+    /// {@code checkForApplicationStateUpdates} scan tick. Last-write-wins if called multiple times
+    /// before the next tick.
     ///
-    /// @param nodeAddressBook the NodeAddressBook to store in BlockNodeContext
-    /// @return true if the address book is queued for update, false if it was not
-    @Override
-    public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
-        if (nodeAddressBook == null || nodeAddressBook.equals(blockNodeContext.nodeAddressBook())) return false;
-        try {
-            validateAddressBook(nodeAddressBook, "runtime update");
-        } catch (IllegalStateException e) {
-            LOGGER.log(INFO, "Rejecting invalid address book update: {0}", e);
-            return false;
-        }
-        pendingAddressBook.set(nodeAddressBook);
-        return true;
-    }
-
-    /**
-     * Stages the supplied {@link RangedAddressBookHistory} for the next
-     * {@code checkForApplicationStateUpdates} scan tick. Last-write-wins if called multiple times
-     * before the next tick.
-     *
-     * @param history the history to store; must not be {@code null}
-     * @return {@code true} if queued, {@code false} if equal to the currently stored value
-     */
+    /// @param history the history to store; must not be {@code null}
+    /// @return {@code true} if queued, {@code false} if equal to the currently stored value
     @Override
     public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
         if (history == null || history.equals(blockNodeContext.rangedAddressBookHistory())) return false;
@@ -565,30 +541,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         return true;
     }
 
-    /**
-     * Stages a single {@link NodeAddressBook} for the next scanner tick. The book is validated
-     * before queuing: null, empty, and all-blank-key books are silently rejected.
-     *
-     * <p>This is a non-interface helper used by {@code BlockNodeApp} itself and its tests.
-     * Plugins should prefer {@link #updateAddressBookHistory(RangedAddressBookHistory)}.
-     *
-     * @param nodeAddressBook the book to stage; null or invalid books are ignored
-     * @return {@code true} if queued, {@code false} if rejected
-     */
-    public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
-        if (nodeAddressBook == null) return false;
-        if (!hasValidKey(nodeAddressBook)) return false;
-        pendingAddressBook.set(nodeAddressBook);
-        return true;
-    }
-
-    /**
-     * Returns the {@link NodeAddressBook} whose block range covers {@code blockNum}, using the
-     * cached index built from the current {@link RangedAddressBookHistory}.
-     *
-     * @param blockNum the block number to look up
-     * @return the matching {@link NodeAddressBook}, or {@code null} if no era covers it
-     */
+    /// Returns the {@link NodeAddressBook} whose block range covers {@code blockNum}, using the
+    /// cached index built from the current {@link RangedAddressBookHistory}.
+    ///
+    /// @param blockNum the block number to look up
+    /// @return the matching {@link NodeAddressBook}, or {@code null} if no era covers it
     @Override
     public NodeAddressBook getAddressBookForBlock(long blockNum) {
         return AddressBookHistoryLookup.findAddressBookForBlock(addressBookIndex, blockNum);
@@ -640,11 +597,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             persistTssData(tssData);
         }
 
-        final NodeAddressBook addressBook = pendingAddressBook.getAndSet(null);
-        if (addressBook != null) {
-            persistNodeAddressBook(addressBook);
-        }
-
         final RangedAddressBookHistory addressBookHistory = pendingAddressBookHistory.getAndSet(null);
         if (addressBookHistory != null) {
             persistNodeAddressBookHistory(addressBookHistory);
@@ -652,7 +604,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         }
 
         if (updateBlockNodeContext(
-                tssData, addressBook, addressBookHistory, storedBlocks, historicalBlockFacility.availableBlocks())) {
+                tssData, addressBookHistory, storedBlocks, historicalBlockFacility.availableBlocks())) {
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
         }
 
@@ -705,12 +657,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// considered changed if non-null.
     ///
     /// @param tssData the TssData to consider; may be null
-    /// @param addressBook the NodeAddressBook to consider; may be null
     /// @param addressBookHistory the RangedAddressBookHistory to consider; may be null
     /// @return {@code true} if the BlockNodeContext was updated
     private boolean updateBlockNodeContext(
             TssData tssData,
-            NodeAddressBook addressBook,
             RangedAddressBookHistory addressBookHistory,
             BlockRangeSet storedBlocks,
             BlockRangeSet availableBlocks) {
@@ -725,7 +675,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         List<BlockRange> availableBlockRange = toBlockRange(availableBlocks);
 
         if (tssData == null
-                && addressBook == null
                 && addressBookHistory == null
                 && storedBlockRange.hashCode() == context.storedBlocks().hashCode()
                 && availableBlockRange.hashCode() == context.availableBlocks().hashCode()
@@ -734,13 +683,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             return false;
         }
 
-        BlockNodeContext.Builder builder = new Builder(context);
+        Builder builder = new Builder(context);
         if (tssData != null) {
             builder.tssData(tssData);
-        }
-
-        if (addressBook != null) {
-            builder.nodeAddressBook(addressBook);
         }
 
         if (addressBookHistory != null) {
@@ -857,7 +802,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final Path filePath = blockNodeContext
                 .configuration()
                 .getConfigData(ApplicationStateConfig.class)
-                .rsaAddressBookHistoryFilePath();
+                .rsaBootstrapFilePath();
         try {
             final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
             final Bytes encoded = RangedAddressBookHistory.JSON.toBytes(history);
@@ -938,42 +883,19 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             }
         }
 
-        // Load RSA NodeAddressBook (JSON format) — cached for processing on the next scanner tick.
-        final Path rsaFilePath = appStateConfig.rsaBootstrapFilePath();
-        if (Files.exists(rsaFilePath)) {
-            try {
-                final byte[] raw = Files.readAllBytes(rsaFilePath);
-                final NodeAddressBook book = standardParse(NodeAddressBook.JSON, Bytes.wrap(raw));
-                validateAddressBook(book, rsaFilePath.toString());
-                pendingAddressBook.set(book);
-            } catch (IOException e) {
-                throw new IllegalStateException("Failed to read RSA bootstrap file: " + rsaFilePath, e);
-            } catch (ParseException e) {
-                final String message =
-                        "Corrupt RSA bootstrap file at %s — delete and restart to re-fetch from Mirror Node"
-                                .formatted(rsaFilePath);
-                throw new IllegalStateException(message, e);
-            }
-        } else {
-            // make sure the directory is created for the writes
-            Path parent = rsaFilePath.getParent();
-            try {
-                Files.createDirectories(parent);
-            } catch (IOException e) {
-                LOGGER.log(ERROR, "Failed to create RSA bootstrap directory: " + parent, e);
-            }
-        }
-
         // Load RSA address book history (JSON format) — takes precedence over the single-book file.
-        // If absent but a single-book file was loaded above, wrap it into a single open-ended era
+        // If parsing fails check for single-book file format, wrap it into a single open-ended era
         // so the rest of the application sees a consistent RangedAddressBookHistory regardless of
         // which file is present (backward-compatibility bridge).
-        final Path historyFilePath = appStateConfig.rsaAddressBookHistoryFilePath();
+        final Path historyFilePath = appStateConfig.rsaBootstrapFilePath();
         if (Files.exists(historyFilePath)) {
             try {
-                final RangedAddressBookHistory history = standardParse(
-                        RangedAddressBookHistory.JSON,
-                        Bytes.wrap(Files.readAllBytes(historyFilePath)).toReadableSequentialData());
+                final RangedAddressBookHistory history = RangedAddressBookHistory.JSON.parse(
+                        Bytes.wrap(Files.readAllBytes(historyFilePath)).toReadableSequentialData(),
+                        true,
+                        false,
+                        MAX_PARSE_DEPTH,
+                        Codec.DEFAULT_MAX_SIZE);
                 if (history.addressBooks().isEmpty()) {
                     throw new IllegalStateException(
                             "RSA address book history file contains no entries: " + historyFilePath);
@@ -987,10 +909,32 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             } catch (IOException e) {
                 throw new IllegalStateException("Failed to read RSA address book history file: " + historyFilePath, e);
             } catch (ParseException e) {
-                throw new IllegalStateException(
-                        "Corrupt RSA address book history file at " + historyFilePath
-                                + " — delete and restart to regenerate",
-                        e);
+                // Revert back to the old bootstrap file format
+                try {
+                    final NodeAddressBook book = NodeAddressBook.JSON.parse(
+                            Bytes.wrap(Files.readAllBytes(historyFilePath)).toReadableSequentialData(),
+                            true,
+                            false,
+                            MAX_PARSE_DEPTH,
+                            Codec.DEFAULT_MAX_SIZE);
+                    validateAddressBook(book, historyFilePath.toString());
+                    final RangedAddressBookHistory wrapped = RangedAddressBookHistory.newBuilder()
+                            .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                                    .addressBook(book)
+                                    .startBlock(0L)
+                                    .endBlock(0L)
+                                    .build()))
+                            .build();
+                    pendingAddressBookHistory.set(wrapped);
+                } catch (ParseException ex) {
+                    final String message =
+                            "Corrupt RSA bootstrap file at %s — delete and restart to re-fetch from Mirror Node"
+                                    .formatted(historyFilePath);
+                    throw new IllegalStateException(message, ex);
+                } catch (IOException ex) {
+                    throw new IllegalStateException(
+                            "Failed to read RSA address book history file: " + historyFilePath, e);
+                }
             }
         } else {
             // History file absent — ensure parent directory exists for future writes.
@@ -999,22 +943,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 Files.createDirectories(parent);
             } catch (IOException e) {
                 LOGGER.log(ERROR, "Failed to create RSA address book history directory: " + parent, e);
-            }
-            // Backward-compat bridge: wrap a loaded single-book into a single open-ended era.
-            final NodeAddressBook singleBook = pendingAddressBook.get();
-            if (singleBook != null) {
-                final RangedAddressBookHistory wrapped = RangedAddressBookHistory.newBuilder()
-                        .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
-                                .addressBook(singleBook)
-                                .startBlock(0L)
-                                .endBlock(0L)
-                                .build()))
-                        .build();
-                pendingAddressBookHistory.set(wrapped);
-                LOGGER.log(
-                        INFO,
-                        "No address book history file found; wrapped single RSA address book into"
-                                + " an open-ended era for backward compatibility");
             }
         }
 
