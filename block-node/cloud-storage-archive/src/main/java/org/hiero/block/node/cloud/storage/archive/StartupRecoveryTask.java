@@ -79,15 +79,31 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
         }
     }
 
-    // Returns a new RecoveryResult identical to [result] but with [tempArchives] set.
+    // Returns a new RecoveryResult identical to [result] but with [tempArchives] set and
+    // [lastHandedOffBlock] computed from the recovery state and any recovered temp archives.
     private RecoveryResult withTempArchives(RecoveryResult result, List<TempArchiveEntry> tempArchives) {
+        long lastHandedOffBlock;
+        if (result.currentGroupStart() == -1) {
+            lastHandedOffBlock = -1;
+        } else if (result.uploadId() != null) {
+            lastHandedOffBlock = result.nextBlockNumber() - 1;
+        } else {
+            // currentGroupStart is the next group to upload; last handed-off is the block before it.
+            lastHandedOffBlock = result.currentGroupStart() - 1;
+        }
+        for (final TempArchiveEntry entry : tempArchives) {
+            if (entry.lastBlock() > lastHandedOffBlock) {
+                lastHandedOffBlock = entry.lastBlock();
+            }
+        }
         return new RecoveryResult(
                 result.currentGroupStart(),
                 result.uploadId(),
                 result.etags(),
                 result.nextBlockNumber(),
                 result.trailingBytes(),
-                tempArchives);
+                tempArchives,
+                lastHandedOffBlock);
     }
 
     /// Filters a raw [S3Client#listMultipartUploads] result to only the **regular** (non-temp)
@@ -112,7 +128,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
         final String lastKey = findLastKey(s3);
         if (lastKey == null) {
             LOGGER.log(TRACE, "No prior state found in S3 bucket, starting fresh");
-            recoveryResult = new RecoveryResult(-1, null, null, 0, null, null);
+            recoveryResult = new RecoveryResult(-1, null, null, 0, null, null, -1);
         } else {
             final long groupSize = Math.powExact(10, config.groupingLevel());
             final long groupStart = ArchiveKey.parse(lastKey, config.groupingLevel(), config.objectKeyPrefix());
@@ -121,7 +137,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                     "Last completed tar group starts at {0}, resuming from {1}",
                     groupStart,
                     groupStart + groupSize);
-            recoveryResult = new RecoveryResult(groupStart + groupSize, null, null, 0, null, null);
+            recoveryResult = new RecoveryResult(groupStart + groupSize, null, null, 0, null, null, -1);
         }
         return recoveryResult;
     }
@@ -174,14 +190,14 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
         while (hasMore) {
             final S3Client.ListPage page = s3.listObjectsPage(prefix, token, null, MAX_LIST_RESULTS);
             if (!page.keys().isEmpty()) {
-                lastKey = page.keys().getLast();
+                final String candidate = page.keys().getLast();
+                // Filter out any .tmp or .meta objects that might appear at the leaf level
+                if (!candidate.endsWith(".tmp") && !candidate.endsWith(".meta")) {
+                    lastKey = candidate;
+                }
             }
             token = page.continuationToken();
             hasMore = token != null;
-        }
-        // Filter out any .tmp or .meta objects that might appear at the leaf level
-        if (lastKey != null && (lastKey.endsWith(".tmp") || lastKey.endsWith(".meta"))) {
-            return null;
         }
         return lastKey;
     }
@@ -213,7 +229,13 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                         key,
                         scanResult.blockNumber());
                 result = new RecoveryResult(
-                        groupStart, newUploadId, newEtags, scanResult.blockNumber(), scanResult.trailingBytes(), null);
+                        groupStart,
+                        newUploadId,
+                        newEtags,
+                        scanResult.blockNumber(),
+                        scanResult.trailingBytes(),
+                        null,
+                        -1);
             } else {
                 LOGGER.log(DEBUG, "No block start found in any part for key {0}; aborting", key);
                 s3.abortMultipartUpload(key, newUploadId);

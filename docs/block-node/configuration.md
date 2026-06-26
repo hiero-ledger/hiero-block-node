@@ -140,6 +140,7 @@ A more robust pattern for fully operator-managed plugins is to mount a pre-popul
 | CLOUD_STORAGE_ARCHIVE_ACCESS_KEY                   | Access key for the archive service.                                                                                                                                                                      |         "" |
 | CLOUD_STORAGE_ARCHIVE_SECRET_KEY                   | Secret key for the archive service.                                                                                                                                                                      |         "" |
 | CLOUD_STORAGE_ARCHIVE_MAX_CONCURRENT_TEMP_ARCHIVES | Maximum number of temporary archive uploads that may run in parallel. Must be between 1 and 16.                                                                                                          |          4 |
+| CLOUD_STORAGE_ARCHIVE_GAP_BUFFER_SIZE              | Number of blocks to buffer when a gap is detected before triggering recovery. Must be between 1 and 10.                                                                                                  |          5 |
 
 ### Backfill Plugin Configuration
 

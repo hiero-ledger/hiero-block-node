@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.archive;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
@@ -20,7 +21,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
-import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -44,12 +44,12 @@ import org.hiero.metrics.core.MetricRegistry;
 /// [CloudStorageArchiveConfig#groupingLevel()]).  Within a group, out-of-order arrivals are held
 /// in [currentGroupPending] and drained in block-number order once gaps are filled.
 ///
-/// The plugin reads [NodeConfig#earliestManagedBlock()] during [start()]
-/// and computes [firstRegularGroupStart], the first aligned group boundary at or above the EMB.
-/// Regular archives only start at or above this boundary.  Blocks below this boundary (and blocks
-/// for groups other than the currently-active regular group) are uploaded immediately as temporary
-/// S3 archives via [TempArchiveUploadTask].  Once all blocks for a temporary group arrive, a
-/// [ConsolidationTask] merges the temporary archives into a single final `.tar`.
+/// Blocks that arrive out of sequence are buffered briefly in [gapBuffer] (up to
+/// [CloudStorageArchiveConfig#gapBufferSize()] entries).  If the gap closes before the buffer
+/// fills, buffered blocks drain into the regular pipeline.  If the buffer fills first, all
+/// buffered blocks are flushed to [TempArchiveUploadTask].  Blocks for groups other than the
+/// currently-active regular group are also uploaded as temporary S3 archives.  Once all blocks
+/// for a temporary group arrive, a [ConsolidationTask] merges them into a single final `.tar`.
 ///
 /// [StartupRecoveryTask] scans both regular `.tar` keys and the `tmp/`
 /// directory, rebuilding the temporary-archive tracker from `.meta` companion files, and returns
@@ -118,9 +118,18 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     // out-of-range blocks go directly to temporary S3 archives instead of being held in memory.
     final Map<Long, BlockWithSource> blocksStash = new ConcurrentSkipListMap<>();
 
-    /// First block number of the first aligned regular group at or above earliestManagedBlock.
-    /// Computed once in [start()].  Regular archives only start here or above.
-    long firstRegularGroupStart = 0;
+    /// The block number of the last block handed off to any upload task (regular or temp).
+    /// Initialized to -1 (nothing archived yet).  Set from [RecoveryResult] after startup recovery.
+    /// Updated by [drainPendingToQueue] for regular-task handoffs and by [routeToTempArchive]
+    /// for temp-task handoffs.
+    long lastHandedOffBlock = -1;
+
+    /// In-memory buffer for blocks that arrive when a gap is detected (incoming block number >
+    /// lastHandedOffBlock + 1).  Accumulates up to [CloudStorageArchiveConfig#gapBufferSize()] blocks.
+    /// If the expected block arrives before the buffer is exhausted, the buffer drains to the regular
+    /// task.  If the buffer fills without the gap closing, all buffered blocks are flushed to a
+    /// [TempArchiveUploadTask].
+    final NavigableMap<Long, BlockWithSource> gapBuffer = new ConcurrentSkipListMap<>();
 
     /// Completed temporary archive entries keyed by [TempArchiveEntry#firstBlock()].
     /// Rebuilt from S3 meta files during startup recovery and updated as temp uploads complete.
@@ -140,6 +149,19 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// Keyed by aligned groupStart.
     /// Accessed only from the notification handler thread.
     final Map<Long, Long> tempGroupNextExpected = new ConcurrentHashMap<>();
+
+    /// The first block of the currently active (streaming) temp segment per group.
+    /// Set by [startNewTempSegment]; cleared by [closeActiveTempSegment].
+    /// Accessed only from the notification handler thread.
+    final Map<Long, Long> tempGroupActiveSegmentFirstBlock = new ConcurrentHashMap<>();
+
+    /// Last block number successfully queued to each in-flight temp segment, keyed by the
+    /// segment's firstBlock.  Updated in [routeToTempArchive] each time a block is enqueued.
+    /// Removed when the segment's future completes and moves to [tempArchiveTracker].
+    /// Used by [isBlockCoveredByAnyTempSegment] to distinguish true duplicates from late-arriving
+    /// blocks that fell into an abandoned gap between two temp segments.
+    /// Accessed only from the notification handler thread.
+    final NavigableMap<Long, Long> tempSegmentLastBlock = new ConcurrentSkipListMap<>();
 
     /// In-flight temp archive upload futures keyed by the firstBlock of the uploaded segment.
     /// Accessed only from the notification handler thread.
@@ -186,11 +208,6 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
             configValid = true;
         }
         groupSize = Math.powExact(10, config.groupingLevel());
-        final long emb = context.configuration().getConfigData(NodeConfig.class).earliestManagedBlock();
-        // Round EMB up to the nearest group boundary: groups starting at or above this point use
-        // the regular pipeline; groups starting below it (including those straddling the EMB) go
-        // to temp archives.
-        firstRegularGroupStart = ((emb + groupSize - 1) / groupSize) * groupSize;
     }
 
     /// {@inheritDoc}
@@ -202,10 +219,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         if (configValid) {
             recoveryFuture = virtualThreadExecutor.submit(new StartupRecoveryTask(config));
         }
-        LOGGER.log(
-                TRACE,
-                "Cloud storage archive plugin started; first regular group start is {0}",
-                firstRegularGroupStart);
+        LOGGER.log(TRACE, "Cloud storage archive plugin started");
     }
 
     /// {@inheritDoc}
@@ -223,13 +237,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                     // it directly to blocksStash without any extra logic.
                     completeRecoveryIfReady();
                     final long blockNumber = notification.blockNumber();
-                    // Start a new upload task when there is none active
-                    if (currentUploadFuture == null && recoveryFuture == null) {
-                        tryStartNewUploadTask(blockNumber);
-                    }
-                    // Route the verified block; if it belongs to the active task's range, attempt
-                    // to drain consecutive blocks into the queue.  Pre-EMB or future-group blocks
-                    // go to temporary S3 archives.  Blocks during recovery go to the stash.
+                    // Route the verified block into the regular or temp pipeline, or stash it
+                    // while recovery is in progress.
                     routeVerifiedBlock(blockNumber, notification);
                 }
             } else {
@@ -288,10 +297,15 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
             if (!entry.getValue().isDone()) {
                 continue;
             }
+            if (entry.getValue().isCancelled()) {
+                it.remove();
+                continue;
+            }
             it.remove();
             try {
                 final TempArchiveEntry result = entry.getValue().resultNow();
                 tempArchiveTracker.put(result.firstBlock(), result);
+                tempSegmentLastBlock.remove(result.firstBlock());
                 metricsHolder.successfulTasks().increment();
                 final long groupStart = (result.firstBlock() / groupSize) * groupSize;
                 checkGroupCoverage(groupStart);
@@ -319,6 +333,10 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 continue;
             }
             final long groupStart = entry.getKey();
+            if (entry.getValue().isCancelled()) {
+                it.remove();
+                continue;
+            }
             it.remove();
             try {
                 entry.getValue().resultNow();
@@ -444,6 +462,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                             .forEach(this::checkGroupCoverage);
                 }
 
+                lastHandedOffBlock = result.lastHandedOffBlock();
+
                 if (result.currentGroupStart() != -1) {
                     currentGroupStart = result.currentGroupStart();
                     nextBlockToQueue = result.uploadId() != null ? result.nextBlockNumber() : currentGroupStart;
@@ -480,27 +500,15 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
-    /// Starts a new regular [BlockUploadTask] for the group containing [blockNumber], but only
-    /// when: (a) the block is at or above [firstRegularGroupStart], and (b) the group has no
-    /// pre-existing temporary archive data.  Groups with temp data are handled exclusively by
-    /// [ConsolidationTask]
+    /// Starts a new regular [BlockUploadTask] for the group containing [blockNumber], unless the
+    /// group already has pre-existing temporary archive data (which means [ConsolidationTask]
+    /// handles it exclusively).
     private void tryStartNewUploadTask(long blockNumber) {
-        if (blockNumber >= firstRegularGroupStart) {
-            final long targetGroupStart = (blockNumber / groupSize) * groupSize;
-            if (hasAnyTempDataForGroup(targetGroupStart)) {
-                LOGGER.log(
-                        TRACE,
-                        "Group {0} has existing temp archive data; skipping regular upload, using consolidation instead",
-                        targetGroupStart);
-            } else {
-                startNewUploadTask(blockNumber);
-            }
+        final long targetGroupStart = (blockNumber / groupSize) * groupSize;
+        if (hasAnyTempDataForGroup(targetGroupStart)) {
+            LOGGER.log(TRACE, "Group {0} has temp archive data; skipping regular upload", targetGroupStart);
         } else {
-            LOGGER.log(
-                    TRACE,
-                    "Block {0} is below firstRegularGroupStart {1}; routed to temp archive instead of regular pipeline",
-                    blockNumber,
-                    firstRegularGroupStart);
+            startNewUploadTask(blockNumber);
         }
     }
 
@@ -562,18 +570,13 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 queue);
     }
 
-    /// Routes [blockNumber] to the appropriate destination.
-    ///
-    /// During recovery (`recoveryFuture != null`), all blocks are stashed for later replay.
-    /// After recovery, blocks within the active regular group go to [currentGroupPending]; all
-    /// other blocks (pre-EMB or future-group) are routed immediately to a temporary S3 archive.
-    private void routeVerifiedBlock(long blockNumber, VerificationNotification notification) {
-        final BlockWithSource blockWithSource = new BlockWithSource(notification.block(), notification.source());
-        if (recoveryFuture != null) {
-            // Stash until recovery completes so we don't race with the recovery result.
-            blocksStash.put(blockNumber, blockWithSource);
-            LOGGER.log(TRACE, "Block number {0} stashed during recovery", blockNumber);
-        } else if (currentUploadFuture != null
+    /// Starts a new upload task if none is active, then routes [blockNumber] to the regular pending
+    /// queue (if the block falls within the current group) or to a temp archive otherwise.
+    private void routeToCloudArchive(long blockNumber, BlockWithSource blockWithSource) {
+        if (currentUploadFuture == null) {
+            tryStartNewUploadTask(blockNumber);
+        }
+        if (currentUploadFuture != null
                 && blockNumber >= currentGroupStart
                 && blockNumber < currentGroupStart + groupSize) {
             currentGroupPending.put(blockNumber, blockWithSource);
@@ -583,21 +586,159 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
+    /// Routes [blockNumber] to the appropriate destination.
+    ///
+    /// During recovery ([recoveryFuture] != null), all blocks are stashed for later replay.
+    /// After recovery, contiguous blocks (or the very first block on a fresh start) go to the
+    /// regular pipeline via [currentGroupPending].  A gap triggers [gapBuffer] accumulation; if
+    /// the gap closes before the buffer fills, buffered blocks drain into the regular pipeline.
+    /// If the buffer fills first, all buffered blocks are flushed to a [TempArchiveUploadTask].
+    /// Retrograde or duplicate blocks are silently discarded.
+    private void routeVerifiedBlock(long blockNumber, VerificationNotification notification) {
+        final BlockWithSource blockWithSource = new BlockWithSource(notification.block(), notification.source());
+        if (recoveryFuture != null) {
+            // Stash until recovery completes so we don't race with the recovery result.
+            blocksStash.put(blockNumber, blockWithSource);
+            LOGGER.log(TRACE, "Block number {0} stashed during recovery", blockNumber);
+            return;
+        }
+
+        // Retrograde relative to lastHandedOffBlock: discard unless the regular task still needs it.
+        // Handling this first prevents retrograde blocks from entering gapBuffer, which would corrupt
+        // the gap-detection logic and reduce effective buffer capacity.
+        if (blockNumber <= lastHandedOffBlock) {
+            if (currentUploadFuture != null
+                    && blockNumber >= nextBlockToQueue
+                    && blockNumber < currentGroupStart + groupSize) {
+                // Temp-archive routing advanced lastHandedOffBlock, but the regular task still needs this block.
+                LOGGER.log(TRACE, "Block {0} reclaimed for in-flight regular task", blockNumber);
+                currentGroupPending.put(blockNumber, blockWithSource);
+                drainPendingToQueue();
+            } else if (currentUploadFuture == null
+                    && blockNumber >= nextBlockToQueue
+                    && !hasAnyTempDataForGroup((blockNumber / groupSize) * groupSize)) {
+                // The regular task completed but temp-archive routing advanced lastHandedOffBlock,
+                // making this block appear retrograde. Start a new regular task for its group.
+                LOGGER.log(TRACE, "Block {0} starting new regular task", blockNumber);
+                routeToCloudArchive(blockNumber, blockWithSource);
+            } else if (blockNumber < nextBlockToQueue) {
+                // Block falls before the current (or most recent) regular task's queue pointer:
+                // already consumed or deliberately skipped (e.g. resume point after recovery).
+                LOGGER.log(TRACE, "Block {0} is before resume point ({1}); discarding", blockNumber, nextBlockToQueue);
+            } else {
+                // Neither the regular task nor the direct-to-regular path applies.
+                // Route to temp; routeToTempArchive will detect whether this is a true duplicate
+                // (already in some segment) or a late-arriving block from an abandoned gap,
+                // and start a new segment for it in the latter case.
+                routeToTempArchive(blockNumber, blockWithSource);
+            }
+        } else {
+            // blockNumber > lastHandedOffBlock from here.
+            final long expected = lastHandedOffBlock + 1;
+
+            if (blockNumber == expected || lastHandedOffBlock == -1) {
+                if (!gapBuffer.isEmpty()) {
+                    // The expected block has arrived, closing the gap.
+                    gapBuffer.put(blockNumber, blockWithSource);
+                    drainGapBufferToRegular();
+                } else {
+                    // Normal contiguous arrival: feed the regular pipeline.
+                    routeToCloudArchive(blockNumber, blockWithSource);
+                }
+            } else {
+                // blockNumber > expected: gap detected or continuing.
+                final long groupStart = (blockNumber / groupSize) * groupSize;
+                if (gapBuffer.isEmpty()
+                        && (tempGroupActiveQueues.containsKey(groupStart)
+                                || tempGroupNextExpected.containsKey(groupStart)
+                                || groupStart > currentGroupStart + groupSize)) {
+                    // On first gap detection, skip the buffer when the group already has temp data
+                    // or is 2+ groups ahead -- buffering cannot help close the gap in those cases.
+                    LOGGER.log(
+                            TRACE,
+                            "Gap detected at block {0} (expected {1}); routing directly to temp archive",
+                            blockNumber,
+                            expected);
+                    routeToTempArchive(blockNumber, blockWithSource);
+                } else {
+                    if (gapBuffer.isEmpty()) {
+                        LOGGER.log(TRACE, "Gap detected at block {0} (expected {1}); buffering", blockNumber, expected);
+                    }
+                    gapBuffer.put(blockNumber, blockWithSource);
+                    if (gapBuffer.size() >= config.gapBufferSize()) {
+                        flushGapBufferToTemp();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Drains the contiguous prefix of [gapBuffer] into the regular pipeline now that the expected
+    /// block has arrived (filling the gap).  Any remaining entries in [gapBuffer] after the drain
+    /// represent a new gap and stay buffered.
+    private void drainGapBufferToRegular() {
+        LOGGER.log(TRACE, "Gap closed; draining {0} buffered blocks to regular pipeline", gapBuffer.size());
+        while (!gapBuffer.isEmpty() && gapBuffer.firstKey() == lastHandedOffBlock + 1) {
+            final Map.Entry<Long, BlockWithSource> entry = gapBuffer.pollFirstEntry();
+            routeToCloudArchive(entry.getKey(), entry.getValue());
+        }
+    }
+
+    /// Flushes all blocks currently in [gapBuffer].  Called when the buffer reaches
+    /// [CloudStorageArchiveConfig#gapBufferSize()] without the gap closing.
+    ///
+    /// Blocks within the active regular task's remaining range
+    /// ([nextBlockToQueue, currentGroupStart+groupSize)) are salvaged to [currentGroupPending]
+    /// so the task is not left waiting for blocks that went to temp.  All other blocks go to
+    /// a [TempArchiveUploadTask].
+    private void flushGapBufferToTemp() {
+        LOGGER.log(TRACE, "Gap buffer capacity reached ({0} blocks); flushing to temp archives", gapBuffer.size());
+        boolean pendingChanged = false;
+        for (final Map.Entry<Long, BlockWithSource> entry : gapBuffer.entrySet()) {
+            final long blockNumber = entry.getKey();
+            if (currentUploadFuture != null
+                    && blockNumber >= nextBlockToQueue
+                    && blockNumber < currentGroupStart + groupSize) {
+                currentGroupPending.put(blockNumber, entry.getValue());
+                pendingChanged = true;
+            } else {
+                routeToTempArchive(blockNumber, entry.getValue());
+            }
+        }
+        gapBuffer.clear();
+        if (pendingChanged) {
+            drainPendingToQueue();
+        }
+    }
+
     /// Routes [blockNumber] to a streaming temporary S3 archive segment.
     ///
     /// Each aligned group maintains at most one active [TempArchiveUploadTask] whose queue receives
-    /// blocks in arrival order.  A gap closes the current segment (by placing [TempArchiveUploadTask#SEGMENT_END]
-    /// in the queue) and immediately starts a new one at [blockNumber].  The final block of the
-    /// group also closes the segment.  Duplicate or retrograde blocks are discarded.
+    /// blocks in arrival order.  A forward gap (blockNumber > nextExpected) closes the current
+    /// segment and starts a new one at [blockNumber].  A backward arrival (blockNumber < nextExpected)
+    /// is either a true duplicate (already covered by some in-flight or completed segment -- discarded)
+    /// or a late-arriving block from an abandoned gap between two segments (the active segment is
+    /// closed and a new one is started at [blockNumber]).  The final block of the group also closes
+    /// the segment.
     private void routeToTempArchive(long blockNumber, BlockWithSource block) {
         final long groupStart = (blockNumber / groupSize) * groupSize;
 
         final long nextExpected = tempGroupNextExpected.getOrDefault(groupStart, blockNumber);
-        if (blockNumber < nextExpected) {
-            LOGGER.log(TRACE, "Discarding duplicate/retrograde block {0} for temp group {1}", blockNumber, groupStart);
+        if (isBlockCoveredByAnyTempSegment(blockNumber, groupStart)) {
+            // Already uploaded to some in-flight or completed segment -- true duplicate; discard.
+            LOGGER.log(TRACE, "Discarding duplicate block {0} for temp group {1}", blockNumber, groupStart);
         } else {
-            if (blockNumber > nextExpected) {
-                // Gap detected: close the current segment and let the task complete with what it has.
+            if (blockNumber < nextExpected) {
+                // Block is in an abandoned gap between two temp segments -- close the active segment
+                // (if any) so the new segment can start at blockNumber below.
+                LOGGER.log(
+                        TRACE,
+                        "Block {0} in abandoned gap for temp group {1}; closing active segment to start new",
+                        blockNumber,
+                        groupStart);
+                closeActiveTempSegment(groupStart);
+            } else if (blockNumber > nextExpected) {
+                // Forward gap detected: close the current segment and let the task complete with what it has.
                 closeActiveTempSegment(groupStart);
                 checkGroupCoverage(groupStart);
             }
@@ -606,7 +747,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                     && tempUploadFutures.size() >= config.maxConcurrentTempArchives()) {
                 tempOverflowStash.put(blockNumber, block);
                 LOGGER.log(
-                        INFO,
+                        DEBUG,
                         "Concurrent temp archive limit ({0}) reached; block {1} queued in overflow stash",
                         config.maxConcurrentTempArchives(),
                         blockNumber);
@@ -615,8 +756,24 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                     startNewTempSegment(groupStart, blockNumber);
                 }
                 tempGroupActiveQueues.get(groupStart).offer(block);
+                lastHandedOffBlock = Math.max(lastHandedOffBlock, blockNumber);
                 tempGroupNextExpected.put(groupStart, blockNumber + 1);
+                final long segmentFirstBlock = tempGroupActiveSegmentFirstBlock.getOrDefault(groupStart, blockNumber);
+                tempSegmentLastBlock.put(segmentFirstBlock, blockNumber);
                 if (blockNumber == groupStart + groupSize - 1) {
+                    closeActiveTempSegment(groupStart);
+                    tempGroupNextExpected.remove(groupStart);
+                    checkGroupCoverage(groupStart);
+                } else if (isBlockCoveredByAnyTempSegment(blockNumber + 1, groupStart)) {
+                    // The next expected block is already in another segment (e.g. a late-arriving
+                    // block filled the gap up to an existing segment boundary).  Close this segment
+                    // now so the upload task can finalise without waiting for a block that will
+                    // never arrive in this segment's queue.
+                    LOGGER.log(
+                            TRACE,
+                            "Gap bridged at {0} for temp group {1}; closing segment",
+                            blockNumber + 1,
+                            groupStart);
                     closeActiveTempSegment(groupStart);
                     tempGroupNextExpected.remove(groupStart);
                     checkGroupCoverage(groupStart);
@@ -625,12 +782,38 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
+    /// Returns true when [blockNumber] is already covered by any in-flight or completed temp
+    /// archive segment for [groupStart].  Used to distinguish true duplicates (already uploaded)
+    /// from late-arriving blocks that fell into an abandoned gap between two segments.
+    private boolean isBlockCoveredByAnyTempSegment(long blockNumber, long groupStart) {
+        final long groupEnd = groupStart + groupSize;
+        boolean covered = false;
+        for (long firstBlock : tempUploadFutures.subMap(groupStart, groupEnd).keySet()) {
+            final long lastBlock = tempSegmentLastBlock.getOrDefault(firstBlock, -1L);
+            if (blockNumber >= firstBlock && blockNumber <= lastBlock) {
+                covered = true;
+                break;
+            }
+        }
+        if (!covered) {
+            for (TempArchiveEntry entry :
+                    tempArchiveTracker.subMap(groupStart, groupEnd).values()) {
+                if (blockNumber >= entry.firstBlock() && blockNumber <= entry.lastBlock()) {
+                    covered = true;
+                    break;
+                }
+            }
+        }
+        return covered;
+    }
+
     /// Starts a new streaming [TempArchiveUploadTask] for a segment beginning at [firstBlock]
     /// within the group aligned to [groupStart].
     private void startNewTempSegment(long groupStart, long firstBlock) {
         final String s3Key = TempArchiveKey.formatTar(firstBlock, config.objectKeyPrefix());
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         tempGroupActiveQueues.put(groupStart, queue);
+        tempGroupActiveSegmentFirstBlock.put(groupStart, firstBlock);
         final Future<TempArchiveEntry> future =
                 virtualThreadExecutor.submit(newTempArchiveUploadTask(s3Key, firstBlock, queue));
         tempUploadFutures.put(firstBlock, future);
@@ -641,6 +824,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// in its queue, removing the queue from [tempGroupActiveQueues].
     private void closeActiveTempSegment(long groupStart) {
         final BlockingQueue<BlockWithSource> queue = tempGroupActiveQueues.remove(groupStart);
+        tempGroupActiveSegmentFirstBlock.remove(groupStart);
         if (queue != null) {
             queue.offer(TempArchiveUploadTask.SEGMENT_END);
             LOGGER.log(TRACE, "Closed active temp segment for group {0}", groupStart);
@@ -651,6 +835,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         while (currentGroupPending.containsKey(nextBlockToQueue)) {
             final BlockWithSource nextBlock = requireNonNull(currentGroupPending.remove(nextBlockToQueue));
             currentBlockQueue.offer(nextBlock);
+            lastHandedOffBlock = Math.max(lastHandedOffBlock, nextBlockToQueue);
             nextBlockToQueue++;
         }
     }
@@ -690,11 +875,15 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     ///
     /// Blocks that had not yet been drained to the task queue are preserved in [blocksStash] so
     /// [tryReplayStash] can feed them to the resumed task once [completeRecoveryIfReady] completes.
+    /// Gap-buffered blocks are also moved to [blocksStash] so they are not stranded above the
+    /// recovered [lastHandedOffBlock] and interfere with gap detection after recovery.
     private void triggerMidRunRecovery() {
         if (recoveryFuture == null) {
-            final int movedCount = currentGroupPending.size();
+            final int movedCount = currentGroupPending.size() + gapBuffer.size();
             blocksStash.putAll(currentGroupPending);
             currentGroupPending = new ConcurrentSkipListMap<>();
+            blocksStash.putAll(gapBuffer);
+            gapBuffer.clear();
             if (currentUploadFuture != null) {
                 currentUploadFuture.cancel(true);
             }
@@ -707,6 +896,9 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// {@inheritDoc}
     @Override
     public void stop() {
+        if (configValid) {
+            context.blockMessaging().unregisterBlockNotificationHandler(this);
+        }
         // Cancelling with true interrupts the virtual thread, causing blockQueue.take() to throw
         // InterruptedException inside BlockUploadTask.call()
         if (currentUploadFuture != null) {
@@ -719,16 +911,16 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         consolidationFutures.values().forEach(f -> f.cancel(true));
         currentGroupPending.clear();
         currentBlockQueue.clear();
+        gapBuffer.clear();
         tempArchiveTracker.clear();
         tempGroupActiveQueues.clear();
         tempGroupNextExpected.clear();
+        tempGroupActiveSegmentFirstBlock.clear();
+        tempSegmentLastBlock.clear();
         tempUploadFutures.clear();
         tempOverflowStash.clear();
         pendingConsolidations.clear();
         consolidationFutures.clear();
-        if (configValid) {
-            context.blockMessaging().unregisterBlockNotificationHandler(this);
-        }
         LOGGER.log(TRACE, "Cloud storage archive plugin stopped");
     }
 

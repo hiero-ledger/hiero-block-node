@@ -30,10 +30,13 @@ import java.util.List;
 ///                          non-null when [uploadId] is non-null
 /// @param tempArchives      temporary archives found in S3 during startup; `null` on mid-run
 ///                          recovery paths that skip the temporary-archive scan
+/// @param lastHandedOffBlock the last block number handed off to any upload task before the
+///                           restart, or `-1` when nothing was archived yet (fresh start)
 record RecoveryResult(
         long currentGroupStart,
         String uploadId,
         List<String> etags,
         long nextBlockNumber,
         byte[] trailingBytes,
-        List<TempArchiveEntry> tempArchives) {}
+        List<TempArchiveEntry> tempArchives,
+        long lastHandedOffBlock) {}
