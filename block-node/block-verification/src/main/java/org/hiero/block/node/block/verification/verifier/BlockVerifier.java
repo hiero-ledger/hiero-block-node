@@ -2,8 +2,6 @@
 package org.hiero.block.node.block.verification.verifier;
 
 import static java.lang.System.Logger.Level.WARNING;
-import static org.hiero.block.node.block.verification.VerificationHelper.V_0_73_0;
-import static org.hiero.block.node.block.verification.VerificationHelper.isVersionGreaterOrEqualTo;
 
 import com.hedera.hapi.block.stream.BlockProof;
 import java.security.NoSuchAlgorithmException;
@@ -26,16 +24,18 @@ import org.hiero.block.node.block.verification.session.VerificationSessionFailed
 /// If the block has passed the hashing stage, we can now verify the block proofs.
 public final class BlockVerifier implements Function<HashingResult, BlockVerificationResult> {
     private static final System.Logger LOGGER = System.getLogger(BlockVerifier.class.getName());
+    private final AtomicBoolean isCanceled;
     private final ProofVerificationMetrics proofVerificationMetrics;
     private final long sessionStartTime;
     private final VerificationDataProvider verificationDataProvider;
 
     /// Constructor.
     public BlockVerifier(
-            final AtomicBoolean isCanceled, // todo(2528) utilize isCanceled?
+            final AtomicBoolean isCanceled,
             final ProofVerificationMetrics proofVerificationMetrics,
             final long sessionStartTime,
             final VerificationDataProvider verificationDataProvider) {
+        this.isCanceled = Objects.requireNonNull(isCanceled);
         this.proofVerificationMetrics = Objects.requireNonNull(proofVerificationMetrics);
         this.sessionStartTime = sessionStartTime;
         this.verificationDataProvider = Objects.requireNonNull(verificationDataProvider);
@@ -49,36 +49,29 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
     @Override
     public BlockVerificationResult apply(final HashingResult hashingResult) {
         try {
-            if (isVersionGreaterOrEqualTo(hashingResult.hapiProtoVersion(), V_0_73_0)) {
-                final List<ProofVerifier> verifiers = createVerifiers(hashingResult);
-                if (verifiers.isEmpty()) {
-                    throw new VerificationSessionFailedException(
-                            hashingResult.blockNumber(),
-                            SessionFailureType.MISSING_MANDATORY_ITEM,
-                            hashingResult.blockSource());
-                } else {
-                    for (final ProofVerifier verifier : verifiers) {
-                        final SessionFailureType result = verifier.verify();
-                        if (result != null) {
-                            throw new VerificationSessionFailedException(
-                                    hashingResult.blockNumber(),
-                                    result,
-                                    hashingResult.blockSource(),
-                                    hashingResult.block().blockItems(),
-                                    hashingResult.hapiProtoVersion());
-                        }
-                    }
-                    // todo(2528) consider the below metric to only calculate verification time, not since
-                    //    session start? It now does what the other plugin does
-                    final long verificationTimeElapsed = System.nanoTime() - sessionStartTime;
-                    proofVerificationMetrics.verificationBlockTime().increment(verificationTimeElapsed);
-                    return createVerificationResult(hashingResult);
-                }
-            } else {
+            final List<ProofVerifier> verifiers = createVerifiers(hashingResult);
+            if (verifiers.isEmpty()) {
                 throw new VerificationSessionFailedException(
                         hashingResult.blockNumber(),
-                        SessionFailureType.UNSUPPORTED_HAPI_VERSION,
+                        SessionFailureType.MISSING_MANDATORY_ITEM,
                         hashingResult.blockSource());
+            } else {
+                for (final ProofVerifier verifier : verifiers) {
+                    final SessionFailureType result = verifier.verify();
+                    if (result != null) {
+                        throw new VerificationSessionFailedException(
+                                hashingResult.blockNumber(),
+                                result,
+                                hashingResult.blockSource(),
+                                hashingResult.block().blockItems(),
+                                hashingResult.hapiProtoVersion());
+                    }
+                }
+                // todo(3121) consider the below metric to only calculate verification time, not since
+                //    session start? It now does what the other plugin does
+                final long verificationTimeElapsed = System.nanoTime() - sessionStartTime;
+                proofVerificationMetrics.verificationBlockTime().increment(verificationTimeElapsed);
+                return createVerificationResult(hashingResult);
             }
         } catch (final NoSuchAlgorithmException e) {
             throw new VerificationSessionFailedException(
@@ -107,6 +100,7 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
                         verificationDataProvider.rsaPublicKeysForBlock(hashingResult.blockNumber());
                 final Signature sha384WithRSASig = Signature.getInstance("SHA384withRSA");
                 verifiers.add(new RSAProofVerifier(
+                        isCanceled,
                         proofVerificationMetrics,
                         hashingResult.blockNumber(),
                         rsaKeys,
@@ -115,6 +109,7 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
                         sha384WithRSASig));
             } else if (proof.hasBlockStateProof()) {
                 verifiers.add(new StateProofVerifier(
+                        isCanceled,
                         proofVerificationMetrics,
                         hashingResult.blockNumber(),
                         proof.blockStateProof(),
@@ -123,7 +118,7 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
             } else {
                 // No recognized proof type found
                 LOGGER.log(WARNING, "No recognised proof type in block {0}", hashingResult.blockNumber());
-                // todo(2528) increment a metric here
+                // todo(3121) increment a metric here
             }
         }
         return verifiers;

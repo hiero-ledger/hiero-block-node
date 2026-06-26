@@ -42,7 +42,7 @@ public record HashingResult(
             throw new IllegalArgumentException("Block number cannot be negative");
         }
         if (blockProofs == null) {
-            throw new IllegalArgumentException("Block proofs cannot be null or empty");
+            throw new IllegalArgumentException("Block proofs cannot be null");
         }
     }
 }

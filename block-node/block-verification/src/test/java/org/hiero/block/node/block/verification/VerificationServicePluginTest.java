@@ -4,6 +4,10 @@ package org.hiero.block.node.block.verification;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 
+import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.SignedRecordFileProof;
+import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -16,6 +20,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.assertj.core.api.ObjectAssert;
 import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlock;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder;
@@ -23,8 +28,11 @@ import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.StatePr
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRAPS;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRB;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestWRBBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -170,27 +178,6 @@ class VerificationServicePluginTest {
             }
         }
 
-        /// This test exercises the VFE extraction path in SessionResultHandler.
-        /// Block 0 initializes TSS data; the tampered block 1 passes hashing but
-        /// fails TSS signature verification, producing a failure notification.
-        @Test
-        @DisplayName("Failed WRAPS Verification - tampered block covers VFE extraction path")
-        void testTamperedWRAPSBlockTriggersVfePath() throws IOException, ParseException {
-            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
-            plugin.handleBlockItemsReceived(block0.asBlockItems());
-            // Wait for block 0 to complete so TSS data is initialized before block 1 is submitted
-            blockMessaging.getSentVerificationNotifications(1);
-
-            final ResourceTestBlock block1 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_1);
-            final List<BlockItemUnparsed> tamperedItems =
-                    new ArrayList<>(block1.blockUnparsed().blockItems());
-            tamperedItems.remove(1); // remove a non-mandatory item to change the block hash
-            plugin.handleBlockItemsReceived(new BlockItems(tamperedItems, block1.number(), true, true));
-
-            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(2);
-            assertThat(notifications.get(1)).returns(false, VerificationNotification::success);
-        }
-
         /// This test aims to assert that when the next in line WRAPS block is
         /// received, is valid, and we have valid TSS parameters initialized,
         /// the block will pass verification successfully. Uses Multiple Sources.
@@ -240,6 +227,112 @@ class VerificationServicePluginTest {
                     fail("unrecognized or unsupported source %s".formatted(blockSources.get(block.number())));
                 }
             }
+        }
+
+        /// This test aims to assert that when the next in line WRAPS block is
+        /// received, has multiple valid proofs, and we have valid TSS parameters initialized,
+        /// the block will pass verification successfully.
+        @Test
+        @DisplayName("Successful WRAPS Verification - Multiple Valid Proofs")
+        void testSuccessfulWRAPSVerificationMultipleValidProofs() throws IOException, ParseException {
+            final ResourceTestBlock base = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
+            // Append the valid proof from base again so we have multiple valid proofs
+            final ResourceTestBlock block0MultiProof =
+                    appendProof(base, wrapBlockProof(base.proofs().getFirst()));
+            // We push the block to the live items RB
+            plugin.handleBlockItemsReceived(block0MultiProof.asBlockItems());
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(true, VerificationNotification::success)
+                    .returns(null, VerificationNotification::failureInfo)
+                    .returns(block0MultiProof.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(block0MultiProof.blockUnparsed(), VerificationNotification::block)
+                    .returns(block0MultiProof.blockRootHash(), VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that when the next in line WRAPS block is
+        /// received but has one valid and one invalid proof, verification
+        /// will fail.
+        @Test
+        @DisplayName("Failed WRAPS Verification - One Valid and One Invalid proof")
+        void testFailedWRAPSVerificationOneValidAndOneInvalidProof() throws IOException, ParseException {
+            // Append
+            final ResourceTestBlock block0 =
+                    appendProof(ResourceTestBlockBuilder.load(WRAPS.BLOCK_0), badTssSignedProof());
+            // We push the block to the live items RB
+            plugin.handleBlockItemsReceived(block0.asBlockItems());
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that when the next in line WRAPS block is
+        /// received but fails verification, failure is expected to be
+        /// informational if the block was recently verified.
+        @Test
+        @DisplayName("Failed WRAPS Verification - Informational Failure")
+        void testFailedWRAPSVerificationInformationalFailure() throws IOException, ParseException {
+            final ResourceTestBlock block0Valid = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
+            plugin.handleBlockItemsReceived(block0Valid.asBlockItems());
+            // Assert success
+            final List<VerificationNotification> preCheck = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(preCheck).hasSize(1).first().returns(true, VerificationNotification::success);
+            // Clear the notifications so we can assert below
+            preCheck.clear();
+            // Append
+            final ResourceTestBlock block0Invalid = appendProof(block0Valid, badTssSignedProof());
+            // We push the block to the live items RB
+            plugin.handleBlockItemsReceived(block0Invalid.asBlockItems());
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.informational(FailureType.BAD_BLOCK_PROOF),
+                            VerificationNotification::failureInfo)
+                    .returns(block0Invalid.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test exercises the VFE extraction path in SessionResultHandler.
+        /// Block 0 initializes TSS data; the tampered block 1 passes hashing but
+        /// fails TSS signature verification, producing a failure notification.
+        @Test
+        @DisplayName("Failed WRAPS Verification - tampered block covers VFE extraction path")
+        void testTamperedWRAPSBlockTriggersVfePath() throws IOException, ParseException {
+            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
+            plugin.handleBlockItemsReceived(block0.asBlockItems());
+            // Wait for block 0 to complete so TSS data is initialized before block 1 is submitted
+            // Clear the notification so we can assert cleanly below
+            blockMessaging.getSentVerificationNotifications(1).clear();
+            final ResourceTestBlock block1 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_1);
+            final List<BlockItemUnparsed> tamperedItems =
+                    new ArrayList<>(block1.blockUnparsed().blockItems());
+            tamperedItems.remove(1); // remove a non-mandatory item to change the block hash
+            plugin.handleBlockItemsReceived(new BlockItems(tamperedItems, block1.number(), true, true));
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            // Assert, for this test we only care about receiving a failure, regardless of type
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(block1.number(), VerificationNotification::blockNumber);
         }
     }
 
@@ -432,6 +525,125 @@ class VerificationServicePluginTest {
                 }
             }
         }
+
+        /// This test aims to assert that when the next in line StateProof block is
+        /// received, has multiple valid proofs, and we have valid TSS parameters initialized,
+        /// the block will pass verification successfully.
+        @Test
+        @DisplayName("Successful StateProof Verification - Multiple Valid Proofs")
+        void testSuccessfulStateProofVerificationMultipleValidProofs() throws IOException, ParseException {
+            // Block 0 is direct tss proof, initialize tss
+            // We push the block to the live items RB and initialize tss
+            plugin.handleBlockItemsReceived(
+                    ResourceTestBlockBuilder.load(StateProof.BLOCK_0).asBlockItems());
+            // We will receive notification, then clear it so we can assert below
+            blockMessaging.getSentVerificationNotifications(1).clear();
+            // Block 1 is indirect proof
+            final ResourceTestBlock base = ResourceTestBlockBuilder.load(StateProof.BLOCK_1);
+            final ResourceTestBlock block1MultiProof =
+                    appendProof(base, wrapBlockProof(base.proofs().getFirst()));
+            plugin.handleBlockItemsReceived(block1MultiProof.asBlockItems());
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(true, VerificationNotification::success)
+                    .returns(null, VerificationNotification::failureInfo)
+                    .returns(block1MultiProof.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(block1MultiProof.blockUnparsed(), VerificationNotification::block)
+                    .returns(block1MultiProof.blockRootHash(), VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that when the next in line StateProof block is
+        /// received but has one valid and one invalid proof, verification will fail.
+        @Test
+        @DisplayName("Failed StateProof Verification - One Valid and One Invalid Proof")
+        void testFailedStateProofVerificationOneValidAndOneInvalidProof() throws IOException, ParseException {
+            // Block 0 is direct tss proof, initialize tss
+            // We push the block to the live items RB and initialize tss
+            plugin.handleBlockItemsReceived(
+                    ResourceTestBlockBuilder.load(StateProof.BLOCK_0).asBlockItems());
+            // We will receive notification, then clear it so we can assert below
+            blockMessaging.getSentVerificationNotifications(1).clear();
+            // Block 1 is indirect proof
+            final ResourceTestBlock base = ResourceTestBlockBuilder.load(StateProof.BLOCK_1);
+            final ResourceTestBlock block1BadProof = appendProof(base, badStateProof());
+            plugin.handleBlockItemsReceived(block1BadProof.asBlockItems());
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), VerificationNotification::failureInfo)
+                    .returns(block1BadProof.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that when the next in line StateProof block is
+        /// received but verification fails, the verification is expected to be
+        /// informational if the block was recently verified.
+        @Test
+        @DisplayName("Failed StateProof Verification - Informational Failure")
+        void testFailedStateProofVerificationInformationalFailure() throws IOException, ParseException {
+            // Block 0 is direct tss proof, initialize tss
+            // We push the block to the live items RB and initialize tss
+            plugin.handleBlockItemsReceived(
+                    ResourceTestBlockBuilder.load(StateProof.BLOCK_0).asBlockItems());
+            // We will receive notification, then clear it so we can assert below
+            blockMessaging.getSentVerificationNotifications(1).clear();
+            final ResourceTestBlock block0Valid = ResourceTestBlockBuilder.load(StateProof.BLOCK_1);
+            plugin.handleBlockItemsReceived(block0Valid.asBlockItems());
+            // Assert success
+            final List<VerificationNotification> preCheck = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(preCheck).hasSize(1).first().returns(true, VerificationNotification::success);
+            // Clear the notifications so we can assert below
+            preCheck.clear();
+            // Block 1 is indirect proof
+            final ResourceTestBlock block1BadProof = appendProof(block0Valid, badStateProof());
+            plugin.handleBlockItemsReceived(block1BadProof.asBlockItems());
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.informational(FailureType.BAD_BLOCK_PROOF),
+                            VerificationNotification::failureInfo)
+                    .returns(block1BadProof.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test exercises the VFE extraction path in SessionResultHandler.
+        /// Block that was tampered with will fail StateProof Verification.
+        @Test
+        @DisplayName("Failed StateProof Verification - tampered block covers VFE extraction path")
+        void testTamperedStateProofBlockTriggersVfePath() throws IOException, ParseException {
+            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(StateProof.BLOCK_0);
+            plugin.handleBlockItemsReceived(block0.asBlockItems());
+            // Wait for block 0 to complete so TSS data is initialized before block 1 is submitted
+            // Clear the notification so we can assert cleanly below
+            blockMessaging.getSentVerificationNotifications(1).clear();
+            final ResourceTestBlock block1 = ResourceTestBlockBuilder.load(StateProof.BLOCK_1);
+            final List<BlockItemUnparsed> tamperedItems =
+                    new ArrayList<>(block1.blockUnparsed().blockItems());
+            tamperedItems.remove(1); // remove a non-mandatory item to change the block hash
+            plugin.handleBlockItemsReceived(new BlockItems(tamperedItems, block1.number(), true, true));
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            // Assert, for this test we only care about receiving a failure, regardless of type
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(block1.number(), VerificationNotification::blockNumber);
+        }
     }
 
     /// Tests for WRB verification
@@ -501,9 +713,19 @@ class VerificationServicePluginTest {
         @Test
         @DisplayName("Successful consecutive WRB Verification - Live RB")
         void testSuccessfulConsecutiveWRBVerificationLiveRB() throws IOException, ParseException {
+            // Because when we have no data at the start and the plugin will accept the first valid
+            // block in that case, make sure to first pass verification on block 0 and then the rest so we can
+            // see things as expected in order.
             // First, we load multiple consecutive WRB blocks
             final List<ResourceTestWRBBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRBBlocks);
-            for (final ResourceTestWRBBlock block : loadedBlocks) {
+            // Then, we push block 0 first.
+            final ResourceTestWRBBlock block0 = loadedBlocks.getFirst();
+            updateAddressBook(block0.nodeAddressBook());
+            plugin.handleBlockItemsReceived(block0.asBlockItems());
+            // Await for the notification of block 0
+            blockMessaging.getSentVerificationNotifications(1);
+            // Then, we push the rest of the blocks
+            for (final ResourceTestWRBBlock block : loadedBlocks.subList(1, loadedBlocks.size())) {
                 // First, we update the node address book
                 updateAddressBook(block.nodeAddressBook());
                 // Then, we push them to the live items RB in order
@@ -533,9 +755,19 @@ class VerificationServicePluginTest {
         @Test
         @DisplayName("Successful consecutive WRB Verification - Backfill")
         void testSuccessfulConsecutiveWRBVerificationBackfill() throws IOException, ParseException {
+            // Because when we have no data at the start and the plugin will accept the first valid
+            // block in that case, make sure to first pass verification on block 0 and then the rest so we can
+            // see things as expected in order.
             // First, we load multiple consecutive WRB blocks
             final List<ResourceTestWRBBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRBBlocks);
-            for (final ResourceTestWRBBlock block : loadedBlocks) {
+            // Then, we push block 0 first.
+            final ResourceTestWRBBlock block0 = loadedBlocks.getFirst();
+            updateAddressBook(block0.nodeAddressBook());
+            plugin.handleBackfilled(block0.asBackfilledNotification());
+            // Await for the notification of block 0
+            blockMessaging.getSentVerificationNotifications(1);
+            // Then, we push the rest of the blocks
+            for (final ResourceTestWRBBlock block : loadedBlocks.subList(1, loadedBlocks.size())) {
                 // First, we update the node address book
                 updateAddressBook(block.nodeAddressBook());
                 // Then, we push them as backfilled notifications in order
@@ -565,10 +797,21 @@ class VerificationServicePluginTest {
         @Test
         @DisplayName("Successful consecutive WRB Verification - Multi Source")
         void testSuccessfulConsecutiveWRBVerificationMultiSource() throws IOException, ParseException {
+            // Because when we have no data at the start and the plugin will accept the first valid
+            // block in that case, make sure to first pass verification on block 0 and then the rest so we can
+            // see things as expected in order.
             // First, we load multiple consecutive WRB blocks
             final List<ResourceTestWRBBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRBBlocks);
+            // Then, we push block 0 first.
+            final ResourceTestWRBBlock block0 = loadedBlocks.getFirst();
+            updateAddressBook(block0.nodeAddressBook());
+            plugin.handleBackfilled(block0.asBackfilledNotification());
+            // Await for the notification of block 0
             final Map<Long, BlockSource> blockSources = new HashMap<>();
-            for (final ResourceTestWRBBlock block : loadedBlocks) {
+            blockMessaging.getSentVerificationNotifications(1);
+            blockSources.put(block0.number(), BlockSource.BACKFILL);
+            // Then, we push the rest of the blocks
+            for (final ResourceTestWRBBlock block : loadedBlocks.subList(1, loadedBlocks.size())) {
                 // First, we update the node address book
                 updateAddressBook(block.nodeAddressBook());
                 // Then, we push them to the live items RB or as backfilled notifications in order
@@ -604,13 +847,116 @@ class VerificationServicePluginTest {
                 }
             }
         }
+
+        /// This test aims to assert that when the next in line WRB block is
+        /// received, has multiple valid proofs, and we have a valid RSA roster initialized,
+        /// the block will pass verification successfully.
+        @Test
+        @DisplayName("Successful WRB Verification - Multiple Valid Proofs")
+        void testSuccessfulWRBVerificationMultipleValidProofs() throws IOException, ParseException {
+            final ResourceTestWRBBlock base = ResourceTestBlockBuilder.load(WRB.SOLO_4N_BLOCK_0);
+            final ResourceTestWRBBlock block0 =
+                    appendProof(base, wrapBlockProof(base.proofs().getFirst()));
+            // First, we update the node address book
+            updateAddressBook(block0.nodeAddressBook());
+            // Then, we push the block to the live items RB
+            plugin.handleBlockItemsReceived(block0.asBlockItems());
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(true, VerificationNotification::success)
+                    .returns(null, VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(block0.blockUnparsed(), VerificationNotification::block)
+                    .returns(block0.blockRootHash(), VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that when the next in line WRB block is
+        /// received and has one valid and one invalid proof, verification will fail.
+        @Test
+        @DisplayName("Failed WRB Verification - One Valid and One Invalid Proof")
+        void testFailedWRBVerificationOneValidAndOneInvalidProof() throws IOException, ParseException {
+            final ResourceTestWRBBlock block0 =
+                    appendProof(ResourceTestBlockBuilder.load(WRB.SOLO_4N_BLOCK_0), badSignedRecordFileProof());
+            // First, we update the node address book
+            updateAddressBook(block0.nodeAddressBook());
+            // Then, we push the block to the live items RB
+            plugin.handleBlockItemsReceived(block0.asBlockItems());
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that when the next in line WRB block is
+        /// received but verification fails, the failure is expected to be informational
+        /// if the block was recently verified.
+        @Test
+        @DisplayName("Failed WRB Verification - Informational Failure")
+        void testFailedWRBVerificationInformationalFailure() throws IOException, ParseException {
+            final ResourceTestWRBBlock block0Valid = ResourceTestBlockBuilder.load(WRB.SOLO_4N_BLOCK_0);
+            // First, we update the node address book
+            updateAddressBook(block0Valid.nodeAddressBook());
+            plugin.handleBlockItemsReceived(block0Valid.asBlockItems());
+            // Assert success
+            final List<VerificationNotification> preCheck = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(preCheck).hasSize(1).first().returns(true, VerificationNotification::success);
+            // Clear the notifications so we can assert below
+            preCheck.clear();
+            final ResourceTestWRBBlock block0BadProof = appendProof(block0Valid, badSignedRecordFileProof());
+            // Then, we push the block to the live items RB
+            plugin.handleBlockItemsReceived(block0BadProof.asBlockItems());
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.informational(FailureType.BAD_BLOCK_PROOF),
+                            VerificationNotification::failureInfo)
+                    .returns(block0BadProof.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test exercises the VFE extraction path in SessionResultHandler.
+        /// Block that was tampered with will fail StateProof Verification.
+        @Test
+        @DisplayName("Failed WRB Verification - tampered block covers VFE extraction path")
+        void testTamperedWRBBlockTriggersVfePath() throws IOException, ParseException {
+            final ResourceTestWRBBlock block1 = ResourceTestBlockBuilder.load(WRB.SOLO_4N_BLOCK_1);
+            updateAddressBook(block1.nodeAddressBook());
+            final List<BlockItemUnparsed> tamperedItems =
+                    new ArrayList<>(block1.blockUnparsed().blockItems());
+            tamperedItems.remove(1); // remove a non-mandatory item to change the block hash
+            plugin.handleBlockItemsReceived(new BlockItems(tamperedItems, block1.number(), true, true));
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            // Assert, for this test we only care about receiving a failure, regardless of type
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(block1.number(), VerificationNotification::blockNumber);
+        }
     }
 
     @Nested
     @DisplayName("Active Sessions Buffer Tests")
-    class ActiveSessionsBuffer
+    class ActiveSessionsBufferTests
             extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
-        ActiveSessionsBuffer() {
+        ActiveSessionsBufferTests() {
             super(
                     Executors.newVirtualThreadPerTaskExecutor(),
                     new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
@@ -646,5 +992,167 @@ class VerificationServicePluginTest {
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
         }
+    }
+
+    @Nested
+    @DisplayName("Invalid Start of Block Tests")
+    class InvalidStartOfBlockTests
+            extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        InvalidStartOfBlockTests() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            final Map<String, String> configOverrides =
+                    Map.ofEntries(Map.entry("verification.activeSessionsBufferSize", "2"));
+            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverrides);
+        }
+
+        /// This test aims to verify that when we receive a new start of block, denoted by
+        /// [BlockItems#isStartOfNewBlock()] but we have no header as the first item, the block
+        /// is immediately rejected. The type of the block used for this test is irrelevant.
+        @Test
+        @DisplayName("Invalid Start of Block Live RB - no header present")
+        void testNoHeaderForNewBlockLiveRB() {
+            final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0);
+            final List<BlockItemUnparsed> block1NoHeader = block0.asBlockItemUnparsedFiltered(i -> !i.hasBlockHeader());
+            plugin.handleBlockItemsReceived(new BlockItems(block1NoHeader, block0.number(), true, true));
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to verify that when we receive a new start of block, denoted by
+        /// [BlockItems#isStartOfNewBlock()], but the actual header's block number does not match with
+        /// [BlockItems#blockNumber()] we will receive a failure.
+        /// The type of the block used for this test is irrelevant.
+        @Test
+        @DisplayName("Invalid Start of Block Live RB - header block number mismatch with BlockItems")
+        void testHeaderBlockNumberMismatchLiveRB() {
+            final long headerBlockNumber = 0;
+            final long reportedBlockNumber = headerBlockNumber + 1;
+            final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(headerBlockNumber);
+            plugin.handleBlockItemsReceived(
+                    new BlockItems(block0.blockUnparsed().blockItems(), reportedBlockNumber, true, true));
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            VerificationNotification::failureInfo)
+                    .returns(reportedBlockNumber, VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to verify that when we receive a new start of block, denoted by
+        /// [BlockItems#isStartOfNewBlock()] but we have no header as the first item, the block
+        /// is immediately rejected. The type of the block used for this test is irrelevant.
+        @Test
+        @DisplayName("Invalid Start of Block Backfill - no header present")
+        void testNoHeaderForNewBlockBackfill() {
+            final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0);
+            final List<BlockItemUnparsed> block1NoHeader = block0.asBlockItemUnparsedFiltered(i -> !i.hasBlockHeader());
+            plugin.handleBackfilled(
+                    new BackfilledBlockNotification(block0.number(), new BlockUnparsed(block1NoHeader)));
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.BACKFILL, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to verify that when we receive a new start of block, denoted by
+        /// [BlockItems#isStartOfNewBlock()], but the actual header's block number does not match with
+        /// [BlockItems#blockNumber()] we will receive a failure.
+        /// The type of the block used for this test is irrelevant.
+        @Test
+        @DisplayName("Invalid Start of Block Backfill - header block number mismatch with BlockItems")
+        void testHeaderBlockNumberMismatchBackfill() {
+            final long headerBlockNumber = 0;
+            final long reportedBlockNumber = headerBlockNumber + 1;
+            final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(headerBlockNumber);
+            plugin.handleBackfilled(new BackfilledBlockNotification(
+                    reportedBlockNumber,
+                    new BlockUnparsed(block0.blockUnparsed().blockItems())));
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            VerificationNotification::failureInfo)
+                    .returns(reportedBlockNumber, VerificationNotification::blockNumber)
+                    .returns(BlockSource.BACKFILL, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+    }
+
+    private BlockItem badTssSignedProof() {
+        final BlockProof badProof = BlockProof.newBuilder()
+                .signedBlockProof(TssSignedBlockProof.newBuilder().build())
+                .build();
+        return wrapBlockProof(badProof);
+    }
+
+    private BlockItem badSignedRecordFileProof() {
+        final BlockProof badProof = BlockProof.newBuilder()
+                .signedRecordFileProof(
+                        SignedRecordFileProof.newBuilder().version(6).build())
+                .build();
+        return wrapBlockProof(badProof);
+    }
+
+    private BlockItem badStateProof() {
+        final BlockProof badProof = BlockProof.newBuilder()
+                .blockStateProof(
+                        com.hedera.hapi.block.stream.StateProof.newBuilder().build())
+                .build();
+        return wrapBlockProof(badProof);
+    }
+
+    private BlockItem wrapBlockProof(final BlockProof badProof) {
+        return BlockItem.newBuilder().blockProof(badProof).build();
+    }
+
+    private ResourceTestBlock appendProof(final ResourceTestBlock base, final BlockItem proofToAppend) {
+        final ResourceTestBlock result = base.append(proofToAppend);
+        assertProofAppended(base, proofToAppend, result);
+        return result;
+    }
+
+    private ResourceTestWRBBlock appendProof(final ResourceTestWRBBlock base, final BlockItem proofToAppend) {
+        final ResourceTestWRBBlock result = base.append(proofToAppend);
+        assertProofAppended(base, proofToAppend, result);
+        return result;
+    }
+
+    private void assertProofAppended(final TestBlock base, final BlockItem proofToAppend, final TestBlock result) {
+        // Assert that proof is appended
+        assertThat(result)
+                .returns(true, multiProof -> multiProof.blockSize() == base.blockSize() + 1)
+                .returns(true, multiProof -> proofToAppend
+                        .blockProof()
+                        .equals(multiProof.proofs().getLast()));
     }
 }

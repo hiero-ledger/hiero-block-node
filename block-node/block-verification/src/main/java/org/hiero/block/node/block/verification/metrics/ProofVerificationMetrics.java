@@ -21,7 +21,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /// @param stateProofFailure  `verification_proof_total{proof_type="state_proof",result="failure"}`
 /// @param tssSuccess         `verification_proof_total{proof_type="tss",result="success"}`
 /// @param tssFailure         `verification_proof_total{proof_type="tss",result="failure"}`
-/// @param rsaRosterMismatch  `rsa_roster_mismatch_total` — RSA signatures from node IDs
+/// @param rsaRosterMismatch  `rsa_roster_mismatch_total` - RSA signatures from node IDs
 ///                           absent from the loaded address book
 /// @param verificationBlockTime time it takes for a block to be completely verified, starts when the session
 ///    is started, includes time to hash and to complete proof verification. Excludes time waiting in order manager.

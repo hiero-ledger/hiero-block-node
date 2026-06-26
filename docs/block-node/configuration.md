@@ -297,6 +297,21 @@ for the JSON schema.
 
 ### Verification Plugin Configuration
 
+| ENV Variable                                      | Description                                                                                                      | Default |
+|:--------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------|--------:|
+| VERIFICATION_RECENTLY_VERIFIED_BLOCKS_BUFFER_SIZE | Size of recently verified blocks buffer. Affects informational failures.                                         |     100 |
+| VERIFICATION_ACTIVE_SESSIONS_BUFFER_SIZE          | Size of active active sessions allowed simultaneously.                                                           |     100 |
+| VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING         | Flag, indicating if all sources require the strict ordering guarantee on the last verified block high watermark. |    true |
+
+> _NOTE_ the `VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING` value should remain `true` in all "Tier 1" Block Nodes.
+>
+> _NOTE_ even if the `VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING` value is set to false, strict ordering will always
+> be imposed for the `PUBLISHER` source. In that scenario, it is possible that gaps can happen, because sources,
+> other than `PUBLISHER`, can supply a valid block, much higher than last verified. This concern is understood and
+> accepted.
+
+### Verification Plugin Configuration (DEPRECATED)
+
 | ENV Variable                                        | Description                                                                    |                                                                 Default |
 |:----------------------------------------------------|:-------------------------------------------------------------------------------|------------------------------------------------------------------------:|
 | VERIFICATION_ALL_BLOCKS_HASHER_ENABLED              | Enable the all-blocks hasher to compute and verify a rolling root hash.        |                                                                   false |

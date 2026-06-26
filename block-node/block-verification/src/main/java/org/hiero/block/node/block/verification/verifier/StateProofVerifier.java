@@ -7,31 +7,42 @@ import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNodeSin
 import static org.hiero.block.common.hasher.HashingUtilities.hashLeaf;
 
 import com.hedera.hapi.block.stream.MerklePath;
+import com.hedera.hapi.block.stream.MerklePath.ContentOneOfType;
 import com.hedera.hapi.block.stream.SiblingNode;
 import com.hedera.hapi.block.stream.StateProof;
+import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.lang.System.Logger;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.metrics.ProofVerificationMetrics;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
 
 /// State proof verifier.
 public final class StateProofVerifier implements ProofVerifier {
-    private static final System.Logger LOGGER = System.getLogger(StateProofVerifier.class.getName());
+    private static final Logger LOGGER = System.getLogger(StateProofVerifier.class.getName());
+    private final AtomicBoolean isCanceled;
     private final ProofVerificationMetrics proofVerificationMetrics;
     private final long blockNumber;
     private final StateProof stateProof;
     private final Bytes rootHash;
     private final VerificationDataProvider verificationDataProvider;
+    boolean foundComputedRootHashMatch = false;
 
     /// Constructor.
     public StateProofVerifier(
+            final AtomicBoolean isCanceled,
             final ProofVerificationMetrics proofVerificationMetrics,
             final long blockNumber,
             final StateProof stateProof,
             final Bytes rootHash,
             final VerificationDataProvider verificationDataProvider) {
+        this.isCanceled = isCanceled;
         this.proofVerificationMetrics = Objects.requireNonNull(proofVerificationMetrics);
         this.blockNumber = blockNumber;
         this.stateProof = Objects.requireNonNull(stateProof);
@@ -39,98 +50,101 @@ public final class StateProofVerifier implements ProofVerifier {
         this.verificationDataProvider = Objects.requireNonNull(verificationDataProvider);
     }
 
-    /// todo(2528) add documentation
+    /// todo(2879) add documentation
     @Override
     public SessionFailureType verify() {
         final SessionFailureType result;
         final List<MerklePath> paths = stateProof.paths();
-        if (paths.size() != 3) {
-            LOGGER.log(WARNING, "Block {0} state proof has {1} paths, expected 3", blockNumber, paths.size());
+        if (paths.size() < 3) {
+            LOGGER.log(WARNING, "Block {0} state proof has {1} paths, expected >= 3", blockNumber, paths.size());
+            result = SessionFailureType.BAD_BLOCK_PROOF;
+        } else if (!isLeaf(paths.getFirst())) {
+            LOGGER.log(WARNING, "Block {0} state proof has non-leaf first path", blockNumber);
             result = SessionFailureType.BAD_BLOCK_PROOF;
         } else {
-            final MerklePath timestampPath = paths.get(0);
-            final MerklePath siblingPath = paths.get(1);
-            final MerklePath terminalPath = paths.get(2);
-            if (!terminalPath.siblings().isEmpty() || terminalPath.hasTimestampLeaf()) {
-                LOGGER.log(WARNING, "Block {0} state proof path 2 (terminal) is unexpectedly non-empty", blockNumber);
-                result = SessionFailureType.BAD_BLOCK_PROOF;
-            } else if (!timestampPath.hasTimestampLeaf()) {
-                LOGGER.log(WARNING, "Block {0} state proof path 0 (timestamp) is missing timestamp leaf", blockNumber);
-                result = SessionFailureType.BAD_BLOCK_PROOF;
-            } else if (!stateProof.hasSignedBlockProof()) {
-                LOGGER.log(WARNING, "Block {0} state proof is missing signed block proof", blockNumber);
+            final Map<Integer, MergeCheckpoint> checkpoints = new HashMap<>();
+            byte[] signedBlockRoot = null;
+            for (int leafStartingIndex = 0; leafStartingIndex < paths.size(); leafStartingIndex++) {
+                if (signedBlockRoot != null) {
+                    break;
+                } else if (isCanceled()) {
+                    return SessionFailureType.CANCELLED;
+                } else {
+                    final MerklePath path = paths.get(leafStartingIndex);
+                    if (isLeaf(path)) {
+                        // First process the next found leaf
+                        byte[] pathResult =
+                                switch (path.content().kind()) {
+                                    case UNSET ->
+                                        throw new IllegalArgumentException("Unexpected MerklePath content kind");
+                                    case HASH -> {
+                                        final byte[] hash = path.hash().toByteArray();
+                                        if (!foundComputedRootHashMatch) {
+                                            foundComputedRootHashMatch = Arrays.equals(rootHash.toByteArray(), hash);
+                                        }
+                                        yield hash;
+                                    }
+                                    case STATE_ITEM_LEAF ->
+                                        hashLeaf(path.stateItemLeaf().toByteArray());
+                                    case BLOCK_ITEM_LEAF ->
+                                        hashLeaf(path.blockItemLeaf().toByteArray());
+                                    case TIMESTAMP_LEAF ->
+                                        hashLeaf(path.timestampLeaf().toByteArray());
+                                };
+                        pathResult = mergeSiblings(path, pathResult);
+                        // Now we must follow the next index, which must always be a join point, and
+                        // we keep following that until we can
+                        boolean canFollowNextIndex = true;
+                        int currentJoinPointIndex = path.nextPathIndex();
+                        while (canFollowNextIndex) {
+                            if (isCanceled()) {
+                                return SessionFailureType.CANCELLED;
+                            } else if (currentJoinPointIndex < 0) {
+                                signedBlockRoot = pathResult;
+                                canFollowNextIndex = false;
+                            } else if (currentJoinPointIndex >= paths.size()) {
+                                return SessionFailureType.BAD_BLOCK_PROOF;
+                            } else {
+                                final MerklePath nextPath = paths.get(currentJoinPointIndex);
+                                if (isJoinPoint(nextPath)) {
+                                    final MergeCheckpoint checkpoint = checkpoints.remove(currentJoinPointIndex);
+                                    if (checkpoint != null) {
+                                        // now we need to merge this with the checkpoint
+                                        if (checkpoint.startIndex == leafStartingIndex) {
+                                            return SessionFailureType.BAD_BLOCK_PROOF;
+                                        } else if (checkpoint.startIndex < leafStartingIndex) {
+                                            pathResult = hashInternalNode(checkpoint.currentHash, pathResult);
+                                        } else {
+                                            pathResult = hashInternalNode(pathResult, checkpoint.currentHash);
+                                        }
+                                        pathResult = mergeSiblings(nextPath, pathResult);
+                                    } else {
+                                        checkpoints.put(
+                                                currentJoinPointIndex,
+                                                new MergeCheckpoint(leafStartingIndex, pathResult));
+                                        canFollowNextIndex = false;
+                                    }
+                                    currentJoinPointIndex = nextPath.nextPathIndex();
+                                } else {
+                                    return SessionFailureType.BAD_BLOCK_PROOF;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (signedBlockRoot == null || !foundComputedRootHashMatch) {
                 result = SessionFailureType.BAD_BLOCK_PROOF;
             } else {
-                final List<SiblingNode> siblings = siblingPath.siblings();
-                final int totalSiblings = siblings.size();
-                if (totalSiblings < 3 || (totalSiblings - 3) % 4 != 0) {
-                    LOGGER.log(
-                            WARNING,
-                            "Block {0} state proof sibling count {1} is invalid (need >= 3, remainder must be multiple of 4)",
-                            blockNumber,
-                            totalSiblings);
-                    result = SessionFailureType.BAD_BLOCK_PROOF;
-                } else if (!siblingPath.hasHash() || siblingPath.hash().length() == 0) {
-                    LOGGER.log(
-                            WARNING,
-                            "Block {0} state proof path 1 (sibling) has missing or empty starting hash",
-                            blockNumber);
-                    result = SessionFailureType.BAD_BLOCK_PROOF;
-                } else {
-                    for (final SiblingNode sibling : siblings) {
-                        if (sibling.hash().length() == 0) {
-                            LOGGER.log(
-                                    WARNING,
-                                    "Block {0} state proof contains a sibling node with an empty hash",
-                                    blockNumber);
-                            proofVerificationMetrics.stateProofFailure().increment();
-                            return SessionFailureType.BAD_BLOCK_PROOF;
-                        }
-                    }
-                    byte[] current = siblingPath.hash().toByteArray();
-                    int index = 0;
-                    boolean firstIteration = true;
-                    while (totalSiblings - index > 3) {
-                        final SiblingNode prevBlockRootsHash = siblings.get(index);
-                        final SiblingNode depth5Node2Sibling = siblings.get(index + 1);
-                        final SiblingNode depth4Node2Sibling = siblings.get(index + 2);
-                        final SiblingNode hashedTimestampSibling = siblings.get(index + 3);
-                        final byte[] depth5Node1 = combineSibling(current, prevBlockRootsHash);
-                        final byte[] depth4Node1 = combineSibling(depth5Node1, depth5Node2Sibling);
-                        final byte[] depth3Node1 = combineSibling(depth4Node1, depth4Node2Sibling);
-                        final byte[] depth2Node2 = hashInternalNodeSingleChild(depth3Node1);
-                        current = hashInternalNode(hashedTimestampSibling.hash().toByteArray(), depth2Node2);
-                        if (firstIteration) {
-                            final Bytes reconstructed = Bytes.wrap(current);
-                            if (!rootHash.equals(reconstructed)) {
-                                LOGGER.log(
-                                        WARNING,
-                                        "Block {0} state proof integrity check failed: hash reconstructed from path 1 siblings"
-                                                + " [{1}] does not match block root hash computed from block content [{2}]",
-                                        blockNumber,
-                                        reconstructed,
-                                        rootHash);
-                                proofVerificationMetrics.stateProofFailure().increment();
-                                return SessionFailureType.BAD_BLOCK_PROOF;
-                            }
-                            firstIteration = false;
-                        }
-                        index += 4;
-                    }
-                    final byte[] depth5Node1 = combineSibling(current, siblings.get(index));
-                    final byte[] depth4Node1 = combineSibling(depth5Node1, siblings.get(index + 1));
-                    final byte[] depth3Node1 = combineSibling(depth4Node1, siblings.get(index + 2));
-                    final byte[] depth2Node2 = hashInternalNodeSingleChild(depth3Node1);
-                    final byte[] hashedTimestampLeaf =
-                            hashLeaf(timestampPath.timestampLeaf().toByteArray());
-                    final byte[] signedBlockRoot = hashInternalNode(hashedTimestampLeaf, depth2Node2);
-                    // todo(2528) check if block signature has value else throw missing field
+                if (stateProof.hasSignedBlockProof()) {
                     final TSSVerifier tssVerifier = new TSSVerifier(
                             proofVerificationMetrics,
                             Bytes.wrap(signedBlockRoot),
                             stateProof.signedBlockProof().blockSignature(),
                             verificationDataProvider);
                     result = tssVerifier.verify();
+                } else {
+                    result = SessionFailureType.BAD_BLOCK_PROOF;
                 }
             }
         }
@@ -142,11 +156,49 @@ public final class StateProofVerifier implements ProofVerifier {
         return result;
     }
 
-    private byte[] combineSibling(byte[] current, SiblingNode sibling) {
+    private byte[] mergeSiblings(final MerklePath path, final byte[] pathResult) {
+        byte[] result = pathResult;
+        for (final SiblingNode sibling : path.siblings()) {
+            if (sibling.hash() == null || sibling.hash().equals(Bytes.EMPTY)) {
+                result = hashInternalNodeSingleChild(result);
+            } else {
+                result = combineSibling(result, sibling);
+            }
+        }
+        return result;
+    }
+
+    private boolean isLeaf(final MerklePath path) {
+        return hasContent(path);
+    }
+
+    private boolean isJoinPoint(final MerklePath path) {
+        return !hasContent(path) && !hasSiblings(path);
+    }
+
+    private boolean hasSiblings(final MerklePath path) {
+        return !path.siblings().isEmpty();
+    }
+
+    private boolean hasContent(final MerklePath path) {
+        final OneOf<ContentOneOfType> content = path.content();
+        return content != null
+                && content.kind() != ContentOneOfType.UNSET
+                && content.value() != null
+                && content.value() != Bytes.EMPTY;
+    }
+
+    private byte[] combineSibling(final byte[] current, final SiblingNode sibling) {
         if (sibling.isLeft()) {
             return hashInternalNode(sibling.hash().toByteArray(), current);
         } else {
             return hashInternalNode(current, sibling.hash().toByteArray());
         }
     }
+
+    private boolean isCanceled() {
+        return isCanceled.get() || Thread.currentThread().isInterrupted();
+    }
+
+    private record MergeCheckpoint(int startIndex, byte[] currentHash) {}
 }

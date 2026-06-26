@@ -45,6 +45,10 @@ public class TestUtils {
         return configurationBuilder;
     }
 
+    public static BlockNodeContext testContext() {
+        return TestUtils.testContext(new TestConfigurationBuilder().getOrCreateConfig(), null);
+    }
+
     public static BlockNodeContext testContext(
             final Configuration configuration, final ThreadPoolManager threadPoolManager) {
         final MetricRegistry metrics = TestUtils.createMetrics();

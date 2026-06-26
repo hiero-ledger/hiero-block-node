@@ -34,8 +34,8 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  *
  * <p>Two files are written per dump:
  * <ul>
- *   <li>{@code block-<N>-<TYPE>.blk} — raw protobuf-encoded {@link BlockUnparsed} bytes
- *   <li>{@code block-<N>-<TYPE>.meta.json} — JSON sidecar with correlation id, failure
+ *   <li>{@code block-<N>-<TYPE>.blk} - raw protobuf-encoded {@link BlockUnparsed} bytes
+ *   <li>{@code block-<N>-<TYPE>.meta.json} - JSON sidecar with correlation id, failure
  *       category, BN identity, and HAPI version
  * </ul>
  *
@@ -75,7 +75,7 @@ public class BadBlockDumper {
             } catch (final IOException e) {
                 LOGGER.log(
                         System.Logger.Level.WARNING,
-                        "Failed to create dump directory {0} — dump feature may not work",
+                        "Failed to create dump directory {0} - dump feature may not work",
                         config.dumpDirectoryPath(),
                         e);
             }

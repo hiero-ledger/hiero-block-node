@@ -494,7 +494,7 @@ class BlockHasherTest {
         @ParameterizedTest
         @MethodSource(FOOTER_WITH_MISSING_VALUES)
         @DisplayName("get() failed hashing when footer values missing")
-        void testMissingFooterValues(final BlockItemUnparsed footerWithMissingValue) throws ParseException {
+        void testMissingFooterValues(final BlockItemUnparsed footerWithMissingValue) {
             final long blockNumber = 0;
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber)
                     .replace(BlockItemUnparsed::hasBlockFooter, footerWithMissingValue);
@@ -533,12 +533,6 @@ class BlockHasherTest {
                 SemanticVersion.DEFAULT, SemanticVersion.DEFAULT, blockNumber, null, BlockHashAlgorithm.SHA2_384);
         return TestBlockBuilder.convertToUnparsedItem(
                 new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, headerWithNoTimestamp)));
-    }
-
-    private BlockItemUnparsed footerWithNoValues() throws ParseException {
-        final BlockFooter footerWithNoValues = new BlockFooter(null, null, null);
-        return TestBlockBuilder.convertToUnparsedItem(
-                new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, new BlockFooter(null, null, null))));
     }
 
     /// All available resource blocks.
