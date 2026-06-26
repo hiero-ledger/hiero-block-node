@@ -841,8 +841,12 @@ class CloudStorageArchivePluginTest {
         ///
         /// A [TempArchiveEntry] is injected directly into [tempArchiveTracker] for group 10 to
         /// simulate data that arrived via a previous temp upload (without needing a real S3 upload).
-        /// Block 10 then triggers the path: `routeToCloudArchive(10)` → `tryStartNewUploadTask(10)`
-        /// → skip (group has temp data) → `routeToTempArchive(10)`.
+        /// The entry covers blocks [10..14].
+        ///
+        /// Block 10 triggers `routeToCloudArchive(10)` → `tryStartNewUploadTask(10)` → skip (group
+        /// has temp data) → `routeToTempArchive(10)`.  Because block 10 is already covered by the
+        /// existing [10..14] archive entry, it is recognised as a duplicate and discarded -- no new
+        /// streaming segment is opened and no regular [BlockUploadTask] is started.
         @Test
         @DisplayName("tryStartNewUploadTask skips when group already has temp archive data")
         void testNoRegularTaskWhenGroupHasTempData() throws Exception {
@@ -855,15 +859,14 @@ class CloudStorageArchivePluginTest {
             plugin.tempArchiveTracker.put(
                     (long) groupSize, new TempArchiveEntry("tmp/00010.tar", groupSize, groupSize + 4, null));
 
-            // Block 10 triggers checkCompletedUpload (sets currentUploadFuture=null), then
-            // routeVerifiedBlock(10): blockNumber==expected so routeToCloudArchive is called.
-            // tryStartNewUploadTask detects temp data for group 10 and skips; block 10 falls
-            // through to routeToTempArchive, starting a new streaming segment for group 10.
+            // Block 10: routeToCloudArchive -> tryStartNewUploadTask skips (temp data exists) ->
+            // routeToTempArchive -> duplicate detected (covered by [10..14]) -> discarded.
+            // No regular task and no new streaming segment are created.
             sendVerification(
                     TestBlockBuilder.generateBlocksInRange(groupSize, groupSize).getFirst());
 
             assertThat(plugin.currentUploadFuture).isNull();
-            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize);
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) groupSize);
         }
 
         /// Verifies that when the gap buffer's contiguous drain reaches a block at the boundary
@@ -894,6 +897,136 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.gapBuffer).isEmpty();
             assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize);
             assertThat(plugin.tempGroupActiveQueues.get((long) groupSize)).hasSize(1);
+        }
+
+        /// Verifies that a block arriving in an abandoned gap -- a range that was skipped when a
+        /// later block advanced [lastHandedOffBlock] past it -- is routed to a new temp segment
+        /// rather than discarded.
+        ///
+        /// Scenario (groupSize = 10):
+        ///   - Block 0 starts the regular task for group [0, 9].
+        ///   - Blocks 10-14 fill [gapBuffer] (capacity 5) and are flushed to a temp segment
+        ///     [10..14]; [lastHandedOffBlock] advances to 14.
+        ///   - Block 19 (a gap in temp) closes segment [10..14] and immediately closes
+        ///     a new one-block segment [19..19] (the group's last block); [lastHandedOffBlock] = 19.
+        ///   - Blocks 15-18 now arrive retrograde.  Because none of them is covered by any
+        ///     existing segment, each is treated as an abandoned gap block: a new segment [15..18]
+        ///     is started at block 15 and closed via bridge detection when block 18 is queued
+        ///     (because block 19 is already covered by segment [19..19]).
+        @Test
+        @DisplayName("Abandoned gap block starts a new temp segment instead of being discarded")
+        void testAbandonedGapBlockStartsNewTempSegment() {
+            final long gs = (long) Math.pow(10, GROUPING_LEVEL); // 10
+
+            // Block 0 starts the regular task for group [0, 9].
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+            assertThat(plugin.currentUploadFuture).isNotNull();
+
+            // Blocks 10-14 fill gapBuffer (capacity 5) and are flushed to temp segment [10..14].
+            sendVerifications(TestBlockBuilder.generateBlocksInRange((int) gs, (int) gs + 4));
+            assertThat(plugin.gapBuffer).isEmpty();
+            assertThat(plugin.tempGroupActiveQueues).containsKey(gs);
+            assertThat(plugin.tempUploadFutures).containsKey(gs);
+
+            // Block 19: gap in temp. Closes [10..14], starts and immediately closes [19..19].
+            sendVerification(TestBlockBuilder.generateBlocksInRange((int) gs * 2 - 1, (int) gs * 2 - 1)
+                    .getFirst());
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey(gs);
+            assertThat(plugin.tempUploadFutures).containsKeys(gs, gs + gs - 1);
+            assertThat(plugin.lastHandedOffBlock).isEqualTo(gs * 2 - 1);
+
+            // Block 15 arrives retrograde but uncovered -- must start a new segment, not be discarded.
+            sendVerification(TestBlockBuilder.generateBlocksInRange((int) gs + 5, (int) gs + 5)
+                    .getFirst());
+            assertThat(plugin.tempGroupActiveQueues).containsKey(gs);
+
+            // Blocks 16-17 continue the new segment.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange((int) gs + 6, (int) gs + 7));
+            assertThat(plugin.tempGroupActiveQueues).containsKey(gs);
+
+            // Block 18: bridge detection fires (block 19 already covered), closing segment [15..18].
+            sendVerification(TestBlockBuilder.generateBlocksInRange((int) gs + 8, (int) gs + 8)
+                    .getFirst());
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey(gs);
+            // Three temp segments: [10..14] = gs, [19..19] = gs+9, [15..18] = gs+5.
+            assertThat(plugin.tempUploadFutures).containsKeys(gs, gs + 5, gs + gs - 1);
+        }
+
+        /// End-to-end test that verifies blocks arriving severely out of order -- including several
+        /// blocks that fill an abandoned gap -- are eventually consolidated into the group's final tar.
+        ///
+        /// The scenario is the same as [testAbandonedGapBlockStartsNewTempSegment] but continues
+        /// through execution of all tasks and consolidation:
+        ///   - Blocks 1-9 are reclaimed for the regular task [0, 9].
+        ///   - [executeSerially] runs BlockUploadTask[0,9] and the three TempArchiveUploadTasks.
+        ///   - Block 20 drives [checkAndDrainTempUploadResults] (all three futures done), detecting
+        ///     full coverage of [10, 19] and queuing a [ConsolidationTask].  It also starts the
+        ///     regular task for group [20, 29].
+        ///   - Blocks 21-29 complete group [20, 29].
+        ///   - [executeSerially] runs the [ConsolidationTask] and BlockUploadTask[20,29].
+        ///   - Both "0000/0000/0000/0000/1.tar" and "0000/0000/0000/0000/2.tar" must exist in S3.
+        @Test
+        @DisplayName("Abandoned gap blocks are eventually consolidated into the group tar")
+        void testAbandonedGapBlocksConsolidateAfterUpload() throws Exception {
+            final int gs = (int) Math.pow(10, GROUPING_LEVEL); // 10
+
+            // Block 0 starts the regular task for group [0, 9].
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+            // Blocks 10-14 fill gapBuffer and are flushed to temp segment [10..14].
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(gs, gs + 4));
+            // Block 19: closes [10..14] and starts/closes [19..19].
+            sendVerification(TestBlockBuilder.generateBlocksInRange(gs * 2 - 1, gs * 2 - 1)
+                    .getFirst());
+            // Blocks 15-18: fill abandoned gap; segment [15..18] is closed by bridge detection at 18.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(gs + 5, gs + 8));
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) gs);
+            assertThat(plugin.tempUploadFutures).hasSize(3);
+            // Blocks 1-9: reclaimed for the regular task.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(1, gs - 1));
+
+            // Run BlockUploadTask[0,9] + three TempArchiveUploadTasks.
+            pluginExecutor.executeSerially();
+            assertTrue(getAllObjects().contains("0000/0000/0000/0000/0.tar"), "group 0-9 tar should be uploaded");
+
+            // Block 20 drives drain and consolidation check; starts regular task for [20, 29].
+            sendVerification(
+                    TestBlockBuilder.generateBlocksInRange(gs * 2, gs * 2).getFirst());
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(gs * 2 + 1, gs * 3 - 1));
+            // Run ConsolidationTask[10,19] + BlockUploadTask[20,29].
+            pluginExecutor.executeSerially();
+            final Set<String> objects = getAllObjects();
+            assertTrue(objects.contains("0000/0000/0000/0000/1.tar"), "consolidated group 10-19 tar should exist");
+            assertTrue(objects.contains("0000/0000/0000/0000/2.tar"), "group 20-29 tar should be uploaded");
+        }
+
+        /// Verifies that a block that was already uploaded as part of a temp segment -- including
+        /// after [tempGroupNextExpected] has been removed when the group's last block closed the
+        /// segment -- is recognised as a true duplicate and discarded rather than starting a
+        /// spurious new segment.
+        @Test
+        @DisplayName("Retrograde duplicate block in a completed temp segment is discarded")
+        void testRetrogradeDuplicateInTempSegmentIsDiscarded() {
+            final int gs = (int) Math.pow(10, GROUPING_LEVEL); // 10
+
+            // Block 0 starts the regular task for group [0, 9].
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+            // Blocks 10-14 fill gapBuffer, creating segment [10..14].
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(gs, gs + 4));
+            // Blocks 15-19 continue the same segment; block 19 (last in group) closes it.
+            // tempGroupNextExpected[10] is removed after the close.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(gs + 5, gs * 2 - 1));
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) gs);
+            assertThat(plugin.tempUploadFutures).containsOnlyKeys((long) gs);
+            assertThat(plugin.tempSegmentLastBlock).containsEntry((long) gs, (long) (gs * 2 - 1));
+
+            // Block 15 arrives again -- it is covered by the in-flight segment [10..19].
+            // With tempGroupNextExpected[10] removed, the old code would default nextExpected to 15
+            // (blockNumber) and bypass the duplicate check, creating a spurious second segment.
+            // The fix checks coverage unconditionally, so the duplicate must be discarded.
+            sendVerification(
+                    TestBlockBuilder.generateBlocksInRange(gs + 5, gs + 5).getFirst());
+            assertThat(plugin.tempUploadFutures).containsOnlyKeys((long) gs);
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) gs);
         }
     }
 
@@ -1714,6 +1847,53 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.isRecoveryComplete()).isTrue();
         }
 
+        /// Verifies that [triggerMidRunRecovery] clears [gapBuffer] and moves its entries to
+        /// [blocksStash], so they are not stranded above the recovered [lastHandedOffBlock].
+        ///
+        /// Scenario:
+        ///   - Block 0 starts the regular upload task (task queued, not yet run); lastHandedOffBlock = 0.
+        ///   - Block 5 arrives while the task is still in-flight: expected=1, gap detected,
+        ///     block 5 enters gapBuffer (checkCompletedUpload sees the task not yet done).
+        ///   - The upload task runs and returns FAILED.
+        ///   - Block 6 arrives: checkCompletedUpload() sees FAILED, calls triggerMidRunRecovery(),
+        ///     which must move gapBuffer (block 5) to blocksStash and clear gapBuffer.
+        ///     Block 6 is then stashed by routeVerifiedBlock() because recovery is active.
+        ///
+        /// Without the fix, gapBuffer would still hold block 5 after recovery.  After recovery
+        /// resets lastHandedOffBlock (potentially much lower), block 5 would sit at a position
+        /// far above lastHandedOffBlock+1, permanently interfering with gap detection.
+        @Test
+        @DisplayName("triggerMidRunRecovery moves gap-buffered blocks to stash and clears gapBuffer")
+        void triggerMidRunRecoveryMovesGapBufferToStash() {
+            start(
+                    new FailingUploadPlugin(() -> UploadResult.FAILED),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    pluginConfig());
+            final BlockingExecutor executor = testThreadPoolManager.executor();
+            executor.executeSerially(); // drain startup recovery
+
+            // Block 0 starts the regular upload task; lastHandedOffBlock becomes 0.
+            // The task is queued but has NOT run yet.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+            assertThat(plugin.currentUploadFuture).isNotNull();
+
+            // Block 5 arrives while the task is still in-flight: expected=1, gap detected.
+            // checkCompletedUpload() finds the task not done yet, so block 5 enters gapBuffer.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(5, 5).getFirst());
+            assertThat(plugin.gapBuffer).containsKey(5L);
+
+            // Now run the failing task -- it returns FAILED.
+            executor.executeSerially();
+
+            // Block 6 arrives: checkCompletedUpload() sees FAILED -> triggerMidRunRecovery() is called.
+            // The fix must move gapBuffer (block 5) to blocksStash and clear gapBuffer before recovery runs.
+            // Block 6 is then stashed by routeVerifiedBlock() because recoveryFuture is now set.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(6, 6).getFirst());
+
+            assertThat(plugin.gapBuffer).isEmpty();
+            assertThat(plugin.blocksStash).containsKeys(5L, 6L);
+        }
+
         private void sendVerifications(List<TestBlock> blocks) {
             for (final TestBlock block : blocks) {
                 sendVerification(block);
@@ -1940,7 +2120,8 @@ class CloudStorageArchivePluginTest {
             // ConsolidationTask[10,19] future, calls checkGroupCoverage (tempArchiveTracker still
             // holds the [10,19] entry), re-queues group 10 in pendingConsolidations, and immediately
             // re-submits the SECOND (real, successful) ConsolidationTask[10,19].
-            // Block 39 itself (blockNumber=39 > expected=30) lands in the gap buffer.
+            // Block 39 itself (blockNumber=39 > expected=30) lands in the gap buffer (incidental
+            // side effect of choosing block 39 as the trigger; not the behaviour under test).
             sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 4 - 1, groupSize * 4 - 1)
                     .getFirst());
             assertThat(plugin.consolidationFutures).containsKey((long) groupSize);
