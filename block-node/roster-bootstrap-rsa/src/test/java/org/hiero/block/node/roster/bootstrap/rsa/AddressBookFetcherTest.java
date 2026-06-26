@@ -14,6 +14,8 @@ import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import java.util.List;
 import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
@@ -68,12 +70,21 @@ class AddressBookFetcherTest {
                 );
     }
 
-    private static NodeAddressBook bookWith(String... keys) {
+    /** Builds a single open-ended era containing nodes with the given RSA keys. */
+    private static RangedAddressBookHistory historyWith(String... keys) {
         List<NodeAddress> addrs = new java.util.ArrayList<>();
         for (int i = 0; i < keys.length; i++) {
             addrs.add(NodeAddress.newBuilder().nodeId(i).rsaPubKey(keys[i]).build());
         }
-        return NodeAddressBook.newBuilder().nodeAddress(addrs).build();
+        final NodeAddressBook book =
+                NodeAddressBook.newBuilder().nodeAddress(addrs).build();
+        return RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(book)
+                        .startBlock(0L)
+                        .endBlock(-1L)
+                        .build()))
+                .build();
     }
 
     private AddressBookFetcher fetcherWithClient(BlockNodeSourceConfig peer, BlockNodeClient client) {
@@ -87,12 +98,12 @@ class AddressBookFetcherTest {
         };
     }
 
-    private BlockNodeClient mockClientReturning(NodeAddressBook book) {
+    private BlockNodeClient mockClientReturning(RangedAddressBookHistory history) {
         BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
                 mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
         when(serviceClient.serverStatusDetail(any()))
                 .thenReturn(ServerStatusDetailResponse.newBuilder()
-                        .nodeAddressBook(book)
+                        .rangedAddressBookHistory(history)
                         .build());
         BlockNodeClient client = mock(BlockNodeClient.class);
         when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
@@ -105,60 +116,69 @@ class AddressBookFetcherTest {
     // -------------------------------------------------------------------------
 
     @Nested
-    @DisplayName("getNodeAddressBook")
-    class GetNodeAddressBookTests {
+    @DisplayName("getRangedNodeAddressBookHistory")
+    class GetRangedNodeAddressBookHistoryTests {
 
         @Test
-        @DisplayName("Returns valid book from a reachable peer")
-        void returnsValidBookFromPeer() {
+        @DisplayName("Returns valid history from a reachable peer")
+        void returnsValidHistoryFromPeer() {
             BlockNodeSourceConfig peer = peer("localhost", 8080);
-            NodeAddressBook expected = bookWith("aabbcc", "ddeeff");
+            RangedAddressBookHistory expected = historyWith("aabbcc", "ddeeff");
             AddressBookFetcher fetcher = fetcherWithClient(peer, mockClientReturning(expected));
 
-            NodeAddressBook result = fetcher.getNodeAddressBook();
+            RangedAddressBookHistory result = fetcher.getRangedNodeAddressBookHistory();
 
             assertNotNull(result);
-            assertEquals(2, result.nodeAddress().size());
-            assertEquals("aabbcc", result.nodeAddress().getFirst().rsaPubKey());
+            assertEquals(1, result.addressBooks().size());
+            assertEquals(
+                    2, result.addressBooks().get(0).addressBook().nodeAddress().size());
+            assertEquals(
+                    "aabbcc",
+                    result.addressBooks()
+                            .get(0)
+                            .addressBook()
+                            .nodeAddress()
+                            .getFirst()
+                            .rsaPubKey());
         }
 
         @Test
-        @DisplayName("Returns null when peer returns null book")
-        void returnsNullWhenPeerReturnsNullBook() {
+        @DisplayName("Returns null when peer returns null history")
+        void returnsNullWhenPeerReturnsNull() {
             BlockNodeSourceConfig peer = peer("localhost", 8080);
             AddressBookFetcher fetcher = fetcherWithClient(peer, mockClientReturning(null));
 
-            assertNull(fetcher.getNodeAddressBook());
+            assertNull(fetcher.getRangedNodeAddressBookHistory());
         }
 
         @Test
-        @DisplayName("Returns null when peer returns empty book")
-        void returnsNullWhenBookIsEmpty() {
+        @DisplayName("Returns null when peer returns empty history")
+        void returnsNullWhenHistoryIsEmpty() {
             BlockNodeSourceConfig peer = peer("localhost", 8080);
-            NodeAddressBook empty =
-                    NodeAddressBook.newBuilder().nodeAddress(List.of()).build();
+            RangedAddressBookHistory empty = RangedAddressBookHistory.newBuilder()
+                    .addressBooks(List.of())
+                    .build();
             AddressBookFetcher fetcher = fetcherWithClient(peer, mockClientReturning(empty));
 
-            assertNull(fetcher.getNodeAddressBook());
+            assertNull(fetcher.getRangedNodeAddressBookHistory());
         }
 
         @Test
         @DisplayName("Returns null when all keys are blank")
         void returnsNullWhenAllKeysBlank() {
             BlockNodeSourceConfig peer = peer("localhost", 8080);
-            NodeAddressBook blankKeys = bookWith("", "  ");
-            AddressBookFetcher fetcher = fetcherWithClient(peer, mockClientReturning(blankKeys));
+            AddressBookFetcher fetcher = fetcherWithClient(peer, mockClientReturning(historyWith("", "  ")));
 
-            assertNull(fetcher.getNodeAddressBook());
+            assertNull(fetcher.getRangedNodeAddressBookHistory());
         }
 
         @Test
         @DisplayName("Increments peerRequests metric on success")
         void incrementsPeerRequestsOnSuccess() {
             BlockNodeSourceConfig peer = peer("localhost", 8080);
-            AddressBookFetcher fetcher = fetcherWithClient(peer, mockClientReturning(bookWith("aabbcc")));
+            AddressBookFetcher fetcher = fetcherWithClient(peer, mockClientReturning(historyWith("aabbcc")));
 
-            fetcher.getNodeAddressBook();
+            fetcher.getRangedNodeAddressBookHistory();
 
             assertEquals(1, testMetricsExporter.getMetricValue(RsaRosterBootstrapPlugin.METRIC_PEER_REQUESTS.name()));
         }
@@ -184,7 +204,7 @@ class AddressBookFetcherTest {
                         }
                     };
 
-            assertNull(fetcher.getNodeAddressBook());
+            assertNull(fetcher.getRangedNodeAddressBookHistory());
             assertEquals(1, testMetricsExporter.getMetricValue(RsaRosterBootstrapPlugin.METRIC_PEER_ERRORS.name()));
             // Client must be evicted so a fresh one is created on next call
             assertTrue(fetcher.nodeClientMap.isEmpty());
@@ -195,7 +215,7 @@ class AddressBookFetcherTest {
         void failoverToSecondPeer() {
             BlockNodeSourceConfig failingPeer = peer("failing", 8080);
             BlockNodeSourceConfig goodPeer = peer("good", 8081);
-            NodeAddressBook expected = bookWith("aabbcc");
+            RangedAddressBookHistory expected = historyWith("aabbcc");
 
             BlockNodeServiceInterface.BlockNodeServiceClient failingService =
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
@@ -217,9 +237,48 @@ class AddressBookFetcherTest {
                 }
             };
 
-            NodeAddressBook result = fetcher.getNodeAddressBook();
+            RangedAddressBookHistory result = fetcher.getRangedNodeAddressBookHistory();
             assertNotNull(result);
-            assertEquals("aabbcc", result.nodeAddress().getFirst().rsaPubKey());
+            assertEquals(
+                    "aabbcc",
+                    result.addressBooks()
+                            .get(0)
+                            .addressBook()
+                            .nodeAddress()
+                            .getFirst()
+                            .rsaPubKey());
+        }
+    }
+
+    @Nested
+    @DisplayName("close")
+    class CloseTests {
+
+        @Test
+        @DisplayName("close swallows IOException from a client that fails to close")
+        void closeSwallowsIoException() throws Exception {
+            BlockNodeSourceConfig peer = peer("localhost", 8080);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.serverStatusDetail(any()))
+                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+                            .rangedAddressBookHistory(historyWith("aabbcc"))
+                            .build());
+            when(serviceClient.fullName()).thenReturn("localhost:8080");
+
+            BlockNodeClient client = mock(BlockNodeClient.class);
+            when(client.isNodeReachable()).thenReturn(true);
+            when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
+            org.mockito.Mockito.doThrow(new java.io.IOException("simulated close failure"))
+                    .when(client)
+                    .close();
+
+            AddressBookFetcher fetcher = fetcherWithClient(peer, client);
+            // Populate nodeClientMap by fetching
+            fetcher.getRangedNodeAddressBookHistory();
+
+            // close() must not propagate IOException from the underlying client
+            org.junit.jupiter.api.Assertions.assertDoesNotThrow(fetcher::close);
         }
     }
 
@@ -228,28 +287,29 @@ class AddressBookFetcherTest {
     class IsValidTests {
 
         @Test
-        @DisplayName("null book is invalid")
+        @DisplayName("null history is invalid")
         void nullIsInvalid() {
             assertFalse(AddressBookFetcher.isValid(null));
         }
 
         @Test
-        @DisplayName("empty book is invalid")
+        @DisplayName("empty history (no eras) is invalid")
         void emptyIsInvalid() {
-            assertFalse(AddressBookFetcher.isValid(
-                    NodeAddressBook.newBuilder().nodeAddress(List.of()).build()));
+            assertFalse(AddressBookFetcher.isValid(RangedAddressBookHistory.newBuilder()
+                    .addressBooks(List.of())
+                    .build()));
         }
 
         @Test
-        @DisplayName("book with one non-blank key is valid")
+        @DisplayName("history with one non-blank key is valid")
         void oneNonBlankKeyIsValid() {
-            assertTrue(AddressBookFetcher.isValid(bookWith("abc")));
+            assertTrue(AddressBookFetcher.isValid(historyWith("abc")));
         }
 
         @Test
-        @DisplayName("book with only blank keys is invalid")
-        void onlyBlankKeysIsInvalid() {
-            assertFalse(AddressBookFetcher.isValid(bookWith("", "")));
+        @DisplayName("history with any blank key is invalid")
+        void anyBlankKeyIsInvalid() {
+            assertFalse(AddressBookFetcher.isValid(historyWith("", "")));
         }
     }
 }

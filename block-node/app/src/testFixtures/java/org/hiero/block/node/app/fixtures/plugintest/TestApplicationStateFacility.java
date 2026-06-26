@@ -76,11 +76,6 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
     }
 
     @Override
-    public boolean updateAddressBook(final NodeAddressBook nodeAddressBook) {
-        return nodeAddressBookUpdates.add(nodeAddressBook);
-    }
-
-    @Override
     public void addStoredBlockRange(final LongRange blockRange) {}
 
     @Override

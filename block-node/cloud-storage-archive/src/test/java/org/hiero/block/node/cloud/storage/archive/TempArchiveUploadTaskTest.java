@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.bucky.S3Client;
-import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -395,11 +394,6 @@ class TempArchiveUploadTaskTest {
     private static final class NoOpApplicationStateFacility implements ApplicationStateFacility {
         @Override
         public void updateTssData(TssData tssData) {}
-
-        @Override
-        public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
-            return true;
-        }
 
         @Override
         public void addStoredBlockRange(LongRange blockRange) {}

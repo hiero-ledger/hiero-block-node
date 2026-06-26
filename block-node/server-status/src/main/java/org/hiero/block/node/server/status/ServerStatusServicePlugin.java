@@ -121,6 +121,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                 .storedRanges(context.storedBlocks())
                 .tssData(context.tssData())
                 .nodeAddressBook(context.nodeAddressBook())
+                .rangedAddressBookHistory(context.rangedAddressBookHistory())
                 .build();
     }
 

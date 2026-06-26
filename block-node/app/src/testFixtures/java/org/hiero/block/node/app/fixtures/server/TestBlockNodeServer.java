@@ -24,6 +24,8 @@ import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
@@ -235,6 +237,7 @@ public class TestBlockNodeServer {
                             List.of(buildRosterEntry(11, 22, Bytes.fromHex("03030303"))),
                             250))
                     .nodeAddressBook(buildAddressBook(4))
+                    .rangedAddressBookHistory(buildRangedHistory(4))
                     .build();
         }
 
@@ -253,6 +256,16 @@ public class TestBlockNodeServer {
                     .wrapsVerificationKey(wrapsVerificationKey)
                     .currentRoster(tssRoster)
                     .validFromBlock(validFromBlock)
+                    .build();
+        }
+
+        private static RangedAddressBookHistory buildRangedHistory(final int count) {
+            return RangedAddressBookHistory.newBuilder()
+                    .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                            .addressBook(buildAddressBook(count))
+                            .startBlock(0L)
+                            .endBlock(-1L)
+                            .build()))
                     .build();
         }
 

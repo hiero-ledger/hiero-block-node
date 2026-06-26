@@ -138,5 +138,84 @@ class DefaultThreadPoolManagerTest {
             actual.shutdownNow();
             actual2.shutdownNow();
         }
+
+        /**
+         * This test aims to verify that
+         * {@link DefaultThreadPoolManager#getVirtualThreadExecutor(String, UncaughtExceptionHandler)}
+         * returns a non-null executor when both arguments are null, and returns
+         * the same (default static) instance on repeated calls.
+         */
+        @Test
+        @DisplayName(
+                "Test getVirtualThreadExecutor(null, null) returns a non-null executor and same instance on repeated calls")
+        void testGetVirtualThreadExecutorBothNull() {
+            final ExecutorService actual = toTest.getVirtualThreadExecutor(null, null);
+            assertThat(actual).isNotNull();
+            final ExecutorService actual2 = toTest.getVirtualThreadExecutor(null, null);
+            assertThat(actual2).isNotNull().isSameAs(actual);
+        }
+
+        /**
+         * This test aims to verify that
+         * {@link DefaultThreadPoolManager#getVirtualThreadExecutor(String, UncaughtExceptionHandler)}
+         * returns a non-null executor when a threadName is provided and the handler is null,
+         * and that tasks submitted to it run on virtual threads named with the given prefix.
+         */
+        @Test
+        @DisplayName(
+                "Test getVirtualThreadExecutor(threadName, null) returns a non-null executor running virtual threads named with the given prefix")
+        void testGetVirtualThreadExecutorWithThreadName() throws Exception {
+            final ExecutorService actual = toTest.getVirtualThreadExecutor("myThread", null);
+            assertThat(actual).isNotNull();
+            final String threadName =
+                    actual.submit(() -> Thread.currentThread().getName()).get(5, TimeUnit.SECONDS);
+            assertThat(threadName).isEqualTo("myThread0");
+            final Thread isVirtual = actual.submit(Thread::currentThread).get(5, TimeUnit.SECONDS);
+            assertThat(isVirtual.isVirtual()).isTrue();
+            actual.shutdownNow();
+        }
+
+        /**
+         * This test aims to verify that
+         * {@link DefaultThreadPoolManager#getVirtualThreadExecutor(String, UncaughtExceptionHandler)}
+         * returns a non-null executor when a handler is provided and the name is null,
+         * and that repeated calls with the same handler return the same cached instance.
+         */
+        @Test
+        @DisplayName(
+                "Test getVirtualThreadExecutor(null, handler) returns a non-null executor and same instance on repeated calls with same handler")
+        void testGetVirtualThreadExecutorWithHandler() {
+            final UncaughtExceptionHandler handler = (t, e) -> {
+                // handle exception
+            };
+            final ExecutorService actual = toTest.getVirtualThreadExecutor(null, handler);
+            assertThat(actual).isNotNull();
+            final ExecutorService actual2 = toTest.getVirtualThreadExecutor(null, handler);
+            assertThat(actual2).isNotNull().isSameAs(actual);
+            actual.shutdownNow();
+        }
+
+        /**
+         * This test aims to verify that
+         * {@link DefaultThreadPoolManager#getVirtualThreadExecutor(String, UncaughtExceptionHandler)}
+         * returns different executor instances when called with two distinct handler instances.
+         */
+        @Test
+        @DisplayName(
+                "Test getVirtualThreadExecutor(null, handler) returns different instances for different handler instances")
+        void testGetVirtualThreadExecutorDifferentHandlers() {
+            final UncaughtExceptionHandler handler1 = (t, e) -> {
+                // handle exception 1
+            };
+            final UncaughtExceptionHandler handler2 = (t, e) -> {
+                // handle exception 2
+            };
+            final ExecutorService actual1 = toTest.getVirtualThreadExecutor(null, handler1);
+            final ExecutorService actual2 = toTest.getVirtualThreadExecutor(null, handler2);
+            assertThat(actual1).isNotNull();
+            assertThat(actual2).isNotNull().isNotSameAs(actual1);
+            actual1.shutdownNow();
+            actual2.shutdownNow();
+        }
     }
 }

@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -151,6 +153,92 @@ class RsaRosterBootstrapPluginTest
     }
 
     // -------------------------------------------------------------------------
+    // Pre-loaded address book history (simulates BlockNodeApp loading history file)
+    //
+    // updateAddressBookHistory(history) replaces the full BlockNodeApp scheduler cycle:
+    //   loadApplicationState() → pendingAddressBookHistory.set() → scanner tick
+    //   → BlockNodeContext rebuilt → plugin.onContextUpdate() called
+    //
+    // By the time doStart() is called, plugin.context.nodeAddressBookHistory() is
+    // non-null, so start() takes the "history-loaded" branch.
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("Pre-loaded address book history (BlockNodeApp loaded history file)")
+    class PreloadedAddressBookHistory {
+
+        @Test
+        @DisplayName("start() records era count and total entry count for a multi-era history")
+        void multiEraHistoryMetrics() {
+            // era1: 3 nodes, era2: 2 nodes → total 5 entries, 2 eras
+            final RangedAddressBookHistory history =
+                    buildHistory(ranged(buildAddressBook(3), 0L, 1000L), ranged(buildAddressBook(2), 1001L, 0L));
+
+            doInit(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
+            updateAddressBookHistory(history);
+            doStart();
+
+            assertEquals(2L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED));
+            assertEquals(5L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
+            assertTrue(getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_LOAD_DURATION_MS) >= 0);
+        }
+
+        @Test
+        @DisplayName("history with a single era reports 1 era and the correct entry count")
+        void singleEraHistoryMetrics() {
+            final RangedAddressBookHistory history = buildHistory(ranged(buildAddressBook(4), 0L, 0L));
+
+            doInit(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
+            updateAddressBookHistory(history);
+            doStart();
+
+            assertEquals(1L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED));
+            assertEquals(4L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
+        }
+
+        @Test
+        @DisplayName("history takes precedence: no Mirror Node fetch is scheduled")
+        void historyPreventsMirrorNodeFetch() {
+            // Even when a mirrorNodeBaseUrl is configured, loading the history means the plugin
+            // returns early in start() — the scheduled executor must stay idle.
+            final RangedAddressBookHistory history = buildHistory(ranged(buildAddressBook(2), 0L, 0L));
+
+            doInit(
+                    new RsaRosterBootstrapPlugin(),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    null,
+                    Map.of("roster.bootstrap.rsa.mirrorNodeBaseUrl", "http://localhost:9999"),
+                    Map.of());
+            updateAddressBookHistory(history);
+            doStart();
+
+            // No tasks should have been submitted to the scheduled executor
+            assertEquals(
+                    0L,
+                    testThreadPoolManager.scheduledExecutor().getTaskCount(),
+                    "No Mirror Node task should be scheduled when history is pre-loaded");
+        }
+
+        @Test
+        @DisplayName("history single era, single address book present → plugin uses single-book path")
+        void fallsBackToSingleBookWhenHistoryAbsent() {
+            // No history in context but a single address book is present → existing path used
+            final NodeAddressBook book = buildAddressBook(3);
+            doInit(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
+            updateAddressBook(book);
+            doStart();
+
+            assertEquals(
+                    1L,
+                    getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED),
+                    "Era gauge must be 0 in single-book mode");
+            assertEquals(3L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
+            assertNotNull(blockNodeContext.nodeAddressBook());
+            assertNotNull(blockNodeContext.rangedAddressBookHistory());
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Mirror Node fallback tests
     // -------------------------------------------------------------------------
 
@@ -214,8 +302,9 @@ class RsaRosterBootstrapPluginTest
         }
 
         @Test
-        @DisplayName("Single-page response loads all nodes into the address book")
+        @DisplayName("Single-page response builds a one-era history from timestampless nodes")
         void singlePageLoadsAllNodes() {
+            // Nodes without timestamps → blank from/to → open-ended era at startBlock=0 (no blocks API call).
             registerStaticHandler(
                     "/api/v1/network/nodes",
                     200,
@@ -224,16 +313,21 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
-            assertNotNull(book);
-            assertEquals(2, book.nodeAddress().size());
-            assertEquals(1L, book.nodeAddress().getFirst().nodeId());
-            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            final NodeAddressBook era0 = history.addressBooks().get(0).addressBook();
+            assertEquals(2, era0.nodeAddress().size());
+            assertEquals(1L, era0.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", era0.nodeAddress().getFirst().rsaPubKey());
+            assertEquals(0L, history.addressBooks().get(0).startBlock());
+            assertEquals(-1L, history.addressBooks().get(0).endBlock()); // open-ended
         }
 
         @Test
-        @DisplayName("Paginated response collects nodes from all pages")
+        @DisplayName("Paginated response collects nodes from all pages into the history")
         void paginatedResponseCollectsAllNodes() {
+            // Both pages have nodes without timestamps → same era key → one era with 2 nodes.
             final AtomicInteger callCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
                 final String body = callCount.getAndIncrement() == 0
@@ -249,11 +343,13 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
-            assertNotNull(book);
-            assertEquals(2, book.nodeAddress().size());
-            assertEquals(1L, book.nodeAddress().get(0).nodeId());
-            assertEquals(2L, book.nodeAddress().get(1).nodeId());
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            final NodeAddressBook era0 = history.addressBooks().get(0).addressBook();
+            assertEquals(2, era0.nodeAddress().size());
+            assertEquals(1L, era0.nodeAddress().get(0).nodeId());
+            assertEquals(2L, era0.nodeAddress().get(1).nodeId());
         }
 
         @Test
@@ -271,32 +367,59 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
-            assertNotNull(book);
-            assertEquals(1, book.nodeAddress().size());
-            assertEquals(2L, book.nodeAddress().getFirst().nodeId());
-            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            final NodeAddressBook era0 = history.addressBooks().get(0).addressBook();
+            assertEquals(1, era0.nodeAddress().size());
+            assertEquals(2L, era0.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", era0.nodeAddress().getFirst().rsaPubKey()); // 0x prefix stripped
         }
 
         @Test
-        @DisplayName("Only active entries (timestamp.to=null) are collected; superseded entries stop pagination")
-        void mixedActiveAndHistoricalEntriesOnlyLoadsActive() {
-            // Single handler serves page 1 on first call and records subsequent calls.
-            // Page 1 contains two active entries followed by one superseded (historical) entry.
-            // The plugin must stop at the historical entry and never request page 2.
-            final AtomicInteger callCount = new AtomicInteger(0);
+        @DisplayName("All entries (active and historical) are included in history; pagination continues")
+        void allEntriesIncludedInHistory() {
+            // Nodes have timestamps → blocks endpoint called to resolve block ranges.
+            // Simple blocks handler: returns block number = (long)(timestamp * 100).
+            server.createContext("/api/v1/blocks", exchange -> {
+                final String query = exchange.getRequestURI().getQuery();
+                long gteBlock = -1, lteBlock = -1;
+                for (final String param : query.split("&")) {
+                    if (param.startsWith("timestamp=gte:")) {
+                        gteBlock = Math.round(Double.parseDouble(param.substring("timestamp=gte:".length())) * 100);
+                    } else if (param.startsWith("timestamp=lte:")) {
+                        lteBlock = Math.round(Double.parseDouble(param.substring("timestamp=lte:".length())) * 100) - 1;
+                    }
+                }
+                // When both gte and lte are present return first+last block so plugin can extract
+                // startBlock=getFirst() and endBlock=getLast().
+                final String body;
+                if (gteBlock >= 0 && lteBlock >= 0) {
+                    body = "{\"blocks\":[{\"number\":" + gteBlock + "},{\"number\":" + lteBlock
+                            + "}],\"links\":{\"next\":null}}";
+                } else {
+                    long blockNum = gteBlock >= 0 ? gteBlock : lteBlock;
+                    body = "{\"blocks\":[{\"number\":" + blockNum + "}],\"links\":{\"next\":null}}";
+                }
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+                exchange.close();
+            });
+
+            final AtomicInteger nodeCallCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
-                final int call = callCount.getAndIncrement();
+                final int call = nodeCallCount.getAndIncrement();
                 final String body;
                 if (call == 0) {
-                    // Page 1: two active (to=null), then one historical (to!=null) — signals end of active entries.
                     body = "{\"nodes\":["
                             + "{\"node_id\":0,\"public_key\":\"aabbcc\",\"timestamp\":{\"from\":\"1000.0\",\"to\":null}},"
                             + "{\"node_id\":1,\"public_key\":\"ddeeff\",\"timestamp\":{\"from\":\"900.0\",\"to\":null}},"
                             + "{\"node_id\":0,\"public_key\":\"oldkey\",\"timestamp\":{\"from\":\"800.0\",\"to\":\"900.0\"}}"
                             + "],\"links\":{\"next\":\"/api/v1/network/nodes?page=2\"}}";
                 } else {
-                    // Page 2 — should never be fetched.
                     body = "{\"nodes\":[],\"links\":{\"next\":null}}";
                 }
                 final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
@@ -310,19 +433,24 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
-            assertNotNull(book);
-            // Only the two active entries (node 0 and node 1) should be present.
-            assertEquals(2, book.nodeAddress().size());
-            assertEquals(0L, book.nodeAddress().get(0).nodeId());
-            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
-            assertEquals(1L, book.nodeAddress().get(1).nodeId());
-            assertEquals("ddeeff", book.nodeAddress().get(1).rsaPubKey());
-            assertEquals(1, callCount.get(), "Page 2 must not be fetched after a superseded entry stops iteration");
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history);
+            // Three distinct eras: [800→~89999], [900→open], [1000→open] — sorted by startBlock
+            assertEquals(3, history.addressBooks().size());
+            assertEquals(2, nodeCallCount.get(), "Page 2 must be fetched to exhaust all entries");
+            // Earliest era (800.0): startBlock = 80000, endBlock = 89999
+            assertEquals(80000L, history.addressBooks().get(0).startBlock());
+            assertEquals(89999L, history.addressBooks().get(0).endBlock());
+            // Middle era (900.0): startBlock = 90000, open-ended
+            assertEquals(90000L, history.addressBooks().get(1).startBlock());
+            assertEquals(-1L, history.addressBooks().get(1).endBlock());
+            // Latest era (1000.0): startBlock = 100000, open-ended
+            assertEquals(100000L, history.addressBooks().get(2).startBlock());
+            assertEquals(-1L, history.addressBooks().get(2).endBlock());
         }
 
         @Test
-        @DisplayName("HTTP 500 triggers retry and succeeds on the next attempt")
+        @DisplayName("HTTP 500 triggers retry; second attempt builds a one-era history")
         void http500TriggersRetryThenSucceeds() throws InterruptedException {
             final AtomicInteger callCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
@@ -353,23 +481,318 @@ class RsaRosterBootstrapPluginTest
 
             // First task is the 500 error
             testThreadPoolManager.scheduledExecutor().executeSerially();
-            // Second task should succeed
+            // Second task should succeed — nodes without timestamps → open-ended era at startBlock=0
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
-            assertNotNull(book);
-            assertEquals(1, book.nodeAddress().size());
-            assertEquals(1, book.nodeAddress().getFirst().nodeId());
-            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            final NodeAddressBook era0 = history.addressBooks().get(0).addressBook();
+            assertEquals(1, era0.nodeAddress().size());
+            assertEquals(1L, era0.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", era0.nodeAddress().getFirst().rsaPubKey());
 
-            // Third task should also succeed
+            // Third task: same era (startBlock=0), different node content.
+            // Incremental path detects no new era (startBlock unchanged) — history stays as-is.
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            final NodeAddressBook book2 = blockNodeContext.nodeAddressBook();
-            assertNotNull(book2);
-            assertEquals(1, book2.nodeAddress().size());
-            assertEquals(2, book2.nodeAddress().getFirst().nodeId());
-            assertEquals("ddeeff", book2.nodeAddress().getFirst().rsaPubKey());
+            final RangedAddressBookHistory history2 = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history2);
+            assertEquals(1, history2.addressBooks().size());
+            final NodeAddressBook era0v2 = history2.addressBooks().get(0).addressBook();
+            assertEquals(1, era0v2.nodeAddress().size());
+            assertEquals(1L, era0v2.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", era0v2.nodeAddress().getFirst().rsaPubKey());
+        }
+
+        @Test
+        @DisplayName("Incremental: no update when active era startBlock is unchanged")
+        void incrementalNoUpdateWhenActiveEraUnchanged() {
+            // Blocks handler: timestamp * 100 → block number (only gte queries expected here)
+            server.createContext("/api/v1/blocks", exchange -> {
+                final String query = exchange.getRequestURI().getQuery();
+                long blockNum = -1;
+                for (final String param : query.split("&")) {
+                    if (param.startsWith("timestamp=gte:")) {
+                        blockNum = Math.round(Double.parseDouble(param.substring("timestamp=gte:".length())) * 100);
+                        break;
+                    }
+                }
+                final String body = "{\"blocks\":[{\"number\":" + blockNum + "}],\"links\":{\"next\":null}}";
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+                exchange.close();
+            });
+
+            // Nodes handler always returns same active era (from=1000.0, to=null)
+            server.createContext("/api/v1/network/nodes", exchange -> {
+                final String body = "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\","
+                        + "\"timestamp\":{\"from\":\"1000.0\",\"to\":null}}],\"links\":{\"next\":null}}";
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+                exchange.close();
+            });
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            // First run: full build → history with startBlock=100000
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            final RangedAddressBookHistory after1 = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(after1);
+            assertEquals(1, after1.addressBooks().size());
+            assertEquals(100000L, after1.addressBooks().get(0).startBlock());
+
+            // Second run: incremental check — same from timestamp → startBlock=100000 ≤ current → no update
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            final RangedAddressBookHistory after2 = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(after2);
+            assertEquals(1, after2.addressBooks().size());
+            assertEquals(100000L, after2.addressBooks().get(0).startBlock());
+            assertEquals(-1L, after2.addressBooks().get(0).endBlock());
+            assertEquals(
+                    1, after2.addressBooks().get(0).addressBook().nodeAddress().size());
+            assertEquals(
+                    "aabbcc",
+                    after2.addressBooks()
+                            .get(0)
+                            .addressBook()
+                            .nodeAddress()
+                            .getFirst()
+                            .rsaPubKey());
+        }
+
+        @Test
+        @DisplayName("Incremental: new era detected closes old era and appends new one")
+        void incrementalUpdateWhenNewEraDetected() {
+            // Generic blocks handler: timestamp*100 → block; gte+lte → [gte, lte-1]
+            server.createContext("/api/v1/blocks", exchange -> {
+                final String query = exchange.getRequestURI().getQuery();
+                long gteBlock = -1, lteBlock = -1;
+                for (final String param : query.split("&")) {
+                    if (param.startsWith("timestamp=gte:")) {
+                        gteBlock = Math.round(Double.parseDouble(param.substring("timestamp=gte:".length())) * 100);
+                    } else if (param.startsWith("timestamp=lte:")) {
+                        lteBlock = Math.round(Double.parseDouble(param.substring("timestamp=lte:".length())) * 100) - 1;
+                    }
+                }
+                final String body;
+                if (gteBlock >= 0 && lteBlock >= 0) {
+                    body = "{\"blocks\":[{\"number\":" + gteBlock + "},{\"number\":" + lteBlock
+                            + "}],\"links\":{\"next\":null}}";
+                } else {
+                    final long blockNum = gteBlock >= 0 ? gteBlock : lteBlock;
+                    body = "{\"blocks\":[{\"number\":" + blockNum + "}],\"links\":{\"next\":null}}";
+                }
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+                exchange.close();
+            });
+
+            // First call: single node with era starting at 1000.0
+            // Second call: new active era at 1100.0, old era now closed (to=1100.0)
+            final AtomicInteger nodeCallCount = new AtomicInteger(0);
+            server.createContext("/api/v1/network/nodes", exchange -> {
+                final int call = nodeCallCount.getAndIncrement();
+                final String body;
+                if (call == 0) {
+                    body = "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\","
+                            + "\"timestamp\":{\"from\":\"1000.0\",\"to\":null}}],\"links\":{\"next\":null}}";
+                } else {
+                    // Newest-first: new active era first, then old closed era
+                    body = "{\"nodes\":["
+                            + "{\"node_id\":2,\"public_key\":\"ddeeff\","
+                            + "\"timestamp\":{\"from\":\"1100.0\",\"to\":null}},"
+                            + "{\"node_id\":1,\"public_key\":\"aabbcc\","
+                            + "\"timestamp\":{\"from\":\"1000.0\",\"to\":\"1100.0\"}}"
+                            + "],\"links\":{\"next\":null}}";
+                }
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+                exchange.close();
+            });
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            // First run: full build → one open-ended era at startBlock=100000
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            final RangedAddressBookHistory after1 = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(after1);
+            assertEquals(1, after1.addressBooks().size());
+            assertEquals(100000L, after1.addressBooks().get(0).startBlock());
+            assertEquals(-1L, after1.addressBooks().get(0).endBlock());
+
+            // Second run: incremental — new era at 110000 detected
+            // Old era closed: endBlock = 110000 - 1 = 109999
+            // New era appended: startBlock=110000, endBlock=-1
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            final RangedAddressBookHistory after2 = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(after2);
+            assertEquals(2, after2.addressBooks().size());
+            // Old era is now closed
+            assertEquals(100000L, after2.addressBooks().get(0).startBlock());
+            assertEquals(109999L, after2.addressBooks().get(0).endBlock());
+            assertEquals(
+                    1L,
+                    after2.addressBooks()
+                            .get(0)
+                            .addressBook()
+                            .nodeAddress()
+                            .getFirst()
+                            .nodeId());
+            assertEquals(
+                    "aabbcc",
+                    after2.addressBooks()
+                            .get(0)
+                            .addressBook()
+                            .nodeAddress()
+                            .getFirst()
+                            .rsaPubKey());
+            // New era is open-ended
+            assertEquals(110000L, after2.addressBooks().get(1).startBlock());
+            assertEquals(-1L, after2.addressBooks().get(1).endBlock());
+            assertEquals(
+                    2L,
+                    after2.addressBooks()
+                            .get(1)
+                            .addressBook()
+                            .nodeAddress()
+                            .getFirst()
+                            .nodeId());
+            assertEquals(
+                    "ddeeff",
+                    after2.addressBooks()
+                            .get(1)
+                            .addressBook()
+                            .nodeAddress()
+                            .getFirst()
+                            .rsaPubKey());
+        }
+
+        @Test
+        @DisplayName("All nodes have blank keys → eraGroups empty → no history update")
+        void allBlankKeysResultsInNoHistory() {
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":[{\"node_id\":1,\"public_key\":\"\"},{\"node_id\":2,\"public_key\":\"  \"}],"
+                            + "\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            assertNull(blockNodeContext.rangedAddressBookHistory(), "No history when all keys are blank");
+        }
+
+        @Test
+        @DisplayName("Blocks API returns 500 → eras with timestamps are skipped → no history update")
+        void blocksApi500CausesErasToBeSkipped() {
+            // Nodes have timestamps, so fetchBlockRange is called. Blocks API returns 500 → null returned.
+            registerStaticHandler("/api/v1/blocks", 500, "");
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\","
+                            + "\"timestamp\":{\"from\":\"1000.0\",\"to\":null}}],"
+                            + "\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            // All eras skipped → rangedBooks empty → no update
+            assertNull(blockNodeContext.rangedAddressBookHistory(), "No history when blocks API always returns 500");
+        }
+
+        @Test
+        @DisplayName("Blocks API returns empty list → fetchBlockRange returns null → era skipped")
+        void blocksApiEmptyListCausesEraToBeSkipped() {
+            // Nodes have timestamps, blocks API returns an empty blocks list.
+            registerStaticHandler("/api/v1/blocks", 200, "{\"blocks\":[],\"links\":{\"next\":null}}");
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\","
+                            + "\"timestamp\":{\"from\":\"1000.0\",\"to\":null}}],"
+                            + "\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            assertNull(blockNodeContext.rangedAddressBookHistory(), "No history when blocks API returns empty list");
+        }
+
+        @Test
+        @DisplayName("Incremental: blocks API fails during new-era check → blockRange null → no update")
+        void incrementalBlocksApiFailSkipsEraCheck() {
+            // Blocks handler: succeeds on first call (full build), then returns 500.
+            final AtomicInteger blocksCallCount = new AtomicInteger(0);
+            server.createContext("/api/v1/blocks", exchange -> {
+                final int call = blocksCallCount.getAndIncrement();
+                if (call == 0) {
+                    // First call: return block 100000 for full build
+                    final String body = "{\"blocks\":[{\"number\":100000}],\"links\":{\"next\":null}}";
+                    final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    try (var out = exchange.getResponseBody()) {
+                        out.write(bytes);
+                    }
+                } else {
+                    // Subsequent calls: fail so incremental blockRange lookup returns null
+                    exchange.sendResponseHeaders(500, -1);
+                }
+                exchange.close();
+            });
+
+            // Nodes handler: first call (full build) returns one era; second (incremental) returns new era
+            final AtomicInteger nodeCallCount = new AtomicInteger(0);
+            server.createContext("/api/v1/network/nodes", exchange -> {
+                final int call = nodeCallCount.getAndIncrement();
+                final String body = call == 0
+                        ? "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\","
+                                + "\"timestamp\":{\"from\":\"1000.0\",\"to\":null}}],\"links\":{\"next\":null}}"
+                        : "{\"nodes\":[{\"node_id\":2,\"public_key\":\"ddeeff\","
+                                + "\"timestamp\":{\"from\":\"1100.0\",\"to\":null}}],\"links\":{\"next\":null}}";
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+                exchange.close();
+            });
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            // First run: full build → history with startBlock=100000
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            assertNotNull(blockNodeContext.rangedAddressBookHistory());
+            assertEquals(
+                    1,
+                    blockNodeContext.rangedAddressBookHistory().addressBooks().size());
+
+            // Second run: incremental — blocks API returns 500 → blockRange null → no update
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            // History unchanged from first run
+            assertEquals(
+                    1,
+                    blockNodeContext.rangedAddressBookHistory().addressBooks().size());
+            assertEquals(
+                    100000L,
+                    blockNodeContext
+                            .rangedAddressBookHistory()
+                            .addressBooks()
+                            .get(0)
+                            .startBlock());
         }
     }
 
@@ -482,24 +905,26 @@ class RsaRosterBootstrapPluginTest
                     .build();
 
             final int[] contextUpdated = {0};
-            final NodeAddressBook[] nodeAddressBooks = {null};
+            final RangedAddressBookHistory[] histories = {null};
             CountDownLatch latch = new CountDownLatch(1);
 
-            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(contextUpdated, nodeAddressBooks, latch);
+            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(contextUpdated, histories, latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), configOverride);
             testThreadPoolManager.scheduledExecutor().executeSerially();
             latch.await();
 
             assertTrue(contextUpdated[0] > 0);
-            assertNotNull(nodeAddressBooks[0]);
+            assertNotNull(histories[0]);
+            assertEquals(1, histories[0].addressBooks().size());
 
             // These are magic numbers, yes. The {@link TestBlockNodeServer} does not yet have a way to pass in TssData
             // to
             // hand back to testers. Using the values that are passed back to make sure the statusDetails api is
             // being called. Todo: add TssData flexibility to {@link TestBlockNodeServer}
-            assertEquals(0L, nodeAddressBooks[0].nodeAddress().getFirst().nodeId());
-            assertEquals(1L, nodeAddressBooks[0].nodeAddress().get(1).nodeId());
+            final NodeAddressBook peerBook = histories[0].addressBooks().get(0).addressBook();
+            assertEquals(0L, peerBook.nodeAddress().getFirst().nodeId());
+            assertEquals(1L, peerBook.nodeAddress().get(1).nodeId());
         }
     }
 
@@ -524,6 +949,20 @@ class RsaRosterBootstrapPluginTest
                     NodeAddress.newBuilder().nodeId(i).rsaPubKey("hexkey" + i).build());
         }
         return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
+    }
+
+    private static RangedNodeAddressBook ranged(NodeAddressBook book, long start, long end) {
+        return RangedNodeAddressBook.newBuilder()
+                .addressBook(book)
+                .startBlock(start)
+                .endBlock(end)
+                .build();
+    }
+
+    private static RangedAddressBookHistory buildHistory(RangedNodeAddressBook... entries) {
+        return RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(entries))
+                .build();
     }
 
     private void createTestBlockNodeSourcesFile(BlockNodeSource blockNodeSource, String configPath) throws IOException {
@@ -598,19 +1037,19 @@ class RsaRosterBootstrapPluginTest
 
     private class TestBootstrapPlugin extends RsaRosterBootstrapPlugin {
         private final int[] contextUpdated;
-        private final NodeAddressBook[] nodeAddressBooks;
+        private final RangedAddressBookHistory[] histories;
         private final CountDownLatch latch;
 
-        private TestBootstrapPlugin(int[] contextUpdated, NodeAddressBook[] nodeAddressBooks, CountDownLatch latch) {
+        private TestBootstrapPlugin(int[] contextUpdated, RangedAddressBookHistory[] histories, CountDownLatch latch) {
             this.contextUpdated = contextUpdated;
-            this.nodeAddressBooks = nodeAddressBooks;
+            this.histories = histories;
             this.latch = latch;
         }
 
         @Override
         public void onContextUpdate(BlockNodeContext context) {
             contextUpdated[0]++;
-            nodeAddressBooks[0] = context.nodeAddressBook();
+            histories[0] = context.rangedAddressBookHistory();
             latch.countDown();
         }
     }

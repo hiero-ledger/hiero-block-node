@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
@@ -17,6 +16,7 @@ import io.helidon.webserver.http.HttpService;
 import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.api.NetworkData;
+import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.DisplayName;
@@ -62,7 +62,7 @@ public class BlockNodePluginTest {
         }
 
         @Override
-        public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
+        public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
             // do nothing
             return false;
         }
@@ -119,7 +119,7 @@ public class BlockNodePluginTest {
         }
 
         @Override
-        public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
+        public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
             // do nothing
             return false;
         }
@@ -164,7 +164,7 @@ public class BlockNodePluginTest {
         }
 
         @Override
-        public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
+        public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
             return false;
         }
 

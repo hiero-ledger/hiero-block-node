@@ -40,20 +40,30 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 ### Application State Configuration
 
-| ENV Variable                      | Description                                                                                     |                              Default                              |
-|:----------------------------------|:------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
-| APP_STATE_TSS_BOOTSTRAP_FILE_PATH | Path where TSS data (ledger ID, current roster, WRAPS VK) is persisted across restarts.         | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json |
-| APP_STATE_RSA_BOOTSTRAP_FILE_PATH | Path where RSA data (node address book) is persisted across restarts.                           | /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json |
-| APP_STATE_BLOCK_RANGES_FILE_PATH  | Path where the stored block range set is persisted. Written every 1,000 blocks received.        | /opt/hiero/block-node/application-state/block-ranges.json         |
-| KNOWN_PUBLISHERS_FILE_PATH        | Path where connections for known publisher are persisted. Read only on start.                   | /opt/hiero/block-node/application-state/known-publishers.json     |
-| INBOUND_PARTNERS_FILE_PATH        | Path where connections for designated inbound partners are persisted. Read only on start.       | /opt/hiero/block-node/application-state/inbound-partners.json     |
-| OUTBOUND_PARTNERS_FILE_PATH       | Path where connections for designated outbound partners are persisted. Read only on start.      | /opt/hiero/block-node/application-state/outbound-partners.json    |
-| APP_STATE_UPDATE_SCAN_INTERVAL    | How often (ms) the application state facility checks for pending TSS data updates. Minimum 100. | 500                                                               |
-| APP_STATE_UPDATE_INITIAL_DELAY    | Delay (ms) before the application state facility begins its first scan.                         | 0                                                                 |
+| ENV Variable                                 | Description                                                                                                                                                                                                                                                                                  |                                Default                                |
+|:---------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
+| APP_STATE_TSS_BOOTSTRAP_FILE_PATH            | Path where TSS data (ledger ID, current roster, WRAPS VK) is persisted across restarts.                                                                                                                                                                                                      | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json     |
+| APP_STATE_RSA_BOOTSTRAP_FILE_PATH            | Path where the single current RSA node address book is persisted across restarts. Used by single-book deployments that have not yet migrated to the address book history file.                                                                                                               | /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json     |
+| APP_STATE_RSA_ADDRESS_BOOK_HISTORY_FILE_PATH | Path to the block-number-keyed RSA address book history file (JSON-encoded `RangedAddressBookHistory`). When present, this file takes precedence over `APP_STATE_RSA_BOOTSTRAP_FILE_PATH` and enables verification of historical WRBs against the address book that was in effect per block. | /opt/hiero/block-node/application-state/rsa-address-book-history.json |
+| APP_STATE_BLOCK_RANGES_FILE_PATH             | Path where the set of available and stored block ranges is persisted. Written every 1,000 blocks received.                                                                                                                                                                                   | /opt/hiero/block-node/application-state/block-ranges.json             |
+| KNOWN_PUBLISHERS_FILE_PATH                   | Path where connections for known publisher are persisted. Read only on start.                                                                                                                                                                                                                | /opt/hiero/block-node/application-state/known-publishers.json         |
+| INBOUND_PARTNERS_FILE_PATH                   | Path where connections for designated inbound partners are persisted. Read only on start.                                                                                                                                                                                                    | /opt/hiero/block-node/application-state/inbound-partners.json         |
+| OUTBOUND_PARTNERS_FILE_PATH                  | Path where connections for designated outbound partners are persisted. Read only on start.                                                                                                                                                                                                   | /opt/hiero/block-node/application-state/outbound-partners.json        |
+| APP_STATE_UPDATE_SCAN_INTERVAL               | How often (ms) the application state facility checks for pending TSS data updates. Minimum 100.                                                                                                                                                                                              | 500                                                                   |
+| APP_STATE_UPDATE_INITIAL_DELAY               | Delay (ms) before the application state facility begins its first scan.                                                                                                                                                                                                                      | 0                                                                     |
 
 Stored blocks are all blocks reported as persisted by any plugin. Block availability is derived
 from `HistoricalBlockFacility` at query time and is not persisted separately. The stored block
 range set is loaded at startup and persisted to disk automatically.
+
+#### RSA address book history vs. single-book file
+
+The BN supports two modes for RSA key material:
+
+- **Single-book mode** (`APP_STATE_RSA_BOOTSTRAP_FILE_PATH`): the original mode — one `NodeAddressBook` covering the current network state. Sufficient for deployments that only handle live blocks.
+- **History mode** (`APP_STATE_RSA_ADDRESS_BOOK_HISTORY_FILE_PATH`): a `RangedAddressBookHistory` containing one entry per address book era, each scoped to a `[startBlock, endBlock]` range. Required for verifying historical Wrapped Record Blocks (WRBs) against the keys that were in effect when those blocks were produced.
+
+When the history file is present at startup it takes precedence. When only the single-book file is present, the BN wraps it into a single open-ended era (covering all block numbers) so verification behaviour is unchanged.
 
 ### Metrics Endpoint Configuration
 

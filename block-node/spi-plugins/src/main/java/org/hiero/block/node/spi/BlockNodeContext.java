@@ -6,6 +6,8 @@ import com.swirlds.config.api.Configuration;
 import java.util.List;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
@@ -38,7 +40,9 @@ import org.hiero.metrics.core.MetricRegistry;
  * @param threadPoolManager the thread pool manager for the block node
  * @param blockNodeVersions the version information associated with a block node
  * @param tssData the tss information needed for block verification
- * @param nodeAddressBook the RSA node address book loaded at startup for WRB proof verification
+ * @param rangedAddressBookHistory the block-number-keyed RSA address book history for historical
+ *     WRB verification; takes precedence over {@code nodeAddressBook} when non-{@code null}.
+ *     {@code null} when no history file has been loaded.
  * @param storedBlocks the current range of stored blocks
  * @param availableBlocks the current range of available blocks
  */
@@ -53,9 +57,18 @@ public record BlockNodeContext(
         ThreadPoolManager threadPoolManager,
         BlockNodeVersions blockNodeVersions,
         TssData tssData,
-        NodeAddressBook nodeAddressBook,
+        RangedAddressBookHistory rangedAddressBookHistory,
         List<BlockRange> storedBlocks,
         List<BlockRange> availableBlocks) {
+
+    /// returns the most recent {@code NodeAddressBook} from the address book history
+    ///
+    /// @return The most recent {@code NodeAddressBook}
+    public NodeAddressBook nodeAddressBook() {
+        return rangedAddressBookHistory != null
+                ? rangedAddressBookHistory.addressBooks().getLast().addressBook()
+                : null;
+    }
 
     // Static inner Builder class
     public static class Builder {
@@ -69,7 +82,7 @@ public record BlockNodeContext(
         ThreadPoolManager threadPoolManager;
         BlockNodeVersions blockNodeVersions;
         TssData tssData;
-        NodeAddressBook nodeAddressBook;
+        public RangedAddressBookHistory rangedAddressBookHistory;
         List<BlockRange> storedBlocks;
         List<BlockRange> availableBlocks;
 
@@ -84,29 +97,42 @@ public record BlockNodeContext(
             this.threadPoolManager = context.threadPoolManager;
             this.blockNodeVersions = context.blockNodeVersions;
             this.tssData = context.tssData;
-            this.nodeAddressBook = context.nodeAddressBook;
+            this.rangedAddressBookHistory = context.rangedAddressBookHistory;
             this.storedBlocks = List.copyOf(context.storedBlocks);
             this.availableBlocks = List.copyOf(context.availableBlocks);
         }
 
         public Builder tssData(TssData tssData) {
             this.tssData = tssData;
-            return this; // Returns the builder for chaining
+            return this;
         }
 
+        /// Sets the rangedAddressBookHistory to a single era consisting of the NodeAddressBook
         public Builder nodeAddressBook(NodeAddressBook nodeAddressBook) {
-            this.nodeAddressBook = nodeAddressBook;
-            return this; // Returns the builder for chaining
+            this.rangedAddressBookHistory = RangedAddressBookHistory.newBuilder()
+                    .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                            .addressBook(nodeAddressBook)
+                            .startBlock(0L)
+                            .endBlock(-1L)
+                            .build()))
+                    .build();
+
+            return this;
+        }
+
+        public Builder rangedAddressBookHistory(RangedAddressBookHistory rangedAddressBookHistory) {
+            this.rangedAddressBookHistory = rangedAddressBookHistory;
+            return this;
         }
 
         public Builder storedBlocks(List<BlockRange> storedBlocks) {
             this.storedBlocks = storedBlocks;
-            return this; // Returns the builder for chaining
+            return this;
         }
 
         public Builder availableBlocks(List<BlockRange> availableBlocks) {
             this.availableBlocks = availableBlocks;
-            return this; // Returns the builder for chaining
+            return this;
         }
 
         public BlockNodeContext build() {
@@ -121,7 +147,7 @@ public record BlockNodeContext(
                     this.threadPoolManager,
                     this.blockNodeVersions,
                     this.tssData,
-                    this.nodeAddressBook,
+                    this.rangedAddressBookHistory,
                     this.storedBlocks,
                     this.availableBlocks);
         }

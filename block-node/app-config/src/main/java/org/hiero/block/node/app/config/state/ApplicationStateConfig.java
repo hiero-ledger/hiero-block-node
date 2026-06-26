@@ -15,7 +15,8 @@ import org.hiero.block.node.base.Loggable;
  *
  * @param tssBootstrapFilePath path where application state, like TSS data (ledger ID, address book, WRAPS VK),
  *     are persisted across restarts as a serialized {@code TssData}.
- * @param rsaBootstrapFilePath path to the RSA roster bootstrap file (JSON-encoded {@code NodeAddressBook}).
+ * @param rsaBootstrapFilePath path to the RSA roster bootstrap file (JSON-encoded {@code NodeAddressBook}) or
+ *     the block-number-keyed RSA address book history file (JSON-encoded {@code RangedAddressBookHistory}).
  *     Configured via {@code app.state.rsaBootstrapFilePath}.
  *     Defaults to {@code /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json}.
  * @param blockRangesFilePath path to the JSON file where the stored block range set is persisted.

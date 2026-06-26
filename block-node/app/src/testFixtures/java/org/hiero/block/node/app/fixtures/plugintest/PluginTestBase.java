@@ -22,6 +22,7 @@ import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
+import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
@@ -320,39 +321,24 @@ public abstract class PluginTestBase<
      */
     @Override
     public void updateTssData(TssData tssData) {
-        blockNodeContext = new BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                tssData,
-                blockNodeContext.nodeAddressBook(),
-                blockNodeContext.storedBlocks(),
-                blockNodeContext.availableBlocks());
+        blockNodeContext =
+                new BlockNodeContext.Builder(blockNodeContext).tssData(tssData).build();
         plugin.onContextUpdate(blockNodeContext);
     }
 
-    @Override
     public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
-        blockNodeContext = new BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                blockNodeContext.tssData(),
-                nodeAddressBook,
-                blockNodeContext.storedBlocks(),
-                blockNodeContext.availableBlocks());
+        blockNodeContext = new BlockNodeContext.Builder(blockNodeContext)
+                .nodeAddressBook(nodeAddressBook)
+                .build();
+        plugin.onContextUpdate(blockNodeContext);
+        return true;
+    }
+
+    @Override
+    public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
+        blockNodeContext = new BlockNodeContext.Builder(blockNodeContext)
+                .rangedAddressBookHistory(history)
+                .build();
         plugin.onContextUpdate(blockNodeContext);
         return true;
     }

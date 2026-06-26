@@ -35,6 +35,8 @@ import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
@@ -121,6 +123,7 @@ class BlockNodeAppTest {
         for (String file : List.of(
                 "build/tmp/data/block/node/tss-bootstrap-roster.json",
                 "build/resources/test/data/config/rsa-bootstrap-roster.json",
+                "build/tmp/data/block/node/rsa-address-book-history.json",
                 "build/tmp/data/block/node/block-ranges.json")) {
             try {
                 Files.deleteIfExists(Path.of(file));
@@ -489,46 +492,6 @@ class BlockNodeAppTest {
     }
 
     /**
-     * updateAddressBook with null input is a no-op — context stays unchanged.
-     */
-    @Test
-    @DisplayName("updateAddressBook with null input is a no-op")
-    void updateAddressBookNullIsNoOp() throws IOException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        app.startApplicationStateFacility();
-        final NodeAddressBook before = app.blockNodeContext.nodeAddressBook();
-
-        app.updateAddressBook(null);
-
-        assertEquals(before, app.blockNodeContext.nodeAddressBook(), "null update must not change the address book");
-        app.stopApplicationStateFacility();
-    }
-
-    /**
-     * updateAddressBook with an empty or all-blank-key book is rejected; context stays unchanged.
-     */
-    @Test
-    @DisplayName("updateAddressBook rejects invalid books and leaves context unchanged")
-    void updateAddressBookInvalidBookIsRejected() throws IOException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        app.startApplicationStateFacility();
-
-        final NodeAddressBook emptyBook = NodeAddressBook.newBuilder().build();
-        app.updateAddressBook(emptyBook);
-        assertNull(app.blockNodeContext.nodeAddressBook(), "Empty book must be rejected");
-
-        final NodeAddressBook allBlank = NodeAddressBook.newBuilder()
-                .nodeAddress(NodeAddress.newBuilder().nodeId(0).rsaPubKey("").build())
-                .build();
-        app.updateAddressBook(allBlank);
-        assertNull(app.blockNodeContext.nodeAddressBook(), "All-blank-key book must be rejected");
-
-        app.stopApplicationStateFacility();
-    }
-
-    /**
      * When the RSA bootstrap file does not exist the address book is null after startup.
      */
     @Test
@@ -563,98 +526,294 @@ class BlockNodeAppTest {
         Files.createDirectories(rsaPath.getParent());
         Files.write(rsaPath, new byte[] {(byte) 0xFF, (byte) 0xFE, 0x00});
 
-        assertThrows(
-                IllegalStateException.class,
-                app::startApplicationStateFacility,
-                "Corrupt RSA file must throw IllegalStateException");
+        assertThrows(IllegalStateException.class, app::startApplicationStateFacility);
+
         app.stopApplicationStateFacility();
     }
 
     /**
-     * updateAddressBook queues the book for the scanner and context is updated on the next tick.
+     * When the history file exists it is loaded and exposed in nodeAddressBookHistory.
      */
     @Test
-    @DisplayName("updateAddressBook queues book; scanner picks it up and notifies plugins")
-    void updateAddressBookQueuesForScanner() throws IOException, InterruptedException, NoSuchAlgorithmException {
+    @DisplayName("loadApplicationState with history file populates nodeAddressBookHistory")
+    void loadApplicationStateHistoryFilePopulatesHistory() throws Exception {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        final TestPlugin testPlugin = new TestPlugin();
+        final Path historyPath = app.blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .rsaBootstrapFilePath();
+
+        // Write a two-era history file
+        Files.createDirectories(historyPath.getParent());
+        final RangedAddressBookHistory history = buildTwoEraHistory();
+        Files.write(historyPath, RangedAddressBookHistory.JSON.toBytes(history).toByteArray());
+
         app.startApplicationStateFacility();
-        app.loadedPlugins.add(testPlugin);
 
-        final int updatesBeforeCall = testPlugin.getContextUpdated();
-        testPlugin.expectContextUpdates(1);
+        final RangedAddressBookHistory loaded = app.blockNodeContext.rangedAddressBookHistory();
+        assertNotNull(loaded, "History file must populate nodeAddressBookHistory");
+        assertEquals(2, loaded.addressBooks().size(), "Two eras must be loaded");
+        app.stopApplicationStateFacility();
+    }
 
-        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+    private void createRsaBootstrapFile(BlockNodeApp app) throws Exception {
+        final ApplicationStateConfig cfg =
+                app.blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
+        final Path rsaPath = cfg.rsaBootstrapFilePath();
+
+        // Write a valid single-book RSA file (needs a real RSA key to pass validateAddressBook)
+        final java.security.KeyPairGenerator kpg = java.security.KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
-        final KeyPair kp = kpg.generateKeyPair();
-        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
+        final String hexKey =
+                HexFormat.of().formatHex(kpg.generateKeyPair().getPublic().getEncoded());
         final NodeAddressBook book = NodeAddressBook.newBuilder()
                 .nodeAddress(
                         NodeAddress.newBuilder().nodeId(1).rsaPubKey(hexKey).build())
                 .build();
-        app.updateAddressBook(book);
+        Files.createDirectories(rsaPath.getParent());
+        Files.write(rsaPath, NodeAddressBook.JSON.toBytes(book).toByteArray());
+    }
+    /**
+     * When only the single-book RSA file exists (no history file) the backward-compat bridge
+     * wraps it into a single open-ended era in nodeAddressBookHistory.
+     */
+    @Test
+    @DisplayName("loadApplicationState with only single-book file wraps it into a single-era history")
+    void loadApplicationStateSingleBookWrappedAsHistory() throws Exception {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final ApplicationStateConfig cfg =
+                app.blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
+        final Path historyPath = cfg.rsaBootstrapFilePath();
+        // Ensure the history file does not exist
+        Files.deleteIfExists(historyPath);
 
-        // wait for the scanner to pick up the pending address book and call onContextUpdate
-        testPlugin.awaitContextUpdates(5);
+        createRsaBootstrapFile(app);
+        app.startApplicationStateFacility();
 
-        assertEquals(
-                updatesBeforeCall + 1,
-                testPlugin.getContextUpdated(),
-                "onContextUpdate must be called once for the address book update");
-        assertNotNull(app.blockNodeContext.nodeAddressBook());
-        assertEquals(1, app.blockNodeContext.nodeAddressBook().nodeAddress().size());
-        assertEquals(
-                hexKey,
-                app.blockNodeContext.nodeAddressBook().nodeAddress().getFirst().rsaPubKey());
+        final RangedAddressBookHistory history = app.blockNodeContext.rangedAddressBookHistory();
+        assertNotNull(history, "Single-book must be wrapped into a history");
+        assertEquals(1, history.addressBooks().size(), "Wrapped history must have exactly one era");
+        assertEquals(0L, history.addressBooks().getFirst().startBlock());
+        assertEquals(-1L, history.addressBooks().getFirst().endBlock(), "Wrapped era must be open-ended");
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * A corrupt history file must throw IllegalStateException.
+     */
+    @Test
+    @DisplayName("loadApplicationState with corrupt history file throws IllegalStateException")
+    void loadApplicationStateCorruptHistoryFileThrows() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final Path historyPath = app.blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .rsaBootstrapFilePath();
+        Files.createDirectories(historyPath.getParent());
+        Files.write(historyPath, new byte[] {(byte) 0xFF, (byte) 0xFE, 0x00});
+
+        assertThrows(IllegalStateException.class, app::startApplicationStateFacility);
 
         app.stopApplicationStateFacility();
     }
 
     /**
-     * Address book persisted by updateAddressBook is reloaded by a fresh BlockNodeApp.
+     * A history file with zero entries must throw IllegalStateException.
      */
     @Test
-    @DisplayName("address book is persisted and reloaded on next startup")
-    void addressBookPersistenceRoundTrip() throws IOException, InterruptedException, NoSuchAlgorithmException {
+    @DisplayName("loadApplicationState with empty history file throws IllegalStateException")
+    void loadApplicationStateEmptyHistoryFileThrows() throws Exception {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        final Path rsaPath = app.blockNodeContext
+        final Path historyPath = app.blockNodeContext
                 .configuration()
-                .getConfigData(org.hiero.block.node.app.config.state.ApplicationStateConfig.class)
+                .getConfigData(ApplicationStateConfig.class)
                 .rsaBootstrapFilePath();
+        Files.createDirectories(historyPath.getParent());
+        Files.write(
+                historyPath,
+                RangedAddressBookHistory.JSON
+                        .toBytes(RangedAddressBookHistory.DEFAULT)
+                        .toByteArray());
 
-        app.startApplicationStateFacility();
-        final TestPlugin testPlugin = new TestPlugin();
-        app.loadedPlugins.add(testPlugin);
-        testPlugin.expectContextUpdates(1);
+        assertThrows(IllegalStateException.class, app::startApplicationStateFacility);
 
-        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(2048);
-        final KeyPair kp = kpg.generateKeyPair();
-        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
-
-        final NodeAddressBook book = NodeAddressBook.newBuilder()
-                .nodeAddress(
-                        NodeAddress.newBuilder().nodeId(7).rsaPubKey(hexKey).build())
-                .build();
-        app.updateAddressBook(book);
-        // wait for scanner to process and persist the address book
-        testPlugin.awaitContextUpdates(5);
         app.stopApplicationStateFacility();
+    }
 
-        assertTrue(Files.exists(rsaPath), "RSA file must exist after persistence");
+    /**
+     * updateAddressBookHistory rejects an incoming history whose last era starts at the same block
+     * as the current one — context must remain unchanged.
+     */
+    @Test
+    @DisplayName("updateAddressBookHistory: same-era history does not replace current context")
+    void updateAddressBookHistoryIgnoresNonNewerHistory() throws IOException, InterruptedException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final TestPlugin testPlugin = new TestPlugin();
+        app.startApplicationStateFacility();
+        app.loadedPlugins.add(testPlugin);
 
-        // second app loads from persisted file
-        final BlockNodeApp app2 = new BlockNodeApp(serviceLoaderFunction, false);
-        app2.startApplicationStateFacility();
+        // Seed the context with a one-era history (startBlock=100)
+        final RangedAddressBookHistory initial = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(NodeAddressBook.newBuilder()
+                                .nodeAddress(NodeAddress.newBuilder()
+                                        .nodeId(1)
+                                        .rsaPubKey("aaaa")
+                                        .build())
+                                .build())
+                        .startBlock(100L)
+                        .endBlock(-1L)
+                        .build()))
+                .build();
+        testPlugin.expectContextUpdates(1);
+        app.updateAddressBookHistory(initial);
+        testPlugin.awaitContextUpdates(5);
 
-        final NodeAddressBook loaded = app2.blockNodeContext.nodeAddressBook();
-        assertNotNull(loaded, "Persisted address book must be loaded on restart");
-        assertEquals(1, loaded.nodeAddress().size());
-        assertEquals(hexKey, loaded.nodeAddress().getFirst().rsaPubKey());
+        // Try to replace it with a history whose last era has the same startBlock=100 (not newer)
+        final RangedAddressBookHistory stale = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(NodeAddressBook.newBuilder()
+                                .nodeAddress(NodeAddress.newBuilder()
+                                        .nodeId(99)
+                                        .rsaPubKey("zzzz")
+                                        .build())
+                                .build())
+                        .startBlock(100L)
+                        .endBlock(-1L)
+                        .build()))
+                .build();
+        testPlugin.expectContextUpdates(0);
+        app.updateAddressBookHistory(stale);
+        // Give the scanner a moment to process (or confirm it doesn't)
+        Thread.sleep(200);
 
-        app2.stopApplicationStateFacility();
+        // Context must still hold the initial history
+        final RangedAddressBookHistory ctx = app.blockNodeContext.rangedAddressBookHistory();
+        assertNotNull(ctx);
+        assertEquals(
+                1L,
+                ctx.addressBooks()
+                        .getFirst()
+                        .addressBook()
+                        .nodeAddress()
+                        .getFirst()
+                        .nodeId());
+        assertEquals(
+                "aaaa",
+                ctx.addressBooks()
+                        .getFirst()
+                        .addressBook()
+                        .nodeAddress()
+                        .getFirst()
+                        .rsaPubKey());
+
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * updateAddressBookHistory accepts an incoming history whose last era starts at a higher block.
+     */
+    @Test
+    @DisplayName("updateAddressBookHistory: newer history (higher startBlock) replaces current context")
+    void updateAddressBookHistoryAcceptsNewerHistory() throws IOException, InterruptedException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final TestPlugin testPlugin = new TestPlugin();
+        app.startApplicationStateFacility();
+        app.loadedPlugins.add(testPlugin);
+
+        // Seed with startBlock=100
+        final RangedAddressBookHistory v1 = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(NodeAddressBook.newBuilder()
+                                .nodeAddress(NodeAddress.newBuilder()
+                                        .nodeId(1)
+                                        .rsaPubKey("aaaa")
+                                        .build())
+                                .build())
+                        .startBlock(100L)
+                        .endBlock(-1L)
+                        .build()))
+                .build();
+        testPlugin.expectContextUpdates(1);
+        app.updateAddressBookHistory(v1);
+        testPlugin.awaitContextUpdates(5);
+
+        // Update with a two-era history whose last era has startBlock=200 (newer)
+        final RangedAddressBookHistory v2 = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(
+                        RangedNodeAddressBook.newBuilder()
+                                .addressBook(NodeAddressBook.newBuilder()
+                                        .nodeAddress(NodeAddress.newBuilder()
+                                                .nodeId(1)
+                                                .rsaPubKey("aaaa")
+                                                .build())
+                                        .build())
+                                .startBlock(100L)
+                                .endBlock(199L)
+                                .build(),
+                        RangedNodeAddressBook.newBuilder()
+                                .addressBook(NodeAddressBook.newBuilder()
+                                        .nodeAddress(NodeAddress.newBuilder()
+                                                .nodeId(2)
+                                                .rsaPubKey("bbbb")
+                                                .build())
+                                        .build())
+                                .startBlock(200L)
+                                .endBlock(-1L)
+                                .build()))
+                .build();
+        testPlugin.expectContextUpdates(1);
+        app.updateAddressBookHistory(v2);
+        testPlugin.awaitContextUpdates(5);
+
+        final RangedAddressBookHistory ctx = app.blockNodeContext.rangedAddressBookHistory();
+        assertNotNull(ctx);
+        assertEquals(2, ctx.addressBooks().size());
+        assertEquals(200L, ctx.addressBooks().getLast().startBlock());
+        assertEquals(
+                "bbbb",
+                ctx.addressBooks()
+                        .getLast()
+                        .addressBook()
+                        .nodeAddress()
+                        .getFirst()
+                        .rsaPubKey());
+
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * Builds a two-era RangedAddressBookHistory with synthetic keys for use in tests.
+     * Only startBlock/endBlock are checked by load logic; no key validation at history load time.
+     */
+    private static RangedAddressBookHistory buildTwoEraHistory() {
+        final NodeAddressBook era1 = NodeAddressBook.newBuilder()
+                .nodeAddress(
+                        NodeAddress.newBuilder().nodeId(1L).rsaPubKey("aaaa").build())
+                .build();
+        final NodeAddressBook era2 = NodeAddressBook.newBuilder()
+                .nodeAddress(
+                        NodeAddress.newBuilder().nodeId(2L).rsaPubKey("bbbb").build())
+                .build();
+        return RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(
+                        RangedNodeAddressBook.newBuilder()
+                                .addressBook(era1)
+                                .startBlock(0L)
+                                .endBlock(999L)
+                                .build(),
+                        RangedNodeAddressBook.newBuilder()
+                                .addressBook(era2)
+                                .startBlock(1000L)
+                                .endBlock(-1L)
+                                .build()))
+                .build();
     }
 
     /**
@@ -875,20 +1034,22 @@ class BlockNodeAppTest {
      */
     @Test
     @DisplayName("Test that block node ranges are received via onContextUpdate()")
-    void testBlockRangesTriggerOnContextUpdate() throws IOException, InterruptedException {
+    void testBlockRangesTriggerOnContextUpdate() throws Exception {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
         final TestPlugin testPlugin = new TestPlugin();
 
+        createRsaBootstrapFile(blockNodeApp);
         // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
         blockNodeApp.startApplicationStateFacility();
         blockNodeApp.loadedPlugins.add(testPlugin);
         blockNodeApp.addStoredBlockRange(new LongRange(0, 999));
         testPlugin.expectContextUpdates(1);
         blockNodeApp.addStoredBlockRange(new LongRange(1000, 1049));
+        testPlugin.expectContextUpdates(1);
 
         // wait for the ApplicationStateFacility scanner to pick up the update
-        testPlugin.awaitContextUpdates(11);
+        testPlugin.awaitContextUpdates(15);
 
         BlockNodeContext context = testPlugin.getContext();
         assertNotNull(context);

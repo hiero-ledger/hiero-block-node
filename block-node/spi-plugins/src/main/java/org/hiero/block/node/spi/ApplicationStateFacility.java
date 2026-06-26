@@ -3,6 +3,7 @@ package org.hiero.block.node.spi;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import org.hiero.block.api.NetworkData;
+import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
@@ -21,14 +22,22 @@ public interface ApplicationStateFacility {
     void updateTssData(TssData tssData);
 
     /**
-     * Used by plugins to update the consensus node NodeAddressBook for this application,
-     * i.e. {@code RsaRosterBootstrapPlugin}. The update will be forwarded to all plugins using
-     * {@link BlockNodePlugin#onContextUpdate(BlockNodeContext)}.
+     * Used by plugins to update the block-number-keyed RSA address book history for this
+     * application. When present, the history takes precedence over the single
+     * {@code NodeAddressBook} for historical WRB verification. The update will be forwarded to
+     * all plugins using {@link BlockNodePlugin#onContextUpdate(BlockNodeContext)}.
      *
-     * @param nodeAddressBook The NodeAddressBook to be stored in the BlockNodeContext.
-     * @return true if the addressbook is queued for update, false if it was not
+     * <p>The default implementation is a no-op that returns {@code false}. Implementations that
+     * support the history file (i.e. {@code BlockNodeApp}) override this method.
+     *
+     * @param history the {@code RangedAddressBookHistory} to store in the BlockNodeContext;
+     *     must not be {@code null}
+     * @return {@code true} if the history is queued for update, {@code false} if it was not
+     *     (e.g. equal to the currently stored value or implementation does not support history)
      */
-    boolean updateAddressBook(NodeAddressBook nodeAddressBook);
+    default boolean updateAddressBookHistory(RangedAddressBookHistory history) {
+        return false;
+    }
 
     /**
      * Records a contiguous range of blocks as stored (persisted but not necessarily retrievable by
@@ -37,6 +46,16 @@ public interface ApplicationStateFacility {
      * @param blockRange the contiguous range of block numbers being reported
      */
     void addStoredBlockRange(LongRange blockRange);
+
+    /**
+     * Returns the {@link NodeAddressBook} for the supplied {@code blickNum }
+     *
+     * @param blockNum the block number whose address book you need
+     * @return the {@link NodeAddressBook} or null if not found
+     */
+    default NodeAddressBook getAddressBookForBlock(long blockNum) {
+        return null;
+    }
 
     /**
      * The set of known inbound publishers, loaded from configuration on startup. Reported by the

@@ -159,7 +159,7 @@ public class ServerStatusDetailServicePluginTest
                 blockNodeContext.threadPoolManager(),
                 blockNodeContext.blockNodeVersions(),
                 buildTssData(),
-                blockNodeContext.nodeAddressBook(),
+                blockNodeContext.rangedAddressBookHistory(),
                 blockNodeContext.storedBlocks(),
                 blockNodeContext.availableBlocks());
 
@@ -193,20 +193,9 @@ public class ServerStatusDetailServicePluginTest
     @DisplayName("Should include NodeAddressBook in response when context carries one")
     void shouldReturnNodeAddressBookWhenLoaded() throws ParseException {
         final NodeAddressBook book = buildAddressBook();
-        final BlockNodeContext ctxWithBook = new BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                blockNodeContext.tssData(),
-                book,
-                blockNodeContext.storedBlocks(),
-                blockNodeContext.availableBlocks());
+        final BlockNodeContext ctxWithBook = new BlockNodeContext.Builder(blockNodeContext)
+                .nodeAddressBook(book)
+                .build();
         plugin.onContextUpdate(ctxWithBook);
 
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(

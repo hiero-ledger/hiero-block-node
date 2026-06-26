@@ -107,6 +107,84 @@ to a `[startBlock, endBlock]` range**:
   the change's consensus time to a block number, and appends a new address-book entry — extending the RSA
   plugin's existing Mirror-Node query path.
 
+#### 2a. On-disk roster file format
+
+The BN's block-number-keyed address-book history is serialised as a **JSON-encoded
+`RangedAddressBookHistory`** protobuf message, defined in
+`protobuf-sources/src/main/proto/internal/ranged_address_book_history.proto`.
+
+**Proto definition (summary):**
+
+```proto
+message RangedAddressBookHistory {
+    repeated RangedNodeAddressBook address_books = 1;
+}
+
+message RangedNodeAddressBook {
+    proto.NodeAddressBook address_book = 1;  // nodeId + RSA_PubKey per NodeAddress
+    uint64 start_block = 2;                  // first block covered (inclusive)
+    uint64 end_block   = 3;                  // last block covered (inclusive); 0 = open-ended
+}
+```
+
+**Invariants operators and T3 tooling must maintain:**
+
+|       Invariant       |                                        Description                                        |
+|-----------------------|-------------------------------------------------------------------------------------------|
+| Ordered ascending     | Entries must be sorted by `start_block` (lowest first).                                   |
+| Non-overlapping       | No two entries may cover the same block number.                                           |
+| Open-ended last entry | The final entry should use `end_block = 0` to cover all future blocks ≥ `start_block`.    |
+| Non-empty             | The file must contain at least one entry; an empty list causes the BN to fail at startup. |
+
+**Codec:** `RangedAddressBookHistory.JSON` (PBJ-generated). File is written/read using the same
+atomic `.tmp`-then-rename pattern as the single-book `rsa-bootstrap-roster.json`.
+
+**Default file path:** `/opt/hiero/block-node/application-state/rsa-address-book-history.json`
+(configured via `app.state.rsaAddressBookHistoryFilePath`).
+
+**Precedence at startup:** when the history file is present it takes precedence over the
+single-book `rsa-bootstrap-roster.json`. When only the single-book file exists the BN wraps it
+into a single open-ended era (`startBlock = 0`, `endBlock = 0`) so verification behaviour is
+unchanged — a backward-compatibility bridge that requires no operator action for existing
+single-book deployments.
+
+**Minimal example (2-era mainnet history):**
+
+```json
+{
+  "addressBooks": [
+    {
+      "addressBook": {
+        "nodeAddress": [
+          { "nodeId": "1", "RSA_PubKey": "3082..." },
+          { "nodeId": "2", "RSA_PubKey": "3082..." }
+        ]
+      },
+      "startBlock": "0",
+      "endBlock":   "5000000"
+    },
+    {
+      "addressBook": {
+        "nodeAddress": [
+          { "nodeId": "1", "RSA_PubKey": "3082..." },
+          { "nodeId": "3", "RSA_PubKey": "3082..." }
+        ]
+      },
+      "startBlock": "5000001",
+      "endBlock":   "0"
+    }
+  ]
+}
+```
+
+**Lookup algorithm (O(log n)):** The BN builds a `NavigableMap<startBlock, RangedNodeAddressBook>`
+at startup via `AddressBookHistoryLookup.buildIndex()`. For a given block number `b`:
+
+1. `floorEntry(b)` — find the entry with the largest `startBlock ≤ b`.
+2. If no entry exists, or if `endBlock > 0 && b > endBlock`, the block falls outside all known
+   eras → verification fails with a documented cause.
+3. Otherwise, use the entry's `NodeAddressBook` for RSA key lookup.
+
 ### 3. Historical WRB verification by block number
 
 WRB verification (`ExtendedMerkleTreeSession`, today a single `rsaKeyByNodeId` map) selects the address
@@ -149,8 +227,11 @@ flowchart LR
 
 New / affected configuration (final keys decided per ticket; plugins own their own config):
 
-- **Address-book history** (BN, RSA bootstrap plugin): path/format for the historical address-book history file and
-  its bootstrap source; replaces the single-address-book assumption.
+- **Address-book history** (BN, `ApplicationStateConfig`):
+  `app.state.rsaAddressBookHistoryFilePath` — path to the JSON-encoded `RangedAddressBookHistory`
+  file (default: `/opt/hiero/block-node/application-state/rsa-address-book-history.json`).
+  When present at startup this file takes precedence over the single-book
+  `app.state.rsaBootstrapFilePath`. See §2a for the full file format.
 - **Mirror-Node address-book maintenance** (BN): enable flag + MN endpoint (reuse the RSA plugin's existing
   MN settings).
 - **CLI backfill-push**: source wrapped-block directory, target BN publish endpoint, start/resume block.
@@ -165,7 +246,9 @@ New / affected configuration (final keys decided per ticket; plugins own their o
 - BN ingestion: blocks accepted from the push source (existing publisher metrics).
 - Verification: WRBs verified per address-book era, verification failures with "no address book"
   reason count.
-- Address-book history: number of address-book entries, last Mirror-Node update time.
+- Address-book history: `blocknode:roster_eras_loaded` (number of `[startBlock, endBlock]` eras
+  loaded), `blocknode:roster_entries_loaded` (total `NodeAddress` entries across all eras),
+  `blocknode:roster_load_duration_ms` (startup load time in ms).
 
 ## Exceptions
 
