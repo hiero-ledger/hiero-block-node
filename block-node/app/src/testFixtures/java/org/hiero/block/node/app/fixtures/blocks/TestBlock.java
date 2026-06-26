@@ -163,4 +163,10 @@ public class TestBlock {
         return new TestBlock(
                 number, BlockUnparsed.newBuilder().blockItems(items).build());
     }
+
+    public TestBlock append(final BlockItem toAppend) {
+        final List<BlockItem> items = new ArrayList<>(block.items());
+        items.add(toAppend);
+        return new TestBlock(number, Block.newBuilder().items(items).build());
+    }
 }

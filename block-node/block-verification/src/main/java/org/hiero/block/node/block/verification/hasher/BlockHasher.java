@@ -132,7 +132,8 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                                 findLedgerIdPublication(item.signedTransaction());
                                         if (publication != null) {
                                             // publish TSS Data
-                                            final TssData tssData = VerificationHelper.extractTssData(publication);
+                                            final TssData tssData =
+                                                    VerificationHelper.extractTssData(publication, blockNumber);
                                             verificationDataProvider.safeUpdateTssData(tssData, true);
                                         }
                                     }
@@ -184,8 +185,6 @@ public final class BlockHasher implements Supplier<HashingResult> {
     private HashingResult finalHashingResult() throws NoSuchAlgorithmException {
         final HashingResult hashingResult;
         if (blockHeader == null || blockFooter == null || blockProofs.isEmpty()) {
-            // todo(2528) validate that when we see an WRB we have:
-            //    1x Block Header, 1x RECORD_ITEM, 1x Block Footer, N number (at least 1) Block Proof
             throw new VerificationSessionFailedException(
                     blockNumber, SessionFailureType.MISSING_MANDATORY_ITEM, blockSource);
         } else {
@@ -297,7 +296,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
     /// <ol>
     ///     - Read the next field tag varint and decode its field number and wire type.
     ///     - If `fieldNumber == 2` and `wireType == LEN`: read the length prefix varint,
-    ///     read exactly that many bytes, and return them — these are the
+    ///     read exactly that many bytes, and return them - these are the
     ///     `record_file_contents`.
     ///     - Otherwise skip the field using the wire type to know how many bytes to consume:
     ///
@@ -329,7 +328,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
                     input.readBytes(raw);
                     return Bytes.wrap(raw);
                 }
-                // Not field 2 — skip this field using its wire type to advance the cursor correctly
+                // Not field 2 - skip this field using its wire type to advance the cursor correctly
                 switch (wireType) {
                     case 0 -> input.readVarLong(false); // VARINT: read and discard the value
                     case 1 -> input.skip(8); // I64: fixed 64-bit, skip 8 bytes
@@ -339,7 +338,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
                     }
                     case 5 -> input.skip(4); // I32: fixed 32-bit, skip 4 bytes
                     default -> {
-                        return Bytes.EMPTY; // Unknown wire type — bail out safely
+                        return Bytes.EMPTY; // Unknown wire type - bail out safely
                     }
                 }
             }

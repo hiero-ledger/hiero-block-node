@@ -85,8 +85,7 @@ class BadBlockDumperTest {
 
     @Test
     void attemptDumpIsNoOpWhenDisabled() throws IOException {
-        final VerificationConfig config =
-                new VerificationConfig(Path.of(""), false, false, 100, Path.of(""), 100, true, false, tempDir, 7);
+        final VerificationConfig config = generateVerificationConfig(false, 7);
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
 
         dumper.attemptDump(failureNotification(1L), null, BlockUnparsed.DEFAULT.blockItems());
@@ -96,8 +95,7 @@ class BadBlockDumperTest {
 
     @Test
     void sameBlockAndFailureTypeNotDumpedTwice() throws IOException {
-        final VerificationConfig config =
-                new VerificationConfig(Path.of(""), false, false, 100, Path.of(""), 100, true, true, tempDir, 7);
+        final VerificationConfig config = generateVerificationConfig(true, 7);
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
         dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
@@ -111,16 +109,14 @@ class BadBlockDumperTest {
 
     @Test
     void stopWithoutStartIsNoOp() {
-        final VerificationConfig config =
-                new VerificationConfig(Path.of(""), false, false, 100, Path.of(""), 100, true, false, tempDir, 7);
+        final VerificationConfig config = generateVerificationConfig(false, 7);
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
         dumper.stop();
     }
 
     @Test
     void attemptDumpIsNoOpForNullBlock() throws IOException {
-        final VerificationConfig config =
-                new VerificationConfig(Path.of(""), false, false, 100, Path.of(""), 100, true, true, tempDir, 7);
+        final VerificationConfig config = generateVerificationConfig(true, 7);
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
         dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
@@ -135,8 +131,7 @@ class BadBlockDumperTest {
 
     @Test
     void attemptDumpIncludesHapiVersionInMeta() throws IOException {
-        final VerificationConfig config =
-                new VerificationConfig(Path.of(""), false, false, 100, Path.of(""), 100, true, true, tempDir, 7);
+        final VerificationConfig config = generateVerificationConfig(true, 7);
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
         dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
@@ -156,8 +151,7 @@ class BadBlockDumperTest {
 
     @Test
     void purgeRemovesFilesOlderThanRetention() throws IOException {
-        final VerificationConfig config =
-                new VerificationConfig(Path.of(""), false, false, 100, Path.of(""), 100, true, true, tempDir, 1);
+        final VerificationConfig config = generateVerificationConfig(true, 1);
         final CapturingScheduledExecutor scheduler = new CapturingScheduledExecutor();
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
         dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
@@ -186,8 +180,7 @@ class BadBlockDumperTest {
 
     @Test
     void purgeAllowsReDumpOfSameBlock() throws IOException {
-        final VerificationConfig config =
-                new VerificationConfig(Path.of(""), false, false, 100, Path.of(""), 100, true, true, tempDir, 1);
+        final VerificationConfig config = generateVerificationConfig(true, 1);
         final CapturingScheduledExecutor scheduler = new CapturingScheduledExecutor();
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
         dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
@@ -220,8 +213,7 @@ class BadBlockDumperTest {
         // Replace the dump directory with a regular file so Files.createDirectories throws
         Files.delete(tempDir);
         Files.createFile(tempDir);
-        final VerificationConfig config =
-                new VerificationConfig(Path.of(""), false, false, 100, Path.of(""), 100, true, true, tempDir, 7);
+        final VerificationConfig config = generateVerificationConfig(true, 7);
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
         dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
@@ -230,8 +222,7 @@ class BadBlockDumperTest {
 
     @Test
     void attemptDumpHandlesWriteFailureGracefully() throws IOException {
-        final VerificationConfig config =
-                new VerificationConfig(Path.of(""), false, false, 100, Path.of(""), 100, true, true, tempDir, 7);
+        final VerificationConfig config = generateVerificationConfig(true, 7);
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
         dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
@@ -239,5 +230,9 @@ class BadBlockDumperTest {
         Files.delete(tempDir);
         dumper.attemptDump(failureNotification(99L), null, BlockUnparsed.DEFAULT.blockItems());
         dumper.stop();
+    }
+
+    private VerificationConfig generateVerificationConfig(final boolean dumpEnabled, final int dumpRetentionDays) {
+        return new VerificationConfig(100, 100, true, dumpEnabled, tempDir, dumpRetentionDays);
     }
 }

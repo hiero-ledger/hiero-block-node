@@ -37,21 +37,20 @@ public final class VerificationHelper {
 
     /// Helper to extract, map, and build [TssData] from [LedgerIdPublicationTransactionBody].
     /// @throws NullPointerException if `publication` is `null`.
-    public static TssData extractTssData(final LedgerIdPublicationTransactionBody publication) {
+    public static TssData extractTssData(final LedgerIdPublicationTransactionBody publication, final long blockNumber) {
         final Builder builder = TssData.newBuilder();
         builder.ledgerId(publication.ledgerId());
         builder.wrapsVerificationKey(publication.historyProofVerificationKey());
         builder.currentRoster(extractContributions(publication.nodeContributions()));
-        // todo(2528) what about valid from value? builder.validFromBlock();
+        builder.validFromBlock(blockNumber);
         return builder.build();
     }
 
     /// Helper to extract, map, and build [TssRoster] from a list of [LedgerIdNodeContribution].
     /// @throws NullPointerException if `contributions` is `null`.
     public static TssRoster extractContributions(final List<LedgerIdNodeContribution> contributions) {
-        // todo(2528) is this correct? Does RosterEntry map to LedgerIdNodeContribution?
         final TssRoster.Builder builder = TssRoster.newBuilder();
-        final ArrayList<RosterEntry> rosterEntries = new ArrayList<>();
+        final List<RosterEntry> rosterEntries = new ArrayList<>();
         for (final LedgerIdNodeContribution contribution : contributions) {
             final RosterEntry.Builder entryBuilder = RosterEntry.newBuilder();
             entryBuilder.nodeId(contribution.nodeId());

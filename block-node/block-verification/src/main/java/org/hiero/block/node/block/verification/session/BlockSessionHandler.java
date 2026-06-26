@@ -4,6 +4,7 @@ package org.hiero.block.node.block.verification.session;
 import static java.lang.System.Logger.Level.INFO;
 
 import java.util.Objects;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutorService;
@@ -33,7 +34,7 @@ public final class BlockSessionHandler {
     private final SessionHandlerMetrics sessionHandlerMetrics;
     private final VerificationConfig verificationConfig;
     private final AtomicLong lastVerifiedBlock;
-    private final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks;
+    private final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
     private final AtomicLong nextUniqueSessionIdentifier;
     private final ExecutorService executor;
     private final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions;
@@ -49,7 +50,7 @@ public final class BlockSessionHandler {
             final VerificationConfig verificationConfig,
             final VerificationDataProvider verificationDataProvider,
             final AtomicLong lastVerifiedBlock,
-            final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks,
+            final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
             final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions,
             final ExecutorService executor,
             final BadBlockDumper badBlockDumper) {

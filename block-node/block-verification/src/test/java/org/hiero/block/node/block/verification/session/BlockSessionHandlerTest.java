@@ -4,8 +4,8 @@ package org.hiero.block.node.block.verification.session;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.app.fixtures.TestConfigurationBuilder;
@@ -46,7 +46,7 @@ class BlockSessionHandlerTest {
                 .getConfigData(VerificationConfig.class);
         final VerificationDataProvider verificationDataProvider = new VerificationDataProvider(context);
         final AtomicLong lastVerifiedBlock = new AtomicLong(-1);
-        final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks = new ConcurrentSkipListSet<>();
+        final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks = new ConcurrentLinkedDeque<>();
         activeSessions = new ConcurrentSkipListMap<>();
         final BadBlockDumper badBlockDumper = new BadBlockDumper(verificationConfig, "test");
         executor = new BlockingExecutor(new LinkedBlockingQueue<>());

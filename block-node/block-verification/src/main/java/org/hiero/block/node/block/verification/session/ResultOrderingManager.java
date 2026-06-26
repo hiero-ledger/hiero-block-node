@@ -37,6 +37,7 @@ public final class ResultOrderingManager implements Function<BlockVerificationRe
     /// [VerificationConfig#allSourcesRequireOrdering()] setting, we can disable ordering for other sources.
     @Override
     public BlockVerificationResult apply(final BlockVerificationResult blockVerificationResult) {
+        checkValidNextExpectedBlock(lastVerifiedBlock, blockVerificationResult.blockNumber());
         while (!isCanceled()) {
             final long nextExpectedBlock = lastVerifiedBlock.get() + 1;
             if (shouldPark(blockVerificationResult, nextExpectedBlock)) {
@@ -48,6 +49,17 @@ public final class ResultOrderingManager implements Function<BlockVerificationRe
         }
         throw new VerificationSessionFailedException(
                 blockVerificationResult.blockNumber(), SessionFailureType.CANCELLED, blockVerificationResult.source());
+    }
+
+    private void checkValidNextExpectedBlock(final AtomicLong lastVerifiedBlock, final long currentVerifiedBlock) {
+        // Note, this method will have an effect only at application start.
+        // It is possible to create a small gap because of a race condition.
+        // This is acceptable, as it will be filled shortly thereafter and only
+        // happens once on startup.
+        final long lastVerified = lastVerifiedBlock.get();
+        if (lastVerified < 0) {
+            lastVerifiedBlock.compareAndSet(lastVerified, currentVerifiedBlock);
+        }
     }
 
     private boolean shouldPark(final BlockVerificationResult verificationResult, final long nextExpectedBlock) {

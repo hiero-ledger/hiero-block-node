@@ -3,13 +3,12 @@ package org.hiero.block.node.block.verification.verifier;
 
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNode;
-import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNodeSingleChild;
-import static org.hiero.block.common.hasher.HashingUtilities.hashLeaf;
 
 import com.hedera.hapi.block.stream.MerklePath;
 import com.hedera.hapi.block.stream.SiblingNode;
 import com.hedera.hapi.block.stream.StateProof;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
@@ -39,100 +38,64 @@ public final class StateProofVerifier implements ProofVerifier {
         this.verificationDataProvider = Objects.requireNonNull(verificationDataProvider);
     }
 
-    /// todo(2528) add documentation
+    /// todo(2879) add documentation
     @Override
     public SessionFailureType verify() {
         final SessionFailureType result;
         final List<MerklePath> paths = stateProof.paths();
-        if (paths.size() != 3) {
-            LOGGER.log(WARNING, "Block {0} state proof has {1} paths, expected 3", blockNumber, paths.size());
+        if (paths.size() < 3) {
+            LOGGER.log(WARNING, "Block {0} state proof has {1} paths, expected >= 3", blockNumber, paths.size());
             result = SessionFailureType.BAD_BLOCK_PROOF;
         } else {
-            final MerklePath timestampPath = paths.get(0);
-            final MerklePath siblingPath = paths.get(1);
-            final MerklePath terminalPath = paths.get(2);
-            if (!terminalPath.siblings().isEmpty() || terminalPath.hasTimestampLeaf()) {
-                LOGGER.log(WARNING, "Block {0} state proof path 2 (terminal) is unexpectedly non-empty", blockNumber);
-                result = SessionFailureType.BAD_BLOCK_PROOF;
-            } else if (!timestampPath.hasTimestampLeaf()) {
-                LOGGER.log(WARNING, "Block {0} state proof path 0 (timestamp) is missing timestamp leaf", blockNumber);
-                result = SessionFailureType.BAD_BLOCK_PROOF;
-            } else if (!stateProof.hasSignedBlockProof()) {
-                LOGGER.log(WARNING, "Block {0} state proof is missing signed block proof", blockNumber);
-                result = SessionFailureType.BAD_BLOCK_PROOF;
-            } else {
-                final List<SiblingNode> siblings = siblingPath.siblings();
-                final int totalSiblings = siblings.size();
-                if (totalSiblings < 3 || (totalSiblings - 3) % 4 != 0) {
-                    LOGGER.log(
-                            WARNING,
-                            "Block {0} state proof sibling count {1} is invalid (need >= 3, remainder must be multiple of 4)",
-                            blockNumber,
-                            totalSiblings);
-                    result = SessionFailureType.BAD_BLOCK_PROOF;
-                } else if (!siblingPath.hasHash() || siblingPath.hash().length() == 0) {
-                    LOGGER.log(
-                            WARNING,
-                            "Block {0} state proof path 1 (sibling) has missing or empty starting hash",
-                            blockNumber);
-                    result = SessionFailureType.BAD_BLOCK_PROOF;
-                } else {
-                    for (final SiblingNode sibling : siblings) {
-                        if (sibling.hash().length() == 0) {
-                            LOGGER.log(
-                                    WARNING,
-                                    "Block {0} state proof contains a sibling node with an empty hash",
-                                    blockNumber);
-                            proofVerificationMetrics.stateProofFailure().increment();
-                            return SessionFailureType.BAD_BLOCK_PROOF;
-                        }
-                    }
-                    byte[] current = siblingPath.hash().toByteArray();
-                    int index = 0;
-                    boolean firstIteration = true;
-                    while (totalSiblings - index > 3) {
-                        final SiblingNode prevBlockRootsHash = siblings.get(index);
-                        final SiblingNode depth5Node2Sibling = siblings.get(index + 1);
-                        final SiblingNode depth4Node2Sibling = siblings.get(index + 2);
-                        final SiblingNode hashedTimestampSibling = siblings.get(index + 3);
-                        final byte[] depth5Node1 = combineSibling(current, prevBlockRootsHash);
-                        final byte[] depth4Node1 = combineSibling(depth5Node1, depth5Node2Sibling);
-                        final byte[] depth3Node1 = combineSibling(depth4Node1, depth4Node2Sibling);
-                        final byte[] depth2Node2 = hashInternalNodeSingleChild(depth3Node1);
-                        current = hashInternalNode(hashedTimestampSibling.hash().toByteArray(), depth2Node2);
-                        if (firstIteration) {
-                            final Bytes reconstructed = Bytes.wrap(current);
-                            if (!rootHash.equals(reconstructed)) {
-                                LOGGER.log(
-                                        WARNING,
-                                        "Block {0} state proof integrity check failed: hash reconstructed from path 1 siblings"
-                                                + " [{1}] does not match block root hash computed from block content [{2}]",
-                                        blockNumber,
-                                        reconstructed,
-                                        rootHash);
-                                proofVerificationMetrics.stateProofFailure().increment();
-                                return SessionFailureType.BAD_BLOCK_PROOF;
-                            }
-                            firstIteration = false;
-                        }
-                        index += 4;
-                    }
-                    final byte[] depth5Node1 = combineSibling(current, siblings.get(index));
-                    final byte[] depth4Node1 = combineSibling(depth5Node1, siblings.get(index + 1));
-                    final byte[] depth3Node1 = combineSibling(depth4Node1, siblings.get(index + 2));
-                    final byte[] depth2Node2 = hashInternalNodeSingleChild(depth3Node1);
-                    final byte[] hashedTimestampLeaf =
-                            hashLeaf(timestampPath.timestampLeaf().toByteArray());
-                    final byte[] signedBlockRoot = hashInternalNode(hashedTimestampLeaf, depth2Node2);
-                    // todo(2528) check if block signature has value else throw missing field
-                    final TSSVerifier tssVerifier = new TSSVerifier(
-                            proofVerificationMetrics,
-                            Bytes.wrap(signedBlockRoot),
-                            stateProof.signedBlockProof().blockSignature(),
-                            verificationDataProvider);
-                    result = tssVerifier.verify();
+            final LinkedList<SiblingNode> siblings = new LinkedList<>();
+
+            // walk through the merkle paths unti we find one that is a HASH
+            // and the hash (field 3) is equal to our block root, that is the
+            // proof item. That will have siblings, so we will combine our
+            // block root with the first sibling in the list. Then combine that
+            // result with the next sibling until no more siblings. Then check
+            // next path index and get that merkle path and continue combining
+            // siblings using the siblings list from that new path. Continue
+            // following next path index until you reach a merkle path that
+            // has next path index == -1. That will represent the signed root.
+            // Any given path may be a timestamp leaf. For a timestamp leaf,
+            // we hash the content of the timestamp (sha2-384) before combining
+            // it with our current hash, and then continue with next index.
+            // Remember to keep track of visited indices and if the current
+            // path points to the next one which we have already visited, we
+            // exit with bad block proof. We should also add the isCanceled boolean
+            // here and if we are canceled, we exit with a timeout.
+
+            // MerklePath[6]
+            // 0: next == 2, Timestamp=...
+            // 1: next == 0, siblings...
+            // 2: next == -1, Kind UNSET
+            // 3: next == 5, hash == otherHash
+            // 4: next == 1, hash == rootHash
+            // 5: next == 0, siblings...
+
+            for (final MerklePath merklePath : paths.reversed()) {
+                if (merklePath.hasTimestampLeaf()) {
+                    final Bytes bytes = merklePath.timestampLeaf();
+                }
+                for (final SiblingNode siblingNode : merklePath.siblings()) {
+                    siblings.add(siblingNode);
                 }
             }
+            byte[] current = new byte[0];
+            for (int i = 0; i < siblings.size(); i++) {
+                if (i == 0) {
+                    current = combineSibling(rootHash.toByteArray(), siblings.get(i));
+                } else {
+                    current = combineSibling(current, siblings.get(i));
+                }
+            }
+            final TSSVerifier tssVerifier = new TSSVerifier(
+                    proofVerificationMetrics,
+                    Bytes.wrap(current),
+                    stateProof.signedBlockProof().blockSignature(),
+                    verificationDataProvider);
+            result = tssVerifier.verify();
         }
         if (result != null) {
             proofVerificationMetrics.stateProofFailure().increment();
@@ -142,7 +105,7 @@ public final class StateProofVerifier implements ProofVerifier {
         return result;
     }
 
-    private byte[] combineSibling(byte[] current, SiblingNode sibling) {
+    private byte[] combineSibling(final byte[] current, final SiblingNode sibling) {
         if (sibling.isLeft()) {
             return hashInternalNode(sibling.hash().toByteArray(), current);
         } else {
