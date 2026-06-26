@@ -378,8 +378,35 @@ function package_records_into_day_archives {
     return 0
 }
 
+function prune_incomplete_record_files {
+    # The newest record file captured from a live record stream may be mid-write:
+    # a truncated .rcd[.gz] whose .rcd_sig[.gz] signature has not been flushed yet.
+    # The WRB CLI `blocks wrap` command hard-fails on any record file set that is
+    # missing its signature, so drop record files with no matching signature before
+    # metadata generation and packaging.
+    local pruned=0
+    local record_file
+    while IFS= read -r record_file; do
+        [[ -z "${record_file}" ]] && continue
+        local base="${record_file%.gz}"
+        base="${base%.rcd}"
+        if [[ ! -f "${base}.rcd_sig" && ! -f "${base}.rcd_sig.gz" ]]; then
+            log "Pruning incomplete record file (no signature): $(basename "${record_file}")"
+            rm -f "${record_file}"
+            pruned=$((pruned + 1))
+        fi
+    done < <(find "${LOCAL_RECORDS_DIR}" -type f \( -name "*.rcd.gz" -o -name "*.rcd" \) -not -name "*.rcd_sig*")
+
+    if [[ ${pruned} -gt 0 ]]; then
+        log "Pruned ${pruned} incomplete record file(s) lacking signatures"
+    fi
+}
+
 function generate_metadata_from_files {
     log "Generating metadata from extracted record files..."
+
+    # Drop any in-progress record file lacking its signature before counting/packaging
+    prune_incomplete_record_files
 
     # Get record files from LOCAL_RECORDS_DIR
     # Sort by filename timestamp (files are named YYYY-MM-DDTHH_MM_SS.NNNNNNNNNZ.rcd.gz)
