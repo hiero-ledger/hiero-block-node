@@ -220,7 +220,7 @@ class RsaRosterBootstrapPluginTest
         }
 
         @Test
-        @DisplayName("history absent, single address book present → plugin uses single-book path")
+        @DisplayName("history single era, single address book present → plugin uses single-book path")
         void fallsBackToSingleBookWhenHistoryAbsent() {
             // No history in context but a single address book is present → existing path used
             final NodeAddressBook book = buildAddressBook(3);
@@ -229,12 +229,12 @@ class RsaRosterBootstrapPluginTest
             doStart();
 
             assertEquals(
-                    0L,
+                    1L,
                     getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED),
                     "Era gauge must be 0 in single-book mode");
             assertEquals(3L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
             assertNotNull(blockNodeContext.nodeAddressBook());
-            assertNull(blockNodeContext.rangedAddressBookHistory());
+            assertNotNull(blockNodeContext.rangedAddressBookHistory());
         }
     }
 
@@ -321,7 +321,7 @@ class RsaRosterBootstrapPluginTest
             assertEquals(1L, era0.nodeAddress().getFirst().nodeId());
             assertEquals("aabbcc", era0.nodeAddress().getFirst().rsaPubKey());
             assertEquals(0L, history.addressBooks().get(0).startBlock());
-            assertEquals(0L, history.addressBooks().get(0).endBlock()); // open-ended
+            assertEquals(-1L, history.addressBooks().get(0).endBlock()); // open-ended
         }
 
         @Test
@@ -443,10 +443,10 @@ class RsaRosterBootstrapPluginTest
             assertEquals(89999L, history.addressBooks().get(0).endBlock());
             // Middle era (900.0): startBlock = 90000, open-ended
             assertEquals(90000L, history.addressBooks().get(1).startBlock());
-            assertEquals(0L, history.addressBooks().get(1).endBlock());
+            assertEquals(-1L, history.addressBooks().get(1).endBlock());
             // Latest era (1000.0): startBlock = 100000, open-ended
             assertEquals(100000L, history.addressBooks().get(2).startBlock());
-            assertEquals(0L, history.addressBooks().get(2).endBlock());
+            assertEquals(-1L, history.addressBooks().get(2).endBlock());
         }
 
         @Test
@@ -554,7 +554,7 @@ class RsaRosterBootstrapPluginTest
             assertNotNull(after2);
             assertEquals(1, after2.addressBooks().size());
             assertEquals(100000L, after2.addressBooks().get(0).startBlock());
-            assertEquals(0L, after2.addressBooks().get(0).endBlock());
+            assertEquals(-1L, after2.addressBooks().get(0).endBlock());
             assertEquals(
                     1, after2.addressBooks().get(0).addressBook().nodeAddress().size());
             assertEquals(
@@ -631,11 +631,11 @@ class RsaRosterBootstrapPluginTest
             assertNotNull(after1);
             assertEquals(1, after1.addressBooks().size());
             assertEquals(100000L, after1.addressBooks().get(0).startBlock());
-            assertEquals(0L, after1.addressBooks().get(0).endBlock());
+            assertEquals(-1L, after1.addressBooks().get(0).endBlock());
 
             // Second run: incremental — new era at 110000 detected
             // Old era closed: endBlock = 110000 - 1 = 109999
-            // New era appended: startBlock=110000, endBlock=0
+            // New era appended: startBlock=110000, endBlock=-1
             testThreadPoolManager.scheduledExecutor().executeSerially();
             final RangedAddressBookHistory after2 = blockNodeContext.rangedAddressBookHistory();
             assertNotNull(after2);
@@ -661,7 +661,7 @@ class RsaRosterBootstrapPluginTest
                             .rsaPubKey());
             // New era is open-ended
             assertEquals(110000L, after2.addressBooks().get(1).startBlock());
-            assertEquals(0L, after2.addressBooks().get(1).endBlock());
+            assertEquals(-1L, after2.addressBooks().get(1).endBlock());
             assertEquals(
                     2L,
                     after2.addressBooks()

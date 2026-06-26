@@ -82,7 +82,7 @@ class AddressBookFetcherTest {
                 .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
                         .addressBook(book)
                         .startBlock(0L)
-                        .endBlock(0L)
+                        .endBlock(-1L)
                         .build()))
                 .build();
     }

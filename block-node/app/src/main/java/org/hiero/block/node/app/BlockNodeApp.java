@@ -3,7 +3,6 @@ package org.hiero.block.node.app;
 
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
@@ -262,7 +261,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 serviceLoader,
                 threadPoolManager,
                 versionInfo(loadedPlugins),
-                null,
                 null,
                 null,
                 new ArrayList<>(),
@@ -771,33 +769,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         }
     }
 
-    private void persistNodeAddressBook(NodeAddressBook nodeAddressBook) {
-        final Path filePath = blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .rsaBootstrapFilePath();
-        try {
-            final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
-            final Bytes encoded = NodeAddressBook.JSON.toBytes(nodeAddressBook);
-            Files.write(tmp, encoded.toByteArray());
-            try {
-                Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException e) {
-                LOGGER.log(
-                        DEBUG,
-                        "Atomic move not supported on this filesystem for {0}; falling back to non-atomic replace",
-                        filePath);
-                Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException e) {
-            LOGGER.log(
-                    INFO,
-                    "Failed to persist RSA address book to {0}: {1} — will re-fetch on next startup",
-                    filePath,
-                    e);
-        }
-    }
-
     private void persistNodeAddressBookHistory(RangedAddressBookHistory history) {
         final Path filePath = blockNodeContext
                 .configuration()
@@ -811,16 +782,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException e) {
                 LOGGER.log(
-                        WARNING,
+                        INFO,
                         "Atomic move not supported on this filesystem for {0}; falling back to non-atomic replace",
                         filePath);
                 Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING);
             }
-            LOGGER.log(
-                    INFO,
-                    "Persisted RSA address book history to file: {0} ({1} eras)",
-                    filePath,
-                    history.addressBooks().size());
         } catch (IOException e) {
             LOGGER.log(WARNING, "Failed to persist RSA address book history to {0}: {1}", filePath, e.getMessage());
         }
@@ -901,11 +867,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                             "RSA address book history file contains no entries: " + historyFilePath);
                 }
                 pendingAddressBookHistory.set(history);
-                LOGGER.log(
-                        INFO,
-                        "Loaded RSA address book history from file: {0} ({1} eras)",
-                        historyFilePath,
-                        history.addressBooks().size());
             } catch (IOException e) {
                 throw new IllegalStateException("Failed to read RSA address book history file: " + historyFilePath, e);
             } catch (ParseException e) {
@@ -922,7 +883,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                             .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
                                     .addressBook(book)
                                     .startBlock(0L)
-                                    .endBlock(0L)
+                                    .endBlock(-1L)
                                     .build()))
                             .build();
                     pendingAddressBookHistory.set(wrapped);
@@ -942,7 +903,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             try {
                 Files.createDirectories(parent);
             } catch (IOException e) {
-                LOGGER.log(ERROR, "Failed to create RSA address book history directory: " + parent, e);
+                LOGGER.log(WARNING, "Failed to create RSA address book history directory: " + parent, e);
             }
         }
 

@@ -243,7 +243,6 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     null,
-                    null,
                     new ArrayList<>(),
                     new ArrayList<>());
             final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
@@ -269,7 +268,6 @@ class CloudStorageArchivePluginTest {
                     new TestHealthFacility(),
                     messaging,
                     new SimpleInMemoryHistoricalBlockFacility(),
-                    null,
                     null,
                     null,
                     null,
@@ -335,7 +333,6 @@ class CloudStorageArchivePluginTest {
                     new TestHealthFacility(),
                     messaging,
                     new SimpleInMemoryHistoricalBlockFacility(),
-                    null,
                     null,
                     null,
                     null,
@@ -1589,7 +1586,6 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     testThreadPoolManager,
-                    null,
                     null,
                     null,
                     null,

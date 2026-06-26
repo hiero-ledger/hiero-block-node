@@ -264,7 +264,7 @@ public class TestBlockNodeServer {
                     .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
                             .addressBook(buildAddressBook(count))
                             .startBlock(0L)
-                            .endBlock(0L)
+                            .endBlock(-1L)
                             .build()))
                     .build();
         }

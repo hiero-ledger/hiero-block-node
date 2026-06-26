@@ -592,21 +592,9 @@ class VerificationServicePluginTest
      * tests so they can drive different address books through the plugin's rebuild path.
      */
     private BlockNodeContext contextWithAddressBook(final NodeAddressBook book) {
-        return new BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                blockNodeContext.tssData(),
-                book,
-                blockNodeContext.rangedAddressBookHistory(),
-                blockNodeContext.storedBlocks(),
-                blockNodeContext.availableBlocks());
+        return new BlockNodeContext.Builder(blockNodeContext)
+                .nodeAddressBook(book)
+                .build();
     }
 
     /**

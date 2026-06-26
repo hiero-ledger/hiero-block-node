@@ -167,7 +167,7 @@ class AddressBookHistoryLookupTest {
     }
 
     // -------------------------------------------------------------------------
-    // findAddressBookForBlock — open-ended sentinel (endBlock == 0)
+    // findAddressBookForBlock — open-ended sentinel (endBlock == -1)
     // -------------------------------------------------------------------------
 
     @Nested
@@ -177,21 +177,21 @@ class AddressBookHistoryLookupTest {
         @Test
         @DisplayName("block beyond last closed entry covered by open-ended entry")
         void openEndedCoversLargeBlock() {
-            final var idx = index(ranged(era1Book, 0, 1000), ranged(era2Book, 1001, 0));
+            final var idx = index(ranged(era1Book, 0, 1000), ranged(era2Book, 1001, -1));
             assertEquals(era2Book, AddressBookHistoryLookup.findAddressBookForBlock(idx, 999_999L));
         }
 
         @Test
         @DisplayName("single open-ended entry covers startBlock itself")
         void singleOpenEndedCoversStart() {
-            final var idx = index(ranged(era1Book, 0, 0));
+            final var idx = index(ranged(era1Book, 0, -1));
             assertEquals(era1Book, AddressBookHistoryLookup.findAddressBookForBlock(idx, 0));
         }
 
         @Test
         @DisplayName("block before single open-ended entry returns null")
         void blockBeforeOpenEndedEntry() {
-            final var idx = index(ranged(era1Book, 50, 0));
+            final var idx = index(ranged(era1Book, 50, -1));
             assertNull(AddressBookHistoryLookup.findAddressBookForBlock(idx, 49));
         }
     }
@@ -231,7 +231,7 @@ class AddressBookHistoryLookupTest {
         @Test
         @DisplayName("any block number is covered by a single open-ended entry starting at 0")
         void coversAllBlocks() {
-            final var idx = index(ranged(era1Book, 0, 0));
+            final var idx = index(ranged(era1Book, 0, -1));
             assertNotNull(AddressBookHistoryLookup.findAddressBookForBlock(idx, 0));
             assertNotNull(AddressBookHistoryLookup.findAddressBookForBlock(idx, 1));
             assertNotNull(AddressBookHistoryLookup.findAddressBookForBlock(idx, Long.MAX_VALUE));

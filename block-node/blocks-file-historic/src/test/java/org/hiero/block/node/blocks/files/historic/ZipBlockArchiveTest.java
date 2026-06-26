@@ -83,7 +83,6 @@ class ZipBlockArchiveTest {
                 null,
                 null,
                 null,
-                null,
                 new ArrayList<>(),
                 new ArrayList<>());
         // the instance under test

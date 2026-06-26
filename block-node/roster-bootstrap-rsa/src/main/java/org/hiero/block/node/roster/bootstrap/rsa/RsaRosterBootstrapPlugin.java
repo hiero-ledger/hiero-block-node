@@ -438,12 +438,12 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// Mirror Node blocks API. Returns {@code null} if the block range cannot be determined.
     ///
     /// Blank timestamps are treated as sentinels: blank {@code from} means genesis (startBlock=0)
-    /// with no API call; blank {@code to} means open-ended (endBlock=0) with no API call.
+    /// with no API call; blank {@code to} means open-ended (endBlock=-1) with no API call.
     private long[] fetchBlockRange(final HttpClient client, final String from, final String to) {
         final long startBlock, endBlock;
         if (from == null || from.isBlank()) {
             startBlock = 0L; // no from-timestamp → treat as genesis
-            endBlock = 0L;
+            endBlock = -1L;
         } else {
             String query = to == null || to.isBlank()
                     ? "/api/v1/blocks?timestamp=gte:" + from + "&order=asc&limit=1"
@@ -455,7 +455,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             startBlock = blocksResponse.blocks().getFirst().number();
 
             endBlock = to == null || to.isBlank()
-                    ? 0
+                    ? -1
                     : blocksResponse.blocks().getLast().number();
         }
 

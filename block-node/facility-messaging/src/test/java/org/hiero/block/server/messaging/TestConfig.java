@@ -47,7 +47,6 @@ public class TestConfig {
                 null,
                 null,
                 null,
-                null,
                 new ArrayList<>(),
                 new ArrayList<>());
     }
@@ -62,7 +61,6 @@ public class TestConfig {
                 null,
                 null,
                 threadPoolManager,
-                null,
                 null,
                 null,
                 null,

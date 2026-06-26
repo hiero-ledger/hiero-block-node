@@ -15,11 +15,11 @@ import org.hiero.block.api.RangedNodeAddressBook;
 ///
 /// The index is a {@link NavigableMap} keyed by {@code startBlock}. A lookup for block number
 /// {@code b} uses {@code floorEntry(b)} to find the candidate entry and then checks that
-/// {@code b <= endBlock} (or that {@code endBlock == 0}, the open-ended sentinel).
+/// {@code b <= endBlock} (or that {@code endBlock == -1}, the open-ended sentinel).
 ///
 /// ## Open-ended sentinel
 ///
-/// An {@code endBlock} value of {@code 0} means the entry covers all blocks with
+/// An {@code endBlock} value of {@code -1} means the entry covers all blocks with
 /// {@code block number >= startBlock} with no upper bound. Only the last entry in a
 /// well-formed {@link RangedAddressBookHistory} should carry this sentinel.
 ///
@@ -67,8 +67,8 @@ public final class AddressBookHistoryLookup {
         }
         final RangedNodeAddressBook ranged = entry.getValue();
         final long endBlock = ranged.endBlock();
-        // endBlock == 0 is the open-ended sentinel; any block >= startBlock is covered
-        if (endBlock != 0 && blockNumber > endBlock) {
+        // endBlock == -1 is the open-ended sentinel; any block >= startBlock is covered
+        if (endBlock != -1 && blockNumber > endBlock) {
             return null;
         }
         return ranged.addressBook();

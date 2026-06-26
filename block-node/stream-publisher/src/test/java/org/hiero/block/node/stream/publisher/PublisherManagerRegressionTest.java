@@ -407,7 +407,6 @@ class PublisherManagerRegressionTest {
                 null,
                 null,
                 null,
-                null,
                 new ArrayList<>(),
                 new ArrayList<>());
     }

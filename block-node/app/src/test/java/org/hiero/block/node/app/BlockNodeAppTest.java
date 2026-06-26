@@ -596,7 +596,7 @@ class BlockNodeAppTest {
         assertNotNull(history, "Single-book must be wrapped into a history");
         assertEquals(1, history.addressBooks().size(), "Wrapped history must have exactly one era");
         assertEquals(0L, history.addressBooks().getFirst().startBlock());
-        assertEquals(0L, history.addressBooks().getFirst().endBlock(), "Wrapped era must be open-ended");
+        assertEquals(-1L, history.addressBooks().getFirst().endBlock(), "Wrapped era must be open-ended");
         app.stopApplicationStateFacility();
     }
 
@@ -667,7 +667,7 @@ class BlockNodeAppTest {
                                         .build())
                                 .build())
                         .startBlock(100L)
-                        .endBlock(0L)
+                        .endBlock(-1L)
                         .build()))
                 .build();
         testPlugin.expectContextUpdates(1);
@@ -684,7 +684,7 @@ class BlockNodeAppTest {
                                         .build())
                                 .build())
                         .startBlock(100L)
-                        .endBlock(0L)
+                        .endBlock(-1L)
                         .build()))
                 .build();
         testPlugin.expectContextUpdates(0);
@@ -737,7 +737,7 @@ class BlockNodeAppTest {
                                         .build())
                                 .build())
                         .startBlock(100L)
-                        .endBlock(0L)
+                        .endBlock(-1L)
                         .build()))
                 .build();
         testPlugin.expectContextUpdates(1);
@@ -765,7 +765,7 @@ class BlockNodeAppTest {
                                                 .build())
                                         .build())
                                 .startBlock(200L)
-                                .endBlock(0L)
+                                .endBlock(-1L)
                                 .build()))
                 .build();
         testPlugin.expectContextUpdates(1);
@@ -811,7 +811,7 @@ class BlockNodeAppTest {
                         RangedNodeAddressBook.newBuilder()
                                 .addressBook(era2)
                                 .startBlock(1000L)
-                                .endBlock(0L)
+                                .endBlock(-1L)
                                 .build()))
                 .build();
     }
@@ -1049,7 +1049,7 @@ class BlockNodeAppTest {
         testPlugin.expectContextUpdates(1);
 
         // wait for the ApplicationStateFacility scanner to pick up the update
-        testPlugin.awaitContextUpdates(11);
+        testPlugin.awaitContextUpdates(15);
 
         BlockNodeContext context = testPlugin.getContext();
         assertNotNull(context);
