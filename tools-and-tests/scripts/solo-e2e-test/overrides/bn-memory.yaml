@@ -1,0 +1,22 @@
+# Block Node memory override for solo-e2e local testing.
+#
+# The packaged block-node-server chart fetched by `solo block node add`
+# (e.g. 0.37.0-SNAPSHOT) ships tiny placeholder JVM limits
+# (JAVA_OPTS: -Xmx24m, resources.limits.memory: 2Gi). Under sustained live
+# streaming the heap exhausts and the Block Node throws OutOfMemoryError
+# around block ~428, killing the gRPC listener. This overlay restores a
+# realistic heap so the node can run indefinitely.
+#
+# Applied as the final `-f` values-file in solo-deploy-network.sh, so it
+# overrides the chart defaults.
+resources:
+  requests:
+    cpu: "2"
+    memory: "8Gi"
+  limits:
+    cpu: "4"
+    memory: "20Gi"
+
+blockNode:
+  config:
+    JAVA_OPTS: '-Xms8G -Xmx16G -XX:MaxDirectMemorySize=2G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
