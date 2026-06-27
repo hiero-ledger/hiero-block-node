@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# solo-provisioner --config file for the E2E node-operator lifecycle test in CI (kind).
+#
+# This is the provisioner-level config (profile, namespace, release, chart, storage), mirroring the
+# shape of charts/block-node-server/values-overrides/provisioner-perf-config.yaml (the perfnet variant).
+# The Helm value overrides live separately in solo-ci-values.yaml (passed via --values).
+#
+# Storage paths point at /tmp so kind's default local-path provisioner can satisfy the PVCs without a
+# named storage class. See proposal-v1.2.html §10.1 — confirm during the spike that --profile=local
+# does not pin a storage class that kind lacks.
+profile: local
+log:
+  level: info
+blockNode:
+  # Use solo-provisioner's defaults (namespace + release both "block-node"). Its upgrade reality-checker
+  # resolves the deployed release with strategy "reality", falling back to the profile DEFAULT
+  # ("block-node") when state is empty; custom names (e.g. default/bn-e2e) then fail to resolve ("block
+  # node is not deployed"). Objects are named "<release>-block-node-server" -> block-node-block-node-server.
+  namespace: block-node
+  release: block-node
+  # BASE install pulls the published chart from ghcr at --chart-version=BASE_VERSION.
+  # The SNAPSHOT chart (0.x.0-SNAPSHOT) is NOT published, and solo-provisioner is locked down (no local
+  # chart paths). For the upgrade phase the workflow packages the local chart and pushes it to a local OCI
+  # registry, then upgrades with a generated config whose chart points at oci://localhost:5001/...
+  chart: oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server
+  storage:
+    livePath: /tmp/bn/live
+    liveSize: 1Gi
+    archivePath: /tmp/bn/archive
+    archiveSize: 1Gi
+    logPath: /tmp/bn/logs
+    logSize: 500Mi
+    verificationPath: /tmp/bn/verification
+    verificationSize: 500Mi
+    # solo-provisioner always provisions + mounts a plugins PVC (read-only) over
+    # /opt/hiero/block-node/app-<ver>/plugins, even if omitted here. With the solo-dev image that empty PVC
+    # would hide the baked-in plugins, so the seed-plugins init container in solo-ci-values.yaml copies the
+    # image's plugins into it first. Sized to comfortably hold the full plugin set + deps.
+    pluginsPath: /tmp/bn/plugins
+    pluginsSize: 2Gi

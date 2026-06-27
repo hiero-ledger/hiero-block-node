@@ -1,0 +1,169 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Helm value overrides for the E2E node-operator lifecycle test in CI (kind), passed to
+# solo-provisioner via --values. On `upgrade`, pass --no-reuse-values alongside --values so these
+# overrides are re-applied (solo-provisioner reuses prior values by default).
+#
+# The workflow sed-replaces two placeholders per phase:
+#   __BN_TAG__       -> base/snapshot version (seed-plugins must run the matching solo-dev image)
+#   __PLUGIN_NAMES__ -> comma-separated plugins to keep (profile); empty = keep all
+# The state volume is pinned to "verification-storage" in BOTH versions (see persistence below) so the
+# upgrade is not an immutable StatefulSet change; init-storage-dirs therefore mounts verification-storage
+# in both phases.
+#
+# Mirrors charts/block-node-server/values-overrides/provisoner-perf-values.yaml (perfnet) but sized for a
+# single-node kind cluster with no consensus node.
+#
+# NOTE on permissions: solo-provisioner backs the PVCs with hostPath PVs, and kubelet does NOT apply
+# fsGroup to hostPath volumes — so the PVC roots stay root-owned. The BN runs as non-root 'hedera' (2000),
+# so (exactly like the chart's own design) root init containers must chown the data dirs and seed/own the
+# plugins dir; fsGroup cannot be relied on here.
+#
+# No loadBalancer section: the chart's Service defaults to ClusterIP, which is what we want in kind (a
+# LoadBalancer Service never gets an external IP here and makes helm --wait hang). The lifecycle reaches
+# the BN via kubectl port-forward. (perfnet sets loadBalancer.enabled=true for public hardware; CI must
+# not — solo-provisioner keys off the loadBalancer section in these values.)
+
+# Use the solo-dev image (all plugins baked into /opt/hiero/block-node/app-<ver>/plugins) and skip Maven
+# plugin resolution (plugins.names: ""). The default image resolves plugins at startup via a maven init
+# container (~4 min cold), which blows solo-provisioner's hard-coded 5-min `helm install --atomic` timeout.
+#
+# Caveat handled below: solo-provisioner always provisions a plugins PVC and the chart mounts it read-only
+# over the baked-in plugins dir, hiding them ("No BlockMessagingFacility provided"). We therefore seed that
+# PVC from the image with the seed-plugins init container before the main container starts.
+image:
+  repository: ghcr.io/hiero-ledger/hiero-block-node-solo-dev
+  tag: "__BN_TAG__"
+  pullPolicy: IfNotPresent
+plugins:
+  names: ""
+
+resources:
+  requests:
+    cpu: "1"
+    memory: "2Gi"
+  limits:
+    cpu: "2"
+    memory: "3Gi"
+
+blockNode:
+  config:
+    # Real verification runs against the real fixture blocks (CN_0_73_TSS_WRAPS), whose chain begins at
+    # block 0 with the embedded TSS bootstrap / ledger ID. Dummy/NO_OP verification is being removed from
+    # the product, so this test deliberately exercises the real verification path.
+    SERVER_PORT: "40840"
+    JAVA_OPTS: "-Xms1G -Xmx2G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/dump.hprof"
+  # Relax the liveness probe so a cold BN boot in kind is not killed before it binds :40840. The default
+  # (initialDelay 10s, failureThreshold 3) kills the container ~40s in; readiness only gates "ready".
+  health:
+    liveness:
+      initialDelaySeconds: 120
+      failureThreshold: 6
+    readiness:
+      initialDelaySeconds: 15
+  # Replaces the chart's default init container list, so init-storage-dirs is repeated here (extended to
+  # also chown the state PVC) and the seed-plugins container is added. Both run as root (busybox defaults
+  # to root; seed-plugins overrides runAsUser:0) because the hostPath-backed PVC roots are root-owned and
+  # the BN runs as non-root 'hedera' (2000) — see the permissions note at the top.
+  initContainers:
+    - name: init-storage-dirs
+      image: busybox
+      command:
+        - sh
+        - -c
+        - |
+          set -eux
+          # The BN (uid 2000) must be able to write every data/log PVC. solo-provisioner backs these with
+          # root-owned hostPath PVs and fsGroup is not honored, so chown them all to 2000 and (CI-only)
+          # chmod 777 to sidestep any hostPath+subPath ownership nuance. ls -ln prints the result so the
+          # actual ownership is visible in the run log. live/archive use subPath live-data/archive-data;
+          # logs and the state volume are mounted at the PVC root.
+          mkdir -p /live-pvc/live-data /archive-pvc/archive-data
+          chown -R 2000:2000 /live-pvc /archive-pvc /logs-pvc /state-pvc
+          chmod -R 777 /live-pvc /archive-pvc /logs-pvc /state-pvc
+          ls -ln /live-pvc /archive-pvc /logs-pvc /state-pvc
+      volumeMounts:
+        - name: live-storage
+          mountPath: /live-pvc
+        - name: archive-storage
+          mountPath: /archive-pvc
+        - name: logging-storage
+          mountPath: /logs-pvc
+        - name: verification-storage
+          mountPath: /state-pvc
+    - name: seed-plugins
+      image: ghcr.io/hiero-ledger/hiero-block-node-solo-dev:__BN_TAG__
+      securityContext:
+        runAsUser: 0
+      command:
+        - sh
+        - -c
+        - |
+          set -eux
+          # CLEAR FIRST: the plugins PVC is preserved across the upgrade (orphan-delete keeps all PVCs), so
+          # jars seeded by the previous version stay behind. Without this, the base's verification-<base>.jar
+          # (which still encodes the OLD verification.tssParametersFilePath=/opt/hiero/block-node/verification
+          # path, unmounted on 0.37) is loaded alongside the new verification-<snap>.jar and its config wins —
+          # so the upgraded BN reads TSS params from the wrong dir and newly-streamed TSS blocks fail. Wipe
+          # the PVC so only the current image's plugins are seeded.
+          find /plugins-pvc -mindepth 1 -delete 2>/dev/null || true
+          # Run as root: the plugins PVC root is hostPath/root-owned and fsGroup is not honored, so a
+          # non-root copy hits "Permission denied". cp -R (not -a) so we don't try to preserve the root
+          # ownership of the baked files; chmod a+rX so the non-root main container can read them.
+          cp -R /opt/hiero/block-node/app-*/plugins/. /plugins-pvc/
+          # Profile prune: solo-dev bakes ALL plugins and the BN loads everything in the plugins dir, so to
+          # honor the chosen plugin profile we remove the block-node plugin jars NOT in the profile. Plugin
+          # jars are named "<name>-<appVersion>.jar"; dependency jars have other versions and are always
+          # kept. Empty NAMES (profile=all) keeps everything. This is how e.g. the cloud-storage plugins
+          # (which need S3 config) are excluded for the default lfh profile.
+          NAMES="__PLUGIN_NAMES__"
+          VER="__BN_TAG__"
+          if [ -n "${NAMES}" ]; then
+            for jar in /plugins-pvc/*-"${VER}".jar; do
+              [ -e "${jar}" ] || continue
+              base=$(basename "${jar}"); name=${base%-${VER}.jar}
+              case ",${NAMES}," in
+                *",${name},"*) ;;
+                *) echo "pruning plugin not in profile: ${name}"; rm -f "${jar}" ;;
+              esac
+            done
+          fi
+          chmod -R a+rX /plugins-pvc
+          echo "Plugins after profile prune (NAMES=${NAMES:-all}):" && ls -1 /plugins-pvc | wc -l && ls -1 /plugins-pvc
+      volumeMounts:
+        - name: plugins-storage
+          mountPath: /plugins-pvc
+  persistence:
+    archive:
+      size: 1Gi
+    live:
+      size: 1Gi
+    logging:
+      size: 500Mi
+    # Keep the state *pod volume* named "verification-storage" in BOTH versions. solo-provisioner backs all
+    # storage with standalone (existingClaim) PVCs, so the chart references them as plain `persistentVolumeClaim`
+    # volumes in the pod template (NOT volumeClaimTemplates). 0.37 renamed the state volume key
+    # verification->application-state, which would name the 0.37 pod volume "application-state-storage"; our
+    # init-storage-dirs container below mounts the volume by name, so we pin both 0.36
+    # (persistence.verification.volumeName) and 0.37 (persistence.applicationState.volumeName) to
+    # "verification-storage" so that mount stays valid across the upgrade. The volume name lives in the
+    # mutable pod template, so this is NOT what makes the upgrade work — the immutable StatefulSet rename is
+    # handled by the orphan-delete step in e2e-node-operator.yaml. (No values schema, so the key unused by a
+    # given chart version is harmless.)
+    #
+    # existingClaim WORKAROUND (provisioner old-key/new-key lag): solo-provisioner v0.20.0 sets the storage as
+    # `persistence.verification.existingClaim=verification-storage-pvc` (the OLD key). The 0.36 chart reads
+    # that key, but the 0.37 chart reads `persistence.applicationState.existingClaim` — which the provisioner
+    # leaves empty — so the 0.37 StatefulSet falls back to a volumeClaimTemplate and binds a FRESH, EMPTY
+    # state PVC, abandoning verification-storage-pvc where the base persisted tss-parameters.bin. The BN then
+    # finds no TSS params and newly-streamed TSS blocks fail BAD_BLOCK_PROOF. Pin existingClaim on BOTH keys
+    # to the provisioner's PVC so the 0.37 pod reuses the base's state PVC (and its tss-parameters.bin).
+    # Remove once solo-provisioner sets applicationState.existingClaim for 0.37+.
+    verification:
+      volumeName: verification-storage
+      existingClaim: verification-storage-pvc
+      size: 500Mi
+    applicationState:
+      volumeName: verification-storage
+      existingClaim: verification-storage-pvc
+      size: 500Mi
