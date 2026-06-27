@@ -160,7 +160,8 @@ jobs:
               MATRIX='[
                 {"topology":"single","tests":"smoke-test,tss-signature-transition,wrb-cli-hash-validation,wrb-cli-wrapping-validation"},
                 {"topology":"2cn-2bn-backfill","tests":"full-history-backfill,tss-signature-transition"},
-                {"topology":"single-wrb-rsa","tests":"smoke-test,rsa-roster-verification"}
+                {"topology":"single-wrb-rsa","tests":"smoke-test,rsa-roster-verification"},
+                {"topology":"wrb-differential-test","tests":"wrb-differential-test"}
               ]'
               ;;
             weekend|rc)
@@ -173,7 +174,8 @@ jobs:
                 {"topology":"2cn-2bn-backfill","tests":"full-history-backfill,tss-signature-transition"},
                 {"topology":"7cn-3bn-distributed","tests":"smoke-test,tss-signature-transition"},
                 {"topology":"single-wrb-rsa","tests":"smoke-test,rsa-roster-verification"},
-                {"topology":"3cn-2bn-wrb-rsa","tests":"smoke-test,rsa-roster-verification"}
+                {"topology":"3cn-2bn-wrb-rsa","tests":"smoke-test,rsa-roster-verification"},
+                {"topology":"wrb-differential-test","tests":"wrb-differential-test"}
               ]'
               ;;
             *)

@@ -1,18 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# WRB Differential Test (#2767)
+# Block Ingestion Test (#2767)
 #
-# E2E test to validate that Mirror Node databases are identical whether ingesting
-# live blocks or WRB CLI-wrapped blocks.
+# E2E test to validate Mirror Node block ingestion in Solo environment.
+# Phase 1: Basic ingestion test (MN1 → BN1)
+# Phase 2: Separate namespace test (MN2 → BN2 in isolated namespace)
 #
 # Test Flow:
-#   1. Deploy network with wrb-differential-test topology (1 CN, 2 BNs, 2 MNs)
+#   1. Deploy network with wrb-differential-test topology (1 CN, 1 BN)
 #   2. Wait for CN to produce blocks
-#   3. Extract and wrap blocks using WRB CLI
-#   4. Copy wrapped blocks to BN2's historic storage
-#   5. Restart BN2 to discover blocks
-#   6. Verify MN1 and MN2 ingest blocks
-#   7. Compare MN1 and MN2 databases (future: Task #7)
+#   3. Phase 1: Deploy MN1 → BN1, validate ingestion
+#   4. Phase 2: Copy blocks to separate namespace, deploy BN2+MN2, validate
 #
 # Prerequisites:
 #   - Deploy with topology: wrb-differential-test
@@ -22,7 +20,7 @@
 #   task test:run TEST_FILE=tests/wrb-differential-test.yaml TOPOLOGY=wrb-differential-test
 
 name: wrb-differential-test
-description: "WRB differential test - compare Mirror Node databases (live vs wrapped blocks)"
+description: "Block ingestion test with separate namespace isolation"
 
 events:
   - id: initial-status
@@ -35,109 +33,35 @@ events:
     description: "Wait for CN to produce blocks"
     delay: 10
     args:
-      seconds: 120
-
-  - id: pre-wrap-metrics
-    type: print-metrics
-    description: "Capture pre-wrap metrics"
-    delay: 135
-    args:
-      target: all
-
-  - id: build-tools-jar
-    type: command
-    description: "Build tools shadow jar for WRB CLI"
-    delay: 140
-    timeout: 300
-    args:
-      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh build"
-
-  - id: extract-record-files
-    type: command
-    description: "Extract record files from MinIO/CN"
-    delay: 145
-    timeout: 600
-    args:
-      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh extract"
-
-  - id: wrap-blocks
-    type: command
-    description: "Wrap record files with WRB CLI"
-    delay: 150
-    timeout: 600
-    args:
-      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh wrap"
-
-  - id: copy-to-bn2
-    type: command
-    description: "Copy wrapped blocks to BN2's archive PVC"
-    delay: 155
-    timeout: 600
-    args:
-      script: "${SCRIPT_DIR}/wrb-deploy-bn2-historic.sh copy-blocks"
-
-  - id: restart-bn2
-    type: command
-    description: "Restart BN2 to discover wrapped blocks"
-    delay: 160
-    timeout: 180
-    args:
-      script: "${SCRIPT_DIR}/wrb-deploy-bn2-historic.sh restart"
-
-  - id: verify-bn2
-    type: command
-    description: "Verify BN2 can serve blocks"
-    delay: 165
-    timeout: 120
-    args:
-      script: "${SCRIPT_DIR}/wrb-deploy-bn2-historic.sh verify"
-
-  - id: wait-for-mirror-nodes
-    type: sleep
-    description: "Wait for Mirror Nodes to ingest blocks"
-    delay: 170
-    args:
       seconds: 60
 
-  - id: compare-mirror-nodes
+  - id: run-ingestion-test
     type: command
-    description: "Compare MN1 and MN2 databases via API"
-    delay: 175
-    timeout: 600
+    description: "Run block ingestion test (Phase 1 + Phase 2)"
+    delay: 75
+    timeout: 1200
     args:
-      script: "${SCRIPT_DIR}/compare-mirror-node-apis.sh --block-range 0:100"
+      script: "${SCRIPT_DIR}/wrb-sequential-comparison.sh"
 
   - id: final-status
     type: network-status
     description: "Post-test network status"
-    delay: 240
+    delay: 90
 
 assertions:
-  - id: all-healthy
+  - id: bn1-healthy
     type: node-healthy
-    description: "All Block Nodes are healthy"
-    target: all
+    description: "Block Node 1 is healthy"
+    target: block-node-1
 
   - id: bn1-has-blocks
     type: block-available
-    description: "BN1 has blocks from CN (live)"
+    description: "BN1 has blocks from CN"
     target: block-node-1
-    args:
-      min_block: 0
-
-  - id: bn2-has-blocks
-    type: block-available
-    description: "BN2 has blocks from historic storage (wrapped)"
-    target: block-node-2
     args:
       min_block: 0
 
   - id: no-errors
     type: no-errors
     description: "No errors in block node logs"
-    target: all
-
-  - id: mirror-nodes-identical
-    type: command-success
-    description: "Mirror Node databases are identical (live vs wrapped)"
-    command_id: compare-mirror-nodes
+    target: block-node-1

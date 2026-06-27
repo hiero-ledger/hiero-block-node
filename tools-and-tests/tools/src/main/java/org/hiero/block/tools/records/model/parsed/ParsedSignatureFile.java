@@ -322,9 +322,15 @@ public class ParsedSignatureFile {
      */
     public boolean isValid(byte[] hash, String rsaPubKey) {
         if (!Arrays.equals(hash, fileHashFromSig)) {
+            System.err.println("[SIGNATURE DEBUG] Hash mismatch for node 0.0." + accountNum
+                    + " - computed hash doesn't match signature file hash");
             return false;
         }
-        return verifyRsaSha384(rsaPubKey, hash, signatureBytes);
+        boolean rsaValid = verifyRsaSha384(rsaPubKey, hash, signatureBytes);
+        if (!rsaValid) {
+            System.err.println("[SIGNATURE DEBUG] RSA signature verification failed for node 0.0." + accountNum);
+        }
+        return rsaValid;
     }
 
     /**
