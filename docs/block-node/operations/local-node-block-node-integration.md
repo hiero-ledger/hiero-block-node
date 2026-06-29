@@ -7,6 +7,10 @@ local Hiero network for development and testing. The `--enable-block-node` flag 
 Node container alongside the Consensus Node, but **two manual configuration steps are required
 before the CN actually streams blocks to the Block Node**.
 
+> **Deprecation notice:** Hiero Local Node is in a 6-month deprecation period ending September
+> 2026 and will be removed after that date. [Solo](https://solo.hiero.org) is the supported
+> replacement for local development and testing.
+
 By default, the CN's `application.properties` ships with:
 
 ```
