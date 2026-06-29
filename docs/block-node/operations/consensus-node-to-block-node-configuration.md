@@ -94,6 +94,9 @@ The file is a JSON object with a single `nodes` array. Each entry has the follow
 | `servicePort`               | integer | No       | TCP port for Block Node service APIs (e.g., `serverStatus`). Defaults to `streamingPort` if omitted.                                                                     |
 | `priority`                  | integer | Yes      | Connection priority. **Lower value = higher priority.** `0` is the highest priority. Nodes with the same priority are selected randomly among available candidates.      |
 | `messageSizeSoftLimitBytes` | integer | No       | Soft limit on per-request payload size in bytes. Requests are packed up to this size; an oversized single item may exceed it. Defaults to `2,097,152` (2 MB) if omitted. |
+| `messageSizeHardLimitBytes` | integer | No       | Hard limit on per-item payload size in bytes. Items larger than this value are rejected. Defaults to `131,072,000` (125 MB) if omitted.                                  |
+
+> **Note:** Both size limits must not exceed what the Block Node is configured to accept. Setting either limit higher than the Block Node's own `server.maxMessageSizeBytes` (or equivalent) will cause streaming errors on oversized items.
 
 ### Example: single Block Node
 
@@ -146,14 +149,14 @@ If the file is deleted or fails to parse, the CN logs a warning and stops establ
 
 After creating `block-nodes.json`, watch the CN application log for these messages in order:
 
-|                             Log message                              |                          Meaning                          |
-|----------------------------------------------------------------------|-----------------------------------------------------------|
-| `Starting block node connection manager...`                          | CN has seen the config file and is initialising.          |
-| `Block node configuration loaded (version: N)`                       | `block-nodes.json` parsed successfully with N entries.    |
-| `Block node configuration watcher started`                           | CN is now watching the file for future changes.           |
-| `Block node connection manager started`                              | Connection manager is active.                             |
-| `[HOST:PORT] Block node is available for streaming (wantedBlock: N)` | CN reached the BN's status API and confirmed it is ready. |
-| `Selected new block node for streaming: HOST:PORT (wantedBlock: N)`  | Active streaming connection established.                  |
+|                             Log message                              |                                                               Meaning                                                               |
+|----------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `Starting block node connection manager...`                          | CN has seen the config file and is initialising.                                                                                    |
+| `Block node configuration loaded (version: N)`                       | `block-nodes.json` parsed successfully. `N` is a monotonically increasing counter that starts at `1` and increments on each reload. |
+| `Block node configuration watcher started`                           | CN is now watching the file for future changes.                                                                                     |
+| `Block node connection manager started`                              | Connection manager is active.                                                                                                       |
+| `[HOST:PORT] Block node is available for streaming (wantedBlock: N)` | CN reached the BN's status API and confirmed it is ready.                                                                           |
+| `Selected new block node for streaming: HOST:PORT (wantedBlock: N)`  | Active streaming connection established.                                                                                            |
 
 If you see instead:
 
