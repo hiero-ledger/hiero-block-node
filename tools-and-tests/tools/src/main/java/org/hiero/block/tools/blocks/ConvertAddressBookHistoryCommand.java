@@ -7,10 +7,12 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -149,17 +151,37 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        JSON_MAPPER.writeValue(outputFile.toFile(), root);
+        // Atomic write: serialize to a sibling .tmp then rename, so a crash mid-write can't
+        // leave the destination half-written for the BN to read.
+        final Path tmp = outputFile.resolveSibling(outputFile.getFileName() + ".tmp");
+        try {
+            JSON_MAPPER.writeValue(tmp.toFile(), root);
+            Files.move(tmp, outputFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            Files.deleteIfExists(tmp);
+            throw e;
+        }
         System.out.println(Ansi.AUTO.string(
                 "@|green Wrote " + sorted.size() + " roster entries to " + outputFile.toAbsolutePath() + "|@"));
         return 0;
     }
 
+    /**
+     * Loads the {@link AddressBookHistory} from {@code file}. Distinguishes two error kinds the
+     * caller may want to handle differently:
+     *
+     * <ul>
+     *   <li>{@link IOException} &mdash; file IO failures (missing/unreadable file, broken stream)
+     *       propagate directly from the underlying input stream.</li>
+     *   <li>{@link RuntimeException} (wrapping a PBJ {@link ParseException}) &mdash; the file was
+     *       readable but its contents are not a valid {@code AddressBookHistory} JSON.</li>
+     * </ul>
+     */
     private static AddressBookHistory loadAddressBookHistory(Path file) throws IOException {
         try (ReadableStreamingData in = new ReadableStreamingData(Files.newInputStream(file))) {
             return AddressBookHistory.JSON.parse(in);
-        } catch (Exception e) {
-            throw new IOException("Failed to parse AddressBookHistory from " + file + ": " + e.getMessage(), e);
+        } catch (ParseException e) {
+            throw new RuntimeException("Malformed AddressBookHistory JSON in " + file + ": " + e.getMessage(), e);
         }
     }
 

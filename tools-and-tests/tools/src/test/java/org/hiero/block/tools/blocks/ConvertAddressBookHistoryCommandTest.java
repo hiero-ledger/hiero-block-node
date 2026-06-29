@@ -199,6 +199,14 @@ class ConvertAddressBookHistoryCommandTest {
             writeHistory(inputFile, List.of());
             assertEquals(1, execute());
         }
+
+        @Test
+        @DisplayName("Malformed input surfaces as a non-zero exit (parse error, not IO error)")
+        void malformedInput() throws IOException {
+            Files.writeString(inputFile, "{ this is not valid AddressBookHistory JSON ::: ");
+            int exit = execute();
+            assertNotEquals(0, exit, "malformed input must not exit 0");
+        }
     }
 
     @Nested
@@ -235,6 +243,19 @@ class ConvertAddressBookHistoryCommandTest {
                             "--block-times-file", TEST_BLOCK_TIMES_FILE.toString());
             assertEquals(0, exit);
             assertTrue(Files.isRegularFile(nestedOut), "output file must exist in created nested dir");
+        }
+
+        @Test
+        @DisplayName("Atomic write: no leftover .tmp sibling after a successful run")
+        void atomicWriteLeavesNoTmpFile() throws IOException {
+            final long[] picks = new long[] {100};
+            final List<Instant> instants = blockInstants(picks);
+            writeHistory(inputFile, List.of(dated(instants.get(0), addressBook(0, 1, "aa"))));
+
+            assertEquals(0, execute());
+            Path tmp = outputFile.resolveSibling(outputFile.getFileName() + ".tmp");
+            assertTrue(Files.exists(outputFile), "output must exist after successful run");
+            assertTrue(!Files.exists(tmp), "atomic write must not leave a .tmp sibling on success");
         }
 
         @Test
