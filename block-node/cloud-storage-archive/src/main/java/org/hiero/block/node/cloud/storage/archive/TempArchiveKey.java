@@ -5,9 +5,8 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 
 /// Encodes and decodes S3 object keys for temporary tar archives.
 ///
-/// Temporary archives live under a `tmp/` virtual directory so that [StartupRecoveryTask]'s
-/// [StartupRecoveryTask#findLastKey] traversal can exclude them by skipping the `tmp/` common
-/// prefix.  Two companion objects are created per archive segment:
+/// Temporary archives live under a `tmp/` virtual directory so that [StartupRecoveryTask]
+/// can exclude them by skipping the `tmp/` common prefix.  Two companion objects are created per archive segment:
 ///
 /// - **Tar object** — `{prefix}/tmp/{firstBlock:019d}.tmp` — the raw tar content.
 /// - **Meta object** — `{prefix}/tmp/{firstBlock:019d}.meta` — a single-line text file whose

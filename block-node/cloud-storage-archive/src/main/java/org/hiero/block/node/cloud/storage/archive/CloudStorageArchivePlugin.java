@@ -290,8 +290,9 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
 
     /// Drains completed [TempArchiveUploadTask] futures and updates the tracker.
     ///
-    /// [TempArchiveUploadTask] already calls `ApplicationStateFacility.addStoredBlockRange()` per
-    /// part, so no additional range registration is needed here.
+    /// [TempArchiveUploadTask] calls `ApplicationStateFacility.addStoredBlockRange()` once after
+    /// both the multipart upload and the meta file write succeed, so no additional range
+    /// registration is needed here.
     private void checkAndDrainTempUploadResults() {
         final Iterator<Map.Entry<Long, Future<TempArchiveEntry>>> it =
                 tempUploadFutures.entrySet().iterator();
@@ -470,7 +471,12 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 if (result.currentGroupStart() != -1) {
                     currentGroupStart = result.currentGroupStart();
                     nextBlockToQueue = result.uploadId() != null ? result.nextBlockNumber() : currentGroupStart;
-                    if (nextBlockToQueue > 0) {
+                    if (result.completedRanges() != null) {
+                        for (final LongRange range : result.completedRanges()) {
+                            context.applicationStateFacility().addStoredBlockRange(range);
+                        }
+                    } else if (nextBlockToQueue > 0) {
+                        // Case 2 (resume): completed archives unknown; fall back to broad range
                         context.applicationStateFacility().addStoredBlockRange(new LongRange(0, nextBlockToQueue - 1));
                     }
                     currentBlockQueue = new LinkedBlockingQueue<>();

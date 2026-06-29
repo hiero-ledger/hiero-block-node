@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -132,6 +133,8 @@ class StartupRecoveryTaskTest {
         assertThat(result.uploadId()).isNull();
         assertThat(result.trailingBytes()).isNull();
         assertThat(result.lastHandedOffBlock()).isEqualTo(-1L);
+        assertThat(result.completedRanges()).isNotNull();
+        assertThat(result.completedRanges()).isEmpty();
     }
 
     /// Verifies that a completed tar for the first group causes recovery to return the start of
@@ -185,9 +188,46 @@ class StartupRecoveryTaskTest {
         assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize * 3 - 1);
     }
 
+    /// Verifies that recovery returns the correct next group start when more than ten groups are
+    /// completed in the same S3 "folder", exercising the case where [ArchiveKey#format] strips
+    /// leading zeros from the last path segment so that lexicographic order diverges from numeric
+    /// order (e.g. `10.tar` sorts before `2.tar` through `9.tar` in S3's UTF-8 binary ordering).
+    ///
+    /// With [GROUPING_LEVEL] = 1 and groupSize = 10, eleven completed groups span
+    /// groupStart = 0, 10, 20, ..., 100.  The 11th key is `...0000/10.tar` which S3 places between
+    /// `...0000/1.tar` and `...0000/2.tar`, so naively calling `List#getLast()` on the S3-sorted
+    /// list would return `...0000/9.tar` (groupStart 90) and yield the wrong `currentGroupStart`
+    /// of 100 instead of 110.
+    @Test
+    @DisplayName("Eleven completed tar groups: recovery uses numeric max, not S3 lexicographic last")
+    void elevenCompletedTarGroupsReturnNextGroupStart() throws Exception {
+        final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+        final int groupCount = 11;
+        try (S3Client s3 = openS3Client()) {
+            for (int g = 0; g < groupCount; g++) {
+                final long groupStart = (long) g * groupSize;
+                final String key = ArchiveKey.format(groupStart, GROUPING_LEVEL, "");
+                final List<TestBlock> blocks =
+                        TestBlockBuilder.generateBlocksInRange((int) groupStart, (int) (groupStart + groupSize - 1));
+                final String uploadId =
+                        s3.createMultipartUpload(key, config.storageClass().name(), CONTENT_TYPE);
+                final String etag = s3.multipartUploadPart(key, uploadId, 1, buildTarBytes(blocks));
+                s3.completeMultipartUpload(key, uploadId, List.of(etag));
+            }
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.currentGroupStart()).isEqualTo(groupSize * groupCount);
+        assertThat(result.uploadId()).isNull();
+        assertThat(result.trailingBytes()).isNull();
+        assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize * groupCount - 1);
+        assertThat(result.completedRanges()).hasSize(groupCount);
+    }
+
     /// Verifies that when completed tars live in two different 4th-level S3 "folders"
-    /// (i.e. the key prefix before the last segment differs), [findLastKey] still correctly
-    /// navigates to the alphabetically last prefix and returns the right group start.
+    /// (i.e. the key prefix before the last segment differs), recovery still correctly
+    /// identifies the alphabetically last object and returns the right group start.
     ///
     /// With [GROUPING_LEVEL] = 1 and groupSize = 10:
     ///  - `start = 0`    → key `"0000/0000/0000/0000/0.tar"` (4th segment `0000`)
@@ -233,7 +273,7 @@ class StartupRecoveryTaskTest {
     /// configured one (simulating a shared bucket with e.g. `hiero/mainnet` and `hiero/testnet`):
     ///
     /// - The completed-object traversal stays inside the configured prefix and returns the correct
-    ///   [RecoveryResult#currentGroupStart()] (fixing the `findLastKey` bug).
+    ///   [RecoveryResult#currentGroupStart()] (the completed-object traversal stays inside the configured prefix).
     /// - The sibling's hanging upload is not counted in `totalUploads` and is not aborted (fixing
     ///   the `listMultipartUploads` bucket-wide scan bug).
     @Test
@@ -318,7 +358,7 @@ class StartupRecoveryTaskTest {
     /// value and the bucket contains a completed tar only under that prefix, recovery correctly
     /// traverses the prefixed path and returns the start of the next group.
     ///
-    /// This is the simplest end-to-end exercise of [StartupRecoveryTask#findLastKey] with a prefix:
+    /// This is the simplest end-to-end exercise of prefixed recovery:
     /// no sibling, just one completed tar and an assertion on [RecoveryResult#currentGroupStart()].
     @Test
     @DisplayName("Completed tar under configured prefix: recovery returns the start of the next group")
@@ -685,15 +725,15 @@ class StartupRecoveryTaskTest {
     }
 
     /// Verifies that when the bucket contains both a completed regular `.tar` and objects under
-    /// `tmp/`, [findLastKey] excludes the `tmp/` virtual directory and returns the correct
+    /// `tmp/`, recovery excludes the `tmp/` virtual directory and returns the correct
     /// [RecoveryResult#currentGroupStart()] based on the completed regular tar.
     ///
-    /// With groupSize=10, a completed tar for group 0 (blocks 0–9) produces
+    /// With groupSize=10, a completed tar for group 0 (blocks 0-9) produces
     /// [RecoveryResult#currentGroupStart()] == 10.  The presence of `.meta` objects under `tmp/`
-    /// must not distract [findLastKey] into the `tmp/` subtree and produce a wrong group start.
+    /// must not cause recovery to return a wrong group start.
     @Test
-    @DisplayName("findLastKey excludes the tmp/ directory: regular tar still found correctly")
-    void findLastKeyIgnoresTmpDirectory() throws Exception {
+    @DisplayName("Recovery ignores tmp/ objects: regular tar still found correctly")
+    void recoveryIgnoresTmpObjects() throws Exception {
         final long groupSize = Math.powExact(10, GROUPING_LEVEL);
         final String regularKey = ArchiveKey.format(0, GROUPING_LEVEL, "");
 
@@ -708,7 +748,7 @@ class StartupRecoveryTaskTest {
                     buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1)));
             s3.completeMultipartUpload(regularKey, uploadId, List.of(etag));
 
-            // Some objects under tmp/ — these must not influence findLastKey.
+            // Some objects under tmp/ — these must not influence recovery.
             final String metaKey = TempArchiveKey.formatMeta(0, config.objectKeyPrefix());
             final String tarKey = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
             s3.uploadTextFile(tarKey, config.storageClass().name(), "dummy");
@@ -726,6 +766,58 @@ class StartupRecoveryTaskTest {
         assertThat(result.tempArchives().getFirst().lastBlock()).isEqualTo(9L);
         // base = groupSize - 1 = 9; temp archive lastBlock = 9 → max = 9.
         assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize - 1);
+    }
+
+    /// Verifies that [StartupRecoveryTask] enumerates all completed tar archives and returns a
+    /// [RecoveryResult#completedRanges()] list with one [LongRange] per archive.
+    ///
+    /// Two distinct completed tar archives are planted (groups 0 and 1).  After recovery,
+    /// [RecoveryResult#completedRanges()] must contain exactly two entries with the correct
+    /// `[groupStart, groupStart + groupSize - 1]` ranges.
+    @Test
+    @DisplayName("Multiple completed archives: completedRanges contains one LongRange per archive")
+    void multipleCompletedArchivesReturnCompletedRanges() throws Exception {
+        final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+        try (S3Client s3 = openS3Client()) {
+            for (int g = 0; g < 2; g++) {
+                final long groupStart = (long) g * groupSize;
+                final String key = ArchiveKey.format(groupStart, GROUPING_LEVEL, "");
+                final List<TestBlock> blocks =
+                        TestBlockBuilder.generateBlocksInRange((int) groupStart, (int) (groupStart + groupSize - 1));
+                final String uploadId =
+                        s3.createMultipartUpload(key, config.storageClass().name(), CONTENT_TYPE);
+                final String etag = s3.multipartUploadPart(key, uploadId, 1, buildTarBytes(blocks));
+                s3.completeMultipartUpload(key, uploadId, List.of(etag));
+            }
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.completedRanges()).isNotNull();
+        assertThat(result.completedRanges()).hasSize(2);
+        assertThat(result.completedRanges())
+                .containsExactlyInAnyOrder(
+                        new LongRange(0, groupSize - 1), new LongRange(groupSize, groupSize * 2 - 1));
+    }
+
+    /// Verifies that a single hanging multipart upload (Case 2) returns [RecoveryResult#completedRanges()]
+    /// == `null`, since completed archives are not enumerated on the resume path.
+    @Test
+    @DisplayName("Single hanging upload (Case 2): completedRanges is null")
+    void singleHangingUploadReturnsNullCompletedRanges() throws Exception {
+        final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 4);
+        final String key = ArchiveKey.format(0, GROUPING_LEVEL, "");
+        final byte[] partBytes = buildTarBytes(blocks);
+        try (S3Client s3 = openS3Client()) {
+            final String uploadId =
+                    s3.createMultipartUpload(key, config.storageClass().name(), CONTENT_TYPE);
+            s3.multipartUploadPart(key, uploadId, 1, partBytes);
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.uploadId()).isNotNull();
+        assertThat(result.completedRanges()).isNull();
     }
 
     private S3Client openS3Client() throws Exception {
