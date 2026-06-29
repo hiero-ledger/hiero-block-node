@@ -101,11 +101,19 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
                         proof.signedBlockProof().blockSignature(),
                         verificationDataProvider));
             } else if (proof.hasSignedRecordFileProof()) {
+                final java.util.Map<Long, java.security.PublicKey> rsaKeys =
+                        verificationDataProvider.rsaPublicKeysForBlock(hashingResult.blockNumber());
+                if (rsaKeys == null) {
+                    throw new VerificationSessionFailedException(
+                            hashingResult.blockNumber(),
+                            SessionFailureType.NO_MATCHING_ADDRESS_BOOK,
+                            hashingResult.blockSource());
+                }
                 final Signature sha384WithRSASig = Signature.getInstance("SHA384withRSA");
                 verifiers.add(new RSAProofVerifier(
                         proofVerificationMetrics,
                         hashingResult.blockNumber(),
-                        verificationDataProvider.currentRSAPublicKeys(),
+                        rsaKeys,
                         proof.signedRecordFileProof(),
                         hashingResult.signedWRBPayload(),
                         sha384WithRSASig));

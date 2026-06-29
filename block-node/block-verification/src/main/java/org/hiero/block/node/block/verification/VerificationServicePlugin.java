@@ -146,7 +146,6 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     @Override
     public void onContextUpdate(final BlockNodeContext updatedContext) {
         if (updatedContext != null) {
-            verificationDataProvider.safeUpdateNodeAddressBook(updatedContext.nodeAddressBook());
             verificationDataProvider.safeUpdateTssData(updatedContext.tssData(), false);
             // todo(2528) most likely here we will also have to listen for updates
             //    about the latest stored blocks. That value has to update the
