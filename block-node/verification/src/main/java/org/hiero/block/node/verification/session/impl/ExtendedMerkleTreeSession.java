@@ -551,10 +551,9 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             } catch (final InvalidKeyException | SignatureException e) {
                 LOGGER.log(
                         WARNING,
-                        "RSA verification error for node {0} in block {1}: {2} — rejecting block",
-                        nodeId,
-                        blockNumber,
-                        e.getMessage());
+                        "RSA verification error for node %s in block %s — rejecting block"
+                                .formatted(nodeId, blockNumber),
+                        e);
                 metrics.incrementRsaFailure();
                 return new VerificationNotification(
                         false,
