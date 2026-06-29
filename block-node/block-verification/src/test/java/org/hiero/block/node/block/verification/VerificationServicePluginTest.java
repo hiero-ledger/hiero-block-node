@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.fail;
 
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.assertj.core.api.ObjectAssert;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlock;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder;
@@ -166,6 +168,27 @@ class VerificationServicePluginTest {
                         .returns(block.blockUnparsed(), VerificationNotification::block)
                         .returns(block.blockRootHash(), VerificationNotification::blockHash);
             }
+        }
+
+        /// This test exercises the VFE extraction path in SessionResultHandler.
+        /// Block 0 initializes TSS data; the tampered block 1 passes hashing but
+        /// fails TSS signature verification, producing a failure notification.
+        @Test
+        @DisplayName("Failed WRAPS Verification - tampered block covers VFE extraction path")
+        void testTamperedWRAPSBlockTriggersVfePath() throws IOException, ParseException {
+            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
+            plugin.handleBlockItemsReceived(block0.asBlockItems());
+            // Wait for block 0 to complete so TSS data is initialized before block 1 is submitted
+            blockMessaging.getSentVerificationNotifications(1);
+
+            final ResourceTestBlock block1 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_1);
+            final List<BlockItemUnparsed> tamperedItems =
+                    new ArrayList<>(block1.blockUnparsed().blockItems());
+            tamperedItems.remove(1); // remove a non-mandatory item to change the block hash
+            plugin.handleBlockItemsReceived(new BlockItems(tamperedItems, block1.number(), true, true));
+
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(2);
+            assertThat(notifications.get(1)).returns(false, VerificationNotification::success);
         }
 
         /// This test aims to assert that when the next in line WRAPS block is

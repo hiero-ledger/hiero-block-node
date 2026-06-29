@@ -207,4 +207,28 @@ class BadBlockDumperTest {
         dumper.stop();
         assertEquals(1L, countBlkFiles());
     }
+
+    @Test
+    void startHandlesDirectoryCreationFailureGracefully() throws IOException {
+        // Replace the dump directory with a regular file so Files.createDirectories throws
+        Files.delete(tempDir);
+        Files.createFile(tempDir);
+        final VerificationConfig config = new VerificationConfig(Path.of(""), false, 10, Path.of(""), true, tempDir, 7);
+        final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
+        final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
+        dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
+        dumper.stop();
+    }
+
+    @Test
+    void attemptDumpHandlesWriteFailureGracefully() throws IOException {
+        final VerificationConfig config = new VerificationConfig(Path.of(""), false, 10, Path.of(""), true, tempDir, 7);
+        final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
+        final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
+        dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
+        // Delete the dump directory so file creation fails inside attemptDump
+        Files.delete(tempDir);
+        dumper.attemptDump(failureNotification(99L), null, BlockUnparsed.DEFAULT.blockItems());
+        dumper.stop();
+    }
 }
