@@ -4,7 +4,6 @@ package org.hiero.block.node.block.verification.session;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -13,6 +12,7 @@ import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
+import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
@@ -28,7 +28,6 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Block Session Handler Tests")
 class BlockSessionHandlerTest {
     private BlockingExecutor executor;
-    private ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions;
     private BlockSessionHandler toTest;
 
     /// Setup before each test.
@@ -46,7 +45,7 @@ class BlockSessionHandlerTest {
         final VerificationDataProvider verificationDataProvider = new VerificationDataProvider(context);
         final AtomicLong lastVerifiedBlock = new AtomicLong(-1);
         final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks = new ConcurrentSkipListSet<>();
-        activeSessions = new ConcurrentSkipListMap<>();
+        final BadBlockDumper badBlockDumper = new BadBlockDumper(verificationConfig, "test");
         executor = new BlockingExecutor(new LinkedBlockingQueue<>());
         toTest = new BlockSessionHandler(
                 context,
@@ -55,8 +54,8 @@ class BlockSessionHandlerTest {
                 verificationDataProvider,
                 lastVerifiedBlock,
                 recentlyVerifiedBlocks,
-                activeSessions,
-                executor);
+                executor,
+                badBlockDumper);
     }
 
     /// This test aims to assert that when session handler expects to start a new block on publisher source,
@@ -98,7 +97,7 @@ class BlockSessionHandlerTest {
         toTest.processBlockItems(block3.asBlockItems(), BlockSource.PUBLISHER);
         toTest.processBlockItems(block4.asBlockItems(), BlockSource.PUBLISHER);
         // Assert that the buffer is full and the lowest active session is canceled
-        assertThat(activeSessions).hasSize(2).containsKeys(new SessionKey(3, 1), new SessionKey(4, 2));
+        assertThat(toTest.activeSessions()).hasSize(2).containsKeys(new SessionKey(3, 1), new SessionKey(4, 2));
     }
 
     /// This test aims to verify that when the active sessions buffer is full and a new session comes,
@@ -118,7 +117,7 @@ class BlockSessionHandlerTest {
         toTest.processBlockItems(block3.asBlockItems(), BlockSource.PUBLISHER);
         toTest.processBlockItems(block2.asBlockItems(), BlockSource.PUBLISHER);
         // Assert that the buffer is full and the lowest active session is canceled
-        assertThat(activeSessions)
+        assertThat(toTest.activeSessions())
                 .hasSize(3)
                 .containsKeys(new SessionKey(2, 2), new SessionKey(3, 1), new SessionKey(4, 0));
     }

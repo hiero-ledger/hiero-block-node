@@ -12,12 +12,14 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
@@ -32,8 +34,8 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  *
  * <p>Two files are written per dump:
  * <ul>
- *   <li>{@code block-<N>-<TYPE>-<uuid>.blk} — raw protobuf-encoded {@link BlockUnparsed} bytes
- *   <li>{@code block-<N>-<TYPE>-<uuid>.meta.json} — JSON sidecar with correlation id, failure
+ *   <li>{@code block-<N>-<TYPE>.blk} — raw protobuf-encoded {@link BlockUnparsed} bytes
+ *   <li>{@code block-<N>-<TYPE>.meta.json} — JSON sidecar with correlation id, failure
  *       category, BN identity, and HAPI version
  * </ul>
  *
@@ -77,8 +79,9 @@ public class BadBlockDumper {
                         config.dumpDirectoryPath(),
                         e);
             }
-            scheduler = threadPoolManager.createSingleThreadScheduledExecutor(
-                    "bad-block-dump-purge", Thread.currentThread().getUncaughtExceptionHandler());
+            Thread.UncaughtExceptionHandler handler = (thread, e) ->
+                    LOGGER.log(System.Logger.Level.INFO, "Uncaught exception in thread: " + thread.getName(), e);
+            scheduler = threadPoolManager.createSingleThreadScheduledExecutor("BadBlockDumpPurge", handler);
             scheduler.scheduleAtFixedRate(this::purgeOldDumps, 0, 1, TimeUnit.DAYS);
         }
     }
@@ -102,20 +105,23 @@ public class BadBlockDumper {
      *
      * @param notification the failed verification notification (must have {@code success=false})
      * @param hapiVersion the HAPI proto version from the block header, may be {@code null}
+     * @param blockItems the raw block items captured at the failure site, may be {@code null}
      */
-    public void attemptDump(@NonNull final VerificationNotification notification, final SemanticVersion hapiVersion) {
+    public void attemptDump(
+            @NonNull final VerificationNotification notification,
+            final SemanticVersion hapiVersion,
+            final List<BlockItemUnparsed> blockItems) {
         if (config.dumpEnabled()) {
-            final BlockUnparsed block = notification.block();
-            if (block != null) {
+            if (blockItems != null) {
                 final long blockNumber = notification.blockNumber();
                 final FailureType failureType = notification.failureInfo().failureType();
-                if (dumpedKeys.add(blockNumber + ":" + failureType.name())) {
+                final String baseName = "block-%d-%s".formatted(blockNumber, failureType);
+                if (dumpedKeys.add(baseName)) {
                     final String correlationId = UUID.randomUUID().toString();
-                    final String baseName = "block-%d-%s-%s".formatted(blockNumber, failureType, correlationId);
                     final Path blkFile = config.dumpDirectoryPath().resolve(baseName + ".blk");
                     final Path metaFile = config.dumpDirectoryPath().resolve(baseName + ".meta.json");
                     try {
-                        writeBlockFile(blkFile, block);
+                        writeBlockFile(blkFile, blockItems);
                         writeMetaFile(metaFile, correlationId, blockNumber, failureType, hapiVersion);
                         LOGGER.log(
                                 System.Logger.Level.TRACE,
@@ -139,7 +145,10 @@ public class BadBlockDumper {
         }
     }
 
-    private void writeBlockFile(@NonNull final Path path, @NonNull final BlockUnparsed block) throws IOException {
+    private void writeBlockFile(@NonNull final Path path, @NonNull final List<BlockItemUnparsed> blockItems)
+            throws IOException {
+        final BlockUnparsed block =
+                BlockUnparsed.newBuilder().blockItems(blockItems).build();
         try (final WritableStreamingData out =
                 new WritableStreamingData(new BufferedOutputStream(Files.newOutputStream(path)))) {
             BlockUnparsed.PROTOBUF.write(block, out);
@@ -196,9 +205,9 @@ public class BadBlockDumper {
 
     private void removeDumpedKey(@NonNull final Path file) {
         final String name = file.getFileName().toString();
-        final String[] parts = name.split("-", 4);
-        if (parts.length >= 3 && "block".equals(parts[0])) {
-            dumpedKeys.remove(parts[1] + ":" + parts[2]);
+        final int dotIdx = name.indexOf('.');
+        if (dotIdx > 0) {
+            dumpedKeys.remove(name.substring(0, dotIdx));
         }
     }
 

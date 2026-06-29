@@ -4,8 +4,11 @@ package org.hiero.block.node.verification;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.node.base.SemanticVersion;
 import java.io.IOException;
+import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -22,22 +25,30 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 class BadBlockDumperTest {
 
-    @TempDir
-    Path tempDir;
+    private FileSystem fileSystem;
+    private Path tempDir;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        fileSystem = Jimfs.newFileSystem(Configuration.unix());
+        tempDir = fileSystem.getPath("/dumps");
+        Files.createDirectories(tempDir);
+    }
+
+    @AfterEach
+    void close() throws IOException {
+        fileSystem.close();
+    }
 
     private static VerificationNotification failureNotification(final long blockNumber) {
         return new VerificationNotification(
-                false,
-                FailureInfo.standard(FailureType.UNKNOWN_ERROR),
-                blockNumber,
-                null,
-                BlockUnparsed.DEFAULT,
-                BlockSource.PUBLISHER);
+                false, FailureInfo.standard(FailureType.UNKNOWN_ERROR), blockNumber, null, null, BlockSource.PUBLISHER);
     }
 
     private long countBlkFiles() throws IOException {
@@ -76,7 +87,7 @@ class BadBlockDumperTest {
                 new VerificationConfig(Path.of(""), false, 10, Path.of(""), false, tempDir, 7);
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
 
-        dumper.attemptDump(failureNotification(1L), null);
+        dumper.attemptDump(failureNotification(1L), null, BlockUnparsed.DEFAULT.blockItems());
 
         assertEquals(0L, countBlkFiles());
     }
@@ -88,8 +99,8 @@ class BadBlockDumperTest {
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
         dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
 
-        dumper.attemptDump(failureNotification(42L), null);
-        dumper.attemptDump(failureNotification(42L), null);
+        dumper.attemptDump(failureNotification(42L), null, BlockUnparsed.DEFAULT.blockItems());
+        dumper.attemptDump(failureNotification(42L), null, BlockUnparsed.DEFAULT.blockItems());
 
         dumper.stop();
         assertEquals(1L, countBlkFiles());
@@ -112,7 +123,7 @@ class BadBlockDumperTest {
 
         final VerificationNotification nullBlockNotification = new VerificationNotification(
                 false, FailureInfo.standard(FailureType.UNKNOWN_ERROR), 1L, null, null, BlockSource.PUBLISHER);
-        dumper.attemptDump(nullBlockNotification, null);
+        dumper.attemptDump(nullBlockNotification, null, null);
 
         dumper.stop();
         assertEquals(0L, countBlkFiles());
@@ -125,7 +136,8 @@ class BadBlockDumperTest {
         final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
         dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
 
-        dumper.attemptDump(failureNotification(5L), new SemanticVersion(0, 72, 0, "", ""));
+        dumper.attemptDump(
+                failureNotification(5L), new SemanticVersion(0, 72, 0, "", ""), BlockUnparsed.DEFAULT.blockItems());
 
         dumper.stop();
         assertEquals(1L, countBlkFiles());
@@ -145,7 +157,7 @@ class BadBlockDumperTest {
         dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
 
         // Dump block 7 then backdate its files beyond the 1-day retention window
-        dumper.attemptDump(failureNotification(7L), null);
+        dumper.attemptDump(failureNotification(7L), null, BlockUnparsed.DEFAULT.blockItems());
         final Instant twoDaysAgo = Instant.now().minus(2, ChronoUnit.DAYS);
         try (final Stream<Path> stream = Files.list(tempDir)) {
             stream.forEach(f -> {
@@ -157,10 +169,40 @@ class BadBlockDumperTest {
         }
 
         // Dump block 8 with a current timestamp; this file must survive the purge
-        dumper.attemptDump(failureNotification(8L), null);
+        dumper.attemptDump(failureNotification(8L), null, BlockUnparsed.DEFAULT.blockItems());
         assertEquals(2L, countBlkFiles());
 
         scheduler.runPurge();
+
+        dumper.stop();
+        assertEquals(1L, countBlkFiles());
+    }
+
+    @Test
+    void purgeAllowsReDumpOfSameBlock() throws IOException {
+        final VerificationConfig config = new VerificationConfig(Path.of(""), false, 10, Path.of(""), true, tempDir, 1);
+        final CapturingScheduledExecutor scheduler = new CapturingScheduledExecutor();
+        final BadBlockDumper dumper = new BadBlockDumper(config, "test-host");
+        dumper.start(new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor(), scheduler));
+
+        dumper.attemptDump(failureNotification(7L), null, BlockUnparsed.DEFAULT.blockItems());
+        assertEquals(1L, countBlkFiles());
+
+        // Backdate block 7 files and purge — this must remove the dedup key
+        final Instant twoDaysAgo = Instant.now().minus(2, ChronoUnit.DAYS);
+        try (final Stream<Path> stream = Files.list(tempDir)) {
+            stream.forEach(f -> {
+                try {
+                    Files.setLastModifiedTime(f, FileTime.from(twoDaysAgo));
+                } catch (final IOException ignored) {
+                }
+            });
+        }
+        scheduler.runPurge();
+        assertEquals(0L, countBlkFiles());
+
+        // After purge the same block must be dumpable again
+        dumper.attemptDump(failureNotification(7L), null, BlockUnparsed.DEFAULT.blockItems());
 
         dumper.stop();
         assertEquals(1L, countBlkFiles());

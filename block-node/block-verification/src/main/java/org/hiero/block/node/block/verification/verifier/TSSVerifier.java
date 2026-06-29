@@ -38,7 +38,7 @@ public final class TSSVerifier implements ProofVerifier {
             // Legacy path: non-TSS blocks carry SHA384(blockHash) as the signature (48 bytes).
             // todo(2528) Remove this path before production — real network block proofs are never hash-of-hash.
             if (!signature.equals(HashingUtilities.noThrowSha384HashOf(hashToVerify))) {
-                result = SessionFailureType.SIGNATURE_MISMATCH;
+                result = SessionFailureType.BAD_BLOCK_PROOF;
             } else {
                 result = null;
             }
@@ -53,17 +53,13 @@ public final class TSSVerifier implements ProofVerifier {
                 try {
                     if (!TSS.verifyTSS(
                             tssData.ledgerId().toByteArray(), signature.toByteArray(), hashToVerify.toByteArray())) {
-                        result = SessionFailureType.SIGNATURE_MISMATCH;
+                        result = SessionFailureType.BAD_BLOCK_PROOF;
                     } else {
                         result = null;
                     }
-                } catch (final IllegalStateException e) {
-                    // TSS static state (e.g. Schnorr public keys) not yet populated
+                } catch (final IllegalArgumentException | IllegalStateException e) {
                     proofVerificationMetrics.tssFailure().increment();
-                    return SessionFailureType.MISSING_VERIFICATION_DATA;
-                } catch (final IllegalArgumentException e) {
-                    proofVerificationMetrics.tssFailure().increment();
-                    return SessionFailureType.MALFORMED_PROOF_STRUCTURE;
+                    return SessionFailureType.BAD_BLOCK_PROOF;
                 }
             }
         }

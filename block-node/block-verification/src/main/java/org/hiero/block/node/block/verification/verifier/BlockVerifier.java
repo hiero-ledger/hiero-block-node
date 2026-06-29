@@ -62,7 +62,7 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
                                     hashingResult.blockNumber(),
                                     result,
                                     hashingResult.blockSource(),
-                                    hashingResult.block(),
+                                    hashingResult.block().blockItems(),
                                     hashingResult.hapiProtoVersion());
                         }
                     }

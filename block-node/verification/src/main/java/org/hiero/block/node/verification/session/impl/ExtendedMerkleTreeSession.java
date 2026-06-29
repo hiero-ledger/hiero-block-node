@@ -231,7 +231,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             // return failed verification notification
             return new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.MISSING_FOOTER),
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                     blockNumber,
                     null,
                     new BlockUnparsed(blockItems),
@@ -289,7 +289,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             LOGGER.log(WARNING, "Block [{0}] has malformed proof structure: %s".formatted(e.getMessage()), e);
             return new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.MALFORMED_PROOF_STRUCTURE),
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                     blockNumber,
                     null,
                     new BlockUnparsed(blockItems),
@@ -300,7 +300,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         LOGGER.log(WARNING, "No recognised proof type in block {0} — rejecting", blockNumber);
         return new VerificationNotification(
                 false,
-                FailureInfo.standard(FailureType.UNRECOGNIZED_PROOF_TYPE),
+                FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                 blockNumber,
                 null,
                 new BlockUnparsed(blockItems),
@@ -342,7 +342,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
         return new VerificationNotification(
                 verified,
-                verified ? null : FailureInfo.standard(FailureType.SIGNATURE_MISMATCH),
+                verified ? null : FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                 blockNumber,
                 blockRootHash,
                 new BlockUnparsed(blockItems),
@@ -433,7 +433,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                     blockNumber,
                     null,
                     new BlockUnparsed(blockItems),
@@ -447,7 +447,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.MISSING_MANDATORY_ITEM),
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                     blockNumber,
                     null,
                     new BlockUnparsed(blockItems),
@@ -467,7 +467,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.SIGNATURE_MISMATCH),
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                     blockNumber,
                     null,
                     new BlockUnparsed(blockItems),
@@ -482,7 +482,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.MALFORMED_PROOF_STRUCTURE),
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                     blockNumber,
                     null,
                     new BlockUnparsed(blockItems),
@@ -542,38 +542,23 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     metrics.incrementRsaFailure();
                     return new VerificationNotification(
                             false,
-                            FailureInfo.standard(FailureType.SIGNATURE_MISMATCH),
+                            FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                             blockNumber,
                             null,
                             new BlockUnparsed(blockItems),
                             blockSource);
                 }
-            } catch (final InvalidKeyException e) {
+            } catch (final InvalidKeyException | SignatureException e) {
                 LOGGER.log(
                         WARNING,
-                        "RSA invalid key for node {0} in block {1}: {2} — rejecting block",
+                        "RSA verification error for node {0} in block {1}: {2} — rejecting block",
                         nodeId,
                         blockNumber,
                         e.getMessage());
                 metrics.incrementRsaFailure();
                 return new VerificationNotification(
                         false,
-                        FailureInfo.standard(FailureType.MALFORMED_PROOF_STRUCTURE),
-                        blockNumber,
-                        null,
-                        new BlockUnparsed(blockItems),
-                        blockSource);
-            } catch (final SignatureException e) {
-                LOGGER.log(
-                        WARNING,
-                        "RSA signature verification failed for node {0} in block {1}: {2} — rejecting block",
-                        nodeId,
-                        blockNumber,
-                        e.getMessage());
-                metrics.incrementRsaFailure();
-                return new VerificationNotification(
-                        false,
-                        FailureInfo.standard(FailureType.SIGNATURE_MISMATCH),
+                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                         blockNumber,
                         null,
                         new BlockUnparsed(blockItems),
@@ -601,7 +586,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.SIGNATURE_MISMATCH),
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                     blockNumber,
                     null,
                     new BlockUnparsed(blockItems),
@@ -797,7 +782,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
         return new VerificationNotification(
                 verified,
-                verified ? null : FailureInfo.standard(FailureType.STATE_PROOF_INVALID),
+                verified ? null : FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                 blockNumber,
                 blockRootHash,
                 new BlockUnparsed(blockItems),

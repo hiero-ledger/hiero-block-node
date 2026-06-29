@@ -416,11 +416,14 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                                 "Verification failed for block={0}, failureType={1}",
                                 currentBlockNumber,
                                 notification.failureInfo().failureType());
-                        badBlockDumper.attemptDump(notification, currentHapiVersion);
-                        sendFailureNotification(
-                                currentBlockNumber,
-                                BlockSource.PUBLISHER,
-                                notification.failureInfo().failureType());
+                        verificationBlocksFailed.increment();
+                        badBlockDumper.attemptDump(
+                                notification,
+                                currentHapiVersion,
+                                notification.block() != null
+                                        ? notification.block().blockItems()
+                                        : null);
+                        context.blockMessaging().sendBlockVerification(notification);
                     }
 
                     // end working time
@@ -434,7 +437,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 }
             } else {
                 verificationBlocksFailed.increment();
-                sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER, FailureType.INVALID_BLOCK_HEADER);
+                sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER, FailureType.BAD_BLOCK_PROOF);
             }
         } catch (final RuntimeException | ParseException e) {
             LOGGER.log(WARNING, "Failed to verify BlockItems.", e);
@@ -531,8 +534,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             if (notification.blockNumber() != blockHeader.number()) {
                 final String message = "Block number {0} in backfill does not match block {1} in header.";
                 LOGGER.log(WARNING, message, notification.blockNumber(), blockHeader.number());
-                sendFailureNotification(
-                        notification.blockNumber(), BlockSource.BACKFILL, FailureType.INVALID_BLOCK_HEADER);
+                sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL, FailureType.BAD_BLOCK_PROOF);
             } else {
                 VerificationSession backfillSession = HapiVersionSessionFactory.createSession(
                         notification.blockNumber(),
@@ -567,7 +569,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                                     backfillNotification.blockHash().toByteArray());
                         }
                     } else {
-                        badBlockDumper.attemptDump(backfillNotification, blockHeader.hapiProtoVersionOrThrow());
+                        badBlockDumper.attemptDump(
+                                backfillNotification,
+                                blockHeader.hapiProtoVersionOrThrow(),
+                                backfillNotification.block() != null
+                                        ? backfillNotification.block().blockItems()
+                                        : null);
                     }
                     // send the verification notification for the backfilled block
                     context.blockMessaging().sendBlockVerification(backfillNotification);

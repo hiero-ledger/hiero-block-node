@@ -138,8 +138,8 @@ class ExtendedMerkleTreeSessionTest {
     }
 
     @Test
-    @DisplayName("should return MISSING_FOOTER failure when no block footer is present")
-    void shouldReturnMissingFooterWhenNoBlockFooter() throws ParseException {
+    @DisplayName("should return BAD_BLOCK_PROOF failure when no block footer is present")
+    void shouldReturnBadBlockProofWhenNoBlockFooter() throws ParseException {
         final long blockNumber = 42L;
         final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
                 blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
@@ -151,7 +151,7 @@ class ExtendedMerkleTreeSessionTest {
 
         assertNotNull(notification, "A notification must be returned when isEndOfBlock=true");
         assertFalse(notification.success(), "Verification must fail when footer is absent");
-        assertEquals(FailureType.MISSING_FOOTER, notification.failureInfo().failureType());
+        assertEquals(FailureType.BAD_BLOCK_PROOF, notification.failureInfo().failureType());
         assertNotNull(notification.block(), "Block bytes must be present for diagnostics even on failure");
     }
 
@@ -186,9 +186,7 @@ class ExtendedMerkleTreeSessionTest {
 
         assertNotNull(notification, "Session must produce a notification for a malformed block");
         assertFalse(notification.success(), "Duplicate TSS proofs must not verify successfully");
-        assertEquals(
-                FailureType.MALFORMED_PROOF_STRUCTURE,
-                notification.failureInfo().failureType());
+        assertEquals(FailureType.BAD_BLOCK_PROOF, notification.failureInfo().failureType());
         assertNotNull(notification.block(), "Block bytes must be present for diagnostics even on failure");
     }
 

@@ -232,7 +232,7 @@ class BlockFileRecentPluginTest {
             // send verified block notification with failure
             blockMessaging.sendBlockVerification(new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.UNKNOWN_ERROR),
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                     blockNumber,
                     Bytes.EMPTY,
                     block.blockUnparsed(),

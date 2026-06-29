@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 import java.util.stream.IntStream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
@@ -543,6 +544,12 @@ public class DynamicBlockItemTest {
                     i,
                     true,
                     false));
+            // Yield periodically so the handler's virtual thread gets scheduled.
+            // Without this, the tight publish loop outpaces JVM scheduling and the handler
+            // falls >80% behind before it can process its first event, triggering eviction.
+            if (i % 64 == 63) {
+                LockSupport.parkNanos(100_000);
+            }
         }
 
         assertTrue(

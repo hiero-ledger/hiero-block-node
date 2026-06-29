@@ -106,7 +106,7 @@ class ExpandedCloudStoragePluginTest
     private VerificationNotification failedNotification(final long blockNumber) {
         return new VerificationNotification(
                 false,
-                FailureInfo.standard(FailureType.UNKNOWN_ERROR),
+                FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                 blockNumber,
                 Bytes.EMPTY,
                 null,

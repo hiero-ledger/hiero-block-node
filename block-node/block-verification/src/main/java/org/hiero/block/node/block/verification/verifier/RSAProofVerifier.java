@@ -136,26 +136,19 @@ public final class RSAProofVerifier implements ProofVerifier {
                                 nodeId,
                                 blockNumber);
                         proofVerificationMetrics.rsaFailure().increment();
-                        return SessionFailureType.SIGNATURE_MISMATCH;
+                        return SessionFailureType.BAD_BLOCK_PROOF;
                     }
-                } catch (final InvalidKeyException e) {
+                } catch (final InvalidKeyException | SignatureException e) {
                     LOGGER.log(
                             WARNING,
-                            "RSA invalid key for node {0} in block {1}: {2} — rejecting block",
+                            "RSA verification error for node {0} in block {1}: {2} — rejecting block",
                             nodeId,
                             blockNumber,
                             e.getMessage());
+                    // todo(2528) consider to simply not catch here at all but propagate, also what is the
+                    //    right type of failure here?
                     proofVerificationMetrics.rsaFailure().increment();
-                    return SessionFailureType.MALFORMED_PROOF_STRUCTURE;
-                } catch (final SignatureException e) {
-                    LOGGER.log(
-                            WARNING,
-                            "RSA signature verification failed for node {0} in block {1}: {2} — rejecting block",
-                            nodeId,
-                            blockNumber,
-                            e.getMessage());
-                    proofVerificationMetrics.rsaFailure().increment();
-                    return SessionFailureType.SIGNATURE_MISMATCH;
+                    return SessionFailureType.UNKNOWN_ERROR;
                 }
             }
             if (mismatchCount > 0) {
@@ -182,7 +175,7 @@ public final class RSAProofVerifier implements ProofVerifier {
                         blockNumber,
                         validCount,
                         rosterSize);
-                result = SessionFailureType.SIGNATURE_MISMATCH;
+                result = SessionFailureType.BAD_BLOCK_PROOF;
             }
         }
         if (result != null) {

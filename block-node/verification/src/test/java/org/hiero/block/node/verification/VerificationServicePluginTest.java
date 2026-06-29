@@ -147,7 +147,7 @@ class VerificationServicePluginTest
         assertNotNull(blockNotification);
         assertEquals(blockNumber, blockNotification.blockNumber());
         assertFalse(blockNotification.success(), "The verification should be unsuccessful");
-        assertNull(blockNotification.block(), "The block should be null since the verification failed");
+        assertNotNull(blockNotification.block(), "The block must be present for diagnostics even on failure");
     }
 
     @Test
@@ -321,7 +321,7 @@ class VerificationServicePluginTest
     }
 
     @Test
-    @DisplayName("should send INVALID_BLOCK_HEADER failure when backfill block number mismatches header number")
+    @DisplayName("should send BAD_BLOCK_PROOF failure when backfill block number mismatches header number")
     void shouldSendFailureOnBackfillBlockNumberMismatch() throws IOException, ParseException {
         BlockUtils.SampleBlockInfo block0Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
         plugin.handleBackfilled(new BackfilledBlockNotification(999L, block0Info.blockUnparsed()));
@@ -332,7 +332,7 @@ class VerificationServicePluginTest
         assertNotNull(notification);
         assertFalse(notification.success(), "Backfill with mismatched block number must fail");
         assertEquals(
-                VerificationNotification.FailureType.INVALID_BLOCK_HEADER,
+                VerificationNotification.FailureType.BAD_BLOCK_PROOF,
                 notification.failureInfo().failureType());
     }
 

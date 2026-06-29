@@ -46,20 +46,20 @@ public final class StateProofVerifier implements ProofVerifier {
         final List<MerklePath> paths = stateProof.paths();
         if (paths.size() != 3) {
             LOGGER.log(WARNING, "Block {0} state proof has {1} paths, expected 3", blockNumber, paths.size());
-            result = SessionFailureType.MALFORMED_PROOF_STRUCTURE;
+            result = SessionFailureType.BAD_BLOCK_PROOF;
         } else {
             final MerklePath timestampPath = paths.get(0);
             final MerklePath siblingPath = paths.get(1);
             final MerklePath terminalPath = paths.get(2);
             if (!terminalPath.siblings().isEmpty() || terminalPath.hasTimestampLeaf()) {
                 LOGGER.log(WARNING, "Block {0} state proof path 2 (terminal) is unexpectedly non-empty", blockNumber);
-                result = SessionFailureType.MALFORMED_PROOF_STRUCTURE;
+                result = SessionFailureType.BAD_BLOCK_PROOF;
             } else if (!timestampPath.hasTimestampLeaf()) {
                 LOGGER.log(WARNING, "Block {0} state proof path 0 (timestamp) is missing timestamp leaf", blockNumber);
-                result = SessionFailureType.MALFORMED_PROOF_STRUCTURE;
+                result = SessionFailureType.BAD_BLOCK_PROOF;
             } else if (!stateProof.hasSignedBlockProof()) {
                 LOGGER.log(WARNING, "Block {0} state proof is missing signed block proof", blockNumber);
-                result = SessionFailureType.MALFORMED_PROOF_STRUCTURE;
+                result = SessionFailureType.BAD_BLOCK_PROOF;
             } else {
                 final List<SiblingNode> siblings = siblingPath.siblings();
                 final int totalSiblings = siblings.size();
@@ -69,13 +69,13 @@ public final class StateProofVerifier implements ProofVerifier {
                             "Block {0} state proof sibling count {1} is invalid (need >= 3, remainder must be multiple of 4)",
                             blockNumber,
                             totalSiblings);
-                    result = SessionFailureType.MALFORMED_PROOF_STRUCTURE;
+                    result = SessionFailureType.BAD_BLOCK_PROOF;
                 } else if (!siblingPath.hasHash() || siblingPath.hash().length() == 0) {
                     LOGGER.log(
                             WARNING,
                             "Block {0} state proof path 1 (sibling) has missing or empty starting hash",
                             blockNumber);
-                    result = SessionFailureType.MALFORMED_PROOF_STRUCTURE;
+                    result = SessionFailureType.BAD_BLOCK_PROOF;
                 } else {
                     for (final SiblingNode sibling : siblings) {
                         if (sibling.hash().length() == 0) {
@@ -84,7 +84,7 @@ public final class StateProofVerifier implements ProofVerifier {
                                     "Block {0} state proof contains a sibling node with an empty hash",
                                     blockNumber);
                             proofVerificationMetrics.stateProofFailure().increment();
-                            return SessionFailureType.MALFORMED_PROOF_STRUCTURE;
+                            return SessionFailureType.BAD_BLOCK_PROOF;
                         }
                     }
                     byte[] current = siblingPath.hash().toByteArray();
@@ -111,7 +111,7 @@ public final class StateProofVerifier implements ProofVerifier {
                                         reconstructed,
                                         rootHash);
                                 proofVerificationMetrics.stateProofFailure().increment();
-                                return SessionFailureType.STATE_PROOF_INVALID;
+                                return SessionFailureType.BAD_BLOCK_PROOF;
                             }
                             firstIteration = false;
                         }

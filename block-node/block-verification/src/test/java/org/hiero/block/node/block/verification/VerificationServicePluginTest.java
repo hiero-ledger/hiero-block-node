@@ -31,7 +31,6 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureT
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /// Plugin-level integration test for [VerificationServicePlugin].
 @DisplayName("VerificationServicePlugin Tests")
@@ -623,34 +622,6 @@ class VerificationServicePluginTest {
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
-        }
-    }
-
-    @Nested
-    @DisplayName("Invalid Block Header Tests")
-    class InvalidBlockHeaderTests
-            extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
-        InvalidBlockHeaderTests() {
-            super(
-                    Executors.newVirtualThreadPerTaskExecutor(),
-                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
-            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility());
-        }
-
-        @Test
-        @DisplayName("Block with mismatched header number fails with INVALID_BLOCK_HEADER")
-        void shouldSendFailureWhenBlockHeaderNumberDoesNotMatchExpected() throws IOException, ParseException {
-            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
-            plugin.handleBlockItemsReceived(new BlockItems(block0.blockUnparsed().blockItems(), 1L, true, true));
-            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
-            assertThat(notifications)
-                    .hasSize(1)
-                    .first()
-                    .returns(false, VerificationNotification::success)
-                    .returns(
-                            FailureInfo.standard(FailureType.INVALID_BLOCK_HEADER),
-                            VerificationNotification::failureInfo)
-                    .returns(1L, VerificationNotification::blockNumber);
         }
     }
 }

@@ -155,6 +155,11 @@ public final class BlockSessionHandler {
                 badBlockDumper);
     }
 
+    /// Returns the active sessions map. Package-private for testing.
+    ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions() {
+        return activeSessions;
+    }
+
     /// Activate a new session.
     /// This method will activate the session and potentially cancel the oldest one if the buffer for
     /// maximum allowed sessions is full.

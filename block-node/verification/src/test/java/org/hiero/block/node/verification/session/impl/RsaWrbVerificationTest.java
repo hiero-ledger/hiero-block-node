@@ -482,7 +482,7 @@ class RsaWrbVerificationTest {
         assertNotNull(result);
         assertFalse(result.success(), "Block must be rejected when any RSA proof present fails verification");
         assertEquals(
-                VerificationNotification.FailureType.SIGNATURE_MISMATCH,
+                VerificationNotification.FailureType.BAD_BLOCK_PROOF,
                 result.failureInfo().failureType());
         assertNull(result.blockHash(), "Block hash must not be set on failure");
         assertNotNull(result.block(), "Block bytes must be present for diagnostics even on failure");

@@ -29,7 +29,7 @@ public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificatio
     private BlockNodeContext context;
     private VerificationSession currentSession;
     private volatile BlockSource blockSource = BlockSource.PUBLISHER;
-    private volatile FailureType failureType = FailureType.UNKNOWN_ERROR;
+    private volatile FailureType failureType = FailureType.BAD_BLOCK_PROOF;
     private volatile boolean isFailureInformational = false;
 
     @Override
