@@ -14,8 +14,6 @@ application { mainClass = "org.hiero.block.tools.BlockStreamTool" }
 mainModuleInfo {
     requires("org.hiero.block.protobuf.pbj")
     requires("org.hiero.block.node.base")
-    requires("com.fasterxml.jackson.annotation")
-    requires("com.fasterxml.jackson.databind")
     requires("com.hedera.pbj.runtime")
     requires("com.github.luben.zstd_jni")
     requires("com.google.api.gax")

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
+import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -12,9 +12,11 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.internal.BulkLoadState;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
@@ -100,28 +102,19 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
     private long startBlock = -1;
 
     private static final String STATE_FILE_NAME = "historic-plugin-bulk-load-state.json";
-    private static final ObjectMapper JSON_MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
 
     /**
-     * State tracking for resume functionality.
+     * In-memory state tracking for resume functionality. Backed on disk by the PBJ-defined
+     * {@link BulkLoadState} message (JSON form) but kept mutable in-memory so we can incrementally
+     * record progress and rely on a {@link HashSet} for O(1) {@code copiedFiles.contains(...)}
+     * lookups during the file walk.
      */
     public static class LoadState {
-        @JsonProperty
         public String sourceDir;
-
-        @JsonProperty
         public String destDir;
-
-        @JsonProperty
         public Set<String> copiedFiles = new HashSet<>();
-
-        @JsonProperty
         public long lastCopiedBlock = -1;
-
-        @JsonProperty
         public long totalBytesCopied = 0;
-
-        @JsonProperty
         public long totalFilesCopied = 0;
     }
 
@@ -354,20 +347,44 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
             return new LoadState();
         }
 
-        try {
-            return JSON_MAPPER.readValue(stateFilePath.toFile(), LoadState.class);
-        } catch (IOException e) {
+        try (ReadableStreamingData in = new ReadableStreamingData(Files.newInputStream(stateFilePath))) {
+            return fromProto(BulkLoadState.JSON.parse(in));
+        } catch (IOException | ParseException e) {
             System.err.println("Warning: Failed to load state file, starting fresh: " + e.getMessage());
             return new LoadState();
         }
     }
 
     private void saveState(Path stateFilePath, LoadState state) {
-        try {
-            JSON_MAPPER.writeValue(stateFilePath.toFile(), state);
+        try (WritableStreamingData out = new WritableStreamingData(Files.newOutputStream(stateFilePath))) {
+            BulkLoadState.JSON.write(toProto(state), out);
         } catch (IOException e) {
             System.err.println("Warning: Failed to save state file: " + e.getMessage());
         }
+    }
+
+    /** Convert the on-disk PBJ-generated {@link BulkLoadState} to the mutable in-memory holder. */
+    static LoadState fromProto(BulkLoadState proto) {
+        LoadState state = new LoadState();
+        state.sourceDir = proto.sourceDir().isEmpty() ? null : proto.sourceDir();
+        state.destDir = proto.destDir().isEmpty() ? null : proto.destDir();
+        state.copiedFiles = new HashSet<>(proto.copiedFiles());
+        state.lastCopiedBlock = proto.lastCopiedBlock();
+        state.totalBytesCopied = proto.totalBytesCopied();
+        state.totalFilesCopied = proto.totalFilesCopied();
+        return state;
+    }
+
+    /** Convert the mutable in-memory holder back into a {@link BulkLoadState} for serialization. */
+    static BulkLoadState toProto(LoadState state) {
+        return BulkLoadState.newBuilder()
+                .sourceDir(state.sourceDir == null ? "" : state.sourceDir)
+                .destDir(state.destDir == null ? "" : state.destDir)
+                .copiedFiles(List.copyOf(state.copiedFiles))
+                .lastCopiedBlock(state.lastCopiedBlock)
+                .totalBytesCopied(state.totalBytesCopied)
+                .totalFilesCopied(state.totalFilesCopied)
+                .build();
     }
 
     /**

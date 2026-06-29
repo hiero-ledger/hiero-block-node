@@ -6,7 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
+import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -14,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
+import org.hiero.block.internal.BulkLoadState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -23,7 +25,20 @@ import picocli.CommandLine;
 
 /** Unit tests for {@link BulkLoadBlocksCommand}. */
 class BulkLoadBlocksCommandTest {
-    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+
+    private static BulkLoadBlocksCommand.LoadState readState(Path stateFile) throws IOException {
+        try (ReadableStreamingData in = new ReadableStreamingData(Files.newInputStream(stateFile))) {
+            return BulkLoadBlocksCommand.fromProto(BulkLoadState.JSON.parse(in));
+        } catch (Exception e) {
+            throw new IOException("Failed to parse state file: " + stateFile, e);
+        }
+    }
+
+    private static void writeState(Path stateFile, BulkLoadBlocksCommand.LoadState state) throws IOException {
+        try (WritableStreamingData out = new WritableStreamingData(Files.newOutputStream(stateFile))) {
+            BulkLoadState.JSON.write(BulkLoadBlocksCommand.toProto(state), out);
+        }
+    }
 
     @TempDir
     Path tempDir;
@@ -202,8 +217,7 @@ class BulkLoadBlocksCommandTest {
             Path stateFile = destDir.resolve("historic-plugin-bulk-load-state.json");
             assertTrue(Files.exists(stateFile));
 
-            BulkLoadBlocksCommand.LoadState state =
-                    JSON_MAPPER.readValue(stateFile.toFile(), BulkLoadBlocksCommand.LoadState.class);
+            BulkLoadBlocksCommand.LoadState state = readState(stateFile);
             assertNotNull(state);
             assertEquals(sourceDir.toAbsolutePath().toString(), state.sourceDir);
             assertEquals(destDir.toAbsolutePath().toString(), state.destDir);
@@ -230,7 +244,7 @@ class BulkLoadBlocksCommandTest {
             initialState.totalBytesCopied = 100;
 
             Path stateFile = destDir.resolve("historic-plugin-bulk-load-state.json");
-            JSON_MAPPER.writeValue(stateFile.toFile(), initialState);
+            writeState(stateFile, initialState);
 
             // Also copy the first file to destination
             Files.writeString(destDir.resolve("00000s.zip"), "content 1");
@@ -242,8 +256,7 @@ class BulkLoadBlocksCommandTest {
             assertEquals(0, exitCode);
 
             // Verify state was updated
-            BulkLoadBlocksCommand.LoadState finalState =
-                    JSON_MAPPER.readValue(stateFile.toFile(), BulkLoadBlocksCommand.LoadState.class);
+            BulkLoadBlocksCommand.LoadState finalState = readState(stateFile);
             assertEquals(3, finalState.totalFilesCopied);
             assertTrue(finalState.copiedFiles.contains("10000s.zip"));
             assertTrue(finalState.copiedFiles.contains("20000s.zip"));
@@ -263,8 +276,7 @@ class BulkLoadBlocksCommandTest {
             assertEquals(0, exitCode);
 
             Path stateFile = destDir.resolve("historic-plugin-bulk-load-state.json");
-            BulkLoadBlocksCommand.LoadState state =
-                    JSON_MAPPER.readValue(stateFile.toFile(), BulkLoadBlocksCommand.LoadState.class);
+            BulkLoadBlocksCommand.LoadState state = readState(stateFile);
 
             // Last copied block should be the last block in 100000s.zip (100000 + 9999)
             assertEquals(109999, state.lastCopiedBlock);
@@ -310,7 +322,7 @@ class BulkLoadBlocksCommandTest {
             state.totalFilesCopied = 2;
 
             Path stateFile = destDir.resolve("historic-plugin-bulk-load-state.json");
-            JSON_MAPPER.writeValue(stateFile.toFile(), state);
+            writeState(stateFile, state);
 
             // Try to start from block 5000 (state's 19999 is higher, so should start from 20000)
             int exitCode = new CommandLine(new BulkLoadBlocksCommand())
@@ -380,8 +392,7 @@ class BulkLoadBlocksCommandTest {
 
             // But only the standard-named one should update lastCopiedBlock
             Path stateFile = destDir.resolve("historic-plugin-bulk-load-state.json");
-            BulkLoadBlocksCommand.LoadState state =
-                    JSON_MAPPER.readValue(stateFile.toFile(), BulkLoadBlocksCommand.LoadState.class);
+            BulkLoadBlocksCommand.LoadState state = readState(stateFile);
             assertEquals(9999, state.lastCopiedBlock); // Only from 00000s.zip
         }
 
