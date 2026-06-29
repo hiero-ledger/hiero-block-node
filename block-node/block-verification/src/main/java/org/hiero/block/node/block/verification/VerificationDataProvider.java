@@ -34,12 +34,9 @@ public final class VerificationDataProvider {
     private static final System.Logger LOGGER = System.getLogger(VerificationDataProvider.class.getName());
     private final BlockNodeContext context;
     private final AtomicReference<TssData> currentTssData;
-    private final AtomicReference<Map<Long, PublicKey>> currentRSAPublicKeys;
-
     public VerificationDataProvider(final BlockNodeContext context) {
         this.context = Objects.requireNonNull(context);
         this.currentTssData = new AtomicReference<>(null);
-        this.currentRSAPublicKeys = new AtomicReference<>(null);
     }
 
     public TssData currentTssData() {
@@ -50,9 +47,21 @@ public final class VerificationDataProvider {
         return currentTssData.get() != null;
     }
 
-    public Map<Long, PublicKey> currentRSAPublicKeys() {
-        final Map<Long, PublicKey> value = currentRSAPublicKeys.get();
-        return value == null ? Map.of() : value;
+    /// Returns the RSA public key map for the address book era that covers {@code blockNumber},
+    /// resolved via {@link org.hiero.block.node.spi.ApplicationStateFacility#getAddressBookForBlock}.
+    /// Returns {@code null} when no era covers the block (the caller must fail the block with
+    /// {@link org.hiero.block.node.block.verification.session.SessionFailureType#NO_MATCHING_ADDRESS_BOOK}).
+    public Map<Long, PublicKey> rsaPublicKeysForBlock(final long blockNumber) {
+        final NodeAddressBook book = context.applicationStateFacility().getAddressBookForBlock(blockNumber);
+        if (book == null) {
+            return null;
+        }
+        try {
+            return buildKeyMap(book);
+        } catch (final NoSuchAlgorithmException e) {
+            LOGGER.log(WARNING, "RSA KeyFactory not available for block {0} — returning empty key map", blockNumber);
+            return null;
+        }
     }
 
     /// Safely update the TSS data.
@@ -108,44 +117,6 @@ public final class VerificationDataProvider {
                     LOGGER.log(INFO, "No roster in TSS data found");
                 }
             }
-        }
-    }
-
-    /// Safely update the RSA keys.
-    public void safeUpdateNodeAddressBook(final NodeAddressBook nodeAddressBook) {
-        try {
-            if (nodeAddressBook == null) {
-                LOGGER.log(INFO, "No NodeAddressBook in current update");
-            } else {
-                updateNodeAddressBook(nodeAddressBook);
-            }
-        } catch (final NoSuchAlgorithmException e) {
-            LOGGER.log(WARNING, "RSA KeyFactory not available, cannot update RSA key map", e);
-        } catch (final RuntimeException e) {
-            LOGGER.log(WARNING, "Failed to update RSA key map in verification", e);
-        }
-    }
-
-    private void updateNodeAddressBook(final NodeAddressBook nodeAddressBook) throws NoSuchAlgorithmException {
-        // Count non-blank address book entries — these are the nodes that should be signable.
-        final int declaredCount = (int) nodeAddressBook.nodeAddress().stream()
-                .filter(a -> !a.rsaPubKey().isBlank())
-                .count();
-        final Map<Long, PublicKey> updatedKeys = buildKeyMap(nodeAddressBook);
-        currentRSAPublicKeys.set(updatedKeys);
-        final int effectiveCount = updatedKeys.size();
-        LOGGER.log(INFO, "RSA key map updated: {0}/{1} nodes loaded from address book", effectiveCount, declaredCount);
-        if (effectiveCount < declaredCount) {
-            // Malformed DER keys were skipped; threshold is calculated against effectiveCount.
-            // Fix the address book so all declared nodes can contribute signatures.
-            LOGGER.log(
-                    WARNING,
-                    "RSA key map: {0}/{1} keys decoded successfully; {2} node(s) had malformed"
-                            + " hex-DER bytes and cannot contribute signatures. Verification"
-                            + " threshold is calculated against the {0} decodable keys.",
-                    effectiveCount,
-                    declaredCount,
-                    declaredCount - effectiveCount);
         }
     }
 

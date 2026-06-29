@@ -23,6 +23,7 @@ import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
@@ -341,6 +342,20 @@ public abstract class PluginTestBase<
                 .build();
         plugin.onContextUpdate(blockNodeContext);
         return true;
+    }
+
+    @Override
+    public NodeAddressBook getAddressBookForBlock(long blockNum) {
+        final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+        if (history == null) {
+            return null;
+        }
+        for (final RangedNodeAddressBook entry : history.addressBooks()) {
+            if (blockNum >= entry.startBlock() && (entry.endBlock() == -1 || blockNum <= entry.endBlock())) {
+                return entry.addressBook();
+            }
+        }
+        return null;
     }
 
     @Override

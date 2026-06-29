@@ -319,47 +319,35 @@ class RsaWrbVerificationTest {
         assertFalse(result.success(), "Empty signature list must be rejected");
     }
 
-    // TODO(2808): both tests below cover the current skip-on-missing-key behaviour; once issue 2808
-    //   (historical roster lookup by block number) is resolved, update them to verify against the
-    //   roster that was active when the block was produced rather than the current local roster.
-
     @Test
-    @DisplayName("signature from unknown node_id is skipped; rest still counted")
-    void unknownNodeId_sigSkipped_othersStillCounted() throws Exception {
-        // Nodes 0..4 produce valid sigs; node 99 is not in the key map and is skipped.
+    @DisplayName("signature from unknown node_id causes immediate block rejection")
+    void unknownNodeId_causesBlockRejection() throws Exception {
+        // Nodes 0..4 produce valid sigs; node 99 is not in the era key map.
+        // With the correct era selected, every node_id in the proof must be in the address book.
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
-        // Add a sig from an unknown node
-        sigs.add(
-                new RecordFileSignature(Bytes.wrap(sign(0L)), 99L)); // content irrelevant — node 99 absent from key map
+        sigs.add(new RecordFileSignature(Bytes.wrap(sign(0L)), 99L)); // node 99 absent from era key map
 
         final Map<Long, PublicKey> keyMap = new HashMap<>(KEY_MAP); // node 99 absent
         final VerificationNotification result = runVerification(keyMap, sigs);
 
         assertNotNull(result);
-        assertTrue(
-                result.success(),
-                "Sig from unknown node is skipped (no key to verify); valid sigs from known nodes still accept");
+        assertFalse(result.success(), "Sig from unknown node_id must cause immediate block rejection");
     }
 
     @Test
-    @DisplayName("roster transition: sig from new node not yet in local AB is skipped; block still accepted")
-    void rosterTransition_newNodeSigSkipped_blockAccepted() throws Exception {
-        // AB1 has nodes 0..4 (5 nodes). AB2 adds node 5. Local roster is still AB1.
-        // The proof arrives with 6 signatures (all AB2 nodes). Node 5 is unknown → skipped.
-        // The 5 known-node signatures all verify → at-least-one-valid rule accepts the block.
-        final Map<Long, PublicKey> ab1KeyMap = new HashMap<>();
+    @DisplayName("signature from node not in era address book causes immediate block rejection")
+    void nodeNotInEraAddressBook_causesBlockRejection() throws Exception {
+        // The proof contains a sig from node 5, but the era key map only has nodes 0..4.
+        // With the correct era selected, this is a hard failure — the proof is invalid for this era.
+        final Map<Long, PublicKey> era1KeyMap = new HashMap<>();
         for (long id = 0; id < 5; id++) {
-            ab1KeyMap.put(id, KEY_MAP.get(id));
+            era1KeyMap.put(id, KEY_MAP.get(id));
         }
-        // Build proof with all 6 signatures (nodes 0..5)
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L, 5L);
-        final VerificationNotification result = runVerification(ab1KeyMap, sigs);
+        final VerificationNotification result = runVerification(era1KeyMap, sigs);
 
         assertNotNull(result);
-        assertTrue(
-                result.success(),
-                "Sig from roster-transition node (not in local AB) must be skipped, not fail; "
-                        + "5 known valid sigs still accept the block");
+        assertFalse(result.success(), "Sig from node not in era address book must cause immediate block rejection");
     }
 
     @Test

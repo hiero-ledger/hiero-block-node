@@ -41,6 +41,9 @@ public record VerificationNotification(
         /// This type indicates we have missing verification data. This includes we do not have TSS Data, RSA public
         /// keys, or we have witnessed a [java.security.NoSuchAlgorithmException].
         MISSING_VERIFICATION_DATA,
+        /// This type indicates that no address book era in the loaded RangedAddressBookHistory covers
+        /// the block number being verified. The block cannot be RSA-verified without the correct era keys.
+        NO_MATCHING_ADDRESS_BOOK,
         /// This type indicates that the proof(s) provided for the block are not recognized
         UNRECOGNIZED_PROOF_TYPE,
         /// This type indicates that the block is of unsupported HAPI version
