@@ -362,7 +362,7 @@ public final class BlockZipsUtilities {
             blockBytes = raw;
         }
         return Block.PROTOBUF.parse(
-                BufferedData.wrap(blockBytes), true, false, 1000, ProtobufParsingConstants.MAX_PARSE_SIZE);
+                BufferedData.wrap(blockBytes), true, false, 1000, ProtobufParsingConstants.MAX_MESSAGE_SIZE);
     }
     /**
      * Decompresses raw bytes and parses them as a {@link BlockUnparsed} protobuf. BlockUnparsed is shallow parsed so
@@ -389,7 +389,7 @@ public final class BlockZipsUtilities {
             blockBytes = raw;
         }
         return BlockUnparsed.PROTOBUF.parse(
-                BufferedData.wrap(blockBytes), true, false, 1000, ProtobufParsingConstants.MAX_PARSE_SIZE);
+                BufferedData.wrap(blockBytes), true, false, 1000, ProtobufParsingConstants.MAX_MESSAGE_SIZE);
     }
 
     /**

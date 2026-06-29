@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_PARSE_SIZE;
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_MESSAGE_SIZE;
 
 import com.hedera.hapi.block.stream.output.MapChangeKey;
 import com.hedera.hapi.block.stream.output.MapChangeValue;
@@ -124,7 +124,7 @@ public final class HbarSupplyValidation implements BlockValidation {
                             false,
                             false,
                             Codec.DEFAULT_MAX_DEPTH,
-                            MAX_PARSE_SIZE));
+                            MAX_MESSAGE_SIZE));
                 } else if (item.hasRecordFile()) {
                     final Bytes recordFileBytes = item.recordFileOrThrow();
                     recordFileBytesList.add(recordFileBytes);

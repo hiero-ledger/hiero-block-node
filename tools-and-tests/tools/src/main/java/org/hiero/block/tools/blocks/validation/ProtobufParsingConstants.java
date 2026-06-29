@@ -9,11 +9,13 @@ public final class ProtobufParsingConstants {
     /** Maximum protobuf nesting depth for parsing. */
     public static final int MAX_DEPTH = 512;
 
-    /** Maximum record file size for protobuf parsing (128 MB). */
-    public static final int MAX_RECORD_FILE_SIZE = 128 * 1024 * 1024;
-
-    /** Maximum parse size for protobuf messages (120 MB) to handle large blocks and StateChanges items. */
-    public static final int MAX_PARSE_SIZE = 120 * 1024 * 1024;
+    /// Maximum size for parsing a whole record file, block, or other large message.
+    ///
+    /// Set to [Integer#MAX_VALUE] (effectively unbounded): these parses consume trusted data the
+    /// tool itself produced or fetched, and message sizes are determined by network activity (e.g.
+    /// oversized blocks), not by a bound we choose. The cap only guards against runaway allocation
+    /// on corrupt input, which is not a concern here.
+    public static final int MAX_MESSAGE_SIZE = Integer.MAX_VALUE;
 
     private ProtobufParsingConstants() {}
 }

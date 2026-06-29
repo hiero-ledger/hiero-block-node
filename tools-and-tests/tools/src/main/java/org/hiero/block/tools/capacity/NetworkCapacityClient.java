@@ -183,7 +183,7 @@ public class NetworkCapacityClient {
                 false,
                 false,
                 Codec.DEFAULT_MAX_DEPTH,
-                ProtobufParsingConstants.MAX_PARSE_SIZE);
+                ProtobufParsingConstants.MAX_MESSAGE_SIZE);
 
         long blockNumber = block.items().getFirst().blockHeader().number();
         List<BlockItem> items = block.items();
