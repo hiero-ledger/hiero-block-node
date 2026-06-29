@@ -86,7 +86,7 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
                     s3.createMultipartUpload(s3Key, config.storageClass().name(), S3UploadUtils.CONTENT_TYPE);
             final List<String> etags = new ArrayList<>();
             byte[] buffer = new byte[0];
-            long lastNotifiedBlock = firstBlock - 1;
+            long totalBytes = 0;
             long currentBlock = firstBlock;
             long lastProcessedBlock = firstBlock - 1;
             BlockSource lastSource = BlockSource.UNKNOWN;
@@ -107,17 +107,7 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
                         final S3UploadUtils.SplitBuffer split = S3UploadUtils.splitAtPartSize(buffer, partSizeBytes);
                         doUploadPart(split.part(), s3, uploadId, etags);
                         buffer = split.remainder();
-                        // Design assumption (matches BlockUploadTask): notifications are sent per
-                        // S3 part, not per completed archive. If lastProcessedBlock's tar bytes
-                        // straddle a part boundary, the trailing portion is still in the buffer
-                        // and will be uploaded later — but the block is declared persisted here.
-                        blockMessaging.sendBlockPersisted(
-                                new PersistedNotification(lastProcessedBlock, true, 1_000, lastSource));
-                        applicationStateFacility.addStoredBlockRange(
-                                new LongRange(lastNotifiedBlock + 1, lastProcessedBlock));
-                        metricsHolder.blocksWritten().increment(lastProcessedBlock - lastNotifiedBlock);
-                        metricsHolder.storedBytes().increment(partSizeBytes);
-                        lastNotifiedBlock = lastProcessedBlock;
+                        totalBytes += partSizeBytes;
                     }
                 } catch (InterruptedException e) {
                     LOGGER.log(TRACE, "Temp archive upload task interrupted for key {0}", s3Key, e);
@@ -132,27 +122,26 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
 
             final long lastBlock = lastProcessedBlock;
 
-            // When buffer is empty, the last block's bytes landed exactly on a part boundary and
-            // were already notified and range-registered inside the loop above — nothing to do.
             if (buffer.length > 0) {
                 try {
                     doUploadPart(buffer, s3, uploadId, etags);
-                    blockMessaging.sendBlockPersisted(new PersistedNotification(lastBlock, true, 1_000, lastSource));
-                    applicationStateFacility.addStoredBlockRange(new LongRange(lastNotifiedBlock + 1, lastBlock));
-                    metricsHolder.blocksWritten().increment(lastBlock - lastNotifiedBlock);
-                    metricsHolder.storedBytes().increment(buffer.length);
+                    totalBytes += buffer.length;
                 } catch (S3ResponseException | IOException e) {
                     S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
-                    blockMessaging.sendBlockPersisted(
-                            new PersistedNotification(lastNotifiedBlock + 1, false, 1_000, lastSource));
+                    blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlock, false, 1_000, lastSource));
                     LOGGER.log(INFO, "Failed to upload final temp archive part for key {0}", s3Key, e);
                     throw e;
                 }
             }
 
-            // If this throws after the success notification above, the result is a false-persisted block; accepted by
-            // design, same as BlockUploadTask.
-            doCompleteMultipartUpload(s3, s3Key, uploadId, etags);
+            try {
+                doCompleteMultipartUpload(s3, s3Key, uploadId, etags);
+            } catch (S3ResponseException | IOException e) {
+                S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
+                blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlock, false, 1_000, lastSource));
+                LOGGER.log(INFO, "Failed to complete temp archive multipart upload for key {0}", s3Key, e);
+                throw e;
+            }
             LOGGER.log(
                     TRACE,
                     "Completed temp archive upload for key {0}, blocks [{1}, {2}]",
@@ -161,8 +150,22 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
                     lastBlock);
 
             final String metaKey = TempArchiveKey.formatMeta(firstBlock, config.objectKeyPrefix());
-            doUploadTextFile(s3, metaKey, config.storageClass().name(), String.valueOf(lastBlock));
+            try {
+                doUploadTextFile(s3, metaKey, config.storageClass().name(), String.valueOf(lastBlock));
+            } catch (S3ResponseException | IOException e) {
+                LOGGER.log(INFO, "Failed to write temp archive meta {0}, tar is already committed", metaKey, e);
+                blockMessaging.sendBlockPersisted(new PersistedNotification(lastBlock, true, 1_000, lastSource));
+                applicationStateFacility.addStoredBlockRange(new LongRange(firstBlock, lastBlock));
+                metricsHolder.blocksWritten().increment(lastBlock - firstBlock + 1);
+                metricsHolder.storedBytes().increment(totalBytes);
+                throw e;
+            }
             LOGGER.log(TRACE, "Wrote temp archive meta {0}", metaKey);
+
+            blockMessaging.sendBlockPersisted(new PersistedNotification(lastBlock, true, 1_000, lastSource));
+            applicationStateFacility.addStoredBlockRange(new LongRange(firstBlock, lastBlock));
+            metricsHolder.blocksWritten().increment(lastBlock - firstBlock + 1);
+            metricsHolder.storedBytes().increment(totalBytes);
 
             return new TempArchiveEntry(s3Key, firstBlock, lastBlock, null);
         }
