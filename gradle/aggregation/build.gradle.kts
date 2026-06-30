@@ -20,6 +20,7 @@ dependencies {
     published(project(":roster-bootstrap-rsa"))
     published(project(":roster-bootstrap-tss"))
     published(project(":verification"))
+    published(project(":block-verification"))
 
     implementation(project(":app"))
     implementation(project(":simulator"))
