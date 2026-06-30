@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# WRB Distribution E2E (#3125) — slice 1 (steps 1+2)
+#
+# First slice of the broader WRB-distribution E2E test (epic #2954). Designed to
+# be merged early so the harness and CLI-side flow are validated before the BN
+# layers (BN1/BN2/BN3, MN2, TSS cutover) are added in subsequent slices.
+#
+# Test flow (matches steps 1+2 of issue #3125):
+#   1. Solo brings up 3 CNs v0.75 + MN1 v0.157.1 via the wrb-distribution-step12
+#      topology (no BN).
+#   2. Wait for the CNs to produce enough record files to exercise the wrap
+#      output's nested directory structure.
+#   3. Install wrb-cli, download record files from the Solo MinIO
+#      `recordstreams` bucket, run `blocks wrap`, and assert the wrapped output
+#      contains at least one .zip at the deepest nested level.
+#
+# Validation:
+#   - CN nodes are healthy
+#   - MN1 is healthy
+#   - wrap output exists at the deepest nested-dir level
+#
+# Usage (locally):
+#   task test:run TEST_FILE=tests/wrb-distribution-step12.yaml TOPOLOGY=wrb-distribution-step12
+
+name: wrb-distribution-step12
+description: "WRB distribution E2E (#3125) — steps 1+2: CN v0.75 + MN1 v0.157.1 + wrb-cli wrap baseline"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Confirm CNs and MN1 are running"
+    delay: 5
+
+  - id: block-production-wait
+    type: sleep
+    description: "Wait for CNs to produce enough record files to exercise nested wrap dirs"
+    delay: 10
+    args:
+      seconds: 180
+
+  - id: install-and-run-wrb-cli
+    type: command
+    description: "Install wrb-cli, pull records from MinIO, run blocks wrap, assert nested dir"
+    delay: 195
+    timeout: 1200
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/install-and-run-wrb-cli.sh"
+
+  - id: final-status
+    type: network-status
+    description: "Post-test network status"
+    delay: 210
+
+assertions:
+  - id: mn1-healthy
+    type: node-healthy
+    description: "Mirror Node 1 is healthy"
+    target: mirror-1
+
+  - id: no-errors-mn1
+    type: no-errors
+    description: "No errors in Mirror Node 1 logs"
+    target: mirror-1

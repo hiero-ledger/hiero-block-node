@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+# WRB Distribution E2E — Step 1+2 slice (#3125)
+#
+# This is the first slice of the broader WRB-distribution E2E test (epic #2954,
+# tracking issue #3125). The full test grows to 3 BNs + 2 MNs + CN cutover; this
+# slice intentionally deploys *no* Block Node so we can prove the CLI+MN1 baseline
+# in isolation before layering BNs in subsequent slices.
+#
+# Step 1: Solo brings up 3 CNs (v0.75) and 1 MN (v0.157.1). No BN.
+# Step 2: The test script installs wrb-cli, downloads record files from the
+#         Solo MinIO recordstream bucket, runs `blocks wrap`, and asserts the
+#         output exposes a nested directory structure.
+#
+# Versions are passed at trigger time via the workflow's
+# `consensus-node-version` and `mirror-node-version` inputs.
+
+name: wrb-distribution-step12
+description: "WRB distribution E2E (#3125) slice — 3 CNs v0.75 + MN1 v0.157.1, no BN, exercises wrb-cli wrap"
+
+# No Block Node in this slice (steps 1+2 only). Later slices add BN1/BN2/BN3.
+block_nodes: {}
+
+# 3 CN nodes, all writing record files via the standard bucket path (no BN target).
+consensus_nodes:
+  node1: {}
+  node2: {}
+  node3: {}
+
+# MN1 ingests via record stream files from the bucket (not via a BN, since there
+# isn't one in this slice). The MN deployment doesn't reference a BN.
+mirror_nodes:
+  mirror-1: {}
+
+relay_nodes: {}
+
+explorer_nodes: {}
