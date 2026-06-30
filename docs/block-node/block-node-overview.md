@@ -147,6 +147,26 @@ Use this decision guide to determine which Block Node configuration suits your n
 
 **Note:** Tier 2 nodes are truly permissionless—anyone can deploy one without approval or registration. You simply configure your node to connect to one or more existing Block Nodes (Tier 1 or Tier 2) for upstream block streams.
 
+### Helm deployment profile
+
+Once you know your tier, select the plugin profile that matches your storage strategy. Profiles are pre-built Helm values overrides shipped in the
+[`charts/block-node-server/values-overrides/`](https://github.com/hiero-ledger/hiero-block-node/tree/main/charts/block-node-server/values-overrides)
+directory and applied with the `-f` flag during Helm install, or selected interactively by Solo Provisioner.
+
+|                      Goal                      |                                                                                                  Profile                                                                                                  |                 Storage strategy                  |                                                 Hardware sizing                                                 |
+|------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| Tier 1 — full block history on local disk      | [`plugin-profile-lfh`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-lfh.yaml)                                                      | Local NVMe (recent) + local HDD (archive)         | [LFH spec](./operations/block-node-hardware-specifications.md#local-full-history-lfh)                           |
+| Tier 1 — recent blocks local, history in cloud | [`plugin-profile-rfh`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-rfh.yaml)                                                      | Local NVMe (recent) + S3-compatible cloud archive | [RFH spec](./operations/block-node-hardware-specifications.md#remote-full-history-rfh)                          |
+| Tier 1 — local history and cloud backup        | [`plugin-profile-all`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-all.yaml)                                                      | Local NVMe + local HDD + S3 archive               | [LFH spec](./operations/block-node-hardware-specifications.md#local-full-history-lfh)                           |
+| Tier 2 — full history on local disk            | [`plugin-profile-lfh`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-lfh.yaml) with `stream-publisher` removed from `plugins.names` | Local NVMe (recent) + local HDD (archive)         | [LFH spec](./operations/block-node-hardware-specifications.md#local-full-history-lfh)                           |
+| Tier 2 — recent blocks local, history in cloud | [`plugin-profile-rfh`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-rfh.yaml) with `stream-publisher` removed from `plugins.names` | Local NVMe (recent) + S3-compatible cloud archive | [RFH spec](./operations/block-node-hardware-specifications.md#remote-full-history-rfh)                          |
+| Development, testing, or testnet / previewnet  | [`plugin-profile-minimal`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-minimal.yaml)                                              | No block storage (health and status only)         | [Testnet / previewnet sizing](./operations/block-node-hardware-specifications.md#testnet-and-previewnet-sizing) |
+
+> **Note:** For Tier 2, no dedicated profile file exists. Start from `plugin-profile-lfh` (local history) or `plugin-profile-rfh` (cloud archive) and remove `stream-publisher` from `plugins.names`. See [configuration.md](./configuration.md#plugin-management) for the full `plugins.names` reference.
+
+For CPU, RAM, disk, and NIC requirements for each profile, see
+[Block Node Hardware Specifications](./operations/block-node-hardware-specifications.md).
+
 ## Getting Started
 
 **To start running a Block Node, read:**
