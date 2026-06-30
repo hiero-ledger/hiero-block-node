@@ -10,14 +10,12 @@ import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROP
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
-import static org.hiero.block.node.spi.historicalblocks.BlockAccessor.MAX_PARSE_DEPTH;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
@@ -856,28 +854,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final Path historyFilePath = appStateConfig.rsaBootstrapFilePath();
         if (Files.exists(historyFilePath)) {
             try {
-                final RangedAddressBookHistory history = RangedAddressBookHistory.JSON.parse(
-                        Bytes.wrap(Files.readAllBytes(historyFilePath)).toReadableSequentialData(),
-                        true,
-                        false,
-                        MAX_PARSE_DEPTH,
-                        Codec.DEFAULT_MAX_SIZE);
+                final RangedAddressBookHistory history =
+                        standardParse(RangedAddressBookHistory.JSON, Bytes.wrap(Files.readAllBytes(historyFilePath)));
                 if (history.addressBooks().isEmpty()) {
-                    throw new IllegalStateException(
-                            "RSA address book history file contains no entries: " + historyFilePath);
-                }
-                pendingAddressBookHistory.set(history);
-            } catch (IOException e) {
-                throw new IllegalStateException("Failed to read RSA address book history file: " + historyFilePath, e);
-            } catch (ParseException e) {
-                // Revert back to the old bootstrap file format
-                try {
-                    final NodeAddressBook book = NodeAddressBook.JSON.parse(
-                            Bytes.wrap(Files.readAllBytes(historyFilePath)).toReadableSequentialData(),
-                            true,
-                            false,
-                            MAX_PARSE_DEPTH,
-                            Codec.DEFAULT_MAX_SIZE);
+                    // Try the old bootstrap file format, standard parse swallows it and returns an empty history
+                    final NodeAddressBook book =
+                            standardParse(NodeAddressBook.JSON, Bytes.wrap(Files.readAllBytes(historyFilePath)));
                     validateAddressBook(book, historyFilePath.toString());
                     final RangedAddressBookHistory wrapped = RangedAddressBookHistory.newBuilder()
                             .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
@@ -887,15 +869,16 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                                     .build()))
                             .build();
                     pendingAddressBookHistory.set(wrapped);
-                } catch (ParseException ex) {
-                    final String message =
-                            "Corrupt RSA bootstrap file at %s — delete and restart to re-fetch from Mirror Node"
-                                    .formatted(historyFilePath);
-                    throw new IllegalStateException(message, ex);
-                } catch (IOException ex) {
-                    throw new IllegalStateException(
-                            "Failed to read RSA address book history file: " + historyFilePath, e);
+                } else {
+                    pendingAddressBookHistory.set(history);
                 }
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to read RSA address book history file: " + historyFilePath, e);
+            } catch (ParseException e) {
+                final String message =
+                        "Corrupt RSA bootstrap file at %s — delete and restart to re-fetch from Mirror Node"
+                                .formatted(historyFilePath);
+                throw new IllegalStateException(message, e);
             }
         } else {
             // History file absent — ensure parent directory exists for future writes.

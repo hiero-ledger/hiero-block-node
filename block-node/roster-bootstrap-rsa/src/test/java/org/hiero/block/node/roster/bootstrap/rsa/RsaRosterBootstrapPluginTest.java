@@ -916,7 +916,7 @@ class RsaRosterBootstrapPluginTest
 
             assertTrue(contextUpdated[0] > 0);
             assertNotNull(histories[0]);
-            assertEquals(1, histories[0].addressBooks().size());
+            assertEquals(5, histories[0].addressBooks().size());
 
             // These are magic numbers, yes. The {@link TestBlockNodeServer} does not yet have a way to pass in TssData
             // to
