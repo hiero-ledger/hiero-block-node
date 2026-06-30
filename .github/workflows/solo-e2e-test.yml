@@ -72,7 +72,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, wrb-distribution-step12"
         type: string
         default: "none"
     outputs:
@@ -103,6 +103,7 @@ on:
           - 3cn-2bn-wrb-rsa # 3 CN, 2 BN, 1 MN; WRB verified via RSA roster
           - wrb-differential-test # 1 CN, 2 BNs (live + historic), 2 MNs
           - wrb-differential-test-minimal # 1 CN, 2 BNs (live + historic), no MN
+          - wrb-distribution-step12 # WRB Distribution E2E (#3125) — slice 1: 3 CN v0.75 + MN1 v0.157.1, no BN
       block-node-version:
         description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.29.0')"
         required: false
@@ -175,7 +176,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12"
         required: false
         default: "none"
 
