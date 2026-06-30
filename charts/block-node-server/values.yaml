@@ -127,21 +127,24 @@ blockNode:
         - sh
         - -c
         - |
-          mkdir -p /live-pvc/live-data && \
-          chown 2000:2000 /live-pvc/live-data && \
-          chmod 700 /live-pvc/live-data && \
+          mkdir -p /application-state-pvc && \
+          chown 2000:2000 /application-state-pvc && \
+          chmod 700 /application-state-pvc && \
           mkdir -p /archive-pvc/archive-data && \
           chown 2000:2000 /archive-pvc/archive-data && \
           chmod 700 /archive-pvc/archive-data && \
-          chown 2000:2000 /application-state-pvc && \
-          chmod 700 /application-state-pvc
+          mkdir -p /live-pvc/live-data && \
+          chown 2000:2000 /live-pvc/live-data && \
+          chmod 700 /live-pvc/live-data
       volumeMounts:
-        - name: live-storage
-          mountPath: /live-pvc
-        - name: archive-storage
-          mountPath: /archive-pvc
         - name: application-state-storage
           mountPath: /application-state-pvc
+        - name: archive-storage
+          mountPath: /archive-pvc
+        - name: live-storage
+          mountPath: /live-pvc
+        - name: logging-storage
+          mountPath: /logging-pvc
   # To add plugins not available in Maven (e.g. download from a URL at pod start).
   # Note: for non-Maven plugins, dependencies are NOT auto-resolved.
   # You must include the plugin JAR and all of its transitive dependencies.

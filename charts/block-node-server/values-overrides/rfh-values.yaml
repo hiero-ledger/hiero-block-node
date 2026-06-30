@@ -1,28 +1,38 @@
 resources:
     requests:
-        cpu: "6"
-        memory: "16Gi"
+        cpu: "12"
+        memory: "108Gi"
 
 blockNode:
     secretRef: "bn-<env>-s3-creds"
     config:
-        JAVA_OPTS: '-Xms8G -Xmx8G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+        JAVA_OPTS: '-Xms96G -Xmx96G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
         # Change the following Value with the next expected Block to be
         # published by the Network.
         # BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "0"
         # Archive Node Configuration
-        ARCHIVE_BLOCKS_PER_FILE: "10000" # Default is 100_000
-        ARCHIVE_BUCKET_NAME: "bn-eng-archive-bucket"
-        ARCHIVE_ENDPOINT_URL: "https://storage.googleapis.com"
-        ARCHIVE_BASE_PATH: "previewnet/archive1"
-        ARCHIVE_STORAGE_CLASS: "ARCHIVE"
-        ARCHIVE_REGION_NAME: "us-central1"
+        CLOUD_STORAGE_ARCHIVE_GROUPING_LEVEL: "5"
+        CLOUD_STORAGE_ARCHIVE_PART_SIZE_MB: "32"
+        CLOUD_STORAGE_ARCHIVE_MAX_CONCURRENT_TEMP_ARCHIVES: "16"
+        CLOUD_STORAGE_ARCHIVE_GAP_BUFFER_SIZE: "8"
+        MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "256"
+        MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "256"
+        BACKFILL_SCAN_INTERVAL: "10_000"
+        BACKFILL_DELAY_BETWEEN_BATCHES: "2_000"
+        BACKFILL_INITIAL_DELAY: "4_000"
+        # 150M buffer size.
+        BACKFILL_MAX_INCOMING_BUFFER_SIZE: "157_286_400"
+        # 1.5G, much larger than we should need, but more resilient.
+        BACKFILL_MAX_PROTOBUF_MESSAGE_SIZE_BYTES: "1_610_612_736"
+        BACKFILL_FETCH_BATCH_SIZE: "128"
+        BACKFILL_GREEDY: "true"
+        BACKFILL_MAX_BACKOFF_MS: "30_000"
     persistence:
-        archive:
-            size: 50Gi
-        live:
-            size: 10Gi
-        logging:
-            size: 2Gi
         applicationState:
             size: 500Mi
+        live:
+            size: 20Gi
+        logging:
+            size: 10Gi
+        plugins:
+            size: 2Gi
