@@ -37,7 +37,6 @@ archive.
 | Network           | 2 × 10 Gbps NICs                                                                                                            |
 | OS                | Linux host OS (Ubuntu 24.04 LTS or Debian 13.x LTS recommended)                                                             |
 
-
 #### Recommendations
 
 - NICs: 25 Gbps or higher are recommended for better throughput and
@@ -90,7 +89,7 @@ Block history is stored remotely (e.g. cloud object store).
 Historical data is offloaded to object storage n real time after processing.
 No state services are offered and most if not all services are expected to be private.
 
-| Component         | Minimum Specification                                                                                                       |
+|     Component     |                                                    Minimum Specification                                                    |
 |-------------------|-----------------------------------------------------------------------------------------------------------------------------|
 | CPU               | 16 cores / 32 threads, single socket, ≥ 2.0 GHz base clock, Geekbench 6 single-core ≥ 1500, Passmark single-threaded ≥ 2800 |
 | RAM               | 128 GB                                                                                                                      |

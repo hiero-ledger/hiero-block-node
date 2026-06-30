@@ -49,6 +49,11 @@ blockNode:
                 create: false
                 existingClaim: application-state-storage-pvc
 
+resources:
+    requests:
+        cpu: "24"
+        memory: "256Gi"
+
 service:
     type: LoadBalancer
     port: 40840

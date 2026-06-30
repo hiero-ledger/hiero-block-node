@@ -1,8 +1,3 @@
-resources:
-    requests:
-        cpu: "12"
-        memory: "108Gi"
-
 blockNode:
     secretRef: "bn-<env>-s3-creds"
     config:
@@ -36,3 +31,8 @@ blockNode:
             size: 10Gi
         plugins:
             size: 2Gi
+
+resources:
+    requests:
+        cpu: "12"
+        memory: "108Gi"
