@@ -34,6 +34,7 @@ public final class VerificationDataProvider {
     private static final System.Logger LOGGER = System.getLogger(VerificationDataProvider.class.getName());
     private final BlockNodeContext context;
     private final AtomicReference<TssData> currentTssData;
+
     public VerificationDataProvider(final BlockNodeContext context) {
         this.context = Objects.requireNonNull(context);
         this.currentTssData = new AtomicReference<>(null);

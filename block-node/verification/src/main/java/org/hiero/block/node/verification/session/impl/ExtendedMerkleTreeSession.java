@@ -510,12 +510,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                         blockNumber);
                 metrics.incrementRsaFailure();
                 return new VerificationNotification(
-                        false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
-                        blockNumber,
-                        null,
-                        null,
-                        blockSource);
+                        false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, blockSource);
             }
             if (validatedNodes.contains(nodeId)) {
                 LOGGER.log(DEBUG, "Duplicate signature from node {0} in block {1} — skipped", nodeId, blockNumber);
