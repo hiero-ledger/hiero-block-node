@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 import java.util.stream.IntStream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
@@ -544,15 +545,15 @@ public class DynamicBlockItemTest {
                     true,
                     false));
         }
-
+        // Pause for 100 microseconds to let blocks get sent.
+        LockSupport.parkNanos(100_000L);
+        messagingService.stop();
         assertTrue(
                 allReceived.await(20, TimeUnit.SECONDS),
                 "No-backpressure handler did not receive all " + totalItems + " items");
         assertEquals(totalItems, receiveCount.get(), "Item count mismatch");
         assertEquals(
                 IntStream.range(0, totalItems).sum(), receiveSum.get(), "Item sum mismatch — some items were lost");
-
-        messagingService.stop();
     }
 
     /**
