@@ -1178,7 +1178,7 @@ public class LiveSequential implements Runnable {
                 false,
                 false,
                 Codec.DEFAULT_MAX_DEPTH,
-                ProtobufParsingConstants.MAX_PARSE_SIZE);
+                ProtobufParsingConstants.MAX_MESSAGE_SIZE);
 
         for (BlockValidation v : vc.sequentialValidations()) {
             try {

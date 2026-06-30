@@ -2,6 +2,7 @@
 package org.hiero.block.tools.blocks.validation;
 
 import static org.hiero.block.node.base.ParseHelper.standardParse;
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_MESSAGE_SIZE;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
@@ -66,10 +67,11 @@ public final class BlockExtractionUtils {
         if (t.hasBody()) {
             return t.body();
         } else if (t.bodyBytes().length() > 0) {
-            return standardParse(TransactionBody.PROTOBUF, t.bodyBytes());
+            return standardParse(TransactionBody.PROTOBUF, t.bodyBytes(), MAX_MESSAGE_SIZE);
         } else if (t.signedTransactionBytes().length() > 0) {
-            final SignedTransaction st = standardParse(SignedTransaction.PROTOBUF, t.signedTransactionBytes());
-            return standardParse(TransactionBody.PROTOBUF, st.bodyBytes());
+            final SignedTransaction st =
+                    standardParse(SignedTransaction.PROTOBUF, t.signedTransactionBytes(), MAX_MESSAGE_SIZE);
+            return standardParse(TransactionBody.PROTOBUF, st.bodyBytes(), MAX_MESSAGE_SIZE);
         }
         return null;
     }

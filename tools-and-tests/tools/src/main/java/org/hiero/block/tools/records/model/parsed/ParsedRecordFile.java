@@ -2,6 +2,7 @@
 package org.hiero.block.tools.records.model.parsed;
 
 import static org.hiero.block.node.base.ParseHelper.standardParse;
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_MESSAGE_SIZE;
 import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
 import static org.hiero.block.tools.records.RecordFileDates.instantToRecordFileName;
 import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
@@ -347,7 +348,8 @@ public record ParsedRecordFile(
                     // compute the entire file hash used for signature verification
                     final byte[] fileHash = hashSha384(recordFileBytes);
                     // V6 is nice and easy as it is all protobuf encoded after the first version integer
-                    final RecordStreamFile recordStreamFile = standardParse(RecordStreamFile.PROTOBUF, in);
+                    final RecordStreamFile recordStreamFile =
+                            standardParse(RecordStreamFile.PROTOBUF, in, MAX_MESSAGE_SIZE);
                     // For v6 the block hash is the end-running-hash accessed via endObjectRunningHash()
                     if (recordStreamFile.endObjectRunningHash() == null) {
                         throw new IllegalStateException("No end object running hash in record file");

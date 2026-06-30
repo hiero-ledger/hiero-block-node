@@ -5,7 +5,7 @@ import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
-import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_PARSE_SIZE;
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_MESSAGE_SIZE;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.output.BlockFooter;
@@ -125,7 +125,7 @@ public class BlockStreamBlockHasher {
         try {
             Bytes bytes = Block.PROTOBUF.toBytes(block);
             BlockUnparsed unparsed = BlockUnparsed.PROTOBUF.parse(
-                    bytes.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, MAX_PARSE_SIZE);
+                    bytes.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, MAX_MESSAGE_SIZE);
             return hashBlockInternal(unparsed);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to hash block", e);
