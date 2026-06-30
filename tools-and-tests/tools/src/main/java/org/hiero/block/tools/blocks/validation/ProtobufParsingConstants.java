@@ -11,11 +11,10 @@ public final class ProtobufParsingConstants {
 
     /// Maximum size for parsing a whole record file, block, or other large message.
     ///
-    /// Set to [Integer#MAX_VALUE] (effectively unbounded): these parses consume trusted data the
-    /// tool itself produced or fetched, and message sizes are determined by network activity (e.g.
-    /// oversized blocks), not by a bound we choose. The cap only guards against runaway allocation
-    /// on corrupt input, which is not a concern here.
-    public static final int MAX_MESSAGE_SIZE = Integer.MAX_VALUE;
+    /// Set to 300 MB: large enough to comfortably accommodate the biggest record files and blocks
+    /// the tool handles, while still bounding allocation so a limit is encountered here rather than
+    /// later in the Block Node. This guards against runaway allocation on corrupt input.
+    public static final int MAX_MESSAGE_SIZE = 300 * 1024 * 1024;
 
     private ProtobufParsingConstants() {}
 }
