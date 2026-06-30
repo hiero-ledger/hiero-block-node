@@ -14,26 +14,29 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 ### Server Configuration
 
-| ENV Variable                            | Description                                                                                                            |    Default |
-|:----------------------------------------|:-----------------------------------------------------------------------------------------------------------------------|-----------:|
-| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2.                                                                                   | 37,748,736 |
-| SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).                                                                                              |      32768 |
-| SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes). Override to 131072 for memory-constrained deployments (see `values-overrides/nano.yaml`). |  8,388,608 |
-| SERVER_PORT                             | Default port for all services. Individual plugins may bind to a different port via their own config.                   |      40840 |
-| SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).                                                                                            |        500 |
-| SERVER_MAX_TCP_CONNECTIONS              | Max TCP connections allowed.                                                                                           |       1000 |
-| SERVER_IDLE_CONNECTION_PERIOD_MINUTES   | Period for idle connections check (minutes).                                                                           |          5 |
-| SERVER_IDLE_CONNECTION_TIMEOUT_MINUTES  | Timeout for idle connections (minutes).                                                                                |         30 |
+| ENV Variable                            | Description                                                                                                            | Default     |
+|:----------------------------------------|:-----------------------------------------------------------------------------------------------------------------------|:------------|
+| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2.                                                                                   | 131,072,000 |
+| SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).                                                                                              | 131,072     |
+| SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes). Override to 131072 for memory-constrained deployments (see `values-overrides/nano.yaml`). | 8,388,608   |
+| SERVER_PORT                             | Default port for all services. Individual plugins may bind to a different port via their own config.                   | 40840       |
+| SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).                                                                                            | 500         |
+| SERVER_MAX_TCP_CONNECTIONS              | Max TCP connections allowed.                                                                                           | 1000        |
+| SERVER_IDLE_CONNECTION_PERIOD_MINUTES   | Period for idle connections check (minutes).                                                                           | 5           |
+| SERVER_IDLE_CONNECTION_TIMEOUT_MINUTES  | Timeout for idle connections (minutes).                                                                                | 30          |
+| SERVER_TCP_NO_DELAY                     | Disable Nagle's algorithm (TCP_NODELAY). Reduces latency for small, frequent writes.                                   | true        |
+| SERVER_BACKLOG_SIZE                     | Maximum length of the queue of incoming connections on the server socket.                                              | 8,192       |
+| SERVER_WRITE_QUEUE_LENGTH               | Number of write buffers queued for write operations.                                                                   | 8,192       |
 
 ### WebServerHttp2 Configuration
 
 | ENV Variable                          | Description                                                                  |   Default |
 |:--------------------------------------|:-----------------------------------------------------------------------------|----------:|
 | SERVER_HTTP2_FLOW_CONTROL_TIMEOUT     | Outbound flow control blocking timeout (ms).                                 |       500 |
-| SERVER_HTTP2_INITIAL_WINDOW_SIZE      | Sender's maximum window size (bytes) for stream-level flow control.          | 1,048,576 |
+| SERVER_HTTP2_INITIAL_WINDOW_SIZE      | Sender's maximum window size (bytes) for stream-level flow control.          | 8,388,608 |
 | SERVER_HTTP2_MAX_CONCURRENT_STREAMS   | Max concurrent streams the server will allow.                                |         8 |
 | SERVER_HTTP2_MAX_EMPTY_FRAMES         | Max consecutive empty frames allowed on connection.                          |        10 |
-| SERVER_HTTP2_MAX_FRAME_SIZE           | Largest frame payload size (bytes) the sender is willing to receive.         |   524,288 |
+| SERVER_HTTP2_MAX_FRAME_SIZE           | Largest frame payload size (bytes) the sender is willing to receive.         | 8,388,608 |
 | SERVER_HTTP2_MAX_HEADER_LIST_SIZE     | Max field section size (bytes) the sender is prepared to accept.             |     8,192 |
 | SERVER_HTTP2_MAX_RAPID_RESETS         | Max rapid resets (stream RST sent by client before any data sent by server). |        50 |
 | SERVER_HTTP2_RAPID_RESET_CHECK_PERIOD | Period for counting rapid resets (ms).                                       |    10,000 |
@@ -154,22 +157,27 @@ A more robust pattern for fully operator-managed plugins is to mount a pre-popul
 
 ### Backfill Plugin Configuration
 
-| ENV Variable                             | Description                                                                                            |   Default |
-|:-----------------------------------------|:-------------------------------------------------------------------------------------------------------|----------:|
-| BACKFILL_START_BLOCK                     | First block this BN deploy wants.                                                                      |         0 |
-| BACKFILL_END_BLOCK                       | Max block number, -1 means no limit.                                                                   |        -1 |
-| BACKFILL_BLOCK_NODE_SOURCES_PATH         | File path for BN sources (PBJ JSON `block-nodes.json`).                                                |        "" |
-| BACKFILL_SCAN_INTERVAL                   | Scan interval for gap detection (ms).                                                                  |     60000 |
-| BACKFILL_MAX_RETRIES                     | Max retries to fetch a block.                                                                          |         3 |
-| BACKFILL_INITIAL_RETRY_DELAY             | Initial retry delay (ms), grows linearly.                                                              |      5000 |
-| BACKFILL_FETCH_BATCH_SIZE                | Number of blocks per gRPC call.                                                                        |        10 |
-| BACKFILL_DELAY_BETWEEN_BATCHES           | Delay (ms) between block batches.                                                                      |      1000 |
-| BACKFILL_INITIAL_DELAY                   | Initial delay (ms) before starting backfill.                                                           |     15000 |
-| BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT    | Timeout (ms) to wait for a block batch.                                                                |      1000 |
-| BACKFILL_GRPC_OVERALL_TIMEOUT            | Overall gRPC timeout (connect, read, poll) in ms.                                                      |     60000 |
-| BACKFILL_MAX_INCOMING_BUFFER_SIZE        | Max gRPC incoming buffer size in bytes (min 10 MB, max 300 MB).                                        | 104857600 |
-| BACKFILL_ENABLE_TLS                      | Enable TLS if supported by block-node client.                                                          |     false |
-| BACKFILL_MAX_PROTOBUF_MESSAGE_SIZE_BYTES | Max protobuf message size (bytes) accepted when parsing a block fetched over the wire during backfill. | 131072000 |
+| ENV Variable                             | Description                                                                                                            |   Default |
+|:-----------------------------------------|:-----------------------------------------------------------------------------------------------------------------------|----------:|
+| BACKFILL_START_BLOCK                     | First block this BN deploy wants.                                                                                      |         0 |
+| BACKFILL_END_BLOCK                       | Max block number, -1 means no limit.                                                                                   |        -1 |
+| BACKFILL_BLOCK_NODE_SOURCES_PATH         | File path for BN sources (PBJ JSON `block-nodes.json`).                                                                |        "" |
+| BACKFILL_SCAN_INTERVAL                   | Scan interval for gap detection (ms).                                                                                  |     60000 |
+| BACKFILL_MAX_RETRIES                     | Max retries to fetch a block.                                                                                          |         3 |
+| BACKFILL_INITIAL_RETRY_DELAY             | Initial retry delay (ms), grows linearly.                                                                              |      5000 |
+| BACKFILL_FETCH_BATCH_SIZE                | Number of blocks per gRPC call.                                                                                        |        10 |
+| BACKFILL_DELAY_BETWEEN_BATCHES           | Delay (ms) between block batches.                                                                                      |      1000 |
+| BACKFILL_INITIAL_DELAY                   | Initial delay (ms) before starting backfill.                                                                           |     15000 |
+| BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT    | Timeout (ms) to wait for a block batch.                                                                                |      1000 |
+| BACKFILL_GRPC_OVERALL_TIMEOUT            | Overall gRPC timeout (connect, read, poll) in ms.                                                                      |     60000 |
+| BACKFILL_MAX_INCOMING_BUFFER_SIZE        | Max gRPC incoming buffer size in bytes (min 10 MB, max 300 MB).                                                        | 104857600 |
+| BACKFILL_ENABLE_TLS                      | Enable TLS if supported by block-node client.                                                                          |     false |
+| BACKFILL_MAX_PROTOBUF_MESSAGE_SIZE_BYTES | Max protobuf message size (bytes) accepted when parsing a block fetched over the wire during backfill.                 | 131072000 |
+| BACKFILL_GREEDY                          | When true, searches and retrieves blocks beyond latestAcknowledged to prevent the BN from falling too far behind live. |     false |
+| BACKFILL_HISTORICAL_QUEUE_CAPACITY       | Bounded queue capacity for historical block fetch tasks (min 1, max 1000).                                             |        20 |
+| BACKFILL_LIVE_TAIL_QUEUE_CAPACITY        | Bounded queue capacity for live-tail block fetch tasks (min 1, max 100).                                               |        10 |
+| BACKFILL_HEALTH_PENALTY_PER_FAILURE      | Health score penalty applied per failed fetch attempt to a peer node.                                                  |    1000.0 |
+| BACKFILL_MAX_BACKOFF_MS                  | Maximum backoff (ms) before retrying a failed peer node (minimum: 30,000).                                             |   300,000 |
 
 **Note:** The following can be configured in the JSON file at `BACKFILL_BLOCK_NODE_SOURCES_PATH`:
 - Per-node gRPC timeout overrides: `grpc_connect_timeout`, `grpc_read_timeout`, `grpc_poll_wait_time`
@@ -186,13 +194,17 @@ for the JSON schema.
 
 ### Files Historic Plugin Configuration
 
-| ENV Variable                             | Description                                                   |                             Default |
-|:-----------------------------------------|:--------------------------------------------------------------|------------------------------------:|
-| FILES_HISTORIC_ROOT_PATH                 | Root path for saving historic blocks.                         | /opt/hiero/block-node/data/historic |
-| FILES_HISTORIC_COMPRESSION               | Compression type (e.g., ZSTD).                                |                                     |
-| FILES_HISTORIC_POWERS_OF_TEN             | Files per zip in powers of ten (1=10, 2=100, …, 6=1,000,000). |                                   4 |
-| FILES_HISTORIC_BLOCK_RETENTION_THRESHOLD | Number of zips to retain. 0 means keep indefinitely.          |                                   0 |
-| FILES_HISTORIC_MAX_FILES_PER_DIR         | Max files per directory to avoid filesystem issues.           |                                   3 |
+| ENV Variable                                       | Description                                                                 |                             Default |
+|:---------------------------------------------------|:----------------------------------------------------------------------------|------------------------------------:|
+| FILES_HISTORIC_ROOT_PATH                           | Root path for saving historic blocks.                                       | /opt/hiero/block-node/data/historic |
+| FILES_HISTORIC_COMPRESSION                         | Compression type (e.g., ZSTD).                                              |                                     |
+| FILES_HISTORIC_POWERS_OF_TEN_PER_ZIP_FILE_CONTENTS | Files per zip in powers of ten (1=10, 2=100, …, 6=1,000,000).               |                                   4 |
+| FILES_HISTORIC_BLOCK_RETENTION_THRESHOLD           | Number of zips to retain. 0 means keep indefinitely.                        |                                   0 |
+| FILES_HISTORIC_MAX_FILES_PER_DIR                   | Max files per directory, as a number of digits, to avoid filesystem issues. |                                   3 |
+
+> **Retention arithmetic:** Effective blocks retained = `FILES_HISTORIC_BLOCK_RETENTION_THRESHOLD` × 10^`FILES_HISTORIC_POWERS_OF_TEN_PER_ZIP_FILE_CONTENTS`.
+> Example: `FILES_HISTORIC_BLOCK_RETENTION_THRESHOLD=5` with `FILES_HISTORIC_POWERS_OF_TEN_PER_ZIP_FILE_CONTENTS=4` retains 50,000 blocks.
+> A value of `0` for `FILES_HISTORIC_BLOCK_RETENTION_THRESHOLD` keeps blocks indefinitely.
 
 ### Files Recent Plugin Configuration
 
@@ -305,16 +317,16 @@ Uploads each verified block as a single ZSTD-compressed `.blk.zstd` object to an
 S3-compatible store (AWS S3, GCS S3-interop, MinIO, etc.). The plugin is **disabled by
 default** — setting `CLOUD_EXPANDED_ENDPOINT_URL` to a non-empty value activates it.
 
-| ENV Variable                                  | Description                                                                                     |           Default |
-|:----------------------------------------------|:------------------------------------------------------------------------------------------------|------------------:|
-| CLOUD_STORAGE_EXPANDED_ENDPOINT_URL           | S3-compatible endpoint URL. **Blank disables the plugin.**                                      |                "" |
-| CLOUD_STORAGE_EXPANDED_BUCKET_NAME            | Name of the S3 bucket where blocks are stored.                                                  | block-node-blocks |
-| CLOUD_STORAGE_EXPANDED_OBJECT_KEY_PREFIX      | Prefix prepended to every object key (e.g. `blocks`).                                           |            blocks |
-| CLOUD_STORAGE_EXPANDED_STORAGE_CLASS          | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version. |          STANDARD |
-| CLOUD_STORAGE_EXPANDED_REGION_NAME            | AWS / S3-compatible region name.                                                                |         us-east-1 |
-| CLOUD_STORAGE_EXPANDED_ACCESS_KEY             | S3 access key (not logged).                                                                     |                "" |
-| CLOUD_STORAGE_EXPANDED_SECRET_KEY             | S3 secret key (not logged).                                                                     |                "" |
-| CLOUD_STORAGE_EXPANDED_UPLOAD_TIMEOUT_SECONDS | Max seconds per block upload before treating the upload as failed.                              |                60 |
+| ENV Variable                                  | Description                                                                                     |  Default |
+|:----------------------------------------------|:------------------------------------------------------------------------------------------------|---------:|
+| CLOUD_STORAGE_EXPANDED_ENDPOINT_URL           | S3-compatible endpoint URL. **Blank disables the plugin.**                                      |       "" |
+| CLOUD_STORAGE_EXPANDED_BUCKET_NAME            | Name of the S3 bucket where blocks are stored. Required; must not be blank.                     |       "" |
+| CLOUD_STORAGE_EXPANDED_OBJECT_KEY_PREFIX      | Prefix prepended to every object key (e.g. `blocks`). Set to `""` for no prefix.                |       "" |
+| CLOUD_STORAGE_EXPANDED_STORAGE_CLASS          | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version. | STANDARD |
+| CLOUD_STORAGE_EXPANDED_REGION_NAME            | AWS / S3-compatible region name. Required; must not be blank.                                   |       "" |
+| CLOUD_STORAGE_EXPANDED_ACCESS_KEY             | S3 access key (not logged).                                                                     |       "" |
+| CLOUD_STORAGE_EXPANDED_SECRET_KEY             | S3 secret key (not logged).                                                                     |       "" |
+| CLOUD_STORAGE_EXPANDED_UPLOAD_TIMEOUT_SECONDS | Max seconds per block upload before treating the upload as failed.                              |       60 |
 
 Object keys follow the format `{prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`, where the
 19-digit zero-padded block number is split into a 4/4/4/4/3 folder hierarchy:

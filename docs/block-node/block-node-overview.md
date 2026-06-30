@@ -69,14 +69,14 @@ Block Nodes provide several core services that turn block streams into reliable,
 
 ## Block Node Tiers
 
-A Block Node's *tier* describes where it gets its block stream from. The same core software runs at every tier; the differences are operational.
+A Block Node's tier describes where it gets its block stream from. The same core software runs at every tier; the differences are operational.
 
 | **Tier** |                         **Description**                          |        **Typical Operators**        |               **Key Focus**                |
 |----------|------------------------------------------------------------------|-------------------------------------|--------------------------------------------|
 | Tier 1   | Receive streams directly from Consensus Nodes; high reliability. | Governing Council, trusted entities | Verification, reconnect, state management. |
 | Tier 2   | Receive streams from Tier 1 or another Tier 2; permissionless.   | Community, enterprises              | Streaming, proofs, geographic redundancy.  |
 
-Beyond tiers, operators can deploy a Block Node in different *types* — for example *Full Node*, *Rolling-History*, *Light Node*, *Private-Cloud*, *Archive Server*, or *Community Node* — by combining different sets of plugins. *Rolling-History* provides a Partial History service, retaining only recent blocks rather than full history. *Archive Server* provides cold storage without live streaming. See [Block-Node-Types.md](../Block-Node-Types.md) for the full taxonomy.
+Beyond tiers, operators can deploy a Block Node in different types — for example Full Node, Rolling-History, Light Node, Private-Cloud, Archive Server, or Community Node — by combining different sets of plugins. Rolling-History provides a Partial History service, retaining only recent blocks rather than full history. Archive Server provides cold storage without live streaming. See [Block-Node-Types.md](../Block-Node-Types.md) for the full taxonomy.
 
 ## High-Level Architecture
 
@@ -84,7 +84,7 @@ Block Nodes follow a modular design, receiving **block streams**, verifying inte
 They may provide four common functions:
 
 - **Block Stream ingestion and verification** - Receives block streams from Consensus Nodes and verifies their integrity using aggregated signatures and Merkle proofs.
-- **State management and snapshot generation** *(planned)* - Block Nodes will maintain an active local copy of network state by applying `State Changes` from the block stream and generate state snapshots served through dedicated APIs to support reconnect and recovery flows. State management is a prerequisite for reconnect support; neither is currently implemented.
+- **State management and snapshot generation** (planned) - Block Nodes will maintain an active local copy of network state by applying `State Changes` from the block stream and generate state snapshots served through dedicated APIs to support reconnect and recovery flows. State management is a prerequisite for reconnect support; neither is currently implemented.
 - **Durable storage** - Persists blocks and saved states to local disk or to S3-compatible archival storage for long-term, tamper-evident history.
 - **Data services** - Exposes gRPC/REST APIs providing real-time block streaming, random-access block retrieval, state queries at specific block heights, and cryptographic proofs to Mirror Nodes, other Block Nodes, and applications.
 
@@ -147,9 +147,30 @@ Use this decision guide to determine which Block Node configuration suits your n
 
 **Note:** Tier 2 nodes are truly permissionless—anyone can deploy one without approval or registration. You simply configure your node to connect to one or more existing Block Nodes (Tier 1 or Tier 2) for upstream block streams.
 
+### Helm deployment profile
+
+Once you know your tier, select the plugin profile that matches your storage strategy. Profiles are pre-built Helm values overrides shipped in the
+[`charts/block-node-server/values-overrides/`](https://github.com/hiero-ledger/hiero-block-node/tree/main/charts/block-node-server/values-overrides)
+directory and applied with the `-f` flag during Helm install, or selected interactively by Solo Provisioner.
+
+|                      Goal                      |                                                                                                  Profile                                                                                                  |                 Storage strategy                  |                                                 Hardware sizing                                                 |
+|------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| Tier 1 — full block history on local disk      | [`plugin-profile-lfh`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-lfh.yaml)                                                      | Local NVMe (recent) + local HDD (archive)         | [LFH spec](./operations/block-node-hardware-specifications.md#local-full-history-lfh)                           |
+| Tier 1 — recent blocks local, history in cloud | [`plugin-profile-rfh`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-rfh.yaml)                                                      | Local NVMe (recent) + S3-compatible cloud archive | [RFH spec](./operations/block-node-hardware-specifications.md#remote-full-history-rfh)                          |
+| Tier 1 — local history and cloud backup        | [`plugin-profile-all`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-all.yaml)                                                      | Local NVMe + local HDD + S3 archive               | [LFH spec](./operations/block-node-hardware-specifications.md#local-full-history-lfh)                           |
+| Tier 2 — full history on local disk            | [`plugin-profile-lfh`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-lfh.yaml) with `stream-publisher` removed from `plugins.names` | Local NVMe (recent) + local HDD (archive)         | [LFH spec](./operations/block-node-hardware-specifications.md#local-full-history-lfh)                           |
+| Tier 2 — recent blocks local, history in cloud | [`plugin-profile-rfh`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-rfh.yaml) with `stream-publisher` removed from `plugins.names` | Local NVMe (recent) + S3-compatible cloud archive | [RFH spec](./operations/block-node-hardware-specifications.md#remote-full-history-rfh)                          |
+| Development, testing, or testnet / previewnet  | [`plugin-profile-minimal`](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/plugin-profile-minimal.yaml)                                              | No block storage (health and status only)         | [Testnet / previewnet sizing](./operations/block-node-hardware-specifications.md#testnet-and-previewnet-sizing) |
+
+> **Note:** For Tier 2, no dedicated profile file exists. Start from `plugin-profile-lfh` (local history) or `plugin-profile-rfh` (cloud archive) and remove `stream-publisher` from `plugins.names`. See [configuration.md](./configuration.md#plugin-management) for the full `plugins.names` reference.
+
+For CPU, RAM, disk, and NIC requirements for each profile, see
+[Block Node Hardware Specifications](./operations/block-node-hardware-specifications.md).
+
 ## Getting Started
 
-***To start running a Block Node, read:***
+**To start running a Block Node, read:**
 
 - **Virtual Machine Single Node Kubernetes Deployment Guide** – [step‑by‑step instructions for deploying a single Block Node instance with the Solo Provisioner in a Kubernetes cluster, including environment preparation, deployment, and basic verification.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/solo-weaver-single-node-k8s-deployment.md)
 - **Bare Metal Single Node Kubernetes Deployment** – [instructions for deploying the Block Node Server Helm chart in a single‑node Kubernetes environment, suitable for production setups on bare metal or cloud VMs.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/single-node-k8s-deployment.md)
+- **Load Testing a Deployed Block Node Using Solo and NLG** – [realistic production-scale load testing using real Consensus Nodes and the Network Load Generator, to validate Block Node capacity before connecting to the live network.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/load-testing-a-deployed-block-node-using-solo-and-nlg.md)
