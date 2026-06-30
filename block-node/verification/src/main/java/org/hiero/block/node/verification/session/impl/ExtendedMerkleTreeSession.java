@@ -504,7 +504,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             final PublicKey publicKey = rsaKeyByNodeId.get(nodeId);
             if (publicKey == null) {
                 LOGGER.log(
-                        WARNING,
+                        DEBUG,
                         "Signature from node {0} not in era address book for block {1} — rejecting block",
                         nodeId,
                         blockNumber);

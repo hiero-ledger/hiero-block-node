@@ -127,7 +127,7 @@ public final class RSAProofVerifier implements ProofVerifier {
                         // CN only includes signatures from consensus-contributing nodes, so a failed
                         // cryptographic verification means the block or proof has been tampered with.
                         LOGGER.log(
-                                WARNING,
+                                DEBUG,
                                 "RSA signature from node {0} failed verification in block {1} — rejecting block",
                                 nodeId,
                                 blockNumber);
