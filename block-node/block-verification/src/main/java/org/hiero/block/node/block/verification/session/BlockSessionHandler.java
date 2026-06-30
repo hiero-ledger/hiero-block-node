@@ -50,6 +50,7 @@ public final class BlockSessionHandler {
             final VerificationDataProvider verificationDataProvider,
             final AtomicLong lastVerifiedBlock,
             final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks,
+            final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions,
             final ExecutorService executor,
             final BadBlockDumper badBlockDumper) {
         this.context = Objects.requireNonNull(context);
@@ -60,7 +61,7 @@ public final class BlockSessionHandler {
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
         this.executor = Objects.requireNonNull(executor);
-        this.activeSessions = new ConcurrentSkipListMap<>();
+        this.activeSessions = Objects.requireNonNull(activeSessions);
         this.nextUniqueSessionIdentifier = new AtomicLong(0);
         this.activePublisherSession = new AtomicReference<>();
         this.finishedSessions = new ConcurrentSkipListSet<>();
@@ -153,11 +154,6 @@ public final class BlockSessionHandler {
                 verificationConfig,
                 finishedSessions,
                 badBlockDumper);
-    }
-
-    /// Returns the active sessions map. Package-private for testing.
-    ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions() {
-        return activeSessions;
     }
 
     /// Activate a new session.

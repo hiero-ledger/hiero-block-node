@@ -7,6 +7,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
@@ -93,6 +94,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 verificationDataProvider,
                 lastVerifiedBlock,
                 recentlyVerifiedBlocks,
+                new ConcurrentSkipListMap<>(),
                 executor,
                 badBlockDumper);
     }

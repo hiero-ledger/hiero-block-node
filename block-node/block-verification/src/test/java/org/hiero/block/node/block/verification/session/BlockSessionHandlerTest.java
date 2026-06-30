@@ -4,6 +4,7 @@ package org.hiero.block.node.block.verification.session;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Block Session Handler Tests")
 class BlockSessionHandlerTest {
     private BlockingExecutor executor;
+    private ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions;
     private BlockSessionHandler toTest;
 
     /// Setup before each test.
@@ -45,6 +47,7 @@ class BlockSessionHandlerTest {
         final VerificationDataProvider verificationDataProvider = new VerificationDataProvider(context);
         final AtomicLong lastVerifiedBlock = new AtomicLong(-1);
         final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks = new ConcurrentSkipListSet<>();
+        activeSessions = new ConcurrentSkipListMap<>();
         final BadBlockDumper badBlockDumper = new BadBlockDumper(verificationConfig, "test");
         executor = new BlockingExecutor(new LinkedBlockingQueue<>());
         toTest = new BlockSessionHandler(
@@ -54,6 +57,7 @@ class BlockSessionHandlerTest {
                 verificationDataProvider,
                 lastVerifiedBlock,
                 recentlyVerifiedBlocks,
+                activeSessions,
                 executor,
                 badBlockDumper);
     }
@@ -97,7 +101,7 @@ class BlockSessionHandlerTest {
         toTest.processBlockItems(block3.asBlockItems(), BlockSource.PUBLISHER);
         toTest.processBlockItems(block4.asBlockItems(), BlockSource.PUBLISHER);
         // Assert that the buffer is full and the lowest active session is canceled
-        assertThat(toTest.activeSessions()).hasSize(2).containsKeys(new SessionKey(3, 1), new SessionKey(4, 2));
+        assertThat(activeSessions).hasSize(2).containsKeys(new SessionKey(3, 1), new SessionKey(4, 2));
     }
 
     /// This test aims to verify that when the active sessions buffer is full and a new session comes,
@@ -117,7 +121,7 @@ class BlockSessionHandlerTest {
         toTest.processBlockItems(block3.asBlockItems(), BlockSource.PUBLISHER);
         toTest.processBlockItems(block2.asBlockItems(), BlockSource.PUBLISHER);
         // Assert that the buffer is full and the lowest active session is canceled
-        assertThat(toTest.activeSessions())
+        assertThat(activeSessions)
                 .hasSize(3)
                 .containsKeys(new SessionKey(2, 2), new SessionKey(3, 1), new SessionKey(4, 0));
     }
