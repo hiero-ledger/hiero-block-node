@@ -15,9 +15,11 @@
    6. [Verification](#verification)
    7. [files.recent](#filesrecent)
    8. [files.historic](#fileshistoric)
-   9. [s3-archive](#s3-archive)
+   9. [cloud-storage-archive](#cloud-storage-archive)
    10. [Server Status API](#server-status-api)
    11. [Backfill](#backfill)
+   12. [roster-bootstrap-rsa](#roster-bootstrap-rsa)
+   13. [roster-bootstrap-tss](#roster-bootstrap-tss)
 
 ## Summary
 
@@ -101,17 +103,18 @@ Observes the block access service that serves requests for blocks.
 **Plugin:** `messaging [facility-messaging]`
 Observes the messaging system that connects the publisher with subscribers and the rest of the system.
 
-|  Type   |                          Name                           |                 Description                 |
-|---------|---------------------------------------------------------|---------------------------------------------|
-| Counter | `messaging_block_items_received`                        | Incoming block items seen by the mediator   |
-| Counter | `messaging_block_verification_notifications`            | Notifications issued after verification     |
-| Counter | `messaging_block_persisted_notifications`               | Notifications issued after persistence      |
-| Gauge   | `messaging_no_of_item_listeners`                        | Active item listeners                       |
-| Gauge   | `messaging_no_of_notification_listeners`                | Active notification listeners               |
-| Gauge   | `messaging_item_queue_percent_used`                     | Percent of item queue utilised              |
-| Gauge   | `messaging_notification_queue_percent_used`             | Percent of notification queue utilised      |
-| Counter | `messaging_block_backfilled_notifications`              | Notifications issues for backfilling blocks |
-| Counter | `messaging_newest_block_known_to_network_notifications` | Notifications issued for newest block known |
+|  Type   |                          Name                           |                      Description                       |
+|---------|---------------------------------------------------------|--------------------------------------------------------|
+| Counter | `messaging_block_items_received`                        | Incoming block items seen by the mediator              |
+| Counter | `messaging_block_verification_notifications`            | Notifications issued after verification                |
+| Counter | `messaging_block_persisted_notifications`               | Notifications issued after persistence                 |
+| Gauge   | `messaging_no_of_item_listeners`                        | Active item listeners                                  |
+| Gauge   | `messaging_no_of_notification_listeners`                | Active notification listeners                          |
+| Gauge   | `messaging_item_queue_percent_used`                     | Percent of item queue utilised                         |
+| Gauge   | `messaging_notification_queue_percent_used`             | Percent of notification queue utilised                 |
+| Counter | `messaging_block_backfilled_notifications`              | Notifications issued after backfilling blocks          |
+| Counter | `messaging_newest_block_known_to_network_notifications` | Notifications issued for newest block known to network |
+| Counter | `messaging_publisher_status_update_notifications`       | Notifications issued for publisher status updates      |
 
 ---
 
@@ -120,20 +123,30 @@ Observes the messaging system that connects the publisher with subscribers and t
 **Plugin:** `publisher [block-node-publisher]`
 Observes inbound streams from publishers.
 
-|  Type   |                   Name                   |                     Description                     |
-|---------|------------------------------------------|-----------------------------------------------------|
-| Counter | `publisher_block_items_received`         | Live block items received (sum over all publishers) |
-| Gauge   | `publisher_lowest_block_number_inbound`  | Lowest incoming block number                        |
-| Gauge   | `publisher_highest_block_number_inbound` | Highest incoming block number                       |
-| Gauge   | `publisher_open_connections`             | Connected publishers                                |
-| Counter | `publisher_blocks_ack_sent`              | Block‑ack messages sent                             |
-| Gauge   | `publisher_latest_block_number_ack_sent` | Latest Block Number Ack Sent from Publisher         |
-| Counter | `publisher_stream_errors`                | Publisher connection streams that end in an error   |
-| Counter | `publisher_blocks_skips_sent`            | Block‑ack skips sent                                |
-| Counter | `publisher_blocks_resend_sent`           | Block Resend messages sent                          |
-| Counter | `publisher_block_endofstream_sent`       | Block End-of-Stream messages sent                   |
-| Counter | `publisher_block_endstream_received`     | Block End-Stream messages received                  |
-| Counter | `publisher_receive_latency_ns`           | Time taken to receive a block (ns=nanoseconds)      |
+|  Type   |                     Name                     |                                                 Description                                                 |
+|---------|----------------------------------------------|-------------------------------------------------------------------------------------------------------------|
+| Counter | `publisher_block_items_received`             | Live block items received (sum over all publishers)                                                         |
+| Gauge   | `publisher_lowest_block_number_inbound`      | Lowest incoming block number                                                                                |
+| Gauge   | `publisher_highest_block_number_inbound`     | Highest incoming block number                                                                               |
+| Gauge   | `publisher_open_connections`                 | Connected publishers                                                                                        |
+| Counter | `publisher_blocks_ack_sent`                  | Block‑ack messages sent                                                                                     |
+| Gauge   | `publisher_latest_block_number_acknowledged` | Latest block number acknowledged by the Block Node                                                          |
+| Counter | `publisher_stream_errors`                    | Publisher connection streams that end in an error                                                           |
+| Counter | `publisher_stream_sets_dropped`              | Block item sets dropped because the block is missing a header                                               |
+| Counter | `publisher_blocks_skips_sent`                | Block‑ack skips sent                                                                                        |
+| Counter | `publisher_blocks_resend_sent`               | Block resend messages sent                                                                                  |
+| Counter | `publisher_block_node_behind_sent`           | Node Behind Publisher messages sent                                                                         |
+| Counter | `publisher_block_endofstream_sent`           | Block End-of-Stream messages sent                                                                           |
+| Counter | `publisher_block_endstream_received`         | Block End-Stream messages received                                                                          |
+| Counter | `publisher_block_send_response_failed`       | Failures to send a response to a publisher                                                                  |
+| Counter | `publisher_receive_latency_ns`               | Network in-transit latency from block sent by publisher to fully streamed (header to proof), in nanoseconds |
+| Counter | `publisher_block_items_messaged`             | Live block items delivered to the messaging service                                                         |
+| Counter | `publisher_block_batches_messaged`           | Live block batches processed and sent to the messaging service                                              |
+| Counter | `publisher_blocks_closed_complete`           | Blocks received complete (with both header and proof) by any handler                                        |
+| Counter | `publisher_stall_timeouts_sent`              | Publishers terminated due to stall detection (silent ACCEPT winner)                                         |
+| Counter | `publisher_flow_control_individual_pauses`   | Publisher handler pauses due to per-handler message budget exhaustion                                       |
+| Counter | `publisher_flow_control_aggregate_pauses`    | Intervals where aggregate message budget was exceeded and all handler budgets were withheld                 |
+| Counter | `publisher_flow_control_penalties_applied`   | Penalty pauses applied to handlers that repeatedly exhaust their budget                                     |
 
 ---
 
@@ -199,21 +212,17 @@ Activity and utilization of the historic on‑disk tier.
 
 ---
 
-### s3‑archive
+### cloud-storage-archive
 
-**Plugin:** `s3-archive [hiero-block-node.s3-archive]`
-Tracks long‑term archival jobs that push blocks to S3.
+**Plugin:** `cloud-storage-archive`
+Tracks long‑term archival jobs that push complete blocks to S3-compatible cloud storage.
 
-|  Type   |              Name               |               Description               |
-|---------|---------------------------------|-----------------------------------------|
-| Counter | `s3_archive_blocks_written`     | Blocks archived to S3                   |
-| Gauge   | `s3_archive_latest_block`       | Latest block number archived            |
-| Counter | `s3_archive_tasks_failed_total` | Failed archival tasks                   |
-| Counter | `s3_archive_tasks_sucess_total` | Successful archival tasks               |
-| Gauge   | `s3_archive_total_bytes_stored` | Total bytes stored in S3 (cost metric)  |
-| Counter | `s3_archive_chunks_uploaded`    | Chunks uploaded to S3                   |
-| Gauge   | `s3_archive_chunks_opened`      | Open chunks currently                   |
-| Counter | `s3_archive_files_closed`       | Total number of files closed, finished. |
+|  Type   |                   Name                   |                  Description                   |
+|---------|------------------------------------------|------------------------------------------------|
+| Counter | `cloud_storage_archive_blocks_written`   | Blocks written to S3 cloud archive storage     |
+| Counter | `cloud_storage_archive_failed_tasks`     | Failed cloud archive upload tasks              |
+| Counter | `cloud_storage_archive_successful_tasks` | Successful cloud archive upload tasks          |
+| Counter | `cloud_storage_archive_stored_bytes`     | Total bytes stored in S3 cloud archive storage |
 
 ---
 
@@ -222,24 +231,26 @@ Tracks long‑term archival jobs that push blocks to S3.
 **Plugin:** `server-status [block-node-server-status]`
 Observes the server status API that provides information about the node.
 
-|  Type   |           Name            |           Description            |
-|---------|---------------------------|----------------------------------|
-| Counter | `server_status_requests ` | Number of server status requests |
+|  Type   |               Name               |               Description                |
+|---------|----------------------------------|------------------------------------------|
+| Counter | `server_status_requests`         | Number of server status requests         |
+| Counter | `server_status_details_requests` | Number of server status details requests |
 
 ### Backfill
 
 **Plugin:** `backfill [block-node-backfill]`
 Provides metrics related to the backfill process, including On-Demand and Historical backfills.
 
-|  Type   |             Name             |                        Description                         |
-|---------|------------------------------|------------------------------------------------------------|
-| Counter | `backfill_gaps_detected`     | Total number of gaps detected at start-up                  |
-| Counter | `backfill_blocks_fetched`    | Total number of blocks fetched during backfill             |
-| Counter | `backfill_blocks_backfilled` | Total number of blocks successfully backfilled             |
-| Counter | `backfill_fetch_errors`      | Total number of errors encountered while fetching blocks   |
-| Counter | `backfill_retries`           | Total number of retries attempted during backfill          |
-| Gauge   | `backfill_status`            | Current status of the backfill process (0=Idle, 1=Running) |
-| Gauge   | `backfill_pending_blocks`    | Number of blocks pending to be backfilled                  |
+|  Type   |             Name             |                              Description                              |
+|---------|------------------------------|-----------------------------------------------------------------------|
+| Counter | `backfill_gaps_detected`     | Total number of gaps detected at start-up                             |
+| Counter | `backfill_blocks_fetched`    | Total number of blocks fetched during backfill                        |
+| Counter | `backfill_blocks_backfilled` | Total number of blocks successfully backfilled                        |
+| Counter | `backfill_fetch_errors`      | Total number of errors encountered while fetching blocks              |
+| Counter | `backfill_retries`           | Total number of retries attempted during backfill                     |
+| Gauge   | `backfill_status`            | Current status of the backfill process (0=Idle, 1=Running)            |
+| Gauge   | `backfill_pending_blocks`    | Number of blocks pending to be backfilled                             |
+| Gauge   | `backfill_inflight_blocks`   | In-flight backfill blocks currently awaiting verification/persistence |
 
 #### Cloud Expanded
 
@@ -252,6 +263,37 @@ Tracks the count and byte data size regarding single block uploads
 | Counter | `cloud_expanded_total_upload_failures` | Number of uploads that failed (S3 error, timeout, or compression error). |
 | Counter | `cloud_expanded_total_upload_bytes`    | Total compressed bytes successfully uploaded.                            |
 | Counter | `cloud_expanded_upload_latency_ns`     | Total time in nanoseconds for upload.                                    |
+
+---
+
+### roster-bootstrap-rsa
+
+**Plugin:** `roster-bootstrap-rsa`
+Tracks RSA address book loading and peer requests used to bootstrap the consensus node roster.
+
+|  Type   |              Name               |                          Description                           |
+|---------|---------------------------------|----------------------------------------------------------------|
+| Gauge   | `roster_entries_loaded`         | Number of NodeAddress entries loaded at startup                |
+| Gauge   | `roster_eras_loaded`            | Number of distinct block-range eras in the loaded address book |
+| Gauge   | `roster_load_duration_ms`       | Time to load the RSA roster at startup (ms)                    |
+| Counter | `rsa_roster_peer_requests`      | Peer gRPC requests made for RSA address book                   |
+| Counter | `rsa_roster_peer_errors`        | Peer gRPC request errors for RSA address book                  |
+| Counter | `rsa_roster_addressbook_errors` | Invalid address books fetched from peers                       |
+
+---
+
+### roster-bootstrap-tss
+
+**Plugin:** `roster-bootstrap-tss`
+Tracks TSS data requests used to bootstrap the consensus node roster.
+
+|  Type   |        Name         |            Description             |
+|---------|---------------------|------------------------------------|
+| Gauge   | `tss_data_peers`    | Current number of block node peers |
+| Counter | `tss_data_requests` | TSS data requests made             |
+| Counter | `tss_data_errors`   | TSS data request errors            |
+
+---
 
 ## Alerting Recommendations
 
@@ -301,8 +343,8 @@ As the product matures through beta and rc phases, high severity alerts will be 
 
 **Cloud Expanded**: Alerts for metrics regarding expanded cloud storage (single-block S3 uploads)
 
-| Severity | Alert                         | Metric                                 |                      Condition                       |
-|:---------|:------------------------------|:---------------------------------------|------------------------------------------------------|
-| Warning  | Upload failure rate elevated  | `cloud_expanded_upload_failures_total` | `rate(cloud_expanded_upload_failures_total[5m]) > 0` |
-| Critical | No uploads in expected window | `cloud_expanded_uploads_total`         | `increase(cloud_expanded_uploads_total[10m]) == 0`   |
-| Warning  | Bytes stalled                 | `cloud_expanded_upload_bytes_total`    | `rate(cloud_expanded_upload_bytes_total[10m]) == 0`  |
+| Severity | Alert                         | Metric                                       |                         Condition                          |
+|:---------|:------------------------------|:---------------------------------------------|------------------------------------------------------------|
+| Warning  | Upload failure rate elevated  | `cloud_expanded_total_upload_failures_total` | `rate(cloud_expanded_total_upload_failures_total[5m]) > 0` |
+| Critical | No uploads in expected window | `cloud_expanded_total_uploads_total`         | `increase(cloud_expanded_total_uploads_total[10m]) == 0`   |
+| Warning  | Bytes stalled                 | `cloud_expanded_total_upload_bytes_total`    | `rate(cloud_expanded_total_upload_bytes_total[10m]) == 0`  |
