@@ -550,16 +550,16 @@ class VerificationServicePluginTest
         final KeyPair kp = kpg.generateKeyPair();
         final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
         final NodeAddressBook book = NodeAddressBook.newBuilder()
-                .nodeAddress(List.of(NodeAddress.newBuilder().nodeId(0L).rsaPubKey(hexKey).build()))
+                .nodeAddress(List.of(
+                        NodeAddress.newBuilder().nodeId(0L).rsaPubKey(hexKey).build()))
                 .build();
-        final RangedAddressBookHistory history =
-                RangedAddressBookHistory.newBuilder()
-                        .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
-                                .addressBook(book)
-                                .startBlock(1000L)
-                                .endBlock(2000L)
-                                .build()))
-                        .build();
+        final RangedAddressBookHistory history = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(book)
+                        .startBlock(1000L)
+                        .endBlock(2000L)
+                        .build()))
+                .build();
         updateAddressBookHistory(history);
 
         // Build a minimal WRB block for block number 50 — outside the covered range.
@@ -572,8 +572,8 @@ class VerificationServicePluginTest
         // The signature content is irrelevant — the block will be rejected before signature verification.
         final BlockProof proof = BlockProof.newBuilder()
                 .block(blockNumber)
-                .signedRecordFileProof(new SignedRecordFileProof(
-                        6, List.of(new RecordFileSignature(Bytes.wrap(new byte[256]), 0L))))
+                .signedRecordFileProof(
+                        new SignedRecordFileProof(6, List.of(new RecordFileSignature(Bytes.wrap(new byte[256]), 0L))))
                 .build();
         final byte[] recordFileBytes = "content".getBytes();
         final java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
@@ -581,10 +581,18 @@ class VerificationServicePluginTest
         bos.write(recordFileBytes.length);
         bos.write(recordFileBytes);
         final List<BlockItemUnparsed> items = List.of(
-                BlockItemUnparsed.newBuilder().blockHeader(BlockHeader.PROTOBUF.toBytes(header)).build(),
-                BlockItemUnparsed.newBuilder().recordFile(Bytes.wrap(bos.toByteArray())).build(),
-                BlockItemUnparsed.newBuilder().blockFooter(BlockFooter.PROTOBUF.toBytes(footer)).build(),
-                BlockItemUnparsed.newBuilder().blockProof(BlockProof.PROTOBUF.toBytes(proof)).build());
+                BlockItemUnparsed.newBuilder()
+                        .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .recordFile(Bytes.wrap(bos.toByteArray()))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                        .build());
 
         blockMessaging.sendBlockItems(new BlockItems(items, blockNumber, true, true));
 
@@ -621,20 +629,19 @@ class VerificationServicePluginTest
                         .build()))
                 .build();
 
-        final RangedAddressBookHistory history =
-                RangedAddressBookHistory.newBuilder()
-                        .addressBooks(List.of(
-                                RangedNodeAddressBook.newBuilder()
-                                        .addressBook(era1Book)
-                                        .startBlock(0L)
-                                        .endBlock(999L)
-                                        .build(),
-                                RangedNodeAddressBook.newBuilder()
-                                        .addressBook(era2Book)
-                                        .startBlock(1000L)
-                                        .endBlock(-1L)
-                                        .build()))
-                        .build();
+        final RangedAddressBookHistory history = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(
+                        RangedNodeAddressBook.newBuilder()
+                                .addressBook(era1Book)
+                                .startBlock(0L)
+                                .endBlock(999L)
+                                .build(),
+                        RangedNodeAddressBook.newBuilder()
+                                .addressBook(era2Book)
+                                .startBlock(1000L)
+                                .endBlock(-1L)
+                                .build()))
+                .build();
         updateAddressBookHistory(history);
 
         // Build and sign a WRB block in era 1 (block 500) using kp1.
@@ -665,10 +672,18 @@ class VerificationServicePluginTest
                         new SignedRecordFileProof(6, List.of(new RecordFileSignature(Bytes.wrap(sigBytes), 0L))))
                 .build();
         final List<BlockItemUnparsed> items = List.of(
-                BlockItemUnparsed.newBuilder().blockHeader(BlockHeader.PROTOBUF.toBytes(header)).build(),
-                BlockItemUnparsed.newBuilder().recordFile(Bytes.wrap(bos.toByteArray())).build(),
-                BlockItemUnparsed.newBuilder().blockFooter(BlockFooter.PROTOBUF.toBytes(footer)).build(),
-                BlockItemUnparsed.newBuilder().blockProof(BlockProof.PROTOBUF.toBytes(proof)).build());
+                BlockItemUnparsed.newBuilder()
+                        .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .recordFile(Bytes.wrap(bos.toByteArray()))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                        .build());
 
         blockMessaging.sendBlockItems(new BlockItems(items, blockNumber, true, true));
 
