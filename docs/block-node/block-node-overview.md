@@ -69,14 +69,14 @@ Block Nodes provide several core services that turn block streams into reliable,
 
 ## Block Node Tiers
 
-A Block Node's *tier* describes where it gets its block stream from. The same core software runs at every tier; the differences are operational.
+A Block Node's tier describes where it gets its block stream from. The same core software runs at every tier; the differences are operational.
 
 | **Tier** |                         **Description**                          |        **Typical Operators**        |               **Key Focus**                |
 |----------|------------------------------------------------------------------|-------------------------------------|--------------------------------------------|
 | Tier 1   | Receive streams directly from Consensus Nodes; high reliability. | Governing Council, trusted entities | Verification, reconnect, state management. |
 | Tier 2   | Receive streams from Tier 1 or another Tier 2; permissionless.   | Community, enterprises              | Streaming, proofs, geographic redundancy.  |
 
-Beyond tiers, operators can deploy a Block Node in different *types* — for example *Full Node*, *Rolling-History*, *Light Node*, *Private-Cloud*, *Archive Server*, or *Community Node* — by combining different sets of plugins. *Rolling-History* provides a Partial History service, retaining only recent blocks rather than full history. *Archive Server* provides cold storage without live streaming. See [Block-Node-Types.md](../Block-Node-Types.md) for the full taxonomy.
+Beyond tiers, operators can deploy a Block Node in different types — for example Full Node, Rolling-History, Light Node, Private-Cloud, Archive Server, or Community Node — by combining different sets of plugins. Rolling-History provides a Partial History service, retaining only recent blocks rather than full history. Archive Server provides cold storage without live streaming. See [Block-Node-Types.md](../Block-Node-Types.md) for the full taxonomy.
 
 ## High-Level Architecture
 
@@ -84,7 +84,7 @@ Block Nodes follow a modular design, receiving **block streams**, verifying inte
 They may provide four common functions:
 
 - **Block Stream ingestion and verification** - Receives block streams from Consensus Nodes and verifies their integrity using aggregated signatures and Merkle proofs.
-- **State management and snapshot generation** *(planned)* - Block Nodes will maintain an active local copy of network state by applying `State Changes` from the block stream and generate state snapshots served through dedicated APIs to support reconnect and recovery flows. State management is a prerequisite for reconnect support; neither is currently implemented.
+- **State management and snapshot generation** (planned) - Block Nodes will maintain an active local copy of network state by applying `State Changes` from the block stream and generate state snapshots served through dedicated APIs to support reconnect and recovery flows. State management is a prerequisite for reconnect support; neither is currently implemented.
 - **Durable storage** - Persists blocks and saved states to local disk or to S3-compatible archival storage for long-term, tamper-evident history.
 - **Data services** - Exposes gRPC/REST APIs providing real-time block streaming, random-access block retrieval, state queries at specific block heights, and cryptographic proofs to Mirror Nodes, other Block Nodes, and applications.
 
@@ -149,7 +149,8 @@ Use this decision guide to determine which Block Node configuration suits your n
 
 ## Getting Started
 
-***To start running a Block Node, read:***
+**To start running a Block Node, read:**
 
 - **Virtual Machine Single Node Kubernetes Deployment Guide** – [step‑by‑step instructions for deploying a single Block Node instance with the Solo Provisioner in a Kubernetes cluster, including environment preparation, deployment, and basic verification.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/solo-weaver-single-node-k8s-deployment.md)
 - **Bare Metal Single Node Kubernetes Deployment** – [instructions for deploying the Block Node Server Helm chart in a single‑node Kubernetes environment, suitable for production setups on bare metal or cloud VMs.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/single-node-k8s-deployment.md)
+- **Load Testing a Deployed Block Node Using Solo and NLG** – [realistic production-scale load testing using real Consensus Nodes and the Network Load Generator, to validate Block Node capacity before connecting to the live network.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/load-testing-a-deployed-block-node-using-solo-and-nlg.md)
