@@ -566,7 +566,13 @@ function main {
       fi
     done <<< "${bn_names}"
   else
-    fail "ERROR: No block nodes found in topology file: ${TOPOLOGY_FILE}" 1
+    # Zero-BN topologies are legitimate for tests where the MN ingests via
+    # the legacy record-stream path (e.g. WRB Distribution E2E #3125 slice 1,
+    # which brings up CNs+MN but no BN so the CLI-side flow can be validated
+    # in isolation before BNs are layered in later slices). Warn but continue
+    # — the generator's job here is BN peer/plugin config, which is trivially
+    # empty when there are no BNs.
+    log_line "  No block nodes in topology; skipping BN overlay generation."
   fi
 
   # Process mirror nodes
@@ -596,15 +602,24 @@ function main {
 
   log_line ""
   if [[ "${generated_count}" -eq 0 ]]; then
-    log_line "WARNING: No overlay files were generated."
-    log_line "  Topology: %s" "${TOPOLOGY_FILE}"
-    log_line "  Block nodes found: %s" "$(yq '.block_nodes | keys | length' "${TOPOLOGY_FILE}" 2>/dev/null || echo "0")"
-    log_line "  Mirror nodes found: %s" "$(yq '.mirror_nodes | keys | length' "${TOPOLOGY_FILE}" 2>/dev/null || echo "0")"
-    log_line "  Consensus nodes found: %s" "$(yq '.consensus_nodes | keys | length' "${TOPOLOGY_FILE}" 2>/dev/null || echo "0")"
-    fail "ERROR: Expected at least 1 overlay file but generated 0. Check topology file structure." 1
+    # A zero-overlay outcome is legitimate whenever the topology has no
+    # relationships the generator would translate into helm values:
+    #   * BN peers (backfill sources) — not set on any BN
+    #   * BN plugin_ports              — not set on any BN
+    #   * MN.block_nodes references    — not set on any MN
+    #
+    # Examples:
+    #   * WRB Distribution E2E (#3125) slice 1 — no BNs at all; MN ingests
+    #     via record-stream path.
+    #   * WRB Distribution E2E (#3125) slice 3 — 3 standalone BNs, no peers,
+    #     no MN→BN wiring yet (that arrives in step 8+).
+    #
+    # The deploy step downstream still requires at least SOMEONE (BN, MN, or
+    # CN) in the topology; that's checked separately.
+    log_line "No overlay files needed (no BN peers, no BN plugin_ports, no MN→BN wiring in this topology)."
+  else
+    log_line "Overlay generation complete. Generated %s file(s)." "${generated_count}"
   fi
-
-  log_line "Overlay generation complete. Generated %s file(s)." "${generated_count}"
 }
 
 main
