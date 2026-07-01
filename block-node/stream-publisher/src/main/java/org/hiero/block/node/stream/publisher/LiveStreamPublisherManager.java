@@ -354,7 +354,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         for (final Long nextKey : handlers.keySet()) {
             final PublisherHandler value = handlers.remove(nextKey);
             if (value != null) {
-                value.endStreamWithCode(Code.SUCCESS, false);
+                value.endStreamWithCode(Code.SUCCESS, false, 0L);
                 value.onComplete();
             }
         }
@@ -522,7 +522,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // Notify the handlers that persistence failed.
             handlersToClose.parallelStream()
                     .unordered()
-                    .forEach((handler) -> handler.endStreamWithCode(Code.PERSISTENCE_FAILED, true));
+                    .forEach((handler) -> handler.endStreamWithCode(Code.PERSISTENCE_FAILED, true, blockNumber));
             // Order matters here. Reordering these can lead to _extremely rare_
             // cases where we get unnecessary errors or a block is scheduled to be
             // resent that was never sent.
@@ -725,7 +725,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         queueByBlockMap.remove(stalledBlock);
         blockProofs.remove(stalledBlock);
         if (stalledHandler != null) {
-            stalledHandler.endStreamWithCode(TIMEOUT, true);
+            stalledHandler.endStreamWithCode(TIMEOUT, true, stalledBlock);
         }
         metrics.stallTimeoutsSent().increment();
     }

@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app;
 
-import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
+import static org.hiero.block.node.app.ApplicationStateUtility.filterToUniqueConnections;
+import static org.hiero.block.node.app.ApplicationStateUtility.isNewerHistory;
+import static org.hiero.block.node.app.ApplicationStateUtility.loadNetworkData;
+import static org.hiero.block.node.app.ApplicationStateUtility.mergeRanges;
+import static org.hiero.block.node.app.ApplicationStateUtility.publisherConnectionsFrom;
+import static org.hiero.block.node.app.ApplicationStateUtility.toBlockRange;
+import static org.hiero.block.node.app.ApplicationStateUtility.validateAddressBook;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -23,17 +28,13 @@ import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.http2.Http2Config;
 import java.io.IOException;
+import java.lang.System.Logger;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.security.KeyFactory;
-import java.security.NoSuchAlgorithmException;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.Set;
@@ -47,6 +48,7 @@ import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.NetworkConnection;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
@@ -77,6 +79,11 @@ import org.hiero.metrics.core.MetricRegistry;
 
 /// Main class for the block node server
 public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
+    /// The logger for this class.  This must be static because there are tests that
+    /// create anonymous subclasses of this class (a less than ideal pattern).
+    private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getCanonicalName());
+    /// Constant mapped to PbjProtocolProvider.CONFIG\_NAME in the PBJ Helidon Plugin
+    public static final String PBJ_PROTOCOL_PROVIDER_CONFIG_NAME = "pbj";
     /// Metric key for the oldest historical block available
     public static final MetricKey<ObservableGauge> METRIC_APP_HISTORICAL_OLDEST_BLOCK =
             MetricKey.of("app_historical_oldest_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
@@ -88,10 +95,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             MetricKey.of("app_state_status", ObservableGauge.class).addCategory(METRICS_CATEGORY);
     /// Number of stored blocks between automatic persistence of the block range sets
     private static final long BLOCK_RANGE_PERSIST_INTERVAL = 1000;
-    /// Max protobuf/JSON message size for application-state files loaded from disk (small).
-    private static final int MAX_APP_STATE_MESSAGE_SIZE_BYTES = 1 * 1024 * 1024;
-    /** The logger for this class. */
-    private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
     /// The state of the server.
     private final AtomicReference<State> state = new AtomicReference<>(State.STARTING);
     /// A ServiceBuilder that creates, starts, and stops webservers.
@@ -102,6 +105,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     final Set<Integer> portsEnabled;
     /// The server configuration.
     private final ServerConfig serverConfig;
+    /// The configuration for the application state facility
+    private final ApplicationStateConfig appStateConfig;
     /// The historical block node facility
     private final HistoricalBlockFacilityImpl historicalBlockFacility;
     /// Should the shutdown() method exit the JVM.
@@ -217,6 +222,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         ConfigLogger.log(configuration);
         // now that configuration is loaded we can get config for server
         serverConfig = configuration.getConfigData(ServerConfig.class);
+        appStateConfig = configuration.getConfigData(ApplicationStateConfig.class);
         WebServerHttp2Config webServerHttp2Config = configuration.getConfigData(WebServerHttp2Config.class);
         // ==== METRICS ================================================================================================
         // discover all metrics providers via SPI
@@ -380,6 +386,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         });
     }
 
+    // -------------------- Application State Facility -------------------- //
+
     /// Allow plugins to update the TssData for this BlockNodeApp.
     /// Uses a concurrentList to capture all TssData updates between scans.
     /// The ApplicationStateFacility scans for updates on a separate
@@ -442,7 +450,40 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
         if (history == null || history.equals(blockNodeContext.rangedAddressBookHistory())) return false;
         pendingAddressBookHistory.set(history);
+        updateKnownPublishersFromAddressBook(history);
         return true;
+    }
+
+    /// Rebuilds the set of known publisher connections from the newest era in the supplied
+    /// address-book history and merges it with the connections already tracked in
+    /// [#knownPublishers].
+    ///
+    /// The "newest" era is chosen by streaming the [RangedNodeAddressBook] entries, sorting them
+    /// with a [RangedAddressBookComparator], and taking the last (greatest) element. Its
+    /// [NodeAddressBook] is transformed into publisher connections by
+    /// [ApplicationStateUtility#publisherConnectionsFrom],
+    /// which are then merged with the currently known publishers.
+    ///
+    /// @param history the address-book history to derive publisher connections from; may be null
+    private void updateKnownPublishersFromAddressBook(final RangedAddressBookHistory history) {
+        if (history == null
+                || history.addressBooks() == null
+                || history.addressBooks().isEmpty()) {
+            return;
+        }
+        // Stream the eras, order them with the comparator, and keep the last (i.e. newest) one.
+        // The last era's address book is non-null by the comparator's ordering contract.
+        final NodeAddressBook latestBook = history.addressBooks().stream()
+                .sorted(new RangedAddressBookComparator())
+                .toList()
+                .getLast()
+                .addressBook();
+
+        final List<NetworkConnection> connections = publisherConnectionsFrom(latestBook, appStateConfig);
+        // Merge in the publishers already known, then publish the combined, de-duplicated set.
+        connections.addAll(knownPublishers.get().activeEndpoints());
+        final List<NetworkConnection> uniqueConnections = filterToUniqueConnections(connections);
+        knownPublishers.set(new NetworkData(uniqueConnections));
     }
 
     /// Returns the {@link NodeAddressBook} whose block range covers {@code blockNum}, using the
@@ -461,11 +502,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .anyMatch(a -> a.rsaPubKey() != null && !a.rsaPubKey().isBlank());
     }
 
-    /// UncaughtExceptionHandler for logging uncaught exceptions
-    static void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
-        LOGGER.log(WARNING, "Uncaught exception in ApplicationStateFacility thread: " + thread.getName(), throwable);
-    }
-
     /// Starts the ApplicationStateFacility.
     /// The thread will be used to check if there are any TssData updates to process.
     void startApplicationStateFacility() {
@@ -480,10 +516,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         applicationStateExecutor = blockNodeContext
                 .threadPoolManager()
                 .createVirtualThreadScheduledExecutor(
-                        1, "ApplicationStateScanner", BlockNodeApp::uncaughtExceptionHandler);
-
-        ApplicationStateConfig appStateConfig =
-                blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
+                        1, "ApplicationStateScanner", ApplicationStateUtility::uncaughtExceptionHandler);
 
         // Schedule periodic check for live updates from running plugins.
         applicationStateExecutor.scheduleAtFixedRate(
@@ -494,7 +527,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     private void checkForApplicationStateUpdates() {
-
         // get any TssData update
         TssData tssData = getPendingTssData();
         if (tssData != null) {
@@ -611,63 +643,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         return true;
     }
 
-    /// Returns {@code true} when {@code incoming} represents a strictly newer address-book history
-    /// than {@code current}, meaning it should replace the existing context value.
-    ///
-    /// "Newer" is defined as:
-    /// <ul>
-    ///   <li>The current history is null or empty (always accept the first history).</li>
-    ///   <li>The incoming history's last era starts at a higher block number.</li>
-    ///   <li>Equal last-era start blocks but more total eras (defensive; should not occur in
-    ///       normal operation).</li>
-    /// </ul>
-    private static boolean isNewerHistory(RangedAddressBookHistory incoming, RangedAddressBookHistory current) {
-        if (current == null || current.addressBooks().isEmpty()) return true;
-        if (incoming.addressBooks().isEmpty()) return false;
-        final long currentLast = current.addressBooks().getLast().startBlock();
-        final long incomingLast = incoming.addressBooks().getLast().startBlock();
-        return incomingLast > currentLast
-                || (incomingLast == currentLast
-                        && incoming.addressBooks().size()
-                                > current.addressBooks().size());
-    }
-
-    /// Merge two sets of block ranges into a single list of block ranges.
-    /// This is a very expensive method, O(n<sup>2</sup>), so it should be used
-    /// carefully. Perhaps a future update to BlockRangeSet will add a more
-    /// efficient merge process. Called unconditionally on every scan (not only when
-    /// `availableBlocks` changes) — `storedBlocks` can change independently (e.g. a plugin calling
-    /// `addStoredBlockRange`), and skipping the merge in that case previously let `storedBlocks()`
-    /// regress to the unmerged, durable-only set once `availableBlocks` stabilized.
-    ///
-    /// @param storedBlocks a set of stored blocks to merge into the result.
-    /// @param availableBlocks a set of available blocks to merge into the result.
-    private List<BlockRange> mergeRanges(final BlockRangeSet storedBlocks, final BlockRangeSet availableBlocks) {
-        ConcurrentLongRangeSet combined = new ConcurrentLongRangeSet();
-        combined.addAll(storedBlocks);
-        combined.addAll(availableBlocks);
-        return combined.streamRanges()
-                .map(longRange -> new BlockRange(longRange.start(), longRange.end()))
-                .toList();
-    }
-
-    /// Convert BlockRangeSet to BlockRange
-    private List<BlockRange> toBlockRange(BlockRangeSet blockRangeSet) {
-        return blockRangeSet
-                .streamRanges()
-                .map(longRange -> new BlockRange(longRange.start(), longRange.end()))
-                .toList();
-    }
-
     /// Persist the TssData
     /// Persists the TssData to the file path specified in the ApplicationStateConfig class.
     ///
     /// @param tssData The TssData to persist
     private void persistTssData(TssData tssData) {
-        final Path appStateDataFilePath = blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .tssBootstrapFilePath();
+        final Path appStateDataFilePath = appStateConfig.tssBootstrapFilePath();
         try {
             Bytes serialized = TssData.JSON.toBytes(tssData);
             Files.write(appStateDataFilePath, serialized.toByteArray());
@@ -677,10 +658,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     private void persistNodeAddressBookHistory(RangedAddressBookHistory history) {
-        final Path filePath = blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .rsaBootstrapFilePath();
+        final Path filePath = appStateConfig.rsaBootstrapFilePath();
         try {
             final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
             final Bytes encoded = RangedAddressBookHistory.JSON.toBytes(history);
@@ -701,10 +679,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     /// Persists both block range sets as JSON to the single file specified in the ApplicationStateConfig.
     private void persistBlockRanges() {
-        final Path filePath = blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .blockRangesFilePath();
+        final Path filePath = appStateConfig.blockRangesFilePath();
         try {
             final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
             final Bytes json = BlockRangesState.JSON.toBytes(toBlockRangesState());
@@ -735,8 +710,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     ///
     /// @param configuration the current configuration
     private void loadApplicationState(final Configuration configuration) {
-        final ApplicationStateConfig appStateConfig = configuration.getConfigData(ApplicationStateConfig.class);
-
         // Load TssData (JSON format) — queued for processing on the next scanner tick.
         final Path tssDataJsonPath = appStateConfig.tssBootstrapFilePath();
         if (Files.exists(tssDataJsonPath)) {
@@ -824,73 +797,5 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         knownPublishers.set(loadNetworkData(appStateConfig.knownPublishersFilePath()));
         inboundPartners.set(loadNetworkData(appStateConfig.inboundPartnersFilePath()));
         outboundPartners.set(loadNetworkData(appStateConfig.outboundPartnersFilePath()));
-    }
-
-    /// Loads a [NetworkData] document from the given JSON file.
-    /// Missing files and parse failures are logged and yield
-    /// [NetworkData#DEFAULT] (an empty set) rather than throwing, mirroring
-    /// the lenient handling used for other optional application-state files.
-    ///
-    /// @param path the JSON file to read
-    /// @return the parsed NetworkData, or [NetworkData#DEFAULT] if
-    ///     absent or unreadable
-    static NetworkData loadNetworkData(final Path path) {
-        if (path == null || !Files.exists(path)) {
-            LOGGER.log(DEBUG, "Network data file not present, using empty set: {0}", path);
-            return NetworkData.DEFAULT;
-        }
-        try {
-            final NetworkData data = standardParse(
-                    NetworkData.JSON, Bytes.wrap(Files.readAllBytes(path)), MAX_APP_STATE_MESSAGE_SIZE_BYTES);
-            return data;
-        } catch (ParseException | IOException e) {
-            LOGGER.log(INFO, "Failed to read network data file %s.".formatted(path), e);
-            return NetworkData.DEFAULT;
-        }
-    }
-
-    /// Validates that the NodeAddressBook has at least one entry with a non-blank RSA\_PubKey.
-    ///
-    /// @param book the address book to validate
-    /// @param source human-readable source name for error messages
-    /// @throws IllegalStateException if the book is empty or has no usable entries
-    static void validateAddressBook(final NodeAddressBook book, final String source) {
-        if (book.nodeAddress().isEmpty()) {
-            throw new IllegalStateException(
-                    "RSA address book from %s contains no entries — cannot verify WRB proofs".formatted(source));
-        }
-        final long declared = book.nodeAddress().stream()
-                .filter(a -> !a.rsaPubKey().isBlank())
-                .count();
-        final String noValidKeyMessage =
-                "RSA address book from %s has %s entries but none have a valid RSA_PubKey".formatted(source, declared);
-        if (declared == 0) {
-            throw new IllegalStateException(noValidKeyMessage);
-        }
-        long usable = 0;
-        final HexFormat hex = HexFormat.of();
-        // Obtain KeyFactory once — provider lookup is not cheap and RSA must always be available.
-        final KeyFactory kf;
-        try {
-            kf = KeyFactory.getInstance("RSA");
-        } catch (NoSuchAlgorithmException e) {
-            // RSA must be available in every JVM — this is a JVM misconfiguration
-            throw new IllegalStateException("RSA KeyFactory not available", e);
-        }
-        for (final NodeAddress addr : book.nodeAddress()) {
-            if (addr.rsaPubKey().isBlank()) {
-                continue;
-            }
-            try {
-                final byte[] keyBytes = hex.parseHex(addr.rsaPubKey());
-                kf.generatePublic(new X509EncodedKeySpec(keyBytes));
-                usable++;
-            } catch (InvalidKeySpecException | IllegalArgumentException e) {
-                LOGGER.log(INFO, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e);
-            }
-        }
-        if (usable == 0) {
-            throw new IllegalStateException(noValidKeyMessage);
-        }
     }
 }

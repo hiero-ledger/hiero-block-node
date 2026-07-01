@@ -21,9 +21,6 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
@@ -476,46 +473,6 @@ class BlockNodeAppTest {
         blockNodeApp2.stopApplicationStateFacility();
         // stop the ApplicationStateFacility manually as shutdown() is not being called
         blockNodeApp.stopApplicationStateFacility();
-    }
-
-    /**
-     * validateAddressBook rejects books with no entries or only blank RSA keys.
-     */
-    @Test
-    @DisplayName("validateAddressBook rejects empty book and all-blank RSA keys")
-    void validateAddressBookRejectsInvalidBooks() {
-        // empty node list
-        assertThrows(
-                IllegalStateException.class,
-                () -> BlockNodeApp.validateAddressBook(
-                        NodeAddressBook.newBuilder().build(), "test-empty"),
-                "Empty address book must throw");
-
-        // all entries have blank rsaPubKey
-        final NodeAddressBook allBlank = NodeAddressBook.newBuilder()
-                .nodeAddress(NodeAddress.newBuilder().nodeId(0).rsaPubKey("").build())
-                .build();
-        assertThrows(
-                IllegalStateException.class,
-                () -> BlockNodeApp.validateAddressBook(allBlank, "test-all-blank"),
-                "Book with only blank RSA keys must throw");
-    }
-
-    /**
-     * validateAddressBook accepts a book with at least one non-blank RSA key.
-     */
-    @Test
-    @DisplayName("validateAddressBook accepts book with at least one non-blank RSA key")
-    void validateAddressBookAcceptsValidBook() throws NoSuchAlgorithmException {
-        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(2048);
-        final KeyPair kp = kpg.generateKeyPair();
-        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
-        final NodeAddressBook valid = NodeAddressBook.newBuilder()
-                .nodeAddress(
-                        NodeAddress.newBuilder().nodeId(0).rsaPubKey(hexKey).build())
-                .build();
-        assertDoesNotThrow(() -> BlockNodeApp.validateAddressBook(valid, "test-valid"));
     }
 
     /**

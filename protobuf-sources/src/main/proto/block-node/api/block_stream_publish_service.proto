@@ -351,6 +351,25 @@ message PublishStreamResponse {
         uint64 block_number = 2;
 
         /**
+         * The number of the block most proximate to the end of stream.
+         * <p>
+         * This value is OPTIONAL and informational. This block is the block
+         * most closely associated with the end of stream message.<br/>
+         * <ul>Examples:
+         *   <li>For a bad block proof, this will be the Block Node's best
+         *     effort to report the number of the block that failed.</li>
+         *   <li>For a success, this will be the last block number observed by
+         *     the current handler.</li>
+         *   <li>For a timeout this will be the Block Node's best effort
+         *     to report the number of the block that timed out.</li>
+         * </ul>
+         * This value is a _best effort_ attempt and is not guaranteed to be
+         * correct, or even to be present. If the value cannot be filled in
+         * correctly, the value `0` will be provided.
+         */
+        uint64 proximate_block_number = 3;
+
+        /**
          * An enumeration indicating the status of this request.
          *
          * This enumeration SHALL describe the reason a block stream

@@ -224,7 +224,7 @@ class PublisherHandlerTest {
             handler.handleFailedVerification(10L);
             // FLAKEY WARNING - Tests that rely on log output are rarely reliable.
             // Triggers a DEBUG log: "[{0}] Handler {1} ending with code {2}"
-            handler.endStreamWithCode(Code.PERSISTENCE_FAILED, false);
+            handler.endStreamWithCode(Code.PERSISTENCE_FAILED, false, 0L);
 
             final long prefixedCount = logHandler.getLogMessages().stream()
                     .filter(msg -> msg.startsWith("[" + TEST_CORRELATION_ID + "] "))
