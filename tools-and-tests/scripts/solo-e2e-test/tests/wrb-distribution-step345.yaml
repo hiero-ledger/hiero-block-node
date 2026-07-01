@@ -1,0 +1,122 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# WRB Distribution E2E (#3125) — slice 3 (steps 3+4+5), supersedes step12.
+#
+# Third slice of the broader WRB-distribution E2E test (epic #2954). Builds on
+# slices 1+2 by adding the three Block Nodes called for in steps 3, 4, and 5
+# of #3125 and asserting their earliestManagedBlock (EMB) values:
+#
+#   BN1 — Tier-0, EMB=0
+#   BN2 — Tier-1, EMB=0             (start-from-genesis case)
+#   BN3 — Tier-1, EMB=100_000_000   (live-only case)
+#
+# BNs come up idle here — no CN references any of them in this slice's
+# topology. Wiring CN → BN and CLI → BN happens in later slices.
+#
+# Test flow:
+#   1. Solo brings up the wrb-distribution-step345 topology.
+#   2. Wait for CN block production (identical to slice 1's timing).
+#   3. Run the slice-1 CLI wrap baseline (same install-and-run-wrb-cli.sh).
+#   4. Assert every BN reports the topology's declared EMB via its pod env.
+#   5. Run the slice-2 live-wrap loop (start / observation window / assert /
+#      stop). Live-wrap output still lives on the CLI host — no BN traffic
+#      yet.
+#
+# Usage (locally):
+#   task test:run TEST_FILE=tests/wrb-distribution-step345.yaml \
+#                 TOPOLOGY=wrb-distribution-step345
+
+name: wrb-distribution-step345
+description: "WRB distribution E2E (#3125) — CN v0.75 + MN1 v0.157.1 + BN1/BN2/BN3 with EMB"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Confirm all CNs, MN1, and BN1/BN2/BN3 are running"
+    delay: 5
+
+  - id: block-production-wait
+    type: sleep
+    description: "Wait for CNs to produce enough record files to exercise nested wrap dirs"
+    delay: 10
+    args:
+      seconds: 180
+
+  - id: install-and-run-wrb-cli
+    type: command
+    description: "Install wrb-cli, pull records from MinIO, run blocks wrap, assert nested dir"
+    delay: 195
+    timeout: 1200
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/install-and-run-wrb-cli.sh"
+
+  - id: assert-bn-emb
+    type: command
+    description: "Assert each BN's earliestManagedBlock matches its topology overlay"
+    delay: 200
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-emb.sh"
+
+  # Slice 2 (live wrap continues) — carried forward from wrb-distribution-step12
+  - id: start-live-wrap
+    type: command
+    description: "Fork the live-wrap background worker (polling MinIO + re-wrapping)"
+    delay: 220
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/start-live-wrap.sh"
+
+  - id: live-wrap-observation-window
+    type: sleep
+    description: "Give the live wrap loop time to pick up newly-produced records"
+    delay: 230
+    args:
+      seconds: 180
+
+  - id: assert-live-wrap-produced-new-blocks
+    type: command
+    description: "Assert live-wrap produced more wrapped-zip files than were present at start"
+    delay: 415
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-live-wrap-produced-new-blocks.sh"
+
+  - id: stop-live-wrap
+    type: command
+    description: "Tear down the live-wrap background worker"
+    delay: 420
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
+
+  - id: final-status
+    type: network-status
+    description: "Post-test network status"
+    delay: 425
+
+assertions:
+  - id: bn1-healthy
+    type: node-healthy
+    description: "Block Node 1 is healthy"
+    target: block-node-1
+
+  - id: bn2-healthy
+    type: node-healthy
+    description: "Block Node 2 is healthy"
+    target: block-node-2
+
+  - id: bn3-healthy
+    type: node-healthy
+    description: "Block Node 3 is healthy"
+    target: block-node-3
+
+  - id: mn1-healthy
+    type: node-healthy
+    description: "Mirror Node 1 is healthy"
+    target: mirror-1
+
+  - id: no-errors-bns
+    type: no-errors
+    description: "No errors in Block Node logs"
+    target: all
