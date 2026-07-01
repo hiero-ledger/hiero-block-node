@@ -16,7 +16,6 @@ mainModuleInfo {
     requires("com.hedera.pbj.grpc.client.helidon")
     requires("com.hedera.pbj.grpc.helidon")
     requires("com.hedera.pbj.runtime")
-    requires("com.hedera.pbj.runtime")
     requires("org.hiero.block.node.base")
     requires("org.hiero.block.protobuf.pbj")
     requires("com.fasterxml.jackson.databind")

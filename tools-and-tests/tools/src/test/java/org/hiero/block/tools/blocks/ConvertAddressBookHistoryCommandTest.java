@@ -19,6 +19,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import org.hiero.block.internal.AddressBookHistory;
@@ -298,7 +300,7 @@ class ConvertAddressBookHistoryCommandTest {
         void tenEraHistory() throws IOException {
             final long[] picks = new long[] {0, 50, 500, 1500, 3000, 5000, 8000, 12000, 15000, 18000};
             final List<Instant> instants = blockInstants(picks);
-            List<DatedNodeAddressBook> books = new java.util.ArrayList<>();
+            List<DatedNodeAddressBook> books = new ArrayList<>();
             for (int i = 0; i < picks.length; i++) {
                 books.add(dated(instants.get(i), addressBook(0, 3, String.format("e%02d", i))));
             }
@@ -382,9 +384,7 @@ class ConvertAddressBookHistoryCommandTest {
 
     private static List<Instant> blockInstants(long[] blockNumbers) throws IOException {
         try (BlockTimeReader reader = new BlockTimeReader(TEST_BLOCK_TIMES_FILE)) {
-            return java.util.Arrays.stream(blockNumbers)
-                    .mapToObj(reader::getBlockInstant)
-                    .toList();
+            return Arrays.stream(blockNumbers).mapToObj(reader::getBlockInstant).toList();
         }
     }
 
@@ -393,7 +393,7 @@ class ConvertAddressBookHistoryCommandTest {
     }
 
     private static NodeAddressBook addressBook(long firstNodeId, int count, String rsaPubKeyHexBase) {
-        java.util.List<NodeAddress> nodes = new java.util.ArrayList<>();
+        List<NodeAddress> nodes = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             long nodeId = firstNodeId + i;
             nodes.add(NodeAddress.newBuilder()
