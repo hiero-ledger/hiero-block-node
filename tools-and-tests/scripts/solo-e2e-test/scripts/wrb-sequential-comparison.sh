@@ -1549,4 +1549,10 @@ function main {
     kubectl --context "${CONTEXT}" delete namespace "${WRB_NAMESPACE}" --ignore-not-found &
 }
 
-main "$@"
+# Only run the whole test flow when this script is executed directly. Other
+# scripts (e.g. wrb-distribution/install-and-run-wrb-cli.sh) `source` this file
+# just to reuse download_record_files_from_minio / download_record_files_from_cn
+# and must not trigger main() on load.
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+    main "$@"
+fi
