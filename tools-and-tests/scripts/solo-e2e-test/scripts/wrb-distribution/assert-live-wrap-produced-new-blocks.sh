@@ -46,17 +46,27 @@ fi
 wrapped_dir="${WRB_DIST_WORK_DIR}/wrappedBlocks"
 [[ -d "${wrapped_dir}" ]] || fail "Wrapped dir missing: ${wrapped_dir}"
 
-current_zip_count=$( find "${wrapped_dir}" -name '*.zip' -print 2>/dev/null | wc -l | tr -d ' ' )
-log "initial=${initial_zip_count} current=${current_zip_count}"
+# Count zip entries, not zip files. All newly-wrapped blocks in the first
+# 10K range land inside the same 00000s.zip, so a file-count diff would be
+# zero even in a perfectly healthy run.
+current_block_count=0
+while IFS= read -r z; do
+    [[ -z "${z}" ]] && continue
+    n=$( unzip -l "${z}" 2>/dev/null | grep -cE '\.blk(\.[a-z]+)?$' || echo 0 )
+    current_block_count=$(( current_block_count + n ))
+done < <( find "${wrapped_dir}" -name '*.zip' -print 2>/dev/null )
 
-if (( current_zip_count > initial_zip_count )); then
-    log "OK: live-wrap produced $(( current_zip_count - initial_zip_count )) new wrapped-zip file(s)"
+: "${initial_block_count:=0}"
+log "initial=${initial_block_count} current=${current_block_count} (blocks inside all zips)"
+
+if (( current_block_count > initial_block_count )); then
+    log "OK: live-wrap produced $(( current_block_count - initial_block_count )) new wrapped block(s)"
     exit 0
 fi
 
 # Not enough time may have passed, or no new records arrived. Print recent log
 # for diagnosis and fail — the test-definition sizes the sleep so this shouldn't
 # happen in a healthy run.
-log "Live-wrap did not produce new wrapped-zip files. Recent worker log:"
+log "Live-wrap did not produce new wrapped blocks. Recent worker log:"
 tail -60 "${LOG_FILE}" 2>/dev/null | sed 's/^/  /' || true
-fail "No new wrapped zips between start and assertion (initial=${initial_zip_count} current=${current_zip_count})"
+fail "No new wrapped blocks between start and assertion (initial=${initial_block_count} current=${current_block_count})"
