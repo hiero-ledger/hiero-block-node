@@ -51,7 +51,7 @@ public final class VerificationDataProvider {
     /// Returns the RSA public key map for the address book era that covers {@code blockNumber},
     /// resolved via {@link org.hiero.block.node.spi.ApplicationStateFacility#getAddressBookForBlock}.
     /// Returns {@code null} when no era covers the block (the caller must fail the block with
-    /// {@link org.hiero.block.node.block.verification.session.SessionFailureType#NO_MATCHING_ADDRESS_BOOK}).
+    /// {@link org.hiero.block.node.block.verification.session.SessionFailureType#MISSING_VERIFICATION_DATA}).
     public Map<Long, PublicKey> rsaPublicKeysForBlock(final long blockNumber) {
         final NodeAddressBook book = context.applicationStateFacility().getAddressBookForBlock(blockNumber);
         if (book == null) {

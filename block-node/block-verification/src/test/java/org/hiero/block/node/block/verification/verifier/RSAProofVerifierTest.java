@@ -341,7 +341,7 @@ class RSAProofVerifierTest {
     void emptyAddressBook_rejected() throws Exception {
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L, 5L);
         final SessionFailureType result = runVerification(Map.of(), sigs);
-        assertThat(result).isNotNull().isEqualTo(SessionFailureType.NO_MATCHING_ADDRESS_BOOK);
+        assertThat(result).isNotNull().isEqualTo(SessionFailureType.MISSING_VERIFICATION_DATA);
     }
 
     @Test
