@@ -1,0 +1,429 @@
+// SPDX-License-Identifier: Apache-2.0
+package org.hiero.block.tools.push;
+
+import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
+import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
+import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
+import io.helidon.common.tls.Tls;
+import io.helidon.webclient.api.WebClient;
+import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
+import io.helidon.webclient.http2.Http2ClientProtocolConfig;
+import java.time.Duration;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.api.BlockItemSet;
+import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.api.BlockStreamPublishServiceInterface;
+import org.hiero.block.api.PublishStreamRequest;
+import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.ServerStatusRequest;
+import org.hiero.block.api.ServerStatusResponse;
+import org.hiero.block.tools.config.HelidonWebClientConfig;
+
+/**
+ * Pushes wrapped blocks to a Block Node over the standard publish gRPC stream, one block at a time,
+ * decoupled from the producer (the live wrap pipeline) by a bounded queue.
+ *
+ * <p>Producer (e.g. {@code LiveSequential}'s wrap thread) calls {@link #pushBlock(long, Block)} as
+ * each block is wrapped and validated. A background worker thread maintains a persistent publish
+ * stream, drains the queue into the stream, tracks per-block ACKs, and reconnects with exponential
+ * backoff if the stream drops.
+ *
+ * <p><b>"Never drop" guarantee.</b> Blocks are kept in an in-flight set until ACKed. On stream
+ * error, all in-flight blocks are re-sent on the new stream before the worker resumes draining the
+ * queue. If the queue fills (sustained BN unavailability), {@link #pushBlock} blocks the caller
+ * (the wrap thread) until space is freed; nothing is dropped.
+ *
+ * <p>The BN's stored block set is queried once via {@link #queryLastAvailableBlock()} so the
+ * producer can skip blocks the BN already has.
+ */
+public final class LiveBlockPushClient implements AutoCloseable {
+
+    /** Marker used to wake the worker for graceful shutdown. */
+    private static final Block POISON = Block.DEFAULT;
+
+    private final String host;
+    private final int port;
+    private final HelidonWebClientConfig webConfig;
+    private final BlockingQueue<QueuedBlock> queue;
+    private final long maxBatchBytes;
+    private final long retryInitialMs;
+    private final long retryMaxMs;
+
+    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicLong submitted = new AtomicLong();
+    private final AtomicLong acked = new AtomicLong();
+    private final AtomicLong lastAckedBlock = new AtomicLong(-1);
+    private final AtomicLong streamReconnects = new AtomicLong();
+
+    private Thread worker;
+    private WebClient cachedWebClient; // recreated on each reconnect
+
+    /**
+     * @param host BN host
+     * @param port BN port (publish service)
+     * @param queueCapacity backpressure queue size (blocks)
+     * @param webConfig Helidon/gRPC tuning; uses {@code serverMaxMessageSizeBytes} for batching
+     */
+    public LiveBlockPushClient(
+            final String host, final int port, final int queueCapacity, final HelidonWebClientConfig webConfig) {
+        this.host = host;
+        this.port = port;
+        this.webConfig = webConfig;
+        this.queue = new ArrayBlockingQueue<>(Math.max(1, queueCapacity));
+        this.maxBatchBytes = webConfig.serverMaxMessageSizeBytes();
+        this.retryInitialMs = 250L;
+        this.retryMaxMs = 30_000L;
+    }
+
+    /**
+     * Load the default {@code clientDefaultConfig.json} bundled with the tools module so callers
+     * don't have to hand-construct a {@link HelidonWebClientConfig}.
+     */
+    public static HelidonWebClientConfig loadDefaultWebConfig() {
+        try (final var stream =
+                LiveBlockPushClient.class.getClassLoader().getResourceAsStream("clientDefaultConfig.json")) {
+            if (stream == null) {
+                throw new IllegalStateException("clientDefaultConfig.json not found on classpath");
+            }
+            return HelidonWebClientConfig.JSON.parse(Bytes.wrap(stream.readAllBytes()));
+        } catch (final Exception e) {
+            throw new IllegalStateException("Failed to load default Helidon web client config", e);
+        }
+    }
+
+    /** Query the target BN once for its current {@code lastAvailableBlock}; returns -1 on error. */
+    public long queryLastAvailableBlock() {
+        try {
+            final WebClient web = buildWebClient();
+            final PbjGrpcClient pbj = new PbjGrpcClient(web, buildGrpcConfig());
+            final BlockNodeServiceInterface.BlockNodeServiceClient client =
+                    new BlockNodeServiceInterface.BlockNodeServiceClient(pbj, defaultOptions());
+            final ServerStatusResponse resp =
+                    client.serverStatus(ServerStatusRequest.newBuilder().build());
+            return resp.lastAvailableBlock();
+        } catch (final Exception e) {
+            System.err.println("[push] queryLastAvailableBlock failed: " + e.getMessage());
+            return -1;
+        }
+    }
+
+    /** Start the background worker thread. */
+    public void start() {
+        if (!running.compareAndSet(false, true)) {
+            return;
+        }
+        worker = new Thread(this::workerLoop, "live-block-push-worker");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /**
+     * Hand a wrapped block to the push subsystem. Blocks the caller if the queue is full (which
+     * means the BN is falling behind). Never drops.
+     */
+    public void pushBlock(final long blockNumber, final Block wrapped) throws InterruptedException {
+        if (!running.get()) {
+            throw new IllegalStateException("LiveBlockPushClient is not started");
+        }
+        queue.put(new QueuedBlock(blockNumber, wrapped));
+    }
+
+    /** Drain the queue (waiting for ACKs) and stop the worker. */
+    public void shutdown() {
+        if (!running.compareAndSet(true, false)) {
+            return;
+        }
+        // Wake the worker; it will exit after draining.
+        try {
+            queue.put(new QueuedBlock(-1, POISON));
+        } catch (final InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+        if (worker != null) {
+            try {
+                worker.join(TimeUnit.MINUTES.toMillis(2));
+            } catch (final InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    @Override
+    public void close() {
+        shutdown();
+    }
+
+    // ------- metrics -------
+
+    public long submitted() {
+        return submitted.get();
+    }
+
+    public long acked() {
+        return acked.get();
+    }
+
+    public long lastAcked() {
+        return lastAckedBlock.get();
+    }
+
+    public int queueDepth() {
+        return queue.size();
+    }
+
+    public long reconnects() {
+        return streamReconnects.get();
+    }
+
+    // ------- worker -------
+
+    private void workerLoop() {
+        // In-flight = sent on the current stream but not yet ACKed. On stream error these are
+        // re-sent on the new stream so nothing is lost.
+        final Deque<QueuedBlock> inFlight = new ArrayDeque<>();
+        long backoffMs = retryInitialMs;
+
+        while (running.get() || !queue.isEmpty() || !inFlight.isEmpty()) {
+            try {
+                final StreamSession session = openSession();
+                try {
+                    backoffMs = retryInitialMs; // reset on successful connect
+                    // First, resend anything still in-flight from the previous (failed) stream.
+                    for (final QueuedBlock qb : inFlight) {
+                        sendBlock(session, qb);
+                    }
+                    // Then drain new work from the queue.
+                    while (running.get() || !queue.isEmpty()) {
+                        final QueuedBlock qb = queue.take();
+                        if (qb.block == POISON) {
+                            // Graceful shutdown sentinel — wait for ACKs and exit.
+                            break;
+                        }
+                        inFlight.addLast(qb);
+                        sendBlock(session, qb);
+                        // Opportunistically prune in-flight head as ACKs arrive.
+                        prunePendingFromAck(inFlight);
+                    }
+                    // Wait for all ACKs (deadline) before closing.
+                    waitForPending(inFlight);
+                    session.requestPipeline.onComplete();
+                    try {
+                        session.completion.get(2, TimeUnit.MINUTES);
+                    } catch (final Exception ignored) {
+                        // best effort
+                    }
+                    return; // shutdown path
+                } catch (final StreamFailure sf) {
+                    // Stream broke; loop will reopen and resend inFlight.
+                    streamReconnects.incrementAndGet();
+                    System.err.println("[push] stream failure: " + sf.getMessage() + "; reconnecting after " + backoffMs
+                            + "ms (" + inFlight.size() + " in-flight)");
+                    safeClose(session);
+                    Thread.sleep(backoffMs);
+                    backoffMs = Math.min(retryMaxMs, backoffMs * 2);
+                } finally {
+                    safeClose(session);
+                }
+            } catch (final InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (final Exception e) {
+                streamReconnects.incrementAndGet();
+                System.err.println("[push] unexpected worker error: " + e.getMessage() + "; reconnecting after "
+                        + backoffMs + "ms");
+                try {
+                    Thread.sleep(backoffMs);
+                } catch (final InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                backoffMs = Math.min(retryMaxMs, backoffMs * 2);
+            }
+        }
+    }
+
+    private void sendBlock(final StreamSession session, final QueuedBlock qb) {
+        final List<BlockItem> items = qb.block.items();
+        final List<List<BlockItem>> batches = new ArrayList<>();
+        List<BlockItem> current = new ArrayList<>();
+        long currentSize = 0;
+        for (final BlockItem item : items) {
+            final int itemSize = BlockItem.PROTOBUF.measureRecord(item);
+            if (!current.isEmpty() && currentSize + itemSize > maxBatchBytes) {
+                batches.add(current);
+                current = new ArrayList<>();
+                currentSize = 0;
+            }
+            current.add(item);
+            currentSize += itemSize;
+        }
+        if (!current.isEmpty()) {
+            batches.add(current);
+        }
+        for (final List<BlockItem> batch : batches) {
+            final BlockItemSet set = BlockItemSet.newBuilder().blockItems(batch).build();
+            final PublishStreamRequest req =
+                    PublishStreamRequest.newBuilder().blockItems(set).build();
+            session.requestPipeline.onNext(req);
+        }
+        submitted.incrementAndGet();
+    }
+
+    /** Move ACKed blocks off the head of the in-flight deque. */
+    private void prunePendingFromAck(final Deque<QueuedBlock> inFlight) {
+        final long ack = lastAckedBlock.get();
+        while (!inFlight.isEmpty() && inFlight.peekFirst().blockNumber <= ack) {
+            inFlight.pollFirst();
+        }
+    }
+
+    /** Block until inFlight is empty or a short deadline elapses. */
+    private void waitForPending(final Deque<QueuedBlock> inFlight) throws InterruptedException {
+        final long deadline = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(2);
+        while (!inFlight.isEmpty() && System.currentTimeMillis() < deadline) {
+            prunePendingFromAck(inFlight);
+            if (inFlight.isEmpty()) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+    }
+
+    // ------- gRPC plumbing -------
+
+    private WebClient buildWebClient() {
+        if (cachedWebClient == null) {
+            final Duration timeout = Duration.ofMillis(webConfig.readTimeoutMillis());
+            final Tls tls = Tls.builder().enabled(false).build();
+            final Http2ClientProtocolConfig http2Config = Http2ClientProtocolConfig.builder()
+                    .flowControlBlockTimeout(Duration.ofMillis(webConfig.flowControlTimeoutMillis()))
+                    .initialWindowSize(webConfig.initialWindowSize())
+                    .maxFrameSize(webConfig.maxFrameSize())
+                    .maxHeaderListSize(webConfig.maxHeaderListSize())
+                    .ping(webConfig.pingEnabled())
+                    .pingTimeout(Duration.ofMillis(webConfig.pingTimeoutMillis()))
+                    .priorKnowledge(webConfig.priorKnowledge())
+                    .build();
+            final GrpcClientProtocolConfig grpcProtocolConfig = GrpcClientProtocolConfig.builder()
+                    .abortPollTimeExpired(false)
+                    .pollWaitTime(timeout)
+                    .build();
+            cachedWebClient = WebClient.builder()
+                    .baseUri("http://" + host + ":" + port)
+                    .tls(tls)
+                    .protocolConfigs(List.of(http2Config, grpcProtocolConfig))
+                    .connectTimeout(timeout)
+                    .build();
+        }
+        return cachedWebClient;
+    }
+
+    private PbjGrpcClientConfig buildGrpcConfig() {
+        final Duration timeout = Duration.ofMillis(webConfig.readTimeoutMillis());
+        final Tls tls = Tls.builder().enabled(false).build();
+        final String encoding = webConfig.grpcEncoding().isBlank() ? "identity" : webConfig.grpcEncoding();
+        return new PbjGrpcClientConfig(
+                timeout, tls, Optional.empty(), "application/grpc", encoding, Set.of("identity", "gzip"));
+    }
+
+    private static ServiceInterface.RequestOptions defaultOptions() {
+        return new SimpleRequestOptions(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
+    }
+
+    @SuppressWarnings("unchecked")
+    private StreamSession openSession() {
+        final WebClient web = buildWebClient();
+        final PbjGrpcClient pbj = new PbjGrpcClient(web, buildGrpcConfig());
+        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient client =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(pbj, defaultOptions());
+        final CompletableFuture<Void> completion = new CompletableFuture<>();
+        final Pipeline<PublishStreamResponse> responses = new AckPipeline(completion);
+        final Pipeline<PublishStreamRequest> requestPipeline =
+                (Pipeline<PublishStreamRequest>) client.publishBlockStream(responses);
+        return new StreamSession(requestPipeline, completion);
+    }
+
+    private void safeClose(final StreamSession session) {
+        if (session == null) {
+            return;
+        }
+        try {
+            session.requestPipeline.onComplete();
+        } catch (final Exception ignored) {
+            // best effort
+        }
+    }
+
+    // ------- inner types -------
+
+    private record QueuedBlock(long blockNumber, Block block) {}
+
+    private record StreamSession(Pipeline<PublishStreamRequest> requestPipeline, CompletableFuture<Void> completion) {}
+
+    private record SimpleRequestOptions(Optional<String> authority, String contentType)
+            implements ServiceInterface.RequestOptions {}
+
+    /** Wraps a stream failure thrown from the response pipeline as a checked-like marker. */
+    private static final class StreamFailure extends RuntimeException {
+        StreamFailure(final Throwable cause) {
+            super(cause);
+        }
+    }
+
+    /** Tracks ACKs and signals failure on stream errors. */
+    private final class AckPipeline implements Pipeline<PublishStreamResponse> {
+        private final CompletableFuture<Void> completion;
+
+        AckPipeline(final CompletableFuture<Void> completion) {
+            this.completion = completion;
+        }
+
+        @Override
+        public void onSubscribe(final Flow.Subscription subscription) {
+            // no-op
+        }
+
+        @Override
+        public void onNext(final PublishStreamResponse response) {
+            if (response.hasAcknowledgement()) {
+                final long blockNumber = response.acknowledgement().blockNumber();
+                acked.incrementAndGet();
+                // Track the highest contiguous acked block number we have seen.
+                long prev;
+                do {
+                    prev = lastAckedBlock.get();
+                    if (blockNumber <= prev) {
+                        break;
+                    }
+                } while (!lastAckedBlock.compareAndSet(prev, blockNumber));
+            }
+        }
+
+        @Override
+        public void onError(final Throwable throwable) {
+            completion.completeExceptionally(throwable);
+            throw new StreamFailure(throwable);
+        }
+
+        @Override
+        public void onComplete() {
+            completion.complete(null);
+        }
+    }
+}
