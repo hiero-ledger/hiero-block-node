@@ -127,14 +127,28 @@ python3 "${PYTHON_DIR}/generate_metadata.py" \
     "${RECORDS_DIR}" "${block_times_file}" "${day_blocks_file}" "${genesis_epoch_nanos}" \
     || fail "Failed to generate metadata"
 
-# ---- 4. Minimal network config so the CLI accepts --network other -------------
+# ---- 4. Network config so the CLI accepts --network other ---------------------
 # `blocks wrap --network other` reads a network config file pointed to by the
-# HIERO_NETWORK_CONFIG env var (the same pattern used by wrb-sequential-comparison.sh).
+# HIERO_NETWORK_CONFIG env var. Shape mirrors the one built by
+# wrb-sequential-comparison.sh — required fields include gcsBucketName,
+# bucketPathPrefix, genesisDate, genesisTimestamp, and the node account
+# range. Solo's bucket is 'solo-local' with the 'recordstreams/' prefix.
+first_record_file=$( find "${RECORDS_DIR}" -maxdepth 1 -name "*.rcd" | sort | head -1 )
+[[ -n "${first_record_file}" ]] || fail "No record file to derive genesis timestamp from"
+genesis_timestamp=$(basename "${first_record_file}" | sed 's/\(.*\)\.rcd.*/\1/')
+genesis_date=$( echo "${genesis_timestamp}" | cut -d'T' -f1 )
+
 network_config_file="${WORK_DIR}/network-other.json"
 cat > "${network_config_file}" <<EOF
 {
-  "networkName": "solo-wrb-distribution",
-  "hapiVersionAtGenesis": "0.75.0",
+  "networkName": "solo",
+  "gcsBucketName": "solo-local",
+  "bucketPathPrefix": "recordstreams/",
+  "mirrorNodeApiUrl": "http://localhost:5551/api/v1/",
+  "genesisDate": "${genesis_date}",
+  "genesisTimestamp": "${genesis_timestamp}",
+  "minNodeAccountId": 3,
+  "maxNodeAccountId": 3,
   "totalHbarSupplyTinybar": 5000000000000000000,
   "genesisAddressBookResource": "mainnet-genesis-address-book.proto.bin"
 }
