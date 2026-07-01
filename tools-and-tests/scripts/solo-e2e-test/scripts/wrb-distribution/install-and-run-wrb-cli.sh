@@ -63,8 +63,10 @@ log "CLI built: ${CLI_LIB}"
 [[ -f "${COMPARISON_SCRIPT}" ]] || fail "Comparison script not found at ${COMPARISON_SCRIPT}"
 
 # Source helpers without executing the script's top-level orchestration.
-# wrb-sequential-comparison.sh defines log() / kctl() at file scope and only
-# invokes its main() when run directly; sourcing only registers functions.
+# wrb-sequential-comparison.sh guards its `main "$@"` call so `source` only
+# registers the helper functions (`download_record_files_from_minio` /
+# `download_record_files_from_cn`) without kicking off the full comparison
+# flow. The guard was added in the same series of commits as this script.
 log "Sourcing record-download helpers from wrb-sequential-comparison.sh..."
 # shellcheck disable=SC1090
 source "${COMPARISON_SCRIPT}"
