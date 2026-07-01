@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# BN3 for the wrb-distribution-step345 topology (#3125 step 5).
+# Tier-1 Block Node. EMB=100_000_000 = "high enough for live streaming".
+# Matches the precedent set by charts/block-node-server/values-overrides/
+# lfh-values.yaml. Establishes that BN3's responsibility begins in the live
+# range only — historical backfill from BN1 will fill in below.
+blockNode:
+  config:
+    BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "100000000"

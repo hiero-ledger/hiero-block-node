@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# BN2 for the wrb-distribution-step345 topology (#3125 step 4).
+# Tier-1 Block Node. EMB=0 so we highlight the "start from genesis" case —
+# once BN1 becomes a backfill source in a later slice, BN2 should pull the
+# entire history from BN1.
+blockNode:
+  config:
+    BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "0"

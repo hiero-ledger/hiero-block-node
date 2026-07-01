@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: Apache-2.0
+# WRB Distribution E2E — Steps 3+4+5 (#3125), supersedes step12
+#
+# This topology extends the wrb-distribution-step12 slice (3 CNs v0.75 +
+# MN1 v0.157.1, no BN) by adding the three Block Nodes called for in steps
+# 3, 4, and 5 of #3125:
+#
+#   BN1 — Tier-0, EMB=0            (destined to receive WRBs from wrb-cli push
+#                                    later in the epic)
+#   BN2 — Tier-1, EMB=0            (starts from genesis so we can observe a
+#                                    full-backfill pull once BN1 becomes a
+#                                    backfill source in step 10)
+#   BN3 — Tier-1, EMB=100_000_000  ("high enough for live streaming" — matches
+#                                    the precedent set by lfh-values.yaml)
+#
+# BNs come up idle in this slice: no CN references any of them in
+# `consensus_nodes[*].block_nodes`. That mirrors the operational rollout in
+# the issue text (BNs are installed first, wiring happens in step 8+).
+#
+# The per-BN EMB values are supplied via the checked-in static overlays under
+#   overrides/wrb-distribution-step345/bn-block-node-<i>-values.yaml
+# which solo-deploy-network.sh picks up automatically for the active topology.
+
+name: wrb-distribution-step345
+description: "WRB distribution E2E (#3125) — 3 CNs v0.75 + MN1 v0.157.1 + BN1/BN2/BN3 with EMB"
+
+block_nodes:
+  block-node-1:
+    address: block-node-1
+    port: 40840
+  block-node-2:
+    address: block-node-2
+    port: 40840
+  block-node-3:
+    address: block-node-3
+    port: 40840
+
+# CN nodes intentionally do NOT reference any BN yet — the wiring is a later
+# step in the epic. In this slice the BNs come up empty (EMB gates apply on
+# startup but nothing is streaming yet).
+consensus_nodes:
+  node1: {}
+  node2: {}
+  node3: {}
+
+mirror_nodes:
+  mirror-1: {}
+
+relay_nodes: {}
+
+explorer_nodes: {}
