@@ -69,6 +69,7 @@ public class DynamicBlockItemTest {
                 // slow us down, waiting for fast handler to release us every 100 it gets
                 synchronized (holdBackSlowHandler) {
                     try {
+                        // @todo Replace this with a condition wait; Object.wait should not be used.
                         holdBackSlowHandler.wait(50);
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
@@ -511,27 +512,14 @@ public class DynamicBlockItemTest {
      * still see all events without any being silently dropped.
      */
     @Test
-    void testNoBackpressureHandlerReceivesAllItemsWhenFastEnough() throws Exception {
+    void testNoBackpressureHandlerReceivesAllItemsWhenFastEnough() throws InterruptedException {
         final int totalItems = TEST_DATA_COUNT;
         final CountDownLatch allReceived = new CountDownLatch(1);
         final AtomicInteger receiveCount = new AtomicInteger(0);
         final AtomicInteger receiveSum = new AtomicInteger(0);
 
-        final NoBackPressureBlockItemHandler fastHandler = new NoBackPressureBlockItemHandler() {
-            @Override
-            public void handleBlockItemsReceived(BlockItems items) {
-                int value = bytesToInt(items.blockItems().getFirst().blockHeader());
-                receiveSum.addAndGet(value);
-                if (receiveCount.incrementAndGet() >= totalItems) {
-                    allReceived.countDown();
-                }
-            }
-
-            @Override
-            public void onTooFarBehindError() {
-                fail("Fast handler should never be evicted");
-            }
-        };
+        final NoBackPressureBlockItemHandler fastHandler =
+                new BackpressureTestItemHandler(receiveSum, receiveCount, totalItems, allReceived);
 
         final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
         messagingService.init(TestConfig.getBlockNodeContext(), null);
@@ -544,6 +532,11 @@ public class DynamicBlockItemTest {
                     i,
                     true,
                     false));
+            messagingService.sendBlockItems(new BlockItems(
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, intToBytes(i)))),
+                    i,
+                    true,
+                    false));
             // Yield periodically so the handler's virtual thread gets scheduled.
             // Without this, the tight publish loop outpaces JVM scheduling and the handler
             // falls >80% behind before it can process its first event, triggering eviction.
@@ -551,15 +544,21 @@ public class DynamicBlockItemTest {
                 LockSupport.parkNanos(100_000);
             }
         }
-        // Pause for 100 microseconds to let blocks get sent.
+        // Pause for 100 microseconds to let blocks finish sending.
         LockSupport.parkNanos(100_000L);
         messagingService.stop();
-        assertTrue(
-                allReceived.await(20, TimeUnit.SECONDS),
-                "No-backpressure handler did not receive all " + totalItems + " items");
-        assertEquals(totalItems, receiveCount.get(), "Item count mismatch");
-        assertEquals(
-                IntStream.range(0, totalItems).sum(), receiveSum.get(), "Item sum mismatch — some items were lost");
+        assertAllReceived(allReceived, totalItems * 2);
+        assertEquals(totalItems * 2, receiveCount.get(), "Item count mismatch");
+        // use a formula for sum of numbers from 0 to n-1 instead of adding them
+        final int pascalSum = (totalItems * (totalItems - 1)) / 2;
+        assertEquals(pascalSum * 2, receiveSum.get(), "Item sum mismatch — some items were lost");
+    }
+
+    private static void assertAllReceived(final CountDownLatch allReceived, final int totalItems)
+            throws InterruptedException {
+        final String message =
+                "No-backpressure handler received only %d/%d items".formatted(allReceived.getCount(), totalItems);
+        assertTrue(allReceived.await(20, TimeUnit.SECONDS), message);
     }
 
     /**
@@ -582,5 +581,47 @@ public class DynamicBlockItemTest {
      */
     public static int bytesToInt(Bytes bytes) {
         return bytes.getInt(0);
+    }
+
+    private static class BackpressureTestItemHandler implements NoBackPressureBlockItemHandler {
+        private final AtomicInteger receiveSum;
+        private final AtomicInteger receiveCount;
+        private final int totalItems;
+        private final CountDownLatch allReceived;
+
+        public BackpressureTestItemHandler(
+                final AtomicInteger receiveSum,
+                final AtomicInteger receiveCount,
+                final int totalItems,
+                final CountDownLatch allReceived) {
+            this.receiveSum = receiveSum;
+            this.receiveCount = receiveCount;
+            this.totalItems = totalItems;
+            this.allReceived = allReceived;
+        }
+
+        @Override
+        public void handleBlockItemsReceived(BlockItems items) {
+            if (items.blockItems().getFirst().hasBlockHeader()) {
+                final int value = bytesToInt(items.blockItems().getFirst().blockHeader());
+                receiveSum.addAndGet(value);
+            }
+            if (items.blockItems().getFirst().hasBlockFooter()) {
+                final int value = bytesToInt(items.blockItems().getFirst().blockFooter());
+                receiveSum.addAndGet(value);
+            }
+            if (items.blockItems().getLast().hasBlockProof()) {
+                final int value = bytesToInt(items.blockItems().getLast().blockProof());
+                receiveSum.addAndGet(value);
+            }
+            if (receiveCount.incrementAndGet() >= totalItems) {
+                allReceived.countDown();
+            }
+        }
+
+        @Override
+        public void onTooFarBehindError() {
+            fail("Fast handler should never be evicted");
+        }
     }
 }

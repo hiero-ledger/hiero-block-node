@@ -47,6 +47,7 @@ import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.NetworkConnection.ConnectionReference;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
@@ -77,6 +78,10 @@ import org.hiero.metrics.core.MetricRegistry;
 
 /// Main class for the block node server
 public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
+    /// The logger for this class.
+    private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
+    /// Constant mapped to PbjProtocolProvider.CONFIG\_NAME in the PBJ Helidon Plugin
+    public static final String PBJ_PROTOCOL_PROVIDER_CONFIG_NAME = "pbj";
     /// Metric key for the oldest historical block available
     public static final MetricKey<ObservableGauge> METRIC_APP_HISTORICAL_OLDEST_BLOCK =
             MetricKey.of("app_historical_oldest_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
@@ -90,8 +95,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private static final long BLOCK_RANGE_PERSIST_INTERVAL = 1000;
     /// Max protobuf/JSON message size for application-state files loaded from disk (small).
     private static final int MAX_APP_STATE_MESSAGE_SIZE_BYTES = 1 * 1024 * 1024;
-    /** The logger for this class. */
-    private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
+    /// A connection reference that means "any host/any port".
+    private static final ConnectionReference WILDCARD_CONNECTION =
+            ConnectionReference.newBuilder().address("*").port("*").build();
+    /// The "scheme" part of a grpc URI _without_ TLS.
+    private static final String GRPC_SCHEME = "grpc";
+    /// The "scheme" part of a grpc URI _with_ TLS.
+    private static final String GRPC_TLS_SCHEME = "grpcs";
     /// The state of the server.
     private final AtomicReference<State> state = new AtomicReference<>(State.STARTING);
     /// A ServiceBuilder that creates, starts, and stops webservers.
@@ -102,6 +112,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     final Set<Integer> portsEnabled;
     /// The server configuration.
     private final ServerConfig serverConfig;
+    /// The configuration for the application state facility
+    private final ApplicationStateConfig appStateConfig;
     /// The historical block node facility
     private final HistoricalBlockFacilityImpl historicalBlockFacility;
     /// Should the shutdown() method exit the JVM.
@@ -224,6 +236,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         ConfigLogger.log(configuration);
         // now that configuration is loaded we can get config for server
         serverConfig = configuration.getConfigData(ServerConfig.class);
+        appStateConfig = configuration.getConfigData(ApplicationStateConfig.class);
         WebServerHttp2Config webServerHttp2Config = configuration.getConfigData(WebServerHttp2Config.class);
         // ==== METRICS ================================================================================================
         // discover all metrics providers via SPI
@@ -479,9 +492,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .createVirtualThreadScheduledExecutor(
                         1, "ApplicationStateScanner", BlockNodeApp::uncaughtExceptionHandler);
 
-        ApplicationStateConfig appStateConfig =
-                blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
-
         // Schedule periodic check for live updates from running plugins.
         applicationStateExecutor.scheduleAtFixedRate(
                 this::checkForApplicationStateUpdates,
@@ -661,10 +671,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     ///
     /// @param tssData The TssData to persist
     private void persistTssData(TssData tssData) {
-        final Path appStateDataFilePath = blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .tssBootstrapFilePath();
+        final Path appStateDataFilePath = appStateConfig.tssBootstrapFilePath();
         try {
             Bytes serialized = TssData.JSON.toBytes(tssData);
             Files.write(appStateDataFilePath, serialized.toByteArray());
@@ -674,10 +681,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     private void persistNodeAddressBookHistory(RangedAddressBookHistory history) {
-        final Path filePath = blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .rsaBootstrapFilePath();
+        final Path filePath = appStateConfig.rsaBootstrapFilePath();
         try {
             final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
             final Bytes encoded = RangedAddressBookHistory.JSON.toBytes(history);
@@ -698,10 +702,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     /// Persists both block range sets as JSON to the single file specified in the ApplicationStateConfig.
     private void persistBlockRanges() {
-        final Path filePath = blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .blockRangesFilePath();
+        final Path filePath = appStateConfig.blockRangesFilePath();
         try {
             final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
             final Bytes json = BlockRangesState.JSON.toBytes(toBlockRangesState());
@@ -732,8 +733,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     ///
     /// @param configuration the current configuration
     private void loadApplicationState(final Configuration configuration) {
-        final ApplicationStateConfig appStateConfig = configuration.getConfigData(ApplicationStateConfig.class);
-
         // Load TssData (JSON format) — queued for processing on the next scanner tick.
         final Path tssDataJsonPath = appStateConfig.tssBootstrapFilePath();
         if (Files.exists(tssDataJsonPath)) {

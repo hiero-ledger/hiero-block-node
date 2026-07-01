@@ -170,7 +170,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         // occurs. No other methods will be called by the Helidon layer after this.
         final String message = "Handler %d received error: %s".formatted(handlerId, throwable);
         LOGGER.log(DEBUG, message, throwable);
-        endStreamWithCode(Code.ERROR, true); // This handles shutdown as well
+        endStreamWithCode(Code.ERROR, true, 0L); // This handles shutdown as well
     }
 
     @Override
@@ -221,7 +221,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 // If we reach here, it means that the handler was interrupted or
                 // an unexpected error occurred. We should log the error and shut down.
                 LOGGER.log(INFO, "[%2$s] Error processing request: %1$s".formatted(e, correlationIdPrefix), e);
-                endStreamWithCode(Code.ERROR, true);
+                endStreamWithCode(Code.ERROR, true, 0L);
             }
             // @todo check the current backlog by calling a manager method to
             //    check backlog and pause for a few milliseconds if difference
@@ -309,7 +309,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         if (unacknowledgedStreamedBlocks.remove(blockNumber)) {
             // If the block number that failed verification was sent by this
             // handler, we need to send an EndOfStream with BAD_BLOCK_PROOF code.
-            endStreamWithCode(Code.BAD_BLOCK_PROOF, false);
+            endStreamWithCode(Code.BAD_BLOCK_PROOF, false, blockNumber);
             return true;
         } else {
             return false;
@@ -322,10 +322,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     ///
     /// @param codeToSend the end of stream code to send.
     /// @param immediate whether to schedule the shutdown or shut down immediately.
-    void endStreamWithCode(final Code codeToSend, boolean immediate) {
+    void endStreamWithCode(final Code codeToSend, final boolean immediate, final long proximateBlock) {
         try {
             LOGGER.log(DEBUG, "[{0}] Handler {1} ending with code {2}", correlationIdPrefix, handlerId, codeToSend);
-            sendEndOfStream(codeToSend);
+            sendEndOfStream(codeToSend, proximateBlock);
         } finally {
             if (immediate) {
                 // Do not wait for incoming data, but we still need to delay
@@ -626,10 +626,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     /// the publisher. The publisher should then proceed to shutdow after this
     /// method is called.
     /// @param codeToSend an [EndOfStream.Code] to be sent to the publisher
-    private void sendEndOfStream(final Code codeToSend) {
+    private void sendEndOfStream(final Code codeToSend, final long proximateBlock) {
         final EndOfStream endOfStream = EndOfStream.newBuilder()
                 .status(codeToSend)
                 .blockNumber(publisherManager.getLatestBlockNumber())
+                .proximateBlockNumber(proximateBlock)
                 .build();
         final PublishStreamResponse response =
                 PublishStreamResponse.newBuilder().endStream(endOfStream).build();
@@ -917,7 +918,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
         @Override
         public void handle() {
-            handler.endStreamWithCode(codeToSend, true);
+            handler.endStreamWithCode(codeToSend, true, currentStreamingNumber);
         }
     }
 

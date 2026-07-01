@@ -29,6 +29,11 @@ import org.hiero.block.node.base.Loggable;
  *     designated inbound partners, loaded on startup and exposed for the {@code /statusz/inbound} endpoint.
  * @param outboundPartnersFilePath path to the JSON file (a serialized {@code NetworkData}) describing the
  *     designated outbound partners, loaded on startup and exposed for the {@code /statusz/outbound} endpoint.
+ * @param publisherInboundCategory the name of the category this block node should use for publisher
+ *     connections; as defined by the provisioner for this block node.
+ * @param enableNodeStateChangeTracking A flag to enable or disable tracking state changes for
+ *     `Node` entries to fill in the current Node Store (a.k.a. address book data) for determining
+ *     valid publishers and publisher endpoints.
  * @param updateScanInterval The amount of milliseconds that the {@code ApplicationStateFacility} waits between
  *     checking to see if there are any {@code TssData} updates to process.
  * @param updateInitialDelay The amount of milliseconds before the first scheduled scan. Defaults to {@code 0}
@@ -43,6 +48,8 @@ public record ApplicationStateConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/known-publishers.json") Path knownPublishersFilePath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/inbound-partners.json") Path inboundPartnersFilePath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/outbound-partners.json") Path outboundPartnersFilePath,
+        @Loggable @ConfigProperty(defaultValue = "publisher") String publisherInboundCategory,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean enableNodeStateChangeTracking,
         @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long updateScanInterval,
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) int updateInitialDelay) {
         // spotless:on

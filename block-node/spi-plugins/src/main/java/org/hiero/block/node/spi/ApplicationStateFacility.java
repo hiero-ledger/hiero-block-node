@@ -12,7 +12,6 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
  * is passed to all block node plugins in the BlockNodeContext.
  * */
 public interface ApplicationStateFacility {
-
     /**
      * Used by plugins to update the TssData for this application. i.e. `TssBootstrapPlugin`, and `VerificationPlugin`
      * The update will be forwarded to all plugins using the BlockNodePlugin.onContextUpdate() of the plugins
@@ -35,9 +34,7 @@ public interface ApplicationStateFacility {
      * @return {@code true} if the history is queued for update, {@code false} if it was not
      *     (e.g. equal to the currently stored value or implementation does not support history)
      */
-    default boolean updateAddressBookHistory(RangedAddressBookHistory history) {
-        return false;
-    }
+    boolean updateAddressBookHistory(RangedAddressBookHistory history);
 
     /**
      * Records a contiguous range of blocks as stored (persisted but not necessarily retrievable by
@@ -53,9 +50,7 @@ public interface ApplicationStateFacility {
      * @param blockNum the block number whose address book you need
      * @return the {@link NodeAddressBook} or null if not found
      */
-    default NodeAddressBook getAddressBookForBlock(long blockNum) {
-        return null;
-    }
+    NodeAddressBook getAddressBookForBlock(long blockNum);
 
     /**
      * The set of known inbound publishers, loaded from configuration on startup. Reported by the
