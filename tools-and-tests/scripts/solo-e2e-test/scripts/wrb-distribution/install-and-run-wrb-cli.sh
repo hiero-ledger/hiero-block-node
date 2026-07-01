@@ -32,11 +32,16 @@ NAMESPACE="${NAMESPACE:-solo-network}"
 CONTEXT="${CONTEXT:-kind-solo-cluster}"
 export NAMESPACE CONTEXT
 
-WORK_DIR="${WORK_DIR:-/tmp/wrb-distribution-step12-$$}"
+WORK_DIR="${WORK_DIR:-/tmp/wrb-distribution-step12}"
 RECORDS_DIR="${WORK_DIR}/records"
 DAYS_DIR="${WORK_DIR}/day-archives"
 WRAPPED_DIR="${WORK_DIR}/wrappedBlocks"
 MAX_RECORD_FILES="${MAX_RECORD_FILES:-100}"
+
+# Env file consumed by the slice-2 live-wrap scripts. Written once slice-1
+# finishes so start-live-wrap / assert / stop can pick up the same paths and
+# already-built CLI without re-doing discovery.
+ENV_FILE="${ENV_FILE:-/tmp/wrb-distribution-step12.env}"
 
 log() { echo "[wrb-dist-step12] $*"; }
 fail() { echo "[wrb-dist-step12] ERROR: $*" >&2; exit 1; }
@@ -143,4 +148,15 @@ deepest_zip=$( find "${WRAPPED_DIR}" -path "*/000/000/000/000/00/*.zip" 2>/dev/n
 }
 
 log "  Found nested wrap output: ${deepest_zip#${WRAPPED_DIR}/}"
+
+# ---- 7. Hand off shared state to slice-2 (live-wrap) scripts ------------------
+cat > "${ENV_FILE}" <<EOF
+# Written by install-and-run-wrb-cli.sh for consumption by the slice-2
+# start/assert/stop scripts.
+export WRB_DIST_WORK_DIR="${WORK_DIR}"
+export CLI_LIB="${CLI_LIB}"
+export NAMESPACE="${NAMESPACE}"
+export CONTEXT="${CONTEXT}"
+EOF
+log "Wrote shared env for slice-2 scripts to ${ENV_FILE}"
 log "Step 1+2 slice complete."
