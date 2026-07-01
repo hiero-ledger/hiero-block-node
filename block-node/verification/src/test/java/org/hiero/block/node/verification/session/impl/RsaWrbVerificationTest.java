@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification.session.impl;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -480,8 +481,11 @@ class RsaWrbVerificationTest {
 
         assertNotNull(result);
         assertFalse(result.success(), "Block must be rejected when any RSA proof present fails verification");
+        assertEquals(
+                VerificationNotification.FailureType.BAD_BLOCK_PROOF,
+                result.failureInfo().failureType());
         assertNull(result.blockHash(), "Block hash must not be set on failure");
-        assertNull(result.block(), "Block must not be present on failure");
+        assertNotNull(result.block(), "Block bytes must be present for diagnostics even on failure");
     }
 
     @Test

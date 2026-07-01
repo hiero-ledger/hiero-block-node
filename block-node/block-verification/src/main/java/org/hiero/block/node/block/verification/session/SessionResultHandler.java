@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.block.verification.session;
 
+import com.hedera.hapi.node.base.SemanticVersion;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.metrics.SessionResultMetrics;
 import org.hiero.block.node.block.verification.session.BlockVerificationSession.SessionKey;
 import org.hiero.block.node.block.verification.verifier.BlockVerificationResult;
@@ -25,6 +29,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     private static final int MAX_RECENTLY_VERIFIED_BLOCKS = 100; // todo(2528) make configurable?
     private final BlockNodeContext context;
     private final SessionResultMetrics sessionResultMetrics;
+    private final BadBlockDumper badBlockDumper;
     final AtomicLong lastVerifiedBlock;
     final long blockNumber;
     final BlockSource blockSource;
@@ -36,6 +41,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     public SessionResultHandler(
             final BlockNodeContext context,
             final SessionResultMetrics sessionResultMetrics,
+            final BadBlockDumper badBlockDumper,
             final AtomicLong lastVerifiedBlock,
             final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks,
             final long blockNumber,
@@ -44,6 +50,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
             final SessionKey sessionKey) {
         this.context = Objects.requireNonNull(context);
         this.sessionResultMetrics = Objects.requireNonNull(sessionResultMetrics);
+        this.badBlockDumper = Objects.requireNonNull(badBlockDumper);
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
         this.blockSource = Objects.requireNonNull(blockSource);
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
@@ -123,33 +130,49 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     private boolean handleThrowable(final Throwable throwable) {
         final String message =
                 "Session for block %d with source %s completed exceptionally".formatted(blockNumber, blockSource);
-        final VerificationNotification notification =
-                switch (throwable) {
-                    case CancellationException ignored ->
-                        new VerificationNotification(
-                                false,
-                                getFailureInfo(blockNumber, SessionFailureType.CANCELLED),
-                                blockNumber,
-                                null,
-                                null,
-                                blockSource);
-                    case CompletionException ce -> {
-                        LOGGER.log(Level.INFO, message, ce);
-                        yield processCompletionException(ce);
-                    }
-                    default -> {
-                        LOGGER.log(Level.WARNING, message, throwable);
-                        yield new VerificationNotification(
-                                false,
-                                getFailureInfo(blockNumber, SessionFailureType.UNKNOWN_ERROR),
-                                blockNumber,
-                                null,
-                                null,
-                                blockSource);
-                    }
-                };
-        safeSendNotification(notification);
-        sessionResultMetrics.verificationBlocksFailed().increment();
+        final SemanticVersion hapiVersion;
+        final List<BlockItemUnparsed> blockItems;
+        if (throwable instanceof CompletionException ce
+                && ce.getCause() instanceof VerificationSessionFailedException vfe) {
+            hapiVersion = vfe.getHapiVersion();
+            blockItems = vfe.getBlockItems();
+        } else {
+            hapiVersion = null;
+            blockItems = null;
+        }
+        VerificationNotification notification = null;
+        try {
+            notification = switch (throwable) {
+                case CancellationException ignored ->
+                    new VerificationNotification(
+                            false,
+                            getFailureInfo(blockNumber, SessionFailureType.CANCELLED),
+                            blockNumber,
+                            null,
+                            null,
+                            blockSource);
+                case CompletionException ce -> {
+                    LOGGER.log(Level.WARNING, message, ce.getCause() != null ? ce.getCause() : ce);
+                    yield processCompletionException(ce);
+                }
+                default -> {
+                    LOGGER.log(Level.WARNING, message, throwable);
+                    yield new VerificationNotification(
+                            false,
+                            getFailureInfo(blockNumber, SessionFailureType.UNKNOWN_ERROR),
+                            blockNumber,
+                            null,
+                            null,
+                            blockSource);
+                }
+            };
+            safeSendNotification(notification);
+            sessionResultMetrics.verificationBlocksFailed().increment();
+        } finally {
+            if (notification != null) {
+                badBlockDumper.attemptDump(notification, hapiVersion, blockItems);
+            }
+        }
         return notification.failureInfo().failureType() == FailureType.UNKNOWN_ERROR;
     }
 

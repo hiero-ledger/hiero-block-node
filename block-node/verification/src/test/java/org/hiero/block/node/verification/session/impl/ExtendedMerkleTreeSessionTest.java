@@ -138,6 +138,24 @@ class ExtendedMerkleTreeSessionTest {
     }
 
     @Test
+    @DisplayName("should return BAD_BLOCK_PROOF failure when no block footer is present")
+    void shouldReturnBadBlockProofWhenNoBlockFooter() throws ParseException {
+        final long blockNumber = 42L;
+        final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
+                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
+        final BlockItemUnparsed roundHeaderItem = BlockItemUnparsed.newBuilder()
+                .roundHeader(Bytes.wrap(new byte[32]))
+                .build();
+        final VerificationNotification notification =
+                session.processBlockItems(new BlockItems(List.of(roundHeaderItem), blockNumber, false, true));
+
+        assertNotNull(notification, "A notification must be returned when isEndOfBlock=true");
+        assertFalse(notification.success(), "Verification must fail when footer is absent");
+        assertEquals(FailureType.BAD_BLOCK_PROOF, notification.failureInfo().failureType());
+        assertNotNull(notification.block(), "Block bytes must be present for diagnostics even on failure");
+    }
+
+    @Test
     @DisplayName("should fail verification when block contains duplicate TSS proofs")
     void shouldFailWithDuplicateTssProofs() throws IOException, ParseException {
         BlockUtils.SampleBlockInfo sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
@@ -169,6 +187,7 @@ class ExtendedMerkleTreeSessionTest {
         assertNotNull(notification, "Session must produce a notification for a malformed block");
         assertFalse(notification.success(), "Duplicate TSS proofs must not verify successfully");
         assertEquals(FailureType.BAD_BLOCK_PROOF, notification.failureInfo().failureType());
+        assertNotNull(notification.block(), "Block bytes must be present for diagnostics even on failure");
     }
 
     private static ExtendedMerkleTreeSession createAndProcessSession(BlockUnparsed block, Bytes ledgerId)

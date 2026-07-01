@@ -4,6 +4,8 @@ package org.hiero.block.node.block.verification;
 import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
@@ -53,6 +55,8 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     private BlockSessionHandler sessionHandler;
     /// The executor used for sessions.
     private ExecutorService executor;
+    /// Dumps failing block bytes to disk for diagnostics.
+    private BadBlockDumper badBlockDumper;
 
     /// Constructor.
     public VerificationServicePlugin() {
@@ -82,6 +86,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                         "VerificationSession", VerificationServicePlugin::getUncaughtExceptionHandler);
         this.metricsHolder = MetricsHolder.create(context.metricRegistry());
         this.verificationDataProvider = new VerificationDataProvider(context);
+        this.badBlockDumper = new BadBlockDumper(verificationConfig, resolveHostname());
         this.sessionHandler = new BlockSessionHandler(
                 context,
                 metricsHolder,
@@ -90,7 +95,8 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 lastVerifiedBlock,
                 recentlyVerifiedBlocks,
                 new ConcurrentSkipListMap<>(),
-                executor);
+                executor,
+                badBlockDumper);
     }
 
     /// Uncaught exception handler method handle for verification pool.
@@ -109,6 +115,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 context.historicalBlockProvider().availableBlocks().max());
         this.context.blockMessaging().registerBlockNotificationHandler(this, true, name());
         this.context.blockMessaging().registerBlockItemHandler(this, true, name());
+        badBlockDumper.start(context.threadPoolManager());
     }
 
     /// {@inheritDoc}
@@ -128,6 +135,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
         context.blockMessaging().unregisterBlockNotificationHandler(this);
         // immediately shutdown the executor
         executor.shutdownNow();
+        badBlockDumper.stop();
     }
 
     /// {@inheritDoc}
@@ -224,6 +232,14 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     public void handlePersisted(final PersistedNotification notification) {
         if (notification != null && !notification.succeeded()) {
             recentlyVerifiedBlocks.remove(notification.blockNumber());
+        }
+    }
+
+    private static String resolveHostname() {
+        try {
+            return InetAddress.getLocalHost().getHostName();
+        } catch (final UnknownHostException e) {
+            return "unknown";
         }
     }
 }

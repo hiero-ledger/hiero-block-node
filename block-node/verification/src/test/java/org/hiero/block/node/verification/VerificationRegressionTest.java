@@ -55,7 +55,7 @@ class VerificationRegressionTest
 
     /**
      * When a block is backfilled and then the same block arrives via the live-stream, the
-     * live-stream verification fails with PUBLISHER source. This triggers BAD_BLOCK_PROOF,
+     * live-stream verification fails with PUBLISHER source. This triggers UNKNOWN_ERROR,
      * disconnects all publishers, and the node enters a NODE_BEHIND loop it cannot escape.
      *
      * <p>Backfill appends the block hash to the allBlocksHasher, so getRootOfAllPreviousBlocks()

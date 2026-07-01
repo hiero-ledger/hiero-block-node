@@ -148,7 +148,7 @@ class VerificationServicePluginIntegrationTest
                 notification.success(),
                 "Solo-network block must NOT verify when the RSA key map is empty (RsaRosterBootstrapPlugin not yet ready)");
         assertNull(notification.blockHash(), "Block hash must be null on a rejected verification");
-        assertNull(notification.block(), "Block content must be null on a rejected verification");
+        assertNotNull(notification.block(), "Block content must be present for diagnostics even on failure");
     }
 
     @Test
@@ -171,7 +171,7 @@ class VerificationServicePluginIntegrationTest
                 notification.failureInfo().failureType(),
                 "Failed cryptographic verification must surface as BAD_BLOCK_PROOF");
         assertNull(notification.blockHash(), "Block hash must be null on a rejected verification");
-        assertNull(notification.block(), "Block content must be null on a rejected verification");
+        assertNotNull(notification.block(), "Block bytes must be present for diagnostics even on failure");
     }
 
     private static NodeAddressBook buildAddressBookWithFreshRsaKeys(final int nodeCount) throws Exception {

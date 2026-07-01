@@ -10,7 +10,7 @@ import java.util.Objects;
 /// @param failureInfo the failure info; must be `null` if verification is successful and `non-null` otherwise
 /// @param blockNumber the block number this notification is for
 /// @param blockHash   the hash of the block, if verification is successful
-/// @param block       the block, if verification is successful
+/// @param block       the block, if verification is successful; may also be present on failure for diagnostics
 /// @param source      the source of the message
 public record VerificationNotification(
         boolean success,

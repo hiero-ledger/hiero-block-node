@@ -147,7 +147,7 @@ class VerificationServicePluginTest
         assertNotNull(blockNotification);
         assertEquals(blockNumber, blockNotification.blockNumber());
         assertFalse(blockNotification.success(), "The verification should be unsuccessful");
-        assertNull(blockNotification.block(), "The block should be null since the verification failed");
+        assertNotNull(blockNotification.block(), "The block must be present for diagnostics even on failure");
     }
 
     @Test
@@ -312,6 +312,53 @@ class VerificationServicePluginTest
                 "Block 1 on a fresh BN with earliestManagedBlock=1 should verify using block footer "
                         + "values; ZERO_BLOCK_HASH from an empty allBlocksHasher must not override "
                         + "footer values when the hasher has no chain continuity with this block");
+    }
+
+    @Test
+    @DisplayName("stop does not throw even when dumpEnabled is false (scheduler never created)")
+    void stopDoesNotThrow() {
+        plugin.stop();
+    }
+
+    @Test
+    @DisplayName("should send BAD_BLOCK_PROOF failure when backfill block number mismatches header number")
+    void shouldSendFailureOnBackfillBlockNumberMismatch() throws IOException, ParseException {
+        BlockUtils.SampleBlockInfo block0Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
+        plugin.handleBackfilled(new BackfilledBlockNotification(999L, block0Info.blockUnparsed()));
+
+        assertEquals(1, blockMessaging.getSentVerificationNotifications().size());
+        VerificationNotification notification =
+                blockMessaging.getSentVerificationNotifications().getFirst();
+        assertNotNull(notification);
+        assertFalse(notification.success(), "Backfill with mismatched block number must fail");
+        assertEquals(
+                VerificationNotification.FailureType.BAD_BLOCK_PROOF,
+                notification.failureInfo().failureType());
+    }
+
+    @Test
+    @DisplayName("should attempt dump when a backfilled block fails verification (matching block number)")
+    void shouldAttemptDumpWhenBackfilledBlockFailsVerification() throws IOException, ParseException {
+        // Bootstrap TSS state via live stream so signature verification can run
+        BlockUtils.SampleBlockInfo block0Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
+        blockMessaging.sendBlockItems(
+                new BlockItems(block0Info.blockUnparsed().blockItems(), block0Info.blockNumber(), true, true));
+        assertNotNull(VerificationServicePlugin.activeLedgerId, "TSS state must be set after block 0");
+
+        // Tamper block 0 by removing one item — the hash will change and TSS signature verification fails.
+        // The block number still matches the header, so the session runs to completion and returns success=false.
+        List<BlockItemUnparsed> tamperedItems =
+                new ArrayList<>(block0Info.blockUnparsed().blockItems());
+        tamperedItems.remove(3);
+        BlockUnparsed tamperedBlock =
+                BlockUnparsed.newBuilder().blockItems(tamperedItems).build();
+        plugin.handleBackfilled(new BackfilledBlockNotification(block0Info.blockNumber(), tamperedBlock));
+
+        assertEquals(2, blockMessaging.getSentVerificationNotifications().size());
+        VerificationNotification backfillNotification =
+                blockMessaging.getSentVerificationNotifications().get(1);
+        assertNotNull(backfillNotification);
+        assertFalse(backfillNotification.success(), "Tampered backfill block must fail verification");
     }
 
     // ==== TSS Parameters Bootstrap Tests =============================================================================
@@ -666,7 +713,10 @@ class VerificationServicePluginTest
                     allBlocksHasherFilePath,
                     allBlocksHasherEnabled,
                     allBlocksHasherPersistenceInterval,
-                    tssParametersFilePath);
+                    tssParametersFilePath,
+                    false,
+                    Path.of("/tmp/verification-dumps"),
+                    7);
         }
 
         public Map<String, String> toMap() {

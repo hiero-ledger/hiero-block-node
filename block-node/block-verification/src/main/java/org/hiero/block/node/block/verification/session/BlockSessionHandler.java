@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
@@ -39,6 +40,7 @@ public final class BlockSessionHandler {
     private final VerificationDataProvider verificationDataProvider;
     private final AtomicReference<BlockVerificationSession> activePublisherSession;
     private final ConcurrentSkipListSet<SessionKey> finishedSessions;
+    private final BadBlockDumper badBlockDumper;
 
     /// Constructor.
     public BlockSessionHandler(
@@ -49,7 +51,8 @@ public final class BlockSessionHandler {
             final AtomicLong lastVerifiedBlock,
             final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks,
             final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions,
-            final ExecutorService executor) {
+            final ExecutorService executor,
+            final BadBlockDumper badBlockDumper) {
         this.context = Objects.requireNonNull(context);
         this.metricsHolder = Objects.requireNonNull(metricsHolder);
         this.sessionHandlerMetrics = metricsHolder.sessionHandlerMetrics();
@@ -62,6 +65,7 @@ public final class BlockSessionHandler {
         this.nextUniqueSessionIdentifier = new AtomicLong(0);
         this.activePublisherSession = new AtomicReference<>();
         this.finishedSessions = new ConcurrentSkipListSet<>();
+        this.badBlockDumper = Objects.requireNonNull(badBlockDumper);
     }
 
     /// Process the supplied [BlockItems] based on the source.
@@ -148,7 +152,8 @@ public final class BlockSessionHandler {
                 executor,
                 context,
                 verificationConfig,
-                finishedSessions);
+                finishedSessions,
+                badBlockDumper);
     }
 
     /// Activate a new session.

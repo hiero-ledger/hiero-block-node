@@ -13,6 +13,7 @@ import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
+import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
@@ -47,6 +48,7 @@ class BlockSessionHandlerTest {
         final AtomicLong lastVerifiedBlock = new AtomicLong(-1);
         final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks = new ConcurrentSkipListSet<>();
         activeSessions = new ConcurrentSkipListMap<>();
+        final BadBlockDumper badBlockDumper = new BadBlockDumper(verificationConfig, "test");
         executor = new BlockingExecutor(new LinkedBlockingQueue<>());
         toTest = new BlockSessionHandler(
                 context,
@@ -56,7 +58,8 @@ class BlockSessionHandlerTest {
                 lastVerifiedBlock,
                 recentlyVerifiedBlocks,
                 activeSessions,
-                executor);
+                executor,
+                badBlockDumper);
     }
 
     /// This test aims to assert that when session handler expects to start a new block on publisher source,

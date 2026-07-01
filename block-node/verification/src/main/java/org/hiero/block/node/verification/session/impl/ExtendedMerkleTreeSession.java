@@ -230,7 +230,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         if (this.blockFooter == null) {
             // return failed verification notification
             return new VerificationNotification(
-                    false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, blockSource);
+                    false,
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    blockNumber,
+                    null,
+                    new BlockUnparsed(blockItems),
+                    blockSource);
         }
 
         // if provided, use the provided root hash of all previous block hashes tree, otherwise use the one from the
@@ -283,13 +288,23 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         } catch (final IllegalStateException e) {
             LOGGER.log(WARNING, "Block [{0}] has malformed proof structure: %s".formatted(e.getMessage()), e);
             return new VerificationNotification(
-                    false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, blockSource);
+                    false,
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    blockNumber,
+                    null,
+                    new BlockUnparsed(blockItems),
+                    blockSource);
         }
 
         // No recognised proof type found — reject
         LOGGER.log(WARNING, "No recognised proof type in block {0} — rejecting", blockNumber);
         return new VerificationNotification(
-                false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, blockSource);
+                false,
+                FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                blockNumber,
+                null,
+                new BlockUnparsed(blockItems),
+                blockSource);
     }
 
     /**
@@ -330,7 +345,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 verified ? null : FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                 blockNumber,
                 blockRootHash,
-                verified ? new BlockUnparsed(blockItems) : null,
+                new BlockUnparsed(blockItems),
                 blockSource);
     }
 
@@ -417,7 +432,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     blockNumber);
             metrics.incrementRsaFailure();
             return new VerificationNotification(
-                    false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, blockSource);
+                    false,
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    blockNumber,
+                    null,
+                    new BlockUnparsed(blockItems),
+                    blockSource);
         }
 
         // Guard: RECORD_FILE item must be present in the block
@@ -426,7 +446,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     WARNING, "No RECORD_FILE item found in WRB block {0} — cannot compute signed payload", blockNumber);
             metrics.incrementRsaFailure();
             return new VerificationNotification(
-                    false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, blockSource);
+                    false,
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    blockNumber,
+                    null,
+                    new BlockUnparsed(blockItems),
+                    blockSource);
         }
 
         final SignedRecordFileProof proof = blockProof.signedRecordFileProofOrThrow();
@@ -441,7 +466,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     blockNumber);
             metrics.incrementRsaFailure();
             return new VerificationNotification(
-                    false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, blockSource);
+                    false,
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    blockNumber,
+                    null,
+                    new BlockUnparsed(blockItems),
+                    blockSource);
         }
 
         // Extract the raw RecordStreamFile bytes from the RecordFileItem proto (field 2)
@@ -451,7 +481,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     WARNING, "Failed to extract record_file_contents from RECORD_FILE item in block {0}", blockNumber);
             metrics.incrementRsaFailure();
             return new VerificationNotification(
-                    false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, blockSource);
+                    false,
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    blockNumber,
+                    null,
+                    new BlockUnparsed(blockItems),
+                    blockSource);
         }
 
         // V6 payload: SHA-384(int32(6) || rawRecordStreamFileBytes)
@@ -510,19 +545,23 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                             FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                             blockNumber,
                             null,
-                            null,
+                            new BlockUnparsed(blockItems),
                             blockSource);
                 }
             } catch (final InvalidKeyException | SignatureException e) {
                 LOGGER.log(
                         WARNING,
-                        "RSA verification error for node {0} in block {1}: {2} — rejecting block",
-                        nodeId,
-                        blockNumber,
-                        e.getMessage());
+                        "RSA verification error for node %s in block %s — rejecting block"
+                                .formatted(nodeId, blockNumber),
+                        e);
                 metrics.incrementRsaFailure();
                 return new VerificationNotification(
-                        false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, blockSource);
+                        false,
+                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        blockNumber,
+                        null,
+                        new BlockUnparsed(blockItems),
+                        blockSource);
             }
         }
 
@@ -545,7 +584,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     rosterSize);
             metrics.incrementRsaFailure();
             return new VerificationNotification(
-                    false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, blockSource);
+                    false,
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    blockNumber,
+                    null,
+                    new BlockUnparsed(blockItems),
+                    blockSource);
         }
 
         // Compute block root hash for chain continuity — only needed for the successful return;
@@ -740,7 +784,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 verified ? null : FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                 blockNumber,
                 blockRootHash,
-                verified ? new BlockUnparsed(blockItems) : null,
+                new BlockUnparsed(blockItems),
                 blockSource);
     }
 

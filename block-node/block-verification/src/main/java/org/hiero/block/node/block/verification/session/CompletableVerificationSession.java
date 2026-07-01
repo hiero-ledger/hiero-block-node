@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.hasher.BlockHasher;
@@ -36,6 +37,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     private final ConcurrentLinkedDeque<BlockItems> blockItemsDeque;
     private final ConcurrentSkipListSet<SessionKey> finishedSessions;
     private final VerificationConfig verificationConfig;
+    private final BadBlockDumper badBlockDumper;
     private volatile CompletableFuture<BlockVerificationResult> sessionCompletionChain;
 
     /// Constructor.
@@ -50,7 +52,8 @@ public final class CompletableVerificationSession implements BlockVerificationSe
             final ExecutorService executor,
             final BlockNodeContext context,
             final VerificationConfig verificationConfig,
-            final ConcurrentSkipListSet<SessionKey> finishedSessions) {
+            final ConcurrentSkipListSet<SessionKey> finishedSessions,
+            final BadBlockDumper badBlockDumper) {
         if (blockNumber < 0) {
             throw new IllegalArgumentException("Block number must be non-negative");
         }
@@ -67,6 +70,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         this.blockItemsDeque = new ConcurrentLinkedDeque<>();
         this.verificationConfig = Objects.requireNonNull(verificationConfig);
         this.finishedSessions = Objects.requireNonNull(finishedSessions);
+        this.badBlockDumper = Objects.requireNonNull(badBlockDumper);
     }
 
     @Override
@@ -106,6 +110,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         final SessionResultHandler sessionResultHandler = new SessionResultHandler(
                 context,
                 metricsHolder.sessionResultMetrics(),
+                badBlockDumper,
                 lastVerifiedBlock,
                 recentlyVerifiedBlocks,
                 blockNumber,

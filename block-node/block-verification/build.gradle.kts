@@ -15,6 +15,7 @@ mainModuleInfo {
 
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
+    requires("com.google.common.jimfs")
     requires("org.assertj.core")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")

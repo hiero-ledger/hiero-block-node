@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.block.verification.session;
 
+import com.hedera.hapi.node.base.SemanticVersion;
+import java.util.List;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
 /// An exception thrown when the verification chain experiences a situation
@@ -10,12 +13,37 @@ public class VerificationSessionFailedException extends RuntimeException {
     private final long blockNumber;
     private final SessionFailureType failureType;
     private final BlockSource blockSource;
+    /// The raw block items captured at the failure site, for diagnostic dump. May be {@code null}
+    /// when no block items were available at the failure site.
+    private final List<BlockItemUnparsed> blockItems;
+    /// The HAPI proto version from the block header, for diagnostic dump. May be {@code null}
+    /// when the header had not yet been parsed at the failure site.
+    private final SemanticVersion hapiVersion;
 
     public VerificationSessionFailedException(
             final long blockNumber, final SessionFailureType failureType, final BlockSource blockSource) {
+        this(blockNumber, failureType, blockSource, (List<BlockItemUnparsed>) null);
+    }
+
+    public VerificationSessionFailedException(
+            final long blockNumber,
+            final SessionFailureType failureType,
+            final BlockSource blockSource,
+            final List<BlockItemUnparsed> blockItems) {
+        this(blockNumber, failureType, blockSource, blockItems, null);
+    }
+
+    public VerificationSessionFailedException(
+            final long blockNumber,
+            final SessionFailureType failureType,
+            final BlockSource blockSource,
+            final List<BlockItemUnparsed> blockItems,
+            final SemanticVersion hapiVersion) {
         this.blockNumber = blockNumber;
         this.failureType = failureType;
         this.blockSource = blockSource;
+        this.blockItems = blockItems;
+        this.hapiVersion = hapiVersion;
         super(DEFAULT_MESSAGE.formatted(blockNumber, blockSource, failureType));
     }
 
@@ -27,6 +55,8 @@ public class VerificationSessionFailedException extends RuntimeException {
         this.blockNumber = blockNumber;
         this.failureType = failureType;
         this.blockSource = blockSource;
+        this.blockItems = null;
+        this.hapiVersion = null;
         super(message);
     }
 
@@ -52,6 +82,8 @@ public class VerificationSessionFailedException extends RuntimeException {
         this.blockNumber = blockNumber;
         this.failureType = failureType;
         this.blockSource = blockSource;
+        this.blockItems = null;
+        this.hapiVersion = null;
         super(message, cause);
     }
 
@@ -65,5 +97,13 @@ public class VerificationSessionFailedException extends RuntimeException {
 
     public BlockSource getBlockSource() {
         return blockSource;
+    }
+
+    public List<BlockItemUnparsed> getBlockItems() {
+        return blockItems;
+    }
+
+    public SemanticVersion getHapiVersion() {
+        return hapiVersion;
     }
 }
