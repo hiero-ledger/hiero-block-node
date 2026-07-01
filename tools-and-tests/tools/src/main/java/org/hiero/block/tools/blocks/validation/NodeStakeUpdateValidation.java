@@ -5,7 +5,7 @@ import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extra
 import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractRecordFileBytes;
 import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractTransactionBody;
 import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_DEPTH;
-import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_RECORD_FILE_SIZE;
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_MESSAGE_SIZE;
 
 import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.node.base.Transaction;
@@ -114,7 +114,7 @@ public final class NodeStakeUpdateValidation implements BlockValidation {
     private void processNodeStakeUpdates(
             final Bytes recordFileBytes, final Instant blockInstant, final long blockNumber) throws Exception {
         final RecordFileItem recordFileItem = RecordFileItem.PROTOBUF.parse(
-                recordFileBytes.toReadableSequentialData(), false, false, MAX_DEPTH, MAX_RECORD_FILE_SIZE);
+                recordFileBytes.toReadableSequentialData(), false, false, MAX_DEPTH, MAX_MESSAGE_SIZE);
         if (!recordFileItem.hasRecordFileContents()) {
             return;
         }

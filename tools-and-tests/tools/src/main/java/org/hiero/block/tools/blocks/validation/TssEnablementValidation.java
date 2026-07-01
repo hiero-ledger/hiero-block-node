@@ -2,6 +2,7 @@
 package org.hiero.block.tools.blocks.validation;
 
 import static org.hiero.block.node.base.ParseHelper.standardParse;
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_MESSAGE_SIZE;
 
 import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -35,7 +36,6 @@ public final class TssEnablementValidation implements BlockValidation {
 
     private static final String SAVE_FILE_NAME = "tssPublicationHistory.json";
     private static final int MAX_DEPTH = 512;
-    private static final int MAX_RECORD_FILE_SIZE = 128 * 1024 * 1024;
 
     private final TssEnablementRegistry tssRegistry;
     private final Path tssParametersBinPath;
@@ -90,7 +90,7 @@ public final class TssEnablementValidation implements BlockValidation {
             final Bytes recordFileBytes, final Instant blockInstant, final long blockNumber)
             throws ParseException, IOException {
         final RecordFileItem recordFileItem = RecordFileItem.PROTOBUF.parse(
-                recordFileBytes.toReadableSequentialData(), false, false, MAX_DEPTH, MAX_RECORD_FILE_SIZE);
+                recordFileBytes.toReadableSequentialData(), false, false, MAX_DEPTH, MAX_MESSAGE_SIZE);
         if (!recordFileItem.hasRecordFileContents()) {
             return;
         }

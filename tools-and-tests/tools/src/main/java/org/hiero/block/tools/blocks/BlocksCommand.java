@@ -19,6 +19,7 @@ import picocli.CommandLine.Spec;
             ToWrappedBlocksCommand.class,
             FetchBalanceCheckpointsCommand.class,
             RepairZipsCommand.class,
+            BulkLoadBlocksCommand.class,
         },
         mixinStandardHelpOptions = true)
 public class BlocksCommand implements Runnable {

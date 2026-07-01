@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package org.hiero.block.internal;
+
+option java_package = "org.hiero.block.internal.protoc";
+// <<<pbj.java_package = "org.hiero.block.internal">>> This comment is special code for setting PBJ Compiler java package
+option java_multiple_files = true;
+
+/**
+ * Resume state for the `blocks bulk-load` CLI command. Persisted as JSON next to the destination
+ * historic store. On re-run, the command reloads this state, skips already-copied files (via
+ * {@code copied_files}), and reports cumulative progress.
+ */
+message BulkLoadState {
+    /**
+     * Absolute path of the source directory the previous run was reading from. If the next run
+     * specifies a different source the operator is warned but the new source is honored.
+     */
+    string source_dir = 1;
+
+    /**
+     * Absolute path of the destination historic store directory the previous run was writing to.
+     */
+    string dest_dir = 2;
+
+    /**
+     * Relative paths (relative to {@code source_dir}) of zip files that have already been copied
+     * to the destination. Used at startup to skip already-copied files in O(1) via an in-memory
+     * HashSet.
+     */
+    repeated string copied_files = 3;
+
+    /**
+     * Highest block number known to have been copied so far. Used in combination with the
+     * {@code --start-block} CLI flag to skip whole zip files whose contents are entirely below
+     * this watermark.
+     */
+    int64 last_copied_block = 4;
+
+    /**
+     * Cumulative bytes copied across all runs. Reported in the progress summary; not used for
+     * skip decisions.
+     */
+    int64 total_bytes_copied = 5;
+
+    /**
+     * Cumulative file count copied across all runs. Reported in the progress summary; not used
+     * for skip decisions.
+     */
+    int64 total_files_copied = 6;
+}

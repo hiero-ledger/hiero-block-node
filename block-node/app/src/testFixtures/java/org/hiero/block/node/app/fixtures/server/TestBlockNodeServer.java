@@ -237,7 +237,7 @@ public class TestBlockNodeServer {
                             List.of(buildRosterEntry(11, 22, Bytes.fromHex("03030303"))),
                             250))
                     .nodeAddressBook(buildAddressBook(4))
-                    .rangedAddressBookHistory(buildRangedHistory(4))
+                    .rangedAddressBookHistory(buildRangedHistory(5, 1000, 4))
                     .build();
         }
 
@@ -259,13 +259,35 @@ public class TestBlockNodeServer {
                     .build();
         }
 
-        private static RangedAddressBookHistory buildRangedHistory(final int count) {
+        /// builds a `RangedAddressBookHistory`
+        ///
+        /// @param ranges the number of `RangedNodeAddressBook` to generate
+        /// @param perRangeCount the number of blocks per `RangedNodeAddressBook`
+        /// @param addressBookCount the number of `NodeAddress` per `NodeAddressBook`
+        private static RangedAddressBookHistory buildRangedHistory(
+                final int ranges, final int perRangeCount, final int addressBookCount) {
+            ArrayList<RangedNodeAddressBook> addressBooks = new ArrayList<>(ranges);
+            for (int i = 0; i < ranges; i++) {
+                long startBlock = (long) i * perRangeCount;
+                long endBlock = i + 1 == ranges ? -1L : (long) (i + 1) * perRangeCount - 1;
+                addressBooks.add(buildRangedNodeAddressBook(startBlock, endBlock, addressBookCount));
+            }
             return RangedAddressBookHistory.newBuilder()
-                    .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
-                            .addressBook(buildAddressBook(count))
-                            .startBlock(0L)
-                            .endBlock(-1L)
-                            .build()))
+                    .addressBooks(addressBooks)
+                    .build();
+        }
+
+        /// builds a `RangedNodeAddressBook`
+        ///
+        /// @param startBlock the starting block number for this `RangedNodeAddressBook`
+        /// @param endBlock the ending block number for this `RangedNodeAddressBook`
+        /// @param addressBookCount the number of `NodeAddress` per `NodeAddressBook`
+        private static RangedNodeAddressBook buildRangedNodeAddressBook(
+                final long startBlock, final long endBlock, final int addressBookCount) {
+            return RangedNodeAddressBook.newBuilder()
+                    .addressBook(buildAddressBook(addressBookCount))
+                    .startBlock(startBlock)
+                    .endBlock(endBlock)
                     .build();
         }
 

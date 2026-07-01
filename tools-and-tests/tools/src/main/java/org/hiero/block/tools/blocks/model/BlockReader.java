@@ -337,7 +337,7 @@ public class BlockReader {
                 final InputStream decompressedStream = compressionType.wrapStream(byteStream);
                 final ReadableStreamingData in = new ReadableStreamingData(decompressedStream)) {
             return Block.PROTOBUF.parse(
-                    in, false, false, Codec.DEFAULT_MAX_DEPTH, ProtobufParsingConstants.MAX_PARSE_SIZE);
+                    in, false, false, Codec.DEFAULT_MAX_DEPTH, ProtobufParsingConstants.MAX_MESSAGE_SIZE);
         } catch (ParseException e) {
             throw new IOException("Failed to parse block from bytes", e);
         }

@@ -2,6 +2,7 @@
 package org.hiero.block.node.roster.bootstrap.rsa;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
@@ -322,6 +324,43 @@ class RsaRosterBootstrapPluginTest
             assertEquals("aabbcc", era0.nodeAddress().getFirst().rsaPubKey());
             assertEquals(0L, history.addressBooks().get(0).startBlock());
             assertEquals(-1L, history.addressBooks().get(0).endBlock()); // open-ended
+        }
+
+        @Test
+        @DisplayName("Genesis sentinel timestamp resolves to block 0 without calling the blocks API")
+        void genesisSentinelResolvesWithoutBlocksApi() {
+            // The Mirror Node reports the genesis address book's validity start as a near-epoch
+            // sentinel ("0.000000001"), not a blank timestamp. The genesis era must still resolve to
+            // startBlock=0 without the blocks API: on a fresh network /api/v1/blocks has no data until
+            // the Block Node — which needs this roster to verify blocks — starts storing them. Calling
+            // the blocks API here would skip the era and leave the roster empty (the regression).
+            final AtomicBoolean blocksApiCalled = new AtomicBoolean(false);
+            server.createContext("/api/v1/blocks", exchange -> {
+                blocksApiCalled.set(true);
+                final byte[] bytes = "{\"blocks\":[],\"links\":{\"next\":null}}".getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+            });
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":[{\"node_id\":0,\"public_key\":\"aabbcc\",\"timestamp\":{\"from\":\"0.000000001\",\"to\":null}}],\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            assertEquals(0L, history.addressBooks().getFirst().startBlock());
+            assertEquals(-1L, history.addressBooks().getFirst().endBlock()); // open-ended genesis
+            final NodeAddressBook era0 = history.addressBooks().getFirst().addressBook();
+            assertEquals(1, era0.nodeAddress().size());
+            assertEquals(0L, era0.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", era0.nodeAddress().getFirst().rsaPubKey());
+            assertFalse(blocksApiCalled.get(), "blocks API must not be called for the genesis era");
         }
 
         @Test
@@ -916,7 +955,7 @@ class RsaRosterBootstrapPluginTest
 
             assertTrue(contextUpdated[0] > 0);
             assertNotNull(histories[0]);
-            assertEquals(1, histories[0].addressBooks().size());
+            assertEquals(5, histories[0].addressBooks().size());
 
             // These are magic numbers, yes. The {@link TestBlockNodeServer} does not yet have a way to pass in TssData
             // to

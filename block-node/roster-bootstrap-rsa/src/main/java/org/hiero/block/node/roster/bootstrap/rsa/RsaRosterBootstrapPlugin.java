@@ -437,12 +437,12 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// Converts a (from, to) timestamp pair to a [startBlock, endBlock] pair by querying the
     /// Mirror Node blocks API. Returns {@code null} if the block range cannot be determined.
     ///
-    /// Blank timestamps are treated as sentinels: blank {@code from} means genesis (startBlock=0)
-    /// with no API call; blank {@code to} means open-ended (endBlock=-1) with no API call.
+    /// Sentinels are resolved without an API call: a genesis {@code from} (see [#isGenesisFrom])
+    /// means startBlock=0; a blank {@code to} means open-ended (endBlock=-1).
     private long[] fetchBlockRange(final HttpClient client, final String from, final String to) {
         final long startBlock, endBlock;
-        if (from == null || from.isBlank()) {
-            startBlock = 0L; // no from-timestamp → treat as genesis
+        if (isGenesisFrom(from)) {
+            startBlock = 0L; // genesis address book → block 0, no blocks API call needed
             endBlock = -1L;
         } else {
             String query = to == null || to.isBlank()
@@ -460,6 +460,24 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         }
 
         return new long[] {startBlock, endBlock};
+    }
+
+    /// Returns true if {@code from} denotes the genesis address book — either blank, or the Mirror
+    /// Node's near-epoch sentinel (e.g. "0.000000001") marking validity "from the beginning". Real
+    /// consensus timestamps are ~1.7e9 s, so any value below 1 s is treated as genesis.
+    ///
+    /// This lets the genesis era resolve to block 0 without the blocks API, which is required on
+    /// networks (e.g. solo) where the Mirror Node has no blocks until the Block Node — which needs
+    /// this roster to verify them — starts storing them.
+    private static boolean isGenesisFrom(final String from) {
+        if (from == null || from.isBlank()) {
+            return true;
+        }
+        try {
+            return Double.parseDouble(from) < 1.0;
+        } catch (final NumberFormatException e) {
+            return false;
+        }
     }
 
     private MirrorNodeBlocksResponse fetchAndParseBlocks(final HttpClient client, final String url) {
