@@ -80,26 +80,21 @@ for required in "${records_dir}" "${days_dir}" "${wrapped_dir}" \
     [[ -e "${required}" ]] || { echo "Missing prerequisite: ${required}" >&2; exit 1; }
 done
 
-# Snapshot the wrap output size at start-time so the assertion event can
-# tell "did new blocks appear while the loop was running?".
+# Snapshot the wrap output at start-time. The assertion later compares against
+# this. WRB CLI consolidates all input .rcd files into a single wrapped-stream
+# block per invocation (behaviour confirmed by the earlier WRB differential
+# test work), so neither zip-count nor block-count is a reliable "did the loop
+# make progress" signal — both can stay at 1 while the loop is healthy.
 #
-# We count wrap-output *entries* (zip files + block entries inside zips),
-# not just zip files, because all newly-wrapped blocks in the first 10K
-# range land inside the same 00000s.zip — file count would stay at 1 while
-# the block count grows. Counting zip entries via `unzip -l` gives us the
-# per-block signal we actually want.
+# The signal that IS reliable is that the worker log records successful wrap
+# iterations. Snapshot the count of "wrap OK" markers so the assertion can
+# check that the count grew during the observation window.
 initial_zip_count=$( find "${wrapped_dir}" -name '*.zip' -print 2>/dev/null | wc -l | tr -d ' ' )
-initial_block_count=0
-while IFS= read -r z; do
-    [[ -z "${z}" ]] && continue
-    # unzip -l prints a header + entries + footer; grep for the .blk pattern
-    # to get just the block-file entries and count them.
-    n=$( unzip -l "${z}" 2>/dev/null | grep -cE '\.blk(\.[a-z]+)?$' || echo 0 )
-    initial_block_count=$(( initial_block_count + n ))
-done < <( find "${wrapped_dir}" -name '*.zip' -print 2>/dev/null )
-printf 'initial_zip_count=%s\ninitial_block_count=%s\n' \
-    "${initial_zip_count}" "${initial_block_count}" > "${STATE_FILE}"
-log "Initial wrap output: ${initial_zip_count} zip file(s), ${initial_block_count} block(s) inside"
+initial_total_bytes=$( find "${wrapped_dir}" -name '*.zip' -exec stat -c '%s' {} \; 2>/dev/null \
+    | awk '{s+=$1} END {print s+0}' )
+printf 'initial_zip_count=%s\ninitial_total_bytes=%s\ninitial_wrap_ok_count=0\n' \
+    "${initial_zip_count}" "${initial_total_bytes}" > "${STATE_FILE}"
+log "Initial wrap output: ${initial_zip_count} zip file(s), ${initial_total_bytes} total byte(s)"
 
 # Fork the worker into the background and write its PID. Using nohup+setsid so
 # the loop survives if the CI shell that started the event goes away.
