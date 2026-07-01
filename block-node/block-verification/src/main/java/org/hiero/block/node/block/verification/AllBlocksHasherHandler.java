@@ -32,6 +32,8 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
+// @todo(2450) this whole class can become a standalone plugin and react to ordered verification
+//    notifications. It then becomes very simple and can efficiently persist the data at a configured interval.
 /// Maintains and persists a streaming Merkle hasher over all previous block hashes.
 ///
 /// This class does the following:
@@ -58,12 +60,13 @@ public class AllBlocksHasherHandler {
     private StreamingHasher hasher;
     /// The previous block hash, used for verification of the current block.
     private byte[] lastBlockHash;
-    /// Verification configuration.
-    private final VerificationConfig verificationConfig;
+    private final boolean allBlocksHasherEnabled;
+    private final boolean rebuildAllBlocksHasherFromStore;
+    private final int allBlocksHasherPersistenceInterval;
     /// Block node context. access to block provider services for historical blocks
     private final BlockNodeContext context;
     /// path to persist the hasher state
-    private Path hasherPath;
+    private final Path hasherPath;
     /// available blocks from historical block provider
     private BlockRangeSet availableBlocks;
     /// A threshold counter, which resets after threshold is passed, to signal persistence of hasher snapshot
@@ -78,10 +81,21 @@ public class AllBlocksHasherHandler {
     /// On any failure, the hasher degrades gracefully to "unavailable" and callers
     /// must fall back to footer-provided values.
     ///
-    /// @param verificationConfig the verification configuration
     /// @param context the block node context
-    public AllBlocksHasherHandler(@NonNull final VerificationConfig verificationConfig, BlockNodeContext context) {
-        this.verificationConfig = requireNonNull(verificationConfig, "verificationConfig must not be null");
+    public AllBlocksHasherHandler(
+            final Path allBlocksHasherFilePath,
+            final boolean allBlocksHasherEnabled,
+            final boolean rebuildAllBlocksHasherFromStore,
+            final int allBlocksHasherPersistenceInterval,
+            final BlockNodeContext context) {
+        this.hasherPath = allBlocksHasherFilePath.toAbsolutePath();
+        this.allBlocksHasherEnabled = allBlocksHasherEnabled;
+        this.rebuildAllBlocksHasherFromStore = rebuildAllBlocksHasherFromStore;
+        if (allBlocksHasherPersistenceInterval <= 0) {
+            final String message = "allBlocksHasherPersistenceInterval with value %d must be a whole number";
+            throw new IllegalArgumentException(message.formatted(allBlocksHasherPersistenceInterval));
+        }
+        this.allBlocksHasherPersistenceInterval = allBlocksHasherPersistenceInterval;
         this.context = requireNonNull(context, "context must not be null");
         this.persistenceThresholdCounter = new AtomicInteger(UNINITIALIZED_PERSISTENCE_THRESHOLD);
         init();
@@ -137,10 +151,9 @@ public class AllBlocksHasherHandler {
     }
 
     private void init() {
-        if (verificationConfig.allBlocksHasherEnabled()) {
+        if (allBlocksHasherEnabled) {
             try {
                 // 1. Initial Setup
-                hasherPath = verificationConfig.allBlocksHasherFilePath().toAbsolutePath();
                 Files.createDirectories(hasherPath.getParent());
                 hasher = new StreamingHasher();
                 availableBlocks = context.historicalBlockProvider().availableBlocks();
@@ -150,7 +163,7 @@ public class AllBlocksHasherHandler {
                 } else if (Files.exists(hasherPath)) {
                     loadFromFile();
                     syncBlockHashesFromStore(getNumberOfBlocks(), availableBlocks.max());
-                } else if (verificationConfig.rebuildAllBlocksHasherFromStore()) {
+                } else if (rebuildAllBlocksHasherFromStore) {
                     fullyBuildFromStore();
                 }
                 // 3. Validate hasher state matches available blocks
@@ -352,7 +365,7 @@ public class AllBlocksHasherHandler {
             hasher.addNodeByHash(blockHashBytes);
             if (persistenceThresholdCounter.get() > UNINITIALIZED_PERSISTENCE_THRESHOLD) {
                 final int incremented = persistenceThresholdCounter.incrementAndGet();
-                final int threshold = verificationConfig.allBlocksHasherPersistenceInterval();
+                final int threshold = allBlocksHasherPersistenceInterval;
                 // if we are passed the threshold and no one else has changed the atomic value (CAS must fail), then
                 // we can go on and persist
                 if (incremented >= threshold

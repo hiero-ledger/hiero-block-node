@@ -42,7 +42,7 @@ public final class RSAProofVerifier implements ProofVerifier {
         this.rsaKeyByNodeId = Objects.requireNonNull(rsaKeyByNodeId);
         this.proof = proof;
         this.version = proof.version();
-        this.signedWRBPayload = Objects.requireNonNull(signedWRBPayload);
+        this.signedWRBPayload = signedWRBPayload;
         this.sha384WithRSA = Objects.requireNonNull(sha384WithRSA);
     }
 
@@ -56,7 +56,7 @@ public final class RSAProofVerifier implements ProofVerifier {
     ///    - Skip if `node_id` not in `rsaKeyByNodeId` (increment roster-mismatch counter).
     ///    - Skip if signature bytes are all zeros (defensive pre-filter).
     ///    - Verify with `SHA384withRSA`. If verification fails or throws, **reject the block
-    ///      immediately** — the CN only includes signatures from nodes that contributed to
+    ///      immediately** - the CN only includes signatures from nodes that contributed to
     ///      consensus, so any included signature must be cryptographically valid.
     /// 5. Accept if all signatures in the proof verified. Signatures from nodes not in
     ///      the local roster are skipped (see @todo(2808));
@@ -70,23 +70,23 @@ public final class RSAProofVerifier implements ProofVerifier {
         if (rsaKeyByNodeId.isEmpty()) {
             LOGGER.log(
                     ERROR,
-                    "Address book is empty — cannot verify RSA WRB proof for block {0}."
+                    "Address book is empty - cannot verify RSA WRB proof for block {0}."
                             + " Ensure RsaRosterBootstrapPlugin started successfully.",
                     blockNumber);
             result = SessionFailureType.MISSING_VERIFICATION_DATA;
         } else if (signedWRBPayload == null) {
             // Guard: RECORD_FILE item must be present in the block
             LOGGER.log(
-                    ERROR, "No RECORD_FILE item found in WRB block {0} — cannot compute signed payload", blockNumber);
+                    ERROR, "No RECORD_FILE item found in WRB block {0} - cannot compute signed payload", blockNumber);
             result = SessionFailureType.MISSING_MANDATORY_ITEM;
         } else if (version != 6) {
             // Phase 2a scope: only record file format version 6 is supported
             LOGGER.log(
                     WARNING,
-                    "Unsupported SignedRecordFileProof version {0} in block {1} — only V6 is supported",
+                    "Unsupported SignedRecordFileProof version {0} in block {1} - only V6 is supported",
                     version,
                     blockNumber);
-            result = SessionFailureType.MISSING_MANDATORY_ITEM; // todo(2528) consider type to be unsupported version
+            result = SessionFailureType.MISSING_MANDATORY_FIELD;
         } else {
             // V6 payload: SHA-384(int32(6) || rawRecordStreamFileBytes)
             // Verify each signature and count valid ones.
@@ -106,18 +106,18 @@ public final class RSAProofVerifier implements ProofVerifier {
                     mismatchCount++;
                     LOGGER.log(
                             DEBUG,
-                            "Signature from node {0} not in address book (block {1}) — skipped",
+                            "Signature from node {0} not in address book (block {1}) - skipped",
                             nodeId,
                             blockNumber);
                     continue;
                 }
                 if (validatedNodes.contains(nodeId)) {
-                    LOGGER.log(DEBUG, "Duplicate signature from node {0} in block {1} — skipped", nodeId, blockNumber);
+                    LOGGER.log(DEBUG, "Duplicate signature from node {0} in block {1} - skipped", nodeId, blockNumber);
                     continue;
                 }
                 final byte[] sigBytes = sig.signaturesBytes().toByteArray();
                 if (isAllZeros(sigBytes)) {
-                    LOGGER.log(DEBUG, "Zeroed signature from node {0} in block {1} — skipped", nodeId, blockNumber);
+                    LOGGER.log(DEBUG, "Zeroed signature from node {0} in block {1} - skipped", nodeId, blockNumber);
                     continue;
                 }
                 try {
@@ -132,7 +132,7 @@ public final class RSAProofVerifier implements ProofVerifier {
                         // cryptographic verification means the block or proof has been tampered with.
                         LOGGER.log(
                                 WARNING,
-                                "RSA signature from node {0} failed verification in block {1} — rejecting block",
+                                "RSA signature from node {0} failed verification in block {1} - rejecting block",
                                 nodeId,
                                 blockNumber);
                         proofVerificationMetrics.rsaFailure().increment();
@@ -141,14 +141,12 @@ public final class RSAProofVerifier implements ProofVerifier {
                 } catch (final InvalidKeyException | SignatureException e) {
                     LOGGER.log(
                             WARNING,
-                            "RSA verification error for node {0} in block {1}: {2} — rejecting block",
+                            "RSA verification error for node {0} in block {1}: {2} - rejecting block",
                             nodeId,
                             blockNumber,
                             e.getMessage());
-                    // todo(2528) consider to simply not catch here at all but propagate, also what is the
-                    //    right type of failure here?
                     proofVerificationMetrics.rsaFailure().increment();
-                    return SessionFailureType.UNKNOWN_ERROR;
+                    return SessionFailureType.BAD_BLOCK_PROOF;
                 }
             }
             if (mismatchCount > 0) {

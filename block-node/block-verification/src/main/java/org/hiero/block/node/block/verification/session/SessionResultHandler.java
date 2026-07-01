@@ -8,11 +8,13 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.block.verification.BadBlockDumper;
+import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.metrics.SessionResultMetrics;
 import org.hiero.block.node.block.verification.session.BlockVerificationSession.SessionKey;
 import org.hiero.block.node.block.verification.verifier.BlockVerificationResult;
@@ -26,29 +28,31 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureT
 /// This stage handles the result of the verification process of a block.
 public final class SessionResultHandler implements BiConsumer<BlockVerificationResult, Throwable> {
     private static final Logger LOGGER = System.getLogger(SessionResultHandler.class.getName());
-    private static final int MAX_RECENTLY_VERIFIED_BLOCKS = 100; // todo(2528) make configurable?
     private final BlockNodeContext context;
+    private final VerificationConfig verificationConfig;
     private final SessionResultMetrics sessionResultMetrics;
     private final BadBlockDumper badBlockDumper;
     final AtomicLong lastVerifiedBlock;
     final long blockNumber;
     final BlockSource blockSource;
-    final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks;
+    final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
     private final ConcurrentSkipListSet<SessionKey> finishedSessions;
     private final SessionKey sessionKey;
 
     /// Constructor.
     public SessionResultHandler(
             final BlockNodeContext context,
+            final VerificationConfig verificationConfig,
             final SessionResultMetrics sessionResultMetrics,
             final BadBlockDumper badBlockDumper,
             final AtomicLong lastVerifiedBlock,
-            final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks,
+            final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
             final long blockNumber,
             final BlockSource blockSource,
             final ConcurrentSkipListSet<SessionKey> finishedSessions,
             final SessionKey sessionKey) {
         this.context = Objects.requireNonNull(context);
+        this.verificationConfig = Objects.requireNonNull(verificationConfig);
         this.sessionResultMetrics = Objects.requireNonNull(sessionResultMetrics);
         this.badBlockDumper = Objects.requireNonNull(badBlockDumper);
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
@@ -73,11 +77,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
                 sessionResultMetrics.verificationBlocksError().increment();
             }
         } catch (final RuntimeException e) {
-            // todo(2528) this try-catch is to be resilient in case of unhandled cases
-            //    we can reconsider it, but this should never happen. We can consider to continue, as we do now
-            //    by sending a notification, or simply fail. In general, if we have reached here, we most likely
-            //    have an issue we need to investigate. We can consider to signal server health that we are
-            //    not healthy and log the error instead of trying to send a notification.
+            // @todo mark the plugin unhealthy if we have reached this catch block
             final String message = "Failed to handle verification session with id %d result for block %d with source %s"
                     .formatted(sessionKey.uniqueId(), blockNumber, blockSource);
             LOGGER.log(Level.WARNING, message, e);
@@ -201,23 +201,25 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
 
     /// Handle a successful verification result.
     private boolean handleResult(final BlockVerificationResult verificationResult) {
+        final long verifiedBlockNumber = verificationResult.blockNumber();
         final VerificationNotification notification = new VerificationNotification(
                 true,
                 null,
-                verificationResult.blockNumber(),
+                verifiedBlockNumber,
                 verificationResult.rootHash(),
                 verificationResult.block(),
                 verificationResult.source());
         safeSendNotification(notification);
-        // todo(2528) shall we mark verified after the CAS below?
-        markRecentlyVerified(verificationResult.blockNumber());
-        // todo(2528) ensure the correct CAS and sequence of actions
+        markRecentlyVerified(verifiedBlockNumber);
+        // Note that the below CAS has an interaction with the `allSourcesRequireOrdering` config.
+        // If that is set to `false`, it is possible that gaps can happen, because sources, other than publisher,
+        // can supply a valid block, much higher than last verified. This concern is understood and accepted.
         final long lastVerified = lastVerifiedBlock.get();
-        if (verificationResult.blockNumber() > lastVerified) {
-            final boolean incremented = lastVerifiedBlock.compareAndSet(lastVerified, lastVerified + 1);
-            if (!incremented) {
-                // todo(2528) think about this case
-                LOGGER.log(Level.INFO, "Failed to increment last verified block number");
+        if (verifiedBlockNumber > lastVerified) {
+            if (!lastVerifiedBlock.compareAndSet(lastVerified, lastVerified + 1)) {
+                final String message =
+                        "Failed to increment last verified block number from {0}, for block {1}, current value is {2}";
+                LOGGER.log(Level.INFO, message, lastVerified, verifiedBlockNumber, lastVerifiedBlock.get());
             }
         }
         sessionResultMetrics.verificationBlocksVerified().increment();
@@ -225,14 +227,10 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     }
 
     /// Mark block as recently verified and keep the recently verified blocks
-    /// set size within limits.
+    /// deque size within limits.
     private void markRecentlyVerified(final long blockNumber) {
-        if (blockNumber >= lastVerifiedBlock.get() - MAX_RECENTLY_VERIFIED_BLOCKS) {
-            // only add to the recently verified blocks if we are close to the
-            // last verified block
-            recentlyVerifiedBlocks.add(blockNumber);
-        }
-        if (recentlyVerifiedBlocks.size() > MAX_RECENTLY_VERIFIED_BLOCKS) {
+        recentlyVerifiedBlocks.offer(blockNumber);
+        if (recentlyVerifiedBlocks.size() > verificationConfig.recentlyVerifiedBlocksBufferSize()) {
             recentlyVerifiedBlocks.pollFirst();
         }
     }

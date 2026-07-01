@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.TestConfigurationBuilder;
 import org.hiero.block.node.app.fixtures.TestUtils;
@@ -38,6 +39,9 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /// Tests for [RSAProofVerifier].
 class RSAProofVerifierTest {
@@ -52,7 +56,7 @@ class RSAProofVerifierTest {
     private static final Timestamp BLOCK_TIMESTAMP = new Timestamp(1_700_000_000L, 0);
     private static final long BLOCK_NUMBER = 42L;
     /// Raw bytes used as the `record_file_contents` (field 2) of the test `RecordFileItem`.
-    /// These represent a minimal placeholder — only the bytes matter for the hash computation.
+    /// These represent a minimal placeholder - only the bytes matter for the hash computation.
     private static final byte[] RECORD_STREAM_FILE_BYTES = "test-record-stream-file-v6-content".getBytes();
     /// RSA public keys indexed by node_id (0 .. ROSTER_SIZE-1). Used by the existing 6-node tests.
     private static final Map<Long, PublicKey> KEY_MAP = new HashMap<>();
@@ -71,7 +75,7 @@ class RSAProofVerifierTest {
 
     @BeforeAll
     static void generateKeysAndPayload() throws Exception {
-        // 2048-bit RSA keys are used for test speed only — production network uses 4096-bit keys.
+        // 2048-bit RSA keys are used for test speed only - production network uses 4096-bit keys.
         // CodeQL flags anything below 2048 as a weak-key warning even in test code, so we stay at 2048.
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
@@ -260,7 +264,7 @@ class RSAProofVerifierTest {
     @Test
     @DisplayName("all-zero signature bytes are skipped, leaving zero valid sigs → rejected")
     void allZeroSignatures_rejected() throws Exception {
-        // Every entry is all-zero — the defensive pre-filter skips each, validCount stays at 0,
+        // Every entry is all-zero - the defensive pre-filter skips each, validCount stays at 0,
         // and the at-least-one-valid rule rejects the block.
         final List<RecordFileSignature> sigs = new ArrayList<>();
         for (long id = 0; id < ROSTER_SIZE; id++) {
@@ -288,7 +292,7 @@ class RSAProofVerifierTest {
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
         // Add a sig from an unknown node
         sigs.add(
-                new RecordFileSignature(Bytes.wrap(sign(0L)), 99L)); // content irrelevant — node 99 absent from key map
+                new RecordFileSignature(Bytes.wrap(sign(0L)), 99L)); // content irrelevant - node 99 absent from key map
         final Map<Long, PublicKey> keyMap = new HashMap<>(KEY_MAP); // node 99 absent
         final SessionFailureType result = runVerification(keyMap, sigs);
         assertThat(result).isNull();
@@ -314,7 +318,7 @@ class RSAProofVerifierTest {
     @DisplayName("wrong payload signature (signed wrong data) causes immediate block rejection")
     void wrongPayloadSignature_immediatelyRejectsBlock() throws Exception {
         // CN only sends signatures from consensus-contributing nodes, so a failed RSA verify
-        // means the proof or block is tampered — the block is rejected at the first failing sig.
+        // means the proof or block is tampered - the block is rejected at the first failing sig.
         final List<RecordFileSignature> sigs = new ArrayList<>();
         final byte[] wrongData = "totally-wrong-payload".getBytes();
         for (long id = 0; id < ROSTER_SIZE; id++) {
@@ -330,7 +334,7 @@ class RSAProofVerifierTest {
     @Test
     @DisplayName("one bad sig among otherwise valid sigs causes immediate block rejection")
     void oneBadSigAmongValids_immediatelyRejectsBlock() throws Exception {
-        // 5 valid sigs from nodes 0..4, but node 5 signs the wrong payload — the block must be
+        // 5 valid sigs from nodes 0..4, but node 5 signs the wrong payload - the block must be
         // rejected immediately by the "any failed verify rejects" rule, regardless of how many
         // other sigs are valid.
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
@@ -354,7 +358,7 @@ class RSAProofVerifierTest {
     @Test
     @DisplayName("malformed DER key in address book is excluded; remaining keys still counted")
     void malformedKeyExcludedFromMap_restStillCounted() throws Exception {
-        // Build a key map where node 5 has a malformed (random) key — RsaKeyDecoder would skip it.
+        // Build a key map where node 5 has a malformed (random) key - RsaKeyDecoder would skip it.
         // Here we simulate by simply omitting node 5 from the map (as if buildKeyMap had skipped it).
         final Map<Long, PublicKey> reducedMap = new HashMap<>(KEY_MAP);
         reducedMap.remove(5L);
@@ -375,57 +379,33 @@ class RSAProofVerifierTest {
         assertThat(result).isNull();
     }
 
+    /// Verifies the at-least-one-valid acceptance rule across a range of roster sizes:
+    /// a single valid signature accepted, zero valid signatures rejected.
+    @ParameterizedTest(name = "rosterSize={0}")
+    @MethodSource("rosterSizes")
+    @DisplayName("one valid signature accepts and zero valid signatures rejects across roster sizes")
+    void oneValidSignatureSuffices_zeroRejected(final int rosterSize) throws Exception {
+        // Build a key map from the extended pool so existing 6-node KEY_MAP is unaffected.
+        final Map<Long, PublicKey> keyMap = new HashMap<>();
+        for (long id = 0; id < rosterSize; id++) {
+            keyMap.put(id, EXTENDED_KEY_MAP.get(id));
+        }
+        // 1 valid sig → must be accepted
+        final List<RecordFileSignature> one = List.of(extendedSignature(0L));
+        assertThat(runVerification(keyMap, one))
+                .withFailMessage("rosterSize=" + rosterSize + ": 1 valid sig must be accepted")
+                .isNull();
+        // 0 valid sigs (empty list) → must be rejected
+        assertThat(runVerification(keyMap, List.of()))
+                .withFailMessage("rosterSize=" + rosterSize + ": 0 valid sigs must be rejected")
+                .isNotNull()
+                .isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
     // @todo(3007) port below tests as a follow up
     //    add test for null signed payload
     //    add test for failure on non version 6
-    //
-    //        @Test
-    //        @DisplayName("multiple RSA proofs all valid are accepted")
-    //        void multipleValidProofs_accepted() throws Exception {
-    //            // Two RSA proofs, each with all-valid signatures — both must verify for the block to accept.
-    //            final List<List<RecordFileSignature>> proofs =
-    //                List.of(signaturesFor(0L, 1L, 2L, 3L), signaturesFor(0L, 1L, 2L, 3L, 4L, 5L));
-    //            final List<BlockItemUnparsed> items = buildWrbBlockWithMultipleProofs(proofs);
-    //
-    //            final CompletableVerificationSession session = new CompletableVerificationSession();
-    //            session.start();
-    //            session.getBlockItemsDeque().offer(new BlockItems(items, BLOCK_NUMBER, true, true));
-    //            final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-    //                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
-    //            final VerificationNotification result =
-    //                session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
-    //
-    //            assertNotNull(result);
-    //            assertTrue(result.success(), "Block with multiple valid RSA proofs must be accepted");
-    //            assertNotNull(result.blockHash(), "Block hash must be set on success");
-    //            assertNotNull(result.block(), "Block must be present on success");
-    //        }
-    //
-    //    @Test
-    //    @DisplayName("multiple RSA proofs with one containing a failed signature rejects the block")
-    //    void multipleProofs_oneFailing_rejected() throws Exception {
-    //        // First proof is fully valid; second proof contains one signature against a wrong
-    //        // payload — that single failed verify must reject the whole block.
-    //        final List<RecordFileSignature> secondProofSigs = signaturesFor(0L, 1L);
-    //        final byte[] wrongData = "tampered-payload".getBytes();
-    //        final Signature wrongEngine = Signature.getInstance("SHA384withRSA");
-    //        wrongEngine.initSign(PRIVATE_KEY_MAP.get(2L));
-    //        wrongEngine.update(wrongData);
-    //        secondProofSigs.add(new RecordFileSignature(Bytes.wrap(wrongEngine.sign()), 2L));
-    //
-    //        final List<List<RecordFileSignature>> proofs = List.of(signaturesFor(0L, 1L, 2L, 3L, 4L, 5L),
-    // secondProofSigs);
-    //        final List<BlockItemUnparsed> items = buildWrbBlockWithMultipleProofs(proofs);
-    //        final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-    //            BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
-    //        final VerificationNotification result =
-    //            session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
-    //
-    //        assertNotNull(result);
-    //        assertFalse(result.success(), "Block must be rejected when any RSA proof present fails verification");
-    //        assertNull(result.blockHash(), "Block hash must not be set on failure");
-    //        assertNull(result.block(), "Block must not be present on failure");
-    //    }
+    //    add test in order and out of order based on high water mark and all sources ordering config
     //
     //    @Test
     //    @DisplayName("unsupported proof version (V5) is rejected")
@@ -435,7 +415,7 @@ class RSAProofVerifierTest {
     //            final BlockHeader header = new BlockHeader(
     //                HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
     //            final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
-    //            // Version 5 — only V6 is supported in Phase 2a
+    //            // Version 5 - only V6 is supported in Phase 2a
     //            final BlockProof proof = BlockProof.newBuilder()
     //                .block(BLOCK_NUMBER)
     //                .signedRecordFileProof(new SignedRecordFileProof(5, signaturesFor(0L, 1L, 2L, 3L, 4L)))
@@ -460,14 +440,14 @@ class RSAProofVerifierTest {
     //            session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
     //
     //        assertNotNull(result);
-    //        assertFalse(result.success(), "SignedRecordFileProof version 5 must be rejected — only V6 is supported");
+    //        assertFalse(result.success(), "SignedRecordFileProof version 5 must be rejected - only V6 is supported");
     //    }
     //
     //    @Test
     //    @DisplayName("RSA V6: extractRecordStreamFileBytes correctly isolates field-2 bytes")
     //    void recordStreamFileBytesExtractedCorrectly_signatureVerifies() throws Exception {
     //        // Add a field-1 entry before field-2 in the proto bytes to confirm the parser skips correctly.
-    //        // Field 1 (tag=10, wire=LEN): creation_time — we put some dummy bytes there.
+    //        // Field 1 (tag=10, wire=LEN): creation_time - we put some dummy bytes there.
     //        final ByteArrayOutputStream bos = new ByteArrayOutputStream();
     //        final byte[] dummyField1 = new byte[] {8, 0, 16, 0}; // minimal Timestamp proto (seconds=0, nanos=0)
     //        bos.write(0x0A); // tag: field 1 (LEN)
@@ -545,7 +525,7 @@ class RSAProofVerifierTest {
     //        // All cases use valid signatures so any failure is from extraction, not signature validation.
     //        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
     //
-    //        // Case 1: empty RECORD_FILE bytes — nothing to extract → field not found → Bytes.EMPTY → fail
+    //        // Case 1: empty RECORD_FILE bytes - nothing to extract → field not found → Bytes.EMPTY → fail
     //        final ExtendedMerkleTreeSession session1 = new ExtendedMerkleTreeSession(
     //            BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
     //        final VerificationNotification result1 = session1.processBlockItems(
@@ -553,7 +533,7 @@ class RSAProofVerifierTest {
     //        assertNotNull(result1);
     //        assertFalse(result1.success(), "Empty RECORD_FILE bytes must cause extraction failure → rejected");
     //
-    //        // Case 2: only field 1 present, no field 2 — iterator exhausts without finding field 2 → Bytes.EMPTY →
+    //        // Case 2: only field 1 present, no field 2 - iterator exhausts without finding field 2 → Bytes.EMPTY →
     // fail
     //        // Tag=0x0A (field 1, LEN), length=1, one payload byte
     //        final Bytes field1Only = Bytes.wrap(new byte[] {0x0A, 0x01, 0x42});
@@ -564,8 +544,8 @@ class RSAProofVerifierTest {
     //        assertNotNull(result2);
     //        assertFalse(result2.success(), "RECORD_FILE with no field-2 must cause extraction failure → rejected");
     //
-    //        // Case 3: unknown wire type (wire type 3) as first tag — bail-out path returns Bytes.EMPTY → fail
-    //        // Tag = (1 << 3) | 3 = 0x0B (field 1, wire 3 = SGROUP — unused in proto3 but valid tag encoding)
+    //        // Case 3: unknown wire type (wire type 3) as first tag - bail-out path returns Bytes.EMPTY → fail
+    //        // Tag = (1 << 3) | 3 = 0x0B (field 1, wire 3 = SGROUP - unused in proto3 but valid tag encoding)
     //        final Bytes unknownWireType = Bytes.wrap(new byte[] {0x0B});
     //        final ExtendedMerkleTreeSession session3 = new ExtendedMerkleTreeSession(
     //            BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
@@ -575,40 +555,15 @@ class RSAProofVerifierTest {
     //        assertFalse(result3.success(), "Unknown wire type in RECORD_FILE must bail out → rejected");
     //    }
     //
-    //    /**
-    //     * Verifies the at-least-one-valid acceptance rule across a range of roster sizes:
-    //     * a single valid signature accepts, zero valid signatures rejects.
-    //     */
-    //    @ParameterizedTest(name = "rosterSize={0}")
-    //    @MethodSource("rosterSizes")
-    //    @DisplayName("one valid signature accepts and zero valid signatures rejects across roster sizes")
-    //    void oneValidSignatureSuffices_zeroRejected(final int rosterSize) throws Exception {
-    //        // Build a key map from the extended pool so existing 6-node KEY_MAP is unaffected.
-    //        final Map<Long, PublicKey> keyMap = new HashMap<>();
-    //        for (long id = 0; id < rosterSize; id++) {
-    //            keyMap.put(id, EXTENDED_KEY_MAP.get(id));
-    //        }
-    //
-    //        // 1 valid sig → must be accepted
-    //        final List<RecordFileSignature> one = List.of(extendedSignature(0L));
-    //        assertTrue(
-    //            runVerification(keyMap, one).success(), "rosterSize=" + rosterSize + ": 1 valid sig must be
-    // accepted");
-    //
-    //        // 0 valid sigs (empty list) → must be rejected
-    //        assertFalse(
-    //            runVerification(keyMap, List.of()).success(),
-    //            "rosterSize=" + rosterSize + ": 0 valid sigs must be rejected");
-    //    }
-    //
-    //    static Stream<Arguments> rosterSizes() {
-    //        return Stream.of(
-    //                Arguments.of(3),
-    //                Arguments.of(4),
-    //                Arguments.of(5),
-    //                Arguments.of(6),
-    //                Arguments.of(7),
-    //                Arguments.of(8),
-    //                Arguments.of(9));
-    //    }
+
+    static Stream<Arguments> rosterSizes() {
+        return Stream.of(
+                Arguments.of(3),
+                Arguments.of(4),
+                Arguments.of(5),
+                Arguments.of(6),
+                Arguments.of(7),
+                Arguments.of(8),
+                Arguments.of(9));
+    }
 }

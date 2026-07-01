@@ -128,7 +128,7 @@ class StateProofVerifierTest {
     @DisplayName("verify() reject tampered sibling hash")
     void testShouldRejectTamperedSiblingHash() throws IOException, ParseException {
         initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Tamper with a sibling hash — the reconstructed root will differ, TSS verification must fail
+        // Tamper with a sibling hash - the reconstructed root will differ, TSS verification must fail
         final TestBlock tamperedBlock = tamperSiblingHash(ResourceTestBlockBuilder.load(StateProof.BLOCK_3));
         final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
         final StateProofVerifier toTest = new StateProofVerifier(
@@ -145,7 +145,7 @@ class StateProofVerifierTest {
     @DisplayName("verify() reject tampered timestamp leaf")
     void testShouldRejectTamperedTimestampLeaf() throws IOException, ParseException {
         initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Tamper with the timestamp leaf in path 0 — the signed block root will differ
+        // Tamper with the timestamp leaf in path 0 - the signed block root will differ
         final TestBlock tamperedBlock = tamperTimestampLeaf(ResourceTestBlockBuilder.load(StateProof.BLOCK_3));
         final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
         final StateProofVerifier toTest = new StateProofVerifier(
