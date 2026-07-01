@@ -73,7 +73,7 @@ public final class RSAProofVerifier implements ProofVerifier {
                     "No address book era covers block {0} — cannot verify RSA WRB proof."
                             + " Ensure rsa-address-book-history.json is loaded and covers this block number.",
                     blockNumber);
-            result = SessionFailureType.NO_MATCHING_ADDRESS_BOOK;
+            result = SessionFailureType.MISSING_VERIFICATION_DATA;
         } else if (signedWRBPayload == null) {
             // Guard: RECORD_FILE item must be present in the block
             LOGGER.log(
@@ -100,7 +100,7 @@ public final class RSAProofVerifier implements ProofVerifier {
                 final PublicKey publicKey = rsaKeyByNodeId.get(nodeId);
                 if (publicKey == null) {
                     LOGGER.log(
-                            WARNING,
+                            DEBUG,
                             "Signature from node {0} not in era address book for block {1} — rejecting block",
                             nodeId,
                             blockNumber);
