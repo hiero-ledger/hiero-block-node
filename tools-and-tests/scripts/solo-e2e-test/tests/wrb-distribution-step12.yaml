@@ -96,19 +96,20 @@ events:
     description: "Post-test network status"
     delay: 405
 
-assertions:
-  # NOTE: node-healthy / no-errors only understand Block Nodes in the current
-  # solo-test-runner.sh (see get_all_block_nodes / assert_node_healthy_single —
-  # both hard-code the `app.kubernetes.io/name=block-node-N` label). For
-  # slice 1 there are no BNs, so `target: all` iterates the empty set and
-  # vacuously passes. Adding a Mirror-Node-aware target/label is a framework
-  # change we can do once slice 3 lands (where MN health matters more).
-  - id: bns-healthy
-    type: node-healthy
-    description: "All Block Nodes healthy (vacuous in slice 1: no BNs deployed)"
-    target: all
-
-  - id: no-bn-errors
-    type: no-errors
-    description: "No errors in Block Node logs (vacuous in slice 1: no BNs deployed)"
-    target: all
+# No declarative assertions in slice 1.
+#
+# solo-test-runner.sh's node-healthy / no-errors only understand Block Nodes
+# (see get_all_block_nodes — even `target: all` falls through to
+# "block-node-1" when the topology has zero BNs, then reports Pod not
+# found). Slice 1's whole point is exercising the CLI + record-stream path
+# with NO Block Node, so there's nothing valid to hand those assertions.
+#
+# The slice-1 flow's correctness is proven end-to-end by the events above:
+#   install-and-run-wrb-cli PASSes only if the wrap output has the deepest
+#   nested-dir zip file, and assert-live-wrap-produced-new-blocks PASSes
+#   only if the background wrap loop completed at least one new successful
+#   iteration during the observation window.
+#
+# Slice 3 (wrb-distribution-step345) reintroduces the standard BN-targeted
+# node-healthy / no-errors assertions once BN1/BN2/BN3 are in the topology.
+assertions: []
