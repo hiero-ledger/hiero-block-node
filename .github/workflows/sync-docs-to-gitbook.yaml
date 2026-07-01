@@ -58,10 +58,11 @@ jobs:
           fi
           BRANCH="sync/block-node-docs"
           git checkout -b "$BRANCH"
-          # -s adds the DCO Signed-off-by trailer that hiero-docs requires (matches the bot author).
-          git commit -s -m "chore: sync block-node docs from hiero-block-node@${GITHUB_SHA::7}"
+          # --signoff adds the DCO Signed-off-by trailer that hiero-docs requires (matches the bot author).
+          git commit --signoff -m "chore: sync block-node docs from hiero-block-node@${GITHUB_SHA::7}"
           # Push to a dedicated branch (master is protected; a direct push is rejected).
-          git push --force origin "$BRANCH"
+          # --set-upstream binds local and remote, reducing opportunity for mistakes.
+          git push --force --set-upstream origin "$BRANCH"
           # Open the PR if one isn't already open for this branch; otherwise the existing PR auto-updates.
           if gh pr view "$BRANCH" --repo hiero-ledger/hiero-docs >/dev/null 2>&1; then
             echo "Sync PR already open for $BRANCH; it now reflects the latest docs."
