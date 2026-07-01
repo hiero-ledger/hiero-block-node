@@ -29,7 +29,6 @@ import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -851,8 +850,6 @@ class SubscriberServicePluginTest {
                      */
                     @Test
                     @DisplayName("Test Subscriber: Valid Request Live Stream From Live Then History")
-                    @Disabled(
-                            "@todo(1673) should not be failing, we fail because history not permitted, we think we jump ahead")
                     void testSuccessfulRequestLiveStreamFromLiveThenHistory() {
                         // First we create the blocks
                         final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
@@ -876,8 +873,8 @@ class SubscriberServicePluginTest {
                         // now we need to stop the plugin to end the live stream request and
                         // receive the success status response
                         plugin.stop();
-                        final int expectedResponses = (2 * blocksZeroToTwo.size())
-                                + 1; // three with items and end of block, one with success status
+                        // two with items (because we start from block 1), one with success status
+                        final int expectedResponses = (blocksZeroToTwo.size() - 1) + 1;
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
                                 .hasSize(expectedResponses)
@@ -1219,6 +1216,9 @@ class SubscriberServicePluginTest {
                 final BlockItem last = actual.getLast();
             } else if (subscribeResponse.hasEndOfBlock()) {
                 assertEndOfBlock(subscribeResponse, currentBlockNumber);
+                currentBlockNumber = -1;
+            } else if (subscribeResponse.hasStatus()) {
+                // skip "Status" responses.
                 currentBlockNumber = -1;
             } else {
                 fail("Unexpected response type %s."
