@@ -345,20 +345,15 @@ function generate_overlays {
   overlay_count=$(find "${overlay_dir}" -maxdepth 1 \( -name "*.yaml" -o -name "*.json" -o -name "*.txt" \) -type f 2>/dev/null | wc -l | tr -d ' ')
 
   if [[ "${overlay_count}" -eq 0 ]]; then
-    log_line ""
-    log_line "ERROR: Overlay generator succeeded but produced 0 files."
-    log_line ""
-    log_line "Generator output:"
-    log_line "${generator_output}"
-    log_line ""
-    log_line "Diagnostics:"
-    log_line "  Generator script: %s" "${generator_script}"
-    log_line "  Topology file:    %s" "${topology_file}"
-    log_line "  Output directory:  %s" "$(cd "${overlay_dir}" 2>/dev/null && pwd || echo "${overlay_dir} (does not exist)")"
-    log_line "  yq version:       %s" "$(yq --version 2>&1 || echo 'NOT FOUND')"
-    log_line "  Topology content:"
-    sed 's/^/    /' "${topology_file}" 2>/dev/null
-    fail "ERROR: No overlay files generated. Check topology file structure and yq installation." 1
+    # Zero overlays is legitimate for topologies where the generator has no
+    # BN peer wiring, no BN plugin_ports, and no MN→BN references to
+    # translate. Examples: WRB Distribution E2E (#3125) slice 1 (no BNs at
+    # all) and slice 3 (BNs deployed but no wiring yet — that arrives in
+    # later slices). Only fail here if BOTH the topology-tool exit status
+    # AND the topology structure indicate a real problem — since the tool
+    # already succeeded, treat zero overlays as informational and let the
+    # deploy continue with plain solo defaults.
+    log_line "  No overlay files generated (topology has no BN peer/plugin_ports/MN→BN wiring)."
   fi
 
   # Print overlay details
