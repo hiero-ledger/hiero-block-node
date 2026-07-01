@@ -2,6 +2,7 @@
 name: Sync docs to hiero-docs hub
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -43,11 +44,30 @@ jobs:
           mkdir -p hiero-docs/block-node
           cp -r block-node/docs/. hiero-docs/block-node/
 
-      - name: Commit and push
+      - name: Commit and open PR
         working-directory: hiero-docs
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add block-node/
-          git diff --staged --quiet || git commit -m "chore: sync block-node docs from hiero-block-node"
-          git push
+          if git diff --staged --quiet; then
+            echo "No block-node doc changes to sync."
+            exit 0
+          fi
+          BRANCH="sync/block-node-docs"
+          git checkout -b "$BRANCH"
+          # -s adds the DCO Signed-off-by trailer that hiero-docs requires (matches the bot author).
+          git commit -s -m "chore: sync block-node docs from hiero-block-node@${GITHUB_SHA::7}"
+          # Push to a dedicated branch (master is protected; a direct push is rejected).
+          git push --force origin "$BRANCH"
+          # Open the PR if one isn't already open for this branch; otherwise the existing PR auto-updates.
+          if gh pr view "$BRANCH" --repo hiero-ledger/hiero-docs >/dev/null 2>&1; then
+            echo "Sync PR already open for $BRANCH; it now reflects the latest docs."
+          else
+            gh pr create --repo hiero-ledger/hiero-docs \
+              --base master --head "$BRANCH" \
+              --title "chore: sync block-node docs from hiero-block-node" \
+              --body "Automated sync of \`block-node/\` docs from hiero-block-node@${GITHUB_SHA::7} by the sync-docs-to-gitbook workflow."
+          fi
