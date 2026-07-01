@@ -67,9 +67,23 @@ log "CLI built: ${CLI_LIB}"
 # registers the helper functions (`download_record_files_from_minio` /
 # `download_record_files_from_cn`) without kicking off the full comparison
 # flow. The guard was added in the same series of commits as this script.
+#
+# NOTE: sourcing wrb-sequential-comparison.sh also imports its file-scope
+# variables (WORK_DIR="/tmp/wrb-test-$$" and WRAPPED_BLOCKS_DIR), which
+# clobber ours. Snapshot our paths, source, then restore them so downstream
+# `${WORK_DIR}/...` interpolations resolve to our directory tree.
+_SAVED_WORK_DIR="${WORK_DIR}"
+_SAVED_RECORDS_DIR="${RECORDS_DIR}"
+_SAVED_DAYS_DIR="${DAYS_DIR}"
+_SAVED_WRAPPED_DIR="${WRAPPED_DIR}"
 log "Sourcing record-download helpers from wrb-sequential-comparison.sh..."
 # shellcheck disable=SC1090
 source "${COMPARISON_SCRIPT}"
+WORK_DIR="${_SAVED_WORK_DIR}"
+RECORDS_DIR="${_SAVED_RECORDS_DIR}"
+DAYS_DIR="${_SAVED_DAYS_DIR}"
+WRAPPED_DIR="${_SAVED_WRAPPED_DIR}"
+unset _SAVED_WORK_DIR _SAVED_RECORDS_DIR _SAVED_DAYS_DIR _SAVED_WRAPPED_DIR
 
 log "Downloading up to ${MAX_RECORD_FILES} record files from MinIO..."
 download_record_files_from_minio "${RECORDS_DIR}" "${MAX_RECORD_FILES}" \
