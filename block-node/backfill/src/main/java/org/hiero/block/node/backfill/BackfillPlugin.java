@@ -433,7 +433,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     }
 
     /**
-     * {@inheritDoc}
+     * Handles a persisted notification, dispatched from {@link #handleNotification}.
      */
     void handlePersisted(PersistedNotification notification) {
         if (notification.blockSource() == BlockSource.BACKFILL) {
@@ -450,7 +450,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     }
 
     /**
-     * {@inheritDoc}
+     * Handles a verification notification, dispatched from {@link #handleNotification}.
      */
     void handleVerification(VerificationNotification notification) {
         if (notification.source() == BlockSource.BACKFILL) {

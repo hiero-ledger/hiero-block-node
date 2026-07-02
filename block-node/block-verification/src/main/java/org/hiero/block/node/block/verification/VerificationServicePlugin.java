@@ -186,8 +186,8 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
         }
     }
 
-    /// {@inheritDoc}
-    /// ---
+    /// Handles a backfilled block notification, dispatched from [#handleNotification].
+    ///
     /// This is where we receive blocks from backfill.
     /// We will always receive a complete block, one per notification.
     /// We can safely wrap the block as [BlockItems] which is both the start

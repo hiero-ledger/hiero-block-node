@@ -400,7 +400,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
     }
 
-    /// {@inheritDoc}
+    /// Handles a verification notification, dispatched from [#handleNotification].
     ///
     /// This method handles verification notifications from the block messaging
     /// facility. Only in cases of failed verification, given that the block
@@ -434,7 +434,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
     }
 
-    /// {@inheritDoc}
+    /// Handles a persisted notification, dispatched from [#handleNotification].
     ///
     /// Here, we check the new persisted block number against the last persisted
     /// block number, and only send acknowledgements if the new persisted block
