@@ -37,8 +37,6 @@ mainModuleInfo {
     runtimeOnly("org.testcontainers")
     runtimeOnly("org.testcontainers.junit.jupiter")
     runtimeOnly("s3mock.testcontainers")
-
-    // Block node plugins needed for in-JVM tests (BlockNodeAPITests)
 }
 
 // =============================================================================
