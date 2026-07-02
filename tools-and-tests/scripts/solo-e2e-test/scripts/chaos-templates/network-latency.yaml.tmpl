@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# NetworkChaos template — parametric latency injection.
+#
+# Filled at apply time by solo-test-runner.sh via envsubst. All ${...}
+# placeholders must be set in the environment before substitution. Optional
+# blocks (LOSS_BLOCK) hold either a YAML chunk or empty string.
+#
+# Pod-label selectors (note the two namespaces: CN pods are labelled by Solo CLI,
+# BN pods by the BN Helm chart — each side must select with the matching namespace):
+#   CN side  → solo.hedera.com/type=network-node
+#   BN side  → block-node.hiero.com/type=block-node
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: ${CHAOS_NAME}
+  namespace: chaos-mesh
+  labels:
+    solo-e2e-test/test-id: "${TEST_ID}"
+    solo-e2e-test/scenario-id: "${SCENARIO_ID}"
+    solo-e2e-test/managed-by: solo-test-runner
+spec:
+  action: netem
+  mode: all
+  direction: ${DIRECTION}
+  selector:
+    namespaces:
+      - ${TARGET_NAMESPACE}
+    labelSelectors:
+      ${SOURCE_LABEL_KEY}: ${SOURCE_LABEL_VALUE}
+  target:
+    mode: all
+    selector:
+      namespaces:
+        - ${TARGET_NAMESPACE}
+      labelSelectors:
+        ${TARGET_LABEL_KEY}: ${TARGET_LABEL_VALUE}
+  delay:
+    latency: '${LATENCY}'
+    jitter: '${JITTER}'
+    correlation: '${CORRELATION}'
+${LOSS_BLOCK}

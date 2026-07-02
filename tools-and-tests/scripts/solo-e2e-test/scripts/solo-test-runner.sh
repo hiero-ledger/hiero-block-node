@@ -57,6 +57,36 @@ ASSERTIONS_FAILED=0
 ASSERTION_RESULTS_FILE="/tmp/solo-test-assert-results-$$"
 : > "${ASSERTION_RESULTS_FILE}"
 
+# Chaos: track applied NetworkChaos resource names so we can clean up on exit
+# even if the test fails between inject-latency and clear-latency.
+#
+# Cleanup contract:
+#   - execute_inject_latency appends the resource name to CHAOS_ACTIVE_FILE.
+#   - execute_clear_latency removes it on graceful clear.
+#   - cleanup_chaos_on_exit (registered on EXIT below) drains any remaining
+#     names so a crash between inject and clear doesn't leak NetworkChaos
+#     resources into the cluster.
+# The file is PID-scoped (`$$`), so two concurrent runner invocations in the
+# same shell session don't share state. Running two test runners in parallel
+# is not a supported workflow anyway.
+CHAOS_TEMPLATE_DIR="${CHAOS_TEMPLATE_DIR:-${SCRIPT_DIR}/chaos-templates}"
+CHAOS_ACTIVE_FILE="/tmp/solo-test-chaos-active-$$"
+: > "${CHAOS_ACTIVE_FILE}"
+
+function cleanup_chaos_on_exit {
+    if [[ -s "${CHAOS_ACTIVE_FILE}" ]]; then
+        echo ""
+        echo "Cleaning up active NetworkChaos resources..."
+        while IFS= read -r name; do
+            [[ -z "$name" ]] && continue
+            kctl delete networkchaos -n chaos-mesh "$name" --ignore-not-found 2>/dev/null \
+                | sed 's/^/  /' || true
+        done < "${CHAOS_ACTIVE_FILE}"
+    fi
+    rm -f "${CHAOS_ACTIVE_FILE}" 2>/dev/null
+}
+trap cleanup_chaos_on_exit EXIT
+
 
 # ============================================================================
 # Argument Parsing
@@ -482,6 +512,145 @@ function execute_reconfigure_cn_streaming {
     echo "CN ${cn_name} reconfigured to stream to: $(echo "$block_nodes_json" | yq -r '. | join(", ")')"
 }
 
+# ============================================================================
+# Chaos / Network Latency Helpers
+# ============================================================================
+# Maps the user-facing 'kind' to the actual pod label selector (key=value)
+# present in solo-e2e-test deployments. CN pods use the solo.hedera.com/*
+# namespace (emitted by Solo CLI) while BN pods use block-node.hiero.com/*
+# (emitted by the BN Helm chart).
+function chaos_label_selector {
+    case "$1" in
+        network-node) echo "solo.hedera.com/type=network-node" ;;
+        block-node)   echo "block-node.hiero.com/type=block-node" ;;
+        *) echo "ERROR: unknown chaos kind: '$1' (expected: network-node | block-node)" >&2; return 1 ;;
+    esac
+}
+
+# Slug a string into a Kubernetes-name-safe lowercase token.
+function chaos_slug {
+    echo "$1" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//'
+}
+
+# Deterministic NetworkChaos resource name for a (test, scenario) pair.
+# Used by both inject-latency and clear-latency so they cannot disagree on the
+# resource name a future clear must target.
+function chaos_resource_name {
+    local scenario_name="$1"
+    local n="$(chaos_slug "${TEST_NAME}")--$(chaos_slug "${scenario_name}")"
+    echo "${n:0:63}"
+}
+
+function execute_inject_latency {
+    local args="$1"
+    local name source_kind target_kind latency jitter correlation bidirectional loss
+    name=$(echo "$args" | yq '.name // ""')
+    source_kind=$(echo "$args" | yq '.source.kind // ""')
+    target_kind=$(echo "$args" | yq '.target.kind // ""')
+    latency=$(echo "$args" | yq '.latency // "0ms"')
+    jitter=$(echo "$args" | yq '.jitter // "0ms"')
+    correlation=$(echo "$args" | yq '.correlation // "0"')
+    bidirectional=$(echo "$args" | yq '.bidirectional // true')
+    loss=$(echo "$args" | yq '.loss // ""')
+
+    [[ -z "$name" || "$name" == "null" ]] && { echo "ERROR: inject-latency requires args.name"; return 1; }
+    [[ -z "$source_kind" || "$source_kind" == "null" ]] && { echo "ERROR: inject-latency requires args.source.kind"; return 1; }
+    [[ -z "$target_kind" || "$target_kind" == "null" ]] && { echo "ERROR: inject-latency requires args.target.kind"; return 1; }
+
+    # Retry the CRD check — kubectl can return non-zero transiently after
+    # Chaos Mesh install (CRD propagation lag) or under cluster API-server load.
+    # Observed in a 3× flake check: 3×1s wasn't enough; this is 6×2s = up to 12s.
+    local crd_attempts=0
+    local crd_max=6
+    while [[ $crd_attempts -lt $crd_max ]]; do
+        if kctl api-resources --api-group=chaos-mesh.org -o name 2>/dev/null | grep -q networkchaos; then
+            break
+        fi
+        crd_attempts=$((crd_attempts + 1))
+        [[ $crd_attempts -lt $crd_max ]] && sleep 2
+    done
+    if [[ $crd_attempts -ge $crd_max ]]; then
+        echo "ERROR: Chaos Mesh CRDs not present after ${crd_max} retries. Run: CHAOS_ENABLED=true task chaos:install"
+        return 1
+    fi
+
+    local source_selector target_selector
+    source_selector=$(chaos_label_selector "$source_kind") || return 1
+    target_selector=$(chaos_label_selector "$target_kind") || return 1
+    local source_key="${source_selector%%=*}" source_val="${source_selector#*=}"
+    local target_key="${target_selector%%=*}" target_val="${target_selector#*=}"
+
+    if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
+            --selector "${source_selector}" --label "source(${source_kind})"; then
+        return 1
+    fi
+    if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
+            --selector "${target_selector}" --label "target(${target_kind})"; then
+        return 1
+    fi
+
+    local chaos_name direction loss_block
+    chaos_name=$(chaos_resource_name "${name}")
+
+    if [[ "${bidirectional}" == "true" ]]; then
+        direction="both"
+    else
+        direction="to"
+    fi
+
+    if [[ -n "${loss}" && "${loss}" != "null" && "${loss}" != "0%" && "${loss}" != "0" ]]; then
+        loss_block=$(printf "  loss:\n    loss: '%s'\n    correlation: '%s'" "${loss}" "${correlation}")
+    else
+        loss_block=""
+    fi
+
+    local manifest="/tmp/${chaos_name}.yaml"
+    export CHAOS_NAME="${chaos_name}"
+    export TEST_ID="$(chaos_slug "${TEST_NAME}")"
+    export SCENARIO_ID="$(chaos_slug "${name}")"
+    export DIRECTION="${direction}"
+    export TARGET_NAMESPACE="${NAMESPACE}"
+    export SOURCE_LABEL_KEY="${source_key}"
+    export SOURCE_LABEL_VALUE="${source_val}"
+    export TARGET_LABEL_KEY="${target_key}"
+    export TARGET_LABEL_VALUE="${target_val}"
+    export LATENCY="${latency}"
+    export JITTER="${jitter}"
+    export CORRELATION="${correlation}"
+    export LOSS_BLOCK="${loss_block}"
+
+    envsubst < "${CHAOS_TEMPLATE_DIR}/network-latency.yaml.tmpl" > "${manifest}"
+
+    echo "Applying NetworkChaos '${chaos_name}'"
+    echo "  selector: ${source_key}=${source_val}  ->  target: ${target_key}=${target_val}"
+    echo "  delay: ${latency} +/- ${jitter} (correlation: ${correlation}, direction: ${direction})"
+    [[ -n "${loss_block}" ]] && echo "  loss: ${loss}"
+
+    kctl apply -f "${manifest}"
+
+    echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
+}
+
+function execute_clear_latency {
+    local args="$1"
+    local name chaos_name
+    name=$(echo "$args" | yq '.name // ""')
+    [[ -z "$name" || "$name" == "null" ]] && { echo "ERROR: clear-latency requires args.name"; return 1; }
+
+    chaos_name=$(chaos_resource_name "${name}")
+
+    echo "Deleting NetworkChaos '${chaos_name}'"
+    kctl delete networkchaos -n chaos-mesh "${chaos_name}" --ignore-not-found
+
+    if [[ -f "${CHAOS_ACTIVE_FILE}" ]]; then
+        grep -vx "${chaos_name}" "${CHAOS_ACTIVE_FILE}" > "${CHAOS_ACTIVE_FILE}.new" 2>/dev/null || true
+        mv -f "${CHAOS_ACTIVE_FILE}.new" "${CHAOS_ACTIVE_FILE}" 2>/dev/null || true
+    fi
+}
+
+# ============================================================================
+# Event Dispatch
+# ============================================================================
 function execute_event {
     local event_type="$1"
     local target="$2"
@@ -556,6 +725,12 @@ function execute_event {
             ;;
         reconfigure-cn-streaming)
             execute_reconfigure_cn_streaming "$args"
+            ;;
+        inject-latency)
+            execute_inject_latency "$args"
+            ;;
+        clear-latency)
+            execute_clear_latency "$args"
             ;;
         *)
             echo "ERROR: Unknown event type: $event_type"
@@ -983,6 +1158,21 @@ function assert_signature_transition {
     fi
 }
 
+# ============================================================================
+# Phase 3: latency-aware assertion primitives — sourced from a separate library
+# so they can be exercised by fixture-based unit tests without invoking the
+# runner's CLI parsing.
+#
+# To add a new latency-aware assertion: add the implementation in
+# scripts/lib/chaos-assertions.sh and a dispatch case in run_assertion() below.
+# Fixture-based unit tests live at scripts/test/test-chaos-assertions.sh.
+# ============================================================================
+# shellcheck source=lib/chaos-assertions.sh
+source "${SCRIPT_DIR}/lib/chaos-assertions.sh"
+
+# ============================================================================
+# Assertion Dispatch
+# ============================================================================
 function run_assertion {
     local assert_type="$1"
     local target="$2"
@@ -1026,6 +1216,45 @@ function run_assertion {
             local min_rsa_success
             min_rsa_success=$(echo "$args" | yq '.min_rsa_success // 1')
             assert_rsa_roster_verification "$target" "$min_rsa_success"
+            ;;
+        metric-threshold)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local mt_metric mt_op mt_value mt_samples mt_wait
+            mt_metric=$(echo "$args" | yq '.metric // ""')
+            mt_op=$(echo "$args" | yq '.comparator // ">"')
+            mt_value=$(echo "$args" | yq '.value // 0')
+            mt_samples=$(echo "$args" | yq '.samples // 1')
+            mt_wait=$(echo "$args" | yq '.wait_seconds // 0')
+            if [[ -z "$mt_metric" || "$mt_metric" == "null" ]]; then
+                echo "ERROR: metric-threshold requires args.metric"
+                return 1
+            fi
+            assert_metric_threshold "$target" "$mt_metric" "$mt_op" "$mt_value" "$mt_samples" "$mt_wait"
+            ;;
+        block-rate-floor)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local brf_min brf_window
+            brf_min=$(echo "$args" | yq '.min_rate_per_sec // 0')
+            brf_window=$(echo "$args" | yq '.window_seconds // 30')
+            assert_block_rate_floor "$target" "$brf_min" "$brf_window"
+            ;;
+        backfill-triggered)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local bt_grep bt_since
+            bt_grep=$(echo "$args" | yq '.grep // "backfill"')
+            bt_since=$(echo "$args" | yq '.since_seconds // 300')
+            assert_log_match "$target" "$bt_grep" "$bt_since"
+            ;;
+        log-match)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local lm_grep lm_since
+            lm_grep=$(echo "$args" | yq '.grep // ""')
+            lm_since=$(echo "$args" | yq '.since_seconds // 300')
+            if [[ -z "$lm_grep" || "$lm_grep" == "null" ]]; then
+                echo "ERROR: log-match requires args.grep"
+                return 1
+            fi
+            assert_log_match "$target" "$lm_grep" "$lm_since"
             ;;
         *)
             echo "Unknown assertion type: $assert_type"
@@ -1315,4 +1544,7 @@ function main {
     print_summary
 }
 
-main
+# Run main only when executed directly; allow sourcing for fixture-based unit tests.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main
+fi
