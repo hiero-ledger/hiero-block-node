@@ -8,8 +8,10 @@
 #   __BN_TAG__       -> base/snapshot version (seed-plugins must run the matching solo-dev image)
 #   __PLUGIN_NAMES__ -> comma-separated plugins to keep (profile); empty = keep all
 # This CI assumes base and snapshot are both 0.37+ (the chart's `application-state` volume). There is no
-# state-volume rename to handle, so volume names, mount paths, and PVC claims are left to the chart defaults
-# — the default StatefulSet volumeClaimTemplates carry block + state data across the upgrade unchanged.
+# state-volume rename to handle, so volume names, mount paths, and PVC claims are left to the chart defaults.
+# solo-provisioner provisions the PVCs (from solo-ci-config.yaml's storage paths) as static hostPath
+# existingClaims and injects them into the chart; being provisioner-owned, they persist across the upgrade and
+# carry block + state data (incl. tss-parameters.bin) unchanged.
 #
 # Mirrors charts/block-node-server/values-overrides/provisoner-perf-values.yaml (perfnet) but sized for a
 # single-node kind cluster with no consensus node.
@@ -132,9 +134,10 @@ blockNode:
         - name: plugins-storage
           mountPath: /plugins-pvc
   # Only the PVC sizes are overridden (kind is small); volume names, mount paths, and PVC claims all use the
-  # chart defaults. With base and snapshot both on 0.37+, the default `application-state` volume is stable
-  # across the upgrade and the StatefulSet's volumeClaimTemplate PVC (holding tss-parameters.bin and block
-  # data) is retained by Kubernetes across the `helm upgrade` — no existingClaim or volume-name pinning needed.
+  # chart defaults. With base and snapshot both on 0.37+, the `application-state` volume name is stable, and
+  # solo-provisioner supplies the state PVC as an existingClaim it owns (from solo-ci-config.yaml's storage
+  # paths), so it persists across the `helm upgrade` with tss-parameters.bin + block data intact — no
+  # existingClaim or volume-name pinning needed here.
   persistence:
     archive:
       size: 1Gi

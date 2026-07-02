@@ -412,9 +412,10 @@ jobs:
 
       # ── PHASE 4: Upgrade (base -> snapshot) + continued ingestion ──────────
       # Base and snapshot are both 0.37+, so the state volume name (application-state) is stable and the
-      # upgrade is a plain `helm upgrade` with no pre-upgrade StatefulSet surgery. Kubernetes retains the
-      # StatefulSet's volumeClaimTemplate PVCs across the upgrade, so block + state data (incl.
-      # tss-parameters.bin) carry over with no extra handling.
+      # upgrade is a plain `helm upgrade` with no pre-upgrade StatefulSet surgery. Storage is backed by
+      # solo-provisioner's static hostPath PVCs (from solo-ci-config.yaml), which it injects into the chart as
+      # existingClaims; those PVCs are provisioner-owned and outlive the StatefulSet, so block + state data
+      # (incl. tss-parameters.bin) carry across the upgrade with no extra handling.
       - name: Upgrade to snapshot version
         run: |
           # The snapshot chart lives in the local OCI registry (pushed above). Derive a snapshot config
@@ -424,7 +425,7 @@ jobs:
             tools-and-tests/scripts/node-operations/solo-ci-config.yaml > /tmp/solo-ci-config-snapshot.yaml
           # Render CI values for the snapshot phase (image tag + plugin profile only). Volume names/layout
           # use the chart defaults (application-state) in both phases, so no per-version volume handling is
-          # needed — the retained volumeClaimTemplate PVC carries the state across the upgrade.
+          # needed — solo-provisioner keeps the same existingClaim state PVC across the upgrade.
           sed -e "s/__BN_TAG__/${{ steps.versions.outputs.SNAP_VERSION }}/g" \
               -e "s/__PLUGIN_NAMES__/${{ steps.versions.outputs.PLUGIN_NAMES }}/g" \
             tools-and-tests/scripts/node-operations/solo-ci-values.yaml > /tmp/solo-ci-values-snap.yaml
@@ -449,9 +450,11 @@ jobs:
       - name: Inspect plugins + TSS state after upgrade
         run: |
           POD="${RELEASE}-block-node-server-0"
-          echo "::group::Seeded plugins on the upgraded pod (expect only one verification-*.jar)"
+          echo "::group::Seeded plugins on the upgraded pod (expect exactly one verification-*.jar)"
+          # Anchor to '^verification-': the new block-verification plugin (if ever baked) must NOT be counted
+          # here — this check is about a single copy of the 'verification' plugin, not the verification family.
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
-            sh -c 'ls -1 /opt/hiero/block-node/app-*/plugins | grep -i verification || true'
+            sh -c 'ls -1 /opt/hiero/block-node/app-*/plugins | grep -E "^verification-.*\.jar$" || true'
           echo "::endgroup::"
           echo "::group::State mount + TSS path/load on the upgraded 0.37 pod"
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
