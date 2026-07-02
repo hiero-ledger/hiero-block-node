@@ -48,19 +48,21 @@ assert_get_block() {
 # block header for every block in [first,last] and terminates with a SUCCESS status. -emit-defaults is
 # required so block 0's header.number (proto3 default 0) and the terminal status are actually rendered.
 # Recursive-descent jq (`.. | .blockHeader?`) tolerates the BlockItemSet response nesting.
+# The (potentially large) raw stream is written to a temp file and parsed from there — never echoed — so
+# it doesn't bloat the run log under `set -x`. Only the one-line summary + verdict are printed.
 assert_subscribe() {
-  local first="$1" last="$2" out nums count min max status expected_count
+  local first="$1" last="$2" tmp count min max status expected_count
   expected_count=$((last - first + 1))
-  out=$(grpcurl -plaintext -emit-defaults -max-msg-sz 268435456 \
+  tmp=$(mktemp)
+  grpcurl -plaintext -emit-defaults -max-msg-sz 268435456 \
     -import-path "${PROTO_PATH}" -proto block-node/api/block_stream_subscribe_service.proto \
     -d "{\"start_block_number\": ${first}, \"end_block_number\": ${last}}" \
     "localhost:${SERVER_PORT}" \
-    org.hiero.block.api.BlockStreamSubscribeService/subscribeBlockStream)
-  nums=$(echo "${out}" | jq -rs '[.. | .blockHeader? | objects | .number] | map(tonumber) | unique')
-  count=$(echo "${nums}" | jq 'length')
-  min=$(echo "${nums}" | jq 'min // -1')
-  max=$(echo "${nums}" | jq 'max // -1')
-  status=$(echo "${out}" | jq -rs '[.. | .status? | strings] | last // "MISSING"')
+    org.hiero.block.api.BlockStreamSubscribeService/subscribeBlockStream > "${tmp}"
+  IFS=$'\t' read -r count min max < <(jq -rs \
+    '[.. | .blockHeader? | objects | .number | tonumber] | unique | [length, (min // -1), (max // -1)] | @tsv' "${tmp}")
+  status=$(jq -rs '[.. | .status? | strings] | last // "MISSING"' "${tmp}")
+  rm -f "${tmp}"
   echo "subscribe ${first}..${last}: headers=${count} range=${min}..${max} status=${status}"
   if [[ "${status}" != "SUCCESS" ]]; then
     echo "::error::subscribe(${first}..${last}) terminal status '${status}' != SUCCESS"
