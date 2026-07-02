@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+# WRB Distribution E2E — Steps 6+7 (#3125)
+#
+# Same DEPLOY-TIME shape as wrb-distribution-step345: 3 CNs v0.75 + MN1 v0.157.1,
+# no Block Node.  BNs are added POST-deploy by command events in the test
+# definition (`scripts/wrb-distribution/add-bn.sh 1|2|3`), and slice 4 layers
+# on the MN reconfiguration and MN2 install:
+#
+#     Steps 1-2: Solo brings up CNs + MN1, wrb-cli starts wrapping into a live loop.
+#     Steps 3-5: Add BN1 / BN2 / BN3 with EMB=0 / 0 / 100_000_000 after wrap is running.
+#     Step 6:    Reconfigure MN1 to pull live blocks from BN2 and BN3 (bucket remains
+#                as records backup).
+#     Step 7:    Install a 2nd MN (MN2 v0.157.1) pointing at BN2 and BN3 with no bucket
+#                reference, so it pulls blocks from genesis.
+#
+# See the wrb-distribution-step345.yaml topology comment for why we keep BN
+# installation post-deploy (Solo skips MinIO tenant install when BNs are
+# declared at deploy time).  MN2 is likewise added post-deploy so the runner's
+# deploy-time visibility doesn't need to change.
+
+name: wrb-distribution-step67
+description: "WRB distribution E2E (#3125) — steps 1-7: CN+MN1 baseline, BN1/BN2/BN3 with EMB, MN1 reconfigured to BN2+BN3, MN2 pulling from genesis"
+
+# No Block Nodes at deploy time.  See topology comment above.
+block_nodes: {}
+
+consensus_nodes:
+  node1: {}
+  node2: {}
+  node3: {}
+
+mirror_nodes:
+  mirror-1: {}
+
+relay_nodes: {}
+
+explorer_nodes: {}
