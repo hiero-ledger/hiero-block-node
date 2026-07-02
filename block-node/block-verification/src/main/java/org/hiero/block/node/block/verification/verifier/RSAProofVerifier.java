@@ -66,12 +66,12 @@ public final class RSAProofVerifier implements ProofVerifier {
     @Override
     public SessionFailureType verify() {
         final SessionFailureType result;
-        // Guard: address book must be loaded before any WRB arrives
+        // Guard: no era in the address book history covers this block number
         if (rsaKeyByNodeId.isEmpty()) {
             LOGGER.log(
                     ERROR,
-                    "Address book is empty — cannot verify RSA WRB proof for block {0}."
-                            + " Ensure RsaRosterBootstrapPlugin started successfully.",
+                    "No address book era covers block {0} — cannot verify RSA WRB proof."
+                            + " Ensure rsa-address-book-history.json is loaded and covers this block number.",
                     blockNumber);
             result = SessionFailureType.MISSING_VERIFICATION_DATA;
         } else if (signedWRBPayload == null) {
@@ -94,22 +94,18 @@ public final class RSAProofVerifier implements ProofVerifier {
             // a duplicate entry in the proof from inflating validCount.
             final int rosterSize = rsaKeyByNodeId.size();
             int validCount = 0;
-            int mismatchCount = 0;
             final Set<Long> validatedNodes = new HashSet<>();
             for (final RecordFileSignature sig : proof.recordFileSignatures()) {
                 final long nodeId = sig.nodeId();
-                // @todo(2808): long-term, use a historical roster keyed by block number so signatures
-                //   from nodes that were valid at the time the block was produced are verified correctly
-                //   across address-book transitions, rather than skipping unknown node IDs.
                 final PublicKey publicKey = rsaKeyByNodeId.get(nodeId);
                 if (publicKey == null) {
-                    mismatchCount++;
                     LOGGER.log(
                             DEBUG,
-                            "Signature from node {0} not in address book (block {1}) — skipped",
+                            "Signature from node {0} not in era address book for block {1} — rejecting block",
                             nodeId,
                             blockNumber);
-                    continue;
+                    proofVerificationMetrics.rsaFailure().increment();
+                    return SessionFailureType.BAD_BLOCK_PROOF;
                 }
                 if (validatedNodes.contains(nodeId)) {
                     LOGGER.log(DEBUG, "Duplicate signature from node {0} in block {1} — skipped", nodeId, blockNumber);
@@ -131,7 +127,7 @@ public final class RSAProofVerifier implements ProofVerifier {
                         // CN only includes signatures from consensus-contributing nodes, so a failed
                         // cryptographic verification means the block or proof has been tampered with.
                         LOGGER.log(
-                                WARNING,
+                                DEBUG,
                                 "RSA signature from node {0} failed verification in block {1} — rejecting block",
                                 nodeId,
                                 blockNumber);
@@ -151,14 +147,9 @@ public final class RSAProofVerifier implements ProofVerifier {
                     return SessionFailureType.UNKNOWN_ERROR;
                 }
             }
-            if (mismatchCount > 0) {
-                proofVerificationMetrics.rsaRosterMismatch().increment(mismatchCount);
-            }
             // Acceptance threshold: every signature present in the proof passes validation,
-            // and at least one such signature exists. Signatures from nodes not in the local
-            // roster are skipped (see @todo(2808)).
-            // Because we fail fast on any failed verification, reaching this
-            // point means all verifiable signatures passed.
+            // and at least one such signature exists. Because we fail fast on any failed
+            // verification, reaching this point means all verifiable signatures passed.
             final boolean accepted = validCount > 0;
             if (accepted) {
                 LOGGER.log(

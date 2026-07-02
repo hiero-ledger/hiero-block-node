@@ -27,13 +27,11 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
-import java.security.PublicKey;
 import java.security.Signature;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -44,6 +42,8 @@ import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.zip.GZIPInputStream;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.internal.BlockUnparsed;
@@ -55,7 +55,6 @@ import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacil
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
-import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -465,61 +464,6 @@ class VerificationServicePluginTest
                 "First-write-wins: block 0 must not overwrite file-loaded ledger ID");
     }
 
-    // ==== RSA Address Book / onContextUpdate Tests ==================================================================
-
-    @Test
-    @DisplayName("onContextUpdate with non-empty address book rebuilds keyByNodeId")
-    void onContextUpdate_nonEmptyBook_rebuildsKeyMap() throws Exception {
-        // Build a minimal NodeAddress with a real RSA public key encoded as hex-DER.
-        // 2048-bit RSA keys are used for test speed only — production network uses 4096-bit keys.
-        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(2048);
-        final KeyPair kp = kpg.generateKeyPair();
-        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
-
-        final NodeAddress addr =
-                NodeAddress.newBuilder().nodeId(7L).rsaPubKey(hexKey).build();
-        final NodeAddressBook book =
-                NodeAddressBook.newBuilder().nodeAddress(List.of(addr)).build();
-
-        plugin.onContextUpdate(contextWithAddressBook(book));
-
-        final Map<Long, PublicKey> rebuiltKeyMap = readKeyByNodeId();
-        assertEquals(
-                1, rebuiltKeyMap.size(), "Key map must contain exactly one entry after a 1-node book is delivered");
-        assertNotNull(rebuiltKeyMap.get(7L), "Node 7's RSA public key must be present in the rebuilt key map");
-    }
-
-    @Test
-    @DisplayName("onContextUpdate with empty address book logs warning and retains existing key map")
-    void onContextUpdate_emptyBook_retainsKeyMap() throws Exception {
-        // First populate the key map with a real 1-node book.
-        final Map<Long, PublicKey> populatedMap = seedKeyMapWithSingleNode(7L);
-
-        // Now deliver an empty book — onContextUpdate must early-return and leave the map intact.
-        plugin.onContextUpdate(contextWithAddressBook(NodeAddressBook.DEFAULT));
-
-        assertEquals(
-                populatedMap,
-                readKeyByNodeId(),
-                "Empty NodeAddressBook must not reset the previously loaded RSA key map");
-    }
-
-    @Test
-    @DisplayName("onContextUpdate with null NodeAddressBook logs warning and retains existing key map")
-    void onContextUpdate_nullBook_retainsKeyMap() throws Exception {
-        // First populate the key map with a real 1-node book.
-        final Map<Long, PublicKey> populatedMap = seedKeyMapWithSingleNode(11L);
-
-        // Now deliver a null book — onContextUpdate must early-return and leave the map intact.
-        plugin.onContextUpdate(contextWithAddressBook(null));
-
-        assertEquals(
-                populatedMap,
-                readKeyByNodeId(),
-                "Null NodeAddressBook must not reset the previously loaded RSA key map");
-    }
-
     @Test
     @DisplayName("RSA WRB end-to-end: valid signed block verifies through the plugin and notification is success=true")
     void rsaWrb_endToEnd_validBlock_notificationSucceeds() throws Exception {
@@ -597,6 +541,159 @@ class VerificationServicePluginTest
         assertNotNull(notification.block(), "Block must be present in the success notification");
     }
 
+    @Test
+    @DisplayName("RSA WRB: block number outside all address book eras fails with NO_MATCHING_ADDRESS_BOOK")
+    void rsaWrb_blockOutsideAllEras_failsVerification() throws Exception {
+        // Build a 1-node address book covering only blocks 1000–2000.
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        final KeyPair kp = kpg.generateKeyPair();
+        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
+        final NodeAddressBook book = NodeAddressBook.newBuilder()
+                .nodeAddress(List.of(
+                        NodeAddress.newBuilder().nodeId(0L).rsaPubKey(hexKey).build()))
+                .build();
+        final RangedAddressBookHistory history = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(book)
+                        .startBlock(1000L)
+                        .endBlock(2000L)
+                        .build()))
+                .build();
+        updateAddressBookHistory(history);
+
+        // Build a minimal WRB block for block number 50 — outside the covered range.
+        final long blockNumber = 50L;
+        final SemanticVersion hapiVersion = new SemanticVersion(1, 0, 0, "", "");
+        final SemanticVersion swVersion = new SemanticVersion(1, 0, 0, "", "");
+        final BlockHeader header = new BlockHeader(
+                hapiVersion, swVersion, blockNumber, new Timestamp(1_700_000_000L, 0), BlockHashAlgorithm.SHA2_384);
+        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        // The signature content is irrelevant — the block will be rejected before signature verification.
+        final BlockProof proof = BlockProof.newBuilder()
+                .block(blockNumber)
+                .signedRecordFileProof(
+                        new SignedRecordFileProof(6, List.of(new RecordFileSignature(Bytes.wrap(new byte[256]), 0L))))
+                .build();
+        final byte[] recordFileBytes = "content".getBytes();
+        final java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        bos.write(0x12);
+        bos.write(recordFileBytes.length);
+        bos.write(recordFileBytes);
+        final List<BlockItemUnparsed> items = List.of(
+                BlockItemUnparsed.newBuilder()
+                        .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .recordFile(Bytes.wrap(bos.toByteArray()))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                        .build());
+
+        blockMessaging.sendBlockItems(new BlockItems(items, blockNumber, true, true));
+
+        final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications();
+        assertFalse(notifications.isEmpty(), "Plugin must emit a notification for the out-of-era WRB block");
+        final VerificationNotification notification = notifications.getLast();
+        assertEquals(blockNumber, notification.blockNumber());
+        assertFalse(notification.success(), "Block outside all address book eras must fail verification");
+        assertNotNull(notification.failureInfo(), "Failure info must be set");
+        assertEquals(
+                VerificationNotification.FailureType.NO_MATCHING_ADDRESS_BOOK,
+                notification.failureInfo().failureType(),
+                "Failure type must be NO_MATCHING_ADDRESS_BOOK for a block outside all eras");
+    }
+
+    @Test
+    @DisplayName("RSA WRB multi-era: block in era 1 verifies with era-1 keys; era-2 key fails same block")
+    void rsaWrb_multiEra_era1BlockVerifiesWithEra1Keys() throws Exception {
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        final KeyPair kp1 = kpg.generateKeyPair(); // era-1 node 0
+        final KeyPair kp2 = kpg.generateKeyPair(); // era-2 node 0 (different key)
+
+        final NodeAddressBook era1Book = NodeAddressBook.newBuilder()
+                .nodeAddress(List.of(NodeAddress.newBuilder()
+                        .nodeId(0L)
+                        .rsaPubKey(HexFormat.of().formatHex(kp1.getPublic().getEncoded()))
+                        .build()))
+                .build();
+        final NodeAddressBook era2Book = NodeAddressBook.newBuilder()
+                .nodeAddress(List.of(NodeAddress.newBuilder()
+                        .nodeId(0L)
+                        .rsaPubKey(HexFormat.of().formatHex(kp2.getPublic().getEncoded()))
+                        .build()))
+                .build();
+
+        final RangedAddressBookHistory history = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(
+                        RangedNodeAddressBook.newBuilder()
+                                .addressBook(era1Book)
+                                .startBlock(0L)
+                                .endBlock(999L)
+                                .build(),
+                        RangedNodeAddressBook.newBuilder()
+                                .addressBook(era2Book)
+                                .startBlock(1000L)
+                                .endBlock(-1L)
+                                .build()))
+                .build();
+        updateAddressBookHistory(history);
+
+        // Build and sign a WRB block in era 1 (block 500) using kp1.
+        final long blockNumber = 500L;
+        final byte[] recordFileBytes = "era1-content".getBytes();
+        final MessageDigest digest = MessageDigest.getInstance("SHA-384");
+        digest.update(new byte[] {0, 0, 0, 6});
+        digest.update(recordFileBytes);
+        final byte[] payload = digest.digest();
+        final Signature engine = Signature.getInstance("SHA384withRSA");
+        engine.initSign(kp1.getPrivate());
+        engine.update(payload);
+        final byte[] sigBytes = engine.sign();
+
+        final java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        bos.write(0x12);
+        bos.write(recordFileBytes.length);
+        bos.write(recordFileBytes);
+
+        final SemanticVersion hapiVersion = new SemanticVersion(1, 0, 0, "", "");
+        final SemanticVersion swVersion = new SemanticVersion(1, 0, 0, "", "");
+        final BlockHeader header = new BlockHeader(
+                hapiVersion, swVersion, blockNumber, new Timestamp(1_700_000_000L, 0), BlockHashAlgorithm.SHA2_384);
+        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        final BlockProof proof = BlockProof.newBuilder()
+                .block(blockNumber)
+                .signedRecordFileProof(
+                        new SignedRecordFileProof(6, List.of(new RecordFileSignature(Bytes.wrap(sigBytes), 0L))))
+                .build();
+        final List<BlockItemUnparsed> items = List.of(
+                BlockItemUnparsed.newBuilder()
+                        .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .recordFile(Bytes.wrap(bos.toByteArray()))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                        .build());
+
+        blockMessaging.sendBlockItems(new BlockItems(items, blockNumber, true, true));
+
+        final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications();
+        assertFalse(notifications.isEmpty(), "Plugin must emit a notification for the era-1 WRB block");
+        final VerificationNotification notification = notifications.getLast();
+        assertEquals(blockNumber, notification.blockNumber());
+        assertTrue(notification.success(), "Era-1 block signed with era-1 key must verify successfully");
+    }
+
     // ==== TSS End-to-End Flow Test ===================================================================================
 
     @Test
@@ -631,50 +728,6 @@ class VerificationServicePluginTest
                 GZIPInputStream gzip = new GZIPInputStream(stream)) {
             return standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(gzip.readAllBytes()));
         }
-    }
-
-    /**
-     * Builds a {@link BlockNodeContext} that mirrors {@link #blockNodeContext} but with
-     * {@code book} as the active {@link NodeAddressBook}. Used by the {@code onContextUpdate}
-     * tests so they can drive different address books through the plugin's rebuild path.
-     */
-    private BlockNodeContext contextWithAddressBook(final NodeAddressBook book) {
-        return new BlockNodeContext.Builder(blockNodeContext)
-                .nodeAddressBook(book)
-                .build();
-    }
-
-    /**
-     * Reads {@link VerificationServicePlugin#keyByNodeId} via reflection so {@code onContextUpdate}
-     * tests can assert what was actually loaded without exposing the field on production code.
-     */
-    @SuppressWarnings("unchecked")
-    private Map<Long, PublicKey> readKeyByNodeId() throws Exception {
-        final Field field = VerificationServicePlugin.class.getDeclaredField("keyByNodeId");
-        field.setAccessible(true);
-        return (Map<Long, PublicKey>) field.get(plugin);
-    }
-
-    /**
-     * Generates a 2048-bit RSA keypair, builds a 1-node {@link NodeAddressBook} with the public
-     * SPKI as {@code rsaPubKey}, delivers it through {@code onContextUpdate}, and returns a
-     * snapshot of the resulting key map.
-     */
-    private Map<Long, PublicKey> seedKeyMapWithSingleNode(final long nodeId) throws Exception {
-        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(2048);
-        final KeyPair kp = kpg.generateKeyPair();
-        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
-        final NodeAddressBook book = NodeAddressBook.newBuilder()
-                .nodeAddress(List.of(NodeAddress.newBuilder()
-                        .nodeId(nodeId)
-                        .rsaPubKey(hexKey)
-                        .build()))
-                .build();
-        plugin.onContextUpdate(contextWithAddressBook(book));
-        final Map<Long, PublicKey> snapshot = Map.copyOf(readKeyByNodeId());
-        assertEquals(1, snapshot.size(), "Seed step must leave exactly one key in the map");
-        return snapshot;
     }
 
     private static class VerificationConfigBuilder {
