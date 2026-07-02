@@ -4,11 +4,11 @@ Long-form companion to the [README's Network Chaos section](../README.md#network
 
 The solo-e2e-test harness can inject configurable network latency in three dimensions:
 
-| Dimension | Source selector | Target selector | Affects |
-|-----------|-----------------|-----------------|---------|
-| **CN ↔ CN** | `solo.hedera.com/type=network-node` | `solo.hedera.com/type=network-node`     | Gossip / consensus rounds |
-| **BN ↔ BN** | `block-node.hiero.com/type=block-node` | `block-node.hiero.com/type=block-node` | Peer backfill mesh |
-| **CN ↔ BN** | `solo.hedera.com/type=network-node` | `block-node.hiero.com/type=block-node`  | Live block-publish stream |
+|  Dimension  |            Source selector             |            Target selector             |          Affects          |
+|-------------|----------------------------------------|----------------------------------------|---------------------------|
+| **CN ↔ CN** | `solo.hedera.com/type=network-node`    | `solo.hedera.com/type=network-node`    | Gossip / consensus rounds |
+| **BN ↔ BN** | `block-node.hiero.com/type=block-node` | `block-node.hiero.com/type=block-node` | Peer backfill mesh        |
+| **CN ↔ BN** | `solo.hedera.com/type=network-node`    | `block-node.hiero.com/type=block-node` | Live block-publish stream |
 
 > **Two label namespaces:** CN pods carry `solo.hedera.com/*` labels (emitted by Solo CLI); BN pods carry `block-node.hiero.com/*` labels (emitted by the BN Helm chart). Each side of a rule must select with the matching namespace.
 
@@ -16,15 +16,16 @@ The solo-e2e-test harness can inject configurable network latency in three dimen
 
 There are three tiers. They share the same event shape and assertions vocabulary; they differ in the **magnitude** of injected latency and in what the assertions are checking for.
 
-| Profile | Test file(s) | Latency (CN↔CN / CN↔BN / BN↔BN) | What it answers | Assertion intent |
-|---------|--------------|----------------------------------|-----------------|------------------|
-| **baseline** | `latency-cn-to-cn`, `latency-cn-to-bn`, `latency-bn-to-bn`, `latency-all-three` | 100±20 / 150±30 / 200±40 ms | Does the network tolerate *normal* cross-AZ/region latency with no visible impact? | Steady block production holds: `block-rate-floor ≥ 0.3 blk/s`, healthy, increasing. |
-| **stress** | `latency-stress` | 300±80 / 450±120 / 600±150 ms, correlation 50% | Does it **degrade gracefully and recover**? | Backfill is exercised (`backfill-triggered`), then block production resumes; reduced floor `≥ 0.2 blk/s`. |
-| **severe** | `latency-severe` | 600±150 / 800±200 / 1000±250 ms, correlation 75% | Survival / recovery near the breaking point. | Survives + **recovers** after latency clears (`backfill-triggered`, `blocks-increasing`); low floor `≥ 0.1 blk/s` (recovery, not steady-state). |
+|   Profile    |                                  Test file(s)                                   |         Latency (CN↔CN / CN↔BN / BN↔BN)          |                                  What it answers                                   |                                                                Assertion intent                                                                 |
+|--------------|---------------------------------------------------------------------------------|--------------------------------------------------|------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
+| **baseline** | `latency-cn-to-cn`, `latency-cn-to-bn`, `latency-bn-to-bn`, `latency-all-three` | 100±20 / 150±30 / 200±40 ms                      | Does the network tolerate *normal* cross-AZ/region latency with no visible impact? | Steady block production holds: `block-rate-floor ≥ 0.3 blk/s`, healthy, increasing.                                                             |
+| **stress**   | `latency-stress`                                                                | 300±80 / 450±120 / 600±150 ms, correlation 50%   | Does it **degrade gracefully and recover**?                                        | Backfill is exercised (`backfill-triggered`), then block production resumes; reduced floor `≥ 0.2 blk/s`.                                       |
+| **severe**   | `latency-severe`                                                                | 600±150 / 800±200 / 1000±250 ms, correlation 75% | Survival / recovery near the breaking point.                                       | Survives + **recovers** after latency clears (`backfill-triggered`, `blocks-increasing`); low floor `≥ 0.1 blk/s` (recovery, not steady-state). |
 
 **Pick a profile by selecting its test name.** All profiles require the `paired-3` topology and run with **TSS on** (the default; see "Pre-requisites" below).
 
 Run locally (Taskfile):
+
 ```bash
 # baseline (one dimension, or all three at once)
 CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-cn-to-cn.yaml
@@ -35,23 +36,25 @@ CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-sever
 ```
 
 Run in CI (`solo-e2e-test` workflow) — pass the test name (without `.yaml`) as `test-definition`:
+
 ```bash
 gh workflow run solo-e2e-test.yml --ref <branch> -f topology=paired-3 -f tss-enabled=true -f test-definition=latency-stress
 ```
+
 > **Concurrency gotcha:** the workflow uses `concurrency: solo-network-<topology>` with `cancel-in-progress: true`. Two runs of the **same topology** (e.g. two `paired-3` chaos tests) cannot run at once — the newer dispatch **cancels** the older. Run chaos tests one at a time, or stagger them. A canceled run shows `kind/solo: command not found` in its cleanup steps — that's cancellation noise, not a real failure.
 
 ### Tuning latency yourself
 
 Each `inject-latency` event accepts:
 
-| Key | Meaning | Example |
-|-----|---------|---------|
-| `source.kind` / `target.kind` | `network-node` (CN) or `block-node` (BN) | `{ kind: block-node }` |
-| `latency` | base one-way delay (any netem duration) | `200ms` |
-| `jitter` | ± variation around `latency` | `40ms` |
-| `correlation` | % correlation between successive delays (burstiness); default `0` | `"50"` |
-| `bidirectional` | shape both directions (`direction: both`) | `true` |
-| `loss` | netem packet loss — wired end-to-end (runner + template), but no shipped scenario exercises it yet | `"1%"` |
+|              Key              |                                              Meaning                                               |        Example         |
+|-------------------------------|----------------------------------------------------------------------------------------------------|------------------------|
+| `source.kind` / `target.kind` | `network-node` (CN) or `block-node` (BN)                                                           | `{ kind: block-node }` |
+| `latency`                     | base one-way delay (any netem duration)                                                            | `200ms`                |
+| `jitter`                      | ± variation around `latency`                                                                       | `40ms`                 |
+| `correlation`                 | % correlation between successive delays (burstiness); default `0`                                  | `"50"`                 |
+| `bidirectional`               | shape both directions (`direction: both`)                                                          | `true`                 |
+| `loss`                        | netem packet loss — wired end-to-end (runner + template), but no shipped scenario exercises it yet | `"1%"`                 |
 
 To make a custom heavier/lighter variant, copy a profile and adjust `latency`/`jitter`/`correlation`. Bump `block-rate-floor.min_rate_per_sec` down as you increase latency (the assertions run after the latency clears, so they verify recovery).
 
