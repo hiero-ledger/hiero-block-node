@@ -32,6 +32,7 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -403,7 +404,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         verificationBlocksVerified.increment();
                         // send the notification to the block messaging service
                         LOGGER.log(DEBUG, "Sending verification notification for block={0}", currentBlockNumber);
-                        context.blockMessaging().sendBlockVerification(notification);
+                        context.blockMessaging().sendBlockNotification(notification);
                         // Update previousBlockHash and previousVerifiedBlockNumber for next block verification
                         this.previousBlockHash = notification.blockHash();
                         this.previousVerifiedBlockNumber = currentBlockNumber;
@@ -423,7 +424,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                                 notification.block() != null
                                         ? notification.block().blockItems()
                                         : null);
-                        context.blockMessaging().sendBlockVerification(notification);
+                        context.blockMessaging().sendBlockNotification(notification);
                     }
 
                     // end working time
@@ -512,18 +513,26 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             final long blockNumber, final BlockSource source, final FailureType failureType) {
         verificationBlocksError.increment();
         context.blockMessaging()
-                .sendBlockVerification(new VerificationNotification(
+                .sendBlockNotification(new VerificationNotification(
                         false, FailureInfo.standard(failureType), blockNumber, null, null, source));
     }
 
     /**
      * {@inheritDoc}
-     * <p>
+     */
+    @Override
+    public void handleNotification(final BlockNotification notification) {
+        switch (notification) {
+            case BackfilledBlockNotification b -> handleBackfilled(b);
+            default -> {}
+        }
+    }
+
+    /**
      * This method is called when a block backfilled notification is received. It is called on the block notification
      * thread.
      */
-    @Override
-    public void handleBackfilled(BackfilledBlockNotification notification) {
+    void handleBackfilled(BackfilledBlockNotification notification) {
         try {
             // log the backfilled block notification received
             LOGGER.log(DEBUG, "Received backfill notification for block={0}", notification.blockNumber());
@@ -577,7 +586,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                                         : null);
                     }
                     // send the verification notification for the backfilled block
-                    context.blockMessaging().sendBlockVerification(backfillNotification);
+                    context.blockMessaging().sendBlockNotification(backfillNotification);
                 } else {
                     LOGGER.log(
                             WARNING,

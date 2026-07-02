@@ -9,6 +9,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -95,8 +96,7 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
      *
      * @param notification the persistence notification
      */
-    @Override
-    public void handlePersisted(@NonNull PersistedNotification notification) {
+    void handlePersisted(@NonNull PersistedNotification notification) {
         // we only care for backfilled blocks
         if (notification.blockSource() != BlockSource.BACKFILL) {
             return;
@@ -123,8 +123,7 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
      *
      * @param notification the verification notification
      */
-    @Override
-    public void handleVerification(@NonNull VerificationNotification notification) {
+    void handleVerification(@NonNull VerificationNotification notification) {
         // we only care for backfilled blocks
         if (notification.source() != BlockSource.BACKFILL) {
             return;
@@ -139,6 +138,15 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
                 LOGGER.log(INFO, verificationFailedMsg, blockNumber);
                 latch.countDown();
             }
+        }
+    }
+
+    @Override
+    public void handleNotification(final BlockNotification notification) {
+        switch (notification) {
+            case VerificationNotification v -> handleVerification(v);
+            case PersistedNotification p -> handlePersisted(p);
+            default -> {}
         }
     }
 

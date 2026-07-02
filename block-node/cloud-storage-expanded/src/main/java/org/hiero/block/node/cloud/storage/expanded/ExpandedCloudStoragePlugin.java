@@ -21,6 +21,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -231,12 +232,18 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     // ---- BlockNotificationHandler -------------------------------------------
 
     /// {@inheritDoc}
-    ///
+    @Override
+    public void handleNotification(final BlockNotification notification) {
+        switch (notification) {
+            case VerificationNotification v -> handleVerification(v);
+            default -> {}
+        }
+    }
+
     /// Drains any completed upload tasks (publishing {@link PersistedNotification} for
     /// each), then submits this block as a new {@link SingleBlockStoreTask} to the
     /// {@link CompletionService}.
-    @Override
-    public void handleVerification(@NonNull final VerificationNotification notification) {
+    void handleVerification(@NonNull final VerificationNotification notification) {
         if (s3Client == null) {
             LOGGER.log(
                     TRACE, "Skipping upload for block {0}: S3 client is not configured.", notification.blockNumber());
@@ -315,7 +322,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
 
     /// Publishes a {@link PersistedNotification} for the given upload result and updates metrics.
     private void publishResult(final SingleBlockStoreTask.UploadResult result) {
-        blockMessaging.sendBlockPersisted(
+        blockMessaging.sendBlockNotification(
                 new PersistedNotification(result.blockNumber(), result.succeeded(), 0, result.blockSource()));
         if (!result.succeeded()) {
             metricsHolder.uploadFailuresTotal().increment();

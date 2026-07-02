@@ -40,6 +40,7 @@ import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -309,12 +310,20 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
 
     /**
      * {@inheritDoc}
-     * <p>
+     */
+    @Override
+    public void handleNotification(final BlockNotification notification) {
+        switch (notification) {
+            case VerificationNotification v -> handleVerification(v);
+            default -> {}
+        }
+    }
+
+    /**
      * This method is called when a block verification notification is received. It is called on the block notification
      * thread.
      */
-    @Override
-    public void handleVerification(VerificationNotification notification) {
+    private void handleVerification(VerificationNotification notification) {
         try {
             final long startTime = System.nanoTime();
             LOGGER.log(DEBUG, "Persistence Handle verification started for block {0}", notification.blockNumber());
@@ -389,7 +398,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     }
 
     private void sendBlockNotification(final long number, final boolean succeeded, final BlockSource source) {
-        blockMessaging.sendBlockPersisted(new PersistedNotification(number, succeeded, defaultPriority(), source));
+        blockMessaging.sendBlockNotification(new PersistedNotification(number, succeeded, defaultPriority(), source));
     }
 
     private BlockHeader getBlockHeader(final BlockUnparsed block) {

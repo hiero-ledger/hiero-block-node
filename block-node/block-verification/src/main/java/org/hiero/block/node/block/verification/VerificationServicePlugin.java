@@ -19,6 +19,7 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -185,8 +186,8 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
         }
     }
 
-    /// {@inheritDoc}
-    /// ---
+    /// Handles a backfilled block notification, dispatched from [#handleNotification].
+    ///
     /// This is where we receive blocks from backfill.
     /// We will always receive a complete block, one per notification.
     /// We can safely wrap the block as [BlockItems] which is both the start
@@ -195,8 +196,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     ///
     /// @param notification the [BackfilledBlockNotification] received as an
     ///     event.
-    @Override
-    public void handleBackfilled(final BackfilledBlockNotification notification) {
+    void handleBackfilled(final BackfilledBlockNotification notification) {
         try {
             if (notification != null
                     && notification.blockNumber() >= 0L
@@ -228,10 +228,19 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     /// immediately after.
     ///
     /// @param notification a [PersistedNotification] received as an event.
-    @Override
-    public void handlePersisted(final PersistedNotification notification) {
+    private void handlePersisted(final PersistedNotification notification) {
         if (notification != null && !notification.succeeded()) {
             recentlyVerifiedBlocks.remove(notification.blockNumber());
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void handleNotification(final BlockNotification notification) {
+        switch (notification) {
+            case BackfilledBlockNotification b -> handleBackfilled(b);
+            case PersistedNotification p -> handlePersisted(p);
+            default -> {}
         }
     }
 

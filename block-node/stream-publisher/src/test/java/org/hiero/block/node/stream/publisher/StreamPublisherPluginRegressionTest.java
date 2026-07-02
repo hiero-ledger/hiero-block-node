@@ -121,7 +121,7 @@ class StreamPublisherPluginRegressionTest
         publisher2.fromPluginBytes().clear();
 
         // Simulate LIVE_TAIL greedy backfill persisting block 5 from a peer.
-        blockMessaging.sendBlockPersisted(new PersistedNotification(stalledBlock, true, 0, BlockSource.BACKFILL));
+        blockMessaging.sendBlockNotification(new PersistedNotification(stalledBlock, true, 0, BlockSource.BACKFILL));
 
         // Re-enable the historical facility now that block 5's stalled
         // queue has been cleared by the headMap fix.

@@ -740,7 +740,7 @@ class CloudStorageArchivePluginTest {
 
         /// Sends a single [VerificationNotification] via the messaging facility.
         private void sendVerification(TestBlock block) {
-            blockMessaging.sendBlockVerification(new VerificationNotification(
+            blockMessaging.sendBlockNotification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
         }
 
@@ -1082,7 +1082,7 @@ class CloudStorageArchivePluginTest {
                 final BlockUnparsed block = BlockUnparsed.newBuilder()
                         .blockItems(new BlockItemUnparsed[] {item})
                         .build();
-                blockMessaging.sendBlockVerification(
+                blockMessaging.sendBlockNotification(
                         new VerificationNotification(true, null, i, Bytes.EMPTY, block, BlockSource.PUBLISHER));
             }
 
@@ -1182,7 +1182,7 @@ class CloudStorageArchivePluginTest {
         }
 
         private void sendVerification(TestBlock block) {
-            blockMessaging.sendBlockVerification(new VerificationNotification(
+            blockMessaging.sendBlockNotification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
         }
     }
@@ -1610,7 +1610,7 @@ class CloudStorageArchivePluginTest {
         }
 
         private void sendVerification(TestBlock block) {
-            blockMessaging.sendBlockVerification(new VerificationNotification(
+            blockMessaging.sendBlockNotification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
         }
     }
@@ -1901,7 +1901,7 @@ class CloudStorageArchivePluginTest {
         }
 
         private void sendVerification(TestBlock block) {
-            blockMessaging.sendBlockVerification(new VerificationNotification(
+            blockMessaging.sendBlockNotification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
         }
     }
@@ -2030,7 +2030,7 @@ class CloudStorageArchivePluginTest {
             // handleVerification() detects the done-but-failed recovery future, catches the
             // resulting ExecutionException, and increments failedTasks.
             final TestBlock block = TestBlockBuilder.generateBlocksInRange(0, 0).getFirst();
-            failingMessaging.sendBlockVerification(new VerificationNotification(
+            failingMessaging.sendBlockNotification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS.name()))
                     .isEqualTo(1L);
@@ -2046,7 +2046,7 @@ class CloudStorageArchivePluginTest {
         }
 
         private void sendVerification(TestBlock block) {
-            blockMessaging.sendBlockVerification(new VerificationNotification(
+            blockMessaging.sendBlockNotification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
         }
     }
@@ -2144,7 +2144,7 @@ class CloudStorageArchivePluginTest {
         }
 
         private void sendVerification(TestBlock block) {
-            blockMessaging.sendBlockVerification(new VerificationNotification(
+            blockMessaging.sendBlockNotification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
         }
     }
@@ -2296,7 +2296,7 @@ class CloudStorageArchivePluginTest {
         }
 
         private void sendVerification(TestBlock block) {
-            blockMessaging.sendBlockVerification(new VerificationNotification(
+            blockMessaging.sendBlockNotification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
         }
     }

@@ -105,7 +105,7 @@ The inter-plugin event bus. Itself a plugin (and a required facility — startup
 - `registerBlockItemHandler(BlockItemHandler, cpuIntensive, name)` — subscribe with back-pressure; a slow handler slows the producer.
 - `registerNoBackpressureBlockItemHandler(...)` — subscribe without back-pressure; if the handler falls 80% behind, `onTooFarBehindError()` is called instead of blocking the producer.
 
-**Block Notifications** — five typed notification events for block lifecycle milestones:
+**Block Notifications** — any type implementing the `BlockNotification` marker interface can be sent and received. Five known notifications, defined in `spi-plugins`, cover core block lifecycle milestones:
 
 |              Notification               |       Sender        |                          Meaning                           |
 |-----------------------------------------|---------------------|------------------------------------------------------------|
@@ -115,7 +115,10 @@ The inter-plugin event bus. Itself a plugin (and a required facility — startup
 | `NewestBlockKnownToNetworkNotification` | Publisher plugin    | Consensus Node has reported the latest known block header. |
 | `PublisherStatusUpdateNotification`     | Publisher plugin    | Publisher connection state changed.                        |
 
-Any plugin may subscribe to notifications via `registerBlockNotificationHandler(BlockNotificationHandler, ...)`.
+- `sendBlockNotification(BlockNotification)` — one send method for every notification type, known or custom.
+- `registerBlockNotificationHandler(BlockNotificationHandler, cpuIntensive, name)` — subscribe; the handler's single `handleNotification(BlockNotification)` method dispatches on the concrete type, typically with a pattern-matching `switch`.
+
+Any plugin may define its own notification — a record implementing `BlockNotification` — without any change to `spi-plugins` or `facility-messaging`. See [generic-block-notifications.md](generic-block-notifications.md) for the full design and a worked example.
 
 ### `HistoricalBlockFacility` (interface + plugin)
 
@@ -228,9 +231,9 @@ Publisher Plugin
       ▼           ▼
  Subscriber    Verification    ...  (N handlers, each with optional back-pressure)
 
-Block Lifecycle Events (verification, persistence, backfill, etc.)
+Block Lifecycle Events (verification, persistence, backfill, custom types, etc.)
       │
-      ▼  sendBlockVerification() / sendBlockPersisted() / ...
+      ▼  sendBlockNotification(BlockNotification)
 ┌────────────────────────────┐
 │  Block Notification Buffer  │  (Disruptor ring)
 └────────────────────────────┘
@@ -342,12 +345,13 @@ flowchart LR
     BI --> VER[Verification Plugin]
     BI --> N1[... Plugin N]
 
-    VER -->|sendBlockVerification| BN[Block Notification\nDisruptor]
-    STOR[Storage Plugin] -->|sendBlockPersisted| BN
+    VER -->|sendBlockNotification\nVerificationNotification| BN["Block Notification\nDisruptor\n(BlockNotification)"]
+    STOR[Storage Plugin] -->|sendBlockNotification\nPersistedNotification| BN
+    CUSTOM[Any Plugin] -->|sendBlockNotification\ncustom type| BN
     BN --> SUB2[Subscriber Plugin]
     BN --> PUB2[Publisher Plugin]
     BN --> STOR[Storage Plugin]
-    BN --> N2[... Plugin N]
+    BN --> N2["... any handler with\na matching switch case"]
 ```
 
 ### Module Dependency Structure

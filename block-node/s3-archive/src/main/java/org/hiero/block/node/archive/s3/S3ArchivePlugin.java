@@ -41,6 +41,7 @@ import org.hiero.block.node.base.tar.TaredBlockIterator;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
@@ -177,7 +178,14 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
      * {@inheritDoc}
      */
     @Override
-    public void handlePersisted(final PersistedNotification notification) {
+    public void handleNotification(final BlockNotification notification) {
+        switch (notification) {
+            case PersistedNotification p -> handlePersisted(p);
+            default -> {}
+        }
+    }
+
+    void handlePersisted(final PersistedNotification notification) {
         // get the latest persisted block number from the notification
         final long latestPersisted = notification.blockNumber();
         // compute what should be the start of the next batch to archive
