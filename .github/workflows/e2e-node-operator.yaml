@@ -4,14 +4,12 @@ name: E2E Node Operator Lifecycle
 # Mirrors the standalone block-node operator lifecycle using solo-provisioner (the solo-weaver CLI):
 # install (base GA/RC) -> push 0-2 -> verify -> upgrade (snapshot) -> verify survive + push 3-4 ->
 # reset -> push 0-4 -> uninstall. No consensus node is involved; blocks are replayed from fixtures by
-# BlockNodeE2EClient. See agent/proposals/e2e-node-operator-gha/proposal-v1.2.html (local design doc)
-# and agent/proposals/e2e-node-operator-learnings.md.
+# BlockNodeE2EClient.
 #
-# SPIKE STATUS: this workflow is the scaffold produced by the node-operator spike. A few behaviours are
-# still unverified (solo-provisioner pulling the snapshot chart from the local OCI registry over plain
-# HTTP, the local storage class, and real TSS verification passing in a kind cluster with no consensus
-# node) and are flagged inline + in the learnings doc. It must be dry-run on a Linux host with a kind
-# cluster before being relied upon.
+# The install/push/verify/reset/uninstall path (incl. snapshot-chart pull from the local OCI registry over
+# plain HTTP, the local storage class, and real TSS verification in a kind cluster with no consensus node)
+# has been validated green. Base and snapshot are both assumed 0.37+ (the chart's application-state volume),
+# so the upgrade is a plain `helm upgrade` on chart defaults; re-confirm it on each solo-provisioner bump.
 
 on:
   workflow_dispatch:
@@ -38,9 +36,9 @@ on:
           - all
         required: false
       solo-provisioner-version:
-        description: "solo-provisioner (solo-weaver) release tag to install (e.g. v0.20.0). Bump as needed."
+        description: "solo-provisioner (solo-weaver) release tag to install (e.g. v0.21.0). Bump as needed."
         required: false
-        default: "v0.20.0"
+        default: "v0.21.0"
   schedule:
     # Nightly Mon-Fri 04:00 UTC (offset from the solo-e2e scheduler at 06:00).
     - cron: "0 4 * * 1-5"
@@ -86,7 +84,7 @@ jobs:
       CHART_REGISTRY: localhost:5001
       # Pinned solo-provisioner (solo-weaver) release for reproducible runs. workflow_dispatch can override
       # via the solo-provisioner-version input; schedule/pull_request fall back to this default.
-      SOLO_PROVISIONER_VERSION: ${{ inputs.solo-provisioner-version || 'v0.20.0' }}
+      SOLO_PROVISIONER_VERSION: ${{ inputs.solo-provisioner-version || 'v0.21.0' }}
     steps:
       # ── PHASE 0: Setup ─────────────────────────────────────────────────────
       - name: Harden Runner
@@ -184,7 +182,7 @@ jobs:
           # collection) — the Gradle build generates its own proto, so we don't need to regenerate the bundle
           # here. Regenerating clones consensus-node (~1 min); instead download the published proto bundle for
           # the latest release. grpcurl only reads stable core fields (serverStatus first/lastAvailableBlock,
-          # blockHeader.number), which are unchanged across the 0.36->0.37 range we exercise, so the released
+          # blockHeader.number), which are stable across the 0.37+ range we exercise, so the released
           # bundle decodes both BN versions. Fall back to building from source if the download fails.
           mkdir -p "${PROTO_PATH}"
           PROTO_VER=$(gh release list --repo hiero-ledger/hiero-block-node --exclude-drafts --limit 20 \
@@ -211,10 +209,10 @@ jobs:
             BASE="${{ inputs.base-version }}"
           else
             # Latest published GA/RC tag (newest vMAJOR.MINOR.PATCH(-rcN)). This must be older than the
-            # snapshot (version.txt = 0.38.0-SNAPSHOT), which holds as long as the release automation keeps
-            # version.txt above the latest RC. (Earlier this was hardcoded to 0.36.0 while version.txt was
-            # stuck at 0.37.0-SNAPSHOT below the 0.37.x RCs; version.txt is now 0.38.0-SNAPSHOT so the
-            # auto-pick is restored.)
+            # snapshot (version.txt, currently 0.38.0-SNAPSHOT), which holds as long as the release
+            # automation keeps version.txt above the latest RC. This CI assumes the base is 0.37+ (the
+            # chart's application-state volume) so the upgrade needs no state-volume-rename handling; the
+            # latest GA/RC is well past 0.37, so the auto-pick satisfies that.
             BASE=$(gh release list --repo hiero-ledger/hiero-block-node --exclude-drafts --limit 20 \
               --json tagName \
               --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-rc[0-9.]+)?$"))] | first | .tagName | ltrimstr("v")')
@@ -302,8 +300,8 @@ jobs:
           helm dependency update charts/block-node-server
           mkdir -p /tmp/chart
           helm package charts/block-node-server --version "${SNAP}" --app-version "${SNAP}" -d /tmp/chart
-          # --plain-http: the local registry is HTTP. solo-provisioner must also pull over plain-http on
-          # upgrade — verify it supports that for an oci://localhost ref (learnings).
+          # --plain-http: the local registry is HTTP, so solo-provisioner also pulls the snapshot chart over
+          # plain-http for the oci://localhost ref on upgrade (confirmed working).
           helm push "/tmp/chart/block-node-server-${SNAP}.tgz" \
             "oci://${CHART_REGISTRY}/hiero-ledger/hiero-block-node" --plain-http
 
@@ -343,8 +341,8 @@ jobs:
             done ) &
           WATCH_PID=$!
 
-          # Render CI values for this phase (image tag + plugin profile). The state volume is pinned to
-          # verification-storage in both versions (see values), so no per-phase volume-name substitution.
+          # Render CI values for this phase (image tag + plugin profile only). Volume names/layout use the
+          # chart defaults (application-state), so there is no per-phase volume-name substitution.
           sed -e "s/__BN_TAG__/${{ steps.versions.outputs.BASE_VERSION }}/g" \
               -e "s/__PLUGIN_NAMES__/${{ steps.versions.outputs.PLUGIN_NAMES }}/g" \
             tools-and-tests/scripts/node-operations/solo-ci-values.yaml > /tmp/solo-ci-values-base.yaml
@@ -389,51 +387,34 @@ jobs:
           assert_range 0 2
           assert_get_block 0
           assert_get_block 2
+          # Confirm a subscriber can attach and drain the bounded range over the raw gRPC endpoint.
+          assert_subscribe 0 2
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=SUBSCRIBE BN_E2E_START_BLOCK=0 BN_E2E_EXPECT_COUNT=3 \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
           bash tools-and-tests/scripts/node-operations/bn-endpoint-checker.sh "localhost:${SERVER_PORT}" || true
 
-      # Confirm the base (0.36) BN persisted TSS parameters to the state PVC after verifying block 0. The
-      # 0.37 verification plugin reloads tss-parameters.bin on init() from the (renamed) state mount, so this
-      # file MUST exist on the shared PVC for newly-streamed TSS blocks to verify after the upgrade. We list
-      # the state mount (0.36 mounts the state PVC at .../verification) and surface the persist log line.
+      # Confirm the base BN persisted TSS parameters to the state PVC after verifying block 0. The
+      # verification plugin reloads tss-parameters.bin on init() from the application-state mount, so this
+      # file MUST exist on the retained PVC for newly-streamed TSS blocks to verify after the upgrade. We list
+      # the state mount and surface the persist log line.
       - name: Inspect TSS parameter persistence after install
         run: |
           POD="${RELEASE}-block-node-server-0"
-          echo "::group::State mount contents on the running 0.36 pod"
-          # 0.36 mounts the state PVC at /opt/hiero/block-node/verification; tss-parameters.bin should be here.
+          echo "::group::State mount contents on the running base pod"
+          # 0.37+ mounts the state PVC at /opt/hiero/block-node/application-state; tss-parameters.bin lives here.
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
-            sh -c 'ls -la /opt/hiero/block-node/verification /opt/hiero/block-node/application-state 2>&1 || true'
+            sh -c 'ls -la /opt/hiero/block-node/application-state 2>&1 || true'
           echo "::endgroup::"
-          echo "::group::Verification persist/load + block-0 log lines (0.36 install pod)"
+          echo "::group::Verification persist/load + block-0 log lines (base install pod)"
           kubectl logs -n "${NAMESPACE}" "${POD}" -c block-node-server 2>/dev/null \
             | grep -iE "Persisted TSS|Loaded TSS|tssParametersFilePath|block=0|Verification (failed|succe)" || echo "(no matching log lines)"
           echo "::endgroup::"
 
       # ── PHASE 4: Upgrade (base -> snapshot) + continued ingestion ──────────
-      # WORKAROUND (remove once solo-provisioner handles the 0.37 state-volume rename in place): 0.37 renames
-      # the state volume (verification -> application-state). solo-provisioner v0.20.0 issues a plain
-      # `helm upgrade --wait --atomic`, and the rename trips an immutable StatefulSet field, so the upgrade
-      # rolls back ("updates to statefulset spec for fields other than 'replicas'... are forbidden"). Because
-      # the provisioner backs ALL storage with standalone (existingClaim) PVCs — NOT StatefulSet-owned
-      # volumeClaimTemplates — orphan-deleting the StatefulSet preserves every PVC (block AND state data).
-      # The subsequent `helm upgrade` then CREATEs a fresh 0.37 StatefulSet (a create, not a forbidden patch)
-      # and the new pod re-binds the same existingClaim PVCs. The live STS spec is dumped first so the exact
-      # immutable diff is visible in the run log.
-      - name: Pre-upgrade orphan-delete StatefulSet (provisioner rename workaround)
-        run: |
-          STS="${RELEASE}-block-node-server"
-          echo "::group::Live StatefulSet spec before orphan-delete"
-          kubectl get statefulset "${STS}" -n "${NAMESPACE}" -o yaml || true
-          echo "::endgroup::"
-          # --cascade=orphan removes only the StatefulSet object; the pod and the standalone PVCs remain.
-          kubectl delete statefulset "${STS}" -n "${NAMESPACE}" --cascade=orphan --ignore-not-found --wait=true
-          # Delete the now-orphaned pod so the fresh 0.37 StatefulSet creates pod-0 cleanly (no adoption or
-          # label-mismatch races). PVCs are independent objects and are untouched by deleting the pod/STS.
-          kubectl delete pod "${STS}-0" -n "${NAMESPACE}" --ignore-not-found --wait=true
-          echo "PVCs preserved across orphan-delete (block + state storage retained):"
-          kubectl get pvc -n "${NAMESPACE}"
-
+      # Base and snapshot are both 0.37+, so the state volume name (application-state) is stable and the
+      # upgrade is a plain `helm upgrade` with no pre-upgrade StatefulSet surgery. Kubernetes retains the
+      # StatefulSet's volumeClaimTemplate PVCs across the upgrade, so block + state data (incl.
+      # tss-parameters.bin) carry over with no extra handling.
       - name: Upgrade to snapshot version
         run: |
           # The snapshot chart lives in the local OCI registry (pushed above). Derive a snapshot config
@@ -441,10 +422,9 @@ jobs:
           # the CI values (solo-provisioner reuses prior values by default).
           sed "s#oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server#oci://${CHART_REGISTRY}/hiero-ledger/hiero-block-node/block-node-server#" \
             tools-and-tests/scripts/node-operations/solo-ci-config.yaml > /tmp/solo-ci-config-snapshot.yaml
-          # Render CI values for the snapshot phase (image tag + plugin profile). The values keep the 0.37
-          # pod's state volume *named* verification-storage (persistence.applicationState.volumeName) so the
-          # init-storage-dirs mount stays valid across versions; the immutable-upgrade problem itself is
-          # handled by the orphan-delete step above, not by these values.
+          # Render CI values for the snapshot phase (image tag + plugin profile only). Volume names/layout
+          # use the chart defaults (application-state) in both phases, so no per-version volume handling is
+          # needed — the retained volumeClaimTemplate PVC carries the state across the upgrade.
           sed -e "s/__BN_TAG__/${{ steps.versions.outputs.SNAP_VERSION }}/g" \
               -e "s/__PLUGIN_NAMES__/${{ steps.versions.outputs.PLUGIN_NAMES }}/g" \
             tools-and-tests/scripts/node-operations/solo-ci-values.yaml > /tmp/solo-ci-values-snap.yaml
@@ -497,6 +477,8 @@ jobs:
           assert_range 0 4
           assert_get_block 3
           assert_get_block 4
+          # Confirm subscribe still works on the upgraded (snapshot) node across the full range.
+          assert_subscribe 0 4
 
       # ── PHASE 5: Reset -> re-push full set 0-4 ─────────────────────────────
       - name: Reset via solo-provisioner
@@ -504,9 +486,9 @@ jobs:
           # --namespace/--release-name as on upgrade: solo-provisioner's state ReleaseInfo is empty, so it
           # cannot resolve the deployed release without them. NOTE: reset has NO --purge-storage flag (that
           # exists only on uninstall). The solo-weaver quickstart says reset clears the storage directories,
-          # and it does in other environments, but with the local profile's hostPath existingClaim PVCs the
-          # block files survive (confirmed via the diagnostic below) — so the manual-clear step below brings
-          # the node to the empty state reset is meant to produce.
+          # and it does in other environments, but here the block files survive on the retained PVCs
+          # (confirmed via the diagnostic below) — so the manual-clear step below brings the node to the
+          # empty state reset is meant to produce.
           # --load-balancer-enabled=false for consistency with install/upgrade: the local profile otherwise
           # defaults LoadBalancerEnabled=true (seen in reset's effectiveInputs). reset has no
           # --no-reuse-values flag (unlike upgrade), so value reuse is left as-is.
@@ -575,6 +557,8 @@ jobs:
             BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk,${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk,${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
           assert_range 0 4
+          # Confirm subscribe works against the freshly re-populated store over the raw gRPC endpoint.
+          assert_subscribe 0 4
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=SUBSCRIBE BN_E2E_START_BLOCK=0 BN_E2E_EXPECT_COUNT=5 \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
 
