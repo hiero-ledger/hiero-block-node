@@ -291,16 +291,27 @@ in one change — no transition period, no deprecated wrappers.
 
 ## Testing Plugin
 
-Per issue #1431's task list, a test-only plugin validates the generic path end-to-end without any
-change to `BlockNodeApp` or another plugin:
+Per issue #1431's task list, a test validates the generic path end-to-end without any change to
+`spi-plugins` or `facility-messaging`:
+`facility-messaging/src/test/java/org/hiero/block/server/messaging/CustomNotificationTest.java`.
 
-- Lives in a test-fixtures module, loaded only for tests via `ServiceLoader`.
-- Defines its own custom notification (e.g. `TestPingNotification(String id)`).
-- Registers a `BlockNotificationHandler` that records every `TestPingNotification` it receives.
-- Sends several `TestPingNotification`s and asserts they arrive in order, exactly once, on the
-  handler's own thread.
-- Proves: a plugin can introduce a wholly new notification type using only the public
+- Defines a `PingNotification(int sequence)` record implementing `BlockNotification` inline in the
+  test — a stand-in for a type a third-party plugin would define, unknown to `spi-plugins` or
+  `facility-messaging` at compile time.
+- Registers a `BlockNotificationHandler` against the real `BlockMessagingFacilityImpl` (not a test
+  double) and records every `PingNotification` it receives.
+- Sends several `PingNotification`s and asserts they arrive in order, exactly once, and all on the
+  same thread (the handler's own dedicated thread).
+- Proves: a notification type introduced outside this module flows through the real
+  Disruptor-backed pipeline with the same delivery guarantees (ordering, exactly-once, dedicated
+  handler thread) as the five built-in notification types, using only the public
   `BlockMessagingFacility`/`BlockNotification` contract.
+
+A full ServiceLoader-discovered plugin exercising this (as opposed to a direct unit test against
+the facility) was considered but not built — the facility is what's generic here, not any
+particular plugin's wiring, so a unit test against `BlockMessagingFacilityImpl` proves the same
+thing with far less infrastructure. Revisit only if end-to-end/solo testing specifically needs a
+real plugin example.
 
 ## Diagrams
 
