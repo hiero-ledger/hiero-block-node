@@ -435,7 +435,7 @@
           "refId": "B"
         },
         {
-          "expr": "rate(blocknode_messaging_block_persisted_notifications_total[$__rate_interval])",
+          "expr": "rate(blocknode_messaging_block_notifications_sent_total{notification_type=\"PersistedNotification\"}[$__rate_interval])",
           "legendFormat": "Blocks Persisted/s",
           "refId": "C"
         }
