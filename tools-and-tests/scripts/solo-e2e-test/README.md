@@ -591,29 +591,29 @@ assertions:                      # Validations to run after all events
 
 ### Event Types
 
-|            Type            |           Description            |                           Arguments                            |
-|----------------------------|----------------------------------|----------------------------------------------------------------|
-| `command`                  | Run arbitrary script             | `script`                                                       |
-| `node-down`                | Scale node to 0 replicas         | `target`                                                       |
-| `node-up`                  | Scale node to 1 replica          | `target`                                                       |
-| `scale-down`               | Scale down (alias for node-down) | `target`                                                       |
-| `scale-up`                 | Scale up (alias for node-up)     | `target`                                                       |
-| `restart`                  | Rollout restart node             | `target`                                                       |
-| `load-start`               | Start NLG load                   | `test_class`, `concurrency`, `accounts`, `duration`, `max_tps` |
-| `load-stop`                | Stop NLG load                    | `test_class`                                                   |
-| `print-metrics`            | Print metrics summary            | `target` (node name or "all")                                  |
-| `network-status`           | Print network status             | (none)                                                         |
-| `sleep`                    | Pause execution                  | `seconds`                                                      |
-| `port-forward`             | Refresh port forwards            | (none)                                                         |
-| `clear-block-storage`      | Clear all block data on node     | `target`                                                       |
-| `deploy-block-node`        | Deploy new Block Node            | `name`, `backfill_sources`, `greedy`, `chart_version`          |
-| `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                                |
+|            Type            |           Description            |                                             Arguments                                             |
+|----------------------------|----------------------------------|---------------------------------------------------------------------------------------------------|
+| `command`                  | Run arbitrary script             | `script`                                                                                          |
+| `node-down`                | Scale node to 0 replicas         | `target`                                                                                          |
+| `node-up`                  | Scale node to 1 replica          | `target`                                                                                          |
+| `scale-down`               | Scale down (alias for node-down) | `target`                                                                                          |
+| `scale-up`                 | Scale up (alias for node-up)     | `target`                                                                                          |
+| `restart`                  | Rollout restart node             | `target`                                                                                          |
+| `load-start`               | Start NLG load                   | `test_class`, `concurrency`, `accounts`, `duration`, `max_tps`                                    |
+| `load-stop`                | Stop NLG load                    | `test_class`                                                                                      |
+| `print-metrics`            | Print metrics summary            | `target` (node name or "all")                                                                     |
+| `network-status`           | Print network status             | (none)                                                                                            |
+| `sleep`                    | Pause execution                  | `seconds`                                                                                         |
+| `port-forward`             | Refresh port forwards            | (none)                                                                                            |
+| `clear-block-storage`      | Clear all block data on node     | `target`                                                                                          |
+| `deploy-block-node`        | Deploy new Block Node            | `name`, `backfill_sources`, `greedy`, `chart_version`                                             |
+| `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                                                                   |
 | `inject-latency`           | Apply a NetworkChaos rule        | `name`, `source.kind`, `target.kind`, `latency`, `jitter`, `correlation`, `bidirectional`, `loss` |
-| `clear-latency`            | Remove a NetworkChaos rule       | `name`                                                         |
+| `clear-latency`            | Remove a NetworkChaos rule       | `name`                                                                                            |
 
 ### Assertion Types
 
-| Type                      | Description                                                      | Arguments                                                  |
+|           Type            |                           Description                            |                         Arguments                          |
 |---------------------------|------------------------------------------------------------------|------------------------------------------------------------|
 | `block-available`         | Verify BN has blocks in range                                    | `min_block`, `max_block_gte`                               |
 | `node-healthy`            | Verify pod is Running                                            | `target`                                                   |
@@ -623,7 +623,7 @@ assertions:                      # Validations to run after all events
 | `metric-threshold`        | Compare any BN Prometheus metric                                 | `metric`, `comparator`, `value`, `samples`, `wait_seconds` |
 | `block-rate-floor`        | Assert Δblocks/Δtime ≥ floor                                     | `min_rate_per_sec`, `window_seconds`                       |
 | `backfill-triggered`      | Assert backfill log marker observed                              | `grep` (default `"backfill"`), `since_seconds`             |
-| `log-match`               | Generic log-substring check                                      | `grep`, `since_seconds`                                     |
+| `log-match`               | Generic log-substring check                                      | `grep`, `since_seconds`                                    |
 
 **Note:** The `blocks-increasing` assertion verifies a Block Node is actively receiving blocks. It measures baseline, waits `wait_seconds` (default: 60), verifies increase, retrying up to `max_attempts` (default: 3) times.
 
@@ -686,15 +686,15 @@ CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-cn-to
 
 Available latency tests, grouped by **profile** (see [`docs/latency-scenarios.md`](docs/latency-scenarios.md#choosing-a-latency-profile-baseline--stress--severe) for how to choose):
 
-|              Test File             | Profile  |                Description                  |
-|------------------------------------|----------|---------------------------------------------|
-| `tests/chaos-foundation-smoke.yaml`| —        | Plumbing check (inject → confirm → clear)   |
-| `tests/latency-cn-to-cn.yaml`      | baseline | 100 ms ± 20 ms between Consensus Nodes      |
-| `tests/latency-bn-to-bn.yaml`      | baseline | 200 ms ± 40 ms between Block Nodes          |
-| `tests/latency-cn-to-bn.yaml`      | baseline | 150 ms ± 30 ms between CNs and BNs          |
-| `tests/latency-all-three.yaml`     | baseline | All three baseline rules concurrently       |
-| `tests/latency-stress.yaml`        | stress   | ~3× baseline, bursty — degrade & recover    |
-| `tests/latency-severe.yaml`        | severe   | ~5–6× baseline — survival & recovery probe  |
+|              Test File              | Profile  |                Description                 |
+|-------------------------------------|----------|--------------------------------------------|
+| `tests/chaos-foundation-smoke.yaml` | —        | Plumbing check (inject → confirm → clear)  |
+| `tests/latency-cn-to-cn.yaml`       | baseline | 100 ms ± 20 ms between Consensus Nodes     |
+| `tests/latency-bn-to-bn.yaml`       | baseline | 200 ms ± 40 ms between Block Nodes         |
+| `tests/latency-cn-to-bn.yaml`       | baseline | 150 ms ± 30 ms between CNs and BNs         |
+| `tests/latency-all-three.yaml`      | baseline | All three baseline rules concurrently      |
+| `tests/latency-stress.yaml`         | stress   | ~3× baseline, bursty — degrade & recover   |
+| `tests/latency-severe.yaml`         | severe   | ~5–6× baseline — survival & recovery probe |
 
 - **baseline** — does the network tolerate normal latency with no visible impact? (steady block-rate floor holds)
 - **stress** — does it degrade gracefully and recover via backfill? (reduced floor)
@@ -724,13 +724,13 @@ task chaos:uninstall   # helm uninstall + delete the chaos-mesh namespace
 
 ### Troubleshooting
 
-|                Symptom                  |                                                Cause / fix                                                 |
-|-----------------------------------------|------------------------------------------------------------------------------------------------------------|
-| `task chaos:install` skipped silently   | `CHAOS_ENABLED` is not `true`. Re-run with `CHAOS_ENABLED=true task chaos:install`.                        |
-| `ERROR: Chaos Mesh CRDs not present`    | Chaos Mesh isn't installed in this cluster. Run `CHAOS_ENABLED=true task chaos:install`.                   |
-| `source(...) matched 0 pods`            | Selector found no matching pods. Verify `kubectl get pod --show-labels` and the kind ↔ label-key mapping.  |
-| Stale NetworkChaos after test crash     | The runner's trap should clean up; if not, `task chaos:cleanup` (or `kubectl delete networkchaos --all -n chaos-mesh`). |
-| Test deploy fails on hardened CI cluster| The chaos daemon needs `privileged=true`. Hardened clusters won't allow this. Skip with `CHAOS_ENABLED=false`. |
+|                 Symptom                  |                                                       Cause / fix                                                       |
+|------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| `task chaos:install` skipped silently    | `CHAOS_ENABLED` is not `true`. Re-run with `CHAOS_ENABLED=true task chaos:install`.                                     |
+| `ERROR: Chaos Mesh CRDs not present`     | Chaos Mesh isn't installed in this cluster. Run `CHAOS_ENABLED=true task chaos:install`.                                |
+| `source(...) matched 0 pods`             | Selector found no matching pods. Verify `kubectl get pod --show-labels` and the kind ↔ label-key mapping.               |
+| Stale NetworkChaos after test crash      | The runner's trap should clean up; if not, `task chaos:cleanup` (or `kubectl delete networkchaos --all -n chaos-mesh`). |
+| Test deploy fails on hardened CI cluster | The chaos daemon needs `privileged=true`. Hardened clusters won't allow this. Skip with `CHAOS_ENABLED=false`.          |
 
 ### Pointers
 
