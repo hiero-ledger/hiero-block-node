@@ -4,7 +4,7 @@ package org.hiero.block.node.spi.blockmessaging;
 /**
  * A notification indicating a change in publisher status.
  */
-public record PublisherStatusUpdateNotification(UpdateType type, int activePublishers) {
+public record PublisherStatusUpdateNotification(UpdateType type, int activePublishers) implements BlockNotification {
     /**
      * An enum representing the type of publisher status update.
      */

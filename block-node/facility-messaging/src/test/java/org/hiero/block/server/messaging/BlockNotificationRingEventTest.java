@@ -8,10 +8,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.messaging.BlockNotificationRingEvent;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
-import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
-import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,162 +18,79 @@ import org.junit.jupiter.api.Test;
  */
 class BlockNotificationRingEventTest {
     /**
-     * Tests that a new BlockNotificationRingEvent has null values for both notification types.
+     * Tests that a new BlockNotificationRingEvent has a null notification.
      */
     @Test
-    @DisplayName("New BlockNotificationRingEvent should have null values")
-    void newEventShouldHaveNullValues() {
+    @DisplayName("New BlockNotificationRingEvent should have a null notification")
+    void newEventShouldHaveNullNotification() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
-        assertNull(event.getVerificationNotification());
-        assertNull(event.getPersistedNotification());
-        assertNull(event.getBackfilledBlockNotification());
-        assertNull(event.getNewestBlockKnownToNetworkNotification());
-        assertNull(event.getPublisherStatusUpdateNotification());
+        assertNull(event.get());
     }
 
     /**
      * Tests setting and getting a verification notification.
      */
     @Test
-    @DisplayName("Should set and get verification notification correctly")
+    @DisplayName("Should set and get a verification notification correctly")
     void shouldSetAndGetVerificationNotification() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final VerificationNotification notification =
                 new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER);
         event.set(notification);
-        assertEquals(notification, event.getVerificationNotification());
-        assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
-        assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
-        assertNull(
-                event.getNewestBlockKnownToNetworkNotification(),
-                "Newest block known to network notification should be null");
+        assertEquals(notification, event.get());
     }
 
     /**
      * Tests setting and getting a persisted notification.
      */
     @Test
-    @DisplayName("Should set and get persisted notification correctly")
+    @DisplayName("Should set and get a persisted notification correctly")
     void shouldSetAndGetPersistedNotification() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final PersistedNotification notification = new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
         event.set(notification);
-        assertEquals(notification, event.getPersistedNotification());
-        assertNull(event.getVerificationNotification(), "Verification notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
-        assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
-        assertNull(
-                event.getNewestBlockKnownToNetworkNotification(),
-                "Newest block known to network notification should be null");
+        assertEquals(notification, event.get());
     }
 
     /**
      * Tests setting and getting a backfilled notification.
      */
     @Test
-    @DisplayName("Should set and get backfilled notification correctly")
+    @DisplayName("Should set and get a backfilled notification correctly")
     void shouldSetAndGetBackfilledNotification() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final BackfilledBlockNotification notification =
                 new BackfilledBlockNotification(1, BlockUnparsed.newBuilder().build());
         event.set(notification);
-        assertEquals(notification, event.getBackfilledBlockNotification());
-        assertNull(event.getVerificationNotification(), "Verification notification should be null");
-        assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
-        assertNull(
-                event.getNewestBlockKnownToNetworkNotification(),
-                "Newest block known to network notification should be null");
+        assertEquals(notification, event.get());
     }
 
     /**
-     * Tests setting and getting a backfilled notification.
+     * Tests that setting a new notification replaces the previous one, allowing the event to be
+     * reused across different notification types as the ring buffer recycles it.
      */
     @Test
-    @DisplayName("Should set and get NewestBlockKnownToNetworkNotification notification correctly")
-    void shouldSetAndGetNewestBlockKnownToNetworkNotification() {
-        final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
-        final NewestBlockKnownToNetworkNotification notification = new NewestBlockKnownToNetworkNotification(10L);
-        event.set(notification);
-        assertEquals(notification, event.getNewestBlockKnownToNetworkNotification());
-        assertNull(event.getVerificationNotification(), "Verification notification should be null");
-        assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
-        assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
-    }
-
-    /**
-     * Tests setting and getting a publisher status update notification.
-     */
-    @Test
-    @DisplayName("Should set and get publisher status update notification correctly")
-    void shouldSetAndGetPublisherStatusUpdateNotification() {
-        final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
-        final PublisherStatusUpdateNotification notification =
-                new PublisherStatusUpdateNotification(UpdateType.PUBLISHER_CONNECTED, 1);
-        event.set(notification);
-        assertEquals(notification, event.getPublisherStatusUpdateNotification());
-        assertNull(event.getVerificationNotification(), "Verification notification should be null");
-        assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
-        assertNull(
-                event.getNewestBlockKnownToNetworkNotification(),
-                "Newest block known to network notification should be null");
-    }
-
-    /**
-     * Tests that setting a verification notification clears any existing persisted notification.
-     */
-    @Test
-    @DisplayName("Setting verification notification should clear persisted notification")
-    void settingVerificationNotificationShouldClearPersistedNotification() {
+    @DisplayName("Setting a new notification should replace the previous one")
+    void settingNewNotificationShouldReplacePrevious() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final PersistedNotification persistedNotification =
                 new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
         final VerificationNotification verificationNotification =
                 new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER);
 
-        // First set persisted notification
         event.set(persistedNotification);
-        assertEquals(persistedNotification, event.getPersistedNotification());
+        assertEquals(persistedNotification, event.get());
 
-        // Then set verification notification
         event.set(verificationNotification);
-
-        assertEquals(verificationNotification, event.getVerificationNotification());
-        assertNull(event.getPersistedNotification(), "Persisted notification should be cleared");
+        assertEquals(verificationNotification, event.get());
     }
 
     /**
-     * Tests that setting a persisted notification clears any existing verification notification.
+     * Tests that the event can be reused by setting different notifications of the same type.
      */
     @Test
-    @DisplayName("Setting persisted notification should clear verification notification")
-    void settingPersistedNotificationShouldClearVerificationNotification() {
-        final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
-        final VerificationNotification verificationNotification =
-                new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER);
-        final PersistedNotification persistedNotification =
-                new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
-
-        // First set verification notification
-        event.set(verificationNotification);
-        assertEquals(verificationNotification, event.getVerificationNotification());
-
-        // Then set persisted notification
-        event.set(persistedNotification);
-
-        assertEquals(persistedNotification, event.getPersistedNotification());
-        assertNull(event.getVerificationNotification(), "Verification notification should be cleared");
-    }
-
-    /**
-     * Tests that the event can be reused by setting different verification notifications.
-     */
-    @Test
-    @DisplayName("Should allow reuse with different verification notifications")
-    void shouldAllowReuseWithDifferentVerificationNotifications() {
+    @DisplayName("Should allow reuse with different notifications of the same type")
+    void shouldAllowReuseWithDifferentNotificationsOfSameType() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final VerificationNotification notification1 =
                 new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER);
@@ -184,30 +98,9 @@ class BlockNotificationRingEventTest {
                 new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER);
 
         event.set(notification1);
-        assertEquals(notification1, event.getVerificationNotification());
+        assertEquals(notification1, event.get());
 
-        // Set another verification notification
         event.set(notification2);
-        assertEquals(notification2, event.getVerificationNotification());
-        assertNull(event.getPersistedNotification());
-    }
-
-    /**
-     * Tests that the event can be reused by setting different persisted notifications.
-     */
-    @Test
-    @DisplayName("Should allow reuse with different persisted notifications")
-    void shouldAllowReuseWithDifferentPersistedNotifications() {
-        final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
-        final PersistedNotification notification1 = new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
-        final PersistedNotification notification2 = new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
-
-        event.set(notification1);
-        assertEquals(notification1, event.getPersistedNotification());
-
-        // Set another persisted notification
-        event.set(notification2);
-        assertEquals(notification2, event.getPersistedNotification());
-        assertNull(event.getVerificationNotification());
+        assertEquals(notification2, event.get());
     }
 }

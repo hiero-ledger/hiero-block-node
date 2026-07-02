@@ -18,7 +18,8 @@ public record VerificationNotification(
         long blockNumber,
         Bytes blockHash,
         org.hiero.block.internal.BlockUnparsed block,
-        BlockSource source) {
+        BlockSource source)
+        implements BlockNotification {
     public VerificationNotification {
         if (success && failureInfo != null) {
             throw new IllegalArgumentException("Verification is successful, but a failure reason is provided");

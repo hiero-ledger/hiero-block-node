@@ -516,19 +516,19 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
         final InformedEventHandler<BlockNotificationRingEvent> informedEventHandler =
                 (event, sequence, endOfBatch, percentageBehindRingHead) -> {
-                    // send on the event
-                    if (event.getVerificationNotification() != null) {
-                        handler.handleVerification(event.getVerificationNotification());
-                    } else if (event.getPersistedNotification() != null) {
-                        handler.handlePersisted(event.getPersistedNotification());
-                    } else if (event.getBackfilledBlockNotification() != null) {
-                        handler.handleBackfilled(event.getBackfilledBlockNotification());
-                    } else if (event.getNewestBlockKnownToNetworkNotification() != null) {
-                        handler.handleNewestBlockKnownToNetwork(event.getNewestBlockKnownToNetworkNotification());
-                    } else if (event.getPublisherStatusUpdateNotification() != null) {
-                        handler.handlePublisherStatusUpdate(event.getPublisherStatusUpdateNotification());
-                    } else {
-                        LOGGER.log(Level.INFO, "Received an event with no notification set");
+                    // dispatch the generic notification to the typed handler method it matches
+                    switch (event.get()) {
+                        case VerificationNotification v -> handler.handleVerification(v);
+                        case PersistedNotification p -> handler.handlePersisted(p);
+                        case BackfilledBlockNotification b -> handler.handleBackfilled(b);
+                        case NewestBlockKnownToNetworkNotification n -> handler.handleNewestBlockKnownToNetwork(n);
+                        case PublisherStatusUpdateNotification s -> handler.handlePublisherStatusUpdate(s);
+                        case null -> LOGGER.log(Level.INFO, "Received an event with no notification set");
+                        default ->
+                            LOGGER.log(
+                                    Level.INFO,
+                                    "Received a notification of unknown type: {0}",
+                                    event.get().getClass());
                     }
                 };
         if (blockNotificationDisruptor.hasStarted()) {
