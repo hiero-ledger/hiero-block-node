@@ -14,6 +14,7 @@ import picocli.CommandLine.Spec;
         description = "Works with block stream files",
         subcommands = {
             ConvertToJson.class,
+            ConvertAddressBookHistoryCommand.class,
             LsBlockFiles.class,
             ValidateBlocksCommand.class,
             ToWrappedBlocksCommand.class,
