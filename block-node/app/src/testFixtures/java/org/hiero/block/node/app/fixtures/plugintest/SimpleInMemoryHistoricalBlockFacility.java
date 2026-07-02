@@ -51,6 +51,10 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
         handleBlockItemsReceived(blockItems, true);
     }
 
+    public void handleBlockItemsReceived(BlockItems blockItems, final boolean sendNotification) {
+        handleBlockItemsReceived(blockItems, sendNotification, 2000, BlockSource.UNKNOWN);
+    }
+
     public void handleBlockItemsReceived(
             BlockItems blockItems, final boolean sendNotification, int priority, BlockSource source) {
         if (!disablePlugin.get()) {
@@ -83,9 +87,6 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
         }
     }
 
-    public void handleBlockItemsReceived(BlockItems blockItems, final boolean sendNotification) {
-        handleBlockItemsReceived(blockItems, sendNotification, 2000, BlockSource.UNKNOWN);
-    }
     /**
      * {@inheritDoc}
      */
