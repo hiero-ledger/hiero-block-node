@@ -215,6 +215,19 @@ public final class BlockNodeE2EClient implements AutoCloseable {
                         }
                     }
                 }
+                // Surface a server-side stream error immediately instead of spinning to a misleading
+                // "Timed out" — the subscribe thread only logs onError, so the caller would otherwise never
+                // see why the stream ended short.
+                if (receivedBlockNumbers.size() < expectedCount
+                        && !responseObserver.getOnErrorCalls().isEmpty()) {
+                    final Throwable serverError =
+                            responseObserver.getOnErrorCalls().getFirst();
+                    throw new IllegalStateException(
+                            "Subscribe stream ended with a server error after " + receivedBlockNumbers.size()
+                                    + "/" + expectedCount + " blocks from block " + startBlock + ": "
+                                    + serverError,
+                            serverError);
+                }
                 if (receivedBlockNumbers.size() < expectedCount) {
                     Thread.sleep(50);
                 }
