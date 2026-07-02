@@ -185,6 +185,17 @@ tasks:
         # Export resolved RELAY_VERSION so Solo CLI reads the correct semver (not 'latest')
         export RELAY_VERSION="$RELAY_RESOLVED"
 
+        # Build the Block Node image from local source (all plugins baked in, including
+        # verification) and load it into the Kind cluster. Plugins are not sourced from
+        # Maven Central here, so this is unconditional rather than behind a flag.
+        BN_LOCAL_IMAGE=$("{{.SCRIPTS_DIR}}/build-local-block-node-image.sh" \
+          --cluster-name "{{.CLUSTER_NAME}}")
+        BN_IMAGE_TAG=$(echo "$BN_LOCAL_IMAGE" | grep "^bn_image_tag=" | cut -d= -f2)
+        if [[ -z "$BN_IMAGE_TAG" ]]; then
+          echo "ERROR: failed to build/load local Block Node image" >&2
+          exit 1
+        fi
+
         "{{.SCRIPTS_DIR}}/solo-deploy-network.sh" \
           --deployment "{{.DEPLOYMENT}}" \
           --namespace "{{.NAMESPACE}}" \
@@ -194,6 +205,7 @@ tasks:
           --cn-version "$CN_RESOLVED" \
           --mn-version "$MN_RESOLVED" \
           --bn-version "$BN_RESOLVED" \
+          --bn-image-tag "$BN_IMAGE_TAG" \
           --relay-version "$RELAY_RESOLVED" \
           --tss-enabled "{{.TSS_ENABLED}}" \
           {{if eq .ENABLE_LOCAL_METRICS "true"}}--enable-metrics{{end}}

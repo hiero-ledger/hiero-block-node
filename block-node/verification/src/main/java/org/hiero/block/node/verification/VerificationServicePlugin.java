@@ -1,31 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification;
 
-import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.ERROR;
-import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
-import static org.hiero.block.node.base.ParseHelper.standardParse;
 
-import com.hedera.cryptography.tss.TSS;
-import com.hedera.cryptography.wraps.WRAPSVerificationKey;
-import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.hapi.node.base.NodeAddressBook;
-import com.hedera.hapi.node.base.SemanticVersion;
-import com.hedera.hapi.node.tss.LedgerIdNodeContribution;
-import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
-import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.nio.file.Files;
-import java.security.PublicKey;
 import java.util.List;
-import java.util.Map;
-import org.hiero.block.node.app.config.node.NodeConfig;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -34,562 +19,219 @@ import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
-import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
-import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
-import org.hiero.block.node.verification.session.HapiVersionSessionFactory;
-import org.hiero.block.node.verification.session.VerificationProofMetrics;
-import org.hiero.block.node.verification.session.VerificationSession;
-import org.hiero.metrics.LongCounter;
-import org.hiero.metrics.core.MetricKey;
-import org.hiero.metrics.core.MetricRegistry;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.verification.metrics.MetricsHolder;
+import org.hiero.block.node.verification.session.BlockSessionHandler;
 
-/** Provides implementation for the health endpoints of the server. */
-@SuppressWarnings("unused")
-public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHandler, BlockNotificationHandler {
-    /** Metric key for the number of blocks received for verification */
-    public static final MetricKey<LongCounter> METRIC_VERIFICATION_BLOCKS_RECEIVED =
-            MetricKey.of("verification_blocks_received", LongCounter.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for the number of blocks that passed verification */
-    public static final MetricKey<LongCounter> METRIC_VERIFICATION_BLOCKS_VERIFIED =
-            MetricKey.of("verification_blocks_verified", LongCounter.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for the number of blocks that failed verification */
-    public static final MetricKey<LongCounter> METRIC_VERIFICATION_BLOCKS_FAILED =
-            MetricKey.of("verification_blocks_failed", LongCounter.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for the number of internal errors during verification */
-    public static final MetricKey<LongCounter> METRIC_VERIFICATION_BLOCKS_ERROR =
-            MetricKey.of("verification_blocks_error", LongCounter.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for block verification time */
-    public static final MetricKey<LongCounter> METRIC_VERIFICATION_BLOCK_TIME =
-            MetricKey.of("verification_block_time", LongCounter.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for block hashing time */
-    public static final MetricKey<LongCounter> METRIC_HASHING_BLOCK_TIME =
-            MetricKey.of("hashing_block_time", LongCounter.class).addCategory(METRICS_CATEGORY);
-    /**
-     * Metric key for per-proof-type verification results. The metric carries two dynamic labels:
-     * {@code proof_type} ∈ {@code rsa | state_proof | tss} and {@code result} ∈ {@code success | failure}.
-     */
-    public static final MetricKey<LongCounter> METRIC_VERIFICATION_PROOF_TOTAL =
-            MetricKey.of("verification_proof_total", LongCounter.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for signatures from `node_id` values not present in the loaded address book */
-    public static final MetricKey<LongCounter> METRIC_RSA_ROSTER_MISMATCH =
-            MetricKey.of("rsa_roster_mismatch_total", LongCounter.class).addCategory(METRICS_CATEGORY);
-
-    /** Dynamic label name identifying the block proof type. */
-    public static final String LABEL_PROOF_TYPE = "proof_type";
-    /** Dynamic label name identifying the verification result. */
-    public static final String LABEL_RESULT = "result";
-    /** Label value for {@code SignedRecordFileProof} (WRB RSA) verification. */
-    public static final String PROOF_TYPE_RSA = "rsa";
-    /** Label value for {@code BlockStateProof} (indirect) verification. */
-    public static final String PROOF_TYPE_STATE_PROOF = "state_proof";
-    /** Label value for {@code SignedBlockProof} (TSS) verification. */
-    public static final String PROOF_TYPE_TSS = "tss";
-    /** Label value for a successful proof verification. */
-    public static final String RESULT_SUCCESS = "success";
-    /** Label value for a rejected proof verification. */
-    public static final String RESULT_FAILURE = "failure";
-
-    private static final String COMPLETED_MESSAGE = "Verified backfill block items for block={0} with success={1}";
-    /** The logger for this class. */
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
-    /** The block node context, for access to core facilities. */
+/// Verification Service Plugin.
+///
+/// This plugin handles the verification of blocks received by any source.
+/// The plugin is a notification handler and listens for
+/// [BackfilledBlockNotification], this is one of the places data is received
+/// from. It is also a live items handler and listens for [BlockItems], another
+/// place data is received from. The plugin also listens for application state
+/// updates.
+///
+/// This plugin is effectively the implementation of the verification component
+/// design as specified in the design documentation.
+public final class VerificationServicePlugin implements BlockNodePlugin, BlockItemHandler, BlockNotificationHandler {
+    /// Logger for the plugin.
+    private static final System.Logger LOGGER = System.getLogger(VerificationServicePlugin.class.getName());
+    /// The last successfully verified block.
+    private final AtomicLong lastVerifiedBlock;
+    /// The set of recently verified blocks.
+    private final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks;
+    /// The block node context, for access to core facilities.
     private BlockNodeContext context;
-    /** The configuration for verification */
+    /// The metrics holder for all plugin metrics.
+    @SuppressWarnings("FieldCanBeLocal")
+    private MetricsHolder metricsHolder;
+    /// The configuration for verification.
     @SuppressWarnings("FieldCanBeLocal")
     private VerificationConfig verificationConfig;
-    /** The current verification session, a new one is created each block. */
-    private VerificationSession currentSession;
-    /** The current block number being verified. */
-    private long currentBlockNumber = -1;
-    /** Metric for number of blocks received. */
-    private LongCounter.Measurement verificationBlocksReceived;
-    /** Metric for number of blocks verified. */
-    private LongCounter.Measurement verificationBlocksVerified;
-    /** Metric for number of blocks failed verification. */
-    private LongCounter.Measurement verificationBlocksFailed;
-    /** Metric for number of blocks verification errors. */
-    private LongCounter.Measurement verificationBlocksError;
-    /** Metric for block verification time. */
-    private LongCounter.Measurement verificationBlockTime;
-    /** Metric for block hashing time. ignores time to receive block */
-    private LongCounter.Measurement hashingBlockTimeNs;
-    /** Holder of all per-proof-type verification counters used by the session. */
-    private VerificationProofMetrics verificationProofMetrics = VerificationProofMetrics.NONE;
-    /**
-     * Most recent `node_id → PublicKey` map built from the `NodeAddressBook` delivered by
-     * `RsaRosterBootstrapPlugin`. Volatile so that `onContextUpdate` writes are visible to the
-     * block-handling thread without a lock.
-     */
-    private volatile Map<Long, PublicKey> keyByNodeId = Map.of();
-    /** The previous block hash, used for verification of the current block. */
-    private Bytes previousBlockHash;
-    /** The block number of the last successfully verified block (live-stream or sequential backfill). */
-    private long previousVerifiedBlockNumber = -1;
-    /** HAPI proto version from the most recently parsed block header; used in dump metadata. */
-    private SemanticVersion currentHapiVersion;
-    /** Dumps failing blocks to disk for post-incident diagnostics when configured. */
+    /// The verification data provider.
+    private VerificationDataProvider verificationDataProvider;
+    /// The verification sessions handler.
+    private BlockSessionHandler sessionHandler;
+    /// The executor used for sessions.
+    private ExecutorService executor;
+    /// Dumps failing block bytes to disk for diagnostics.
     private BadBlockDumper badBlockDumper;
 
-    /** Handler for root hash for all previous blocks hasher operations and lifecycle. */
-    AllBlocksHasherHandler allBlocksHasherHandler;
-    /**
-     * The earliest block number this node is configured to manage. When greater than zero the node
-     * is not expected to have a continuous chain from genesis, so allBlocksHasher values must not
-     * override the block footer's authoritative hashes for blocks where continuity is absent.
-     */
-    private long earliestManagedBlock;
-    /** Trusted ledger ID for TSS verification, initialized from file or block 0. */
-    public static Bytes activeLedgerId;
-    /** Full TSS publication body used for persistence and state restoration. */
-    public static LedgerIdPublicationTransactionBody activeTssPublication;
-    /** True once TSS parameters have been persisted (file bootstrap or successful block 0 verification). */
-    public static boolean tssParametersPersisted;
+    /// Constructor.
+    public VerificationServicePlugin() {
+        this.lastVerifiedBlock = new AtomicLong(-1);
+        this.recentlyVerifiedBlocks = new ConcurrentSkipListSet<>();
+    }
 
-    /**
-     * {@inheritDoc}
-     */
+    /// {@inheritDoc}
+    /// ---
+    /// Exposes [VerificationConfig] as a configuration data type.
     @NonNull
     @Override
     public List<Class<? extends Record>> configDataTypes() {
         return List.of(VerificationConfig.class);
     }
 
-    /**
-     * Initialize metrics for the verification plugin.
-     *
-     * @param context The block node context
-     */
-    private void initMetrics(BlockNodeContext context) {
-        final MetricRegistry metricRegistry = context.metricRegistry();
-        verificationBlocksReceived = metricRegistry
-                .register(LongCounter.builder(METRIC_VERIFICATION_BLOCKS_RECEIVED)
-                        .setDescription("Blocks received for verification"))
-                .getOrCreateNotLabeled();
-        verificationBlocksVerified = metricRegistry
-                .register(LongCounter.builder(METRIC_VERIFICATION_BLOCKS_VERIFIED)
-                        .setDescription("Blocks that passed verification"))
-                .getOrCreateNotLabeled();
-        verificationBlocksFailed = metricRegistry
-                .register(LongCounter.builder(METRIC_VERIFICATION_BLOCKS_FAILED)
-                        .setDescription("Blocks that failed verification"))
-                .getOrCreateNotLabeled();
-        verificationBlocksError = metricRegistry
-                .register(LongCounter.builder(METRIC_VERIFICATION_BLOCKS_ERROR)
-                        .setDescription("Internal errors during verification"))
-                .getOrCreateNotLabeled();
-        verificationBlockTime = metricRegistry
-                .register(LongCounter.builder(METRIC_VERIFICATION_BLOCK_TIME)
-                        .setDescription("Verification time per block (ms)"))
-                .getOrCreateNotLabeled();
-        hashingBlockTimeNs = metricRegistry
-                .register(LongCounter.builder(METRIC_HASHING_BLOCK_TIME).setDescription("Hashing time per block (ms)"))
-                .getOrCreateNotLabeled();
-        final LongCounter proofResultCounter =
-                metricRegistry.register(LongCounter.builder(METRIC_VERIFICATION_PROOF_TOTAL)
-                        .setDescription(
-                                "Block proof verifications by proof_type (rsa|state_proof|tss) and result (success|failure)")
-                        .addDynamicLabelNames(LABEL_PROOF_TYPE, LABEL_RESULT));
-        final LongCounter.Measurement rsaRosterMismatch = metricRegistry
-                .register(LongCounter.builder(METRIC_RSA_ROSTER_MISMATCH)
-                        .setDescription("RSA signatures from node_id values absent from the loaded address book"))
-                .getOrCreateNotLabeled();
-        verificationProofMetrics = new VerificationProofMetrics(
-                proofResultCounter.getOrCreateLabeled(LABEL_PROOF_TYPE, PROOF_TYPE_RSA, LABEL_RESULT, RESULT_SUCCESS),
-                proofResultCounter.getOrCreateLabeled(LABEL_PROOF_TYPE, PROOF_TYPE_RSA, LABEL_RESULT, RESULT_FAILURE),
-                proofResultCounter.getOrCreateLabeled(
-                        LABEL_PROOF_TYPE, PROOF_TYPE_STATE_PROOF, LABEL_RESULT, RESULT_SUCCESS),
-                proofResultCounter.getOrCreateLabeled(
-                        LABEL_PROOF_TYPE, PROOF_TYPE_STATE_PROOF, LABEL_RESULT, RESULT_FAILURE),
-                proofResultCounter.getOrCreateLabeled(LABEL_PROOF_TYPE, PROOF_TYPE_TSS, LABEL_RESULT, RESULT_SUCCESS),
-                proofResultCounter.getOrCreateLabeled(LABEL_PROOF_TYPE, PROOF_TYPE_TSS, LABEL_RESULT, RESULT_FAILURE),
-                rsaRosterMismatch);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
+    /// {@inheritDoc}
+    /// ---
+    /// Initialize the plugin.
+    /// Get config, initialize the executor, metrics and session handler.
     @Override
-    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
-        // setting config and context
+    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = context;
-        verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
-        earliestManagedBlock =
-                context.configuration().getConfigData(NodeConfig.class).earliestManagedBlock();
-        // Bootstrap TSS parameters from persisted file if available. The file contains a
-        // serialized LedgerIdPublicationTransactionBody with ledger ID, address book, and WRAPS VK.
-        final var tssParametersFile = verificationConfig.tssParametersFilePath();
-        if (Files.exists(tssParametersFile)) {
-            try {
-                Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssParametersFile));
-                LedgerIdPublicationTransactionBody publication =
-                        standardParse(LedgerIdPublicationTransactionBody.PROTOBUF, fileBytes);
-                initializeTssParameters(publication);
-                tssParametersPersisted = true;
-                LOGGER.log(INFO, "Loaded TSS parameters from file: {0}", tssParametersFile);
-            } catch (IOException e) {
-                throw new UncheckedIOException("Failed to read TSS parameters file: " + tssParametersFile, e);
-            } catch (ParseException e) {
-                throw new IllegalStateException("Failed to parse TSS parameters file: " + tssParametersFile, e);
-            }
-        }
-        // register the service
-        context.blockMessaging().registerBlockNotificationHandler(this, false, "VerificationServicePlugin");
-        // initialize metrics
-        initMetrics(context);
-        // initialize bad-block dumper
-        badBlockDumper = new BadBlockDumper(verificationConfig, resolveHostname());
-        LOGGER.log(DEBUG, "VerificationServicePlugin initialized successfully.");
-        // initialize all previous blocks hasher if enabled and available
-        initAllBlocksHasherIfEnabled();
+        this.verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
+        this.executor = context.threadPoolManager()
+                .getVirtualThreadExecutor(
+                        "VerificationSession", VerificationServicePlugin::getUncaughtExceptionHandler);
+        this.metricsHolder = MetricsHolder.create(context.metricRegistry());
+        this.verificationDataProvider = new VerificationDataProvider(context);
+        this.badBlockDumper = new BadBlockDumper(verificationConfig, resolveHostname());
+        this.sessionHandler = new BlockSessionHandler(
+                context,
+                metricsHolder,
+                verificationConfig,
+                verificationDataProvider,
+                lastVerifiedBlock,
+                recentlyVerifiedBlocks,
+                new ConcurrentSkipListMap<>(),
+                executor,
+                badBlockDumper);
     }
 
-    private void initAllBlocksHasherIfEnabled() {
-        allBlocksHasherHandler = new AllBlocksHasherHandler(verificationConfig, context);
-        // When earliestManagedBlock > 0 the node is not managing from genesis, so the hasher's
-        // genesis-state value (ZERO_BLOCK_HASH, leafCount==0) must not seed previousBlockHash —
-        // it is only valid as the previous hash for block 0, not for any mid-chain first block.
-        // When earliestManagedBlock == 0 the node starts from genesis and ZERO_BLOCK_HASH is the
-        // correct previousBlockHash for block 0, so we always trust the hasher in that case.
-        final boolean hasherHasData = allBlocksHasherHandler.getNumberOfBlocks() > 0;
-        if (allBlocksHasherHandler.isAvailable()
-                && allBlocksHasherHandler.lastBlockHash() != null
-                && (earliestManagedBlock == 0 || hasherHasData)) {
-            previousBlockHash = Bytes.wrap(allBlocksHasherHandler.lastBlockHash());
-            final String message = "All previous blocks hasher initialized with {0} hashes, last block hash: {1}";
-            LOGGER.log(DEBUG, message, allBlocksHasherHandler.getNumberOfBlocks(), previousBlockHash);
-        } else {
-            final String message =
-                    "All previous blocks hasher not available, falling back to BlockFooter-provided values.";
-            LOGGER.log(DEBUG, message);
-        }
+    /// Uncaught exception handler method handle for verification pool.
+    private static void getUncaughtExceptionHandler(final Thread thread, final Throwable throwable) {
+        LOGGER.log(WARNING, "Uncaught exception in verification executor", throwable);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>Called by the framework whenever `BlockNodeApp.updateAddressBook()` fires — typically once
-     * at startup by `RsaRosterBootstrapPlugin`. Rebuilds the `node_id → PublicKey` map used by
-     * subsequent WRB verification sessions. A volatile write ensures visibility to the
-     * block-handler thread without a lock.
-     */
-    @Override
-    public void onContextUpdate(final BlockNodeContext updatedContext) {
-        final NodeAddressBook book = updatedContext.nodeAddressBook();
-        if (book == null || book.nodeAddress().isEmpty()) {
-            LOGGER.log(
-                    WARNING,
-                    "onContextUpdate called with a null or empty NodeAddressBook — RSA key map not updated."
-                            + " WRB blocks will fail verification until a valid address book is delivered.");
-            return;
-        }
-        // Count non-blank address book entries — these are the nodes that should be signable.
-        final int declaredCount = (int) book.nodeAddress().stream()
-                .filter(a -> !a.rsaPubKey().isBlank())
-                .count();
-        keyByNodeId = RsaKeyDecoder.buildKeyMap(book);
-        final int effectiveCount = keyByNodeId.size();
-        if (effectiveCount < declaredCount) {
-            // Malformed DER keys were skipped; threshold is calculated against effectiveCount.
-            // Fix the address book so all declared nodes can contribute signatures.
-            LOGGER.log(
-                    WARNING,
-                    "RSA key map: {0}/{1} keys decoded successfully; {2} node(s) had malformed"
-                            + " hex-DER bytes and cannot contribute signatures. Verification"
-                            + " threshold is calculated against the {0} decodable keys.",
-                    effectiveCount,
-                    declaredCount,
-                    declaredCount - effectiveCount);
-        }
-        LOGGER.log(INFO, "RSA key map updated: {0}/{1} nodes loaded from address book", effectiveCount, declaredCount);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
+    /// {@inheritDoc}
+    /// ---
+    /// Start the plugin.
+    /// Register the plugin in messaging. Determine a starting point for the
+    /// last verified block, that is the same as the latest persisted block.
     @Override
     public void start() {
-        // register to listen to incoming block items
-        // specify that we are cpu intensive and should be run on a separate non-virtual thread
-        context.blockMessaging().registerBlockItemHandler(this, true, VerificationServicePlugin.class.getSimpleName());
-        // we do not need to unregister the handler as it will be unregistered when the message service is stopped
+        this.lastVerifiedBlock.set(
+                context.historicalBlockProvider().availableBlocks().max());
+        this.context.blockMessaging().registerBlockNotificationHandler(this, true, name());
+        this.context.blockMessaging().registerBlockItemHandler(this, true, name());
         badBlockDumper.start(context.threadPoolManager());
-        LOGGER.log(DEBUG, "VerificationServicePlugin started successfully.");
-
-        allBlocksHasherHandler.start();
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    /// {@inheritDoc}
+    @Override
+    public String name() {
+        return VerificationServicePlugin.class.getSimpleName();
+    }
+
+    /// {@inheritDoc}
+    /// ---
+    /// Stop the plugin.
+    /// Unregister the plugin from messaging and shutdown sessions.
     @Override
     public void stop() {
+        // unregister from listening to incoming block items
+        context.blockMessaging().unregisterBlockItemHandler(this);
+        context.blockMessaging().unregisterBlockNotificationHandler(this);
+        // immediately shutdown the executor
+        executor.shutdownNow();
         badBlockDumper.stop();
+    }
+
+    /// {@inheritDoc}
+    /// ---
+    /// Receive application state updates.
+    /// _NOTE_: we are expected to receive an update right after [#init(BlockNodeContext, ServiceBuilder)]
+    /// and just before [#start()]. If any initial data hs available, we will see it before starting.
+    @Override
+    public void onContextUpdate(final BlockNodeContext updatedContext) {
+        if (updatedContext != null) {
+            verificationDataProvider.safeUpdateNodeAddressBook(updatedContext.nodeAddressBook());
+            verificationDataProvider.safeUpdateTssData(updatedContext.tssData(), false);
+            // todo(2528) most likely here we will also have to listen for updates
+            //    about the latest stored blocks. That value has to update the
+            //    last verified block atomic long if it is greater.
+        }
     }
 
     // ==== BlockItemHandler Methods ===================================================================================
 
-    /**
-     * This is called on a separate thread for this handler. It should use the thread and keep it busy verifying the
-     * block items till they are done. By doing that it applies back pressure to the block item producer.
-     *
-     * @param blockItems the immutable list of block items to handle
-     */
+    /// {@inheritDoc}
+    /// ---
+    /// This is where items that are on the live items ring buffer received
+    /// from. These items are coming from publisher.
+    /// A block could be received in multiple batches of [BlockItems].
+    /// Publisher must guarantee that once a block starts forwarding, detectable
+    /// by [BlockItems#isStartOfNewBlock()], items, received afterward will be
+    /// in order as received from the publisher. Once the end of the block
+    /// currently being forwarded is received, detectable by
+    /// [BlockItems#isEndOfBlock()], we should expect the next block to start.
+    /// It is possible, however, that a block will never complete. So we can,
+    /// and must, expect that we can receive the start of a new block before
+    /// the end of the previous block. In those cases the active session of the
+    /// previous block must be canceled.
+    ///
+    /// @param blockItems the immutable list of block items to handle
     @Override
-    public void handleBlockItemsReceived(BlockItems blockItems) {
+    public void handleBlockItemsReceived(final BlockItems blockItems) {
         try {
-            final long startVerificationHandlingTime = System.nanoTime();
-            if (!context.serverHealth().isRunning()) {
-                LOGGER.log(ERROR, "Service is not running. Block item will not be processed further.");
-                return;
-            }
-            final boolean headerValid;
-            // If we have a new block header, that means a new block has started
-            if (blockItems.isStartOfNewBlock()) {
-                verificationBlocksReceived.increment();
-                // we already checked that firstItem has blockHeader
-                currentBlockNumber = blockItems.blockNumber();
-                BlockHeader blockHeader = standardParse(
-                        BlockHeader.PROTOBUF, blockItems.blockItems().getFirst().blockHeader());
-                if (currentBlockNumber != blockHeader.number()) {
-                    final String message = "Block number {0} in block items does not match block {1} in header.";
-                    LOGGER.log(INFO, message, currentBlockNumber, blockHeader.number());
-                    headerValid = false;
-                } else {
-                    headerValid = true;
-                }
-                // Only use our tracked previousBlockHash when this block is sequentially
-                // next after the last verified block. Otherwise pass null so the session
-                // falls back to the authoritative values in the block footer.
-                final Bytes previousHash =
-                        currentBlockNumber == previousVerifiedBlockNumber + 1 ? previousBlockHash : null;
-                SemanticVersion semanticVersion = blockHeader.hapiProtoVersionOrThrow();
-                currentHapiVersion = semanticVersion;
-                // create a new verification session for the new block based on hapi version on block header.
-                currentSession = HapiVersionSessionFactory.createSession(
-                        currentBlockNumber,
-                        BlockSource.PUBLISHER,
-                        semanticVersion,
-                        previousHash,
-                        getRootOfAllPreviousBlocks(),
-                        activeLedgerId,
-                        keyByNodeId,
-                        verificationProofMetrics);
-                LOGGER.log(DEBUG, "Started new block verification session for block number {0}", currentBlockNumber);
+            if (blockItems != null) {
+                sessionHandler.processBlockItems(blockItems, BlockSource.PUBLISHER);
             } else {
-                headerValid = true; // header not present, assume it was valid
+                LOGGER.log(WARNING, "Received null block items on live items ring buffer");
             }
-            if (currentSession == null) {
-                // from Jasper, this should be normal and just ignored, logging is fine. It will happen normally
-                // anytime a block node is started in a already running network. Maybe we can check if it happening
-                // when the block node is just starting vs in the middle of running normal as that should not happen.
-                // ERROR is not appropriate for "normal" events, so use INFO.
-                LOGGER.log(INFO, "Received block items before a block header, ignoring.");
-            } else if (headerValid) {
-                final String traceMessage = "Appending {0} block items to the current session for block number: {1}";
-                LOGGER.log(DEBUG, traceMessage, blockItems.blockItems().size(), currentBlockNumber);
-                long startHashingTime = System.nanoTime();
-                // processBlockItems returns notification when isEndOfBlock(), null otherwise
-                VerificationNotification notification = currentSession.processBlockItems(blockItems);
-                long hashingTime = System.nanoTime() - startHashingTime;
-                hashingBlockTimeNs.increment(hashingTime);
-                // if this is the end of the block, handle verification result
-                if (notification != null) {
-                    LOGGER.log(DEBUG, COMPLETED_MESSAGE, currentBlockNumber, notification.success());
-                    if (notification.success()) {
-                        if (currentBlockNumber == 0) {
-                            persistTssParameters();
-                        }
-                        verificationBlocksVerified.increment();
-                        // send the notification to the block messaging service
-                        LOGGER.log(DEBUG, "Sending verification notification for block={0}", currentBlockNumber);
-                        context.blockMessaging().sendBlockVerification(notification);
-                        // Update previousBlockHash and previousVerifiedBlockNumber for next block verification
-                        this.previousBlockHash = notification.blockHash();
-                        this.previousVerifiedBlockNumber = currentBlockNumber;
-                        // Update streamingHasherAllPreviousBlocks
-                        allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
-                                this.previousBlockHash.toByteArray());
-                    } else {
-                        LOGGER.log(
-                                WARNING,
-                                "Verification failed for block={0}, failureType={1}",
-                                currentBlockNumber,
-                                notification.failureInfo().failureType());
-                        verificationBlocksFailed.increment();
-                        badBlockDumper.attemptDump(
-                                notification,
-                                currentHapiVersion,
-                                notification.block() != null
-                                        ? notification.block().blockItems()
-                                        : null);
-                        context.blockMessaging().sendBlockVerification(notification);
-                    }
-
-                    // end working time
-                    long blockWorkEndTime = System.nanoTime() - startVerificationHandlingTime;
-                    LOGGER.log(
-                            DEBUG,
-                            "Finished verification handling block items for block={0,number,#} nsVerificationDuration={1,number,#}",
-                            currentBlockNumber,
-                            blockWorkEndTime);
-                    verificationBlockTime.increment(blockWorkEndTime);
-                }
-            } else {
-                verificationBlocksFailed.increment();
-                sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER, FailureType.BAD_BLOCK_PROOF);
-            }
-        } catch (final RuntimeException | ParseException e) {
-            LOGGER.log(WARNING, "Failed to verify BlockItems.", e);
-            verificationBlocksFailed.increment();
-            sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER, FailureType.UNKNOWN_ERROR);
+        } catch (final Exception e) {
+            LOGGER.log(WARNING, "Failed to handle live block items in verification ", e);
         }
     }
 
-    private Bytes getRootOfAllPreviousBlocks() {
-        if (allBlocksHasherHandler != null && allBlocksHasherHandler.isAvailable()) {
-            if (allBlocksHasherHandler.getNumberOfBlocks() != currentBlockNumber
-                    && (currentBlockNumber <= previousVerifiedBlockNumber || previousVerifiedBlockNumber == -1)) {
-                // Backfill, re-send, or startup: defer to the block footer's values.
-                // Forward gaps fall through to computeRootHash() instead — returning the wrong
-                // root so verification fails and forces the publisher to resend the missing block.
-                return null;
-            }
-            return Bytes.wrap(allBlocksHasherHandler.computeRootHash());
-        }
-        return null;
-    }
-
-    private void persistTssParameters() {
-        final LedgerIdPublicationTransactionBody publication = activeTssPublication;
-        if (publication == null) {
-            return;
-        }
-        final var tssParametersFile = verificationConfig.tssParametersFilePath();
-        try {
-            Files.createDirectories(tssParametersFile.getParent());
-            Bytes serialized = LedgerIdPublicationTransactionBody.PROTOBUF.toBytes(publication);
-            Files.write(tssParametersFile, serialized.toByteArray());
-            tssParametersPersisted = true;
-            LOGGER.log(INFO, "Persisted TSS parameters to file: {0}", tssParametersFile);
-        } catch (IOException e) {
-            LOGGER.log(
-                    WARNING,
-                    "Failed to persist TSS parameters to {0}: {1}".formatted(tssParametersFile, e.getMessage()),
-                    e);
-        }
-    }
-
-    /**
-     * Initializes native TSS state (address book, WRAPS VK) and sets the active ledger ID
-     * and TSS publication. Called from file bootstrap, block 0 processing, and tests.
-     */
-    public static void initializeTssParameters(@NonNull LedgerIdPublicationTransactionBody publication) {
-        if (tssParametersPersisted) {
-            return;
-        }
-        List<LedgerIdNodeContribution> contributions = publication.nodeContributions();
-        int nodeCount = contributions.size();
-        byte[][] publicKeys = new byte[nodeCount][];
-        long[] nodeIds = new long[nodeCount];
-        long[] weights = new long[nodeCount];
-        for (int i = 0; i < nodeCount; i++) {
-            LedgerIdNodeContribution contribution = contributions.get(i);
-            publicKeys[i] = contribution.historyProofKey().toByteArray();
-            nodeIds[i] = contribution.nodeId();
-            weights[i] = contribution.weight();
-        }
-        TSS.setAddressBook(publicKeys, weights, nodeIds);
-        Bytes historyProofVk = publication.historyProofVerificationKey();
-        if (historyProofVk.length() > 0) {
-            WRAPSVerificationKey.setCurrentKey(historyProofVk.toByteArray());
-        }
-        activeLedgerId = publication.ledgerId();
-        activeTssPublication = publication;
-    }
-
-    private void sendFailureNotification(
-            final long blockNumber, final BlockSource source, final FailureType failureType) {
-        verificationBlocksError.increment();
-        context.blockMessaging()
-                .sendBlockVerification(new VerificationNotification(
-                        false, FailureInfo.standard(failureType), blockNumber, null, null, source));
-    }
-
-    /**
-     * {@inheritDoc}
-     * <p>
-     * This method is called when a block backfilled notification is received. It is called on the block notification
-     * thread.
-     */
+    /// {@inheritDoc}
+    /// ---
+    /// This is where we receive blocks from backfill.
+    /// We will always receive a complete block, one per notification.
+    /// We can safely wrap the block as [BlockItems] which is both the start
+    /// and the end of the block. We then propagate the block to the session
+    /// handler.
+    ///
+    /// @param notification the [BackfilledBlockNotification] received as an
+    ///     event.
     @Override
-    public void handleBackfilled(BackfilledBlockNotification notification) {
+    public void handleBackfilled(final BackfilledBlockNotification notification) {
         try {
-            // log the backfilled block notification received
-            LOGGER.log(DEBUG, "Received backfill notification for block={0}", notification.blockNumber());
-            // create a new verification session for the backfilled block
-            BlockHeader blockHeader = standardParse(
-                    BlockHeader.PROTOBUF,
-                    notification.block().blockItems().getFirst().blockHeader());
-            if (notification.blockNumber() != blockHeader.number()) {
-                final String message = "Block number {0} in backfill does not match block {1} in header.";
-                LOGGER.log(WARNING, message, notification.blockNumber(), blockHeader.number());
-                sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL, FailureType.BAD_BLOCK_PROOF);
-            } else {
-                VerificationSession backfillSession = HapiVersionSessionFactory.createSession(
-                        notification.blockNumber(),
-                        BlockSource.BACKFILL,
-                        blockHeader.hapiProtoVersionOrThrow(),
-                        null,
-                        null,
-                        activeLedgerId,
-                        keyByNodeId,
-                        verificationProofMetrics);
-                // process the block items in the backfilled notification
-                // For backfill, we wrap items in BlockItems with isEndOfBlock=true (last item should be block proof)
-                BlockItems backfillBlockItems =
+            if (notification != null
+                    && notification.blockNumber() >= 0L
+                    && notification.block() != null
+                    && notification.block().blockItems() != null
+                    && !notification.block().blockItems().isEmpty()) {
+                final BlockItems blockItems =
                         new BlockItems(notification.block().blockItems(), notification.blockNumber(), true, true);
-                VerificationNotification backfillNotification = backfillSession.processBlockItems(backfillBlockItems);
-                if (backfillNotification != null) {
-                    // Log the backfill verification result
-                    LOGGER.log(DEBUG, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
-                    if (backfillNotification.success()) {
-                        if (notification.blockNumber() == 0) {
-                            persistTssParameters();
-                        }
-                        // Only update live-stream verification state when this backfilled block
-                        // is sequentially next after the last verified block (live-tail backfill).
-                        // Historical backfill can arrive out of order and must not alter state
-                        // used by the live-stream verification path.
-                        if (backfillNotification.blockHash() != null
-                                && notification.blockNumber() == previousVerifiedBlockNumber + 1) {
-                            this.previousBlockHash = backfillNotification.blockHash();
-                            this.previousVerifiedBlockNumber = notification.blockNumber();
-                            allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
-                                    backfillNotification.blockHash().toByteArray());
-                        }
-                    } else {
-                        badBlockDumper.attemptDump(
-                                backfillNotification,
-                                blockHeader.hapiProtoVersionOrThrow(),
-                                backfillNotification.block() != null
-                                        ? backfillNotification.block().blockItems()
-                                        : null);
-                    }
-                    // send the verification notification for the backfilled block
-                    context.blockMessaging().sendBlockVerification(backfillNotification);
-                } else {
-                    LOGGER.log(
-                            WARNING,
-                            "Backfill verification returned null notification for block={0}",
-                            notification.blockNumber());
-                    sendFailureNotification(
-                            notification.blockNumber(), BlockSource.BACKFILL, FailureType.UNKNOWN_ERROR);
-                }
+                sessionHandler.processBlockItems(blockItems, BlockSource.BACKFILL);
+            } else {
+                LOGGER.log(WARNING, "Received invalid backfill notification: {0}", notification);
             }
-        } catch (RuntimeException | ParseException e) {
-            LOGGER.log(WARNING, "Failed to handle backfill notification ", e);
-            sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL, FailureType.UNKNOWN_ERROR);
+        } catch (final RuntimeException e) {
+            LOGGER.log(WARNING, "Failed to handle backfill notification in verification ", e);
+        }
+    }
+
+    /// {@inheritDoc}
+    /// ---
+    /// We want to handle persisted notification so that we can update our
+    /// recently verified blocks. If a block, that was recently verified has
+    /// failed to persist, we have to expect its reception again. We want, in
+    /// those cases, to remove it from our set of recently verified blocks,
+    /// because we want subsequent possible failures of verification to not
+    /// be informational.
+    /// Note that even if a subsequent failure happens before this update and
+    /// an informational failure is propagated, this is still not disruptive
+    /// because a failed persistence notification will inevitably follow
+    /// immediately after.
+    ///
+    /// @param notification a [PersistedNotification] received as an event.
+    @Override
+    public void handlePersisted(final PersistedNotification notification) {
+        if (notification != null && !notification.succeeded()) {
+            recentlyVerifiedBlocks.remove(notification.blockNumber());
         }
     }
 

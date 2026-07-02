@@ -11,13 +11,12 @@ mainModuleInfo {
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
-    runtimeOnly("org.apache.logging.log4j.slf4j2.impl")
 }
 
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
     requires("com.google.common.jimfs")
+    requires("org.assertj.core")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
-    requires("org.mockito")
 }
