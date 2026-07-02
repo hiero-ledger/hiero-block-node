@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Heavy ("stress") CN↔CN + BN↔BN + CN↔BN Latency Test
+#
+# A deliberately harsher sibling of latency-all-three: ~3x the baseline delays,
+# wider jitter, and correlation (bursty delays) to push the network past the
+# "no visible impact" regime into "degrades but recovers":
+#   - CN ↔ CN  : 300 ms ± 80 ms,  correlation 50%  (bidirectional)
+#   - CN ↔ BN  : 450 ms ± 120 ms, correlation 50%  (bidirectional)
+#   - BN ↔ BN  : 600 ms ± 150 ms, correlation 50%  (bidirectional)
+#
+# Intent: under this load the BNs should fall behind and recover via backfill,
+# then resume normal block production once the latency clears. The assertions run
+# AFTER the chaos is cleared, so they verify graceful recovery (not steady-state
+# throughput under chaos): nodes healthy, blocks increasing again, backfill was
+# exercised, and a (reduced) post-chaos block-rate floor still holds.
+#
+# Pre-req:
+#   task up TOPOLOGY=paired-3            # TSS is on by default (now supported)
+#   CHAOS_ENABLED=true task chaos:install
+# (TSS is on by default; CN_VERSION=latest is min-enforced to a TSS-capable tag.)
+#
+# Usage:
+#   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-stress.yaml
+
+name: latency-stress
+description: "Heavy CN/BN bidirectional latency (3x baseline, bursty) — degrade-and-recover"
+
+events:
+  - id: load-start
+    type: load-start
+    description: "Start NLG load"
+    delay: 0
+    args:
+      concurrency: 5
+      accounts: 10
+      duration: 420
+
+  - id: inject-cn-cn
+    type: inject-latency
+    description: "Inject CN↔CN 300ms ± 80ms (corr 50%)"
+    delay: 30
+    args:
+      name: cn-to-cn
+      source: { kind: network-node }
+      target: { kind: network-node }
+      latency: 300ms
+      jitter: 80ms
+      correlation: "50"
+      bidirectional: true
+
+  - id: inject-bn-bn
+    type: inject-latency
+    description: "Inject BN↔BN 600ms ± 150ms (corr 50%)"
+    delay: 35
+    args:
+      name: bn-to-bn
+      source: { kind: block-node }
+      target: { kind: block-node }
+      latency: 600ms
+      jitter: 150ms
+      correlation: "50"
+      bidirectional: true
+
+  - id: inject-cn-bn
+    type: inject-latency
+    description: "Inject CN↔BN 450ms ± 120ms (corr 50%)"
+    delay: 40
+    args:
+      name: cn-to-bn
+      source: { kind: network-node }
+      target: { kind: block-node }
+      latency: 450ms
+      jitter: 120ms
+      correlation: "50"
+      bidirectional: true
+
+  - id: clear-cn-cn
+    type: clear-latency
+    description: "Clear CN↔CN"
+    delay: 330
+    args: { name: cn-to-cn }
+
+  - id: clear-bn-bn
+    type: clear-latency
+    description: "Clear BN↔BN"
+    delay: 332
+    args: { name: bn-to-bn }
+
+  - id: clear-cn-bn
+    type: clear-latency
+    description: "Clear CN↔BN"
+    delay: 334
+    args: { name: cn-to-bn }
+
+  - id: load-stop
+    type: load-stop
+    description: "Stop NLG load"
+    delay: 360
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All BNs healthy after heavy stacked chaos"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All BNs have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: backfill-triggered
+    type: backfill-triggered
+    description: "BNs fell behind under heavy latency and caught up via backfill"
+    target: all
+    args:
+      grep: "backfill"
+      since_seconds: 420
+
+  - id: blocks-increasing
+    type: blocks-increasing
+    description: "Block production resumes after the latency clears"
+    target: all
+    args:
+      wait_seconds: 45
+      max_attempts: 4
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Post-chaos block rate recovers to ≥ 0.2 blk/s"
+    target: all
+    args:
+      min_rate_per_sec: 0.2
+      window_seconds: 30

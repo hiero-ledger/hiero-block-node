@@ -1,0 +1,6 @@
+2026-05-11T20:01:00Z INFO  org.hiero.block.node.backfill.BackfillFetcher - Loaded backfill source node: block-node-2.solo-network.svc.cluster.local:40840
+2026-05-11T20:01:05Z INFO  org.hiero.block.node.NetworkApp - Block Node started successfully
+2026-05-11T20:01:10Z DEBUG org.hiero.block.node.verification.VerificationServicePlugin - Received backfill notification for block=412
+2026-05-11T20:01:11Z DEBUG org.hiero.block.node.verification.VerificationServicePlugin - Received backfill notification for block=413
+2026-05-11T20:01:12Z DEBUG org.hiero.block.node.verification.VerificationServicePlugin - Received backfill notification for block=414
+2026-05-11T20:01:15Z INFO  org.hiero.block.node.publisher.PublisherHandler - New publisher connection from network-node1

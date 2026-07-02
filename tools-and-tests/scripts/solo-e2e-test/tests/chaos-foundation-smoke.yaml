@@ -1,0 +1,97 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Chaos Foundation Smoke Test
+#
+# Exercises the chaos plumbing introduced in Phase 1 without putting meaningful
+# stress on the network:
+#   1. inject-latency CN -> BN at a low latency (50 ms) — proves the runner
+#      generates a valid manifest, the dryrun selector check succeeds, and
+#      Chaos Mesh accepts the resource.
+#   2. command — confirms the NetworkChaos exists with the expected name.
+#   3. clear-latency — proves the runner deletes the resource.
+#   4. command — confirms the NetworkChaos is gone.
+#
+# Pre-req:
+#   task up TOPOLOGY=paired-3            # TSS is on by default (now supported)
+#   CHAOS_ENABLED=true task chaos:install
+#
+# Note on TSS: the harness defaults TSS to 'true' and that is the supported mode.
+# Solo CLI's '--wraps' flag requires CN >= v0.74.0-0; CN_VERSION=latest is
+# min-enforced by resolve-versions.sh to a TSS-capable tag (currently 0.75.0-rc.4),
+# so '--wraps' deploys cleanly. Only set TSS_ENABLED=false if you pin an older CN.
+# The chaos work itself is TSS-agnostic (the CN/BN labels Chaos Mesh selects on
+# are present either way).
+#
+# Usage:
+#   CHAOS_ENABLED=true task test:run TEST_FILE=tests/chaos-foundation-smoke.yaml
+
+name: chaos-foundation-smoke
+description: "Validates the chaos foundation (install, inject, clear, cleanup)"
+
+events:
+  - id: pre-state
+    type: command
+    description: "Pre-state: confirm zero NetworkChaos resources"
+    delay: 0
+    args:
+      script: 'kubectl get networkchaos -A --no-headers 2>/dev/null | wc -l | xargs -I{} echo "NetworkChaos count: {}"'
+
+  - id: inject
+    type: inject-latency
+    description: "Inject 50ms CN <-> BN bidirectional latency"
+    delay: 5
+    args:
+      name: plumbing
+      source: { kind: network-node }
+      target: { kind: block-node }
+      latency: 50ms
+      jitter: 10ms
+      correlation: '0'
+      bidirectional: true
+
+  - id: confirm-applied
+    type: command
+    description: "Confirm NetworkChaos resource exists with expected name"
+    delay: 15
+    args:
+      script: 'kubectl get networkchaos -n chaos-mesh chaos-foundation-smoke--plumbing -o jsonpath="{.metadata.name} status={.status.conditions[?(@.type==\"AllInjected\")].status}"; echo'
+
+  - id: clear
+    type: clear-latency
+    description: "Clear the latency rule"
+    delay: 30
+    args:
+      name: plumbing
+
+  - id: confirm-cleared
+    type: command
+    description: "Confirm NetworkChaos resource is gone"
+    delay: 35
+    args:
+      script: |
+        if kubectl get networkchaos -n chaos-mesh chaos-foundation-smoke--plumbing >/dev/null 2>&1; then
+          echo "ERROR: NetworkChaos still present after clear-latency"
+          exit 1
+        fi
+        echo "OK: NetworkChaos resource cleared"
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes still healthy after chaos lifecycle"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes still have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: blocks-still-increasing
+    type: blocks-increasing
+    description: "Blocks still increasing after chaos lifecycle (50ms latency does not block consensus)"
+    target: all
+    args:
+      wait_seconds: 15
+      max_attempts: 2

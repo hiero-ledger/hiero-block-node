@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Combined CN↔CN + BN↔BN + CN↔BN Latency Test
+#
+# Stress-tests the foundation's coexistence guarantee by applying all three
+# fixed-name NetworkChaos rules concurrently:
+#   - CN ↔ CN  : 100 ms ± 20 ms bidirectional
+#   - BN ↔ BN  : 200 ms ± 40 ms bidirectional
+#   - CN ↔ BN  : 150 ms ± 30 ms bidirectional
+# All three rules are applied at the same delay; the runner applies them
+# sequentially but Chaos Mesh installs them concurrently.
+#
+# Each pod ends up with the netem rules relevant to its label set:
+#   - A CN pod sees CN→CN, CN→BN egress shaping (and inbound shaping when
+#     the rule has direction:both, which all three do).
+#   - A BN pod sees BN→BN, BN→CN shaping.
+#
+# Pre-req:
+#   task up TOPOLOGY=paired-3            # TSS is on by default (now supported)
+#   CHAOS_ENABLED=true task chaos:install
+#
+# Note: TSS is on by default. CN_VERSION=latest is min-enforced to a TSS-capable
+# tag that clears the --wraps floor; set TSS_ENABLED=false only if pinning an older CN.
+#
+# Usage:
+#   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-all-three.yaml
+
+name: latency-all-three
+description: "CN↔CN + BN↔BN + CN↔BN bidirectional latency concurrently during load"
+
+events:
+  - id: load-start
+    type: load-start
+    description: "Start NLG load"
+    delay: 0
+    args:
+      concurrency: 5
+      accounts: 10
+      duration: 420
+
+  - id: inject-cn-cn
+    type: inject-latency
+    description: "Inject CN↔CN 100ms"
+    delay: 30
+    args:
+      name: cn-to-cn
+      source: { kind: network-node }
+      target: { kind: network-node }
+      latency: 100ms
+      jitter: 20ms
+      bidirectional: true
+
+  - id: inject-bn-bn
+    type: inject-latency
+    description: "Inject BN↔BN 200ms"
+    delay: 35
+    args:
+      name: bn-to-bn
+      source: { kind: block-node }
+      target: { kind: block-node }
+      latency: 200ms
+      jitter: 40ms
+      bidirectional: true
+
+  - id: inject-cn-bn
+    type: inject-latency
+    description: "Inject CN↔BN 150ms"
+    delay: 40
+    args:
+      name: cn-to-bn
+      source: { kind: network-node }
+      target: { kind: block-node }
+      latency: 150ms
+      jitter: 30ms
+      bidirectional: true
+
+  - id: clear-cn-cn
+    type: clear-latency
+    description: "Clear CN↔CN"
+    delay: 330
+    args: { name: cn-to-cn }
+
+  - id: clear-bn-bn
+    type: clear-latency
+    description: "Clear BN↔BN"
+    delay: 332
+    args: { name: bn-to-bn }
+
+  - id: clear-cn-bn
+    type: clear-latency
+    description: "Clear CN↔BN"
+    delay: 334
+    args: { name: cn-to-bn }
+
+  - id: load-stop
+    type: load-stop
+    description: "Stop NLG load"
+    delay: 360
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All BNs healthy after stacked chaos"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All BNs have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: blocks-increasing
+    type: blocks-increasing
+    description: "Blocks increasing with three concurrent chaos rules"
+    target: all
+    args:
+      wait_seconds: 30
+      max_attempts: 3
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Post-chaos block rate ≥ 0.3 blk/s under stacked chaos"
+    target: all
+    args:
+      min_rate_per_sec: 0.3
+      window_seconds: 30

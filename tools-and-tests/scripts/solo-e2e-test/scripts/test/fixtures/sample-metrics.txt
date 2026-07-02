@@ -1,0 +1,13 @@
+# Fixture: sample BN /metrics output (Prometheus text format, abridged).
+# Values are arbitrary but representative of what the BN exposes at runtime.
+blocknode_publisher_block_items_received_total 124567
+blocknode_publisher_highest_block_number_inbound 1842
+blocknode_publisher_open_connections 3
+blocknode_publisher_stream_errors_total 0
+blocknode_verification_blocks_received_total 1842
+blocknode_verification_blocks_verified_total 1842
+blocknode_verification_blocks_failed_total 0
+blocknode_verification_blocks_error_total 0
+blocknode_files_recent_blocks_stored 1842
+blocknode_messaging_item_queue_percent_used 12
+blocknode_messaging_notification_queue_percent_used 4
