@@ -121,8 +121,7 @@ val prepareTestPlugins by
 // the gradlex ExtraJavaModuleInfoTransform tries to module-ify every artifact — including local
 // project
 // jars that are not yet built — which fails at configuration time with "File does not exist".
-// Requesting
-// javaModule=false skips that transform; `incoming.artifactView(...).files` is a lazy
+// Requesting javaModule=false skips that transform; `incoming.artifactView(...).files` is a lazy
 // FileCollection that
 // also wires the producing jar tasks as build dependencies. The flattened jar is launched from the
 // classpath (`java -jar`), so module metadata is irrelevant at runtime.
