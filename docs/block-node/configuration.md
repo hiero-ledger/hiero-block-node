@@ -297,15 +297,18 @@ for the JSON schema.
 
 ### Verification Plugin Configuration
 
-| ENV Variable                                        | Description                                                                    |                                                                 Default |
-|:----------------------------------------------------|:-------------------------------------------------------------------------------|------------------------------------------------------------------------:|
-| VERIFICATION_ALL_BLOCKS_HASHER_ENABLED              | Enable the all-blocks hasher to compute and verify a rolling root hash.        |                                                                   false |
-| VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH            | Path to the persisted root hash file for all previous blocks.                  | /opt/hiero/block-node/application-state/rootHashOfAllPreviousBlocks.bin |
-| VERIFICATION_ALL_BLOCKS_HASHER_PERSISTENCE_INTERVAL | How often (in blocks) the hasher persists its state to disk.                   |                                                                      10 |
-| VERIFICATION_TSS_PARAMETERS_FILE_PATH               | Path to the persisted TSS parameters file (ledger ID, address book, WRAPS VK). |              /opt/hiero/block-node/application-state/tss-parameters.bin |
-| VERIFICATION_DUMP_ENABLED                           | Write failing block bytes and metadata to disk for post-incident diagnostics.  |                                                                   false |
-| VERIFICATION_DUMP_DIRECTORY_PATH                    | Directory where bad-block dump files are written.                              |                                /opt/hiero/block-node/verification/dumps |
-| VERIFICATION_DUMP_RETENTION_DAYS                    | Number of days to retain dump files before the daily purge removes them.       |                                                                       7 |
+| ENV Variable                                        | Description                                                                                                                |                                                                 Default |
+|:----------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------:|
+| VERIFICATION_ALL_BLOCKS_HASHER_ENABLED              | Enable the all-blocks hasher to compute and verify a rolling root hash.                                                    |                                                                   false |
+| VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH            | Path to the persisted root hash file for all previous blocks.                                                              | /opt/hiero/block-node/application-state/rootHashOfAllPreviousBlocks.bin |
+| VERIFICATION_REBUILD_ALL_BLOCKS_HASHER_FROM_STORE   | Rebuild the all-blocks hasher from the store when not starting from genesis or no persisted data is available.             |                                                                   false |
+| VERIFICATION_ALL_BLOCKS_HASHER_PERSISTENCE_INTERVAL | How often (in blocks) the hasher persists its state to disk.                                                               |                                                                     100 |
+| VERIFICATION_TSS_PARAMETERS_FILE_PATH               | Path to the persisted TSS parameters file (ledger ID, address book, WRAPS VK).                                             |              /opt/hiero/block-node/application-state/tss-parameters.bin |
+| VERIFICATION_ACTIVE_SESSIONS_BUFFER_SIZE            | Maximum number of concurrent active verification sessions; the longest-running session is canceled to make room when full. |                                                                     100 |
+| VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING           | Enforce strict block ordering for all sources; when false, only the publisher source is strictly ordered.                  |                                                                    true |
+| VERIFICATION_DUMP_ENABLED                           | Write failing block bytes and metadata to disk for post-incident diagnostics.                                              |                                                                   false |
+| VERIFICATION_DUMP_DIRECTORY_PATH                    | Directory where bad-block dump files are written.                                                                          |                                /opt/hiero/block-node/verification/dumps |
+| VERIFICATION_DUMP_RETENTION_DAYS                    | Number of days to retain dump files before the daily purge removes them.                                                   |                                                                       7 |
 
 > **Note:** `VERIFICATION_ALL_BLOCKS_HASHER_ENABLED` must remain `false` (the default).
 > The all-blocks hasher requires a strictly sequential block stream; out-of-order or
