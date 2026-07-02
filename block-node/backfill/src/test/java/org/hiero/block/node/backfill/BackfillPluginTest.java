@@ -37,6 +37,7 @@ import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotifica
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -1292,9 +1293,9 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     }
 
     @Test
-    @DisplayName("Lying BN is marked unavailable when advertised range has gaps")
-    void testLyingNodeMarkedUnavailable() throws Exception {
-        // Create storage with a gap (missing block 10) but still reporting 0..11
+    @DisplayName("Peer with an internal gap serves both sides via exact ranges")
+    void testPeerInternalGapServedFromExactRanges() throws Exception {
+        // Create storage with a gap (missing block 10); serverStatusDetail reports the exact ranges 0..9 and 11.
         SimpleInMemoryHistoricalBlockFacility gappyStorage = new SimpleInMemoryHistoricalBlockFacility();
         for (long i = 0; i <= 11; i++) {
             if (i == 10) {
@@ -1313,7 +1314,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .build();
         BlockNodeSource backfillSource =
                 BlockNodeSource.newBuilder().nodes(backfillSourceConfig).build();
-        String backfillSourcePath = testTempDir + "/backfill-source-lying.json";
+        String backfillSourcePath = testTempDir + "/backfill-source-peer-gap.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
@@ -1323,21 +1324,24 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .scanInterval(20000)
                 .build();
 
-        // Plugin store has only block 12, so gap 0..11 triggers fetch against the lying BN
+        // Plugin store has only block 12, so gap 0..11 triggers fetch against the peer.
         SimpleInMemoryHistoricalBlockFacility pluginStore = getHistoricalBlockFacility(12, 12);
 
         start(new BackfillPlugin(), pluginStore, config);
 
-        CountDownLatch latch = new CountDownLatch(10); // 0..9 should be backfilled, 10 missing stops stream
-
-        // allow time for initial scan and attempted backfill
+        // 11 blocks are available on the peer (0..9 and 11); block 10 is skipped, not treated as a failure.
+        CountDownLatch latch = new CountDownLatch(11);
         registerDefaultTestBackfillHandler();
         registerDefaultTestVerificationHandler(latch);
-        latch.await(5, TimeUnit.SECONDS);
 
-        assertEquals(0, latch.getCount(), "Should have backfilled available prefix before hitting the gap");
-        assertEquals(10, blockMessaging.getSentPersistedNotifications().size(), "Should persist available blocks");
-        assertEquals(10, blockMessaging.getSentVerificationNotifications().size(), "Should verify available blocks");
+        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should backfill every block the peer actually has");
+
+        List<Long> backfilled = blockMessaging.getSentPersistedNotifications().stream()
+                .map(PersistedNotification::blockNumber)
+                .sorted()
+                .toList();
+        assertEquals(11, backfilled.size(), "Should persist all 11 blocks the peer has on both sides of its gap");
+        assertTrue(backfilled.stream().noneMatch(b -> b == 10L), "Should skip the peer's missing block 10");
     }
 
     /**
@@ -1399,6 +1403,161 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         assertTrue(
                 backfilledBlocks.stream().anyMatch(b -> b >= 50),
                 "Should backfill LIVE_TAIL blocks (50-99) at or above earliestManagedBlock");
+    }
+
+    @Test
+    @DisplayName("Stored blocks are not re-backfilled after retention evicts them from the recent tier")
+    void testStoredBlocksNotReBackfilled() {
+        // Peer serves the full history 0..100.
+        final HistoricalBlockFacility serverFacility = getHistoricalBlockFacility(0, 100);
+        final TestBlockNodeServer server = new TestBlockNodeServer(0, serverFacility);
+        testBlockNodeServers.add(server);
+        BlockNodeSource backfillSource = BlockNodeSource.newBuilder()
+                .nodes(BlockNodeSourceConfig.newBuilder()
+                        .address("localhost")
+                        .port(server.port())
+                        .priority(1)
+                        .build())
+                .build();
+        final String backfillSourcePath = testTempDir + "/backfill-source-stored-not-refetched.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+
+        // Short scan interval so several gap-detection cycles run during the test window.
+        Map<String, String> config = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .fetchBatchSize(25)
+                .initialDelay(50)
+                .scanInterval(500)
+                .build();
+
+        // Recent tier only holds 50..100 because retention deleted 0..49, but the node did store 0..100 earlier.
+        final HistoricalBlockFacility pluginStore = getHistoricalBlockFacility(50, 100);
+        appStoredBlocks.add(new LongRange(0, 100));
+
+        start(new BackfillPlugin(), pluginStore, config);
+
+        // Handlers turn any fetched block into a persisted notification so re-fetching would be observable.
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(new CountDownLatch(1));
+
+        // Allow multiple scan cycles to elapse.
+        parkNanos(4_000_000_000L);
+
+        assertEquals(
+                0,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "Should not backfill blocks that are already recorded as stored");
+        assertEquals(
+                0,
+                blockMessaging.getSentVerificationNotifications().size(),
+                "Should not fetch blocks that are already recorded as stored");
+    }
+
+    @Test
+    @DisplayName("Backfill exponentially backs off a gap that keeps reappearing after eviction")
+    void testBackfillBacksOffReappearingGap() {
+        // Peer serves the full history 0..100.
+        final HistoricalBlockFacility serverFacility = getHistoricalBlockFacility(0, 100);
+        final TestBlockNodeServer server = new TestBlockNodeServer(0, serverFacility);
+        testBlockNodeServers.add(server);
+        BlockNodeSource backfillSource = BlockNodeSource.newBuilder()
+                .nodes(BlockNodeSourceConfig.newBuilder()
+                        .address("localhost")
+                        .port(server.port())
+                        .priority(1)
+                        .build())
+                .build();
+        final String backfillSourcePath = testTempDir + "/backfill-source-backoff.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+
+        // Fast scan (200ms). Without backoff this small gap would be re-submitted on every scan.
+        final int scanIntervalMs = 200;
+        Map<String, String> config = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .fetchBatchSize(25)
+                .initialDelay(50)
+                .scanInterval(scanIntervalMs)
+                .build();
+
+        // Recent tier holds only 5..100 (gap 0..4). Nothing ever records 0..4 as stored (no cloud archive)
+        // and the default handlers do not add backfilled blocks back to the available set, so the gap
+        // reappears every scan — exactly the retention-eviction scenario. Backoff must throttle the retries.
+        final HistoricalBlockFacility pluginStore = getHistoricalBlockFacility(5, 100);
+        start(new BackfillPlugin(), pluginStore, config);
+
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(new CountDownLatch(1));
+
+        // Let ~12 scan intervals elapse. Exponential backoff (base = scan interval, doubling per no-progress
+        // attempt) submits the gap roughly at t=50,250,650,1450ms — a handful of times — whereas a
+        // non-throttled implementation would submit it on every one of the ~12 scans.
+        parkNanos(2_500_000_000L);
+
+        long submissions = getMetricValue(BackfillPlugin.METRIC_BACKFILL_GAPS_DETECTED);
+        assertTrue(submissions >= 2, "Gap should still be retried (backoff must not hard-stop): " + submissions);
+        assertTrue(
+                submissions <= 6,
+                "Exponential backoff should throttle retries well below one per scan: " + submissions);
+    }
+
+    @Test
+    @DisplayName("Backfill consumes exact peer ranges and skips the peer's internal gap")
+    void testBackfillConsumesExactPeerRanges() throws InterruptedException {
+        // Peer serves 0..10 and 20..30, with an internal gap 11..19.
+        final SimpleInMemoryHistoricalBlockFacility serverFacility = new SimpleInMemoryHistoricalBlockFacility();
+        for (long i = 0; i <= 30; i++) {
+            if (i >= 11 && i <= 19) {
+                continue;
+            }
+            serverFacility.handleBlockItemsReceived(
+                    TestBlockBuilder.generateBlockWithNumber(i).asBlockItems(), false);
+        }
+        final TestBlockNodeServer server = new TestBlockNodeServer(0, serverFacility);
+        testBlockNodeServers.add(server);
+        BlockNodeSource backfillSource = BlockNodeSource.newBuilder()
+                .nodes(BlockNodeSourceConfig.newBuilder()
+                        .address("localhost")
+                        .port(server.port())
+                        .priority(1)
+                        .build())
+                .build();
+        final String backfillSourcePath = testTempDir + "/backfill-source-exact-ranges.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+
+        Map<String, String> config = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .fetchBatchSize(25)
+                .initialDelay(50)
+                .scanInterval(20000)
+                .maxRetries(1)
+                .build();
+
+        // Local store holds 31..40, so gap 0..30 triggers backfill against the gappy peer.
+        final HistoricalBlockFacility pluginStore = getHistoricalBlockFacility(31, 40);
+        start(new BackfillPlugin(), pluginStore, config);
+
+        int expectedBlocks = 22; // {0..10} + {20..30}
+        CountDownLatch latch = new CountDownLatch(expectedBlocks);
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(latch);
+
+        assertTrue(latch.await(15, TimeUnit.SECONDS), "Should backfill exactly the peer's available ranges");
+
+        // Allow time for any spurious extra fetch to surface.
+        parkNanos(1_000_000_000L);
+
+        List<Long> backfilled = blockMessaging.getSentPersistedNotifications().stream()
+                .map(PersistedNotification::blockNumber)
+                .sorted()
+                .toList();
+        assertEquals(expectedBlocks, backfilled.size(), "Should persist exactly the 22 blocks the peer has");
+        assertTrue(
+                backfilled.stream().noneMatch(blockNumber -> blockNumber >= 11 && blockNumber <= 19),
+                "Should never request the peer's internal gap 11..19");
+        assertEquals(
+                0,
+                getMetricValue(BackfillPlugin.METRIC_BACKFILL_FETCH_ERRORS),
+                "Should not record fetch errors when skipping the peer's known gap");
     }
 
     private void createTestBlockNodeSourcesFile(BlockNodeSource backfillSource, String configPath) {
