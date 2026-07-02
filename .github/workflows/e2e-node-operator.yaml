@@ -46,6 +46,7 @@ on:
     paths:
       - "charts/**"
       - "block-node/app/**"
+      - "tools-and-tests/scripts/e2e-node-operator/**"
       - "tools-and-tests/scripts/node-operations/**"
       - "tools-and-tests/suites/src/main/java/**/e2e/**"
       - ".github/workflows/e2e-node-operator.yaml"
@@ -345,7 +346,7 @@ jobs:
           # chart defaults (application-state), so there is no per-phase volume-name substitution.
           sed -e "s/__BN_TAG__/${{ steps.versions.outputs.BASE_VERSION }}/g" \
               -e "s/__PLUGIN_NAMES__/${{ steps.versions.outputs.PLUGIN_NAMES }}/g" \
-            tools-and-tests/scripts/node-operations/solo-ci-values.yaml > /tmp/solo-ci-values-base.yaml
+            tools-and-tests/scripts/e2e-node-operator/solo-ci-values.yaml > /tmp/solo-ci-values-base.yaml
 
           set +e
           # --load-balancer-enabled=false is REQUIRED: the local profile forces LoadBalancerEnabled=true
@@ -355,7 +356,7 @@ jobs:
           sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node install \
             --profile=local --namespace="${NAMESPACE}" --non-interactive \
             --load-balancer-enabled=false \
-            --config=tools-and-tests/scripts/node-operations/solo-ci-config.yaml \
+            --config=tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml \
             --values=/tmp/solo-ci-values-base.yaml \
             --chart-version="${{ steps.versions.outputs.BASE_VERSION }}"
           RC=$?
@@ -371,7 +372,7 @@ jobs:
           exit "${RC}"
 
       - name: Wait for BN ready + port-forward
-        run: bash tools-and-tests/scripts/node-operations/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
+        run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
       # ── PHASE 2: Push bootstrap blocks 0-2 ─────────────────────────────────
       - name: Push blocks 0-2
@@ -383,7 +384,7 @@ jobs:
       # ── PHASE 3: Verify (post-install) ─────────────────────────────────────
       - name: Verify after install (blocks 0-2)
         run: |
-          source tools-and-tests/scripts/node-operations/assert-server-status.sh
+          source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
           assert_range 0 2
           assert_get_block 0
           assert_get_block 2
@@ -422,13 +423,13 @@ jobs:
           # from the committed one by pointing its chart ref at that registry. --no-reuse-values re-applies
           # the CI values (solo-provisioner reuses prior values by default).
           sed "s#oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server#oci://${CHART_REGISTRY}/hiero-ledger/hiero-block-node/block-node-server#" \
-            tools-and-tests/scripts/node-operations/solo-ci-config.yaml > /tmp/solo-ci-config-snapshot.yaml
+            tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml > /tmp/solo-ci-config-snapshot.yaml
           # Render CI values for the snapshot phase (image tag + plugin profile only). Volume names/layout
           # use the chart defaults (application-state) in both phases, so no per-version volume handling is
           # needed — solo-provisioner keeps the same existingClaim state PVC across the upgrade.
           sed -e "s/__BN_TAG__/${{ steps.versions.outputs.SNAP_VERSION }}/g" \
               -e "s/__PLUGIN_NAMES__/${{ steps.versions.outputs.PLUGIN_NAMES }}/g" \
-            tools-and-tests/scripts/node-operations/solo-ci-values.yaml > /tmp/solo-ci-values-snap.yaml
+            tools-and-tests/scripts/e2e-node-operator/solo-ci-values.yaml > /tmp/solo-ci-values-snap.yaml
           # --namespace AND --release-name must both be passed (both are valid upgrade flags). Upgrade
           # resolves the currently-deployed release to validate the version bump, but solo-provisioner's
           # state file records an empty ReleaseInfo even after a successful install, so it cannot look the
@@ -442,7 +443,7 @@ jobs:
             --chart-version="${{ steps.versions.outputs.SNAP_VERSION }}"
 
       - name: Wait for BN ready + port-forward (post-upgrade)
-        run: bash tools-and-tests/scripts/node-operations/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
+        run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
       # Confirm the upgraded 0.37 pod seeded ONLY the snapshot's plugins (no stale base-version verification
       # jar left on the preserved plugins PVC), reads the current /application-state TSS path, and loaded the
@@ -465,7 +466,7 @@ jobs:
 
       - name: Verify blocks survived upgrade (0-2)
         run: |
-          source tools-and-tests/scripts/node-operations/assert-server-status.sh
+          source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
           assert_range 0 2
 
       - name: Push blocks 3-4 (post-upgrade ingestion)
@@ -476,7 +477,7 @@ jobs:
 
       - name: Verify ingestion after upgrade (0-4)
         run: |
-          source tools-and-tests/scripts/node-operations/assert-server-status.sh
+          source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
           assert_range 0 4
           assert_get_block 3
           assert_get_block 4
@@ -498,7 +499,7 @@ jobs:
           sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node reset \
             --profile=local --namespace="${NAMESPACE}" --release-name="${RELEASE}" --non-interactive \
             --load-balancer-enabled=false \
-            --config=tools-and-tests/scripts/node-operations/solo-ci-config.yaml
+            --config=tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml
 
       # WORKAROUND (remove once solo-provisioner's reset clears storage for the local profile): manually wipe
       # the block data so the node returns to empty, then restart the pod so it rebuilds its in-memory block
@@ -523,7 +524,7 @@ jobs:
           kubectl delete pod -n "${NAMESPACE}" "${POD}" --wait=true
 
       - name: Wait for BN ready + port-forward (post-reset)
-        run: bash tools-and-tests/scripts/node-operations/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
+        run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
       # Confirm the node is empty after the manual clear: block data dirs should hold no block files and
       # serverStatus should report uint64 -1. (This also documents the provisioner gap — reset alone left the
@@ -549,13 +550,13 @@ jobs:
 
       - name: Assert empty state after reset
         run: |
-          source tools-and-tests/scripts/node-operations/assert-server-status.sh
+          source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
           # A fresh BN reports uint64 -1 (18446744073709551615) for both range fields.
           assert_range 18446744073709551615 18446744073709551615
 
       - name: Re-push full set 0-4 and verify
         run: |
-          source tools-and-tests/scripts/node-operations/assert-server-status.sh
+          source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
             BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk,${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk,${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
