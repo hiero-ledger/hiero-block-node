@@ -28,6 +28,7 @@ import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.messaging.MessagingConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -223,25 +224,29 @@ public class BlockNotificationTest {
         final AtomicInteger handler2Sum = new AtomicInteger(0);
         final BlockNotificationHandler handler1 = new BlockNotificationHandler() {
             @Override
-            public void handleVerification(VerificationNotification notification) {
-                // process notifications
-                int receivedValue = (int) notification.blockNumber();
-                // add up all the received values
-                handler1Sum.addAndGet(receivedValue);
-                // update count of calls
-                handler1Counter.incrementAndGet();
+            public void handleNotification(BlockNotification notification) {
+                if (notification instanceof VerificationNotification verification) {
+                    // process notifications
+                    int receivedValue = (int) verification.blockNumber();
+                    // add up all the received values
+                    handler1Sum.addAndGet(receivedValue);
+                    // update count of calls
+                    handler1Counter.incrementAndGet();
+                }
             }
         };
         final BlockNotificationHandler handler2 = new BlockNotificationHandler() {
             @Override
-            public void handleVerification(VerificationNotification notification) {
-                // process notifications
-                int receivedValue = (int) notification.blockNumber();
-                // add up all the received values
-                handler2Sum.addAndGet(receivedValue);
-                // check if we are done
-                if (handler2Counter.incrementAndGet() == TEST_DATA_COUNT - 1) {
-                    latch.countDown();
+            public void handleNotification(BlockNotification notification) {
+                if (notification instanceof VerificationNotification verification) {
+                    // process notifications
+                    int receivedValue = (int) verification.blockNumber();
+                    // add up all the received values
+                    handler2Sum.addAndGet(receivedValue);
+                    // check if we are done
+                    if (handler2Counter.incrementAndGet() == TEST_DATA_COUNT - 1) {
+                        latch.countDown();
+                    }
                 }
             }
         };
@@ -259,7 +264,7 @@ public class BlockNotificationTest {
                 // wait for a bit to let the handler unregister
                 LockSupport.parkNanos(500_000);
             }
-            messagingService.sendBlockVerification(
+            messagingService.sendBlockNotification(
                     new VerificationNotification(true, null, i, null, null, BlockSource.PUBLISHER));
             // have to slow down production to make test reliable
             LockSupport.parkNanos(500_000);
@@ -340,7 +345,7 @@ public class BlockNotificationTest {
         @Override
         public void run() {
             for (int i = 0; i < TEST_DATA_COUNT; i++) {
-                messagingService.sendBlockVerification(
+                messagingService.sendBlockNotification(
                         new VerificationNotification(true, null, i, null, null, BlockSource.PUBLISHER));
                 int totalSent = sentCounter.incrementAndGet();
                 if (pauseControl != null) {
@@ -379,7 +384,7 @@ public class BlockNotificationTest {
         }
 
         @Override
-        public void handleVerification(VerificationNotification notification) {
+        public void handleNotification(BlockNotification notification) {
             if (expectedCount <= counters.incrementAndGet(identifier)) {
                 // call the latch countdown when we reach the expected count
                 latch.countDown();

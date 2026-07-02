@@ -24,6 +24,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
@@ -224,7 +225,14 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
 
     /// {@inheritDoc}
     @Override
-    public void handleVerification(VerificationNotification notification) {
+    public void handleNotification(final BlockNotification notification) {
+        switch (notification) {
+            case VerificationNotification v -> handleVerification(v);
+            default -> {}
+        }
+    }
+
+    void handleVerification(VerificationNotification notification) {
         try {
             if (notification != null && notification.success() && notification.block() != null) {
                 // If the task was cancelled (i.e. stop() was called), do not start a new task or process

@@ -60,41 +60,13 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
     void unregisterBlockItemHandler(final BlockItemHandler handler);
 
     /**
-     * Use this method to send block verification notifications to all registered handlers.
+     * Use this method to send a block notification to all registered handlers. Any type
+     * implementing {@link BlockNotification} may be sent, including notification types defined
+     * by a plugin outside this module.
      *
-     * @param notification the block verification notification to send
+     * @param notification the block notification to send
      */
-    void sendBlockVerification(final VerificationNotification notification);
-
-    /**
-     * Use this method to send block persisted notifications to all registered handlers.
-     *
-     * @param notification the block persisted notification to send
-     */
-    void sendBlockPersisted(final PersistedNotification notification);
-
-    /**
-     * Use this method to send backfilled block notifications to all registered handlers.
-     *
-     * @param notification the backfilled block notification to send
-     */
-    void sendBackfilledBlockNotification(final BackfilledBlockNotification notification);
-
-    /**
-     * Use this method to notify the system about a new block known to the network.
-     * This is used to inform the system that a new block header is known to the network,
-     * and our node should attempt to get up to date with the latest block.
-     *
-     * @param notification the notification containing the block number.
-     */
-    void sendNewestBlockKnownToNetwork(final NewestBlockKnownToNetworkNotification notification);
-
-    /**
-     * Use this method to send a publisher status update to all registered handlers.
-     *
-     * @param notification the publisher status update notification to send
-     */
-    void sendPublisherStatusUpdate(final PublisherStatusUpdateNotification notification);
+    void sendBlockNotification(final BlockNotification notification);
 
     /**
      * Use this method to register a block notification handler. The handler will be called every time new block

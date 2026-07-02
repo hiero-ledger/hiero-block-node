@@ -38,6 +38,7 @@ import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -332,7 +333,14 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     // ==== BlockNotificationHandler Methods ===========================================================================
 
     @Override
-    public void handleVerification(VerificationNotification notification) {
+    public void handleNotification(final BlockNotification notification) {
+        switch (notification) {
+            case VerificationNotification v -> handleVerification(v);
+            default -> {}
+        }
+    }
+
+    private void handleVerification(VerificationNotification notification) {
         if (notification != null && notification.success()) {
             writeBlockToStagingPath(notification.block(), notification.blockNumber());
         }
@@ -624,7 +632,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     // @todo is this needed? Does anything actually care when a zip file is completed?
                     plugin.context
                             .blockMessaging()
-                            .sendBlockPersisted(
+                            .sendBlockNotification(
                                     new PersistedNotification(batchLastBlockNumber, true, 1_000, BlockSource.HISTORY));
                     plugin.cleanup();
                 }

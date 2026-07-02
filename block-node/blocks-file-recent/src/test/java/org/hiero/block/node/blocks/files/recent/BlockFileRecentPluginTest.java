@@ -198,7 +198,7 @@ class BlockFileRecentPluginTest {
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             // send verified block notification
-            blockMessaging.sendBlockVerification(new VerificationNotification(
+            blockMessaging.sendBlockNotification(new VerificationNotification(
                     true, null, blockNumber, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             // now try and read it back
             final BlockUnparsed blockFromPlugin = plugin.block(blockNumber).blockUnparsed();
@@ -230,7 +230,7 @@ class BlockFileRecentPluginTest {
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             // send verified block notification with failure
-            blockMessaging.sendBlockVerification(new VerificationNotification(
+            blockMessaging.sendBlockNotification(new VerificationNotification(
                     false,
                     FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
                     blockNumber,
@@ -263,7 +263,7 @@ class BlockFileRecentPluginTest {
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             // send verified block notification
-            blockMessaging.sendBlockVerification(new VerificationNotification(
+            blockMessaging.sendBlockNotification(new VerificationNotification(
                     true, null, blockNumber, Bytes.EMPTY, blockOrig, BlockSource.PUBLISHER));
             // now try and read it back
             final BlockUnparsed blockFromPlugin = plugin.block(blockNumber).blockUnparsed();
@@ -290,7 +290,7 @@ class BlockFileRecentPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 // send the block items to the plugin
-                blockMessaging.sendBlockVerification(new VerificationNotification(
+                blockMessaging.sendBlockNotification(new VerificationNotification(
                         true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
                 // assert that the block is persisted
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
@@ -347,7 +347,7 @@ class BlockFileRecentPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 // send the block items to the plugin
-                blockMessaging.sendBlockVerification(new VerificationNotification(
+                blockMessaging.sendBlockNotification(new VerificationNotification(
                         true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
                 // assert that the block is persisted
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(

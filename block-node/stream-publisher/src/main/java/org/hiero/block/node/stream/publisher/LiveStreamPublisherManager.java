@@ -57,6 +57,7 @@ import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -337,7 +338,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         final NewestBlockKnownToNetworkNotification notification =
                 new NewestBlockKnownToNetworkNotification(newestKnownBlockNumber);
         // send the notification
-        serverContext.blockMessaging().sendNewestBlockKnownToNetwork(notification);
+        serverContext.blockMessaging().sendBlockNotification(notification);
     }
 
     @Override
@@ -390,6 +391,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         return publisherConfig;
     }
 
+    @Override
+    public void handleNotification(final BlockNotification notification) {
+        switch (notification) {
+            case VerificationNotification v -> handleVerification(v);
+            case PersistedNotification p -> handlePersisted(p);
+            default -> {}
+        }
+    }
+
     /// {@inheritDoc}
     ///
     /// This method handles verification notifications from the block messaging
@@ -399,8 +409,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// we will attempt to handle that failure. That includes allowing
     /// individual handlers to handle that block, but also scheduling the failed
     /// block to be resent.
-    @Override
-    public void handleVerification(@NonNull final VerificationNotification notification) {
+    void handleVerification(@NonNull final VerificationNotification notification) {
         final long blockNumber = notification.blockNumber();
         // Critical note: Only handle _failed_ verifications.
         // If we ever handle successful verifications, we must add conditions
@@ -447,8 +456,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// further declare the set explicitly unordered to further limit
     /// unnecessary ties between handlers. The overall time blocked should not
     /// significantly exceed the time to send a single acknowledgement.
-    @Override
-    public void handlePersisted(@NonNull final PersistedNotification notification) {
+    void handlePersisted(@NonNull final PersistedNotification notification) {
         if (notification != null) {
             final long blockNumber = notification.blockNumber();
             if (notification.succeeded()) {
@@ -783,7 +791,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         final PublisherStatusUpdateNotification notification =
                 new PublisherStatusUpdateNotification(type, activeHandlers.size());
         // send a publisher update
-        serverContext.blockMessaging().sendPublisherStatusUpdate(notification);
+        serverContext.blockMessaging().sendBlockNotification(notification);
     }
 
     /// This method cancels the publisher unavailability timeout
@@ -1388,7 +1396,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // note, activePublishers.size() can definitely change between the isEmpty check and the call below
                 final PublisherStatusUpdateNotification notification = new PublisherStatusUpdateNotification(
                         UpdateType.PUBLISHER_UNAVAILABILITY_TIMEOUT, activePublishers.size());
-                messaging.sendPublisherStatusUpdate(notification);
+                messaging.sendBlockNotification(notification);
                 return true;
             } else {
                 return false;

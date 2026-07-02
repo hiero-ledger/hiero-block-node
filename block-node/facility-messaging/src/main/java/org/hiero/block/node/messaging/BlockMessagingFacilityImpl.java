@@ -23,17 +23,13 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.GatingHandler;
-import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
-import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
-import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -51,26 +47,12 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     /** Metric key for incoming block items seen by the mediator */
     public static final MetricKey<LongCounter> METRIC_MESSAGING_BLOCK_ITEMS_RECEIVED =
             MetricKey.of("messaging_block_items_received", LongCounter.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for notifications issued after verification */
-    public static final MetricKey<LongCounter> METRIC_MESSAGING_BLOCK_VERIFICATION_NOTIFICATIONS = MetricKey.of(
-                    "messaging_block_verification_notifications", LongCounter.class)
+    /** Metric key for notifications sent, broken down by notification type */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_BLOCK_NOTIFICATIONS_SENT = MetricKey.of(
+                    "messaging_block_notifications_sent", LongCounter.class)
             .addCategory(METRICS_CATEGORY);
-    /** Metric key for notifications issued after persistence */
-    public static final MetricKey<LongCounter> METRIC_MESSAGING_BLOCK_PERSISTED_NOTIFICATIONS = MetricKey.of(
-                    "messaging_block_persisted_notifications", LongCounter.class)
-            .addCategory(METRICS_CATEGORY);
-    /** Metric key for notifications issued after backfilling */
-    public static final MetricKey<LongCounter> METRIC_MESSAGING_BLOCK_BACKFILLED_NOTIFICATIONS = MetricKey.of(
-                    "messaging_block_backfilled_notifications", LongCounter.class)
-            .addCategory(METRICS_CATEGORY);
-    /** Metric key for notifications issued after the newest block known to network */
-    public static final MetricKey<LongCounter> METRIC_MESSAGING_NEWEST_BLOCK_KNOWN_TO_NETWORK_NOTIFICATIONS =
-            MetricKey.of("messaging_newest_block_known_to_network_notifications", LongCounter.class)
-                    .addCategory(METRICS_CATEGORY);
-    /** Metric key for publisher status update notifications sent */
-    public static final MetricKey<LongCounter> METRIC_MESSAGING_PUBLISHER_STATUS_UPDATE_NOTIFICATIONS = MetricKey.of(
-                    "messaging_publisher_status_update_notifications", LongCounter.class)
-            .addCategory(METRICS_CATEGORY);
+    /** Dynamic label name identifying the notification type, by simple class name */
+    private static final String LABEL_NOTIFICATION_TYPE = "notification_type";
     /** Metric key for the number of active item listeners */
     public static final MetricKey<ObservableGauge> METRIC_MESSAGING_NO_OF_ITEM_LISTENERS = MetricKey.of(
                     "messaging_no_of_item_listeners", ObservableGauge.class)
@@ -91,16 +73,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     // Metrics
     /** Counter for incoming block items seen by the mediator */
     private LongCounter.Measurement blockItemsReceivedCounter;
-    /** Counter for notifications issued after verification */
-    private LongCounter.Measurement blockVerificationNotificationsCounter;
-    /** Counter for notifications issued after persistence */
-    private LongCounter.Measurement blockPersistedNotificationsCounter;
-    /** Counter for notifications issued after backfilling */
-    private LongCounter.Measurement blockBackfilledNotificationsCounter;
-    /** Counter for notifications issued after the newest block known to network */
-    private LongCounter.Measurement newestBlockKnownToNetworkNotificationsCounter;
-    /** Counter for publisher status update notifications sent */
-    private LongCounter.Measurement publisherStatusUpdateNotificationsCounter;
+    /** Counter for notifications sent, labeled by notification type */
+    private LongCounter notificationsSentCounter;
 
     /**
      * The thread factory used to create the virtual threads for the disruptor. Virtual threads are daemon threads by
@@ -271,30 +245,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         .setDescription("Incoming block items seen by the mediator"))
                 .getOrCreateNotLabeled();
 
-        blockVerificationNotificationsCounter = metricRegistry
-                .register(LongCounter.builder(METRIC_MESSAGING_BLOCK_VERIFICATION_NOTIFICATIONS)
-                        .setDescription("Notifications issued after verification"))
-                .getOrCreateNotLabeled();
-
-        blockPersistedNotificationsCounter = metricRegistry
-                .register(LongCounter.builder(METRIC_MESSAGING_BLOCK_PERSISTED_NOTIFICATIONS)
-                        .setDescription("Notifications issued after persistence"))
-                .getOrCreateNotLabeled();
-
-        blockBackfilledNotificationsCounter = metricRegistry
-                .register(LongCounter.builder(METRIC_MESSAGING_BLOCK_BACKFILLED_NOTIFICATIONS)
-                        .setDescription("Notifications issued after backfilling"))
-                .getOrCreateNotLabeled();
-
-        newestBlockKnownToNetworkNotificationsCounter = metricRegistry
-                .register(LongCounter.builder(METRIC_MESSAGING_NEWEST_BLOCK_KNOWN_TO_NETWORK_NOTIFICATIONS)
-                        .setDescription("Notifications issued after the newest block known to network"))
-                .getOrCreateNotLabeled();
-
-        publisherStatusUpdateNotificationsCounter = metricRegistry
-                .register(LongCounter.builder(METRIC_MESSAGING_PUBLISHER_STATUS_UPDATE_NOTIFICATIONS)
-                        .setDescription("Notifications issued for publisher status updates"))
-                .getOrCreateNotLabeled();
+        notificationsSentCounter =
+                metricRegistry.register(LongCounter.builder(METRIC_MESSAGING_BLOCK_NOTIFICATIONS_SENT)
+                        .setDescription("Notifications sent, by notification type")
+                        .addDynamicLabelNames(LABEL_NOTIFICATION_TYPE));
 
         // Initialize gauges
         metricRegistry
@@ -446,65 +400,16 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public void sendBlockVerification(VerificationNotification notification) {
+    public void sendBlockNotification(final BlockNotification notification) {
         messageForwarder.submit(() -> {
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             // metrics
-            blockVerificationNotificationsCounter.increment();
+            final String notificationType = notification.getClass().getSimpleName();
+            notificationsSentCounter
+                    .getOrCreateLabeled(LABEL_NOTIFICATION_TYPE, notificationType)
+                    .increment();
             // logs
-            LOGGER.log(
-                    DEBUG,
-                    "Sending block verification notification for block={0} blockSource={1} and success={2} ",
-                    notification.blockNumber(),
-                    notification.source(),
-                    notification.success());
-        });
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void sendBlockPersisted(PersistedNotification notification) {
-        messageForwarder.submit(() -> {
-            LOGGER.log(
-                    DEBUG,
-                    "Sending block persisted notification: block={0} succeeded={1} source={2}",
-                    notification.blockNumber(),
-                    notification.succeeded(),
-                    notification.blockSource());
-            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-            blockPersistedNotificationsCounter.increment();
-        });
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
-        messageForwarder.submit(() -> {
-            LOGGER.log(TRACE, "Sending backfilled block notification: block={0}", notification.blockNumber());
-            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-            blockBackfilledNotificationsCounter.increment();
-        });
-    }
-
-    @Override
-    public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
-        messageForwarder.submit(() -> {
-            LOGGER.log(DEBUG, "Sending NewestBlockKnownToNetwork notification: block={0}", notification.blockNumber());
-            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-            newestBlockKnownToNetworkNotificationsCounter.increment();
-        });
-    }
-
-    @Override
-    public void sendPublisherStatusUpdate(final PublisherStatusUpdateNotification notification) {
-        messageForwarder.submit(() -> {
-            LOGGER.log(DEBUG, "Sending publisher status update notification: {0}", notification);
-            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-            publisherStatusUpdateNotificationsCounter.increment();
+            LOGGER.log(DEBUG, "Sending block notification: type={0} notification={1}", notificationType, notification);
         });
     }
 
@@ -515,22 +420,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     public synchronized void registerBlockNotificationHandler(
             final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
         final InformedEventHandler<BlockNotificationRingEvent> informedEventHandler =
-                (event, sequence, endOfBatch, percentageBehindRingHead) -> {
-                    // dispatch the generic notification to the typed handler method it matches
-                    switch (event.get()) {
-                        case VerificationNotification v -> handler.handleVerification(v);
-                        case PersistedNotification p -> handler.handlePersisted(p);
-                        case BackfilledBlockNotification b -> handler.handleBackfilled(b);
-                        case NewestBlockKnownToNetworkNotification n -> handler.handleNewestBlockKnownToNetwork(n);
-                        case PublisherStatusUpdateNotification s -> handler.handlePublisherStatusUpdate(s);
-                        case null -> LOGGER.log(Level.INFO, "Received an event with no notification set");
-                        default ->
-                            LOGGER.log(
-                                    Level.INFO,
-                                    "Received a notification of unknown type: {0}",
-                                    event.get().getClass());
-                    }
-                };
+                (event, sequence, endOfBatch, percentageBehindRingHead) -> handler.handleNotification(event.get());
         if (blockNotificationDisruptor.hasStarted()) {
             // if the disruptor is already running, we need to register the handler with the disruptor
             registerHandler(
