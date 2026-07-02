@@ -351,9 +351,12 @@ public class LiveSequential implements Runnable {
                     + " day=" + initialState.dayDate);
 
             // Optional: live-push to a Block Node. Gated by --push-enabled so the host can be
-            // configured ahead of time but the feature stays off until the operator flips it on
-            // (typically after the historical backfill has populated the target BN). The push
-            // subsystem owns its own thread + bounded queue (see LiveBlockPushClient javadoc).
+            // configured ahead of time but the feature stays off until the operator flips it on.
+            // Live push can run concurrently with a separate historical-backfill process pointing
+            // at the same BN — queryLastAvailableBlock() below skips blocks the BN already has, so
+            // the live side naturally sits above the historical high-water mark without either
+            // side coordinating with the other. The push subsystem owns its own thread + bounded
+            // queue (see LiveBlockPushClient javadoc).
             if (pushEnabled) {
                 if (pushBnHost == null || pushBnHost.isBlank()) {
                     throw new IllegalArgumentException("--push-enabled requires --push-bn-host to be set");

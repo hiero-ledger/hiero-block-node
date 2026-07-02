@@ -67,12 +67,13 @@ public final class LiveBlockPushClient implements AutoCloseable {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicLong submitted = new AtomicLong();
+    private final AtomicLong highestSubmittedBlock = new AtomicLong(-1);
     private final AtomicLong acked = new AtomicLong();
     private final AtomicLong lastAckedBlock = new AtomicLong(-1);
     private final AtomicLong streamReconnects = new AtomicLong();
 
     private Thread worker;
-    private WebClient cachedWebClient; // recreated on each reconnect
+    private WebClient cachedWebClient; // lazily created once and reused for every session
 
     /**
      * @param host BN host
@@ -208,9 +209,20 @@ public final class LiveBlockPushClient implements AutoCloseable {
                     for (final QueuedBlock qb : inFlight) {
                         sendBlock(session, qb);
                     }
-                    // Then drain new work from the queue.
+                    // Then drain new work from the queue. Poll with a short timeout so the
+                    // worker periodically checks whether the response pipeline has flipped to
+                    // failed — protects against the case where Helidon's I/O thread absorbs
+                    // the throw from AckPipeline.onError instead of surfacing it here.
                     while (running.get() || !queue.isEmpty()) {
-                        final QueuedBlock qb = queue.take();
+                        if (!session.responses.isAlive()) {
+                            final Throwable cause = session.responses.failureCause();
+                            throw new StreamFailure(
+                                    cause != null ? cause : new RuntimeException("stream closed by remote"));
+                        }
+                        final QueuedBlock qb = queue.poll(200, TimeUnit.MILLISECONDS);
+                        if (qb == null) {
+                            continue;
+                        }
                         if (qb.block == POISON) {
                             // Graceful shutdown sentinel — wait for ACKs and exit.
                             break;
@@ -265,6 +277,14 @@ public final class LiveBlockPushClient implements AutoCloseable {
         long currentSize = 0;
         for (final BlockItem item : items) {
             final int itemSize = BlockItem.PROTOBUF.measureRecord(item);
+            // A single item bigger than the max message size will get its own batch and be
+            // rejected by the BN. There's nothing we can do to shrink it here — log so the
+            // failure is diagnosable rather than mysterious.
+            if (itemSize > maxBatchBytes) {
+                System.err.println("[push] block " + qb.blockNumber + " has an oversized item ("
+                        + itemSize + " bytes > maxBatchBytes " + maxBatchBytes
+                        + "); the BN will reject the resulting frame");
+            }
             if (!current.isEmpty() && currentSize + itemSize > maxBatchBytes) {
                 batches.add(current);
                 current = new ArrayList<>();
@@ -282,6 +302,16 @@ public final class LiveBlockPushClient implements AutoCloseable {
                     PublishStreamRequest.newBuilder().blockItems(set).build();
             session.requestPipeline.onNext(req);
         }
+        // Only increment `submitted` on the first send of a given block — reattempts after a
+        // stream reconnect walk in-flight in ascending order, so a block <= the current high
+        // watermark has already been counted.
+        long prev;
+        do {
+            prev = highestSubmittedBlock.get();
+            if (qb.blockNumber <= prev) {
+                return;
+            }
+        } while (!highestSubmittedBlock.compareAndSet(prev, qb.blockNumber));
         submitted.incrementAndGet();
     }
 
@@ -353,10 +383,10 @@ public final class LiveBlockPushClient implements AutoCloseable {
         final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient client =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(pbj, defaultOptions());
         final CompletableFuture<Void> completion = new CompletableFuture<>();
-        final Pipeline<PublishStreamResponse> responses = new AckPipeline(completion);
+        final AckPipeline responses = new AckPipeline(completion);
         final Pipeline<PublishStreamRequest> requestPipeline =
                 (Pipeline<PublishStreamRequest>) client.publishBlockStream(responses);
-        return new StreamSession(requestPipeline, completion);
+        return new StreamSession(requestPipeline, completion, responses);
     }
 
     private void safeClose(final StreamSession session) {
@@ -374,7 +404,10 @@ public final class LiveBlockPushClient implements AutoCloseable {
 
     private record QueuedBlock(long blockNumber, Block block) {}
 
-    private record StreamSession(Pipeline<PublishStreamRequest> requestPipeline, CompletableFuture<Void> completion) {}
+    private record StreamSession(
+            Pipeline<PublishStreamRequest> requestPipeline,
+            CompletableFuture<Void> completion,
+            AckPipeline responses) {}
 
     private record SimpleRequestOptions(Optional<String> authority, String contentType)
             implements ServiceInterface.RequestOptions {}
@@ -386,12 +419,28 @@ public final class LiveBlockPushClient implements AutoCloseable {
         }
     }
 
-    /** Tracks ACKs and signals failure on stream errors. */
+    /**
+     * Tracks ACKs and signals failure on stream errors. Runs on Helidon's response-processing thread,
+     * which may or may not surface exceptions thrown from {@link #onError}. To make failure detection
+     * robust from the worker thread, {@link #streamAlive} is flipped to {@code false} before the
+     * exception is thrown; the worker polls it in the drain loop and reconnects even if Helidon
+     * swallowed the throw.
+     */
     private final class AckPipeline implements Pipeline<PublishStreamResponse> {
         private final CompletableFuture<Void> completion;
+        private final AtomicBoolean streamAlive = new AtomicBoolean(true);
+        private volatile Throwable failureCause;
 
         AckPipeline(final CompletableFuture<Void> completion) {
             this.completion = completion;
+        }
+
+        boolean isAlive() {
+            return streamAlive.get();
+        }
+
+        Throwable failureCause() {
+            return failureCause;
         }
 
         @Override
@@ -417,12 +466,15 @@ public final class LiveBlockPushClient implements AutoCloseable {
 
         @Override
         public void onError(final Throwable throwable) {
+            failureCause = throwable;
+            streamAlive.set(false);
             completion.completeExceptionally(throwable);
             throw new StreamFailure(throwable);
         }
 
         @Override
         public void onComplete() {
+            streamAlive.set(false);
             completion.complete(null);
         }
     }
