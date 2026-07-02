@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -23,7 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.BlockNodeServiceInterface;
-import org.hiero.block.api.ServerStatusResponse;
+import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
@@ -232,7 +232,7 @@ class BackfillFetcherTest {
     }
 
     @Nested
-    @DisplayName("getNewAvailableRange")
+    @DisplayName("getNewAvailableRanges")
     class GetNewAvailableRangeTests {
 
         @Test
@@ -243,7 +243,7 @@ class BackfillFetcherTest {
             BlockNodeClient unreachable = mock(BlockNodeClient.class);
             when(unreachable.isNodeReachable()).thenReturn(false);
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), unreachable);
-            assertNull(fetcher.getNewAvailableRange(0L));
+            assertTrue(fetcher.getNewAvailableRanges(0L).isEmpty());
         }
 
         @Test
@@ -253,30 +253,28 @@ class BackfillFetcherTest {
 
             BlockNodeClient reachable = mockReachableClientWithStatus(0L, 100L);
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), reachable);
-            LongRange range = fetcher.getNewAvailableRange(10L);
-            assertNotNull(range);
-            assertEquals(11L, range.start());
-            assertEquals(100L, range.end());
+            List<LongRange> ranges = fetcher.getNewAvailableRanges(10L);
+            assertEquals(1, ranges.size());
+            assertEquals(11L, ranges.getFirst().start());
+            assertEquals(100L, ranges.getLast().end());
         }
 
         @Test
-        @DisplayName("returns null when already ahead of peers")
+        @DisplayName("returns empty when already ahead of peers")
         void returnsNullWhenAheadOfPeers() throws Exception {
             final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
 
             BlockNodeClient reachable = mockReachableClientWithStatus(0L, 100L);
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), reachable);
-            LongRange range = fetcher.getNewAvailableRange(100L);
-            assertNull(range);
+            assertTrue(fetcher.getNewAvailableRanges(100L).isEmpty());
         }
 
         private BlockNodeClient mockReachableClientWithStatus(long first, long last) {
             BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
-            when(serviceClient.serverStatus(any()))
-                    .thenReturn(ServerStatusResponse.newBuilder()
-                            .firstAvailableBlock(first)
-                            .lastAvailableBlock(last)
+            when(serviceClient.serverStatusDetail(any()))
+                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+                            .availableRanges(new BlockRange(first, last))
                             .build());
             BlockNodeClient client = mock(BlockNodeClient.class);
             when(client.isNodeReachable()).thenReturn(true);
@@ -285,34 +283,34 @@ class BackfillFetcherTest {
         }
 
         @Test
-        @DisplayName("returns null when serverStatus throws exception for all nodes")
+        @DisplayName("returns null when serverStatusDetail throws exception for all nodes")
         void shouldReturnNullWhenServerStatusThrowsForAllNodes() throws Exception {
             final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
 
-            // Mock a reachable client that throws on serverStatus()
+            // Mock a reachable client that throws on serverStatusDetail()
             BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
-            when(serviceClient.serverStatus(any())).thenThrow(new RuntimeException("Connection timeout"));
+            when(serviceClient.serverStatusDetail(any())).thenThrow(new RuntimeException("Connection timeout"));
             BlockNodeClient client = mock(BlockNodeClient.class);
             when(client.isNodeReachable()).thenReturn(true);
             when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
 
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), client);
 
-            // Should return null when all nodes fail (doesn't crash)
-            assertNull(fetcher.getNewAvailableRange(10L));
+            // Should return empty when all nodes fail (doesn't crash)
+            assertTrue(fetcher.getNewAvailableRanges(10L).isEmpty());
         }
 
         @Test
-        @DisplayName("returns range from healthy nodes when some nodes timeout on serverStatus")
+        @DisplayName("returns range from healthy nodes when some nodes timeout on serverStatusDetail")
         void shouldReturnRangeFromHealthyNodesWhenSomeTimeout() throws Exception {
             final BlockNodeSourceConfig failingNode = node("localhost", 1, 1);
             final BlockNodeSourceConfig healthyNode = node("localhost", 2, 2);
 
-            // Failing node throws on serverStatus
+            // Failing node throws on serverStatusDetail
             BlockNodeServiceInterface.BlockNodeServiceClient failingServiceClient =
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
-            when(failingServiceClient.serverStatus(any())).thenThrow(new RuntimeException("Connection timeout"));
+            when(failingServiceClient.serverStatusDetail(any())).thenThrow(new RuntimeException("Connection timeout"));
             BlockNodeClient failingClient = mock(BlockNodeClient.class);
             when(failingClient.isNodeReachable()).thenReturn(true);
             when(failingClient.getBlockNodeServiceClient()).thenReturn(failingServiceClient);
@@ -320,10 +318,9 @@ class BackfillFetcherTest {
             // Healthy node returns valid status
             BlockNodeServiceInterface.BlockNodeServiceClient healthyServiceClient =
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
-            when(healthyServiceClient.serverStatus(any()))
-                    .thenReturn(ServerStatusResponse.newBuilder()
-                            .firstAvailableBlock(0L)
-                            .lastAvailableBlock(100L)
+            when(healthyServiceClient.serverStatusDetail(any()))
+                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+                            .availableRanges(new BlockRange(0L, 100L))
                             .build());
             BlockNodeClient healthyClient = mock(BlockNodeClient.class);
             when(healthyClient.isNodeReachable()).thenReturn(true);
@@ -340,10 +337,10 @@ class BackfillFetcherTest {
             };
 
             // Should return range from healthy node
-            LongRange range = fetcher.getNewAvailableRange(10L);
-            assertNotNull(range);
-            assertEquals(11L, range.start());
-            assertEquals(100L, range.end());
+            List<LongRange> ranges = fetcher.getNewAvailableRanges(10L);
+            assertEquals(1, ranges.size());
+            assertEquals(11L, ranges.getFirst().start());
+            assertEquals(100L, ranges.getLast().end());
         }
     }
 
@@ -545,13 +542,13 @@ class BackfillFetcherTest {
             };
 
             // Step 1: Initial call - client gets cached
-            assertNotNull(fetcher.getNewAvailableRange(0L));
+            assertFalse(fetcher.getNewAvailableRanges(0L).isEmpty());
             BlockNodeClient firstClient = fetcher.nodeClientMap.get(nodeConfig);
             assertNotNull(firstClient, "Client should be cached");
 
             // Step 2: Failure - markFailure() evicts the client
             shouldFail.set(true);
-            fetcher.getNewAvailableRange(0L);
+            fetcher.getNewAvailableRanges(0L);
             assertTrue(fetcher.nodeClientMap.isEmpty(), "Client should be evicted after failure");
             assertTrue(fetcher.isInBackoff(nodeConfig));
 
@@ -562,7 +559,7 @@ class BackfillFetcherTest {
                             h.failures(), System.currentTimeMillis() - 1, h.successes(), h.totalLatencyNanos()));
             assertFalse(fetcher.isInBackoff(nodeConfig), "Backoff should have expired");
             shouldFail.set(false);
-            assertNotNull(fetcher.getNewAvailableRange(0L));
+            assertFalse(fetcher.getNewAvailableRanges(0L).isEmpty());
             BlockNodeClient newClient = fetcher.nodeClientMap.get(nodeConfig);
             assertNotNull(newClient, "New client should be cached");
             assertNotSame(firstClient, newClient, "Should be a fresh client instance");
@@ -571,13 +568,12 @@ class BackfillFetcherTest {
         private BlockNodeClient createToggleableMockClient(AtomicBoolean shouldFail) {
             BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
-            when(serviceClient.serverStatus(any())).thenAnswer(invocation -> {
+            when(serviceClient.serverStatusDetail(any())).thenAnswer(invocation -> {
                 if (shouldFail.get()) {
                     throw new UncheckedIOException(new IOException("Socket closed"));
                 }
-                return ServerStatusResponse.newBuilder()
-                        .firstAvailableBlock(0L)
-                        .lastAvailableBlock(100L)
+                return ServerStatusDetailResponse.newBuilder()
+                        .availableRanges(new BlockRange(0L, 100L))
                         .build();
             });
 
@@ -669,7 +665,7 @@ class BackfillFetcherTest {
             };
 
             // First scan - should attempt all 5 nodes
-            fetcher.getNewAvailableRange(0L);
+            fetcher.getNewAvailableRanges(0L);
             assertEquals(numberOfNodes, connectionAttempts.get(), "Should attempt all nodes on first scan");
 
             // All nodes should now be in backoff
@@ -681,11 +677,11 @@ class BackfillFetcherTest {
             connectionAttempts.set(0);
 
             // Second scan immediately - all nodes are in backoff, so NONE should be attempted
-            fetcher.getNewAvailableRange(0L);
+            fetcher.getNewAvailableRanges(0L);
             assertEquals(
                     0,
                     connectionAttempts.get(),
-                    "getNewAvailableRange should skip all nodes in backoff - no excessive retries");
+                    "getNewAvailableRanges should skip all nodes in backoff - no excessive retries");
         }
 
         @Test
@@ -709,7 +705,7 @@ class BackfillFetcherTest {
             };
 
             // First failure - should set initial backoff
-            fetcher.getNewAvailableRange(0L);
+            fetcher.getNewAvailableRanges(0L);
             BackfillFetcher.SourceHealth health1 = fetcher.healthMap.get(nodeConfig);
             assertNotNull(health1, "Health record should exist after first failure");
             assertEquals(1, health1.failures(), "Should have 1 failure");
@@ -722,7 +718,7 @@ class BackfillFetcherTest {
             assertFalse(fetcher.isInBackoff(nodeConfig), "Backoff should have expired");
 
             // Second failure
-            fetcher.getNewAvailableRange(0L);
+            fetcher.getNewAvailableRanges(0L);
             BackfillFetcher.SourceHealth health2 = fetcher.healthMap.get(nodeConfig);
             assertEquals(2, health2.failures(), "Should have 2 failures");
 
@@ -733,7 +729,7 @@ class BackfillFetcherTest {
                         nodeConfig,
                         (n, h) -> new BackfillFetcher.SourceHealth(
                                 h.failures(), System.currentTimeMillis() - 1, h.successes(), h.totalLatencyNanos()));
-                fetcher.getNewAvailableRange(0L);
+                fetcher.getNewAvailableRanges(0L);
             }
 
             BackfillFetcher.SourceHealth finalHealth = fetcher.healthMap.get(nodeConfig);
@@ -748,7 +744,7 @@ class BackfillFetcherTest {
         }
 
         @Test
-        @DisplayName("getNewAvailableRange should respect backoff and skip nodes in backoff")
+        @DisplayName("getNewAvailableRanges should respect backoff and skip nodes in backoff")
         void shouldRespectBackoffInGetNewAvailableRange() throws Exception {
             BlockNodeSourceConfig node1 = node("localhost", 1, 1);
             BlockNodeSourceConfig node2 = node("localhost", 2, 1);
@@ -776,10 +772,9 @@ class BackfillFetcherTest {
                     } else {
                         BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
                                 mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
-                        when(serviceClient.serverStatus(any()))
-                                .thenReturn(ServerStatusResponse.newBuilder()
-                                        .firstAvailableBlock(0L)
-                                        .lastAvailableBlock(100L)
+                        when(serviceClient.serverStatusDetail(any()))
+                                .thenReturn(ServerStatusDetailResponse.newBuilder()
+                                        .availableRanges(new BlockRange(0L, 100L))
                                         .build());
                         when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
                     }
@@ -788,19 +783,19 @@ class BackfillFetcherTest {
             };
 
             // First call
-            LongRange range = fetcher.getNewAvailableRange(0L);
-            assertNotNull(range, "Should get range from node2");
+            List<LongRange> ranges = fetcher.getNewAvailableRanges(0L);
+            assertFalse(ranges.isEmpty(), "Should get range from node2");
             assertEquals(1, node1Attempts.get(), "node1 should be attempted once");
             assertEquals(1, node2Attempts.get(), "node2 should be attempted once");
             assertTrue(fetcher.isInBackoff(node1), "node1 should be in backoff");
 
             // Second call - node1 is in backoff and should be SKIPPED
-            range = fetcher.getNewAvailableRange(0L);
-            assertNotNull(range, "Should still get range from node2");
+            ranges = fetcher.getNewAvailableRanges(0L);
+            assertFalse(ranges.isEmpty(), "Should still get range from node2");
             assertEquals(
                     1,
                     node1Attempts.get(),
-                    "node1 should NOT be attempted again - getNewAvailableRange respects backoff");
+                    "node1 should NOT be attempted again - getNewAvailableRanges respects backoff");
             assertEquals(2, node2Attempts.get(), "node2 should be attempted again (not in backoff)");
         }
     }

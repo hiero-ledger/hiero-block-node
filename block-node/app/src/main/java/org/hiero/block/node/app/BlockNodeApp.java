@@ -500,6 +500,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     @Override
+    public BlockRangeSet storedBlocks() {
+        return storedBlocks;
+    }
+
+    @Override
     public NetworkData knownPublishers() {
         return knownPublishers.get();
     }

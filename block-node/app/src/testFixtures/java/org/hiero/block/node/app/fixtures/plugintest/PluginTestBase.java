@@ -26,6 +26,7 @@ import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -34,6 +35,7 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
@@ -77,6 +79,8 @@ public abstract class PluginTestBase<
     protected P plugin;
     /** The historical block facility used by the current test, retained for doStart(). */
     private HistoricalBlockFacility activeHistoricalBlockFacility;
+    /** The stored-block set backing {@link #addStoredBlockRange} and {@link #storedBlocks()}. */
+    protected final ConcurrentLongRangeSet appStoredBlocks = new ConcurrentLongRangeSet();
 
     protected PluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
         testThreadPoolManager = new TestThreadPoolManager<>(executorService, scheduledExecutorService);
@@ -345,7 +349,12 @@ public abstract class PluginTestBase<
 
     @Override
     public void addStoredBlockRange(LongRange blockRange) {
-        // Do nothing
+        appStoredBlocks.add(blockRange);
+    }
+
+    @Override
+    public BlockRangeSet storedBlocks() {
+        return appStoredBlocks;
     }
 
     @Override

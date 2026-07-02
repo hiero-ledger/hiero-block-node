@@ -13,8 +13,11 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +26,7 @@ import java.util.function.Consumer;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -90,6 +94,20 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private final AtomicLong pendingBackfillBlocks = new AtomicLong(0);
     // Deduplication: highest block scheduled for live-tail (prevents overlapping submissions)
     private final AtomicLong liveTailHighWaterMark = new AtomicLong(-1);
+
+    // Per-historical-gap exponential backoff. Keyed by gap start block. Accessed only from the
+    // single-threaded autonomous scan (detectAndScheduleGaps), so it needs no synchronization.
+    // A gap that keeps reappearing without shrinking (e.g. blocks evicted by retention before any
+    // storage plugin records them as stored) is retried with an exponentially growing delay instead
+    // of being re-fetched every scan, capping the wasted work.
+    private final Map<Long, HistoricalGapBackoff> historicalGapBackoff = new HashMap<>();
+
+    /// Backoff bookkeeping for a single historical gap.
+    ///
+    /// @param attempts number of times this gap has been submitted without shrinking
+    /// @param nextEligibleEpochMs earliest wall-clock time the gap may be re-submitted
+    /// @param lastGapSize the gap size at the last attempt, used to detect progress
+    private record HistoricalGapBackoff(int attempts, long nextEligibleEpochMs, long lastGapSize) {}
 
     // Metrics holder containing all backfill metrics
     private MetricsHolder metricsHolder;
@@ -296,11 +314,18 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private void detectAndScheduleGaps() {
         LOGGER.log(TRACE, "Detecting gaps in blocks");
 
-        // 1. Get stored blocks
-        List<LongRange> blockRanges = context.historicalBlockProvider()
+        // 1. Get the blocks this node already has: the union of blocks stored (persisted somewhere at some
+        //    point, the source of truth from the Application State facility) and blocks currently available
+        //    for retrieval. Using stored — not just available — prevents re-backfilling blocks that have been
+        //    evicted from a volatile tier (e.g. by the recent-tier retention policy) but were already stored.
+        ConcurrentLongRangeSet knownBlocks = new ConcurrentLongRangeSet();
+        knownBlocks.addAll(
+                context.applicationStateFacility().storedBlocks().streamRanges().toList());
+        knownBlocks.addAll(context.historicalBlockProvider()
                 .availableBlocks()
                 .streamRanges()
-                .toList();
+                .toList());
+        List<LongRange> blockRanges = knownBlocks.streamRanges().toList();
 
         // 2. Determine range to scan
         //    - Lower bound: configured startBlock
@@ -321,13 +346,53 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 : blockRanges.getLast().end();
         List<GapDetector.Gap> gaps = gapDetector.findTypedGaps(blockRanges, startBound, liveTailBoundary, endCap);
 
-        // 4. Submit each gap to appropriate scheduler
+        // 4. Submit each gap to appropriate scheduler, throttling historical gaps that keep reappearing
         final String detectedGapMsg = "Detected gap type=[{0}] range=[{1}]";
+        final long now = System.currentTimeMillis();
+        final Set<Long> detectedHistoricalStarts = new HashSet<>();
         for (GapDetector.Gap gap : gaps) {
             LOGGER.log(DEBUG, detectedGapMsg, gap.type(), gap.range());
-            scheduleGap(gap);
-            metricsHolder.backfillGapsDetected.increment();
+            if (gap.type() == GapDetector.Type.HISTORICAL) {
+                final long start = gap.range().start();
+                detectedHistoricalStarts.add(start);
+                if (isHistoricalGapInBackoff(start, gap.range().size(), now)) {
+                    final String backingOffMsg = "Historical gap [{0}] is backing off, skipping this scan";
+                    LOGGER.log(DEBUG, backingOffMsg, gap.range());
+                    continue;
+                }
+            }
+            if (scheduleGap(gap)) {
+                metricsHolder.backfillGapsDetected.increment();
+                if (gap.type() == GapDetector.Type.HISTORICAL) {
+                    recordHistoricalGapAttempt(gap.range().start(), gap.range().size(), now);
+                }
+            }
         }
+        // Drop backoff state for historical gaps that are no longer detected (resolved).
+        historicalGapBackoff.keySet().retainAll(detectedHistoricalStarts);
+    }
+
+    /// Returns `true` when a historical gap should be skipped this scan because it was recently attempted
+    /// and has not shrunk since (i.e. no progress was made). A gap that has shrunk since the last attempt
+    /// is always eligible immediately, so genuine progress is never throttled.
+    private boolean isHistoricalGapInBackoff(long start, long size, long now) {
+        final HistoricalGapBackoff state = historicalGapBackoff.get(start);
+        if (state == null || size < state.lastGapSize()) {
+            return false;
+        }
+        return now < state.nextEligibleEpochMs();
+    }
+
+    /// Records a historical-gap submission and computes its next eligible retry time. The delay grows
+    /// exponentially (base = scan interval, doubling per consecutive no-progress attempt) and is capped at
+    /// the configured `maxBackoffMs`. A gap that shrank since the previous attempt resets to the base delay.
+    private void recordHistoricalGapAttempt(long start, long size, long now) {
+        final HistoricalGapBackoff previous = historicalGapBackoff.get(start);
+        final int attempts = (previous != null && size >= previous.lastGapSize()) ? previous.attempts() + 1 : 1;
+        final long baseDelayMs = backfillConfiguration.scanInterval();
+        final int shift = Math.min(attempts - 1, 32);
+        final long delayMs = Math.min(baseDelayMs << shift, backfillConfiguration.maxBackoffMs());
+        historicalGapBackoff.put(start, new HistoricalGapBackoff(attempts, now + delayMs, size));
     }
 
     /**
@@ -355,8 +420,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      */
     private long getPeerMaxAvailableBlock(long baseline) {
         try {
-            LongRange peerRange = autonomousFetcher.getNewAvailableRange(baseline);
-            return peerRange != null && peerRange.size() > 0 ? peerRange.end() : -1;
+            List<LongRange> peerRanges = autonomousFetcher.getNewAvailableRanges(baseline);
+            return peerRanges.isEmpty() ? -1 : peerRanges.getLast().end();
         } catch (RuntimeException e) {
             final String peerAvailabilityFailedMsg = "Failed to get peer availability: %s".formatted(e.getMessage());
             LOGGER.log(WARNING, peerAvailabilityFailedMsg, e);
@@ -364,9 +429,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
     }
 
-    private void scheduleGap(GapDetector.Gap gap) {
+    /// Submits a gap to the appropriate scheduler, applying live-tail deduplication and the historical
+    /// in-progress guard.
+    ///
+    /// @return `true` if the gap was submitted to a scheduler, `false` if it was skipped
+    private boolean scheduleGap(GapDetector.Gap gap) {
         if (gap.range().size() <= 0) {
-            return;
+            return false;
         }
 
         // Skip historical gaps if scheduler is already processing (historical gaps don't change)
@@ -376,7 +445,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 && historicalScheduler.isRunning()) {
             final String skippingHistoricalGapMsg = "Skipping historical gap [{0}], scheduler already running";
             LOGGER.log(DEBUG, skippingHistoricalGapMsg, gap.range());
-            return;
+            return false;
         }
 
         // Deduplicate live-tail gaps using high-water mark
@@ -388,7 +457,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 final String skippingDuplicateLiveTailMsg =
                         "Skipping duplicate live-tail gap [{0}], highWaterMark=[{1}]";
                 LOGGER.log(TRACE, skippingDuplicateLiveTailMsg, gap.range(), highWaterMark);
-                return;
+                return false;
             }
             if (gap.range().start() <= highWaterMark) {
                 // Partial overlap - adjust start
@@ -409,6 +478,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         final String submittingGapMsg = "Submitting gap type=[{0}] range=[{1}] to scheduler";
         LOGGER.log(DEBUG, submittingGapMsg, effectiveGap.type(), effectiveGap.range());
         submitGap(effectiveGap);
+        return true;
     }
 
     /**
@@ -474,8 +544,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
-        long lastPersistedBlock =
-                context.historicalBlockProvider().availableBlocks().max();
+        long lastPersistedBlock = Math.max(
+                context.historicalBlockProvider().availableBlocks().max(),
+                context.applicationStateFacility().storedBlocks().max());
         long startBackfillFrom = Math.max(lastPersistedBlock + 1, backfillConfiguration.startBlock());
         long newestBlockKnown = notification.blockNumber();
         long cappedEnd = backfillConfiguration.endBlock() >= 0

@@ -1044,16 +1044,25 @@ class BlockNodeAppTest {
         blockNodeApp.startApplicationStateFacility();
         blockNodeApp.loadedPlugins.add(testPlugin);
         blockNodeApp.addStoredBlockRange(new LongRange(0, 999));
-        testPlugin.expectContextUpdates(1);
         blockNodeApp.addStoredBlockRange(new LongRange(1000, 1049));
-        testPlugin.expectContextUpdates(1);
 
-        // wait for the ApplicationStateFacility scanner to pick up the update
-        testPlugin.awaitContextUpdates(15);
+        // The scanner delivers context updates asynchronously; poll the delivered context until it reports the
+        // merged range. Polling avoids racing an in-flight scanner tick whose callback could carry a stale range.
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        BlockRange storedBlocks = null;
+        while (System.nanoTime() < deadline) {
+            final BlockNodeContext context = testPlugin.getContext();
+            if (context != null && !context.storedBlocks().isEmpty()) {
+                storedBlocks = context.storedBlocks().getFirst();
+                if (storedBlocks.rangeStart() == 0L && storedBlocks.rangeEnd() == 1049L) {
+                    break;
+                }
+            }
+            //noinspection BusyWait
+            Thread.sleep(50);
+        }
 
-        BlockNodeContext context = testPlugin.getContext();
-        assertNotNull(context);
-        BlockRange storedBlocks = context.storedBlocks().getFirst();
+        assertNotNull(storedBlocks, "onContextUpdate did not deliver the merged stored range within the timeout");
         assertEquals(0L, storedBlocks.rangeStart());
         assertEquals(1049L, storedBlocks.rangeEnd());
 
