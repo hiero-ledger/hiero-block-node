@@ -154,31 +154,59 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
         return recoveryResult;
     }
 
-    /// Pages through ALL objects under the configured prefix (excluding `tmp/`) and returns
-    /// the sorted list of final tar keys -- those that do not end with `.tmp` or `.meta`.
+    /// Walks the `/`-delimited directory hierarchy under the configured prefix (excluding `tmp/`)
+    /// and returns the list of all final tar keys.
     ///
-    /// O(N/1000) list calls for N completed archives. The full list is required to populate
-    /// [RecoveryResult#completedRanges()]; a faster O(depth) last-key traversal using
-    /// delimiter listing would suffice for `currentGroupStart` alone but not for per-range
-    /// accuracy.
+    /// [ArchiveKey#format] lays out each group as `directoryDepth` path segments followed by a
+    /// leaf segment folded into the object name (e.g. `0000/0000/0000/0001/23.tar`). This walks
+    /// [directoryDepth] delimiter listings (returning `CommonPrefixes`, one per branch) before
+    /// issuing a single flat listing per leaf directory to read the actual tar keys, bounding the
+    /// list-call count by O(levels x branches) rather than the total number of completed archives,
+    /// with no loss of per-range accuracy since every tar key is still read from a leaf listing.
     private List<String> findAllTarKeys(S3Client s3) throws S3ResponseException, IOException {
         final String objectKeyPrefix = config.objectKeyPrefix();
         final String excludedPrefix = TempArchiveKey.tmpPrefix(objectKeyPrefix);
         final String rootPrefix = objectKeyPrefix.isEmpty() ? "" : objectKeyPrefix + "/";
         final List<String> tarKeys = new ArrayList<>();
+        collectTarKeys(s3, rootPrefix, directoryDepth(), excludedPrefix, tarKeys);
+        return tarKeys;
+    }
+
+    /// Number of `/`-delimited directory levels [ArchiveKey#format] emits before the leaf segment
+    /// that is folded into the object name, for the configured [CloudStorageArchiveConfig#groupingLevel()].
+    private int directoryDepth() {
+        final int digitCount = 19 - config.groupingLevel();
+        final int segmentCount = (digitCount + 3) / 4;
+        return segmentCount - 1;
+    }
+
+    /// Recursively descends `remainingDepth` levels of `/`-delimited directories starting at
+    /// [prefix], collecting completed tar keys into [out]. At `remainingDepth == 0`, [prefix] is a
+    /// leaf directory: a flat (non-delimited) listing reads its objects directly, giving the exact
+    /// tar keys without ever walking sibling leaf directories.
+    private void collectTarKeys(S3Client s3, String prefix, int remainingDepth, String excludedPrefix, List<String> out)
+            throws S3ResponseException, IOException {
+        final String delimiter = remainingDepth == 0 ? null : "/";
         String token = null;
         boolean hasMore = true;
         while (hasMore) {
-            final S3Client.ListPage page = s3.listObjectsPage(rootPrefix, token, null, MAX_LIST_RESULTS);
-            for (final String key : page.keys()) {
-                if (!key.startsWith(excludedPrefix) && !key.endsWith(".tmp") && !key.endsWith(".meta")) {
-                    tarKeys.add(key);
+            final S3Client.ListPage page = s3.listObjectsPage(prefix, token, delimiter, MAX_LIST_RESULTS);
+            if (remainingDepth == 0) {
+                for (final String key : page.keys()) {
+                    if (key.endsWith(".tar")) {
+                        out.add(key);
+                    }
+                }
+            } else {
+                for (final String childPrefix : page.keys()) {
+                    if (!childPrefix.equals(excludedPrefix)) {
+                        collectTarKeys(s3, childPrefix, remainingDepth - 1, excludedPrefix, out);
+                    }
                 }
             }
             token = page.continuationToken();
             hasMore = token != null;
         }
-        return tarKeys;
     }
 
     /// Case 2: one hanging upload — complete it to materialize a readable S3 object, start a fresh
