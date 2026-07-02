@@ -320,10 +320,11 @@ class RsaWrbVerificationTest {
     }
 
     @Test
-    @DisplayName("signature from unknown node_id causes immediate block rejection")
-    void unknownNodeId_causesBlockRejection() throws Exception {
-        // Nodes 0..4 produce valid sigs; node 99 is not in the era key map.
-        // With the correct era selected, every node_id in the proof must be in the address book.
+    @DisplayName("signature from unknown node_id is skipped as a roster mismatch; block still accepted")
+    void unknownNodeId_skippedAsMismatch_blockAccepted() throws Exception {
+        // Nodes 0..4 produce valid sigs; node 99 is not in the era key map. Its signature is
+        // skipped and tallied as a roster mismatch (see @todo(2808)) rather than rejecting the
+        // block outright — the five valid era signatures are sufficient to accept.
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
         sigs.add(new RecordFileSignature(Bytes.wrap(sign(0L)), 99L)); // node 99 absent from era key map
 
@@ -331,14 +332,15 @@ class RsaWrbVerificationTest {
         final VerificationNotification result = runVerification(keyMap, sigs);
 
         assertNotNull(result);
-        assertFalse(result.success(), "Sig from unknown node_id must cause immediate block rejection");
+        assertTrue(result.success(), "Sig from unknown node_id must be skipped, not reject the block");
     }
 
     @Test
-    @DisplayName("signature from node not in era address book causes immediate block rejection")
-    void nodeNotInEraAddressBook_causesBlockRejection() throws Exception {
-        // The proof contains a sig from node 5, but the era key map only has nodes 0..4.
-        // With the correct era selected, this is a hard failure — the proof is invalid for this era.
+    @DisplayName("signature from node not in era address book is skipped as a roster mismatch; block still accepted")
+    void nodeNotInEraAddressBook_skippedAsMismatch_blockAccepted() throws Exception {
+        // The proof contains a sig from node 5, but the era key map only has nodes 0..4. That
+        // signature is skipped and tallied as a roster mismatch; the five valid era signatures
+        // are sufficient to accept the block.
         final Map<Long, PublicKey> era1KeyMap = new HashMap<>();
         for (long id = 0; id < 5; id++) {
             era1KeyMap.put(id, KEY_MAP.get(id));
@@ -347,7 +349,23 @@ class RsaWrbVerificationTest {
         final VerificationNotification result = runVerification(era1KeyMap, sigs);
 
         assertNotNull(result);
-        assertFalse(result.success(), "Sig from node not in era address book must cause immediate block rejection");
+        assertTrue(result.success(), "Sig from node not in era address book must be skipped, not reject the block");
+    }
+
+    @Test
+    @DisplayName("all signatures from unknown node_ids are skipped as mismatches, leaving zero valid sigs — rejected")
+    void allSignaturesUnknownNodeIds_skippedAsMismatches_rejected() throws Exception {
+        // Era roster contains nodes 10..12 only — none of the signing nodes (0, 1, 2) are present,
+        // so every signature is skipped as a roster mismatch and validCount stays at 0.
+        final Map<Long, PublicKey> eraKeyMap = new HashMap<>();
+        eraKeyMap.put(10L, KEY_MAP.get(0L));
+        eraKeyMap.put(11L, KEY_MAP.get(1L));
+        eraKeyMap.put(12L, KEY_MAP.get(2L));
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L);
+        final VerificationNotification result = runVerification(eraKeyMap, sigs);
+
+        assertNotNull(result);
+        assertFalse(result.success(), "All signatures skipped as mismatches must leave zero valid sigs → rejected");
     }
 
     @Test

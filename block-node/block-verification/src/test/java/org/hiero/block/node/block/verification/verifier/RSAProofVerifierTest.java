@@ -278,27 +278,42 @@ class RSAProofVerifierTest {
     }
 
     @Test
-    @DisplayName("signature from unknown node_id causes immediate block rejection")
-    void unknownNodeId_causesBlockRejection() throws Exception {
-        // Node 99 is not in the era key map — with the correct era selected, every node_id
-        // in the proof must be in the address book; an unknown node_id is a hard failure.
+    @DisplayName("signature from unknown node_id is skipped as a roster mismatch; block still accepted")
+    void unknownNodeId_skippedAsMismatch_blockAccepted() throws Exception {
+        // Node 99 is not in the era key map — its signature is skipped and tallied as a roster
+        // mismatch (see @todo(2808)) rather than rejecting the block outright; the five valid
+        // signatures from nodes 0..4 are sufficient to accept.
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
         sigs.add(new RecordFileSignature(Bytes.wrap(sign(0L)), 99L)); // node 99 absent from era key map
         final Map<Long, PublicKey> keyMap = new HashMap<>(KEY_MAP); // node 99 absent
         final SessionFailureType result = runVerification(keyMap, sigs);
-        assertThat(result).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        assertThat(result).isNull();
     }
 
     @Test
-    @DisplayName("signature from node not in era address book causes immediate block rejection")
-    void nodeNotInEraAddressBook_causesBlockRejection() throws Exception {
-        // The era key map only has nodes 0..4; the proof has a sig from node 5.
-        // With the correct era selected, this is a hard failure.
+    @DisplayName("signature from node not in era address book is skipped as a roster mismatch; block still accepted")
+    void nodeNotInEraAddressBook_skippedAsMismatch_blockAccepted() throws Exception {
+        // The era key map only has nodes 0..4; the proof has a sig from node 5, which is skipped
+        // and tallied as a roster mismatch. The five valid era signatures accept the block.
         final Map<Long, PublicKey> eraKeyMap = new HashMap<>();
         for (long id = 0; id < 5; id++) {
             eraKeyMap.put(id, KEY_MAP.get(id));
         }
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L, 5L);
+        final SessionFailureType result = runVerification(eraKeyMap, sigs);
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("all signatures from unknown node_ids are skipped as mismatches, leaving zero valid sigs — rejected")
+    void allSignaturesUnknownNodeIds_skippedAsMismatches_rejected() throws Exception {
+        // Era roster contains nodes 10..12 only — none of the signing nodes (0, 1, 2) are present,
+        // so every signature is skipped as a roster mismatch and validCount stays at 0.
+        final Map<Long, PublicKey> eraKeyMap = new HashMap<>();
+        eraKeyMap.put(10L, KEY_MAP.get(0L));
+        eraKeyMap.put(11L, KEY_MAP.get(1L));
+        eraKeyMap.put(12L, KEY_MAP.get(2L));
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L);
         final SessionFailureType result = runVerification(eraKeyMap, sigs);
         assertThat(result).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
     }

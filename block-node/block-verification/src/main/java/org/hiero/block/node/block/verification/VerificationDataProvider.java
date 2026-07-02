@@ -34,10 +34,16 @@ public final class VerificationDataProvider {
     private static final System.Logger LOGGER = System.getLogger(VerificationDataProvider.class.getName());
     private final BlockNodeContext context;
     private final AtomicReference<TssData> currentTssData;
+    /// One-entry cache: avoids re-parsing RSA keys for every block in the same address-book era.
+    /// Held as an atomic pair so no thread can observe the new book alongside the old key map.
+    private final AtomicReference<CachedKeyMap> cachedKeyMap;
+
+    private record CachedKeyMap(NodeAddressBook book, Map<Long, PublicKey> keys) {}
 
     public VerificationDataProvider(final BlockNodeContext context) {
         this.context = Objects.requireNonNull(context);
         this.currentTssData = new AtomicReference<>(null);
+        this.cachedKeyMap = new AtomicReference<>(null);
     }
 
     public TssData currentTssData() {
@@ -52,13 +58,23 @@ public final class VerificationDataProvider {
     /// resolved via {@link org.hiero.block.node.spi.ApplicationStateFacility#getAddressBookForBlock}.
     /// Returns {@code null} when no era covers the block (the caller must fail the block with
     /// {@link org.hiero.block.node.block.verification.session.SessionFailureType#MISSING_VERIFICATION_DATA}).
+    ///
+    /// The result is cached by address-book identity: consecutive blocks in the same era share the
+    /// same [NodeAddressBook] instance from the history lookup, so key parsing only happens once per
+    /// era transition rather than once per block.
     public Map<Long, PublicKey> rsaPublicKeysForBlock(final long blockNumber) {
         final NodeAddressBook book = context.applicationStateFacility().getAddressBookForBlock(blockNumber);
         if (book == null) {
             return null;
         }
+        final CachedKeyMap cached = cachedKeyMap.get();
+        if (cached != null && cached.book() == book) {
+            return cached.keys();
+        }
         try {
-            return buildKeyMap(book);
+            final Map<Long, PublicKey> keys = buildKeyMap(book);
+            cachedKeyMap.set(new CachedKeyMap(book, keys));
+            return keys;
         } catch (final NoSuchAlgorithmException e) {
             LOGGER.log(WARNING, "RSA KeyFactory not available for block {0} — returning empty key map", blockNumber);
             return null;

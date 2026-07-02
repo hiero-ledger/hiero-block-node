@@ -58,6 +58,7 @@ import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -542,7 +543,7 @@ class VerificationServicePluginTest
     }
 
     @Test
-    @DisplayName("RSA WRB: block number outside all address book eras fails with NO_MATCHING_ADDRESS_BOOK")
+    @DisplayName("RSA WRB: block number outside all address book eras fails with MISSING_VERIFICATION_DATA")
     void rsaWrb_blockOutsideAllEras_failsVerification() throws Exception {
         // Build a 1-node address book covering only blocks 1000–2000.
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
@@ -603,9 +604,9 @@ class VerificationServicePluginTest
         assertFalse(notification.success(), "Block outside all address book eras must fail verification");
         assertNotNull(notification.failureInfo(), "Failure info must be set");
         assertEquals(
-                VerificationNotification.FailureType.NO_MATCHING_ADDRESS_BOOK,
+                FailureType.MISSING_VERIFICATION_DATA,
                 notification.failureInfo().failureType(),
-                "Failure type must be NO_MATCHING_ADDRESS_BOOK for a block outside all eras");
+                "Failure type must be MISSING_VERIFICATION_DATA for a block outside all eras");
     }
 
     @Test

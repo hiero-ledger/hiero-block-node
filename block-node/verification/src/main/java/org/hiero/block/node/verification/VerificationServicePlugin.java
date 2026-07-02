@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.security.PublicKey;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -139,6 +140,21 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     public static LedgerIdPublicationTransactionBody activeTssPublication;
     /** True once TSS parameters have been persisted (file bootstrap or successful block 0 verification). */
     public static boolean tssParametersPersisted;
+    /**
+     * One-entry cache of the RSA key map decoded for the live (publisher) path: avoids
+     * re-parsing RSA keys for every live block that falls in the same address-book era. Held as
+     * an atomic pair so no thread can observe the new address book alongside the old key map.
+     */
+    private final AtomicReference<CachedRsaKeys> cachedLiveRsaKeys = new AtomicReference<>(null);
+    /**
+     * One-entry cache of the RSA key map decoded for the backfill path: avoids re-parsing RSA
+     * keys for every backfilled block that falls in the same address-book era. Kept separate
+     * from {@link #cachedLiveRsaKeys} because the two paths may be processing different eras
+     * concurrently, which would otherwise thrash a single shared cache entry.
+     */
+    private final AtomicReference<CachedRsaKeys> cachedBackfillRsaKeys = new AtomicReference<>(null);
+
+    private record CachedRsaKeys(NodeAddressBook book, Map<Long, PublicKey> keys) {}
 
     /**
      * {@inheritDoc}
@@ -324,7 +340,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 final NodeAddressBook addressBook =
                         context.applicationStateFacility().getAddressBookForBlock(currentBlockNumber);
                 final Map<Long, PublicKey> rsaKeys =
-                        addressBook != null ? RsaKeyDecoder.buildKeyMap(addressBook) : Map.of();
+                        addressBook != null ? rsaKeysFor(addressBook, cachedLiveRsaKeys) : Map.of();
                 currentSession = HapiVersionSessionFactory.createSession(
                         currentBlockNumber,
                         BlockSource.PUBLISHER,
@@ -498,7 +514,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 final NodeAddressBook backfillAddressBook =
                         context.applicationStateFacility().getAddressBookForBlock(notification.blockNumber());
                 final Map<Long, PublicKey> backfillRsaKeys =
-                        backfillAddressBook != null ? RsaKeyDecoder.buildKeyMap(backfillAddressBook) : Map.of();
+                        backfillAddressBook != null ? rsaKeysFor(backfillAddressBook, cachedBackfillRsaKeys) : Map.of();
                 VerificationSession backfillSession = HapiVersionSessionFactory.createSession(
                         notification.blockNumber(),
                         BlockSource.BACKFILL,
@@ -554,6 +570,27 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             LOGGER.log(WARNING, "Failed to handle backfill notification ", e);
             sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL, FailureType.UNKNOWN_ERROR);
         }
+    }
+
+    /**
+     * Returns the RSA key map decoded from {@code book}, reusing the previous result held in
+     * {@code cache} when {@code book} is the same instance as last time (i.e. still within the
+     * same address-book era) instead of re-decoding every block.
+     *
+     * @param book the address book resolved for the block currently being processed
+     * @param cache the one-entry cache to consult/update; use a distinct cache per call path
+     *     (live vs. backfill) since they may be processing different eras concurrently
+     * @return the {@code node_id -> PublicKey} map for {@code book}
+     */
+    private static Map<Long, PublicKey> rsaKeysFor(
+            final NodeAddressBook book, final AtomicReference<CachedRsaKeys> cache) {
+        final CachedRsaKeys cached = cache.get();
+        if (cached != null && cached.book() == book) {
+            return cached.keys();
+        }
+        final Map<Long, PublicKey> keys = RsaKeyDecoder.buildKeyMap(book);
+        cache.set(new CachedRsaKeys(book, keys));
+        return keys;
     }
 
     private static String resolveHostname() {

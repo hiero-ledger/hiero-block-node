@@ -107,6 +107,24 @@ class VerificationDataProviderTest {
         assertThat(provider.rsaPublicKeysForBlock(0L)).isEmpty();
     }
 
+    @Test
+    @DisplayName("rsaPublicKeysForBlock: same map instance returned for repeated calls in same era")
+    void rsaPublicKeysForBlock_sameInstanceOnCacheHit() {
+        // open-ended era covering all blocks
+        final NodeAddressBook emptyBook = NodeAddressBook.newBuilder().build();
+        final RangedAddressBookHistory history = RangedAddressBookHistory.newBuilder()
+                .addressBooks(RangedNodeAddressBook.newBuilder()
+                        .startBlock(0L)
+                        .endBlock(-1L)
+                        .addressBook(emptyBook)
+                        .build())
+                .build();
+        stateFacility.setAddressBookHistory(history);
+        final var first = provider.rsaPublicKeysForBlock(0L);
+        final var second = provider.rsaPublicKeysForBlock(1L);
+        assertThat(second).isSameAs(first);
+    }
+
     // ─── safeUpdateTssData ────────────────────────────────────────────────────
 
     @Test

@@ -433,7 +433,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.NO_MATCHING_ADDRESS_BOOK),
+                    FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
                     blockNumber,
                     null,
                     new BlockUnparsed(blockItems),
@@ -497,20 +497,23 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // a duplicate entry in the proof from inflating validCount.
         final int rosterSize = rsaKeyByNodeId.size();
         int validCount = 0;
+        int mismatchCount = 0;
         final Set<Long> validatedNodes = new HashSet<>();
 
         for (final RecordFileSignature sig : proof.recordFileSignatures()) {
             final long nodeId = sig.nodeId();
+            // TODO(2808): long-term, use a historical roster keyed by block number so signatures
+            //   from nodes that were valid at the time the block was produced are verified correctly
+            //   across address-book transitions, rather than skipping unknown node IDs.
             final PublicKey publicKey = rsaKeyByNodeId.get(nodeId);
             if (publicKey == null) {
+                mismatchCount++;
                 LOGGER.log(
                         DEBUG,
-                        "Signature from node {0} not in era address book for block {1} — rejecting block",
+                        "Signature from node {0} not in era address book for block {1} — skipped",
                         nodeId,
                         blockNumber);
-                metrics.incrementRsaFailure();
-                return new VerificationNotification(
-                        false, FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), blockNumber, null, null, blockSource);
+                continue;
             }
             if (validatedNodes.contains(nodeId)) {
                 LOGGER.log(DEBUG, "Duplicate signature from node {0} in block {1} — skipped", nodeId, blockNumber);
@@ -562,9 +565,13 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             }
         }
 
+        if (mismatchCount > 0) {
+            metrics.incrementRsaRosterMismatch(mismatchCount);
+        }
+
         // Acceptance threshold: every signature present in the proof passes validation,
-        // and at least one such signature exists. Because we fail fast on any failed
-        // verification, reaching this point means all verifiable signatures passed.
+        // and at least one such signature exists. Signatures from nodes not the
+        // roster are skipped. Reaching this point means all verifiable signatures passed.
         final boolean accepted = validCount > 0;
 
         if (!accepted) {
