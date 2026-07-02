@@ -85,4 +85,22 @@ kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
         fail "${bn_name}-0 did not become Ready within ${BN_READY_TIMEOUT}s"
     }
 
+# Match the port-forward layout that solo-port-forward.sh sets up at deploy time
+# (see scripts/solo-port-forward.sh). Without these, the runner's no-errors
+# assertion (curl http://localhost:16007+i/metrics) can't reach post-hoc BNs.
+metrics_port=$((16006 + bn_index))
+grpc_port=$((40839 + bn_index))
+
+log "Establishing kubectl port-forwards for ${bn_name} (grpc :${grpc_port}, metrics :${metrics_port})..."
+pf_log_dir="${TMPDIR:-/tmp}/wrb-dist-add-bn-pf"
+mkdir -p "${pf_log_dir}"
+nohup setsid kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+    port-forward "svc/${bn_name}" "${grpc_port}:40840" \
+    >"${pf_log_dir}/${bn_name}-grpc.log" 2>&1 </dev/null &
+nohup setsid kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+    port-forward "svc/${bn_name}" "${metrics_port}:16007" \
+    >"${pf_log_dir}/${bn_name}-metrics.log" 2>&1 </dev/null &
+# Give kubectl a moment to establish the tunnel before add-bn.sh exits.
+sleep 2
+
 log "${bn_name}-0 is Ready."
