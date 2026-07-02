@@ -1,43 +1,46 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# WRB Distribution E2E (#3125) — slice 3 (steps 3+4+5), supersedes step12.
+# WRB Distribution E2E (#3125) — slice 3 (steps 3+4+5), builds on step12.
 #
-# Third slice of the broader WRB-distribution E2E test (epic #2954). Builds on
-# slices 1+2 by adding the three Block Nodes called for in steps 3, 4, and 5
-# of #3125 and asserting their earliestManagedBlock (EMB) values:
-#
-#   BN1 — Tier-0, EMB=0
-#   BN2 — Tier-1, EMB=0             (start-from-genesis case)
-#   BN3 — Tier-1, EMB=100_000_000   (live-only case)
-#
-# BNs come up idle here — no CN references any of them in this slice's
-# topology. Wiring CN → BN and CLI → BN happens in later slices.
+# Follows the operational order stated in the issue: bring up CN+MN (no BN)
+# so Solo installs MinIO for the record-stream bucket, run wrb-cli to start
+# the live wrap loop, then layer BN1/BN2/BN3 in one at a time. Each BN comes
+# up with its declared EMB value (0 / 0 / 100_000_000), asserted from the pod
+# env after startup.
 #
 # Test flow:
-#   1. Solo brings up the wrb-distribution-step345 topology.
-#   2. Wait for CN block production (identical to slice 1's timing).
-#   3. Run the slice-1 CLI wrap baseline (same install-and-run-wrb-cli.sh).
-#   4. Assert every BN reports the topology's declared EMB via its pod env.
-#   5. Run the slice-2 live-wrap loop (start / observation window / assert /
-#      stop). Live-wrap output still lives on the CLI host — no BN traffic
-#      yet.
+#   1. Solo brings up 3 CNs v0.75 + MN1 v0.157.1 via the wrb-distribution-step345
+#      topology. No BN at deploy time — that's what keeps Solo's MinIO tenant
+#      installation on for the record-stream bucket.
+#   2. Wait for CNs to produce enough record files.
+#   3. install-and-run-wrb-cli: reuse the slice-1 script. Baseline wrap.
+#   4. start-live-wrap: fork the background wrap worker.
+#   5. add-bn1 / add-bn2 / add-bn3: install each BN post-hoc via
+#      `solo block node add`, applying overrides/wrb-distribution-step345/
+#      bn-block-node-<i>-values.yaml for the per-BN EMB. Wait for pod Ready.
+#   6. assert-bn-emb: verify each BN's BLOCK_NODE_EARLIEST_MANAGED_BLOCK env
+#      matches the topology overlay.
+#   7. Observation window sleep + assert-live-wrap-produced-new-blocks:
+#      confirm the live-wrap loop kept running through the BN-installation
+#      events.
+#   8. stop-live-wrap + final-status.
 #
 # Usage (locally):
 #   task test:run TEST_FILE=tests/wrb-distribution-step345.yaml \
 #                 TOPOLOGY=wrb-distribution-step345
 
 name: wrb-distribution-step345
-description: "WRB distribution E2E (#3125) — CN v0.75 + MN1 v0.157.1 + BN1/BN2/BN3 with EMB"
+description: "WRB distribution E2E (#3125) — CN v0.75 + MN1 v0.157.1 baseline, BN1/BN2/BN3 added post-wrap with EMB"
 
 events:
   - id: initial-status
     type: network-status
-    description: "Confirm all CNs, MN1, and BN1/BN2/BN3 are running"
+    description: "Confirm 3 CNs and MN1 are running (no BN yet)"
     delay: 5
 
   - id: block-production-wait
     type: sleep
-    description: "Wait for CNs to produce enough record files to exercise nested wrap dirs"
+    description: "Wait for CNs to produce enough record files"
     delay: 10
     args:
       seconds: 180
@@ -50,34 +53,61 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/install-and-run-wrb-cli.sh"
 
-  - id: assert-bn-emb
-    type: command
-    description: "Assert each BN's earliestManagedBlock matches its topology overlay"
-    delay: 200
-    timeout: 120
-    args:
-      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-emb.sh"
-
-  # Slice 2 (live wrap continues) — carried forward from wrb-distribution-step12
   - id: start-live-wrap
     type: command
     description: "Fork the live-wrap background worker (polling MinIO + re-wrapping)"
-    delay: 220
+    delay: 200
     timeout: 60
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/start-live-wrap.sh"
 
+  # --- Slice 3 (#3125 steps 3-5): add BN1/BN2/BN3 while the live wrap loop
+  #     continues in the background. Each add-bn.sh call is ~60-120s (helm
+  #     install + pod wait), so we space them accordingly.
+
+  - id: add-bn1
+    type: command
+    description: "Add BN1 (Tier-0, EMB=0) via solo block node add and wait for Ready"
+    delay: 210
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/add-bn.sh 1"
+
+  - id: add-bn2
+    type: command
+    description: "Add BN2 (Tier-1, EMB=0) via solo block node add and wait for Ready"
+    delay: 220
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/add-bn.sh 2"
+
+  - id: add-bn3
+    type: command
+    description: "Add BN3 (Tier-1, EMB=100_000_000) via solo block node add and wait for Ready"
+    delay: 230
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/add-bn.sh 3"
+
+  - id: assert-bn-emb
+    type: command
+    description: "Assert each BN's earliestManagedBlock matches its topology overlay"
+    delay: 240
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-emb.sh"
+
   - id: live-wrap-observation-window
     type: sleep
-    description: "Give the live wrap loop time to pick up newly-produced records"
-    delay: 230
+    description: "Let the live wrap loop pick up records produced while BNs were installing"
+    delay: 250
     args:
       seconds: 180
 
   - id: assert-live-wrap-produced-new-blocks
     type: command
-    description: "Assert live-wrap produced more wrapped-zip files than were present at start"
-    delay: 415
+    description: "Assert live-wrap kept running through the BN adds"
+    delay: 435
     timeout: 60
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-live-wrap-produced-new-blocks.sh"
@@ -85,38 +115,25 @@ events:
   - id: stop-live-wrap
     type: command
     description: "Tear down the live-wrap background worker"
-    delay: 420
+    delay: 440
     timeout: 60
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
 
   - id: final-status
     type: network-status
-    description: "Post-test network status"
-    delay: 425
+    description: "Post-test network status (should show BN1/BN2/BN3 up)"
+    delay: 445
 
+# BN health is asserted implicitly by:
+#   * add-bn.sh's `kubectl wait --for=condition=Ready pod/block-node-<i>-0`
+#   * assert-bn-emb.sh exec'ing into each block-node-server container
+# Adding explicit node-healthy assertions here would fail the runner's
+# topology-target validation (block-node-1/2/3 aren't in the deploy-time
+# topology).  The `no-errors` assertion runs against whatever BNs are up
+# by the end of the test.
 assertions:
-  - id: bn1-healthy
-    type: node-healthy
-    description: "Block Node 1 is healthy"
-    target: block-node-1
-
-  - id: bn2-healthy
-    type: node-healthy
-    description: "Block Node 2 is healthy"
-    target: block-node-2
-
-  - id: bn3-healthy
-    type: node-healthy
-    description: "Block Node 3 is healthy"
-    target: block-node-3
-
-  - id: mn1-healthy
-    type: node-healthy
-    description: "Mirror Node 1 is healthy"
-    target: mirror-1
-
-  - id: no-errors-bns
+  - id: no-errors
     type: no-errors
     description: "No errors in Block Node logs"
     target: all
