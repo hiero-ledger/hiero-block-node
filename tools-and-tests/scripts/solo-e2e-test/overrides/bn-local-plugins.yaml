@@ -1,0 +1,17 @@
+# Disables the Block Node chart's Maven-based plugin resolution.
+#
+# charts/block-node-server/templates/statefulset.yaml gates the copy-core-modules and
+# resolve-plugins init containers, and the plugins-storage volume/PVC, entirely on
+# `plugins.names` being non-empty. Setting it to "" here removes all of that, so nothing
+# overwrites or shadows the plugins already baked into the locally-built image (see
+# scripts/build-local-block-node-image.sh) at /opt/hiero/block-node/app-<version>/plugins.
+#
+# Required because the verification plugin under test here is not published to Maven
+# Central (see gradle/aggregation/build.gradle.kts) — there is nothing for the chart's
+# init container to download.
+#
+# Applied as the final `-f` values-file in solo-deploy-network.sh, after every
+# topology-specific overlay (including the WRB overlay, which also sets plugins.names),
+# so this always wins.
+plugins:
+  names: ""

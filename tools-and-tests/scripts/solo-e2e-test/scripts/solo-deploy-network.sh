@@ -16,6 +16,9 @@
 #   --cn-version VERSION       Consensus Node version
 #   --mn-version VERSION       Mirror Node version
 #   --bn-version VERSION       Block Node version (used for Helm chart version)
+#   --bn-image-tag TAG         Locally-built Block Node image tag (from
+#                              build-local-block-node-image.sh); selects the local image and
+#                              plugins baked into it instead of Maven-resolved plugins
 #   --relay-version VERSION    Relay version (default: Solo's built-in default)
 #   --tss-enabled true|false   Enable TSS on consensus nodes (default: true)
 #   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
@@ -77,6 +80,7 @@ Options:
   --cn-version VERSION       Consensus Node version
   --mn-version VERSION       Mirror Node version
   --bn-version VERSION       Block Node version (used for Helm chart version)
+  --bn-image-tag TAG         Locally-built Block Node image tag (see build-local-block-node-image.sh)
   --relay-version VERSION    Relay version (default: Solo's built-in default)
   --tss-enabled true|false   Enable TSS on consensus nodes (default: true)
   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
@@ -111,6 +115,7 @@ TOPOLOGIES_DIR="${SCRIPT_DIR}/topologies"
 CN_VERSION=""
 MN_VERSION=""
 BN_VERSION=""
+BN_IMAGE_TAG=""
 RELAY_VERSION=""
 TSS_ENABLED="true"
 ENABLE_METRICS="false"
@@ -168,6 +173,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --bn-version)
       BN_VERSION="$2"
+      shift 2
+      ;;
+    --bn-image-tag)
+      BN_IMAGE_TAG="$2"
       shift 2
       ;;
     --relay-version)
@@ -434,6 +443,9 @@ function deploy_block_nodes {
   if [[ -n "${CN_VERSION}" ]]; then
     bn_args="${bn_args} --release-tag ${CN_VERSION}"
   fi
+  if [[ -n "${BN_IMAGE_TAG}" ]]; then
+    bn_args="${bn_args} --image-tag ${BN_IMAGE_TAG}"
+  fi
 
   local overlay_dir="${OVERLAY_DIR}"
 
@@ -490,12 +502,24 @@ function deploy_block_nodes {
       fi
     fi
 
-    # Memory override applied LAST so it wins over the packaged chart's tiny
-    # placeholder JVM limits (-Xmx24m / 2Gi) that OOM the BN around block ~428.
+    # Memory override applied before the local-plugins override so the latter still wins
+    # over the packaged chart's tiny placeholder JVM limits (-Xmx24m / 2Gi) that OOM the
+    # BN around block ~428.
     local bn_memory_overlay="${SCRIPT_DIR}/../overrides/bn-memory.yaml"
     if [[ -f "${bn_memory_overlay}" ]]; then
       overlay_args="${overlay_args} -f ${bn_memory_overlay}"
       log_line "  Applying BN memory override for block-node-${i}"
+    fi
+
+    # Local-plugins override applied LAST so it always wins over any prior overlay that
+    # also sets plugins.names (e.g. the WRB overlay) — only when a locally-built image is
+    # actually in use (--bn-image-tag set). Without this guard the overlay would disable
+    # Maven plugin resolution even for callers (e.g. CI) that don't build a local image,
+    # leaving the Block Node with no plugins at all.
+    local bn_local_plugins_overlay="${SCRIPT_DIR}/../overrides/bn-local-plugins.yaml"
+    if [[ -n "${BN_IMAGE_TAG}" && -f "${bn_local_plugins_overlay}" ]]; then
+      overlay_args="${overlay_args} -f ${bn_local_plugins_overlay}"
+      log_line "  Disabling Maven plugin resolution for block-node-${i} (using locally-built plugins)"
     fi
 
     start_task "Deploying Block Node ${i}"
@@ -851,6 +875,7 @@ function print_summary {
   log_line "  CN Version:      %s" "${CN_VERSION:-default}"
   log_line "  MN Version:      %s" "${MN_VERSION:-default}"
   log_line "  BN Version:      %s" "${BN_VERSION:-default}"
+  log_line "  BN Image Tag:    %s" "${BN_IMAGE_TAG:-default (published GHCR image)}"
 
   # Output key=value pairs to stdout for capture by caller
   echo ""
