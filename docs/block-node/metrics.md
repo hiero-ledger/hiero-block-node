@@ -167,16 +167,16 @@ Observes outbound streams served to subscribers.
 **Plugin:** `verification [block-node-verification]`
 Measures block‑verification throughput and success rate.
 
-|  Type   |              Name              |                                            Description                                            |
-|---------|--------------------------------|---------------------------------------------------------------------------------------------------|
-| Counter | `verification_blocks_received` | Blocks received for verification                                                                  |
-| Counter | `verification_blocks_verified` | Blocks that passed verification                                                                   |
-| Counter | `verification_blocks_failed`   | Blocks that failed verification                                                                   |
-| Counter | `verification_blocks_error`    | Internal errors during verification                                                               |
-| Counter | `verification_block_time`      | Verification time per block (ns=nanoseconds)                                                      |
-| Counter | `hashing_block_time`           | Hashing time per block (ns=nanoseconds)                                                           |
-| Counter | `verification_proof_total`     | Block proof verifications, labels: `proof_type={rsa,state_proof,tss}`, `result={success,failure}` |
-| Counter | `rsa_roster_mismatch_total`    | RSA signatures from node IDs absent from the loaded address book                                  |
+|  Type   |              Name              |                                                          Description                                                           |
+|---------|--------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
+| Counter | `verification_blocks_received` | Blocks received for verification                                                                                               |
+| Counter | `verification_blocks_verified` | Blocks that passed verification                                                                                                |
+| Counter | `verification_blocks_failed`   | Blocks that failed verification                                                                                                |
+| Counter | `verification_blocks_error`    | Internal errors during verification                                                                                            |
+| Counter | `verification_block_time`      | Verification time per block (ns=nanoseconds)                                                                                   |
+| Counter | `hashing_block_time`           | Hashing time per block (ns=nanoseconds)                                                                                        |
+| Counter | `verification_proof_total`     | [Block proof](./glossary.md#block-proof) verifications, labels: `proof_type={rsa,state_proof,tss}`, `result={success,failure}` |
+| Counter | `rsa_roster_mismatch_total`    | RSA signatures from node IDs absent from the loaded address book                                                               |
 
 ---
 
@@ -239,7 +239,7 @@ Observes the server status API that provides information about the node.
 ### Backfill
 
 **Plugin:** `backfill [block-node-backfill]`
-Provides metrics related to the backfill process, including On-Demand and Historical backfills.
+Provides metrics related to the [backfill](./glossary.md#backfill) process, including On-Demand and Historical backfills.
 
 |  Type   |             Name             |                              Description                              |
 |---------|------------------------------|-----------------------------------------------------------------------|
@@ -285,7 +285,7 @@ Tracks RSA address book loading and peer requests used to bootstrap the consensu
 ### roster-bootstrap-tss
 
 **Plugin:** `roster-bootstrap-tss`
-Tracks TSS data requests used to bootstrap the consensus node roster.
+Tracks [TSS](./glossary.md#tss-hintsts) data requests used to bootstrap the consensus node roster.
 
 |  Type   |        Name         |            Description             |
 |---------|---------------------|------------------------------------|
