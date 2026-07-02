@@ -15,25 +15,23 @@ blockNode:
                   - sh
                   - -c
                   - |
-                      chown 2000:2000 /live-pvc && \
-                      chmod 700 /live-pvc && \
+                      chown 2000:2000 /application-state-pvc && \
+                      chmod 700 /application-state-pvc \
                       chown 2000:2000 /archive-pvc && \
                       chmod 700 /archive-pvc && \
+                      chown 2000:2000 /live-pvc && \
+                      chmod 700 /live-pvc && \
                       chown 2000:2000 /logging-pvc && \
-                      chmod 700 /logging-pvc && \
-                      chown 2000:2000 /verification-pvc && \
-                      chmod 700 /verification-pvc && \
-                      chown 2000:2000 /application-state-pvc && \
-                      chmod 700 /application-state-pvc
+                      chmod 700 /logging-pvc
               volumeMounts:
-                  - name: live-storage
-                    mountPath: /live-pvc
-                  - name: archive-storage
-                    mountPath: /archive-pvc
-                  - name: logging-storage
-                    mountPath: /logging-pvc
                   - name: application-state-storage
                     mountPath: /application-state-pvc
+                  - name: archive-storage
+                    mountPath: /archive-pvc
+                  - name: live-storage
+                    mountPath: /live-pvc
+                  - name: logging-storage
+                    mountPath: /logging-pvc
         persistence:
             live:
                 create: false
@@ -50,6 +48,11 @@ blockNode:
             applicationState:
                 create: false
                 existingClaim: application-state-storage-pvc
+
+resources:
+    requests:
+        cpu: "24"
+        memory: "256Gi"
 
 service:
     type: LoadBalancer
