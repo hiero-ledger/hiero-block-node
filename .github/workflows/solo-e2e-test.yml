@@ -72,7 +72,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three"
         type: string
         default: "none"
     outputs:
@@ -175,7 +175,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three"
         required: false
         default: "none"
 
@@ -483,6 +483,18 @@ jobs:
 
           # Fail the step if NLG failed
           exit $NLG_EXIT_CODE
+
+      # chaos-CI integration: the chaos-foundation-smoke and latency-* tests inject NetworkChaos, which needs
+      # Chaos Mesh CRDs in the cluster. solo-test-runner only checks for the CRDs (it does not install them),
+      # so install Chaos Mesh when a chaos/latency test is selected. No-op for every other run.
+      - name: Install Chaos Mesh (chaos/latency tests only)
+        if: ${{ contains(inputs.test-definition, 'chaos') || contains(inputs.test-definition, 'latency') }}
+        run: |
+          if kubectl api-resources --api-group=chaos-mesh.org -o name 2>/dev/null | grep -q networkchaos; then
+            echo "Chaos Mesh CRDs already present, skipping install"
+          else
+            bash tools-and-tests/scripts/solo-e2e-test/scripts/chaos-install.sh
+          fi
 
       # Run each test definition sequentially on the same deployment
       - name: Run Test Definitions
