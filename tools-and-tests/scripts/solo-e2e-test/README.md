@@ -13,6 +13,7 @@ Deploy Hiero networks locally for development and testing using [Solo CLI](https
 - [Load Generation](#load-generation)
 - [TCK-SDK Tests](#tck-sdk-tests)
 - [Test Framework](#test-framework)
+- [Network Chaos / Latency Tests](#network-chaos--latency-tests)
 - [CN-BN Priority Routing](#cn-bn-priority-routing)
 - [CI Integration](#ci-integration)
 - [Endpoints](#endpoints)
@@ -590,33 +591,39 @@ assertions:                      # Validations to run after all events
 
 ### Event Types
 
-|            Type            |           Description            |                           Arguments                            |
-|----------------------------|----------------------------------|----------------------------------------------------------------|
-| `command`                  | Run arbitrary script             | `script`                                                       |
-| `node-down`                | Scale node to 0 replicas         | `target`                                                       |
-| `node-up`                  | Scale node to 1 replica          | `target`                                                       |
-| `scale-down`               | Scale down (alias for node-down) | `target`                                                       |
-| `scale-up`                 | Scale up (alias for node-up)     | `target`                                                       |
-| `restart`                  | Rollout restart node             | `target`                                                       |
-| `load-start`               | Start NLG load                   | `test_class`, `concurrency`, `accounts`, `duration`, `max_tps` |
-| `load-stop`                | Stop NLG load                    | `test_class`                                                   |
-| `print-metrics`            | Print metrics summary            | `target` (node name or "all")                                  |
-| `network-status`           | Print network status             | (none)                                                         |
-| `sleep`                    | Pause execution                  | `seconds`                                                      |
-| `port-forward`             | Refresh port forwards            | (none)                                                         |
-| `clear-block-storage`      | Clear all block data on node     | `target`                                                       |
-| `deploy-block-node`        | Deploy new Block Node            | `name`, `backfill_sources`, `greedy`, `chart_version`          |
-| `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                                |
+|            Type            |           Description            |                                             Arguments                                             |
+|----------------------------|----------------------------------|---------------------------------------------------------------------------------------------------|
+| `command`                  | Run arbitrary script             | `script`                                                                                          |
+| `node-down`                | Scale node to 0 replicas         | `target`                                                                                          |
+| `node-up`                  | Scale node to 1 replica          | `target`                                                                                          |
+| `scale-down`               | Scale down (alias for node-down) | `target`                                                                                          |
+| `scale-up`                 | Scale up (alias for node-up)     | `target`                                                                                          |
+| `restart`                  | Rollout restart node             | `target`                                                                                          |
+| `load-start`               | Start NLG load                   | `test_class`, `concurrency`, `accounts`, `duration`, `max_tps`                                    |
+| `load-stop`                | Stop NLG load                    | `test_class`                                                                                      |
+| `print-metrics`            | Print metrics summary            | `target` (node name or "all")                                                                     |
+| `network-status`           | Print network status             | (none)                                                                                            |
+| `sleep`                    | Pause execution                  | `seconds`                                                                                         |
+| `port-forward`             | Refresh port forwards            | (none)                                                                                            |
+| `clear-block-storage`      | Clear all block data on node     | `target`                                                                                          |
+| `deploy-block-node`        | Deploy new Block Node            | `name`, `backfill_sources`, `greedy`, `chart_version`                                             |
+| `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                                                                   |
+| `inject-latency`           | Apply a NetworkChaos rule        | `name`, `source.kind`, `target.kind`, `latency`, `jitter`, `correlation`, `bidirectional`, `loss` |
+| `clear-latency`            | Remove a NetworkChaos rule       | `name`                                                                                            |
 
 ### Assertion Types
 
-|           Type            |                           Description                            |           Arguments            |
-|---------------------------|------------------------------------------------------------------|--------------------------------|
-| `block-available`         | Verify BN has blocks in range                                    | `min_block`, `max_block_gte`   |
-| `node-healthy`            | Verify pod is Running                                            | `target`                       |
-| `no-errors`               | Verify no verification errors                                    | `target`                       |
-| `blocks-increasing`       | Verify blocks are actively flowing                               | `wait_seconds`, `max_attempts` |
-| `rsa-roster-verification` | Verify blocks accepted via the RSA roster (WRB), no RSA failures | `min_rsa_success`              |
+|           Type            |                           Description                            |                         Arguments                          |
+|---------------------------|------------------------------------------------------------------|------------------------------------------------------------|
+| `block-available`         | Verify BN has blocks in range                                    | `min_block`, `max_block_gte`                               |
+| `node-healthy`            | Verify pod is Running                                            | `target`                                                   |
+| `no-errors`               | Verify no verification errors                                    | `target`                                                   |
+| `blocks-increasing`       | Verify blocks are actively flowing                               | `wait_seconds`, `max_attempts`                             |
+| `rsa-roster-verification` | Verify blocks accepted via the RSA roster (WRB), no RSA failures | `min_rsa_success`                                          |
+| `metric-threshold`        | Compare any BN Prometheus metric                                 | `metric`, `comparator`, `value`, `samples`, `wait_seconds` |
+| `block-rate-floor`        | Assert Δblocks/Δtime ≥ floor                                     | `min_rate_per_sec`, `window_seconds`                       |
+| `backfill-triggered`      | Assert backfill log marker observed                              | `grep` (default `"backfill"`), `since_seconds`             |
+| `log-match`               | Generic log-substring check                                      | `grep`, `since_seconds`                                    |
 
 **Note:** The `blocks-increasing` assertion verifies a Block Node is actively receiving blocks. It measures baseline, waits `wait_seconds` (default: 60), verifies increase, retrying up to `max_attempts` (default: 3) times.
 
@@ -637,6 +644,98 @@ Run tests via GitHub Actions workflow dispatch:
 5. Run with `task test:run TEST_FILE=tests/my-test.yaml`
 
 See `test-schema.yaml` for the complete schema documentation.
+
+## Network Chaos / Latency Tests
+
+Inject configurable network latency between Consensus Nodes and Block Nodes during a test run, to exercise behavior under realistic cross-region conditions. Built on top of [Chaos Mesh](https://chaos-mesh.org/) v2.7.2. **Opt-in only** — the default workflow is unaffected.
+
+The framework supports three latency dimensions:
+
+- **CN ↔ CN** — gossip / consensus traffic
+- **BN ↔ BN** — peer backfill mesh
+- **CN ↔ BN** — live block-publish stream
+
+For per-scenario details, thresholds, and how to add a new scenario, see [`docs/latency-scenarios.md`](docs/latency-scenarios.md).
+
+### Prerequisites
+
+In addition to the usual prereqs:
+
+- **Solo CLI ≥ 0.63.0** (for the block-node label set Chaos Mesh selects on)
+- **Privileged Kubernetes** — Chaos Mesh's daemon runs `privileged=true`, `hostPID=true`, `mountHostLibModules=true`. Local Kind clusters allow this by default; hardened CI clusters may not.
+
+### First-time setup (per cluster session)
+
+```bash
+# 1. Bring up a cluster (TSS is on by default — see note below).
+task up TOPOLOGY=paired-3
+
+# 2. Install Chaos Mesh (opt-in)
+CHAOS_ENABLED=true task chaos:install
+```
+
+`task chaos:install` is idempotent — re-running upgrades in place rather than failing.
+
+> **TSS is on by default** (the supported mode). Solo CLI's `--wraps` flag requires CN ≥ v0.74.0-0; `CN_VERSION=latest` is min-enforced by `resolve-versions.sh` to a TSS-capable tag (currently `0.75.0-rc.4`), so `--wraps` deploys cleanly and TSS signatures verify under latency (confirmed: Schnorr→WRAPS transition). Only set `TSS_ENABLED=false` if you pin a `CN_VERSION` below the floor.
+
+### Running a latency test
+
+```bash
+CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-cn-to-bn.yaml
+```
+
+Available latency tests, grouped by **profile** (see [`docs/latency-scenarios.md`](docs/latency-scenarios.md#choosing-a-latency-profile-baseline--stress--severe) for how to choose):
+
+|              Test File              | Profile  |                Description                 |
+|-------------------------------------|----------|--------------------------------------------|
+| `tests/chaos-foundation-smoke.yaml` | —        | Plumbing check (inject → confirm → clear)  |
+| `tests/latency-cn-to-cn.yaml`       | baseline | 100 ms ± 20 ms between Consensus Nodes     |
+| `tests/latency-bn-to-bn.yaml`       | baseline | 200 ms ± 40 ms between Block Nodes         |
+| `tests/latency-cn-to-bn.yaml`       | baseline | 150 ms ± 30 ms between CNs and BNs         |
+| `tests/latency-all-three.yaml`      | baseline | All three baseline rules concurrently      |
+| `tests/latency-stress.yaml`         | stress   | ~3× baseline, bursty — degrade & recover   |
+| `tests/latency-severe.yaml`         | severe   | ~5–6× baseline — survival & recovery probe |
+
+- **baseline** — does the network tolerate normal latency with no visible impact? (steady block-rate floor holds)
+- **stress** — does it degrade gracefully and recover via backfill? (reduced floor)
+- **severe** — does it survive and recover near the breaking point? (recovery-only assertions)
+
+> **CI concurrency:** the `solo-e2e-test` workflow uses `concurrency: solo-network-<topology>` with `cancel-in-progress: true`, so two `paired-3` chaos runs cannot run at once — the newer dispatch cancels the older. Run them one at a time. (A canceled run logs `kind/solo: command not found` in cleanup — that's cancellation noise, not a failure.)
+
+### Inspecting active chaos
+
+```bash
+task chaos:status      # active NetworkChaos / PodChaos + Chaos Mesh component health
+```
+
+### Cleanup
+
+`task down` automatically invokes `task chaos:cleanup`, so chaos rules do not leak between test cluster lifetimes. To clear rules without tearing down the cluster:
+
+```bash
+task chaos:cleanup     # deletes all NetworkChaos / PodChaos resources
+```
+
+To fully uninstall Chaos Mesh from the cluster:
+
+```bash
+task chaos:uninstall   # helm uninstall + delete the chaos-mesh namespace
+```
+
+### Troubleshooting
+
+|                 Symptom                  |                                                       Cause / fix                                                       |
+|------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| `task chaos:install` skipped silently    | `CHAOS_ENABLED` is not `true`. Re-run with `CHAOS_ENABLED=true task chaos:install`.                                     |
+| `ERROR: Chaos Mesh CRDs not present`     | Chaos Mesh isn't installed in this cluster. Run `CHAOS_ENABLED=true task chaos:install`.                                |
+| `source(...) matched 0 pods`             | Selector found no matching pods. Verify `kubectl get pod --show-labels` and the kind ↔ label-key mapping.               |
+| Stale NetworkChaos after test crash      | The runner's trap should clean up; if not, `task chaos:cleanup` (or `kubectl delete networkchaos --all -n chaos-mesh`). |
+| Test deploy fails on hardened CI cluster | The chaos daemon needs `privileged=true`. Hardened clusters won't allow this. Skip with `CHAOS_ENABLED=false`.          |
+
+### Pointers
+
+- Profiles, per-scenario detail, and how to add a new one: [`docs/latency-scenarios.md`](docs/latency-scenarios.md)
+- Upstream Chaos Mesh wrapper this builds on: [solo-chaos](https://github.com/hashgraph/solo-chaos) (for multi-region simulation)
 
 ## Troubleshooting
 

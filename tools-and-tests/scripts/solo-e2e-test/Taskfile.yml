@@ -52,6 +52,9 @@ vars:
   BN_VERSION: '{{.BN_VERSION | default "latest"}}'
   RELAY_VERSION: '{{.RELAY_VERSION | default "latest"}}'
   TCK_VERSION: '{{.TCK_VERSION | default "latest"}}'
+  # TSS_ENABLED defaults to 'true' (the supported mode). CN_VERSION=latest is
+  # min-enforced to a TSS-capable tag, so latency tests run with TSS on; only
+  # override to 'false' if you pin a CN below v0.74.0-0. See .env.example.
   TSS_ENABLED: '{{.TSS_ENABLED | default "true"}}'
 
   # NLG load generation parameters
@@ -61,6 +64,10 @@ vars:
 
   # Metrics/Observability
   ENABLE_LOCAL_METRICS: '{{.ENABLE_LOCAL_METRICS | default "false"}}'
+
+  # Chaos / Network Latency (opt-in)
+  CHAOS_ENABLED: '{{.CHAOS_ENABLED | default "false"}}'
+  CHAOS_MESH_VERSION: '{{.CHAOS_MESH_VERSION | default "2.7.2"}}'
 
   # TCK-SDK test configuration
   TCK_SDK_DIR: '{{.TCK_SDK_DIR | default "sdk-tck"}}'
@@ -410,13 +417,44 @@ tasks:
         echo "  task down       - Tear down everything"
 
   down:
-    desc: Tear down everything - stop port-forwards and destroy cluster
+    desc: Tear down everything - clean chaos rules, stop port-forwards, destroy cluster
     cmds:
+      - task: chaos:cleanup
       - task: port-forward:stop
       - task: cluster:destroy
       - |
         echo ""
         echo "All resources cleaned up."
+
+  # ============================================================================
+  # Chaos / Network Latency (opt-in via CHAOS_ENABLED=true)
+  # See docs/latency-scenarios.md for profiles, design, and how to add scenarios.
+  # ============================================================================
+  chaos:install:
+    desc: "Install Chaos Mesh (idempotent). Required for latency tests. Set CHAOS_ENABLED=true."
+    cmds:
+      - |
+        if [[ "{{.CHAOS_ENABLED}}" != "true" ]]; then
+          echo "CHAOS_ENABLED is not 'true' (current: '{{.CHAOS_ENABLED}}'). Skipping install."
+          echo "Re-run with: CHAOS_ENABLED=true task chaos:install"
+          exit 0
+        fi
+        "{{.SCRIPTS_DIR}}/chaos-install.sh" --version "{{.CHAOS_MESH_VERSION}}"
+
+  chaos:uninstall:
+    desc: "Uninstall Chaos Mesh and remove its namespace"
+    cmds:
+      - '"{{.SCRIPTS_DIR}}/chaos-uninstall.sh"'
+
+  chaos:status:
+    desc: "Show active NetworkChaos / PodChaos resources and Chaos Mesh component health"
+    cmds:
+      - '"{{.SCRIPTS_DIR}}/chaos-status.sh"'
+
+  chaos:cleanup:
+    desc: "Delete all chaos resources (NetworkChaos, PodChaos). Tolerant if Chaos Mesh not installed."
+    cmds:
+      - '"{{.SCRIPTS_DIR}}/chaos-cleanup.sh" --quiet'
 
   # ============================================================================
   # Test Framework
