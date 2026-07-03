@@ -13,6 +13,14 @@ import java.util.List;
 /// round-trip `parse(format(groupStart, level), level) == groupStart` always holds.
 final class ArchiveKey {
 
+    /// Width, in characters, of each `/`-delimited path segment produced by [format] and consumed
+    /// by [parse] (and, for the segment count alone, by [StartupRecoveryTask#directoryDepth]).
+    static final int PATH_SEGMENT_WIDTH = 4;
+
+    /// Number of decimal digits `groupStart` is zero-padded to in [format]; `Long.MAX_VALUE` has 19
+    /// digits, so this fits any `long` block number and keeps S3's key ordering numeric.
+    static final int MAX_LONG_DIGITS = 19;
+
     private ArchiveKey() {}
 
     /// Formats the S3 object key for the tar group whose first block number is `groupStart`,
@@ -27,10 +35,11 @@ final class ArchiveKey {
     ///
     /// When `objectKeyPrefix` is non-empty the returned key is `{prefix}/{block-path}.tar`.
     static @NonNull String format(long groupStart, int groupingLevel, @NonNull String objectKeyPrefix) {
-        final String truncated = String.format("%019d", groupStart).substring(0, 19 - groupingLevel);
+        final String truncated =
+                String.format("%0" + MAX_LONG_DIGITS + "d", groupStart).substring(0, MAX_LONG_DIGITS - groupingLevel);
         final List<String> parts = new ArrayList<>();
-        for (int i = 0; i < truncated.length(); i += 4) {
-            parts.add(truncated.substring(i, Math.min(i + 4, truncated.length())));
+        for (int i = 0; i < truncated.length(); i += PATH_SEGMENT_WIDTH) {
+            parts.add(truncated.substring(i, Math.min(i + PATH_SEGMENT_WIDTH, truncated.length())));
         }
         parts.set(parts.size() - 1, String.valueOf(Long.parseLong(parts.getLast())));
         final String blockPath = String.join("/", parts) + ".tar";
@@ -75,7 +84,7 @@ final class ArchiveKey {
 
     /// Returns the width (number of characters) of the last path segment for a given grouping level.
     private static int lastSegmentWidth(int groupingLevel) {
-        final int width = (19 - groupingLevel) % 4;
-        return width == 0 ? 4 : width;
+        final int width = (MAX_LONG_DIGITS - groupingLevel) % PATH_SEGMENT_WIDTH;
+        return width == 0 ? PATH_SEGMENT_WIDTH : width;
     }
 }

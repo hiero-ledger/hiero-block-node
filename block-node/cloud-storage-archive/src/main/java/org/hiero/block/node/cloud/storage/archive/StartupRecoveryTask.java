@@ -175,8 +175,8 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
     /// Number of `/`-delimited directory levels [ArchiveKey#format] emits before the leaf segment
     /// that is folded into the object name, for the configured [CloudStorageArchiveConfig#groupingLevel()].
     private int directoryDepth() {
-        final int digitCount = 19 - config.groupingLevel();
-        final int segmentCount = (digitCount + 3) / 4;
+        final int digitCount = ArchiveKey.MAX_LONG_DIGITS - config.groupingLevel();
+        final int segmentCount = (digitCount + ArchiveKey.PATH_SEGMENT_WIDTH - 1) / ArchiveKey.PATH_SEGMENT_WIDTH;
         return segmentCount - 1;
     }
 
