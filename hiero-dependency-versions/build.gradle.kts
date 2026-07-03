@@ -48,6 +48,58 @@ dependencies.constraints {
     api("com.hedera.hashgraph:swirlds-config-impl:$hederaVersion") {
         because("com.swirlds.config.impl")
     }
+    api("com.hedera.hashgraph:swirlds-state-api:$hederaVersion") {
+        because("com.swirlds.state.api")
+    }
+    api("com.hedera.hashgraph:swirlds-state-impl:$hederaVersion") {
+        because("com.swirlds.state.impl")
+    }
+    api("com.hedera.hashgraph:swirlds-virtualmap:$hederaVersion") {
+        because("com.swirlds.virtualmap")
+    }
+    api("com.hedera.hashgraph:swirlds-common:$hederaVersion") { because("com.swirlds.common") }
+    api("com.hedera.hashgraph:swirlds-metrics-api:$hederaVersion") {
+        because("com.swirlds.metrics.api")
+    }
+    api("com.hedera.hashgraph:swirlds-metrics-impl:$hederaVersion") {
+        because("com.swirlds.metrics.impl")
+    }
+    api("com.hedera.hashgraph:swirlds-merkledb:$hederaVersion") { because("com.swirlds.merkledb") }
+    api("com.hedera.hashgraph:swirlds-logging:$hederaVersion") { because("com.swirlds.logging") }
+    api("com.hedera.hashgraph:base-concurrent:$hederaVersion") {
+        because("org.hiero.base.concurrent")
+    }
+    api("com.hedera.hashgraph:base-crypto:$hederaVersion") { because("org.hiero.base.crypto") }
+    api("com.hedera.hashgraph:base-utility:$hederaVersion") { because("org.hiero.base.utility") }
+    api("com.hedera.hashgraph:consensus-model:$hederaVersion") {
+        because("org.hiero.consensus.model")
+    }
+    api("com.hedera.hashgraph:consensus-utility:$hederaVersion") {
+        because("org.hiero.consensus.utility")
+    }
+    api("com.hedera.hashgraph:consensus-metrics:$hederaVersion") {
+        because("org.hiero.consensus.metrics")
+    }
+    api("com.hedera.hashgraph:consensus-concurrent:$hederaVersion") {
+        because("org.hiero.consensus.concurrent")
+    }
+    api("com.hedera.hashgraph:consensus-reconnect:$hederaVersion") {
+        because("org.hiero.consensus.reconnect")
+    }
+    api("com.goterl:lazysodium-java:5.2.0") { because("com.goterl.lazysodium") }
+    api("com.goterl:resource-loader:2.1.0") { because("com.goterl.resourceloader") }
+    api("net.java.dev.jna:jna:5.18.1") { because("com.sun.jna") }
+    api("org.json:json:20250517") { because("org.json") }
+    api("io.prometheus:simpleclient:0.16.0") { because("simpleclient") }
+    api("io.prometheus:simpleclient_common:0.16.0") { because("simpleclient.common") }
+    api("io.prometheus:simpleclient_httpserver:0.16.0") { because("simpleclient.httpserver") }
+    api("io.prometheus:simpleclient_tracer_common:0.16.0") { because("simpleclient.tracer.common") }
+    api("org.hyperledger.besu:besu-native-common:1.3.0") {
+        because("org.hyperledger.besu.nativelib.common")
+    }
+    api("org.hyperledger.besu:secp256k1:1.3.0") {
+        because("org.hyperledger.besu.nativelib.secp256k1")
+    }
     api("com.hedera.hashgraph:hiero-metrics:$hederaVersion") { because("org.hiero.metrics") }
     api("com.hedera.hashgraph:openmetrics-httpserver:$hederaVersion") {
         because("org.hiero.metrics.openmetrics.httpserver")
