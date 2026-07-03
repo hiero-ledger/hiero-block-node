@@ -41,6 +41,12 @@ The following modules provide additional functionality and are loaded as plugins
 - `stream-subscriber`: Plugins for Stream subscribing API.
 - `verification`: Plugins for Block verification.
 
+> **Beta plugins.** Any plugin module **not listed above** (e.g.
+> `state-management-hashgraph`) is considered beta and has not yet passed promotion
+> criteria. Block-Node plugins have no runtime `enabled` switch — the chart
+> manifest is the single gate. Beta plugins are bundled only in opt-in
+> deployment manifests, not the default chart.
+
 ## System Architecture Diagram
 
 The overall architecture of BlockNode is illustrated below:
