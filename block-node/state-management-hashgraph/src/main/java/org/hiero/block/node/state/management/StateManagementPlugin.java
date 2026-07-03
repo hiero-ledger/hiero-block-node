@@ -15,12 +15,15 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.api.BinaryStateQuery;
 import org.hiero.block.api.BinaryStateQueryResponse;
@@ -53,7 +56,9 @@ import org.hiero.metrics.core.MetricRegistry;
 /// - a `StateMetadataStore` persisting the latest `StateMetadata`;
 /// - a `StateChangeApplier` that translates `state_changes` block items
 ///   into `BinaryState` mutations;
-/// - two single-thread scheduled executors — one for apply, one for snapshot.
+/// - a dedicated apply-worker thread that blocks on a work queue and applies verified
+///   blocks immediately as they arrive (replacing the former polling scheduler), plus a
+///   single scheduled executor for periodic snapshots.
 ///
 /// See `docs/design/state/live-state.md` for the full design.
 public final class StateManagementPlugin implements BlockNodePlugin, BlockNotificationHandler, StateServiceInterface {
@@ -124,8 +129,26 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private LongCounter.Measurement hashMismatchMetric;
 
     private ScheduledExecutorService snapshotExecutor;
-    private ScheduledExecutorService stateChangesExecutor;
-    private ScheduledExecutorService catchUpExecutor;
+
+    /// Dedicated apply worker. Runs one-shot historical catch-up, then blocks on
+    /// `arrivals` waiting for verified blocks and applies them immediately. Replaces the
+    /// former 2-second polling scheduler so state changes are applied the moment a block
+    /// arrives (single-consumer pattern borrowed from the stream-publisher). `null` until
+    /// `start()`.
+    private Thread applyWorker;
+
+    /// Wake-up channel for the apply worker. `handleVerification` stages the block in
+    /// `pendingBlocks` (the ordered gap buffer `applyPending` drains) and then offers the
+    /// block number here so the worker wakes immediately instead of waiting for a timer.
+    /// The value is only a signal — `pendingBlocks` holds the payload and preserves order
+    /// across gaps. Unbounded so the messaging dispatch thread never blocks handing off.
+    private final BlockingQueue<Long> arrivals = new LinkedBlockingQueue<>();
+
+    /// Serialises `applyPending` so the apply worker and direct (test-driven) callers
+    /// never mutate the lifecycle-managed state concurrently. All state mutation flows
+    /// through `applyPending`, so this single lock is the plugin's apply mutex.
+    private final ReentrantLock applyLock = new ReentrantLock();
+
     private volatile long lastSnapshotBlock = -1L;
 
     /// Block number of the most recent block whose state_changes have been applied
@@ -250,9 +273,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         loadPersistedState();
         context.blockMessaging().registerBlockNotificationHandler(this, true, name());
 
-        stateChangesExecutor = newSingleThreadExecutor("StateManagement-apply");
         snapshotExecutor = newSingleThreadExecutor("StateManagement-snapshot");
-        catchUpExecutor = newSingleThreadExecutor("StateManagement-catchup");
 
         // Snapshot timer can run from boot — it no-ops until metadata.blockNumber()
         // moves forward, so there is no race with catch-up.
@@ -262,22 +283,15 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 config.snapshotIntervalMillis(),
                 TimeUnit.MILLISECONDS);
 
-        // IMPORTANT: do NOT schedule the recurring applyPending() task before
-        // catchUpFromHistoricalBlocks finishes. Both call applyPending(), which
-        // mutates lifecycleManager.getMutableState() / copyMutableState() and the
-        // `metadata` field — none of which are safe to invoke concurrently from
-        // two threads. The catch-up walk calls applyPending() inline as it
-        // enqueues each batch; the timer-driven version starts only after the
-        // catch-up walk has completed (or trivially decided there's nothing to
-        // catch up to).
-        catchUpExecutor.execute(() -> {
-            try {
-                catchUpFromHistoricalBlocks();
-            } finally {
-                stateChangesExecutor.scheduleWithFixedDelay(
-                        this::applyPending, 0L, config.stateChangesApplyIntervalMillis(), TimeUnit.MILLISECONDS);
-            }
-        });
+        // Single apply worker: it first runs one-shot historical catch-up, then blocks on
+        // the `arrivals` queue and drains `pendingBlocks` the instant a verified block
+        // shows up — no polling interval. Keeping catch-up and live apply on the SAME
+        // thread preserves the invariant that applyPending() (which mutates the
+        // lifecycle-managed state) is driven from one place; applyLock additionally guards
+        // direct test-driven calls.
+        applyWorker = new Thread(this::runApplyWorker, "StateManagement-apply");
+        applyWorker.setDaemon(true);
+        applyWorker.start();
     }
 
     /// {@inheritDoc}
@@ -292,8 +306,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 // facility may already be torn down — non-fatal.
             }
         }
-        shutdownExecutor(catchUpExecutor);
-        shutdownExecutor(stateChangesExecutor);
+        stopApplyWorker();
         shutdownExecutor(snapshotExecutor);
         if (metadata.blockNumber() > lastSnapshotBlock && metadata.blockNumber() > 0L) {
             try {
@@ -310,7 +323,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (!notification.success() || notification.block() == null) {
             return;
         }
+        // Stage the block in the ordered gap buffer, then wake the apply worker. The put
+        // + offer keep the messaging dispatch thread unblocked; the actual apply runs on
+        // the apply worker (or a direct test call), never on this thread.
         pendingBlocks.put(notification.blockNumber(), notification.block());
+        arrivals.offer(notification.blockNumber());
     }
 
     // ── StateServiceInterface: getBinaryKV / Singleton / Queue ─────────────
@@ -571,36 +588,77 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// Blocks are removed only after a successful apply so failures leave the block
     /// queued for inspection / retry.
     void applyPending() {
-        while (!pendingBlocks.isEmpty() && !stopping.get() && !degraded.get()) {
-            final boolean atGenesis = lastAppliedBlock < 0L
-                    && metadata.blockNumber() == 0L
-                    && metadata.stateRootHash().length() == 0L;
-            final long expectedNext =
-                    atGenesis ? pendingBlocks.firstKey() : Math.max(lastAppliedBlock, metadata.blockNumber()) + 1L;
-            // Peek (not remove) so an applier failure leaves the block in the queue
-            // for inspection / future retry rather than silently dropping it.
-            final BlockUnparsed block = pendingBlocks.get(expectedNext);
-            if (block == null) {
-                return;
+        applyLock.lock();
+        try {
+            while (!pendingBlocks.isEmpty() && !stopping.get() && !degraded.get()) {
+                final boolean atGenesis = lastAppliedBlock < 0L
+                        && metadata.blockNumber() == 0L
+                        && metadata.stateRootHash().length() == 0L;
+                final long expectedNext =
+                        atGenesis ? pendingBlocks.firstKey() : Math.max(lastAppliedBlock, metadata.blockNumber()) + 1L;
+                // Peek (not remove) so an applier failure leaves the block in the queue
+                // for inspection / future retry rather than silently dropping it.
+                final BlockUnparsed block = pendingBlocks.get(expectedNext);
+                if (block == null) {
+                    return;
+                }
+                final boolean applied;
+                try {
+                    applied = applyBlockStateChanges(block);
+                } catch (final RuntimeException e) {
+                    LOGGER.log(
+                            System.Logger.Level.WARNING,
+                            "applyBlockStateChanges threw for block {0}; degrading plugin (block retained in queue)",
+                            expectedNext,
+                            e);
+                    degraded.set(true);
+                    return;
+                }
+                if (!applied) {
+                    // Block-specific failure already logged + degraded set (e.g. hash
+                    // mismatch); leave the block in the queue and stop draining.
+                    return;
+                }
+                pendingBlocks.remove(expectedNext);
             }
-            final boolean applied;
+        } finally {
+            applyLock.unlock();
+        }
+    }
+
+    /// Body of the apply worker thread. Runs historical catch-up once, then blocks on
+    /// `arrivals` and applies each newly-arrived verified block immediately via
+    /// `applyPending`. `arrivals.take()` parks the thread with zero CPU until
+    /// `handleVerification` offers a block number, so there is no polling latency; a burst
+    /// of arrivals is coalesced into a single drain. Exits cleanly on interrupt/stop.
+    private void runApplyWorker() {
+        // One-shot catch-up first (it manages its own failures and flips readiness in a
+        // finally, so it never throws out here).
+        catchUpFromHistoricalBlocks();
+        while (!stopping.get()) {
             try {
-                applied = applyBlockStateChanges(block);
-            } catch (final RuntimeException e) {
-                LOGGER.log(
-                        System.Logger.Level.WARNING,
-                        "applyBlockStateChanges threw for block {0}; degrading plugin (block retained in queue)",
-                        expectedNext,
-                        e);
-                degraded.set(true);
-                return;
+                arrivals.take(); // park (no CPU) until a block arrives
+                arrivals.clear(); // coalesce any burst — pendingBlocks already holds them
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
             }
-            if (!applied) {
-                // Block-specific failure already logged + degraded set (e.g. hash
-                // mismatch); leave the block in the queue and stop draining.
-                return;
-            }
-            pendingBlocks.remove(expectedNext);
+            applyPending();
+        }
+    }
+
+    /// Stop the apply worker: interrupt it (waking it out of `arrivals.take()` or letting
+    /// an in-progress bounded drain finish) and join briefly so a final snapshot on
+    /// `stop()` observes a settled state. Best-effort; no-ops if never started.
+    private void stopApplyWorker() {
+        if (applyWorker == null) {
+            return;
+        }
+        applyWorker.interrupt();
+        try {
+            applyWorker.join(TimeUnit.SECONDS.toMillis(2L));
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

@@ -404,7 +404,6 @@ class StateManagementAcceptanceTest {
                         "state.management.stateSnapshotRecentPath",
                         tmp.resolve("recent").toString())
                 .withValue("state.management.snapshotIntervalMillis", "3600000")
-                .withValue("state.management.stateChangesApplyIntervalMillis", "3600000")
                 .withValue("state.management.stateSnapshotRecentRetentionCount", Integer.toString(recentRetention))
                 .build();
         final BlockNodeContext context = new BlockNodeContext(

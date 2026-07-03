@@ -16,7 +16,6 @@ public record StateManagementConfig(
         String stateSnapshotRecentPath,
 
         @ConfigProperty(defaultValue = "900000") long snapshotIntervalMillis,
-        @ConfigProperty(defaultValue = "2000") long stateChangesApplyIntervalMillis,
         @ConfigProperty(defaultValue = "64") int historicCatchUpBatchSize,
         /*
          * Number of recent snapshot directories to retain under
