@@ -1,7 +1,0 @@
-# SPDX-License-Identifier: Apache-2.0
-# BN1 for the wrb-distribution-step345 topology (#3125 step 3).
-# Tier-0 Block Node. EMB=0 → this BN manages the full history from genesis;
-# it will later receive historical + live WRBs from the wrb-cli push path.
-blockNode:
-  config:
-    BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "0"
