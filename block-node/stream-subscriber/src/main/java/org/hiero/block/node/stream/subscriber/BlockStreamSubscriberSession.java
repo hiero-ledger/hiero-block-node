@@ -540,6 +540,13 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // Need to park here waiting for at least one entry on the queue, otherwise
         // we'll spin in the caller thread in an extreme form of spin wait.
         if (liveBlockQueue.isEmpty()) {
+            // Re-register the messaging handler if necessary.
+            // Use a CAS check to determine if we reregister
+            if (liveBlockHandler.canReregister()) {
+                blockNodeContext
+                        .blockMessaging()
+                        .registerNoBackpressureBlockItemHandler(liveBlockHandler, false, sessionContext.handlerName);
+            }
             // Wait briefly for a live block to be available.
             awaitNewLiveEntries();
         }
@@ -866,6 +873,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
 
         private final BlockingQueue<BlockItems> liveBlockQueue;
         private final AtomicLong latestLiveStreamBlock;
+        private final AtomicBoolean isRegisteredFlag;
         private final String clientId;
 
         private LiveBlockHandler(
@@ -875,24 +883,24 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             this.liveBlockQueue = requireNonNull(liveBlockQueue);
             this.latestLiveStreamBlock = requireNonNull(latestLiveStreamBlock);
             this.clientId = clientId;
+            isRegisteredFlag = new AtomicBoolean(true);
+        }
+
+        public boolean canReregister() {
+            return isRegisteredFlag.compareAndSet(false, true);
         }
 
         @Override
         public void onTooFarBehindError() {
-            // Insert a signal to the session that it is "too far behind" live.
-            // Should not ever happen with this design.
-            LOGGER.log(Level.INFO, "Handler for {0} has fallen behind.", clientId);
+            // Mark this handler to be re-registered when the session is ready
+            // to swtich back to "live".
+            if (isRegisteredFlag.compareAndSet(true, false)) {
+                LOGGER.log(Level.INFO, "Handler for {0} has fallen behind.", clientId);
+            }
         }
 
         @Override
         public void handleBlockItemsReceived(@NonNull final BlockItems blockItems) {
-            // @todo(1673) consider to also add a check for:
-            //    blockItems.blockNumber() > latestLiveStreamBlock.get() && blockItems.isStartOfNewBlock()
-            //    because if this is not the start of a new block, the queue will be trimmed
-            //    this should improve accuracy when determining if we can fulfill the request, but
-            //    we should also be careful and think about how this change would affect the session
-            //    as a whole and we need to ensure that such a check is correct and make amends
-            //    elsewhere if needed.
             if (blockItems.blockNumber() > latestLiveStreamBlock.get()) {
                 latestLiveStreamBlock.set(blockItems.blockNumber());
             }
