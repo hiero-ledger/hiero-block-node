@@ -162,19 +162,32 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// Round number of `lastAppliedBlock`, mirrored for the same lag-1 reason.
     private volatile long lastAppliedRound = -1L;
 
-    /// Root hash of the state produced by applying `lastAppliedBlock` (i.e.
-    /// post-`lastAppliedBlock`). The next block's
-    /// `BlockFooter.startOfBlockStateRootHash` must equal this for us to accept
-    /// it — which is also the moment that next block's footer *attests*
-    /// `lastAppliedBlock`, allowing us to commit/expose it (lag-1). Empty until
-    /// the first apply.
-    private volatile Bytes lastAppliedHash = Bytes.EMPTY;
+    // ── Three concurrent state versions ────────────────────────────────────────
+    // The plugin runs a small pipeline over the lifecycle-managed state:
+    //   (3) MUTABLE — `lifecycleManager.getMutableState()`; actively receiving the current
+    //       block's state_changes (library-managed, no field here).
+    //   (2) HASHING — `hashingImmutable`; sealed by copyMutableState, awaiting hash +
+    //       attestation by the next block's footer (library-managed, held here).
+    //   (1) ATTESTED — `attestedImmutable`; the network-confirmed, query-serving copy
+    //       (a plugin-local cache variable).
+    // A state is hashed exactly once, when it is promoted from (2) to (1) — never while it
+    // is still mutable (3) and never eagerly at seal.
 
-    /// The latest network-attested immutable state — the only state the query API
-    /// reads. Under the lag-1 commit model this lags `lastAppliedBlock` by one
-    /// block: a block is applied into the live mutable first, and only promoted here
-    /// once the *next* block's footer confirms its root hash. `null` until the
-    /// first block has been attested (so queries report NOT_READY at pure genesis).
+    /// **State (2) — sealed, awaiting hash/attestation.** The immutable produced by the most
+    /// recent `copyMutableState()` (post-`lastAppliedBlock`), held from the lifecycle
+    /// manager. It is *not* hashed at seal time; its root hash is computed lazily — only when
+    /// the next block's footer arrives to attest it (`applyBlockStateChanges`) or when a
+    /// snapshot / `stagedStateRootHash()` needs it. Hashing a `VirtualMap` is expensive, so
+    /// we never hash the live mutable (state 3) and never hash a sealed state no successor has
+    /// yet confirmed (e.g. the stream tip). `null` until the first apply.
+    private volatile VirtualMapState hashingImmutable;
+
+    /// **State (1) — query-serving, network-attested.** The only state the query API reads;
+    /// a plugin-local cache of the latest immutable the network has confirmed. Under the
+    /// lag-1 commit model this lags `lastAppliedBlock` by one block: a block is applied into
+    /// the live mutable (state 3), sealed into state 2, and only promoted here once the
+    /// *next* block's footer confirms its root hash. `null` until the first block has been
+    /// attested (so queries report NOT_READY at pure genesis).
     private volatile VirtualMapState attestedImmutable;
 
     /// {@inheritDoc}
@@ -520,14 +533,16 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     }
 
     /// The `startOfBlockStateRootHash` the next block's footer must carry to be
-    /// accepted — i.e. the root hash of the most recently applied (staged) block,
-    /// which under lag-1 is one ahead of `metadata`. Empty before the first
-    /// apply. Test-visible so tests can chain a confirming block.
+    /// accepted — i.e. the root hash of the most recently applied (staged) block
+    /// (state 2), which under lag-1 is one ahead of `metadata`. Computed lazily from
+    /// `hashingImmutable` (VirtualMap caches the hash after the first call), so reading it
+    /// is the on-demand hash the lag-1 model needs. Empty before the first apply.
+    /// Test-visible so tests can chain a confirming block.
     ///
     /// @return the staged state root hash, or empty before the first apply
     @NonNull
     Bytes stagedStateRootHash() {
-        return lastAppliedHash;
+        return rootHashOf(hashingImmutable);
     }
 
     // ── Internals ───────────────────────────────────────────────────────────
@@ -575,10 +590,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         // from boot onwards (and so the live mutable is a writable copy).
         lifecycleManager.copyMutableState();
         if (snapshotLoaded) {
-            // Expose the loaded (already-attested) state immediately and anchor the
-            // hash the next block's footer must match.
-            setAttested(lifecycleManager.getLatestImmutableState());
-            lastAppliedHash = rootHashOf(attestedImmutable);
+            // The loaded (already-attested) block is simultaneously state 1 (exposed to
+            // readers) and state 2 (the base the next block's footer validates against). Its
+            // root hash is derived on demand from `hashingImmutable` when that next block
+            // arrives — no eager hash here.
+            final VirtualMapState loaded = lifecycleManager.getLatestImmutableState();
+            setAttested(loaded);
+            hashingImmutable = loaded;
         }
     }
 
@@ -744,13 +762,14 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// Flow for block N (given block N-1 was the last applied, post-(N-1) sealed):
     ///
     /// 1. Pull `BlockFooter.startOfBlockStateRootHash` from N (cheap reverse scan).
-    /// 2. Validate it against `lastAppliedHash` (the hash of post-(N-1)).
-    ///    A match means N's footer attests post-(N-1). Mismatch ⇒ degrade without
-    ///    mutating; we never expose post-(N-1).
-    /// 3. Now that post-(N-1) is attested, promote it to `attestedImmutable`
-    ///    (visible to queries), record its metadata, and emit `VERIFIED(N-1)`.
-    /// 4. Apply N's `state_changes` to the live mutable, then `copyMutableState()`
-    ///    to seal post-N. Post-N stays *un-exposed* until block N+1 attests it.
+    /// 2. Hash state 2 (`hashingImmutable`, post-(N-1)) NOW — the single point at which we
+    ///    hash a state, on promotion — and validate N's footer against it. A match means N's
+    ///    footer attests post-(N-1). Mismatch ⇒ degrade without mutating.
+    /// 3. Promote state 2 → state 1 (`attestedImmutable`, visible to queries) and record its
+    ///    metadata with the just-computed hash.
+    /// 4. Apply N's `state_changes` to the live mutable (state 3), then `copyMutableState()`
+    ///    to fast-copy/seal post-N as the new state 2 — left *un-hashed and un-exposed* until
+    ///    block N+1 attests it.
     ///
     /// @param block the block to apply
     /// @return `true` on successful apply, `false` if the block was rejected
@@ -769,7 +788,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             degraded.set(true);
             return false;
         }
-        if (!validateStartHash(startHash)) {
+        // Hash state 2 (post-(lastAppliedBlock)) exactly here, as we attempt to promote it —
+        // never at seal, never on the mutable. Empty at genesis (no state 2 yet). VirtualMap
+        // caches the result, so any later stagedStateRootHash()/snapshot read is free.
+        final Bytes attestedHash = lastAppliedBlock < 0L ? Bytes.EMPTY : rootHashOf(hashingImmutable);
+        if (!validateStartHash(startHash, attestedHash)) {
             hashMismatchTotal.incrementAndGet();
             hashMismatchMetric.increment();
             degraded.set(true);
@@ -780,28 +803,27 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                             + "degraded (state not exposed)",
                     incomingBlock,
                     startHash.toHex(),
-                    lastAppliedHash.toHex(),
+                    attestedHash.toHex(),
                     lastAppliedBlock);
             return false;
         }
 
-        // This block's footer just attested post-(lastAppliedBlock). Commit/expose
-        // that previously-applied block now — lag-1: readers only ever see attested
-        // state. (Skipped at genesis, and when the last applied block is already the
-        // exposed one, e.g. immediately after a snapshot reload.)
+        // N's footer just attested state 2 (post-(lastAppliedBlock)). Promote it from HASHING
+        // → ATTESTED (query-serving) now — lag-1: readers only ever see attested state.
+        // (Skipped at genesis, and when the last applied block is already the exposed one,
+        // e.g. immediately after a snapshot reload.)
         if (lastAppliedBlock >= 0L && (attestedImmutable == null || lastAppliedBlock != metadata.blockNumber())) {
-            final VirtualMapState attested = lifecycleManager.getLatestImmutableState();
-            setAttested(attested);
+            setAttested(hashingImmutable);
             metadata = StateMetadata.newBuilder()
                     .blockNumber(lastAppliedBlock)
                     .roundNumber(lastAppliedRound < 0L ? metadata.roundNumber() : lastAppliedRound)
-                    .stateRootHash(lastAppliedHash)
-                    .stateSize(sizeOf(attested))
+                    .stateRootHash(attestedHash)
+                    .stateSize(sizeOf(attestedImmutable))
                     .build();
         }
 
-        // Apply this block into the live mutable and seal it, but DO NOT expose it:
-        // it stays staged until the next block's footer attests it (above, next call).
+        // Apply this block into the live mutable (state 3) and fast-copy to seal it as the new
+        // state 2, but DO NOT hash or expose it: it stays staged until block N+1 attests it.
         final VirtualMapState mutable = lifecycleManager.getMutableState();
         final StateChangeApplier.ApplyResult result = applier.applyBlock(mutable, block);
         if (result.blockNumber() < 0L) {
@@ -810,38 +832,33 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return false;
         }
         lifecycleManager.copyMutableState();
-        final VirtualMapState sealed = lifecycleManager.getLatestImmutableState();
+        hashingImmutable = lifecycleManager.getLatestImmutableState();
         lastAppliedBlock = result.blockNumber();
         if (result.roundNumber() >= 0L) {
             lastAppliedRound = result.roundNumber();
         }
-        lastAppliedHash = rootHashOf(sealed);
         lastApplyDurationMs = System.currentTimeMillis() - applyStartMs;
         return true;
     }
 
-    /// Validate block N's `BlockFooter.startOfBlockStateRootHash` against the
-    /// hash of the last state we applied (post-(N-1), held in `lastAppliedHash`).
-    /// A match confirms our post-(N-1) matches the network's attested start-of-N hash
-    /// — which is exactly the attestation that lets us expose post-(N-1).
+    /// Validate block N's `BlockFooter.startOfBlockStateRootHash` against `attestedHash` —
+    /// the root hash of state 2 (post-(N-1)), computed by the caller off the *sealed*
+    /// `hashingImmutable` (never the live mutable, which would break the next
+    /// `applier.applyBlock` with "Cannot modify already hashed node"). A match confirms our
+    /// post-(N-1) equals the network's attested start-of-N hash — exactly the attestation
+    /// that lets us promote/expose post-(N-1).
     ///
-    /// We compare against the recorded `lastAppliedHash` rather than
-    /// recomputing from the live mutable: hashing a `VirtualMap` that has been
-    /// written to since its last hash seals it and breaks the next
-    /// `applier.applyBlock` with "Cannot modify already hashed node". The hash was
-    /// recorded at the right lifecycle point (right after the previous
-    /// `copyMutableState`, off the sealed immutable).
-    ///
-    /// Genesis branch: when no block has been applied yet (`lastAppliedBlock < 0`),
-    /// the expected start hash is empty / all-zeros and we accept either shape.
+    /// Genesis branch: when no block has been applied yet (`lastAppliedBlock < 0`), there is
+    /// no state 2 to hash and the expected start hash is empty / all-zeros; accept either.
     ///
     /// @param startHash the incoming block's footer start-of-block state root hash
-    /// @return `true` if the hash matches the last applied state (or genesis shape)
-    private boolean validateStartHash(@NonNull final Bytes startHash) {
+    /// @param attestedHash the root hash of state 2 (post-(N-1)); empty at genesis
+    /// @return `true` if the hashes match (or the genesis shape holds)
+    private boolean validateStartHash(@NonNull final Bytes startHash, @NonNull final Bytes attestedHash) {
         if (lastAppliedBlock < 0L) {
             return startHash.length() == 0L || isAllZeros(startHash);
         }
-        return lastAppliedHash.equals(startHash);
+        return attestedHash.equals(startHash);
     }
 
     /// Adopt `newAttested` as the state queries read, managing reference counts
