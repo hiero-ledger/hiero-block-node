@@ -39,9 +39,10 @@ Explicitly out of scope:
 └──────────────────────────┘                          │  (this epic)         │
                                                       │                      │
                                                       │  ┌────────────────┐  │
-                                                      │  │ ScheduledExec  │  │
-                                                      │  │ stateChanges   │  │
-                                                      │  │ (every 2s)     │  │
+                                                      │  │ apply worker   │  │
+                                                      │  │ (blocks on a   │  │
+                                                      │  │ queue; applies │  │
+                                                      │  │ on arrival)    │  │
                                                       │  └──────┬─────────┘  │
                                                       │         │            │
                                                       │  ┌──────▼─────────┐  │
@@ -108,14 +109,17 @@ used for `swirlds-config-*`.
 
 ## 4. Configuration (`@ConfigData("state.management")`)
 
-|              Property               |                        Default                        |                        Notes                         |
-|-------------------------------------|-------------------------------------------------------|------------------------------------------------------|
-| `stateMetadataPath`                 | `/opt/hiero/block-node/data/state/stateMetadata.json` | Path to the metadata file.                           |
-| `stateSnapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent`    | Directory for live snapshot dirs (`<blockNumber>/`). |
-| `snapshotInterval`                  | `15m`                                                 | Min 1m.                                              |
-| `stateChangesApplyInterval`         | `2s`                                                  | Min 100ms.                                           |
-| `historicCatchUpBatchSize`          | `64`                                                  | Blocks pulled per catch-up loop iteration.           |
-| `stateSnapshotRecentRetentionCount` | `3`                                                   | Recent snapshot dirs kept on disk (oldest pruned).   |
+|              Property               |                        Default                        |                                         Notes                                          |
+|-------------------------------------|-------------------------------------------------------|----------------------------------------------------------------------------------------|
+| `stateMetadataPath`                 | `/opt/hiero/block-node/data/state/stateMetadata.json` | Path to the metadata file.                                                             |
+| `stateSnapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent`    | Directory for live snapshot dirs (`<blockNumber>/`).                                   |
+| `snapshotIntervalMillis`            | `900000` (15m)                                        | Periodic snapshot cadence.                                                             |
+| `historicCatchUpBatchSize`          | `64`                                                  | Blocks pulled per catch-up loop iteration.                                             |
+| `stateSnapshotRecentRetentionCount` | `3`                                                   | Recent snapshot dirs kept on disk (oldest pruned).                                     |
+| `port`                              | `null` (share `server.port`)                          | Dedicated port for the `StateService` gRPC API; `null` shares the default server port. |
+
+There is no apply-interval setting: state changes are applied the moment a verified block
+arrives (see §6.5), not on a timer.
 
 ## 5. Data model
 
@@ -202,7 +206,9 @@ API, that is STORY-20 (the `BinaryStateReader` SPI), not a push notification.
   - The constructor eagerly creates a genesis state which is replaced later
     if a snapshot is loaded.
 - Register self as the `StateServiceInterface` gRPC service via
-  `serviceBuilder.registerGrpcService(this)` — the plugin **is** the service.
+  `serviceBuilder.registerGrpcService(this, config.port())` — the plugin **is** the
+  service. A `null` `port` shares the default `server.port`; a configured port opens the
+  `StateService` API on its own port.
 
 ### 6.2 `start()`
 
@@ -213,10 +219,12 @@ API, that is STORY-20 (the `BinaryStateReader` SPI), not a push notification.
 3. Register self as `BlockNotificationHandler` via
    `context.blockMessaging().registerBlockNotificationHandler(this, true, "StateManagementPlugin")`.
    `cpuIntensive=true` because state apply is CPU-bound parsing work.
-4. Kick off three single-thread `ScheduledExecutorService`s:
-   - `stateChangesExecutor.scheduleWithFixedDelay(this::applyPending, 0, applyInterval, ms)` — drains pending blocks in order.
-   - `snapshotExecutor.scheduleWithFixedDelay(this::saveSnapshot, snapshotInterval, snapshotInterval, ms)`.
-   - `catchUpExecutor.execute(this::catchUpFromHistoricalBlocks)` — see §6.4.
+4. Start the periodic snapshot executor
+   (`snapshotExecutor.scheduleWithFixedDelay(this::saveSnapshot, …)`) and a single
+   dedicated **apply-worker thread** (`StateManagement-apply`). The worker first runs
+   one-shot historical catch-up (§6.4), then blocks on a `BlockingQueue` and drains
+   `pendingBlocks` the instant a verified block arrives (§6.5). Catch-up and live apply
+   share the one worker thread, so `applyPending()` is only ever driven from one place.
 5. **`ready` is NOT yet set.** The catch-up task flips it to `true` when the
    plugin is caught up to the latest historical block; query traffic returns
    `NOT_READY` until then.
@@ -225,9 +233,11 @@ API, that is STORY-20 (the `BinaryStateReader` SPI), not a push notification.
 
 - Only proceed on `success=true` with a non-null block payload.
 - Park the block in the `ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks`
-  keyed by block number.
-- The actual state mutation runs on the scheduled apply executor, not on the
-  messaging thread, to keep the messaging dispatcher unblocked.
+  keyed by block number (the ordered gap buffer — a plain queue cannot hold gaps).
+- `offer` the block number to the apply worker's `BlockingQueue` to wake it immediately.
+  The actual state mutation runs on the apply worker, not on the messaging thread, to keep
+  the messaging dispatcher unblocked; `applyPending()` is guarded by a `ReentrantLock` so
+  the worker and direct (test) calls never mutate state concurrently.
 
 ### 6.4 `catchUpFromHistoricalBlocks()` (one-shot on `start()`)
 
@@ -251,44 +261,62 @@ Block-Node has on hand without waiting for verification notifications.
 6. Set `ready=true` in `finally` — even on partial catch-up, queries can
    start serving against whatever did apply.
 
-### 6.5 `applyPending()` (scheduled, runs every `stateChangesApplyIntervalMillis`)
+### 6.5 `applyPending()` (event-driven: runs when the apply worker is woken by a new block)
+
+The apply worker blocks on a `BlockingQueue` and calls `applyPending()` the moment a block
+arrives (no timer). `applyPending()` takes the `applyLock` and drains contiguous blocks:
 
 ```
-while (!pendingBlocks.isEmpty() && !stopping) {
+while (!pendingBlocks.isEmpty() && !stopping && !degraded) {
   long next = atGenesis ? pendingBlocks.firstKey()
-                        : metadata.blockNumber() + 1;
-  BlockUnparsed b = pendingBlocks.remove(next);
-  if (b == null) break;             // gap → wait
-  applyOne(b);
+                        : max(lastAppliedBlock, metadata.blockNumber()) + 1;
+  BlockUnparsed b = pendingBlocks.get(next);
+  if (b == null) return;            // gap → wait for the missing predecessor
+  if (!applyBlockStateChanges(b)) return;   // failure → leave queued, stop draining
+  pendingBlocks.remove(next);
 }
 ```
 
-`applyBlockStateChanges(block N)` — **lag-1 commit**: a block is applied into
-the live mutable, but only exposed to readers once the *next* block's footer
-attests its root hash. Readers therefore never see unattested state.
+#### Three concurrent state versions
 
-1. Pull `BlockFooter.startOfBlockStateRootHash` from N (cheap reverse scan).
-2. If block header is unparseable → log, set `degraded=true`, return.
-3. **Validate** N's start hash against `lastAppliedHash` (the hash of the last
-   applied state, post-(N-1)):
-   - genesis (`lastAppliedBlock < 0`): accept iff the footer hash is empty/all-zeros.
-   - otherwise: must equal `lastAppliedHash`.
-   - On mismatch: increment `hashMismatchTotal`, set `degraded=true`, log at ERROR,
-     return without exposing anything. Further applies short-circuit on `degraded`.
-4. A match means N's footer attests post-(N-1). **Commit/expose** it (unless it is
-   already exposed, e.g. just after a snapshot reload): set `attestedImmutable` to
-   `getLatestImmutableState()` — reserving its reference so the `copyMutableState()`
-   in step 6 does not release it — and record its `StateMetadata`.
-5. Apply N's `state_changes` via `StateChangeApplier.applyBlock(mutable, block)`.
-6. `lifecycleManager.copyMutableState()` seals post-N; record `lastAppliedBlock=N`,
-   `lastAppliedRound`, `lastAppliedHash=hash(post-N)`. Post-N stays staged
-   (un-exposed) until block N+1 attests it.
+The apply pipeline runs three versions of the state concurrently:
 
-Reference counting: `attestedImmutable` is held across applies by reserving its
-root (`copyMutableState()` releases the lifecycle manager's own reference to the
-superseded version); the previously-held attested state is released when a new one
-is adopted. Queries read `attestedImmutable`; a node that has applied only genesis
-has nothing attested and reports NOT_READY. Snapshots capture `attestedImmutable`.
+- **(3) MUTABLE** — `lifecycleManager.getMutableState()`: receives the current block's
+  `state_changes` (library-managed).
+- **(2) HASHING** — `hashingImmutable`: sealed by `copyMutableState()`, awaiting hash +
+  attestation by the next block's footer (library-managed, held by the plugin).
+- **(1) ATTESTED** — `attestedImmutable`: the network-confirmed, query-serving copy (a
+  plugin-local cache variable; the only state the query API reads).
+
+A state is hashed **exactly once, on promotion** from (2) to (1) — never while it is still
+mutable (3) and never eagerly at seal. Hashing a `VirtualMap` is expensive, so we hash only
+the sealed immutable and only when a successor block actually attests it (a never-confirmed
+stream tip is therefore never hashed).
+
+`applyBlockStateChanges(block N)` — **lag-1 commit**: a block is applied into the live
+mutable, but only exposed once the *next* block's footer attests its root hash.
+
+1. Pull `BlockFooter.startOfBlockStateRootHash` from N (cheap reverse scan). Missing →
+   `degraded=true`, return.
+2. **Hash state 2** (`hashingImmutable`, post-(N-1)) *now* — the single point at which a
+   state is hashed — and **validate** N's start hash against it:
+   - genesis (`lastAppliedBlock < 0`): no state 2; accept iff the footer hash is empty/all-zeros.
+   - otherwise: must equal `hash(post-(N-1))`.
+   - On mismatch: increment `hashMismatchTotal`, set `degraded=true`, log at ERROR, return
+     without exposing anything. Further applies short-circuit on `degraded`.
+3. A match means N's footer attests post-(N-1). **Promote** state 2 → state 1
+   (`attestedImmutable`) unless it is already exposed (e.g. just after a snapshot reload),
+   reserving its reference, and record its `StateMetadata` with the just-computed hash.
+4. Apply N's `state_changes` via `StateChangeApplier.applyBlock(mutable, block)`.
+5. `lifecycleManager.copyMutableState()` fast-copies/seals post-N as the new state 2
+   (`hashingImmutable`); record `lastAppliedBlock=N`, `lastAppliedRound`. Post-N is left
+   **un-hashed and un-exposed** until block N+1 attests it.
+
+Reference counting: `attestedImmutable` is held across applies by reserving its root
+(`copyMutableState()` releases the lifecycle manager's own reference to the superseded
+version); the previously-held attested state is released when a new one is adopted. Queries
+read `attestedImmutable`; a node that has applied only genesis has nothing attested and
+reports NOT_READY. Snapshots capture `attestedImmutable`.
 
 ### 6.6 `saveSnapshot()` (scheduled, runs every `snapshotIntervalMillis`)
 
@@ -307,8 +335,8 @@ has nothing attested and reports NOT_READY. Snapshots capture `attestedImmutable
 
 - Set `stopping=true`, `ready=false`.
 - Unregister from `blockMessaging`.
-- `shutdownNow()` all three executors (apply, snapshot, catch-up) with
-  short await.
+- Interrupt + join the apply worker (waking it out of the `BlockingQueue`) and shut down
+  the snapshot executor with a short await.
 - One final `saveSnapshot()` if `metadata.blockNumber > lastSnapshottedBlock`.
 
 ## 7. State change application
@@ -423,12 +451,11 @@ and `getBinaryKV` / `getBinaryQueue` structured responses.
 
 ## 12. Open questions
 
-Q-1. Ordering vs. throughput of apply loop. We rely on the
-`ConcurrentSkipListMap` + 2s scheduler to serialise apply. If apply takes
-longer than the interval, the next tick is harmless (it sees an empty queue or
-the same set). The scheduled-rate pacing is sufficient for v1; if throughput
-becomes a bottleneck the apply loop becomes event-driven on
-`handleVerification` rather than scheduled.
+Q-1. Ordering vs. throughput of apply loop. **Resolved:** the apply loop is now
+event-driven. `handleVerification` stages into the `ConcurrentSkipListMap` (which still
+provides ordering + gap handling) and wakes a single apply-worker thread via a
+`BlockingQueue`; the worker drains under `applyLock`. State changes are applied the moment
+a block arrives instead of on a 2-second timer.
 
 Q-2. `roundNumber` extraction. Pulled directly from the `RoundHeader` block
 item — every block carries at least one. The applier tracks the last seen

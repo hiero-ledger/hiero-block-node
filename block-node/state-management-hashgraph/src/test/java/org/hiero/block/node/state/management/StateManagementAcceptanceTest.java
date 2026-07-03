@@ -49,8 +49,9 @@ import org.junit.jupiter.api.io.TempDir;
  *   <li>Snapshot persists metadata.json + a snapshot file under recent/&lt;blockNumber&gt;.</li>
  * </ol>
  *
- * The plugin owns its own apply scheduler; tests drive the package-private
- * {@code applyPending()} directly to remove timing flakiness.
+ * The plugin applies on its own apply-worker thread; tests additionally drive the
+ * package-private {@code applyPending()} directly (serialised with the worker by the
+ * plugin's apply lock) to remove timing flakiness.
  */
 class StateManagementAcceptanceTest {
 
