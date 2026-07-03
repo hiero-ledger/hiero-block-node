@@ -250,7 +250,6 @@ class StateManagementPluginLifecycleTest {
                         tmp.resolve("md.json").toString())
                 .withValue("state.management.stateSnapshotRecentPath", badRecent.toString())
                 .withValue("state.management.snapshotIntervalMillis", "3600000")
-                .withValue("state.management.stateChangesApplyIntervalMillis", "3600000")
                 .build();
         final RecordingHealthFacility health = new RecordingHealthFacility();
         final BlockNodeContext context = new BlockNodeContext(
@@ -307,7 +306,6 @@ class StateManagementPluginLifecycleTest {
                 .withValue("state.management.stateMetadataPath", metadataPath.toString())
                 .withValue("state.management.stateSnapshotRecentPath", recentRoot.toString())
                 .withValue("state.management.snapshotIntervalMillis", "3600000") // suppress automatic snapshot
-                .withValue("state.management.stateChangesApplyIntervalMillis", "3600000") // suppress automatic apply
                 .build();
         final BlockNodeContext context = new BlockNodeContext(
                 configuration,
