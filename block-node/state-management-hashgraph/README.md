@@ -27,17 +27,22 @@ management, gRPC queries, and an SPI notification on top.
    missing blocks via `block(n)` in batches of `historicCatchUpBatchSize`,
    enqueueing each into the pending map. The plugin reports `NOT_READY` on
    gRPC queries until catch-up completes.
-4. **Apply (lag-1 commit).** A scheduled executor drains the pending map in
-   strict block-number order. Readers never see state the network has not yet
-   attested: a block is applied into the live mutable, but only **exposed** once
-   the *next* block's footer confirms its root hash. For each block N:
-   - Validate N's `BlockFooter.startOfBlockStateRootHash` against the hash of the
-     last applied state (post-(N-1)). On mismatch the plugin sets
-     `degraded=true`, increments `hashMismatchTotal`, refuses further applies, and
-     exposes nothing.
-   - On match, N's footer has attested post-(N-1): promote post-(N-1) to the
-     query-visible `attestedImmutable` (reserving its reference so the next
-     `copyMutableState()` doesn't release it) and record its `StateMetadata`.
+4. **Apply (lag-1 commit).** A single apply-worker thread blocks on a queue and drains the
+   pending map in strict block-number order the moment a block arrives (no timer).
+   The pipeline runs **three concurrent state versions**: **(3)** the live *mutable*
+   (`getMutableState()`) receiving the current block's changes; **(2)** `hashingImmutable`,
+   the sealed copy awaiting hash + attestation; and **(1)** `attestedImmutable`, the
+   network-confirmed, query-serving copy (a plugin-local cache). Readers never see state the
+   network has not yet attested: a block is applied into the live mutable, but only
+   **exposed** once the *next* block's footer confirms its root hash. For each block N:
+   - **Hash state 2** (post-(N-1)) *now* — the single point at which a state is hashed, on
+     promotion, never eagerly at seal and never on the mutable — and validate N's
+     `BlockFooter.startOfBlockStateRootHash` against it. On mismatch the plugin sets
+     `degraded=true`, increments `hashMismatchTotal`, refuses further applies, and exposes
+     nothing.
+   - On match, N's footer has attested post-(N-1): promote state 2 → `attestedImmutable`
+     (reserving its reference so the next `copyMutableState()` doesn't release it) and
+     record its `StateMetadata` with the just-computed hash.
    - Apply N's `state_changes` to the live mutable `BinaryState`:
      | wire variant | BinaryState call |
      |---|---|
@@ -89,9 +94,12 @@ Bound under `@ConfigData("state.management")` in `StateManagementConfig`:
 | `stateMetadataPath`                 | `/opt/hiero/block-node/data/state/stateMetadata.json` | JSON file with the latest metadata                         |
 | `stateSnapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent`    | Holds the recent snapshot directories                      |
 | `snapshotIntervalMillis`            | `900000` (15 min)                                     | Rate of `saveSnapshot()`                                   |
-| `stateChangesApplyIntervalMillis`   | `2000` (2 s)                                          | Rate of the apply loop                                     |
 | `historicCatchUpBatchSize`          | `64`                                                  | Blocks fetched per batch during start-up catch-up          |
 | `stateSnapshotRecentRetentionCount` | `3`                                                   | Recent snapshot dirs to keep on disk (oldest pruned first) |
+| `port`                              | `null` (share `server.port`)                          | Dedicated port for the `StateService` gRPC API             |
+
+State changes are applied the moment a verified block arrives (an apply-worker thread
+blocking on a queue), not on a timer — there is no apply-interval setting.
 
 There is no `enabled` flag. Block-Node plugins are active whenever their jar
 is on the classpath; opt-in lives in the deployment manifest.
