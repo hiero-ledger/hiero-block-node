@@ -125,6 +125,43 @@ class StateManagementAcceptanceTest {
     }
 
     @Test
+    void threeStatePipeline_hashesStateTwoLazilyThenPromotes(@TempDir final Path tmp) {
+        // Pins the three-state / hash-on-promotion model:
+        //   (2) HASHING  — sealed post-apply, hashed lazily and only on demand;
+        //   (1) ATTESTED — exposed to queries with exactly that hash on promotion.
+        final Fixture f = startPlugin(tmp);
+
+        // Before any apply there is no state 2 yet → nothing to hash → empty staged hash.
+        assertThat(f.plugin.stagedStateRootHash()).isEqualTo(Bytes.EMPTY);
+
+        // Apply genesis block 0 carrying a real change → seals state 2 (post-0).
+        f.deliverAndApply(
+                0L,
+                0L,
+                java.util.List.of(StateChange.newBuilder()
+                        .stateId(1)
+                        .singletonUpdate(SingletonUpdateChange.newBuilder()
+                                .bytesValue(Bytes.fromHex("aa"))
+                                .build())
+                        .build()));
+
+        // State 2's root hash is computed lazily off the sealed immutable — non-empty and
+        // stable across repeated reads (VirtualMap caches; no re-hash, no mutation error).
+        final Bytes stagedAfter0 = f.plugin.stagedStateRootHash();
+        assertThat(stagedAfter0.length()).isGreaterThan(0L);
+        assertThat(f.plugin.stagedStateRootHash()).isEqualTo(stagedAfter0);
+        // Under lag-1 block 0 is not exposed until attested — state 1 is still DEFAULT.
+        assertThat(f.plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
+
+        // Block 1 (footer chained to the staged hash) attests post-0 → promotes state 2 to
+        // state 1, publishing exactly the hash we computed on demand above.
+        f.confirm(1L, 10L);
+        assertThat(f.plugin.metadata().blockNumber()).isZero();
+        assertThat(f.plugin.metadata().stateRootHash()).isEqualTo(stagedAfter0);
+        f.plugin.stop();
+    }
+
+    @Test
     void recentSnapshotRetentionKeepsConfiguredCount(@TempDir final Path tmp) throws java.io.IOException {
         // Retention=3 keeps the current + 2 older recent dirs. Apply + snapshot
         // 4 successive blocks; expect recent/1 to be deleted and recent/{2,3,4}
