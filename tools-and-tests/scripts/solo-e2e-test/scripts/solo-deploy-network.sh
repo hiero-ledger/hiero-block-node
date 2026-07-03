@@ -345,15 +345,25 @@ function generate_overlays {
   overlay_count=$(find "${overlay_dir}" -maxdepth 1 \( -name "*.yaml" -o -name "*.json" -o -name "*.txt" \) -type f 2>/dev/null | wc -l | tr -d ' ')
 
   if [[ "${overlay_count}" -eq 0 ]]; then
-    # Zero overlays is legitimate for topologies where the generator has no
-    # BN peer wiring, no BN plugin_ports, and no MN→BN references to
-    # translate. Examples: WRB Distribution E2E (#3125) slice 1 (no BNs at
-    # all) and slice 3 (BNs deployed but no wiring yet — that arrives in
-    # later slices). Only fail here if BOTH the topology-tool exit status
-    # AND the topology structure indicate a real problem — since the tool
-    # already succeeded, treat zero overlays as informational and let the
-    # deploy continue with plain solo defaults.
-    log_line "  No overlay files generated (topology has no BN peer/plugin_ports/MN→BN wiring)."
+    # Zero overlays is legitimate only when the topology has no Block Nodes
+    # declared at deploy time (e.g. WRB Distribution E2E slices where BNs
+    # are added post-hoc via `solo block node add`). For a topology that
+    # DOES declare BNs, zero overlays means the generator failed silently
+    # and we should still hard-fail — Nana-EC flagged the original relaxation
+    # as too broad, so we keep the ERROR for that case.
+    local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
+    local declared_bn_count
+    declared_bn_count=$(yq '.block_nodes | keys | length // 0' "${topology_file}" 2>/dev/null || echo 0)
+    if [[ "${declared_bn_count}" -eq 0 ]]; then
+      log_line "  No overlay files generated (topology declares block_nodes: {}; BNs handled post-deploy)."
+    else
+      log_line ""
+      log_line "ERROR: Overlay generator succeeded but produced 0 files for a topology that declares ${declared_bn_count} block nodes."
+      log_line ""
+      log_line "Generator output:"
+      log_line "${generator_output}"
+      fail "Overlay generator failed silently" 1
+    fi
   fi
 
   # Print overlay details

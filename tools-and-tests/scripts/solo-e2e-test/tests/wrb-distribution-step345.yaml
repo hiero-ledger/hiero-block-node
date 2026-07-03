@@ -32,6 +32,16 @@
 name: wrb-distribution-step345
 description: "WRB distribution E2E (#3125) — CN v0.75 + MN1 v0.157.1 baseline, BN1/BN2/BN3 added post-wrap with EMB"
 
+# Nodes that don't appear in the deploy-time topology but come up during the
+# test via command events. The runner's target-validation and the
+# `no-errors: target: all` assertion honour this list so the assertion actually
+# scrapes metrics from every BN that ends up running, not just BN1 (the fallback
+# when the deploy-time topology declares block_nodes: {}).
+dynamic_targets:
+  - block-node-1
+  - block-node-2
+  - block-node-3
+
 events:
   - id: initial-status
     type: network-status
@@ -128,12 +138,11 @@ events:
 # BN health is asserted implicitly by:
 #   * add-bn.sh's `kubectl wait --for=condition=Ready pod/block-node-<i>-0`
 #   * assert-bn-emb.sh exec'ing into each block-node-server container
-# Adding explicit node-healthy assertions here would fail the runner's
-# topology-target validation (block-node-1/2/3 aren't in the deploy-time
-# topology).  The `no-errors` assertion runs against whatever BNs are up
-# by the end of the test.
+# The `no-errors` assertion below uses `target: all`; the runner honours the
+# `dynamic_targets:` list above so it scrapes metrics from BN1/BN2/BN3, not
+# just BN1 (the fallback that AlfredoG87 flagged as confusing).
 assertions:
   - id: no-errors
     type: no-errors
-    description: "No errors in Block Node logs"
+    description: "No errors in Block Node logs (scraped from every dynamic BN)"
     target: all
