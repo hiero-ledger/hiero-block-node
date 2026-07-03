@@ -176,8 +176,10 @@ public class BlockUploadTask implements Callable<UploadResult> {
                         blocksInBuffer.put(blockNum, blockData.source());
                     }
                 } catch (InterruptedException e) {
+                    // Do not abort here: it would delete parts already confirmed durable via
+                    // PersistedNotification. Leave the upload hanging for StartupRecoveryTask to
+                    // resume, mirroring the IOException branch below.
                     LOGGER.log(TRACE, "Block upload task interrupted", e);
-                    S3UploadUtils.abortQuietly(s3, key, uploadId);
                     throw e;
                 } catch (IOException e) {
                     LOGGER.log(TRACE, "Failed to accumulate block %d".formatted(blockNum), e);

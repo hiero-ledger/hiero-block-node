@@ -71,6 +71,9 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     public static final MetricKey<LongCounter> METRIC_CLOUD_ARCHIVE_STORED_BYTES = MetricKey.of(
                     "cloud_storage_archive_stored_bytes", LongCounter.class)
             .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED = MetricKey.of(
+                    "cloud_storage_archive_duplicate_blocks_discarded", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
 
     /// The block node context, set during [init].
     private BlockNodeContext context;
@@ -589,11 +592,17 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// Routes [blockNumber] to the appropriate destination.
     ///
     /// During recovery ([recoveryFuture] != null), all blocks are stashed for later replay.
-    /// After recovery, contiguous blocks (or the very first block on a fresh start) go to the
-    /// regular pipeline via [currentGroupPending].  A gap triggers [gapBuffer] accumulation; if
-    /// the gap closes before the buffer fills, buffered blocks drain into the regular pipeline.
-    /// If the buffer fills first, all buffered blocks are flushed to a [TempArchiveUploadTask].
-    /// Retrograde or duplicate blocks are silently discarded.
+    /// After recovery, contiguous blocks go to the regular pipeline via [currentGroupPending].
+    /// A gap triggers [gapBuffer] accumulation; if the gap closes before the buffer fills,
+    /// buffered blocks drain into the regular pipeline.  If the buffer fills first, all buffered
+    /// blocks are flushed to a [TempArchiveUploadTask].  Retrograde or duplicate blocks are
+    /// silently discarded.
+    ///
+    /// On a fresh start, a first arrival exactly on a group boundary is always safe to start the
+    /// regular pipeline on directly -- no earlier block could ever belong to that group.  Any
+    /// non-aligned first arrival is ambiguous -- out-of-order genesis vs. a live deployment whose
+    /// earlier blocks are gone -- so it's treated as a gap like any other, letting the existing
+    /// buffer/temp-archive logic resolve it instead of guessing from the block number alone.
     private void routeVerifiedBlock(long blockNumber, VerificationNotification notification) {
         final BlockWithSource blockWithSource = new BlockWithSource(notification.block(), notification.source());
         if (recoveryFuture != null) {
@@ -621,10 +630,11 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 // making this block appear retrograde. Start a new regular task for its group.
                 LOGGER.log(TRACE, "Block {0} starting new regular task", blockNumber);
                 routeToCloudArchive(blockNumber, blockWithSource);
-            } else if (blockNumber < nextBlockToQueue) {
-                // Block falls before the current (or most recent) regular task's queue pointer:
-                // already consumed or deliberately skipped (e.g. resume point after recovery).
-                LOGGER.log(TRACE, "Block {0} is before resume point ({1}); discarding", blockNumber, nextBlockToQueue);
+            } else if (blockNumber < nextBlockToQueue && blockNumber >= currentGroupStart) {
+                // Already consumed by the current task's own group; a block below currentGroupStart
+                // belongs to an earlier group the regular pipeline never handled, so it falls through.
+                metricsHolder.duplicateBlocksDiscarded().increment();
+                LOGGER.log(DEBUG, "Block {0} is before resume point ({1}); discarding", blockNumber, nextBlockToQueue);
             } else {
                 // Neither the regular task nor the direct-to-regular path applies.
                 // Route to temp; routeToTempArchive will detect whether this is a true duplicate
@@ -635,8 +645,15 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         } else {
             // blockNumber > lastHandedOffBlock from here.
             final long expected = lastHandedOffBlock + 1;
+            // A fresh start is unambiguous -- safe to begin the regular pipeline immediately --
+            // only when it's an aligned group boundary: no earlier block could ever belong to
+            // that group, regardless of whether this is a genesis chain or a live deployment
+            // resuming mid-history.  Any non-aligned first arrival can't be told apart from a
+            // live deployment whose earlier blocks are gone, so it falls through to gap
+            // detection below, bounded by gapBufferSize like any other group.
+            final boolean freshStartSafeForRegular = lastHandedOffBlock == -1 && blockNumber % groupSize == 0;
 
-            if (blockNumber == expected || lastHandedOffBlock == -1) {
+            if (blockNumber == expected || freshStartSafeForRegular) {
                 if (!gapBuffer.isEmpty()) {
                     // The expected block has arrived, closing the gap.
                     gapBuffer.put(blockNumber, blockWithSource);
@@ -653,7 +670,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                                 || tempGroupNextExpected.containsKey(groupStart)
                                 || groupStart > currentGroupStart + groupSize)) {
                     // On first gap detection, skip the buffer when the group already has temp data
-                    // or is 2+ groups ahead -- buffering cannot help close the gap in those cases.
+                    // or is more than 1 group ahead -- buffering cannot help close the gap in those cases.
                     LOGGER.log(
                             TRACE,
                             "Gap detected at block {0} (expected {1}); routing directly to temp archive",
@@ -726,7 +743,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         final long nextExpected = tempGroupNextExpected.getOrDefault(groupStart, blockNumber);
         if (isBlockCoveredByAnyTempSegment(blockNumber, groupStart)) {
             // Already uploaded to some in-flight or completed segment -- true duplicate; discard.
-            LOGGER.log(TRACE, "Discarding duplicate block {0} for temp group {1}", blockNumber, groupStart);
+            metricsHolder.duplicateBlocksDiscarded().increment();
+            LOGGER.log(DEBUG, "Discarding duplicate block {0} for temp group {1}", blockNumber, groupStart);
         } else {
             if (blockNumber < nextExpected) {
                 // Block is in an abandoned gap between two temp segments -- close the active segment
@@ -937,7 +955,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
             LongCounter.Measurement blocksWritten,
             LongCounter.Measurement failedTasks,
             LongCounter.Measurement successfulTasks,
-            LongCounter.Measurement storedBytes) {
+            LongCounter.Measurement storedBytes,
+            LongCounter.Measurement duplicateBlocksDiscarded) {
 
         /// Factory method to create and register all cloud archive metrics.
         public static MetricsHolder createMetrics(@NonNull final MetricRegistry metricRegistry) {
@@ -957,6 +976,11 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                     metricRegistry
                             .register(LongCounter.builder(METRIC_CLOUD_ARCHIVE_STORED_BYTES)
                                     .setDescription("Total number of bytes stored in S3 cloud archive storage."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED)
+                                    .setDescription(
+                                            "Total number of duplicate blocks discarded by cloud archive routing."))
                             .getOrCreateNotLabeled());
         }
     }

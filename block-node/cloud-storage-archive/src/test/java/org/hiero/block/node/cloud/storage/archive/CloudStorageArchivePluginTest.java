@@ -473,7 +473,11 @@ class CloudStorageArchivePluginTest {
         void testOutOfOrderWithinBatch() throws Exception {
             final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
             final List<TestBlock> blocks = new ArrayList<>(TestBlockBuilder.generateBlocksInRange(0, groupSize - 1));
+            // Block 0 is the only aligned-boundary block in this group, so it must arrive first to
+            // start the regular task; only the remaining blocks are shuffled.
+            final TestBlock firstBlock = blocks.remove(0);
             Collections.shuffle(blocks);
+            sendVerification(firstBlock);
             sendVerifications(blocks);
             pluginExecutor.executeSerially();
 
@@ -491,21 +495,19 @@ class CloudStorageArchivePluginTest {
         @DisplayName("Block from next group goes to temp archive and is consolidated when group is complete")
         void testNextGroupBlockStashedAndReplayed() throws Exception {
             final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
-            // send one block from group 0–9 to create the first task
-            sendVerification(TestBlockBuilder.generateBlocksInRange(5, 5).getFirst());
-            // send a block from group 10–19 while group 0–9 is active — it should land in the
-            // streaming temp archive queue, since out-of-range blocks go to temp archives immediately
-            sendVerification(
-                    TestBlockBuilder.generateBlocksInRange(groupSize, groupSize).getFirst());
+            // send block 0 (aligned) from group 0–9 to create the first task
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+            // Blocks 10-14 from group 10–19 arrive while group 0–9 is active. They aren't more
+            // than one group ahead, so they fill gapBuffer (gapBufferSize=5) rather than bypassing
+            // it directly; the fifth (14) triggers flushGapBufferToTemp, which starts the streaming
+            // temp archive segment for group 10 since none of them fall in group 0's range.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize, groupSize + 4));
             assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize);
-            // complete group 0–9 (all except block 5 which was already sent)
-            sendVerifications(TestBlockBuilder.generateBlocksInRange(0, 4));
-            sendVerifications(TestBlockBuilder.generateBlocksInRange(6, groupSize - 1));
+            // complete group 0–9 (blocks 1-9; block 0 was already sent)
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(1, groupSize - 1));
             // complete group 10–19: block 19 (last in group) triggers closeActiveTempSegment
             // and places SEGMENT_END in the queue so TempArchiveUploadTask[10,19] can finalise
-            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize + 1, groupSize + 1)
-                    .getFirst());
-            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize + 2, groupSize * 2 - 1));
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize + 5, groupSize * 2 - 1));
             // segment is now closed — all 10 blocks + sentinel are in the queue
             assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) groupSize);
             // runs BlockUploadTask for [0, 9] and TempArchiveUploadTask for [10, 19]
@@ -542,38 +544,37 @@ class CloudStorageArchivePluginTest {
         /// current segment (by placing [TempArchiveUploadTask.SEGMENT_END] in its queue) and
         /// immediately starts a fresh segment from the gap block.
         ///
-        /// Scenario: group 10–19 receives blocks 10–12, then block 15 (gap at 13–14).
-        ///   - The first segment [10, 12] receives SEGMENT_END; a second segment starts at 15.
-        ///   - Blocks 16–19 complete the second segment; block 19 (last in group) closes it.
+        /// Scenario: group 10–19 receives blocks 10–12 then 15–16 (5 total, skipping 13–14) as a
+        /// single gapBuffer flush (gapBufferSize=5), then blocks 17–19 complete the group.
+        ///   - Processed in ascending order, blocks 10-12 open the first segment [10, 12]; block 15
+        ///     detects the forward gap (nextExpected=13), closes that segment with SEGMENT_END, and
+        ///     starts a fresh one; block 16 continues the fresh segment.
+        ///   - Blocks 17–19 complete the second segment; block 19 (last in group) closes it.
         ///   - Both tasks run in the same [executeSerially] call as [BlockUploadTask] for
         ///     group 0–9, since all queues are fully populated before execution begins.
         @Test
         @DisplayName("Gap in temp archive stream closes the current segment and starts a fresh one from the gap block")
         void testGapInTempArchiveStreamClosesSegmentAndStartsFresh() throws Exception {
             final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
-            // Start group 0–9 regular task
-            sendVerification(TestBlockBuilder.generateBlocksInRange(5, 5).getFirst());
-            // Blocks 10–12 start the first temp archive segment for group 10
-            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize, groupSize + 2));
-            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize);
-            final BlockingQueue<BlockWithSource> firstSegmentQueue = plugin.tempGroupActiveQueues.get((long) groupSize);
+            // Start group 0–9 regular task with block 0 (aligned)
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
 
-            // Block 15 arrives — gap at 13–14: SEGMENT_END is placed in the first segment's
-            // queue and a new segment starts immediately at block 15
-            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize + 5, groupSize + 5)
-                    .getFirst());
-            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize); // new segment active
-            assertThat(plugin.tempGroupActiveQueues.get((long) groupSize)).isNotSameAs(firstSegmentQueue);
+            // Blocks 10-12 then 15-16 (5 total, skipping 13-14) fill gapBuffer and flush together;
+            // see the scenario note above for how this reproduces the gap-closes-and-reopens path.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize, groupSize + 2));
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize + 5, groupSize + 6));
+
+            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize); // second segment active
             assertThat(plugin.tempUploadFutures).containsKey((long) groupSize); // future for [10,12]
             assertThat(plugin.tempUploadFutures).containsKey((long) groupSize + 5); // future for [15,?]
 
-            // Blocks 16–19: block 19 (last in group) closes the second segment
-            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize + 6, groupSize * 2 - 1));
+            // Blocks 17–19: block 19 (last in group) closes the second segment
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize + 7, groupSize * 2 - 1));
             assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) groupSize);
 
-            // Complete group 0–9 and run all three tasks in one call
-            sendVerifications(TestBlockBuilder.generateBlocksInRange(0, 4));
-            sendVerifications(TestBlockBuilder.generateBlocksInRange(6, groupSize - 1));
+            // Complete group 0–9 (blocks 1-9; block 0 was already sent) and run all three tasks
+            // in one call
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(1, groupSize - 1));
             // runs BlockUploadTask[0,9], TempArchiveUploadTask[10,12], TempArchiveUploadTask[15,19]
             pluginExecutor.executeSerially();
 
@@ -623,31 +624,23 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.currentUploadFuture).isNull();
         }
 
-        /// Verifies the draining behaviour when block 0 arrives last: blocks 1–9 accumulate in
-        /// [CloudStorageArchivePlugin#currentGroupPending] and only flush to the queue once block 0
-        /// is received.
+        /// Verifies that blocks arriving before the aligned first block of a group are treated as
+        /// an ordinary gap: buffered in [CloudStorageArchivePlugin#gapBuffer] up to
+        /// [CloudStorageArchiveConfig#gapBufferSize()], then flushed to a [TempArchiveUploadTask]
+        /// once the buffer fills without the aligned block ever showing up -- instead of
+        /// accumulating unbounded in [CloudStorageArchivePlugin#currentGroupPending] forever. No
+        /// regular task is ever started here, since the aligned block (0) never arrives.
         @Test
-        @DisplayName("Blocks 1–9 are held in pending and drained when the missing block 0 arrives last")
-        void testPendingDrainedWhenFirstBlockArrivesLast() throws Exception {
-            final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
-            // Send blocks 1-9 first — they all go into currentGroupPending, queue stays empty.
-            sendVerifications(TestBlockBuilder.generateBlocksInRange(1, groupSize - 1));
-            assertThat(plugin.currentBlockQueue).isEmpty();
-            assertThat(plugin.currentGroupPending).hasSize(groupSize - 1);
+        @DisplayName("Blocks before the aligned first block flush to temp archive once the gap buffer fills")
+        void testBlocksBeforeAlignedFirstBlockFlushToTempArchiveWhenBufferFills() {
+            // Blocks 1-5 arrive without block 0; gapBufferSize defaults to 5, so the fifth
+            // buffered block (5) triggers the flush.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(1, 5));
 
-            // Block 0 arrives last — triggers a full drain of all 10 blocks into the queue.
-            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+            assertThat(plugin.gapBuffer).isEmpty();
+            assertThat(plugin.currentUploadFuture).isNull();
             assertThat(plugin.currentGroupPending).isEmpty();
-
-            pluginExecutor.executeSerially();
-            assertTrue(getAllObjects().contains("0000/0000/0000/0000/0.tar"), "tar file should be uploaded");
-            final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-            assertEquals(1, notifications.size(), "expected one persisted notification for the last block");
-            assertEquals(
-                    groupSize - 1L,
-                    notifications.getFirst().blockNumber(),
-                    "notification should be for the last block");
-            notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
+            assertThat(plugin.tempGroupActiveQueues).containsKey(0L);
         }
 
         /// Verifies that a block two groups ahead (e.g. block 20 while the current task covers
@@ -731,6 +724,65 @@ class CloudStorageArchivePluginTest {
             notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
         }
 
+        /// Verifies the "before resume point" discard fix: a straggler for an earlier,
+        /// already-passed group (temp-archived, missing 20-21) must fall through to
+        /// [routeToTempArchive] instead of being discarded once group 30's regular task has moved
+        /// `currentGroupStart` past it. Pre-fix, both stragglers would vanish silently and group
+        /// 20-29 would never consolidate.
+        @Test
+        @DisplayName(
+                "Straggler from an earlier, already-passed group is routed to temp archive instead of being discarded")
+        void testStragglerFromEarlierGroupRoutesToTempArchive() throws Exception {
+            final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
+
+            // Block 22 is two groups ahead of the (still-unstarted) regular pipeline -- starts a
+            // temp archive for group 20 directly, missing blocks 20-21.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 2 + 2, groupSize * 2 + 2)
+                    .getFirst());
+            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize * 2);
+
+            // Blocks 23-29 complete this segment; block 29 (last in group) closes it.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize * 2 + 3, groupSize * 3 - 1));
+            assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) groupSize * 2);
+
+            // Block 30 is the next "expected" block (lastHandedOffBlock was 29) and starts a
+            // regular task for group 30-39, advancing currentGroupStart well past the stragglers.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 3, groupSize * 3)
+                    .getFirst());
+            assertThat(plugin.currentGroupStart).isEqualTo(groupSize * 3L);
+
+            // Stragglers 20 and 21 arrive late (e.g. via backfill). Both are retrograde and below
+            // nextBlockToQueue, but belong to a group entirely below currentGroupStart, so they
+            // must fall through to routeToTempArchive rather than being discarded.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize * 2, groupSize * 2 + 1));
+
+            // Complete group 30-39 so its BlockUploadTask can finish without hanging executeSerially().
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize * 3 + 1, groupSize * 4 - 1));
+
+            // Runs TempArchiveUploadTask[22,29], BlockUploadTask[30,39], TempArchiveUploadTask[20,21].
+            pluginExecutor.executeSerially();
+
+            // Drive the production drain path (checkAndDrainTempUploadResults + checkAndDrainConsolidations)
+            // by sending the next group's first block; complete that group too to avoid a hang.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 4, groupSize * 4)
+                    .getFirst());
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize * 4 + 1, groupSize * 5 - 1));
+            pluginExecutor.executeSerially(); // runs ConsolidationTask[20,29] then BlockUploadTask[40,49]
+
+            assertTrue(
+                    getAllObjects().contains(ArchiveKey.format(groupSize * 2, GROUPING_LEVEL, "")),
+                    "group 20-29 should be consolidated into a final tar despite the late stragglers");
+
+            final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+            final List<Long> notifiedBlocks = notifications.stream()
+                    .map(PersistedNotification::blockNumber)
+                    .toList();
+            assertThat(notifiedBlocks)
+                    .as("straggler segment [20,21] must be persisted, not silently discarded")
+                    .contains(groupSize * 2 + 1L);
+            notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
+        }
+
         /// Sends a [VerificationNotification] for each block via the messaging facility.
         private void sendVerifications(List<TestBlock> blocks) {
             for (final TestBlock block : blocks) {
@@ -811,17 +863,79 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.tempUploadFutures).containsKey((long) groupSize);
         }
 
-        /// Verifies that the very first arriving block (even if non-zero) goes directly to the
-        /// regular pipeline without triggering gap detection.
+        /// Verifies the aligned-boundary half of `freshStartSafeForRegular`: a fresh start whose
+        /// first arriving block sits exactly on a group boundary goes directly to the regular
+        /// pipeline without gap detection, even though the block is far outside group 0.  Block
+        /// 500 is deliberately both aligned (500 % groupSize == 0) and beyond group 0
+        /// (500 >= groupSize), so this is the only test that would catch a regression narrowing
+        /// that clause to group 0 only.
         @Test
-        @DisplayName("First arriving block (non-zero) starts regular task without gap buffering")
-        void testFreshStartWithNonZeroFirstBlock() {
+        @DisplayName("First arriving block on an aligned boundary starts regular task without gap buffering")
+        void testFreshStartOnAlignedBoundaryStartsRegularTask() {
             // Block 500 is the first verified block; lastHandedOffBlock == -1 at this point.
             sendVerification(TestBlockBuilder.generateBlocksInRange(500, 500).getFirst());
             assertThat(plugin.currentUploadFuture).isNotNull();
             assertThat(plugin.currentGroupStart).isEqualTo(500L);
             assertThat(plugin.gapBuffer).isEmpty();
             assertThat(plugin.tempGroupActiveQueues).isEmpty();
+        }
+
+        /// Verifies that a non-aligned first arrival is treated like any other gap -- buffered in
+        /// [gapBuffer] rather than immediately starting a regular task -- with no exception for the
+        /// group containing block 0.  Whether this is an out-of-order genesis (predecessors coming)
+        /// or a live deployment (predecessors gone forever) can't be known from the block number
+        /// alone, so it can't be assumed safe.
+        @Test
+        @DisplayName("First arriving block that isn't aligned is buffered as a gap, not started as a regular task")
+        void testFreshStartNonAlignedBuffersAsGap() {
+            final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
+            // Block 15 is the first block ever seen: group 10-19, non-aligned.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize + 5, groupSize + 5)
+                    .getFirst());
+
+            assertThat(plugin.currentUploadFuture).isNull();
+            assertThat(plugin.gapBuffer).containsKey((long) groupSize + 5);
+            assertThat(plugin.currentGroupPending).isEmpty();
+            assertThat(plugin.tempGroupActiveQueues).isEmpty();
+        }
+
+        /// Verifies the fresh-live-deployment scenario that motivated this behaviour: the very
+        /// first block ever observed is deep inside a group whose earlier blocks will never
+        /// arrive (they were produced before this node started archiving).  Because the block is
+        /// more than one full group ahead of the placeholder group 0, the gap buffer is skipped
+        /// entirely and the block is routed directly to a temp archive instead of stalling forever
+        /// waiting for a regular task that can never drain.
+        @Test
+        @DisplayName("First arriving block far past group 0 routes directly to temp archive instead of stalling")
+        void testFreshStartFarMidGroupRoutesToTempArchive() {
+            final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
+            // Block 25 is the first block ever seen: group 20-29, more than one group ahead of
+            // the placeholder group 0 -- the regular pipeline can never receive blocks 20-24.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 2 + 5, groupSize * 2 + 5)
+                    .getFirst());
+
+            assertThat(plugin.currentUploadFuture).isNull();
+            assertThat(plugin.gapBuffer).isEmpty();
+            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize * 2);
+        }
+
+        /// Verifies the fresh-live-deployment scenario when the first block is only a few
+        /// positions into a group beyond group 0 (not far enough ahead to skip the buffer
+        /// outright).  The block is buffered on the chance predecessors are merely out of order,
+        /// but once the gap buffer fills without them ever arriving, [flushGapBufferToTemp]
+        /// resolves it to a temp archive instead of leaving the regular pipeline stalled forever.
+        @Test
+        @DisplayName("First arriving block that never gets predecessors flushes to temp archive once buffer fills")
+        void testFreshStartMidGroupFlushesToTempWhenPredecessorsNeverArrive() {
+            final int groupSize = (int) Math.pow(10, GROUPING_LEVEL); // 10
+            // Block 12 first, then 13-16 continue arriving contiguously but 10-11 never do.
+            // gapBufferSize defaults to 5, so the fifth buffered block (16) triggers the flush.
+            // (Stays short of block 19, the group's last block, so the segment remains open.)
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize + 2, groupSize + 6));
+
+            assertThat(plugin.gapBuffer).isEmpty();
+            assertThat(plugin.currentUploadFuture).isNull();
+            assertThat(plugin.tempGroupActiveQueues).containsKey((long) groupSize);
         }
 
         /// Verifies that a [VerificationNotification] that is non-null and successful but carries
@@ -1027,6 +1141,28 @@ class CloudStorageArchivePluginTest {
                     TestBlockBuilder.generateBlocksInRange(gs + 5, gs + 5).getFirst());
             assertThat(plugin.tempUploadFutures).containsOnlyKeys((long) gs);
             assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) gs);
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED))
+                    .isEqualTo(1L);
+        }
+
+        /// Verifies that a genuine in-group duplicate -- a block already drained to the active
+        /// regular task's queue -- is discarded via [CloudStorageArchivePlugin]'s "before resume
+        /// point" branch rather than being reclaimed or routed to temp archive, and that the
+        /// duplicate-discard metric is incremented accordingly.
+        @Test
+        @DisplayName("Genuine in-group duplicate after drain increments the duplicate-discard metric")
+        void testInGroupDuplicateAfterDrainIncrementsDuplicateMetric() {
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(0, 5));
+            assertThat(plugin.currentUploadFuture).isNotNull();
+
+            // Block 5 was already drained to the active task's queue; resending it is a genuine
+            // duplicate, discarded because it is below nextBlockToQueue but still within the
+            // active group.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(5, 5).getFirst());
+
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED))
+                    .isEqualTo(1L);
+            assertThat(plugin.tempGroupActiveQueues).isEmpty();
         }
     }
 
@@ -1450,6 +1586,8 @@ class CloudStorageArchivePluginTest {
             // Blocks 0–3 arrived as retrograde (blockNumber < nextBlockToQueue=4) and were
             // silently discarded before reaching currentGroupPending.
             assertThat(plugin.currentGroupPending).isEmpty();
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED))
+                    .isEqualTo(4L);
         }
 
         private final List<LongRange> capturedRanges = new ArrayList<>();
@@ -1645,23 +1783,30 @@ class CloudStorageArchivePluginTest {
             final BlockingExecutor executor = testThreadPoolManager.executor();
             executor.executeSerially(); // drain startup recovery
 
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 9);
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 10);
 
-            // Simulate blocks 5 and 6 arrived but were not yet drained to the task queue.
-            sendVerification(blocks.get(5));
-            sendVerification(blocks.get(6));
+            // Block 0 (aligned) starts the regular task and drains immediately. This is required
+            // to reach FailingUploadPlugin's mocked failure: it only overrides newUploadTask (the
+            // regular task), not newTempArchiveUploadTask, so without a regular task started here,
+            // blocks 5-9 below would instead flow to the real, unmocked TempArchiveUploadTask.
+            sendVerification(blocks.get(0));
+
+            // Blocks 5-9 fill the gap buffer (gapBufferSize=5) and get salvaged to
+            // currentGroupPending -- they're in-group and >= nextBlockToQueue(1) -- rather than
+            // being drained, since block 1 (needed to drain them) never arrives.
+            sendVerifications(blocks.subList(5, 10));
 
             // Run the fake upload task.  It returns FAILED immediately.
             executor.executeSerially();
 
-            // Block 7 triggers checkCompletedUpload() -> FAILED -> triggerMidRunRecovery().
-            // triggerMidRunRecovery() moves currentGroupPending (blocks 5, 6) to blocksStash and
-            // sets currentGroupStart to -1, so block 7 is stashed rather than added to pending.
-            sendVerification(blocks.get(7));
+            // Block 10 triggers checkCompletedUpload() -> FAILED -> triggerMidRunRecovery().
+            // triggerMidRunRecovery() moves currentGroupPending (blocks 5-9) to blocksStash and
+            // sets currentGroupStart to -1, so block 10 is stashed rather than added to pending.
+            sendVerification(blocks.get(10));
 
             assertThat(plugin.currentUploadFuture).isNull();
             assertThat(plugin.currentGroupPending).isEmpty();
-            assertThat(plugin.blocksStash).containsKeys(5L, 6L, 7L);
+            assertThat(plugin.blocksStash).containsKeys(5L, 6L, 7L, 8L, 9L, 10L);
             assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
                     .isEqualTo(1L);
 
@@ -1772,21 +1917,32 @@ class CloudStorageArchivePluginTest {
             final BlockingExecutor executor = testThreadPoolManager.executor();
             executor.executeSerially(); // drain startup recovery
 
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 9);
-            sendVerification(blocks.get(5));
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 10);
+
+            // Block 0 (aligned) starts the regular task and drains immediately. This is required
+            // to reach FailingUploadPlugin's mocked failure: it only overrides newUploadTask (the
+            // regular task), not newTempArchiveUploadTask, so without a regular task started here,
+            // block 5 below would instead flow to the real, unmocked TempArchiveUploadTask.
+            sendVerification(blocks.get(0));
+
+            // Blocks 5-9 fill the gap buffer (gapBufferSize=5) and get salvaged to
+            // currentGroupPending -- they're in-group and >= nextBlockToQueue(1) -- rather than
+            // being drained, since block 1 (needed to drain them) never arrives.
+            sendVerifications(blocks.subList(5, 10));
 
             // Run the fake task — it throws IOException, so BlockingExecutor wraps it as
             // RuntimeException.
             assertThatThrownBy(executor::executeSerially).isInstanceOf(RuntimeException.class);
 
-            // Block 6 triggers handleVerification() -> checkCompletedUpload() -> resultNow() throws
+            // Block 10 triggers handleVerification() -> checkCompletedUpload() -> resultNow() throws
             // IllegalStateException -> caught by handleVerification() -> triggerMidRunRecovery()
-            // (stashes block 5) -> blocksStash.put(6) stashes the triggering block explicitly.
-            sendVerification(blocks.get(6));
+            // (moves currentGroupPending blocks 5-9 to stash) -> blocksStash.put(10) stashes the
+            // triggering block explicitly.
+            sendVerification(blocks.get(10));
 
             assertThat(plugin.currentUploadFuture).isNull();
             assertThat(plugin.currentGroupPending).isEmpty();
-            assertThat(plugin.blocksStash).containsKeys(5L, 6L);
+            assertThat(plugin.blocksStash).containsKeys(5L, 6L, 7L, 8L, 9L, 10L);
             assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
                     .isEqualTo(1L);
 
@@ -1892,6 +2048,66 @@ class CloudStorageArchivePluginTest {
 
             assertThat(plugin.gapBuffer).isEmpty();
             assertThat(plugin.blocksStash).containsKeys(5L, 6L);
+        }
+
+        /// Verifies that [triggerMidRunRecovery] stashes blocks from [currentGroupPending] when
+        /// they were placed there by [flushGapBufferToTemp] but could not drain because the gap
+        /// below [nextBlockToQueue] was never filled.
+        ///
+        /// Scenario:
+        ///   - Block 0 starts the regular upload task; block 0 is drained immediately
+        ///     ([nextBlockToQueue] advances to 1).
+        ///   - Blocks 2-6 arrive while the task is in-flight: all are above [expected]=1,
+        ///     so they accumulate in [gapBuffer].  When the fifth block (6) brings the buffer
+        ///     to [CloudStorageArchiveConfig#gapBufferSize()] (default 5),
+        ///     [flushGapBufferToTemp] fires and moves all five blocks into [currentGroupPending]
+        ///     (each is within the active group's remaining range [1, 10)).  Block 1 never
+        ///     arrives, so [drainPendingToQueue] cannot advance past the gap and
+        ///     [currentGroupPending] retains all five blocks.
+        ///   - The upload task runs and returns [UploadResult.FAILED].
+        ///   - Block 7 triggers [checkCompletedUpload] -> FAILED -> [triggerMidRunRecovery],
+        ///     which must move [currentGroupPending] (blocks 2-6) to [blocksStash] and clear it.
+        ///     Block 7 is stashed by [routeVerifiedBlock] because recovery is now active.
+        @Test
+        @DisplayName("triggerMidRunRecovery moves currentGroupPending blocks to stash after gapBuffer flush")
+        void triggerMidRunRecoveryMovesCurrentGroupPendingToStash() throws Exception {
+            start(
+                    new FailingUploadPlugin(() -> UploadResult.FAILED),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    pluginConfig());
+            final BlockingExecutor executor = testThreadPoolManager.executor();
+            executor.executeSerially(); // drain startup recovery
+
+            // Block 0 is aligned; starts the regular upload task and is drained immediately.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+            assertThat(plugin.currentUploadFuture).isNotNull();
+
+            // Blocks 2-6 create a gap (expected=1) and fill gapBuffer to capacity.
+            // flushGapBufferToTemp() fires on block 6: all five blocks are within
+            // [nextBlockToQueue=1, groupEnd=10) so they go to currentGroupPending.
+            // Block 1 never arrives, so drainPendingToQueue() cannot drain any of them.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(2, 6));
+            assertThat(plugin.gapBuffer).isEmpty();
+            assertThat(plugin.currentGroupPending).containsKeys(2L, 3L, 4L, 5L, 6L);
+
+            // Run the failing task -- it returns FAILED immediately.
+            executor.executeSerially();
+
+            // Block 7 triggers checkCompletedUpload() -> FAILED -> triggerMidRunRecovery().
+            // currentGroupPending (blocks 2-6) must be moved to blocksStash.
+            // Block 7 is stashed because recoveryFuture is now set.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(7, 7).getFirst());
+
+            assertThat(plugin.currentGroupPending).isEmpty();
+            assertThat(plugin.gapBuffer).isEmpty();
+            assertThat(plugin.blocksStash).containsKeys(2L, 3L, 4L, 5L, 6L, 7L);
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
+                    .isEqualTo(1L);
+
+            // Drive recovery -- empty bucket results in a fresh start.
+            executor.executeSerially();
+            assertThat(plugin.isRecoveryComplete()).isTrue();
+            assertThat(plugin.recoveredNextBlockNumber()).isEqualTo(0L);
         }
 
         private void sendVerifications(List<TestBlock> blocks) {

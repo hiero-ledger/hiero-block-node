@@ -26,7 +26,11 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -576,6 +580,108 @@ class BlockUploadTaskTest {
         assertThat(task.call()).isEqualTo(UploadResult.FAILED);
 
         assertThat(asf.storedRanges).isEmpty();
+    }
+
+    /// Verifies that interrupting a running task (e.g. via
+    /// [CloudStorageArchivePlugin]'s `triggerMidRunRecovery`) does **not** abort the multipart
+    /// upload, so parts already confirmed durable via a `true` [PersistedNotification] survive on
+    /// S3 for [StartupRecoveryTask] to resume -- an interrupt-triggered analogue of
+    /// `blocksBeforeResumePointAreSkippedAndUploadCompletes` in `CloudStorageArchivePluginTest`.
+    @Test
+    @DisplayName("Interrupt after a part is flushed leaves the upload hanging for recovery instead of aborting it")
+    void testInterruptPreservesFlushedPartForRecovery() throws Exception {
+        final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        // Real (not test-fixture) blocking queue: the task must genuinely block in
+        // blockQueue.take() so that cancelling its Future delivers a real InterruptedException.
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
+        final CloudStorageArchiveConfig config = builder.build().getConfigData(CloudStorageArchiveConfig.class);
+        final BlockUploadTask task = new BlockUploadTask(
+                config, messaging, 0, groupSize, queue, createMetricsHolder(new TestMetricsExporter()), noOpAsf());
+
+        // Enough large blocks to overflow the 5 MB part threshold and trigger exactly one flush;
+        // deliberately no more are enqueued, so the task blocks in blockQueue.take() afterward.
+        final Random rng = new Random(0xDEADBEEFL);
+        final int blocksToFlushOnePart = 9;
+        for (int i = 0; i < blocksToFlushOnePart; i++) {
+            final byte[] data = new byte[BLOCK_DATA_BYTES];
+            rng.nextBytes(data);
+            final BlockItemUnparsed item = new BlockItemUnparsed(
+                    new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+            final BlockUnparsed block = BlockUnparsed.newBuilder()
+                    .blockItems(new BlockItemUnparsed[] {item})
+                    .build();
+            queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
+        }
+
+        final ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            final Future<UploadResult> future = executor.submit(task);
+
+            // Wait for the first part's success notification, proving a part was durably flushed
+            // to S3 before we interrupt the task.
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (messaging.getSentPersistedNotifications().isEmpty() && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertThat(messaging.getSentPersistedNotifications()).isNotEmpty();
+
+            future.cancel(true);
+            executor.shutdown();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            executor.shutdownNow();
+        }
+
+        final String key = ArchiveKey.format(0, GROUPING_LEVEL, config.objectKeyPrefix());
+        try (S3Client s3 = S3UploadUtils.createClient(config)) {
+            final Map<String, List<String>> hangingUploads = s3.listMultipartUploads();
+            assertThat(hangingUploads).containsKey(key);
+            final String uploadId = hangingUploads.get(key).getFirst();
+            // The part flushed before the interrupt must still be present -- proof the interrupt
+            // path did not abort the upload and delete already-durable data.
+            assertThat(s3.listParts(key, uploadId)).isNotEmpty();
+        }
+
+        // StartupRecoveryTask must find and resume the hanging upload, not fall back to a fresh
+        // start -- which is what would happen if the interrupt had aborted it.
+        final RecoveryResult recovery = new StartupRecoveryTask(config).call();
+        assertThat(recovery.uploadId()).isNotNull();
+        assertThat(recovery.currentGroupStart()).isZero();
+        assertThat(recovery.nextBlockNumber()).isPositive();
+
+        // Resume with the remaining blocks and confirm the group completes correctly.
+        final BlockingQueue<BlockWithSource> resumeQueue = new LinkedBlockingQueue<>();
+        for (long blockNum = recovery.nextBlockNumber(); blockNum < groupSize; blockNum++) {
+            final byte[] data = new byte[BLOCK_DATA_BYTES];
+            rng.nextBytes(data);
+            final BlockItemUnparsed item = new BlockItemUnparsed(
+                    new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+            resumeQueue.put(new BlockWithSource(
+                    BlockUnparsed.newBuilder()
+                            .blockItems(new BlockItemUnparsed[] {item})
+                            .build(),
+                    BlockSource.PUBLISHER));
+        }
+        final BlockUploadTask resumeTask = new BlockUploadTask(
+                config,
+                messaging,
+                0,
+                groupSize,
+                resumeQueue,
+                recovery,
+                createMetricsHolder(new TestMetricsExporter()),
+                noOpAsf());
+
+        assertThat(resumeTask.call()).isEqualTo(UploadResult.SUCCESS);
+        assertThat(getAllObjects()).contains(key);
+        final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+        assertThat(notifications.getLast().blockNumber()).isEqualTo(groupSize - 1L);
+        assertThat(notifications.getLast().succeeded()).isTrue();
     }
 
     /// [BlockUploadTask] subclass that always throws from [doUploadPart] to simulate S3 failures.
