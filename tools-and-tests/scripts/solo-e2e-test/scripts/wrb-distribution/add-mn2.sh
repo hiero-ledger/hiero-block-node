@@ -39,28 +39,14 @@ log() { echo "[wrb-dist-add-mn2] $*"; }
 fail() { echo "[wrb-dist-add-mn2] ERROR: $*" >&2; exit 1; }
 
 # 1) Resolve the importer image tag.
-#    Prefer whatever mirror-1's live Deployment is actually running so we
-#    don't drift from what Solo installed. Fall back to MN_VERSION-derived
-#    default if the lookup fails (e.g. label schema changes).
-mn1_importer_deploy=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-    get deployment -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-
-importer_image=""
-if [[ -n "${mn1_importer_deploy}" ]]; then
-    importer_image=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-        get deployment "${mn1_importer_deploy}" \
-        -o jsonpath='{.spec.template.spec.containers[?(@.name=="importer")].image}' 2>/dev/null || true)
-fi
-
-if [[ -z "${importer_image}" ]]; then
-    mn_tag="${MN_VERSION:-v0.157.1}"
-    mn_tag="${mn_tag#v}"
-    importer_image="gcr.io/mirrornode/hedera-mirror-importer:${mn_tag}"
-    log "  Using default importer image: ${importer_image}"
-else
-    log "  Reusing mirror-1's importer image: ${importer_image}"
-fi
+#    Force the JVM image (gcr.io/mirrornode/hedera-mirror-importer). The default
+#    ghcr.io/hiero-ledger/hiero-mirror-node/importer image is GraalVM-native
+#    and can't reflect into List<BlockNodeProperties> for BN-source binding —
+#    see the same override in network-topology-tool/generate-chart-values-config-overlays.sh.
+mn_tag="${MN_VERSION:-v0.157.1}"
+mn_tag="${mn_tag#v}"
+importer_image="gcr.io/mirrornode/hedera-mirror-importer:${mn_tag}"
+log "  Using JVM importer image: ${importer_image}"
 
 # 2) Emit the manifest.
 mn2_manifest="${TMPDIR:-/tmp}/wrb-dist-mn2-manifest.yaml"
