@@ -758,16 +758,21 @@ function deploy_mirror_node {
   for ((i = 1; i <= mn_count; i++)); do
     local mn_overlay="${OVERLAY_DIR}/mn-mirror-${i}-values.yaml"
 
-    if [[ ! -f "${mn_overlay}" ]]; then
-      log_line "  WARNING: Mirror Node ${i} overlay not found: ${mn_overlay}, skipping"
-      continue
-    fi
-
-    log_line "  Using generated overlay: %s" "${mn_overlay}"
-    if [[ "${VERBOSE}" == "true" ]]; then
-      log_line "  --- Mirror Node ${i} overlay contents ---"
-      cat "${mn_overlay}"
-      log_line "  --- End Mirror Node ${i} overlay ---"
+    local overlay_arg=""
+    if [[ -f "${mn_overlay}" ]]; then
+      log_line "  Using generated overlay: %s" "${mn_overlay}"
+      if [[ "${VERBOSE}" == "true" ]]; then
+        log_line "  --- Mirror Node ${i} overlay contents ---"
+        cat "${mn_overlay}"
+        log_line "  --- End Mirror Node ${i} overlay ---"
+      fi
+      overlay_arg="-f ${mn_overlay}"
+    else
+      # No overlay is generated when the topology has no MN→BN wiring — e.g.
+      # the wrb-distribution slices, where BNs are added post-deploy so they
+      # can't be referenced in the topology yet. Still install MN with the
+      # chart defaults so downstream test-def events can patch it.
+      log_line "  No overlay for Mirror Node ${i} (topology has no MN→BN wiring); installing with chart defaults."
     fi
 
     start_task "Deploying Mirror Node ${i}"
@@ -778,7 +783,7 @@ function deploy_mirror_node {
       --cluster-ref "${CLUSTER_REF}" \
       --enable-ingress \
       ${mn_args} \
-      -f "${mn_overlay}" || fail "ERROR: Failed to deploy Mirror Node ${i}" 1
+      ${overlay_arg} || fail "ERROR: Failed to deploy Mirror Node ${i}" 1
     end_task
   done
 }
