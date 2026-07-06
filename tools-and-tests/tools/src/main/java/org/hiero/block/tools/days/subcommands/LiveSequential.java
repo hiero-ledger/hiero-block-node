@@ -192,9 +192,10 @@ public class LiveSequential implements Runnable {
 
     @Option(
             names = {"--push-bn-host"},
-            description = "Block Node host to push to. Required when --push-enabled is set. Can be "
-                    + "configured ahead of time and gated on later via --push-enabled.")
-    private String pushBnHost;
+            description = "Block Node host to push to (default: localhost). The expected deployment "
+                    + "is a co-located BN, so localhost is the common case; override only when the "
+                    + "target BN runs elsewhere.")
+    private String pushBnHost = "localhost";
 
     @Option(
             names = {"--push-bn-port"},
@@ -358,9 +359,6 @@ public class LiveSequential implements Runnable {
             // side coordinating with the other. The push subsystem owns its own thread + bounded
             // queue (see LiveBlockPushClient javadoc).
             if (pushEnabled) {
-                if (pushBnHost == null || pushBnHost.isBlank()) {
-                    throw new IllegalArgumentException("--push-enabled requires --push-bn-host to be set");
-                }
                 pushClient = new LiveBlockPushClient(
                         pushBnHost, pushBnPort, pushQueueCapacity, LiveBlockPushClient.loadDefaultWebConfig());
                 pushSkipUpToInclusive = pushClient.queryLastAvailableBlock();
@@ -369,10 +367,6 @@ public class LiveSequential implements Runnable {
                         + " BN lastAvailableBlock=" + pushSkipUpToInclusive
                         + " (blocks <= this are skipped from push)");
                 pushClient.start();
-            } else if (pushBnHost != null && !pushBnHost.isBlank()) {
-                System.out.println("[live-sequential] Live push configured (host=" + pushBnHost + ":"
-                        + pushBnPort + ") but disabled (--push-enabled not set). "
-                        + "Run with --push-enabled to turn on after backfill completes.");
             }
 
             // Create producer-consumer queue
