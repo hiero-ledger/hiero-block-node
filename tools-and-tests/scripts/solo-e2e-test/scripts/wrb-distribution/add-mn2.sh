@@ -138,6 +138,50 @@ spec:
   - port: 5432
     targetPort: 5432
 ---
+# ConfigMap with importer application.yaml. Env-var overrides can't populate
+# a Spring List<BlockNodeProperties> — the list has to be declared as YAML.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mirror-2-importer-config
+  namespace: ${NAMESPACE}
+data:
+  application.yaml: |
+    spring:
+      datasource:
+        url: jdbc:postgresql://mn2-postgres:5432/mirror_node?sslmode=disable
+        username: mirror_node
+        password: mirror_node_pass
+      jpa:
+        properties:
+          hibernate:
+            hbm2ddl:
+              auto: create
+    hiero:
+      mirror:
+        importer:
+          network: OTHER
+          startBlockNumber: 0
+          block:
+            enabled: true
+            sourceType: BLOCK_NODE
+            nodes:
+              - host: ${BN_HOST_2}
+                port: 40840
+              - host: ${BN_HOST_3}
+                port: 40840
+            verification:
+              enabled: false
+          downloader:
+            bucketName: dummy-not-used
+            record:
+              enabled: false
+            balance:
+              enabled: false
+          db:
+            schema: public
+            tempSchema: temporary
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -164,40 +208,16 @@ spec:
       - name: importer
         image: ${importer_image}
         env:
-        - name: SPRING_DATASOURCE_URL
-          value: jdbc:postgresql://mn2-postgres:5432/mirror_node?sslmode=disable
-        - name: SPRING_DATASOURCE_USERNAME
-          value: mirror_node
-        - name: SPRING_DATASOURCE_PASSWORD
-          value: mirror_node_pass
-        - name: HIERO_MIRROR_IMPORTER_NETWORK
-          value: OTHER
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_ENABLED
-          value: "true"
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_SOURCETYPE
-          value: BLOCK_NODE
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_HOST
-          value: ${BN_HOST_2}
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_PORT
-          value: "40840"
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_1_HOST
-          value: ${BN_HOST_3}
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_1_PORT
-          value: "40840"
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_VERIFICATION_ENABLED
-          value: "false"
-        - name: HIERO_MIRROR_IMPORTER_DOWNLOADER_BUCKETNAME
-          value: dummy-not-used
-        - name: HIERO_MIRROR_IMPORTER_DOWNLOADER_RECORD_ENABLED
-          value: "false"
-        - name: HIERO_MIRROR_IMPORTER_DOWNLOADER_BALANCE_ENABLED
-          value: "false"
-        - name: HIERO_MIRROR_IMPORTER_STARTBLOCKNUMBER
-          value: "0"
-        - name: HIERO_MIRROR_IMPORTER_DB_TEMPSCHEMA
-          value: temporary
-        - name: HIERO_MIRROR_IMPORTER_DB_SCHEMA
-          value: public
+        - name: SPRING_CONFIG_ADDITIONAL_LOCATION
+          value: "file:/app/config/application.yaml"
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: mirror-2-importer-config
 EOF
 
 log "Applying MN2 manifest to namespace ${NAMESPACE}..."
