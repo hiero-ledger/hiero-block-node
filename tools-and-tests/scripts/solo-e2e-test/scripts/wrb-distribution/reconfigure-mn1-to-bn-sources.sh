@@ -5,17 +5,17 @@
 # to pull live blocks from BN2 and BN3 while keeping the recordstream bucket
 # downloader on as a records backup.
 #
-# Spring Boot cannot bind a List<BlockNodeProperties> from env vars alone,
-# and helm upgrade needs the exact chart source (which Solo doesn't cache
-# under a predictable name for the OCI URI we know). Instead we:
+# Two fixes were needed after earlier iterations:
 #
-#   1. Locate Solo's importer ConfigMap by label
-#      (app.kubernetes.io/instance=mirror-1, app.kubernetes.io/component=importer).
-#   2. Extract its current application.yaml payload.
-#   3. Merge in our block: {enabled, sourceType, nodes, verification} keys
-#      using yq's deep-merge, preserving whatever else was there.
-#   4. kubectl apply the updated ConfigMap.
-#   5. `kubectl rollout restart deployment/mirror-1-importer` and wait for Ready.
+#   * The default GraalVM-native importer image can't reflect into
+#     List<BlockNodeProperties>, so we swap in the JVM image
+#     (gcr.io/mirrornode/hedera-mirror-importer) — same override the network-
+#     topology generator applies for all deploy-time MN overlays.
+#
+#   * Env-var config can't populate a list; helm upgrade needs a chart URI we
+#     don't have. So we inject our own ConfigMap with an application.yaml
+#     containing the block-nodes list, then patch mirror-1's importer
+#     Deployment to mount it and set SPRING_CONFIG_ADDITIONAL_LOCATION.
 #
 # Reads:
 #   NAMESPACE         (default "solo-network")
@@ -23,6 +23,7 @@
 #   BN_HOST_2         (default block-node-2.${NAMESPACE}.svc.cluster.local)
 #   BN_HOST_3         (default block-node-3.${NAMESPACE}.svc.cluster.local)
 #   MN_INSTANCE       (default "mirror-1")
+#   MN_VERSION        (default v0.157.1 — used for the JVM importer image tag)
 #   READY_TIMEOUT     (default 300)
 
 set -euo pipefail
@@ -32,58 +33,35 @@ set -euo pipefail
 : "${BN_HOST_2:=block-node-2.${NAMESPACE}.svc.cluster.local}"
 : "${BN_HOST_3:=block-node-3.${NAMESPACE}.svc.cluster.local}"
 : "${MN_INSTANCE:=mirror-1}"
+: "${MN_VERSION:=v0.157.1}"
 READY_TIMEOUT="${READY_TIMEOUT:-300}"
 
 log() { echo "[wrb-dist-mn1-reconfig] $*"; }
 fail() { echo "[wrb-dist-mn1-reconfig] ERROR: $*" >&2; exit 1; }
 
-# 1) Locate the importer ConfigMap.
-importer_cm=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-    get configmap \
+# 1) Find the mirror-1 importer Deployment.
+importer_deploy=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+    get deployment \
     -l "app.kubernetes.io/instance=${MN_INSTANCE},app.kubernetes.io/component=importer" \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
-if [[ -z "${importer_cm}" ]]; then
-    log "No ConfigMap matched labels instance=${MN_INSTANCE}, component=importer."
-    log "All ${MN_INSTANCE} ConfigMaps:"
+if [[ -z "${importer_deploy}" ]]; then
+    log "All ${MN_INSTANCE} deployments:"
     kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-        get configmap -l "app.kubernetes.io/instance=${MN_INSTANCE}" -o wide 2>&1 | tail -20 || true
-    fail "importer ConfigMap not found"
+        get deployment -l "app.kubernetes.io/instance=${MN_INSTANCE}" -o wide 2>&1 | tail -20 || true
+    fail "no importer Deployment found for instance=${MN_INSTANCE}"
 fi
+log "Found importer Deployment: ${importer_deploy}"
 
-log "Found importer ConfigMap: ${importer_cm}"
+# 2) Create our own ConfigMap with the block-source config as application.yaml.
+wrb_cm_name="wrb-mn1-block-config"
+wrb_cm_dir="/app/wrb-block-config"
+wrb_yaml_file="${TMPDIR:-/tmp}/wrb-mn1-block-config.yaml"
 
-# 2) Extract application.yaml. Solo's chart typically stores it under a key
-#    named "application.yaml" or "application.yml"; support both.
-config_key=""
-for key in application.yaml application.yml; do
-    if kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-            get configmap "${importer_cm}" \
-            -o jsonpath="{.data.${key/./\\.}}" 2>/dev/null \
-            | grep -q .; then
-        config_key="${key}"
-        break
-    fi
-done
-
-if [[ -z "${config_key}" ]]; then
-    log "Neither 'application.yaml' nor 'application.yml' key found in ${importer_cm}. Contents:"
-    kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-        get configmap "${importer_cm}" -o yaml 2>&1 | tail -40 || true
-    fail "importer ConfigMap has no application yaml key"
-fi
-log "Using ConfigMap key: ${config_key}"
-
-current_yaml_file="${TMPDIR:-/tmp}/wrb-dist-mn1-current.yaml"
-kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-    get configmap "${importer_cm}" \
-    -o jsonpath="{.data.${config_key/./\\.}}" > "${current_yaml_file}"
-
-log "Current application yaml (${config_key}), size: $(wc -c < "${current_yaml_file}") bytes"
-
-# 3) Merge in our block config using yq. Deep merge preserves everything else.
-overlay_yaml_file="${TMPDIR:-/tmp}/wrb-dist-mn1-overlay.yaml"
-cat > "${overlay_yaml_file}" <<EOF
+cat > "${wrb_yaml_file}" <<EOF
+# Generated by reconfigure-mn1-to-bn-sources.sh (#3125 slice 4 step 6).
+# Loaded by the importer via SPRING_CONFIG_ADDITIONAL_LOCATION so Spring's
+# config binder can populate hiero.mirror.importer.block.nodes as a List.
 hiero:
   mirror:
     importer:
@@ -99,37 +77,49 @@ hiero:
           enabled: false
 EOF
 
-merged_yaml_file="${TMPDIR:-/tmp}/wrb-dist-mn1-merged.yaml"
-yq eval-all '. as $item ireduce ({}; . * $item)' \
-    "${current_yaml_file}" "${overlay_yaml_file}" > "${merged_yaml_file}"
+log "Rendered ${wrb_yaml_file}"
+log "Contents:"
+sed 's/^/    /' "${wrb_yaml_file}"
 
-log "Merged application yaml, size: $(wc -c < "${merged_yaml_file}") bytes"
-
-# 4) Apply the updated ConfigMap. Use create + apply so we replace only the
-#    data.<config_key> key, keeping the CM's labels/annotations intact.
 kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-    create configmap "${importer_cm}" \
-    "--from-file=${config_key}=${merged_yaml_file}" \
+    create configmap "${wrb_cm_name}" \
+    "--from-file=application.yaml=${wrb_yaml_file}" \
     --dry-run=client -o yaml \
     | kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" apply -f - \
-    || fail "failed to patch ${importer_cm}"
+    || fail "failed to create/patch ${wrb_cm_name}"
 
-log "ConfigMap ${importer_cm} patched. Rolling importer deployment..."
+# 3) Patch the Deployment: JVM image + env + volume + volumeMount.
+jvm_tag="${MN_VERSION#v}"
+jvm_image="gcr.io/mirrornode/hedera-mirror-importer:${jvm_tag}"
 
-# 5) Restart the importer Deployment and wait for the new pod.
-importer_deploy=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-    get deployment \
-    -l "app.kubernetes.io/instance=${MN_INSTANCE},app.kubernetes.io/component=importer" \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+patch_file="${TMPDIR:-/tmp}/wrb-mn1-deployment-patch.yaml"
+cat > "${patch_file}" <<EOF
+spec:
+  template:
+    spec:
+      containers:
+      - name: importer
+        image: ${jvm_image}
+        env:
+        - name: SPRING_CONFIG_ADDITIONAL_LOCATION
+          value: "file:${wrb_cm_dir}/application.yaml"
+        volumeMounts:
+        - name: wrb-block-config
+          mountPath: ${wrb_cm_dir}
+          readOnly: true
+      volumes:
+      - name: wrb-block-config
+        configMap:
+          name: ${wrb_cm_name}
+EOF
 
-if [[ -z "${importer_deploy}" ]]; then
-    fail "no importer Deployment found for instance=${MN_INSTANCE}"
-fi
-
+log "Patching ${importer_deploy} (JVM image + config mount)..."
 kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-    rollout restart deployment/"${importer_deploy}" \
-    || fail "kubectl rollout restart failed for ${importer_deploy}"
+    patch deployment "${importer_deploy}" \
+    --patch-file "${patch_file}" \
+    || fail "kubectl patch failed for ${importer_deploy}"
 
+# 4) Wait for rollout.
 kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
     rollout status deployment/"${importer_deploy}" --timeout="${READY_TIMEOUT}s" \
     || {
@@ -141,4 +131,4 @@ kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
         fail "${importer_deploy} rollout did not complete"
     }
 
-log "${MN_INSTANCE} importer is running with BN2 + BN3 as block-node sources."
+log "${MN_INSTANCE} importer is running (JVM image, BN2 + BN3 as block-node sources)."
