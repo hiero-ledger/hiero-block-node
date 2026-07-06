@@ -568,13 +568,30 @@ function execute_event {
 # Assertion Functions
 # ============================================================================
 
-# Get list of all block nodes from topology file
+# Get list of all block nodes from topology file, plus any dynamic_targets the
+# test-def declares (BNs added post-deploy via command events like add-bn.sh).
+# The wrb-distribution slices intentionally declare `block_nodes: {}` at deploy
+# time (Solo installs MinIO only when no BNs are present up-front) but end the
+# test with BN1/BN2/BN3 up; without dynamic_targets the runner would fall back
+# to just "block-node-1" for `target: all`, which AlfredoG87 flagged as
+# confusing on PR #3143.
 function get_all_block_nodes {
     local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
+    local topology_nodes=""
     if [[ -f "$topology_file" ]]; then
-        grep -E '^[[:space:]]+block-node-[0-9]+:' "$topology_file" | sed 's/://g' | awk '{print $1}' || echo "block-node-1"
-    else
+        topology_nodes=$(grep -E '^[[:space:]]+block-node-[0-9]+:' "$topology_file" | sed 's/://g' | awk '{print $1}')
+    fi
+
+    local dynamic_nodes=""
+    if [[ -n "${TEST_FILE:-}" && -f "${TEST_FILE}" ]]; then
+        dynamic_nodes=$(yq -r '.dynamic_targets[]? // empty' "${TEST_FILE}" 2>/dev/null \
+            | grep -E '^block-node-[0-9]+$' || true)
+    fi
+
+    if [[ -z "${topology_nodes}${dynamic_nodes}" ]]; then
         echo "block-node-1"
+    else
+        printf "%s\n%s\n" "${topology_nodes}" "${dynamic_nodes}" | grep -v '^$' | sort -u
     fi
 }
 
@@ -1055,8 +1072,14 @@ function validate_topology {
     fi
 
     # Extract nodes that will be dynamically deployed via deploy-block-node events
+    # or declared under the test-def's top-level `dynamic_targets:` list (used by
+    # tests that install BNs/MNs via generic command events like add-bn.sh).
     local dynamic_nodes
-    dynamic_nodes=$(yq -r '.events[] | select(.type == "deploy-block-node") | .args.name // "block-node-3"' "$TEST_FILE" 2>/dev/null | sort -u)
+    dynamic_nodes=$(
+        {
+            yq -r '.events[] | select(.type == "deploy-block-node") | .args.name // "block-node-3"' "$TEST_FILE" 2>/dev/null
+            yq -r '.dynamic_targets[]? // empty' "$TEST_FILE" 2>/dev/null
+        } | sort -u)
 
     # Extract all targets from test YAML (events and assertions)
     local targets

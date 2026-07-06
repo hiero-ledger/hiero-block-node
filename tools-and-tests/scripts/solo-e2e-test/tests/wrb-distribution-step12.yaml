@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# WRB Distribution E2E (#3125) — slices 1+2 (step 2 fully covered)
+#
+# First two slices of the broader WRB-distribution E2E test (epic #2954).
+# Designed to be merged early so the harness and CLI-side flow are validated
+# before the BN layers (BN1/BN2/BN3, MN2, TSS cutover) are added in subsequent
+# slices.
+#
+# Test flow (matches step 2 of issue #3125):
+#   1. Solo brings up 3 CNs v0.75 + MN1 v0.157.1 via the wrb-distribution-step12
+#      topology (no BN).
+#   2. Wait for the CNs to produce enough record files to exercise the wrap
+#      output's nested directory structure.
+#   3. Install wrb-cli, download record files from the Solo MinIO
+#      `recordstreams` bucket, run `blocks wrap`, and assert the wrapped output
+#      contains at least one .zip at the deepest nested level.
+#   4. Fork a live-wrap worker into the background (poll MinIO for new records
+#      and re-run `blocks wrap`), wait for CN to produce more records, then
+#      assert new wrapped-zip files appeared. Follows the load-start/load-stop
+#      methodology used by basic-load.yaml / high-load.yaml.
+#
+# Validation:
+#   - CN nodes are healthy
+#   - MN1 is healthy
+#   - wrap output exists at the deepest nested-dir level
+#   - live wrap produced additional wrapped-zip files during the observation
+#     window
+#
+# Usage (locally):
+#   task test:run TEST_FILE=tests/wrb-distribution-step12.yaml TOPOLOGY=wrb-distribution-step12
+
+name: wrb-distribution-step12
+description: "WRB distribution E2E (#3125) — steps 1+2: CN v0.75 + MN1 v0.157.1 + wrb-cli wrap baseline"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Confirm CNs and MN1 are running"
+    delay: 5
+
+  - id: block-production-wait
+    type: sleep
+    description: "Wait for CNs to produce enough record files to exercise nested wrap dirs"
+    delay: 10
+    args:
+      seconds: 180
+
+  - id: install-and-run-wrb-cli
+    type: command
+    description: "Install wrb-cli, pull records from MinIO, run blocks wrap, assert nested dir"
+    delay: 195
+    timeout: 1200
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/install-and-run-wrb-cli.sh"
+
+  # -----------------------------------------------------------------------------
+  # Slice 2 (#3125 step 2 tail — "Ensure live carries on to wrap in the
+  # background"). Uses the load-start / load-stop methodology: fork a long-
+  # running wrap worker, let CN produce more records, assert new wraps appeared,
+  # tear the worker down.
+  # -----------------------------------------------------------------------------
+  - id: start-live-wrap
+    type: command
+    description: "Fork the live-wrap background worker (polling MinIO + re-wrapping)"
+    delay: 200
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/start-live-wrap.sh"
+
+  - id: live-wrap-observation-window
+    type: sleep
+    description: "Give the live wrap loop time to pick up newly-produced records"
+    delay: 210
+    args:
+      seconds: 180
+
+  - id: assert-live-wrap-produced-new-blocks
+    type: command
+    description: "Assert live-wrap produced more wrapped-zip files than were present at start"
+    delay: 395
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-live-wrap-produced-new-blocks.sh"
+
+  - id: stop-live-wrap
+    type: command
+    description: "Tear down the live-wrap background worker"
+    delay: 400
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
+
+  - id: final-status
+    type: network-status
+    description: "Post-test network status"
+    delay: 405
+
+# No declarative assertions in slice 1.
+#
+# solo-test-runner.sh's node-healthy / no-errors only understand Block Nodes
+# (see get_all_block_nodes — even `target: all` falls through to
+# "block-node-1" when the topology has zero BNs, then reports Pod not
+# found). Slice 1's whole point is exercising the CLI + record-stream path
+# with NO Block Node, so there's nothing valid to hand those assertions.
+#
+# The slice-1 flow's correctness is proven end-to-end by the events above:
+#   install-and-run-wrb-cli PASSes only if the wrap output has the deepest
+#   nested-dir zip file, and assert-live-wrap-produced-new-blocks PASSes
+#   only if the background wrap loop completed at least one new successful
+#   iteration during the observation window.
+#
+# Slice 3 (wrb-distribution-step345) reintroduces the standard BN-targeted
+# node-healthy / no-errors assertions once BN1/BN2/BN3 are in the topology.
+assertions: []

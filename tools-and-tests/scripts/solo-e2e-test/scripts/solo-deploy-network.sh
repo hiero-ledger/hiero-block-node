@@ -345,20 +345,25 @@ function generate_overlays {
   overlay_count=$(find "${overlay_dir}" -maxdepth 1 \( -name "*.yaml" -o -name "*.json" -o -name "*.txt" \) -type f 2>/dev/null | wc -l | tr -d ' ')
 
   if [[ "${overlay_count}" -eq 0 ]]; then
-    log_line ""
-    log_line "ERROR: Overlay generator succeeded but produced 0 files."
-    log_line ""
-    log_line "Generator output:"
-    log_line "${generator_output}"
-    log_line ""
-    log_line "Diagnostics:"
-    log_line "  Generator script: %s" "${generator_script}"
-    log_line "  Topology file:    %s" "${topology_file}"
-    log_line "  Output directory:  %s" "$(cd "${overlay_dir}" 2>/dev/null && pwd || echo "${overlay_dir} (does not exist)")"
-    log_line "  yq version:       %s" "$(yq --version 2>&1 || echo 'NOT FOUND')"
-    log_line "  Topology content:"
-    sed 's/^/    /' "${topology_file}" 2>/dev/null
-    fail "ERROR: No overlay files generated. Check topology file structure and yq installation." 1
+    # Zero overlays is legitimate only when the topology has no Block Nodes
+    # declared at deploy time (e.g. WRB Distribution E2E slices where BNs
+    # are added post-hoc via `solo block node add`). For a topology that
+    # DOES declare BNs, zero overlays means the generator failed silently
+    # and we should still hard-fail — Nana-EC flagged the original relaxation
+    # as too broad, so we keep the ERROR for that case.
+    local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
+    local declared_bn_count
+    declared_bn_count=$(yq '.block_nodes | keys | length // 0' "${topology_file}" 2>/dev/null || echo 0)
+    if [[ "${declared_bn_count}" -eq 0 ]]; then
+      log_line "  No overlay files generated (topology declares block_nodes: {}; BNs handled post-deploy)."
+    else
+      log_line ""
+      log_line "ERROR: Overlay generator succeeded but produced 0 files for a topology that declares ${declared_bn_count} block nodes."
+      log_line ""
+      log_line "Generator output:"
+      log_line "${generator_output}"
+      fail "Overlay generator failed silently" 1
+    fi
   fi
 
   # Print overlay details
@@ -496,6 +501,17 @@ function deploy_block_nodes {
     if [[ -f "${bn_memory_overlay}" ]]; then
       overlay_args="${overlay_args} -f ${bn_memory_overlay}"
       log_line "  Applying BN memory override for block-node-${i}"
+    fi
+
+    # Per-topology, per-BN static overlay (checked-in). Mirrors the bn-memory
+    # pattern above but scoped to the current topology so tests can set BN
+    # env vars (e.g. BLOCK_NODE_EARLIEST_MANAGED_BLOCK) without teaching the
+    # topology tool a new schema. See tools-and-tests/scripts/solo-e2e-test/
+    # overrides/<topology>/bn-block-node-<i>-values.yaml.
+    local bn_topology_overlay="${SCRIPT_DIR}/../overrides/${TOPOLOGY}/bn-block-node-${i}-values.yaml"
+    if [[ -f "${bn_topology_overlay}" ]]; then
+      overlay_args="${overlay_args} -f ${bn_topology_overlay}"
+      log_line "  Applying topology overlay for block-node-${i}: %s" "${bn_topology_overlay#${SCRIPT_DIR}/../}"
     fi
 
     start_task "Deploying Block Node ${i}"
