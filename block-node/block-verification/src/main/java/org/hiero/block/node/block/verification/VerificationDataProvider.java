@@ -71,8 +71,7 @@ public final class VerificationDataProvider {
         }
         try {
             final Map<Long, PublicKey> keys = buildKeyMap(book);
-            if (!keys.isEmpty())
-                cachedKeyMap.set(new CachedKeyMap(book, keys));
+            if (!keys.isEmpty()) cachedKeyMap.set(new CachedKeyMap(book, keys));
             return keys;
         } catch (final NoSuchAlgorithmException e) {
             LOGGER.log(WARNING, "RSA KeyFactory not available for block {0} — returning empty key map", blockNumber);
