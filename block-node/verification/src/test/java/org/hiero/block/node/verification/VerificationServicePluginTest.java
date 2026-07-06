@@ -543,6 +543,111 @@ class VerificationServicePluginTest
     }
 
     @Test
+    @DisplayName("RSA WRB: second live-stream block in the same era reuses the cached RSA key map and still verifies")
+    void rsaWrb_secondLiveBlockSameEra_reusesCachedRsaKeys() throws Exception {
+        // Covers the cache-hit branch of VerificationServicePlugin#rsaKeysFor: two blocks resolved
+        // against the same (identity-stable, single open-ended era) NodeAddressBook instance must
+        // both verify, with the second lookup served from cachedLiveRsaKeys instead of re-decoding.
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        final KeyPair kp = kpg.generateKeyPair();
+        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
+        final NodeAddressBook book = NodeAddressBook.newBuilder()
+                .nodeAddress(List.of(
+                        NodeAddress.newBuilder().nodeId(0L).rsaPubKey(hexKey).build()))
+                .build();
+        updateAddressBook(book);
+
+        blockMessaging.sendBlockItems(
+                new BlockItems(buildSignedWrbBlockItems(500L, kp, "content-1"), 500L, true, true));
+        blockMessaging.sendBlockItems(
+                new BlockItems(buildSignedWrbBlockItems(501L, kp, "content-2"), 501L, true, true));
+
+        final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications();
+        assertEquals(2, notifications.size(), "Both live-stream blocks must produce a notification");
+        assertTrue(notifications.get(0).success(), "First block (cache miss) must verify successfully");
+        assertTrue(notifications.get(1).success(), "Second block (cache hit) must verify successfully");
+    }
+
+    @Test
+    @DisplayName("RSA WRB: second backfilled block in the same era reuses the cached RSA key map and still verifies")
+    void rsaWrb_secondBackfilledBlockSameEra_reusesCachedRsaKeys() throws Exception {
+        // Covers the cache-hit branch of VerificationServicePlugin#rsaKeysFor for the backfill
+        // path's dedicated cache (cachedBackfillRsaKeys), kept separate from the live-path cache.
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        final KeyPair kp = kpg.generateKeyPair();
+        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
+        final NodeAddressBook book = NodeAddressBook.newBuilder()
+                .nodeAddress(List.of(
+                        NodeAddress.newBuilder().nodeId(0L).rsaPubKey(hexKey).build()))
+                .build();
+        updateAddressBook(book);
+
+        final BlockUnparsed block600 = BlockUnparsed.newBuilder()
+                .blockItems(buildSignedWrbBlockItems(600L, kp, "content-3"))
+                .build();
+        final BlockUnparsed block601 = BlockUnparsed.newBuilder()
+                .blockItems(buildSignedWrbBlockItems(601L, kp, "content-4"))
+                .build();
+        plugin.handleBackfilled(new BackfilledBlockNotification(600L, block600));
+        plugin.handleBackfilled(new BackfilledBlockNotification(601L, block601));
+
+        final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications();
+        assertEquals(2, notifications.size(), "Both backfilled blocks must produce a notification");
+        assertTrue(notifications.get(0).success(), "First backfilled block (cache miss) must verify successfully");
+        assertTrue(notifications.get(1).success(), "Second backfilled block (cache hit) must verify successfully");
+    }
+
+    /**
+     * Builds a signed WRB block item list: {@code BLOCK_HEADER | RECORD_FILE | BLOCK_FOOTER | BLOCK_PROOF},
+     * where the {@code RECORD_FILE} contents are {@code recordStreamFileContent} and the proof carries a
+     * single valid node-0 signature over the V6 payload, signed with {@code kp}'s private key.
+     */
+    private static List<BlockItemUnparsed> buildSignedWrbBlockItems(
+            final long blockNumber, final KeyPair kp, final String recordStreamFileContent) throws Exception {
+        final byte[] recordStreamFileBytes = recordStreamFileContent.getBytes();
+        final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        bos.write(0x12); // tag: field 2, wire type 2 (LEN)
+        bos.write(recordStreamFileBytes.length); // length fits in 1 byte (< 128)
+        bos.write(recordStreamFileBytes);
+        final Bytes recordFileItemBytes = Bytes.wrap(bos.toByteArray());
+
+        final MessageDigest digest = MessageDigest.getInstance("SHA-384");
+        digest.update(new byte[] {0, 0, 0, 6});
+        digest.update(recordStreamFileBytes);
+        final byte[] signedPayload = digest.digest();
+
+        final Signature engine = Signature.getInstance("SHA384withRSA");
+        engine.initSign(kp.getPrivate());
+        engine.update(signedPayload);
+        final byte[] sigBytes = engine.sign();
+
+        final SemanticVersion hapiVersion = new SemanticVersion(1, 0, 0, "", "");
+        final SemanticVersion swVersion = new SemanticVersion(1, 0, 0, "", "");
+        final BlockHeader header = new BlockHeader(
+                hapiVersion, swVersion, blockNumber, new Timestamp(1_700_000_000L, 0), BlockHashAlgorithm.SHA2_384);
+        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        final BlockProof proof = BlockProof.newBuilder()
+                .block(blockNumber)
+                .signedRecordFileProof(
+                        new SignedRecordFileProof(6, List.of(new RecordFileSignature(Bytes.wrap(sigBytes), 0L))))
+                .build();
+
+        return List.of(
+                BlockItemUnparsed.newBuilder()
+                        .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                        .build(),
+                BlockItemUnparsed.newBuilder().recordFile(recordFileItemBytes).build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                        .build());
+    }
+
+    @Test
     @DisplayName("RSA WRB: block number outside all address book eras fails with MISSING_VERIFICATION_DATA")
     void rsaWrb_blockOutsideAllEras_failsVerification() throws Exception {
         // Build a 1-node address book covering only blocks 1000–2000.
