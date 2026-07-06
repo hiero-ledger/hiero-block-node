@@ -10,7 +10,7 @@ A Block Node is a special kind of server that keeps a complete, trustworthy copy
 It receives a stream of already-agreed blocks from [Consensus Nodes](./glossary.md#consensus-node), delivers the block stream via the subscribe API, checks that each block is valid, stores valid blocks, and serves single blocks via API query. In the future Block Nodes will also maintain an accurate copy of the current network state and will serve state related queries via new APIs.
 
 Instead of pushing this data into centralized cloud storage, Block Nodes act as a decentralized data layer for the network.
-They stream blocks to [Mirror Nodes](./glossary.md#mirror-node) and other Block Nodes, answer questions from apps and services about past blocks or current state, and provide cryptographic proofs so users can independently verify that the data is correct.
+They stream blocks to [Mirror Nodes](./glossary.md#mirror-node) and other Block Nodes, answer questions from apps and services about past blocks or current state, and serve the cryptographic proofs produced by Consensus Nodes so users can independently verify that the data is correct.
 
 ## How Block Nodes differ from other nodes
 
@@ -26,12 +26,12 @@ They stream blocks to [Mirror Nodes](./glossary.md#mirror-node) and other Block 
 
 Block Nodes act as the trusted historians and data providers for a Hiero network. They receive block streams from Consensus Nodes, verify that each block and its data are correct, and durably store valid blocks for downstream consumption.
 Block Nodes distribute blocks to downstream clients—including Mirror Nodes, other Block Nodes, and applications—so anyone can access real-time or historical data.
-They also generate cryptographic proofs for transactions and state, making it possible for users and applications to independently verify the accuracy of the network's history without relying on a single provider.
+Each block includes cryptographic proofs produced by Consensus Nodes, making it possible for users and applications to independently verify the accuracy of the network's history without relying on a single provider.
 
 Block Nodes provide these core services:
 
 - [Block Stream](./glossary.md#block-stream) ingestion, verification, and distribution.
-- Cryptographic [block proofs](./glossary.md#block-proof) for independent verification of block data.
+- Storage and serving of cryptographic [block proofs](./glossary.md#block-proof) produced by Consensus Nodes, enabling independent verification of block data.
 - Durable storage of blocks on local disk or S3-compatible archival storage.
 - Real-time and historical data streaming to downstream clients.
 - Random-access retrieval of blocks at specific block heights.
