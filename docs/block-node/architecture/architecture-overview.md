@@ -28,14 +28,14 @@ for additional service processing.
 
 ## System Architecture Diagram
 
-The overall architecture of BlockNode is illustrated below:
+The overall architecture of the Block Node is illustrated below:
 ![block-node-app-logic](./../../assets/block-node-app-logic.svg)
 
 Additional details regarding Service interactions are illustrated in [Block-Node-Nano-Services](./../../assets/Block-Node-Nano-Services.svg) diagram.
 
 ## API Data Flows
 
-Multiple API data flows occur within BlockNode, primarily centered around block item processing and distribution.
+Multiple API data flows occur within the Block Node, primarily centered around block item processing and distribution.
 Key flows include:
 - **Block Stream Publish API Flow:** Incoming block items from gRPC streams are handled via the `StreamPublisherPlugin`
 and distributed to plugins via the `BlockMessagingFacility`.
@@ -49,7 +49,7 @@ These flows are illustrated in detail in the [Data Flow](data-flow.md) document.
 
 ## Key Concepts
 
-- **Event-Driven:** BlockNode receives gRPC streams of Block Items, which are distributed to plugins and drive the
+- **Event-Driven:** The Block Node receives gRPC streams of Block Items, which are distributed to plugins and drive the
   processing logic.
 - **Plugin System:** All major features are implemented as plugins, conforming to the `BlockNodePlugin` interface.
   Plugins are dynamically loaded and initialized at startup.
@@ -58,23 +58,22 @@ These flows are illustrated in detail in the [Data Flow](data-flow.md) document.
 - **Block Management:** Block storage and access is managed by implementations of `BlockProviderPlugin` in cooperation
   with one implementation of the `HistoricalBlockFacility`. Together these aggregate multiple block providers and expose
   a unified view of available blocks.
-- **BlockVerification:** Blocks are verified for integrity using the `VerificationServicePlugin` which build the virtual
-  merkle tree and validate the block proof prior to persistence.
+- **BlockVerification:** Blocks are verified for integrity using the `BlockVerificationServicePlugin` which builds the
+  virtual merkle tree and validates the block proof prior to persistence.
 
 ## Plugins
 
-BlockNode's functionality is extended through a variety of plugins, each implementing the `BlockNodePlugin` interface.
+The Block Node's functionality is extended through a variety of plugins, each implementing the `BlockNodePlugin` interface.
 Key plugins include:
-- **BackfillPlugin:** Guarantees the stored block stream is complete by retrieving missing blocks from other Block Nodes.
+- **BackfillPlugin:** Helps to ensure the stored block stream is complete by retrieving missing blocks from other Block Nodes.
 - **BlockAccessServicePlugin:** Provides a block retrieval API.
-- **BlocksFilesHistoricPlugin:** Handles block persistence and retrieval of older persisted blocks.
-- **BlocksFilesRecentPlugin:** Handles block persistence, retrieval, and retention policies of recently streamed blocks.
-- **HealthServicePlugin:** Provides kubernetes health check endpoints.
-- **S3ArchivePlugin:** Archives blocks to S3 API compatible remote storage services.
+- **BlocksFilesHistoricPlugin:** Provides long term block persistence and retrieval.
+- **BlocksFilesRecentPlugin:** Provides short term block persistence and retrieval, with a retention policy to limit storage use and duration.
+- **HealthServicePlugin:** Provides kubernetes health check endpoints, additional status endpoints to integrate with Kubernetes features, and overall system health decision support.
 - **ServerStatusServicePlugin:** Provides block node status API endpoints.
 - **StreamPublisherPlugin:** Provides a block stream publishing API as documented in the [communication protocol](./../../design/communication-protocol/README.md).
 - **SubscriberServicePlugin:** Provides an _unverified_ Block Subscription API.
-- **VerificationServicePlugin:** Verifies incoming blocks for integrity prior to persistence.
+- **BlockVerificationServicePlugin:** Verifies incoming blocks for integrity prior to persistence.
 
 For additional details on plugins, refer to the [Plugins](./plugins.md).
 
@@ -85,7 +84,7 @@ Plugin modules are loaded dynamically at runtime using the JPMS service loader m
 
 ### Main Modules
 
-The following modules under `block-node` directory form the core of the BlockNode system.
+The following modules under `block-node` directory form the core of the Block Node system.
 - `app`: Main application logic and entrypoint (`BlockNodeApp.java`).
 - `spi`: Service Provider Interfaces for well known plugins and facilities.
 - `messaging`: Core messaging facilities for distributing block items.
@@ -94,10 +93,9 @@ The following modules under `block-node` directory form the core of the BlockNod
 ### Additional Modules
 
 The following modules provide additional functionality and are loaded as plugins if present:
-- `block-access`: Plugins for accessing block data.
-- `block-providers`: Plugins for various block storage backends.
-- `s3-archive`: Plugins for S3-based block archiving.
-- `server-status`: Plugins for Server status API.
-- `stream-publisher`: Plugins for a Stream publishing API.
-- `stream-subscriber`: Plugins for Stream subscribing API.
-- `verification`: Plugins for Block verification.
+- `block-access`: Plugin for accessing block data.
+- `block-providers`: Plugin for various block storage backends.
+- `server-status`: Plugin for Server status API.
+- `stream-publisher`: Plugin for a Stream publishing API.
+- `stream-subscriber`: Plugin for Stream subscribing API.
+- `block-verification`: Plugin for Block verification.
