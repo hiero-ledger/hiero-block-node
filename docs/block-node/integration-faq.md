@@ -245,6 +245,31 @@ Nodes — this ensures the BN receives every block from block 0 onwards.
 
 ---
 
+## On-chain registration (HIP-1137)
+
+### How do I generate an `admin_key` for Block Node registration?
+
+The `admin_key` is a **Hiero network key — not a generic EVM key or Hedera wallet key**.
+
+**Key type:** Ed25519 (standard recommendation). Generated via `PrivateKey.generateED25519()` in any of the seven official Hiero SDKs (Java, JavaScript, Go, Rust, Swift, C++, Python). Use an HSM or KMS if your operational policy requires hardware-backed key custody.
+
+**Critical rules:**
+- The `admin_key` must **not** be tied to any network account. Entangling it with a treasury or transaction-signing account increases blast radius if the operator account is compromised.
+- For **production**, use a `KeyList` or `ThresholdKey` (e.g. `ThresholdKey(2-of-3, three operator-controlled Ed25519 keys)`). Single-key control is acceptable for dev/test only.
+- **If the `admin_key` is lost, there is no recovery mechanism.** Every create, update, and delete on a registered node must be signed by that node's `admin_key`. The most the network's governance structure can do is sign a `Delete` transaction to remove the orphaned registration, after which the operator must create a new one with a fresh `registered_node_id`.
+
+**Example (JavaScript SDK):**
+
+```javascript
+const adminKey = PrivateKey.generateED25519();
+// Store the private key securely — loss is unrecoverable
+```
+
+> See [Block Node On-Chain Registration](./block-node-on-chain-registration.md) for the
+> full registration workflow, key rotation procedure, and production custody recommendations.
+
+---
+
 ## WRB cutover and migration
 
 ### What changes for Mirror Nodes when the network transitions from record streams to block streams?
