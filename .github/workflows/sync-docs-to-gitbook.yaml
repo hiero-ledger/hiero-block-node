@@ -44,31 +44,17 @@ jobs:
           mkdir -p hiero-docs/block-node
           cp -r block-node/docs/. hiero-docs/block-node/
 
-      - name: Commit and open PR
-        working-directory: hiero-docs
-        env:
-          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add block-node/
-          if git diff --staged --quiet; then
-            echo "No block-node doc changes to sync."
-            exit 0
-          fi
-          BRANCH="sync/block-node-docs"
-          git checkout -b "$BRANCH"
-          # --signoff adds the DCO Signed-off-by trailer that hiero-docs requires (matches the bot author).
-          git commit --signoff -m "chore: sync block-node docs from hiero-block-node@${GITHUB_SHA::7}"
-          # Push to a dedicated branch (master is protected; a direct push is rejected).
-          # --set-upstream binds local and remote, reducing opportunity for mistakes.
-          git push --force --set-upstream origin "$BRANCH"
-          # Open the PR if one isn't already open for this branch; otherwise the existing PR auto-updates.
-          if gh pr view "$BRANCH" --repo hiero-ledger/hiero-docs >/dev/null 2>&1; then
-            echo "Sync PR already open for $BRANCH; it now reflects the latest docs."
-          else
-            gh pr create --repo hiero-ledger/hiero-docs \
-              --base master --head "$BRANCH" \
-              --title "chore: sync block-node docs from hiero-block-node" \
-              --body "Automated sync of \`block-node/\` docs from hiero-block-node@${GITHUB_SHA::7} by the sync-docs-to-gitbook workflow."
-          fi
+      - name: Open PR via API (produces GitHub-verified commits)
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9f3607f74d2e3e # v7.0.8
+        with:
+          token: ${{ secrets.GH_ACCESS_TOKEN }}
+          path: hiero-docs
+          branch: sync/block-node-docs
+          base: master
+          commit-message: "chore: sync block-node docs from hiero-block-node@${{ github.sha }}"
+          title: "chore: sync block-node docs from hiero-block-node"
+          body: |
+            Automated sync of `block-node/` docs from hiero-block-node@${{ github.sha }}
+            by the sync-docs-to-gitbook workflow.
+          # Commits created via the GitHub API are automatically signed/verified by GitHub,
+          # satisfying hiero-docs required_signatures ruleset without a bot GPG key.
