@@ -95,6 +95,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     // Deduplication: highest block scheduled for live-tail (prevents overlapping submissions)
     private final AtomicLong liveTailHighWaterMark = new AtomicLong(-1);
 
+    // Cached stored+available snapshot delivered by the last onContextUpdate() call. The Application
+    // State facility computes this merge itself whenever the underlying data actually changes, so
+    // caching it here avoids re-querying its raw stored set on every autonomous scan. Each scan still
+    // unions this with a live availableBlocks() read (see detectAndScheduleGaps) to reflect blocks
+    // persisted or evicted since the last context update.
+    private volatile List<LongRange> knownBlockRanges = List.of();
+
     // Per-historical-gap exponential backoff. Keyed by gap start block. Accessed only from the
     // single-threaded autonomous scan (detectAndScheduleGaps), so it needs no synchronization.
     // A gap that keeps reappearing without shrinking (e.g. blocks evicted by retention before any
@@ -185,6 +192,16 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         // Register the service
         context.blockMessaging().registerBlockNotificationHandler(this, false, "BackfillPlugin");
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void onContextUpdate(BlockNodeContext context) {
+        knownBlockRanges = context.storedBlocks().stream()
+                .map(range -> new LongRange(range.rangeStart(), range.rangeEnd()))
+                .toList();
     }
 
     /**
@@ -314,13 +331,14 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private void detectAndScheduleGaps() {
         LOGGER.log(TRACE, "Detecting gaps in blocks");
 
-        // 1. Get the blocks this node already has: the union of blocks stored (persisted somewhere at some
-        //    point, the source of truth from the Application State facility) and blocks currently available
-        //    for retrieval. Using stored — not just available — prevents re-backfilling blocks that have been
-        //    evicted from a volatile tier (e.g. by the recent-tier retention policy) but were already stored.
+        // 1. Get the blocks this node already has: the cached stored+available snapshot from the last
+        //    onContextUpdate() (avoids re-querying the Application State facility's raw stored set on
+        //    every scan) unioned with the live available set, so blocks persisted or evicted since the
+        //    last context update are reflected immediately. Folding in the cached snapshot — not just
+        //    live available — prevents re-backfilling blocks that have been evicted from a volatile tier
+        //    (e.g. by the recent-tier retention policy) but were already stored.
         ConcurrentLongRangeSet knownBlocks = new ConcurrentLongRangeSet();
-        knownBlocks.addAll(
-                context.applicationStateFacility().storedBlocks().streamRanges().toList());
+        knownBlocks.addAll(knownBlockRanges);
         knownBlocks.addAll(context.historicalBlockProvider()
                 .availableBlocks()
                 .streamRanges()
@@ -415,7 +433,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     }
 
     /**
-     * Query peers for the maximum available block number.
+     * Query peers for the maximum available block number, used only to size the greedy scan window.
+     * This does not affect which gaps below the baseline get backfilled — that is resolved
+     * independently per-gap via {@link BackfillFetcher#getAvailabilityForRange}.
      * Uses a dedicated fetcher to avoid sharing HTTP/2 connections with the scheduler fetchers.
      */
     private long getPeerMaxAvailableBlock(long baseline) {
@@ -544,9 +564,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
+        final List<LongRange> cachedRanges = knownBlockRanges;
         long lastPersistedBlock = Math.max(
                 context.historicalBlockProvider().availableBlocks().max(),
-                context.applicationStateFacility().storedBlocks().max());
+                cachedRanges.isEmpty() ? -1 : cachedRanges.getLast().end());
         long startBackfillFrom = Math.max(lastPersistedBlock + 1, backfillConfiguration.startBlock());
         long newestBlockKnown = notification.blockNumber();
         long cappedEnd = backfillConfiguration.endBlock() >= 0

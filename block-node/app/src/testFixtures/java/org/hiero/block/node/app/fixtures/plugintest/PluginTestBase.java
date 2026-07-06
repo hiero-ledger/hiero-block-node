@@ -35,7 +35,6 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
@@ -79,7 +78,7 @@ public abstract class PluginTestBase<
     protected P plugin;
     /** The historical block facility used by the current test, retained for doStart(). */
     private HistoricalBlockFacility activeHistoricalBlockFacility;
-    /** The stored-block set backing {@link #addStoredBlockRange} and {@link #storedBlocks()}. */
+    /** The stored-block set backing {@link #addStoredBlockRange} and {@link #updateStoredBlocks}. */
     protected final ConcurrentLongRangeSet appStoredBlocks = new ConcurrentLongRangeSet();
 
     protected PluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
@@ -352,9 +351,28 @@ public abstract class PluginTestBase<
         appStoredBlocks.add(blockRange);
     }
 
-    @Override
-    public BlockRangeSet storedBlocks() {
-        return appStoredBlocks;
+    /**
+     * Records a stored-block range and delivers the merged stored+available context to the plugin via
+     * {@link BlockNodePlugin#onContextUpdate}, mirroring how {@code BlockNodeApp} merges the two sets
+     * when the Application State facility detects a change. Use this (instead of touching
+     * {@link #appStoredBlocks} directly) when a test needs the plugin to observe a stored-block update
+     * after {@link #doStart} has been called.
+     *
+     * @param blockRange the contiguous range of block numbers being reported as stored
+     */
+    public void updateStoredBlocks(LongRange blockRange) {
+        appStoredBlocks.add(blockRange);
+        final ConcurrentLongRangeSet merged = new ConcurrentLongRangeSet();
+        merged.addAll(appStoredBlocks.streamRanges().toList());
+        merged.addAll(
+                activeHistoricalBlockFacility.availableBlocks().streamRanges().toList());
+        final List<BlockRange> mergedRanges = merged.streamRanges()
+                .map(r -> new BlockRange(r.start(), r.end()))
+                .toList();
+        blockNodeContext = new BlockNodeContext.Builder(blockNodeContext)
+                .storedBlocks(mergedRanges)
+                .build();
+        plugin.onContextUpdate(blockNodeContext);
     }
 
     @Override

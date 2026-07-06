@@ -5,7 +5,6 @@ import com.hedera.hapi.node.base.NodeAddressBook;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
@@ -47,20 +46,6 @@ public interface ApplicationStateFacility {
      * @param blockRange the contiguous range of block numbers being reported
      */
     void addStoredBlockRange(LongRange blockRange);
-
-    /// The set of blocks this node has stored (persisted somewhere at some point), as a live,
-    /// read-only view. This is a superset of the blocks currently available for retrieval and is
-    /// durable across restarts. Backfill uses it as the source of truth for which blocks it has
-    /// already obtained, so that blocks evicted from a volatile tier (e.g. by a retention policy)
-    /// are not re-fetched.
-    ///
-    /// The default implementation returns an empty set. Implementations that track stored blocks
-    /// (i.e. `BlockNodeApp`) override this method.
-    ///
-    /// @return the set of stored blocks; never `null` (empty when none are stored)
-    default BlockRangeSet storedBlocks() {
-        return BlockRangeSet.EMPTY;
-    }
 
     /**
      * Returns the {@link NodeAddressBook} for the supplied {@code blickNum }

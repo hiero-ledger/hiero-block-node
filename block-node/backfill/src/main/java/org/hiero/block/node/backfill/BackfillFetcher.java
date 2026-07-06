@@ -111,6 +111,11 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * given baseline. Because peers can have non-contiguous history, this returns the union of their
      * exact available ranges (each clipped to blocks after the baseline) rather than a single span:
      * callers must not assume every block between the first and last range is available.
+     * <p>
+     * This only locates the peer network's frontier beyond the baseline (used to size the scan
+     * window in greedy mode); it does not decide which gaps get backfilled. Actual chunk fetching,
+     * including gaps below the baseline, is resolved independently via {@link #getAvailabilityForRange},
+     * which is not clipped to any baseline.
      *
      * @param latestStoredBlockNumber the highest block already known locally; only blocks beyond it are returned
      * @return the merged, ascending list of available peer ranges beyond the baseline; empty if none

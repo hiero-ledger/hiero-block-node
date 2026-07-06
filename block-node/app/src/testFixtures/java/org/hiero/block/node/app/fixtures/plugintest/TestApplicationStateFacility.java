@@ -10,22 +10,18 @@ import org.hiero.block.api.NetworkConnection.ConnectionReference;
 import org.hiero.block.api.NetworkConnection.IpProtocol;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.TssData;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * A configurable {@link ApplicationStateFacility} test fixture. The connection sets
  * ({@code knownPublishers}, {@code inboundPartners}, {@code outboundPartners}, {@code backfillSources})
  * default to {@link #DEFAULT_NETWORK_DATA} — non-empty sample data — and can be overridden via the
- * setters. Stored block ranges reported via {@link #addStoredBlockRange} are recorded and exposed
- * through {@link #storedBlocks()}; the TSS/address-book mutators are no-ops.
+ * setters. The block-range and TSS/address-book mutators are no-ops.
  */
 public class TestApplicationStateFacility implements ApplicationStateFacility {
     private final Deque<TssData> tssDataUpdates;
     private final Deque<NodeAddressBook> nodeAddressBookUpdates;
-    private final ConcurrentLongRangeSet storedBlocks = new ConcurrentLongRangeSet();
 
     /** Non-empty sample network data used as the default for every connection set. */
     public static final NetworkData DEFAULT_NETWORK_DATA = NetworkData.newBuilder()
@@ -80,14 +76,7 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
     }
 
     @Override
-    public void addStoredBlockRange(final LongRange blockRange) {
-        storedBlocks.add(blockRange);
-    }
-
-    @Override
-    public BlockRangeSet storedBlocks() {
-        return storedBlocks;
-    }
+    public void addStoredBlockRange(final LongRange blockRange) {}
 
     @Override
     public NetworkData knownPublishers() {

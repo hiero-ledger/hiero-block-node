@@ -1431,10 +1431,12 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .build();
 
         // Recent tier only holds 50..100 because retention deleted 0..49, but the node did store 0..100 earlier.
+        // Deliver the stored range via onContextUpdate before the plugin starts, so its first scan
+        // already sees it (mirrors BlockNodeApp flushing loaded state before plugins start).
         final HistoricalBlockFacility pluginStore = getHistoricalBlockFacility(50, 100);
-        appStoredBlocks.add(new LongRange(0, 100));
-
-        start(new BackfillPlugin(), pluginStore, config);
+        doInit(new BackfillPlugin(), pluginStore, null, config, Map.of());
+        updateStoredBlocks(new LongRange(0, 100));
+        doStart();
 
         // Handlers turn any fetched block into a persisted notification so re-fetching would be observable.
         registerDefaultTestBackfillHandler();

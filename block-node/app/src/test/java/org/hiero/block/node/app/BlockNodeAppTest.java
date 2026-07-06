@@ -28,9 +28,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
@@ -318,8 +321,9 @@ class BlockNodeAppTest {
     private static class TestPlugin implements BlockNodePlugin {
         private final AtomicInteger contextUpdated = new AtomicInteger(0);
         private volatile CountDownLatch latch = new CountDownLatch(0);
+        private final BlockingQueue<BlockNodeContext> contextUpdates = new LinkedBlockingQueue<>();
 
-        private BlockNodeContext context = null;
+        private volatile BlockNodeContext context = null;
 
         /** Call before the action under test to set how many `onContextUpdate` calls are expected. */
         void expectContextUpdates(final int count) {
@@ -336,6 +340,28 @@ class BlockNodeAppTest {
                     "onContextUpdate was not called within " + timeoutSeconds + "s");
         }
 
+        /**
+         * Blocks until a delivered context satisfies the given condition, or the timeout elapses.
+         * Drains delivered updates from a queue rather than assuming a specific number of updates
+         * will occur — updates can coalesce when several state changes land before the scanner's
+         * next tick.
+         *
+         * @return the first satisfying context, or {@code null} if the timeout elapses first
+         */
+        BlockNodeContext awaitContext(final long timeoutSeconds, final Predicate<BlockNodeContext> condition)
+                throws InterruptedException {
+            final long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+            long remainingNanos;
+            BlockNodeContext delivered;
+            while ((remainingNanos = deadlineNanos - System.nanoTime()) > 0
+                    && (delivered = contextUpdates.poll(remainingNanos, TimeUnit.NANOSECONDS)) != null) {
+                if (condition.test(delivered)) {
+                    return delivered;
+                }
+            }
+            return null;
+        }
+
         int getContextUpdated() {
             return contextUpdated.get();
         }
@@ -348,6 +374,7 @@ class BlockNodeAppTest {
         public void onContextUpdate(final BlockNodeContext context) {
             this.context = context;
             contextUpdated.incrementAndGet();
+            contextUpdates.add(context);
             latch.countDown();
         }
     }
@@ -1046,23 +1073,16 @@ class BlockNodeAppTest {
         blockNodeApp.addStoredBlockRange(new LongRange(0, 999));
         blockNodeApp.addStoredBlockRange(new LongRange(1000, 1049));
 
-        // The scanner delivers context updates asynchronously; poll the delivered context until it reports the
-        // merged range. Polling avoids racing an in-flight scanner tick whose callback could carry a stale range.
-        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
-        BlockRange storedBlocks = null;
-        while (System.nanoTime() < deadline) {
-            final BlockNodeContext context = testPlugin.getContext();
-            if (context != null && !context.storedBlocks().isEmpty()) {
-                storedBlocks = context.storedBlocks().getFirst();
-                if (storedBlocks.rangeStart() == 0L && storedBlocks.rangeEnd() == 1049L) {
-                    break;
-                }
-            }
-            //noinspection BusyWait
-            Thread.sleep(50);
-        }
+        // The scanner delivers context updates asynchronously and may coalesce both writes into a
+        // single update, so wait on the merged content rather than a specific update count.
+        final BlockNodeContext context = testPlugin.awaitContext(
+                15,
+                ctx -> !ctx.storedBlocks().isEmpty()
+                        && ctx.storedBlocks().getFirst().rangeStart() == 0L
+                        && ctx.storedBlocks().getFirst().rangeEnd() == 1049L);
 
-        assertNotNull(storedBlocks, "onContextUpdate did not deliver the merged stored range within the timeout");
+        assertNotNull(context, "onContextUpdate did not deliver the merged stored range within the timeout");
+        final BlockRange storedBlocks = context.storedBlocks().getFirst();
         assertEquals(0L, storedBlocks.rangeStart());
         assertEquals(1049L, storedBlocks.rangeEnd());
 
