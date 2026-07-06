@@ -1,75 +1,229 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# WRB Distribution E2E (#3125 slice 4 — step 7) — install MN2 (mirror-2)
-# post-hoc via `solo mirror node add`, applying overrides/wrb-distribution-step67/
-# mn2-values.yaml so the new MN pulls blocks from BN2 and BN3 with
-# startBlockNumber=0 (genesis) and no recordstream-bucket downloader.
+# WRB Distribution E2E (#3125 slice 4 — step 7) — install a second Mirror Node
+# (mirror-2) into the Solo namespace, pointing at BN2 and BN3 as block-node
+# sources with startBlockNumber=0 (pulls from genesis via the BN backfill
+# chain) and no recordstream-bucket downloader.
 #
-# Reads (with the harness's defaults as fallback):
-#   DEPLOYMENT        (default "deployment-solo")
+# We do NOT use `solo mirror node add` because Solo 0.79 doesn't support a
+# second Mirror Node in an existing deployment — the CLI re-installs the same
+# "mirror" release rather than creating a new one. Instead we render a minimal
+# raw-K8s manifest (postgres + importer + service) modelled on the proven
+# recipe in wrb-sequential-comparison.sh's deploy_mn2_to_bn2 function.
+#
+# Scope for slice 4: importer-only (no REST/gRPC/Web3 sidecars) with
+# `hiero.mirror.importer.block.verification.enabled=false`, which lets us skip
+# the address-book extract step. The step 7 assertion only needs to observe
+# "MN2 is consuming blocks from a BN source", which is visible in the importer
+# container logs.
+#
+# Reads:
 #   NAMESPACE         (default "solo-network")
 #   CLUSTER_REFERENCE (default "kind-solo-cluster")
-#   TOPOLOGY          (used to locate overrides/${TOPOLOGY}/mn2-values.yaml)
-#   MN_VERSION        (optional — passed through as --mirror-node-version)
-#
-# Assertions on success:
-#   * `solo mirror node add` exit code is 0
-#   * A mirror-2-* pod exists and is Ready within MN_READY_TIMEOUT seconds
-#
-# Naming: Solo derives the MN name from the deployment context. Since mirror-1
-# already exists, the second `solo mirror node add` call is expected to install
-# as mirror-2. If Solo's behaviour turns out to require an explicit name flag,
-# adjust this script (Solo CLI does not expose --name on this subcommand as of
-# 0.79.x).
+#   MN_VERSION        (used for the importer image tag; falls back to mirror-1's
+#                     live image if unset)
+#   BN_HOST_2         (default block-node-2.${NAMESPACE}.svc.cluster.local)
+#   BN_HOST_3         (default block-node-3.${NAMESPACE}.svc.cluster.local)
+#   MN2_READY_TIMEOUT (default 600)
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOLO_E2E_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-
-: "${DEPLOYMENT:=deployment-solo}"
 : "${NAMESPACE:=solo-network}"
 : "${CLUSTER_REFERENCE:=kind-solo-cluster}"
-: "${TOPOLOGY:=wrb-distribution-step67}"
-MN_READY_TIMEOUT="${MN_READY_TIMEOUT:-600}"
+: "${BN_HOST_2:=block-node-2.${NAMESPACE}.svc.cluster.local}"
+: "${BN_HOST_3:=block-node-3.${NAMESPACE}.svc.cluster.local}"
+MN2_READY_TIMEOUT="${MN2_READY_TIMEOUT:-600}"
 
 log() { echo "[wrb-dist-add-mn2] $*"; }
 fail() { echo "[wrb-dist-add-mn2] ERROR: $*" >&2; exit 1; }
 
-values_overlay="${SOLO_E2E_ROOT}/overrides/${TOPOLOGY}/mn2-values.yaml"
-if [[ ! -f "${values_overlay}" ]]; then
-    fail "MN2 values overlay not found: ${values_overlay#${SOLO_E2E_ROOT}/}"
+# 1) Resolve the importer image tag.
+#    Prefer whatever mirror-1's live Deployment is actually running so we
+#    don't drift from what Solo installed. Fall back to MN_VERSION-derived
+#    default if the lookup fails (e.g. label schema changes).
+mn1_importer_deploy=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+    get deployment -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+importer_image=""
+if [[ -n "${mn1_importer_deploy}" ]]; then
+    importer_image=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+        get deployment "${mn1_importer_deploy}" \
+        -o jsonpath='{.spec.template.spec.containers[?(@.name=="importer")].image}' 2>/dev/null || true)
 fi
-log "Applying overlay: overrides/${TOPOLOGY}/mn2-values.yaml"
 
-version_args=""
-if [[ -n "${MN_VERSION:-}" ]]; then
-    version_args="--mirror-node-version ${MN_VERSION}"
+if [[ -z "${importer_image}" ]]; then
+    mn_tag="${MN_VERSION:-v0.157.1}"
+    mn_tag="${mn_tag#v}"
+    importer_image="gcr.io/mirrornode/hedera-mirror-importer:${mn_tag}"
+    log "  Using default importer image: ${importer_image}"
+else
+    log "  Reusing mirror-1's importer image: ${importer_image}"
 fi
 
-log "Adding MN2 to deployment=${DEPLOYMENT} cluster-ref=${CLUSTER_REFERENCE}..."
-# shellcheck disable=SC2086
-solo mirror node add \
-    --deployment "${DEPLOYMENT}" \
-    --cluster-ref "${CLUSTER_REFERENCE}" \
-    --pinger \
-    --enable-ingress \
-    ${version_args} \
-    -f "${values_overlay}" \
-    || fail "solo mirror node add failed for MN2"
+# 2) Emit the manifest.
+mn2_manifest="${TMPDIR:-/tmp}/wrb-dist-mn2-manifest.yaml"
+cat > "${mn2_manifest}" <<EOF
+# Generated by add-mn2.sh for WRB distribution E2E (#3125 slice 4 step 7).
+# Provides a minimal, self-contained MN2 that pulls blocks from BN2 + BN3
+# with verification disabled (so we can skip address-book extraction).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mn2-postgres-init
+  namespace: ${NAMESPACE}
+data:
+  init.sql: |
+    CREATE EXTENSION IF NOT EXISTS btree_gist;
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    CREATE SCHEMA IF NOT EXISTS temporary;
+    GRANT ALL PRIVILEGES ON SCHEMA temporary TO mirror_node;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA temporary GRANT ALL ON TABLES TO mirror_node;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA temporary GRANT ALL ON SEQUENCES TO mirror_node;
+    ALTER DATABASE mirror_node SET search_path = public, public, temporary;
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mn2-postgres
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/instance: mirror-2
+    app.kubernetes.io/component: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mn2-postgres
+  template:
+    metadata:
+      labels:
+        app: mn2-postgres
+        app.kubernetes.io/instance: mirror-2
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:14-alpine
+        env:
+        - name: POSTGRES_DB
+          value: mirror_node
+        - name: POSTGRES_USER
+          value: mirror_node
+        - name: POSTGRES_PASSWORD
+          value: mirror_node_pass
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+      volumes:
+      - name: init-scripts
+        configMap:
+          name: mn2-postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mn2-postgres
+  namespace: ${NAMESPACE}
+spec:
+  type: ClusterIP
+  selector:
+    app: mn2-postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mirror-2-importer
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/instance: mirror-2
+    app.kubernetes.io/component: importer
+    app.kubernetes.io/name: importer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mirror-2-importer
+  template:
+    metadata:
+      labels:
+        app: mirror-2-importer
+        app.kubernetes.io/instance: mirror-2
+        app.kubernetes.io/component: importer
+        app.kubernetes.io/name: importer
+    spec:
+      containers:
+      - name: importer
+        image: ${importer_image}
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: jdbc:postgresql://mn2-postgres:5432/mirror_node?sslmode=disable
+        - name: SPRING_DATASOURCE_USERNAME
+          value: mirror_node
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: mirror_node_pass
+        - name: HIERO_MIRROR_IMPORTER_NETWORK
+          value: OTHER
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_ENABLED
+          value: "true"
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_SOURCETYPE
+          value: BLOCK_NODE
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_HOST
+          value: ${BN_HOST_2}
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_PORT
+          value: "40840"
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_1_HOST
+          value: ${BN_HOST_3}
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_1_PORT
+          value: "40840"
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_VERIFICATION_ENABLED
+          value: "false"
+        - name: HIERO_MIRROR_IMPORTER_DOWNLOADER_BUCKETNAME
+          value: dummy-not-used
+        - name: HIERO_MIRROR_IMPORTER_DOWNLOADER_RECORD_ENABLED
+          value: "false"
+        - name: HIERO_MIRROR_IMPORTER_DOWNLOADER_BALANCE_ENABLED
+          value: "false"
+        - name: HIERO_MIRROR_IMPORTER_STARTBLOCKNUMBER
+          value: "0"
+        - name: HIERO_MIRROR_IMPORTER_DB_TEMPSCHEMA
+          value: temporary
+        - name: HIERO_MIRROR_IMPORTER_DB_SCHEMA
+          value: public
+EOF
 
-log "Waiting for mirror-2 pods Ready (timeout ${MN_READY_TIMEOUT}s)..."
+log "Applying MN2 manifest to namespace ${NAMESPACE}..."
+kubectl --context "${CLUSTER_REFERENCE}" apply -f "${mn2_manifest}" \
+    || fail "kubectl apply failed for MN2 manifest"
+
+log "Waiting for mn2-postgres pod Ready (timeout ${MN2_READY_TIMEOUT}s)..."
 kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-    wait --for=condition=Ready pod \
-    -l "app.kubernetes.io/instance=mirror-2" \
-    --timeout="${MN_READY_TIMEOUT}s" \
+    wait --for=condition=Ready pod -l app=mn2-postgres \
+    --timeout="${MN2_READY_TIMEOUT}s" \
     || {
         kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-            get pods -l "app.kubernetes.io/instance=mirror-2" -o wide || true
-        kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-            describe pods -l "app.kubernetes.io/instance=mirror-2" | tail -60 || true
-        fail "mirror-2 pods did not become Ready within ${MN_READY_TIMEOUT}s"
+            describe pod -l app=mn2-postgres | tail -40 || true
+        fail "mn2-postgres did not become Ready within ${MN2_READY_TIMEOUT}s"
     }
 
-log "MN2 is Ready."
+log "Waiting for mirror-2-importer pod Ready (timeout ${MN2_READY_TIMEOUT}s)..."
+kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+    wait --for=condition=Ready pod -l app=mirror-2-importer \
+    --timeout="${MN2_READY_TIMEOUT}s" \
+    || {
+        kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+            describe pod -l app=mirror-2-importer | tail -60 || true
+        kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+            logs -l app=mirror-2-importer --tail=100 || true
+        fail "mirror-2-importer did not become Ready within ${MN2_READY_TIMEOUT}s"
+    }
+
+log "MN2 is Ready (postgres + importer)."
