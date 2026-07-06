@@ -233,6 +233,27 @@ Key environment variables:
 
 ## Health and monitoring
 
+### What telemetry and metrics does the Block Node emit?
+
+The Block Node exposes Prometheus-compatible metrics on port 16007 (`/metrics`), using
+the `blocknode_` prefix. Metric categories include:
+
+|        Category        |           Prefix examples           |                  What it covers                   |
+|------------------------|-------------------------------------|---------------------------------------------------|
+| Application state      | `blocknode_app_state_status`        | Node lifecycle (starting / running / stopping)    |
+| Publisher (CN → BN)    | `blocknode_publisher_*`             | Connections, latency, stream errors, open streams |
+| Subscriber (MN → BN)   | `blocknode_subscriber_*`            | Open subscriptions, errors                        |
+| Verification           | `blocknode_verification_*`          | Blocks verified, failed, error counts             |
+| Persistence (recent)   | `blocknode_files_recent_*`          | Write latency, blocks stored                      |
+| Persistence (historic) | `blocknode_files_historic_*`        | Archive metrics                                   |
+| Backfill               | `blocknode_backfill_*`              | Fetch errors, blocks backfilled                   |
+| Messaging              | `blocknode_messaging_*`             | Internal queue utilisation                        |
+| Cloud storage archive  | `blocknode_cloud_storage_archive_*` | Upload success/failure, bytes stored              |
+| Cloud storage expanded | `blocknode_cloud_expanded_*`        | Per-block upload metrics                          |
+
+> See [Metrics and Monitoring](./metrics.md) for the complete metric catalogue with
+> descriptions and types.
+
 ### How do I check if my Block Node is healthy?
 
 Three methods:
@@ -493,5 +514,112 @@ if the reward amount does not cover actual spend, the operator absorbs the diffe
 **Co-location is strongly recommended.** Placing a Block Node in the same data centre
 or cloud region as the Consensus Node it streams from significantly reduces cross-region
 egress costs. This is one of the reasons the team advises operators to co-locate.
+
+---
+
+## Kubernetes resources
+
+### What Kubernetes resources does the Helm chart create?
+
+The `block-node-server` Helm chart creates the following resources in the target namespace.
+Resource names are based on the Helm release name (default: `block-node-server`):
+
+|               Kind               |                          Purpose                          |
+|----------------------------------|-----------------------------------------------------------|
+| `StatefulSet`                    | Runs the Block Node pod with stable network identity      |
+| `Service` (ClusterIP)            | Internal cluster endpoint on port 40840                   |
+| `Service` (LoadBalancer)         | External endpoint (if `service.type: LoadBalancer`)       |
+| `ServiceAccount`                 | Pod identity for RBAC                                     |
+| `ConfigMap` (config)             | Environment variables injected into the pod               |
+| `ConfigMap` (logging)            | Java logging configuration                                |
+| `ConfigMap` (sources)            | `block-node-sources.json` for backfill and roster queries |
+| `Secret`                         | Credentials (e.g. S3 keys)                                |
+| `ServiceMonitor`                 | Prometheus scrape configuration (port 16007)              |
+| `Ingress`                        | TLS termination (if `ingress.enabled: true`)              |
+| `ConfigMap` (Grafana dashboard)  | Pre-built Grafana dashboard (if monitoring enabled)       |
+| `ConfigMap` (Grafana datasource) | Grafana datasource pointing at the metrics endpoint       |
+
+> See `charts/block-node-server/templates/` in the repository for the full template set.
+
+---
+
+## Protocols and tooling
+
+### Where are the protocol buffers defined?
+
+The Block Node public API protos live in `protobuf-sources/src/main/proto/block-node/api/`:
+
+|               Proto file               |                                           Services / messages defined                                           |
+|----------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| `block_stream_publish_service.proto`   | `BlockStreamPublishService.publishBlockStream` — CN → BN ingestion                                              |
+| `block_stream_subscribe_service.proto` | `BlockStreamSubscribeService.subscribeBlockStream` — MN / Tier 2 consumption                                    |
+| `block_access_service.proto`           | `BlockAccessService.getBlock` — random-access single-block retrieval                                            |
+| `node_service.proto`                   | `BlockNodeService.serverStatus` / `serverStatusDetail` — metadata and health                                    |
+| `state_service.proto`                  | `StateService.stateSnapshot` — *(defined; not yet implemented)*                                                 |
+| `proof_service.proto`                  | `ProofService` — block content and state proofs *(not yet implemented)*                                         |
+| `reconnect_service.proto`              | `ReconnectService.reconnect()` — provides state + block data to lagging Consensus Nodes *(not yet implemented)* |
+| `network-data.proto`                   | Shared network endpoint message types: `NetworkData`, `NetworkConnection`                                       |
+| `shared_message_types.proto`           | Shared message types: `BlockItemSet`, `BlockProof`, `EndOfStream`, etc.                                         |
+
+The BN API protos are defined locally in `protobuf-sources/src/main/proto/block-node/api/`
+within this repository. The Consensus Node protos (pulled for combined artifact generation)
+originate from the
+[hiero-ledger/hiero-consensus-node](https://github.com/hiero-ledger/hiero-consensus-node)
+repository and are fetched by `protobuf-sources/scripts/build-bn-proto.sh`.
+
+### What tooling and scripts are provided in the repository?
+
+The `tools-and-tests/` directory contains:
+
+|                  Tool                  |                  Location                  |                                                                                                    Purpose                                                                                                    |
+|----------------------------------------|--------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **`bn-endpoint-checker.sh`**           | `tools-and-tests/scripts/node-operations/` | Health checker: verifies TCP reachability, calls `serverStatus` and `serverStatusDetail`, and optionally fetches the latest block proof type. Primary operator health-check script.                           |
+| **`Taskfile.yml`** (operations)        | `tools-and-tests/scripts/node-operations/` | Taskfile targets: `helm-upgrade`, `reset-file-store`, `reset-upgrade`, `helm-release`. Used for lifecycle management of deployed nodes.                                                                       |
+| **`generate-rsa-roster-bootstrap.sh`** | `tools-and-tests/scripts/node-operations/` | Generates an RSA roster bootstrap JSON file for WRB cutover preparation.                                                                                                                                      |
+| **`run-k6-tests.sh`**                  | `tools-and-tests/k6/`                      | Runs k6 load tests against a deployed Block Node.                                                                                                                                                             |
+| **Block Stream Simulator**             | `tools-and-tests/simulator/`               | Publishes synthetic block streams to a Block Node without a real Consensus Node. Used for local testing. See [Testing with the Simulator](./operations/testing-a-deployed-block-node-using-the-simulator.md). |
+
+### Which plugins provide which features?
+
+Each plugin is identified by its `plugins.names` key (used in Helm configuration):
+
+|       Plugin name        |                                       Feature provided                                       |             Tier required             |
+|--------------------------|----------------------------------------------------------------------------------------------|---------------------------------------|
+| `stream-publisher`       | Accepts block streams from Consensus Nodes (`publishBlockStream` RPC)                        | Tier 1 only — **remove for Tier 2**   |
+| `stream-subscriber`      | Serves block streams to Mirror Nodes and downstream Block Nodes (`subscribeBlockStream` RPC) | Tier 1 and Tier 2                     |
+| `block-access-service`   | Single-block random-access retrieval (`getBlock` RPC)                                        | Tier 1 and Tier 2                     |
+| `server-status`          | `serverStatus` and `serverStatusDetail` RPCs — block range, version, plugin list             | All deployments                       |
+| `health`                 | Kubernetes liveness (`/healthz/livez`) and readiness (`/healthz/readyz`) probes              | All deployments                       |
+| `verification`           | Verifies block proofs before persistence (TSS and RSA/WRB)                                   | All deployments                       |
+| `blocks-file-recent`     | Short-term block persistence on local NVMe with configurable retention policy                | LFH and RFH profiles                  |
+| `blocks-file-historic`   | Long-term block persistence on local HDD (archive tier)                                      | LFH profile                           |
+| `cloud-storage-archive`  | Archives blocks to S3-compatible cloud storage (group files)                                 | RFH and cloud-backup profiles         |
+| `cloud-storage-expanded` | Uploads each verified block individually to S3-compatible storage                            | Optional                              |
+| `backfill`               | Fetches missing historical blocks from peer Block Nodes                                      | All production deployments            |
+| `roster-bootstrap-rsa`   | Loads the RSA node address book at startup for WRB block proof verification                  | Required for WRB cutover              |
+| `roster-bootstrap-tss`   | Loads TSS roster data for post-cutover block proof verification                              | Required post-cutover                 |
+| `facility-messaging`     | Internal LMAX Disruptor event bus — distributes block items to all plugins                   | All deployments (core infrastructure) |
+
+> See [Configuration Reference](./configuration.md) for `plugins.names` syntax and profile examples.
+
+### Is a fully-qualified domain name (FQDN) required?
+
+No FQDN is strictly required, but you need either a resolvable hostname or an IP address in two places:
+
+**For `block-nodes.json` (CN → BN wiring):**
+The `address` field accepts any hostname or IP that is DNS-resolvable from the Consensus
+Node's host. If DNS resolution is unreliable in your environment, use an IP address
+directly.
+
+**For on-chain registration (HIP-1137):**
+Each `service_endpoint` requires either:
+- `domain_name` — an FQDN of up to 250 ASCII characters, OR
+- `ip_address` — an IPv4 or IPv6 address in big-endian byte order.
+
+The two are mutually exclusive per endpoint. For production deployments a stable hostname
+is recommended so that IP address changes do not require a registration update.
+
+> See [Configure Consensus Node Streaming](./operations/consensus-node-to-block-node-configuration.md)
+> and [Block Node On-Chain Registration](./block-node-on-chain-registration.md) for full details.
 
 ---
