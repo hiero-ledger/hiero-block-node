@@ -44,6 +44,20 @@ NVMe IOPS requirements and the risk of noisy-neighbour effects on VMs.
 
 > See [Deploy with Solo Provisioner](./operations/solo-weaver-single-node-k8s-deployment.md) for full details.
 
+### How do I size the archive PVC relative to my bulk storage disk?
+
+Set `blockNode.persistence.archive.size` to approximately **80% of your available bulk
+disk capacity**. For example, with 100 TiB of HDD, set the archive PVC to around 80 TiB.
+
+The reasoning:
+- Leaving 20% headroom means when the PVC eventually fills, there is hardware space
+immediately available to relieve pressure while more storage is provisioned or data
+is migrated.
+- Drive performance generally degrades slightly above 80% utilisation.
+
+The 80% figure is a recommendation, not a hard requirement — operators may choose a
+different value based on their own retention and capacity policies.
+
 ---
 
 ## Networking and security
