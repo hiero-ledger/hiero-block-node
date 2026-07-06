@@ -101,13 +101,9 @@ network. Block numbers start at 0 (genesis) and increment by 1 per block. Used i
 
 ***
 
-A cryptographic proof attached to each block, produced by Consensus Nodes, that allows any
-consumer to independently verify the block's authenticity. A block may contain multiple
-`BlockProof` items; they always appear after the [Block Footer](#block-footer). The proof
-type varies by network era: TSS signature blocks are verified using the network's
-[Ledger ID](#ledger-id) and [WRAPS](#wraps) verification key; Wrapped Record Blocks
-([WRBs](#wrb-wrapped-record-block)) use RSA signatures from the historical address book.
-Future proof types (e.g. post-quantum) will be added as the network evolves. Defined in
+A cryptographic proof attached to each block that allows any consumer to independently
+verify the block's authenticity. A block may contain multiple `BlockProof` items; they
+always appear after the [Block Footer](#block-footer). Defined in
 [HIP-1056](https://hips.hedera.com/hip/hip-1056).
 
 ### Block Stream
@@ -206,10 +202,10 @@ Block Streams ([HIP-1056](https://hips.hedera.com/hip/hip-1056)), Block Nodes
 
 ***
 
-A small binary file (`jumpstart.bin`, under 1.5 KB) containing the last wrapped block
-number, its root hash, and the streaming Merkle tree state. Consensus Nodes load this file
-at the release that activates WRB production, enabling them to resume block hash
-calculation without scanning millions of historical blocks.
+A small amount of configuration data (under 1.5 KB) containing the last wrapped block
+number, its root hash, and the streaming Merkle tree state. Consensus Nodes are configured
+with this data at the release that activates WRB production, enabling them to resume block
+hash calculation without scanning millions of historical blocks.
 See [WRB CLI Runbook](./operations/wrb-cli-runbook.md).
 
 ---
@@ -292,9 +288,10 @@ See [Architecture Overview](./architecture/architecture-overview.md).
 
 ***
 
-A service provided by some Block Nodes that store block stream data in an archive for the
-benefit of a particular entity, rather than the network as a whole. Examples include cloud
-buckets, long-term tape, or replicated local disks.
+A service provided by some Block Nodes that store block stream data in an archive with no
+public access. This may be for the benefit of a private entity, or may be a form of
+disaster recovery support for the public network. Example storage locations include private
+cloud buckets, long-term tape, or replicated local disks.
 
 ### Private-Cloud
 
@@ -315,8 +312,7 @@ A Hiero network operated on behalf of a private entity.
 ***
 
 An entity that publishes block data to a Block Node via the `publishBlockStream` gRPC API.
-In a standard Hiero network, publishers are Consensus Nodes (for Tier 1 Block Nodes) or
-other Block Nodes forwarding the stream.
+In a typical Hiero network, publishers are Consensus Nodes.
 
 ---
 
@@ -377,8 +373,10 @@ The genesis roster's hash is the [Ledger ID](#ledger-id). Use "Roster" in docume
 A gRPC endpoint (`BlockNodeService.serverStatus`) that returns metadata about a Block
 Node's current state: `first_available_block`, `last_available_block`, and
 `only_latest_state`. These three fields are the only fields on `ServerStatusResponse`.
-The extended `ServerStatusDetailResponse` additionally carries `version_information` and
-`node_address_book`.
+The extended `ServerStatusDetailResponse` provides extended detail, including
+`version_information`, `node_address_book`, `available_ranges`, `stored_ranges`, `tss_data`,
+and `ranged_address_book_history`. Note: the extended response does not carry the fields
+returned in the base response.
 
 ### `StateChanges`
 
@@ -395,8 +393,8 @@ Defined in [HIP-1056](https://hips.hedera.com/hip/hip-1056).
 ***
 
 The recommended tool for provisioning Block Nodes on cloud VMs or bare-metal Kubernetes
-clusters. Formerly known as Solo Weaver. Use "Solo Provisioner" in prose; the repository
-URL and filename retain `solo-weaver`.
+clusters. Formerly known as Solo Weaver, and only referred to as `Solo Provisioner` in
+descriptions. The repository URL and filenames may still contain references to `solo-weaver`.
 See [Deploy with Solo Provisioner](./operations/solo-weaver-single-node-k8s-deployment.md).
 
 ### State Snapshot *(planned)*
@@ -435,7 +433,8 @@ first layer of the block-stream distribution network.
 
 A Block Node that receives the block stream from one or more upstream Block Nodes (Tier 1
 or another Tier 2). Tier 2 nodes are permissionless and are commonly used to redistribute
-the stream to downstream clients such as Mirror Nodes.
+the stream to downstream clients such as Mirror Nodes or to provide value-added
+application-specific services.
 
 ### TSS (hinTS)
 
