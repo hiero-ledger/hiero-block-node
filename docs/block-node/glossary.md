@@ -101,10 +101,13 @@ network. Block numbers start at 0 (genesis) and increment by 1 per block. Used i
 
 ***
 
-A cryptographic proof attached to each block that allows any consumer to independently
-verify the block's authenticity using the network's [Ledger ID](#ledger-id) and
-[WRAPS](#wraps) verification key. A block may contain multiple `BlockProof` items; they
-always appear after the [Block Footer](#block-footer). Defined in
+A cryptographic proof attached to each block, produced by Consensus Nodes, that allows any
+consumer to independently verify the block's authenticity. A block may contain multiple
+`BlockProof` items; they always appear after the [Block Footer](#block-footer). The proof
+type varies by network era: TSS signature blocks are verified using the network's
+[Ledger ID](#ledger-id) and [WRAPS](#wraps) verification key; Wrapped Record Blocks
+([WRBs](#wrb-wrapped-record-block)) use RSA signatures from the historical address book.
+Future proof types (e.g. post-quantum) will be added as the network evolves. Defined in
 [HIP-1056](https://hips.hedera.com/hip/hip-1056).
 
 ### Block Stream
