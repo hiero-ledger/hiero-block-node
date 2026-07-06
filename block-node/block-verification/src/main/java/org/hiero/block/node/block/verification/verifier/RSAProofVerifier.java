@@ -39,7 +39,7 @@ public final class RSAProofVerifier implements ProofVerifier {
             final Signature sha384WithRSA) {
         this.proofVerificationMetrics = Objects.requireNonNull(proofVerificationMetrics);
         this.blockNumber = blockNumber;
-        this.rsaKeyByNodeId = rsaKeyByNodeId;
+        this.rsaKeyByNodeId = Objects.requireNonNull(rsaKeyByNodeId);
         this.proof = proof;
         this.version = proof.version();
         this.signedWRBPayload = Objects.requireNonNull(signedWRBPayload);
@@ -67,7 +67,7 @@ public final class RSAProofVerifier implements ProofVerifier {
     public SessionFailureType verify() {
         final SessionFailureType result;
         // Guard: no era in the address book history covers this block number
-        if (rsaKeyByNodeId == null || rsaKeyByNodeId.isEmpty()) {
+        if (rsaKeyByNodeId.isEmpty()) {
             LOGGER.log(
                     WARNING,
                     "No address book era covers block {0} — cannot verify RSA WRB proof."

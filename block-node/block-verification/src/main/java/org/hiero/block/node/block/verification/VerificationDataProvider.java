@@ -56,28 +56,27 @@ public final class VerificationDataProvider {
 
     /// Returns the RSA public key map for the address book era that covers {@code blockNumber},
     /// resolved via {@link org.hiero.block.node.spi.ApplicationStateFacility#getAddressBookForBlock}.
-    /// Returns {@code null} when no era covers the block (the caller must fail the block with
+    /// Returns {@code empty map} when no era covers the block (the caller must fail the block with
     /// {@link org.hiero.block.node.block.verification.session.SessionFailureType#MISSING_VERIFICATION_DATA}).
     ///
     /// The result is cached by address-book identity: consecutive blocks in the same era share the
     /// same [NodeAddressBook] instance from the history lookup, so key parsing only happens once per
     /// era transition rather than once per block.
     public Map<Long, PublicKey> rsaPublicKeysForBlock(final long blockNumber) {
+
         final NodeAddressBook book = context.applicationStateFacility().getAddressBookForBlock(blockNumber);
-        if (book == null) {
-            return null;
-        }
         final CachedKeyMap cached = cachedKeyMap.get();
         if (cached != null && cached.book() == book) {
             return cached.keys();
         }
         try {
             final Map<Long, PublicKey> keys = buildKeyMap(book);
-            cachedKeyMap.set(new CachedKeyMap(book, keys));
+            if (!keys.isEmpty())
+                cachedKeyMap.set(new CachedKeyMap(book, keys));
             return keys;
         } catch (final NoSuchAlgorithmException e) {
             LOGGER.log(WARNING, "RSA KeyFactory not available for block {0} — returning empty key map", blockNumber);
-            return null;
+            return Map.of();
         }
     }
 
@@ -154,33 +153,26 @@ public final class VerificationDataProvider {
     /// @param book the address book loaded by `RsaRosterBootstrapPlugin`
     /// @return an unmodifiable map from node ID to `PublicKey`
     private Map<Long, PublicKey> buildKeyMap(final NodeAddressBook book) throws NoSuchAlgorithmException {
-        final Map<Long, PublicKey> result;
+        if (book == null || book.nodeAddress().isEmpty()) return Map.of();
+
         final List<NodeAddress> nodeAddresses = book.nodeAddress();
-        if (nodeAddresses.isEmpty()) {
-            result = Map.of();
-        } else {
-            final Map<Long, PublicKey> map = new HashMap<>();
-            final HexFormat hex = HexFormat.of();
-            // Obtain KeyFactory once — provider lookup is not cheap and RSA must always be available.
-            final KeyFactory kf = KeyFactory.getInstance("RSA");
-            for (final NodeAddress addr : nodeAddresses) {
-                final String pubKey = addr.rsaPubKey();
-                if (!pubKey.isBlank()) {
-                    try {
-                        final byte[] keyBytes = hex.parseHex(pubKey);
-                        final PublicKey key = kf.generatePublic(new X509EncodedKeySpec(keyBytes));
-                        map.put(addr.nodeId(), key);
-                    } catch (final InvalidKeySpecException | IllegalArgumentException e) {
-                        LOGGER.log(
-                                WARNING,
-                                "Malformed RSA_PubKey for node {0} — skipped: {1}",
-                                addr.nodeId(),
-                                e.getMessage());
-                    }
+        final Map<Long, PublicKey> map = new HashMap<>();
+        final HexFormat hex = HexFormat.of();
+        // Obtain KeyFactory once — provider lookup is not cheap and RSA must always be available.
+        final KeyFactory kf = KeyFactory.getInstance("RSA");
+        for (final NodeAddress addr : nodeAddresses) {
+            final String pubKey = addr.rsaPubKey();
+            if (!pubKey.isBlank()) {
+                try {
+                    final byte[] keyBytes = hex.parseHex(pubKey);
+                    final PublicKey key = kf.generatePublic(new X509EncodedKeySpec(keyBytes));
+                    map.put(addr.nodeId(), key);
+                } catch (final InvalidKeySpecException | IllegalArgumentException e) {
+                    LOGGER.log(
+                            WARNING, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e.getMessage());
                 }
             }
-            result = Collections.unmodifiableMap(map);
         }
-        return result;
+        return Collections.unmodifiableMap(map);
     }
 }

@@ -31,16 +31,16 @@ class VerificationDataProviderTest {
     // ─── rsaPublicKeysForBlock ────────────────────────────────────────────────
 
     @Test
-    @DisplayName("rsaPublicKeysForBlock: returns null when no address book history set")
+    @DisplayName("rsaPublicKeysForBlock: returns empty Map when no address book history set")
     void rsaPublicKeysForBlock_nullWhenNoHistory() {
-        // stateFacility has no history set → getAddressBookForBlock returns null
-        assertThat(provider.rsaPublicKeysForBlock(0L)).isNull();
+        // stateFacility has no history set → getAddressBookForBlock returns empty Map
+        assertThat(provider.rsaPublicKeysForBlock(0L)).isEmpty();
     }
 
     @Test
-    @DisplayName("rsaPublicKeysForBlock: returns null when block not covered by any era")
+    @DisplayName("rsaPublicKeysForBlock: returns an empty Map when block not covered by any era")
     void rsaPublicKeysForBlock_nullWhenBlockNotInAnyEra() {
-        // era covers block 100-200; querying block 0 → null
+        // era covers block 100-200; querying block 0 → empty Map
         final NodeAddressBook book = NodeAddressBook.newBuilder().build();
         final RangedAddressBookHistory history = RangedAddressBookHistory.newBuilder()
                 .addressBooks(RangedNodeAddressBook.newBuilder()
@@ -50,7 +50,7 @@ class VerificationDataProviderTest {
                         .build())
                 .build();
         stateFacility.setAddressBookHistory(history);
-        assertThat(provider.rsaPublicKeysForBlock(0L)).isNull();
+        assertThat(provider.rsaPublicKeysForBlock(0L)).isEmpty();
     }
 
     @Test
