@@ -8,12 +8,17 @@
 #   * mirror-2 (step 7) after add-mn2.sh installs a fresh MN with block:
 #     enabled: true / sourceType: BLOCK_NODE / startBlockNumber: 0.
 #
-# Assertion signal: the importer container's logs must contain at least one
-# BN-source-related line within POLL_WINDOW seconds. Recognized patterns
-# (any one is sufficient):
-#   * "block node" / "BLOCK_NODE"
-#   * "SubscribeBlockStream" (gRPC method the importer calls on BN)
-#   * "block-node-<N>" (target hostname prefix appearing in log context)
+# Assertion signal: the importer container's logs must contain evidence of
+# a live block-stream subscription to a Block Node. The regex was tightened
+# after slice 4's first CI run — the previous "block[- ]?node|BLOCK_NODE"
+# pattern matched Spring's config-debug lines that echoed our env-var
+# overrides even when the importer failed to start, producing a false pass.
+# Current patterns fire only after the block-stream client actually subscribes:
+#   * "SubscribeBlockStream"  — importer's outgoing gRPC method call
+#   * "Received block"        — importer reports blocks arriving from BN
+#   * "block[- ]?stream.*subscri"  — chart client-lib log line
+# We also require the pod to be Ready before we trust its log content, so a
+# CrashLooping importer whose env dump mentioned BN hosts doesn't count.
 #
 # Usage:
 #     assert-mn-consuming-from-bn.sh <mirror-name>
@@ -55,14 +60,20 @@ while [[ $(date +%s) -lt ${deadline} ]]; do
     fi
 
     if [[ -n "${pod}" ]]; then
-        if kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+        # Require pod Ready before trusting log content — otherwise a
+        # CrashLooping importer whose env dump mentioned BN hosts would
+        # produce a false-positive pass.
+        pod_ready=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+            get pod "${pod}" \
+            -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+        if [[ "${pod_ready}" == "True" ]] && kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
             logs "${pod}" --tail=2000 2>/dev/null \
-            | grep -q -E "block[- ]?node|BLOCK_NODE|SubscribeBlockStream|block-node-[0-9]+"; then
-            log "${importer_deployment} (pod ${pod}) log shows BN-source activity."
+            | grep -q -E "SubscribeBlockStream|Received block|block[- ]?stream.*subscri"; then
+            log "${importer_deployment} (pod ${pod}) log shows live BN-stream activity."
             log "Sample match:"
             kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
                 logs "${pod}" --tail=2000 2>/dev/null \
-                | grep -E "block[- ]?node|BLOCK_NODE|SubscribeBlockStream|block-node-[0-9]+" \
+                | grep -E "SubscribeBlockStream|Received block|block[- ]?stream.*subscri" \
                 | head -5 | sed 's/^/    /'
             exit 0
         fi
