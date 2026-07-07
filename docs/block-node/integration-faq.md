@@ -309,26 +309,26 @@ to a long-lived gRPC stream from a Block Node**:
 
 ### Which Block Node version supports which Consensus Node version?
 
-There is no formal version compatibility matrix. The current Block Node release is
-built and tested against the CN version pinned in
-`hiero-dependency-versions/build.gradle.kts` — check the `hederaVersion` field in
-that file to see which CN version the current BN was built against.
+The Block Node is designed with long-term forward compatibility as a core goal — a given BN version is intended to remain
+compatible with future CN versions for as long as practical. In practice this means the
+minimum compatible BN version for a given CN release is expected to change very slowly
+(for example, BN 1.0.0 might remain the minimum compatible version across many CN
+releases).
+
+That said, **always run the latest available Block Node release** — the minimum
+compatible version is a floor, not a recommendation to stay pinned.
+
+The current BN release is built and tested against the CN version pinned in
+`hiero-dependency-versions/build.gradle.kts`:
 
 ```bash
-# Example: find the CN version the current BN targets
+# Find the CN version the current BN was built and tested against
 grep "hederaVersion" hiero-dependency-versions/build.gradle.kts
 # → val hederaVersion = "0.76.0-rc.1"
 ```
 
-The E2E test suite (`solo-e2e-test.yml`) always runs against the latest available
-version of each component dynamically rather than pinned pairs. For production
-compatibility guidance, consult your Hashgraph PoC.
-
-### Where is the compatibility matrix?
-
-No standalone compatibility matrix document exists in either the Block Node or
-Consensus Node repository. Track `hederaVersion` in
-`hiero-dependency-versions/build.gradle.kts` as the authoritative signal of which CN
-version a given BN release was built and tested against.
+The E2E test suite (`solo-e2e-test.yml`) runs against the latest available version of
+each component dynamically rather than pinned pairs. For production compatibility
+guidance, consult your Hashgraph PoC.
 
 ---
