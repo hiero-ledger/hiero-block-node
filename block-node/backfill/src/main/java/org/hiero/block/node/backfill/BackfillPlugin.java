@@ -335,12 +335,17 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         LOGGER.log(TRACE, "Detecting gaps in blocks");
 
         // 1. Get the blocks this node already has: the cached stored+available snapshot from the last
-        //    onContextUpdate(). The Application State facility already folds availableBlocks() into
-        //    storedBlocks whenever either changes, so this alone is the source of truth — no separate
-        //    live query is needed here. Folding in stored — not just available — prevents re-backfilling
-        //    blocks that have been evicted from a volatile tier (e.g. by the recent-tier retention
-        //    policy) but were already stored.
-        List<LongRange> blockRanges = knownBlockRanges.toList();
+        //    onContextUpdate() unioned with a live availableBlocks() read. The Application State
+        //    facility's own periodic merge normally makes the cache alone sufficient, but its scan is
+        //    on a separate schedule and can (rarely) observe a transient/incomplete snapshot of the
+        //    underlying facility right as it's queried; re-checking the live set here is a cheap
+        //    guard against acting on such a stale snapshot. Folding in stored — not just available —
+        //    prevents re-backfilling blocks that have been evicted from a volatile tier (e.g. by the
+        //    recent-tier retention policy) but were already stored.
+        ConcurrentLongRangeSet knownBlocks = new ConcurrentLongRangeSet();
+        knownBlocks.addAll(knownBlockRanges);
+        knownBlocks.addAll(context.historicalBlockProvider().availableBlocks());
+        List<LongRange> blockRanges = knownBlocks.toList();
 
         // 2. Determine range to scan
         //    - Lower bound: configured startBlock
