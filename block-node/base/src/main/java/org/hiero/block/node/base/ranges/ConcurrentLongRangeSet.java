@@ -221,8 +221,22 @@ public class ConcurrentLongRangeSet implements BlockRangeSet {
      *
      * @param ranges the set of ranges to add
      */
+    public void addAll(ConcurrentLongRangeSet ranges) {
+        for (final LongRange range : ranges.ranges.get()) {
+            add(range);
+        }
+    }
+
+    /**
+     * Adds multiple new ranges to the set. This will expand any existing ranges if they match otherwise it will add one
+     * or more new ranges. Only new values that are not in the set will be added.
+     *
+     * @param ranges the set of ranges to add
+     */
     public void addAll(BlockRangeSet ranges) {
-        ranges.streamRanges().forEach(this::add);
+        for (final LongRange range : ranges.streamRanges().toList()) {
+            add(range);
+        }
     }
 
     /**
