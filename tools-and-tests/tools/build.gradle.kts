@@ -18,7 +18,6 @@ mainModuleInfo {
     requires("com.hedera.pbj.runtime")
     requires("org.hiero.block.node.base")
     requires("org.hiero.block.protobuf.pbj")
-    requires("com.fasterxml.jackson.databind")
     requires("com.github.luben.zstd_jni")
     requires("com.google.api.gax")
     requires("com.google.auth.oauth2")

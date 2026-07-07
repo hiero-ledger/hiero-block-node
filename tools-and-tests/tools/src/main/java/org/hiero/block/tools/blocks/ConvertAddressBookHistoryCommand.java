@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
+import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,10 +14,11 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Callable;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.internal.AddressBookHistory;
 import org.hiero.block.internal.DatedNodeAddressBook;
 import org.hiero.block.tools.metadata.MetadataFiles;
@@ -30,31 +28,29 @@ import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
 
 /**
- * Convert the CLI's address-book history JSON into a block-number-scoped roster file the BN can load
- * to verify historical Wrapped Record Blocks.
+ * Convert the CLI's address-book history JSON into a {@link RangedAddressBookHistory} JSON that the
+ * Block Node can load to verify historical Wrapped Record Blocks.
  *
  * <p>Each entry in the input {@code AddressBookHistory} carries a consensus {@code block_timestamp};
  * this command resolves that timestamp to the block number that became valid at or after that time
- * (via {@link BlockTimeReader#getNearestBlockAfterTime(LocalDateTime)}) and emits a roster history
- * file with the following shape:
+ * (via {@link BlockTimeReader#getNearestBlockAfterTime(LocalDateTime)}) and emits the shape defined
+ * by the {@code RangedAddressBookHistory} proto (see {@code node_service.proto}):
  *
  * <pre>{@code
  * {
- *   "entries": [
+ *   "addressBooks": [
  *     {
- *       "startBlock": <long>,
- *       "endBlock":   <long>|null,
- *       "blockTimestamp": { "seconds": <long>, "nanos": <int> },
- *       "addressBook": "<base64-encoded NodeAddressBook proto>"
+ *       "addressBook": { "nodeAddress": [ { "nodeId": ..., "rsaPubKey": "...", ... }, ... ] },
+ *       "startBlock":  <long>,
+ *       "endBlock":    <long>
  *     },
  *     ...
  *   ]
  * }
  * }</pre>
  *
- * <p>{@code endBlock} is {@code (next.startBlock - 1)}; the most recent era's {@code endBlock}
- * is {@code null} to mark it as open-ended. The full {@code NodeAddressBook} proto is preserved
- * per era (Base64) so the BN can extract the fields it needs at load time.
+ * <p>{@code endBlock} for the last era is {@code -1}, the open-ended sentinel used by
+ * {@code RangedAddressBookHistory}. For all other eras {@code endBlock} is {@code (next.startBlock - 1)}.
  *
  * <p>Intended consumer: the BN's historical RSA-roster bootstrap (issue #2958 / T4).
  */
@@ -65,6 +61,9 @@ import picocli.CommandLine.Option;
         mixinStandardHelpOptions = true)
 public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
 
+    /** Sentinel value used by {@link RangedAddressBookHistory} for the open-ended (most-recent) era. */
+    static final long OPEN_ENDED_END_BLOCK = -1L;
+
     @Option(
             names = {"-i", "--input"},
             description =
@@ -73,12 +72,13 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
     private Path inputFile;
 
     /**
-     * Default output path mirrors today's single-book layout (see
-     * {@code ApplicationStateConfig.rsaBootstrapFilePath}) so that, by default, the file lands
-     * where the BN's historical-roster bootstrap (T4) is expected to read it from.
+     * Default output path is the same file the BN reads for its RSA bootstrap
+     * ({@code ApplicationStateConfig.rsaBootstrapFilePath}). T4's loader accepts
+     * either a single-book {@link NodeAddressBook} JSON or a
+     * {@link RangedAddressBookHistory} JSON at this path.
      */
     static final Path DEFAULT_OUTPUT_PATH =
-            Path.of("/opt/hiero/block-node/application-state/rsa-bootstrap-roster-history.json");
+            Path.of("/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json");
 
     @Option(
             names = {"-o", "--output"},
@@ -90,8 +90,6 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             description =
                     "Path to block_times.bin used for consensus-time → block-number lookup (default: ${DEFAULT-VALUE})")
     private Path blockTimesFile = MetadataFiles.BLOCK_TIMES_FILE;
-
-    private static final ObjectMapper JSON_MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
 
     @Override
     public Integer call() throws Exception {
@@ -118,8 +116,11 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         }
         System.out.println("  Eras:            " + sorted.size());
 
+        // Use forCurrentNetwork() so that the genesis instant respects the top-level --network
+        // option (mainnet / testnet / previewnet / other). The raw BlockTimeReader(Path) ctor
+        // hardcodes the mainnet genesis, which would break resolution on any other network.
         final long[] startBlocks;
-        try (BlockTimeReader reader = new BlockTimeReader(blockTimesFile)) {
+        try (BlockTimeReader reader = BlockTimeReader.forCurrentNetwork(blockTimesFile)) {
             startBlocks = resolveStartBlocks(sorted, reader);
         }
 
@@ -127,25 +128,19 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
     }
 
     private int convertAndWrite(List<DatedNodeAddressBook> sorted, long[] startBlocks) throws IOException {
-        final ObjectNode root = JSON_MAPPER.createObjectNode();
-        final ArrayNode entries = root.putArray("entries");
+        final List<RangedNodeAddressBook> ranged = new ArrayList<>(sorted.size());
         for (int i = 0; i < sorted.size(); i++) {
-            final DatedNodeAddressBook era = sorted.get(i);
-            final Timestamp ts = era.blockTimestampOrThrow();
-            final NodeAddressBook book = era.addressBookOrThrow();
-
-            final ObjectNode entry = entries.addObject();
-            entry.put("startBlock", startBlocks[i]);
-            if (i + 1 < sorted.size()) {
-                entry.put("endBlock", startBlocks[i + 1] - 1);
-            } else {
-                entry.putNull("endBlock");
-            }
-            final ObjectNode tsNode = entry.putObject("blockTimestamp");
-            tsNode.put("seconds", ts.seconds());
-            tsNode.put("nanos", ts.nanos());
-            entry.put("addressBook", encodeAddressBook(book));
+            final NodeAddressBook book = sorted.get(i).addressBookOrThrow();
+            final long start = startBlocks[i];
+            final long end = (i + 1 < sorted.size()) ? startBlocks[i + 1] - 1 : OPEN_ENDED_END_BLOCK;
+            ranged.add(RangedNodeAddressBook.newBuilder()
+                    .addressBook(book)
+                    .startBlock(start)
+                    .endBlock(end)
+                    .build());
         }
+        final RangedAddressBookHistory rangedHistory =
+                RangedAddressBookHistory.newBuilder().addressBooks(ranged).build();
 
         Path parent = outputFile.toAbsolutePath().getParent();
         if (parent != null) {
@@ -155,7 +150,9 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         // leave the destination half-written for the BN to read.
         final Path tmp = outputFile.resolveSibling(outputFile.getFileName() + ".tmp");
         try {
-            JSON_MAPPER.writeValue(tmp.toFile(), root);
+            try (WritableStreamingData out = new WritableStreamingData(Files.newOutputStream(tmp))) {
+                RangedAddressBookHistory.JSON.write(rangedHistory, out);
+            }
             Files.move(tmp, outputFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
             Files.deleteIfExists(tmp);
@@ -203,10 +200,5 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             startBlocks[i] = reader.getNearestBlockAfterTime(ldt);
         }
         return startBlocks;
-    }
-
-    private static String encodeAddressBook(NodeAddressBook book) {
-        return Base64.getEncoder()
-                .encodeToString(NodeAddressBook.PROTOBUF.toBytes(book).toByteArray());
     }
 }
