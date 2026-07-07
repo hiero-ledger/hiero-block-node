@@ -5,6 +5,7 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -12,6 +13,7 @@ import io.helidon.common.tls.Tls;
 import io.helidon.webclient.api.WebClient;
 import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
 import io.helidon.webclient.http2.Http2ClientProtocolConfig;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -103,7 +105,11 @@ public final class LiveBlockPushClient implements AutoCloseable {
                 throw new IllegalStateException("clientDefaultConfig.json not found on classpath");
             }
             return HelidonWebClientConfig.JSON.parse(Bytes.wrap(stream.readAllBytes()));
-        } catch (final Exception e) {
+        } catch (final IOException | ParseException | RuntimeException e) {
+            // IOException from readAllBytes/close; ParseException from the PBJ parse call;
+            // RuntimeException for anything else. Named explicitly so a future new checked
+            // exception surfaces as a compile error instead of being silently swallowed by
+            // a bare `Exception` catch.
             throw new IllegalStateException("Failed to load default Helidon web client config", e);
         }
     }
@@ -235,10 +241,13 @@ public final class LiveBlockPushClient implements AutoCloseable {
                     // Wait for all ACKs (deadline) before closing.
                     waitForPending(inFlight);
                     session.requestPipeline.onComplete();
+                    // Best effort: give the server 2 min to acknowledge onComplete before we exit.
+                    // We do NOT want a failed .get() here to trigger the outer reconnect path (we're
+                    // in the shutdown branch); log the specific expected exceptions and move on.
                     try {
                         session.completion.get(2, TimeUnit.MINUTES);
-                    } catch (final Exception ignored) {
-                        // best effort
+                    } catch (final java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+                        System.err.println("[push] shutdown: completion did not settle cleanly: " + e.getMessage());
                     }
                     return; // shutdown path
                 } catch (final StreamFailure sf) {
@@ -247,27 +256,37 @@ public final class LiveBlockPushClient implements AutoCloseable {
                     System.err.println("[push] stream failure: " + sf.getMessage() + "; reconnecting after " + backoffMs
                             + "ms (" + inFlight.size() + " in-flight)");
                     safeClose(session);
-                    Thread.sleep(backoffMs);
-                    backoffMs = Math.min(retryMaxMs, backoffMs * 2);
+                    backoffMs = backoffAndAdvance(backoffMs);
+                    if (Thread.currentThread().isInterrupted()) {
+                        return;
+                    }
                 } finally {
                     safeClose(session);
                 }
             } catch (final InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 return;
-            } catch (final Exception e) {
+            } catch (final RuntimeException e) {
                 streamReconnects.incrementAndGet();
                 System.err.println("[push] unexpected worker error: " + e.getMessage() + "; reconnecting after "
                         + backoffMs + "ms");
-                try {
-                    Thread.sleep(backoffMs);
-                } catch (final InterruptedException ie) {
-                    Thread.currentThread().interrupt();
+                backoffMs = backoffAndAdvance(backoffMs);
+                if (Thread.currentThread().isInterrupted()) {
                     return;
                 }
-                backoffMs = Math.min(retryMaxMs, backoffMs * 2);
             }
         }
+    }
+
+    /**
+     * Park for {@code backoffMs} milliseconds, then return the next (doubled, clamped) backoff.
+     * Uses {@link java.util.concurrent.locks.LockSupport#parkNanos} so we don't need to catch
+     * {@link InterruptedException} — park returns silently on interrupt and leaves the flag set
+     * for the caller to observe.
+     */
+    private long backoffAndAdvance(final long backoffMs) {
+        java.util.concurrent.locks.LockSupport.parkNanos(backoffMs * 1_000_000L);
+        return Math.min(retryMaxMs, backoffMs * 2);
     }
 
     private void sendBlock(final StreamSession session, final QueuedBlock qb) {
@@ -461,15 +480,43 @@ public final class LiveBlockPushClient implements AutoCloseable {
                         break;
                     }
                 } while (!lastAckedBlock.compareAndSet(prev, blockNumber));
+                return;
+            }
+            // The publish protocol may respond with more than acknowledgements. We surface each
+            // variant so the operator log makes it clear what the BN is telling us, and let the
+            // stream-lifecycle path (streamAlive / completion / worker reconnect) handle the
+            // consequences. Skip/Resend/NodeBehindPublisher are informational for this client;
+            // EndOfStream is a normal close after the max stream duration (or a hard error),
+            // which the outer worker treats as a reconnect trigger.
+            if (response.hasSkipBlock()) {
+                System.err.println("[push] BN sent SkipBlock: block "
+                        + response.skipBlock().blockNumber());
+            } else if (response.hasResendBlock()) {
+                System.err.println("[push] BN sent ResendBlock: block "
+                        + response.resendBlock().blockNumber());
+            } else if (response.hasNodeBehindPublisher()) {
+                System.err.println("[push] BN reports node behind publisher at block "
+                        + response.nodeBehindPublisher().blockNumber());
+            } else if (response.hasEndStream()) {
+                final PublishStreamResponse.EndOfStream end = response.endStream();
+                System.err.println("[push] BN sent EndOfStream (code=" + end.status() + ", block=" + end.blockNumber()
+                        + "); worker will reconnect");
+                streamAlive.set(false);
+                completion.complete(null);
             }
         }
 
         @Override
         public void onError(final Throwable throwable) {
+            // Runs on Helidon's I/O thread. Don't throw from here — Helidon's behaviour on a
+            // thrown exception is undefined and it can hang the stream. We log, mark the stream
+            // dead via the AtomicBoolean, and complete the future exceptionally. The worker's
+            // poll loop observes streamAlive == false and re-throws StreamFailure on its own
+            // thread, which is the correct place for the reconnect logic to fire.
             failureCause = throwable;
             streamAlive.set(false);
             completion.completeExceptionally(throwable);
-            throw new StreamFailure(throwable);
+            System.err.println("[push] response stream error: " + throwable.getMessage());
         }
 
         @Override

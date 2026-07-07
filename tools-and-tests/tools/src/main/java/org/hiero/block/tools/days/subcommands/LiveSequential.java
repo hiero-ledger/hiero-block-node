@@ -362,10 +362,9 @@ public class LiveSequential implements Runnable {
                 pushClient = new LiveBlockPushClient(
                         pushBnHost, pushBnPort, pushQueueCapacity, LiveBlockPushClient.loadDefaultWebConfig());
                 pushSkipUpToInclusive = pushClient.queryLastAvailableBlock();
-                System.out.println("[live-sequential] Live push enabled: target=" + pushBnHost + ":"
-                        + pushBnPort + " queueCapacity=" + pushQueueCapacity
-                        + " BN lastAvailableBlock=" + pushSkipUpToInclusive
-                        + " (blocks <= this are skipped from push)");
+                System.out.printf(
+                        "[live-sequential] Live push enabled: target=%s:%d queueCapacity=%d BN lastAvailableBlock=%d (blocks <= this are skipped from push)%n",
+                        pushBnHost, pushBnPort, pushQueueCapacity, pushSkipUpToInclusive);
                 pushClient.start();
             }
 
@@ -1176,12 +1175,8 @@ public class LiveSequential implements Runnable {
         // bounded queue) so a slow/unreachable BN only stalls the push, not the local pipeline,
         // unless the queue fills (in which case the wrap thread blocks here rather than dropping).
         if (pushClient != null && blockNum > pushSkipUpToInclusive) {
-            try {
-                pushClient.pushBlock(blockNum, wrapped);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                throw ie;
-            }
+            // Method declares `throws Exception` so InterruptedException propagates naturally.
+            pushClient.pushBlock(blockNum, wrapped);
         }
 
         // Collect signature stats
