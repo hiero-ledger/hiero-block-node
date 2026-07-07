@@ -134,6 +134,47 @@ class ConvertAddressBookHistoryCommandTest {
             assertTrue(!json.contains("\"blockTimestamp\""), "blockTimestamp must not be emitted");
             assertTrue(!json.contains("\"entries\""), "legacy top-level 'entries' must not be emitted");
         }
+
+        @Test
+        @DisplayName("startBlock and endBlock are always present in raw JSON, even when 0 / -1 defaults")
+        void explicitStartAndEndBlockPresent() throws IOException {
+            // First-era startBlock resolves to 0 (target == genesis) and last-era endBlock is
+            // the OPEN_ENDED_END_BLOCK sentinel (-1). PBJ's JSON codec elides proto3 uint64
+            // defaults, so without our post-write fixup both fields would go missing.
+            // Operators reading the roster should always see both fields spelled out.
+            final long[] picks = new long[] {0, 5000, 12000};
+            final List<Instant> instants = blockInstants(picks);
+            writeHistory(
+                    inputFile,
+                    List.of(
+                            dated(instants.get(0), addressBook(0, 1, "aa")),
+                            dated(instants.get(1), addressBook(0, 1, "bb")),
+                            dated(instants.get(2), addressBook(0, 1, "cc"))));
+
+            assertEquals(0, execute());
+
+            final String json = Files.readString(outputFile);
+            final long startBlockCount =
+                    json.lines().filter(l -> l.contains("\"startBlock\"")).count();
+            final long endBlockCount =
+                    json.lines().filter(l -> l.contains("\"endBlock\"")).count();
+            assertEquals(3L, startBlockCount, "every entry must emit a startBlock line");
+            assertEquals(3L, endBlockCount, "every entry must emit an endBlock line");
+
+            // PBJ writes uint64 fields as JSON strings; our post-write fixup follows the
+            // same convention so the shape stays uniform for the BN parser.
+            assertTrue(
+                    json.contains("\"startBlock\" : \"0\""),
+                    "first era's startBlock=0 must be written explicitly as a JSON string");
+            assertTrue(
+                    json.contains("\"endBlock\" : \"-1\""),
+                    "last era's endBlock=-1 sentinel must be written explicitly as a JSON string");
+
+            // PBJ parse-side must still reconstruct the same values from the fixed-up JSON.
+            final RangedAddressBookHistory out = readOutput();
+            assertEquals(0L, out.addressBooks().get(0).startBlock());
+            assertEquals(-1L, out.addressBooks().get(2).endBlock());
+        }
     }
 
     @Nested

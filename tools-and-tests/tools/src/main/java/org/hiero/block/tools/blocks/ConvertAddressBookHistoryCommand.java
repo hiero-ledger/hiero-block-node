@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.ParseException;
@@ -208,6 +211,14 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             try (WritableStreamingData out = new WritableStreamingData(Files.newOutputStream(tmp))) {
                 RangedAddressBookHistory.JSON.write(rangedHistory, out);
             }
+            // PBJ's JSON codec elides proto3 default values (uint64 == 0), which makes a
+            // legitimate genesis-era startBlock=0 or open-ended endBlock look identical to a
+            // missing field. This bootstrap file gets inspected by operators, so re-emit it
+            // with both fields always present: startBlock defaults to 0 (proto3 default),
+            // endBlock defaults to -1 (OPEN_ENDED_END_BLOCK sentinel, used only for the last
+            // era). PBJ's parse side reconstructs the same values from either shape, so the
+            // BN loader is unaffected.
+            ensureExplicitStartAndEndBlock(tmp);
             Files.move(tmp, outputFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
             Files.deleteIfExists(tmp);
@@ -216,6 +227,35 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         System.out.println(Ansi.AUTO.string(
                 "@|green Wrote " + sorted.size() + " roster entries to " + outputFile.toAbsolutePath() + "|@"));
         return 0;
+    }
+
+    /**
+     * Re-emit the roster JSON at {@code file} so every entry has an explicit
+     * {@code startBlock} and {@code endBlock} field, defaulting to {@code 0} and
+     * {@code -1} respectively when the PBJ codec elided them. Preserves entry order
+     * and the nested {@code addressBook} structure verbatim.
+     */
+    private static void ensureExplicitStartAndEndBlock(Path file) throws IOException {
+        final ObjectMapper mapper = new ObjectMapper();
+        final ObjectNode root = (ObjectNode) mapper.readTree(file.toFile());
+        final JsonNode addressBooksNode = root.get("addressBooks");
+        if (addressBooksNode == null || !addressBooksNode.isArray()) {
+            return; // nothing to patch — an empty roster history is legal
+        }
+        for (final JsonNode entry : addressBooksNode) {
+            if (!(entry instanceof ObjectNode entryObj)) {
+                continue;
+            }
+            // Match PBJ's convention: uint64 fields serialize as JSON strings so JS
+            // consumers don't hit the 2^53 precision cliff.
+            if (!entryObj.has("startBlock")) {
+                entryObj.put("startBlock", Long.toString(0L));
+            }
+            if (!entryObj.has("endBlock")) {
+                entryObj.put("endBlock", Long.toString(OPEN_ENDED_END_BLOCK));
+            }
+        }
+        mapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), root);
     }
 
     /**
