@@ -12,12 +12,14 @@ import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
 import java.lang.System.Logger;
 import java.util.List;
-import org.hiero.block.api.NetworkData;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.health.HealthFacility;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /// Provides implementation for the health endpoints of the server.
 ///
@@ -37,6 +39,24 @@ public class HealthServicePlugin implements BlockNodePlugin {
     protected static final String INBOUND_PATH = STATUSZ_PATH + "/inbound";
     protected static final String OUTBOUND_PATH = STATUSZ_PATH + "/outbound";
 
+    /// Counter for health/status HTTP requests, labeled by [#LABEL_ENDPOINT] and [#LABEL_RESULT].
+    /// Kubernetes probes flatlining this counter while the pod stays up is an early signal that the
+    /// server has stopped accepting connections (see class doc), before liveness/readiness fail.
+    public static final MetricKey<LongCounter> METRIC_HEALTH_REQUESTS =
+            MetricKey.of("health_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
+
+    /// Label naming the endpoint that served the request (`livez`, `readyz`, `statusz`).
+    static final String LABEL_ENDPOINT = "endpoint";
+    /// Label naming the outcome of the request (`ok`, `unavailable`, `not_found`, `error`).
+    static final String LABEL_RESULT = "result";
+    static final String ENDPOINT_LIVEZ = "livez";
+    static final String ENDPOINT_READYZ = "readyz";
+    static final String ENDPOINT_STATUSZ = "statusz";
+    static final String RESULT_OK = "ok";
+    static final String RESULT_UNAVAILABLE = "unavailable";
+    static final String RESULT_NOT_FOUND = "not_found";
+    static final String RESULT_ERROR = "error";
+
     /// The health facility, used for getting server status
     private HealthFacility healthFacility;
 
@@ -44,11 +64,18 @@ public class HealthServicePlugin implements BlockNodePlugin {
     /// for the statusz endpoints
     private ApplicationStateFacility applicationStateFacility;
 
+    /// Counter tracking every request served by the health/status endpoints.
+    private LongCounter requestCounter;
+
     /// {@inheritDoc}
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         healthFacility = context.serverHealth();
         applicationStateFacility = context.applicationStateFacility();
+        final MetricRegistry metricRegistry = context.metricRegistry();
+        requestCounter = metricRegistry.register(LongCounter.builder(METRIC_HEALTH_REQUESTS)
+                .setDescription("Health and status HTTP requests by endpoint and result")
+                .addDynamicLabelNames(LABEL_ENDPOINT, LABEL_RESULT));
         // A null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(HealthConfig.class).port();
@@ -75,12 +102,15 @@ public class HealthServicePlugin implements BlockNodePlugin {
         try {
             if (healthFacility.isRunning()) {
                 closeAfterHttp1(req, res.status(200)).send("OK");
+                recordRequest(ENDPOINT_LIVEZ, RESULT_OK);
                 LOGGER.log(TRACE, "Responded code 200 (OK) to liveness check");
             } else {
                 closeAfterHttp1(req, res.status(503)).send("Service is not running");
+                recordRequest(ENDPOINT_LIVEZ, RESULT_UNAVAILABLE);
                 LOGGER.log(INFO, "Responded code 503 (Service is not running) to liveness check");
             }
         } catch (final RuntimeException e) {
+            recordRequest(ENDPOINT_LIVEZ, RESULT_ERROR);
             LOGGER.log(WARNING, "Failed to respond to liveness check due to %s".formatted(e), e);
         }
     }
@@ -94,37 +124,53 @@ public class HealthServicePlugin implements BlockNodePlugin {
         try {
             if (healthFacility.isRunning()) {
                 closeAfterHttp1(req, res.status(200)).send("OK");
+                recordRequest(ENDPOINT_READYZ, RESULT_OK);
                 LOGGER.log(TRACE, "Responded code 200 (OK) to readiness check");
             } else {
                 closeAfterHttp1(req, res.status(503)).send("Service is not running");
+                recordRequest(ENDPOINT_READYZ, RESULT_UNAVAILABLE);
                 LOGGER.log(INFO, "Responded code 503 (Service is not running) to readiness check");
             }
         } catch (final RuntimeException e) {
+            recordRequest(ENDPOINT_READYZ, RESULT_ERROR);
             LOGGER.log(WARNING, "Failed to respond to readiness check due to %s".formatted(e), e);
         }
     }
 
     /// Handles requests for the `/statusz` endpoints. The request subpath
     /// selects which handler runs. The matching handler builds and sends its
-    /// [NetworkData] response synchronously on the request thread.
+    /// [org.hiero.block.api.NetworkData] response synchronously on the request thread.
     ///
     /// @param req the server request
     /// @param res the server response
     public final void handleStatusz(@NonNull final ServerRequest req, @NonNull final ServerResponse res) {
         try {
             final String path = req.path().path();
-            NetworkData temp;
             if (path.endsWith(INBOUND_PATH)) {
                 new InboundStatusHandler(req, res, applicationStateFacility).createAndSendResponse();
+                recordRequest(ENDPOINT_STATUSZ, RESULT_OK);
             } else if (path.endsWith(OUTBOUND_PATH)) {
                 new OutboundStatusHandler(req, res, applicationStateFacility).createAndSendResponse();
+                recordRequest(ENDPOINT_STATUSZ, RESULT_OK);
             } else {
                 LOGGER.log(INFO, "Responded code 404 (Unknown statusz subpath) for {0}", path);
                 closeAfterHttp1(req, res.status(404)).send("Unknown statusz subpath");
+                recordRequest(ENDPOINT_STATUSZ, RESULT_NOT_FOUND);
             }
         } catch (final RuntimeException e) {
             LOGGER.log(WARNING, "Failed to respond to statusz check due to %s".formatted(e), e);
             closeAfterHttp1(req, res.status(500)).send();
+            recordRequest(ENDPOINT_STATUSZ, RESULT_ERROR);
         }
+    }
+
+    /// Increments [#METRIC_HEALTH_REQUESTS] for the given endpoint and result labels.
+    ///
+    /// @param endpoint the endpoint that served the request
+    /// @param result the outcome of the request
+    private void recordRequest(@NonNull final String endpoint, @NonNull final String result) {
+        requestCounter
+                .getOrCreateLabeled(LABEL_ENDPOINT, endpoint, LABEL_RESULT, result)
+                .increment();
     }
 }

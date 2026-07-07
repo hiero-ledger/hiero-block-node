@@ -19,12 +19,14 @@ import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
 import java.nio.charset.StandardCharsets;
 import org.hiero.block.api.NetworkData;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestServerRequest;
 import org.hiero.block.node.app.fixtures.plugintest.TestServerResponse;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.health.HealthFacility;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -45,11 +47,21 @@ class HealthServiceTest {
     @Mock
     ServiceBuilder serviceBuilder;
 
-    /** Stub the context configuration so {@code init} can read {@link HealthConfig} (port unset = null). */
-    private static void setupContextConfig(BlockNodeContext context) {
+    /** Captures metric values so tests can assert the request counter (one per test instance). */
+    private final TestMetricsExporter metricsExporter = new TestMetricsExporter();
+
+    /**
+     * Stub the context configuration so {@code init} can read {@link HealthConfig} (port unset = null),
+     * and wire a real {@link MetricRegistry} so {@code init} can register the request counter.
+     */
+    private void setupContextConfig(BlockNodeContext context) {
         final Configuration configuration = Mockito.mock(Configuration.class);
         Mockito.when(configuration.getConfigData(HealthConfig.class)).thenReturn(new HealthConfig(null));
         Mockito.when(context.configuration()).thenReturn(configuration);
+        Mockito.when(context.metricRegistry())
+                .thenReturn(MetricRegistry.builder()
+                        .setMetricsExporter(metricsExporter)
+                        .build());
     }
 
     /** Stubs {@code request.prologue()} to report HTTP/1.1, matching a real Kubernetes probe. */
@@ -292,5 +304,68 @@ class HealthServiceTest {
 
         assertEquals(404, response.sentStatus());
         assertTrue(response.hasHeader(CONNECTION_CLOSE));
+    }
+
+    @Test
+    public void testHandleLivez_recordsRequestMetric() {
+        // given
+        stubHttp1Request(serverRequest);
+        Mockito.when(serverResponse.status(200)).thenReturn(serverResponse);
+        Mockito.when(serverResponse.header(CONNECTION_CLOSE)).thenReturn(serverResponse);
+
+        BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
+        HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
+        Mockito.when(healthFacility.isRunning()).thenReturn(true);
+        Mockito.when(context.serverHealth()).thenReturn(healthFacility);
+        setupContextConfig(context);
+
+        HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
+        healthServicePlugin.init(context, serviceBuilder);
+
+        // when
+        healthServicePlugin.handleLivez(serverRequest, serverResponse);
+
+        // then
+        assertEquals(1, metricsExporter.getMetricValue(METRIC_HEALTH_REQUESTS.name()));
+    }
+
+    @Test
+    public void testHandleReadyz_notRunning_recordsRequestMetric() {
+        // given
+        stubHttp1Request(serverRequest);
+        Mockito.when(serverResponse.status(503)).thenReturn(serverResponse);
+        Mockito.when(serverResponse.header(CONNECTION_CLOSE)).thenReturn(serverResponse);
+
+        BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
+        HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
+        Mockito.when(healthFacility.isRunning()).thenReturn(false);
+        Mockito.when(context.serverHealth()).thenReturn(healthFacility);
+        setupContextConfig(context);
+
+        HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
+        healthServicePlugin.init(context, serviceBuilder);
+
+        // when
+        healthServicePlugin.handleReadyz(serverRequest, serverResponse);
+
+        // then
+        assertEquals(1, metricsExporter.getMetricValue(METRIC_HEALTH_REQUESTS.name()));
+    }
+
+    @Test
+    public void testHandleStatuszUnknownSubpath_recordsRequestMetric() {
+        // given
+        BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
+        Mockito.when(context.applicationStateFacility()).thenReturn(new TestApplicationStateFacility());
+        setupContextConfig(context);
+
+        HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
+        healthServicePlugin.init(context, serviceBuilder);
+
+        // when
+        healthServicePlugin.handleStatusz(new TestServerRequest("/statusz/bogus"), new TestServerResponse());
+
+        // then
+        assertEquals(1, metricsExporter.getMetricValue(METRIC_HEALTH_REQUESTS.name()));
     }
 }

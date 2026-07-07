@@ -9,6 +9,7 @@ module org.hiero.block.node.health {
 
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
+    requires transitive org.hiero.metrics;
     requires transitive io.helidon.webserver;
     requires com.hedera.pbj.runtime;
     requires org.hiero.block.node.base;
