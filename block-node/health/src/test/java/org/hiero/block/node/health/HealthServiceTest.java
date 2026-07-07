@@ -353,19 +353,27 @@ class HealthServiceTest {
     }
 
     @Test
-    public void testHandleStatuszUnknownSubpath_recordsRequestMetric() {
-        // given
+    public void testHandleStatusz_doesNotRecordRequestMetric() {
+        // given: a running node and one health check so the request counter has a value to compare
+        stubHttp1Request(serverRequest);
+        Mockito.when(serverResponse.status(200)).thenReturn(serverResponse);
+        Mockito.when(serverResponse.header(CONNECTION_CLOSE)).thenReturn(serverResponse);
+
         BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
+        HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
+        Mockito.when(healthFacility.isRunning()).thenReturn(true);
+        Mockito.when(context.serverHealth()).thenReturn(healthFacility);
         Mockito.when(context.applicationStateFacility()).thenReturn(new TestApplicationStateFacility());
         setupContextConfig(context);
 
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
         healthServicePlugin.init(context, serviceBuilder);
+        healthServicePlugin.handleLivez(serverRequest, serverResponse);
 
         // when
         healthServicePlugin.handleStatusz(new TestServerRequest("/statusz/bogus"), new TestServerResponse());
 
-        // then
+        // then: statusz serves statistics, not health checks, so it leaves the counter unchanged
         assertEquals(1, metricsExporter.getMetricValue(METRIC_HEALTH_REQUESTS.name()));
     }
 }
