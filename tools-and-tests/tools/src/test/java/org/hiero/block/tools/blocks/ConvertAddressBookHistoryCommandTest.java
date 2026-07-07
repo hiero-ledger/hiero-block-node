@@ -202,6 +202,28 @@ class ConvertAddressBookHistoryCommandTest {
             int exit = execute();
             assertNotEquals(0, exit, "malformed input must not exit 0");
         }
+
+        @Test
+        @DisplayName("Fails loudly when an era timestamp falls before block_times.bin coverage")
+        void beforeCoverageFailsLoudly() throws IOException {
+            // Instant.EPOCH (1970-01-01) is guaranteed before any real block-time entry, so the
+            // reader will clamp to block 0 while the target is earlier than block 0's time.
+            writeHistory(inputFile, List.of(dated(Instant.EPOCH, addressBook(0, 1, "aa"))));
+            int exit = execute();
+            assertEquals(1, exit, "resolution before file coverage must exit 1, not silently produce zeros");
+            assertTrue(!Files.exists(outputFile), "output file must not be written on resolution failure");
+        }
+
+        @Test
+        @DisplayName("Fails loudly when an era timestamp falls after block_times.bin coverage")
+        void afterCoverageFailsLoudly() throws IOException {
+            // Instant.parse("9999-01-01T00:00:00Z") is guaranteed past any real block-time entry.
+            Instant farFuture = Instant.parse("9999-01-01T00:00:00Z");
+            writeHistory(inputFile, List.of(dated(farFuture, addressBook(0, 1, "aa"))));
+            int exit = execute();
+            assertEquals(1, exit, "resolution past file coverage must exit 1, not silently clamp to end");
+            assertTrue(!Files.exists(outputFile), "output file must not be written on resolution failure");
+        }
     }
 
     @Nested

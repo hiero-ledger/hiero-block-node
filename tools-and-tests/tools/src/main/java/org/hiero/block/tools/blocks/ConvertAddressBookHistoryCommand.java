@@ -120,11 +120,66 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         // option (mainnet / testnet / previewnet / other). The raw BlockTimeReader(Path) ctor
         // hardcodes the mainnet genesis, which would break resolution on any other network.
         final long[] startBlocks;
+        final List<String> resolutionProblems;
+        final Instant coverageStart;
+        final Instant coverageEnd;
+        final long coverageMaxBlock;
         try (BlockTimeReader reader = BlockTimeReader.forCurrentNetwork(blockTimesFile)) {
+            coverageMaxBlock = reader.getMaxBlockNumber();
+            coverageStart = reader.getBlockInstant(0);
+            coverageEnd = reader.getBlockInstant(coverageMaxBlock);
             startBlocks = resolveStartBlocks(sorted, reader);
+            resolutionProblems = validateResolutions(sorted, startBlocks, reader);
+        }
+
+        if (!resolutionProblems.isEmpty()) {
+            System.err.println();
+            System.err.println("Error: consensus-time -> block-number resolution failed for "
+                    + resolutionProblems.size() + " era(s):");
+            for (String p : resolutionProblems) {
+                System.err.println("  * " + p);
+            }
+            System.err.println();
+            System.err.println("block_times.bin coverage (" + blockTimesFile.toAbsolutePath() + "):");
+            System.err.println("  first indexed block: 0 @ " + coverageStart);
+            System.err.println("  last indexed block:  " + coverageMaxBlock + " @ " + coverageEnd);
+            System.err.println();
+            System.err.println("Check that --network matches the network the block_times.bin was extracted for,");
+            System.err.println("and that the file covers your input's timestamp range. Regenerate via");
+            System.err.println("`mirror extractBlockTimes` (and `mirror addNewerBlockTimes` to top it up)");
+            System.err.println("if it's stale or short.");
+            return 1;
         }
 
         return convertAndWrite(sorted, startBlocks);
+    }
+
+    /**
+     * Sanity-check every resolved {@code startBlock}. The binary search inside
+     * {@link BlockTimeReader#getNearestBlockAfterTime(LocalDateTime)} silently clamps to {@code 0}
+     * when the target time falls before every indexed block, and to {@code maxBlock} when it falls
+     * after every indexed block -- which combined with PBJ's {@code uint64} default-value elision
+     * hides the failure downstream (era's {@code startBlock} disappears, next era's
+     * {@code endBlock} collapses to {@code -1}). Detect both here and surface a real error.
+     */
+    private static List<String> validateResolutions(
+            List<DatedNodeAddressBook> sorted, long[] startBlocks, BlockTimeReader reader) {
+        final long maxBlock = reader.getMaxBlockNumber();
+        final List<String> problems = new ArrayList<>();
+        for (int i = 0; i < sorted.size(); i++) {
+            final Timestamp ts = sorted.get(i).blockTimestampOrThrow();
+            final Instant target = Instant.ofEpochSecond(ts.seconds(), ts.nanos());
+            final long block = startBlocks[i];
+            final Instant blockInstant = reader.getBlockInstant(block);
+            if (block == 0 && blockInstant.isAfter(target)) {
+                problems.add("era " + i + " (block_timestamp=" + target
+                        + ") is before the earliest indexed block (block 0 @ " + blockInstant + ")");
+            } else if (block == maxBlock && blockInstant.isBefore(target)) {
+                problems.add("era " + i + " (block_timestamp=" + target + ") is after the last indexed block (block "
+                        + maxBlock + " @ " + blockInstant + ")");
+            }
+        }
+        return problems;
     }
 
     private int convertAndWrite(List<DatedNodeAddressBook> sorted, long[] startBlocks) throws IOException {
