@@ -23,6 +23,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
@@ -96,11 +97,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private final AtomicLong liveTailHighWaterMark = new AtomicLong(-1);
 
     // Cached stored+available snapshot delivered by the last onContextUpdate() call. The Application
-    // State facility computes this merge itself whenever the underlying data actually changes, so
-    // caching it here avoids re-querying its raw stored set on every autonomous scan. Each scan still
-    // unions this with a live availableBlocks() read (see detectAndScheduleGaps) to reflect blocks
-    // persisted or evicted since the last context update. A fresh set replaces this reference on each
-    // update rather than being mutated in place, so concurrent readers always see a consistent snapshot.
+    // State facility already folds availableBlocks() into storedBlocks whenever either changes, so this
+    // alone is the source of truth for "blocks this node already has" — no separate live availableBlocks()
+    // read is needed here. A fresh set replaces this reference on each update rather than being mutated
+    // in place, so concurrent readers always see a consistent snapshot.
     private volatile ConcurrentLongRangeSet knownBlockRanges = new ConcurrentLongRangeSet();
 
     // Per-historical-gap exponential backoff. Keyed by gap start block. Accessed only from the
@@ -201,7 +201,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void onContextUpdate(BlockNodeContext context) {
         final ConcurrentLongRangeSet updated = new ConcurrentLongRangeSet();
-        context.storedBlocks().forEach(range -> updated.add(range.rangeStart(), range.rangeEnd()));
+        for (final BlockRange range : context.storedBlocks()) {
+            updated.add(range.rangeStart(), range.rangeEnd());
+        }
         knownBlockRanges = updated;
     }
 
@@ -333,15 +335,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         LOGGER.log(TRACE, "Detecting gaps in blocks");
 
         // 1. Get the blocks this node already has: the cached stored+available snapshot from the last
-        //    onContextUpdate() (avoids re-querying the Application State facility's raw stored set on
-        //    every scan) unioned with the live available set, so blocks persisted or evicted since the
-        //    last context update are reflected immediately. Folding in the cached snapshot — not just
-        //    live available — prevents re-backfilling blocks that have been evicted from a volatile tier
-        //    (e.g. by the recent-tier retention policy) but were already stored.
-        ConcurrentLongRangeSet knownBlocks = new ConcurrentLongRangeSet();
-        knownBlocks.addAll(knownBlockRanges);
-        knownBlocks.addAll(context.historicalBlockProvider().availableBlocks());
-        List<LongRange> blockRanges = knownBlocks.toList();
+        //    onContextUpdate(). The Application State facility already folds availableBlocks() into
+        //    storedBlocks whenever either changes, so this alone is the source of truth — no separate
+        //    live query is needed here. Folding in stored — not just available — prevents re-backfilling
+        //    blocks that have been evicted from a volatile tier (e.g. by the recent-tier retention
+        //    policy) but were already stored.
+        List<LongRange> blockRanges = knownBlockRanges.toList();
 
         // 2. Determine range to scan
         //    - Lower bound: configured startBlock

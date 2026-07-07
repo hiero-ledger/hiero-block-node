@@ -82,6 +82,17 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         plugin.stop();
     }
 
+    /**
+     * Delivers an initial onContextUpdate() right after the plugin starts, so its first autonomous
+     * scan already reflects whatever the test's HistoricalBlockFacility was seeded with. Mirrors how
+     * BlockNodeApp flushes Application State (stored+available) before calling plugin.start().
+     */
+    @Override
+    protected void doStart() {
+        super.doStart();
+        refreshContext();
+    }
+
     @Test
     @DisplayName("Autonomous Historical Backfill - Happy Test")
     void testBackfillAutonomous() throws InterruptedException {
@@ -1274,6 +1285,10 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                         SimpleBlockRangeSet newRange = ((SimpleBlockRangeSet) pluginStore.availableBlocks());
                         newRange.add(notification.blockNumber());
                         pluginStore.setTemporaryAvailableBlocks(newRange);
+                        // Deliver the updated range to the plugin now, the same way BlockNodeApp's ASF
+                        // scanner would on its next tick, so a concurrent scan doesn't re-detect this
+                        // block as still missing.
+                        refreshContext();
                     }
                 },
                 false,

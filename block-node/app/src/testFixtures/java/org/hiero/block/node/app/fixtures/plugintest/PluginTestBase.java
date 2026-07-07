@@ -362,10 +362,22 @@ public abstract class PluginTestBase<
      */
     public void updateStoredBlocks(LongRange blockRange) {
         appStoredBlocks.add(blockRange);
+        refreshContext();
+    }
+
+    /**
+     * Recomputes the merged stored+available context from the current {@link #appStoredBlocks} and the
+     * active {@link HistoricalBlockFacility}'s available blocks, and delivers it to the plugin via
+     * {@link BlockNodePlugin#onContextUpdate}. Mirrors how {@code BlockNodeApp}'s Application State
+     * facility periodically re-merges the two sets in production. Call this after directly mutating the
+     * historical block facility's available blocks (e.g. via block items sent through the test
+     * messaging facility) so the plugin observes the change without waiting for a real scanner tick.
+     */
+    protected void refreshContext() {
         final ConcurrentLongRangeSet merged = new ConcurrentLongRangeSet();
         merged.addAll(appStoredBlocks);
         merged.addAll(activeHistoricalBlockFacility.availableBlocks());
-        final List<BlockRange> mergedRanges = merged.toList().stream()
+        final List<BlockRange> mergedRanges = merged.streamRanges()
                 .map(r -> new BlockRange(r.start(), r.end()))
                 .toList();
         blockNodeContext = new BlockNodeContext.Builder(blockNodeContext)
