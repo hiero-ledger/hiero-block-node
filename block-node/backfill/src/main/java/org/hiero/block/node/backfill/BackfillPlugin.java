@@ -99,8 +99,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     // State facility computes this merge itself whenever the underlying data actually changes, so
     // caching it here avoids re-querying its raw stored set on every autonomous scan. Each scan still
     // unions this with a live availableBlocks() read (see detectAndScheduleGaps) to reflect blocks
-    // persisted or evicted since the last context update.
-    private volatile List<LongRange> knownBlockRanges = List.of();
+    // persisted or evicted since the last context update. A fresh set replaces this reference on each
+    // update rather than being mutated in place, so concurrent readers always see a consistent snapshot.
+    private volatile ConcurrentLongRangeSet knownBlockRanges = new ConcurrentLongRangeSet();
 
     // Per-historical-gap exponential backoff. Keyed by gap start block. Accessed only from the
     // single-threaded autonomous scan (detectAndScheduleGaps), so it needs no synchronization.
@@ -199,9 +200,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      */
     @Override
     public void onContextUpdate(BlockNodeContext context) {
-        knownBlockRanges = context.storedBlocks().stream()
-                .map(range -> new LongRange(range.rangeStart(), range.rangeEnd()))
-                .toList();
+        final ConcurrentLongRangeSet updated = new ConcurrentLongRangeSet();
+        context.storedBlocks().forEach(range -> updated.add(range.rangeStart(), range.rangeEnd()));
+        knownBlockRanges = updated;
     }
 
     /**
@@ -339,11 +340,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         //    (e.g. by the recent-tier retention policy) but were already stored.
         ConcurrentLongRangeSet knownBlocks = new ConcurrentLongRangeSet();
         knownBlocks.addAll(knownBlockRanges);
-        knownBlocks.addAll(context.historicalBlockProvider()
-                .availableBlocks()
-                .streamRanges()
-                .toList());
-        List<LongRange> blockRanges = knownBlocks.streamRanges().toList();
+        knownBlocks.addAll(context.historicalBlockProvider().availableBlocks());
+        List<LongRange> blockRanges = knownBlocks.toList();
 
         // 2. Determine range to scan
         //    - Lower bound: configured startBlock
@@ -564,10 +562,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
-        final List<LongRange> cachedRanges = knownBlockRanges;
-        long lastPersistedBlock = Math.max(
-                context.historicalBlockProvider().availableBlocks().max(),
-                cachedRanges.isEmpty() ? -1 : cachedRanges.getLast().end());
+        long lastPersistedBlock =
+                Math.max(context.historicalBlockProvider().availableBlocks().max(), knownBlockRanges.max());
         long startBackfillFrom = Math.max(lastPersistedBlock + 1, backfillConfiguration.startBlock());
         long newestBlockKnown = notification.blockNumber();
         long cappedEnd = backfillConfiguration.endBlock() >= 0

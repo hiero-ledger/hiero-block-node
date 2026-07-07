@@ -363,10 +363,9 @@ public abstract class PluginTestBase<
     public void updateStoredBlocks(LongRange blockRange) {
         appStoredBlocks.add(blockRange);
         final ConcurrentLongRangeSet merged = new ConcurrentLongRangeSet();
-        merged.addAll(appStoredBlocks.streamRanges().toList());
-        merged.addAll(
-                activeHistoricalBlockFacility.availableBlocks().streamRanges().toList());
-        final List<BlockRange> mergedRanges = merged.streamRanges()
+        merged.addAll(appStoredBlocks);
+        merged.addAll(activeHistoricalBlockFacility.availableBlocks());
+        final List<BlockRange> mergedRanges = merged.toList().stream()
                 .map(r -> new BlockRange(r.start(), r.end()))
                 .toList();
         blockNodeContext = new BlockNodeContext.Builder(blockNodeContext)
