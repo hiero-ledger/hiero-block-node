@@ -58,20 +58,20 @@ public final class RSAProofVerifier implements ProofVerifier {
     ///    - Verify with `SHA384withRSA`. If verification fails or throws, **reject the block
     ///      immediately** — the CN only includes signatures from nodes that contributed to
     ///      consensus, so any included signature must be cryptographically valid.
-    /// 5. Accept if all signatures in the proof verified. Signatures from nodes not in
-    ///      the local roster are skipped (see @todo(2808));
-    ///      step 4 already rejects the block on any failed signature from a
-    ///      known node, so reaching this step means every verifiable signature
-    ///      passed; we only need to confirm at least one such signature exists.
+    /// 5. Accept if at least one signature verified. Signatures from nodes not in
+    ///      the local roster are skipped (see @todo(2808)) and tallied into a single
+    ///      batched `rsa_roster_mismatch_total` increment; step 4 already rejects the
+    ///      block on any failed signature from a known node, so reaching this step
+    ///      means every verifiable signature passed.
     @Override
     public SessionFailureType verify() {
         final SessionFailureType result;
-        // Guard: address book must be loaded before any WRB arrives
+        // Guard: no era in the address book history covers this block number
         if (rsaKeyByNodeId.isEmpty()) {
             LOGGER.log(
-                    ERROR,
-                    "Address book is empty — cannot verify RSA WRB proof for block {0}."
-                            + " Ensure RsaRosterBootstrapPlugin started successfully.",
+                    WARNING,
+                    "No address book era covers block {0} — cannot verify RSA WRB proof."
+                            + " Ensure rsa-address-book-history.json is loaded and covers this block number.",
                     blockNumber);
             result = SessionFailureType.MISSING_VERIFICATION_DATA;
         } else if (signedWRBPayload == null) {
@@ -98,15 +98,15 @@ public final class RSAProofVerifier implements ProofVerifier {
             final Set<Long> validatedNodes = new HashSet<>();
             for (final RecordFileSignature sig : proof.recordFileSignatures()) {
                 final long nodeId = sig.nodeId();
-                // @todo(2808): long-term, use a historical roster keyed by block number so signatures
-                //   from nodes that were valid at the time the block was produced are verified correctly
-                //   across address-book transitions, rather than skipping unknown node IDs.
+                // uses a historical roster keyed by block number so signatures
+                // from nodes that were valid at the time the block was produced are verified correctly
+                // across address-book transitions, skipping unknown node IDs can still occur.
                 final PublicKey publicKey = rsaKeyByNodeId.get(nodeId);
                 if (publicKey == null) {
                     mismatchCount++;
                     LOGGER.log(
                             DEBUG,
-                            "Signature from node {0} not in address book (block {1}) — skipped",
+                            "Signature from node {0} not in era address book for block {1} — skipped",
                             nodeId,
                             blockNumber);
                     continue;
@@ -131,7 +131,7 @@ public final class RSAProofVerifier implements ProofVerifier {
                         // CN only includes signatures from consensus-contributing nodes, so a failed
                         // cryptographic verification means the block or proof has been tampered with.
                         LOGGER.log(
-                                WARNING,
+                                DEBUG,
                                 "RSA signature from node {0} failed verification in block {1} — rejecting block",
                                 nodeId,
                                 blockNumber);
@@ -156,9 +156,8 @@ public final class RSAProofVerifier implements ProofVerifier {
             }
             // Acceptance threshold: every signature present in the proof passes validation,
             // and at least one such signature exists. Signatures from nodes not in the local
-            // roster are skipped (see @todo(2808)).
-            // Because we fail fast on any failed verification, reaching this
-            // point means all verifiable signatures passed.
+            // roster are skipped (see TODO(2808)). Because we fail fast on any failed
+            // verification, reaching this point means all verifiable signatures passed.
             final boolean accepted = validCount > 0;
             if (accepted) {
                 LOGGER.log(

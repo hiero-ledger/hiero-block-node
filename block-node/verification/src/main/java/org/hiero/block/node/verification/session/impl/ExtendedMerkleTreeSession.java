@@ -423,17 +423,17 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             final Bytes rootOfAllPreviousBlockHashes,
             final Bytes startOfBlockStateRootHash) {
 
-        // Guard: address book must be loaded before any WRB arrives
+        // Guard: no era in the address book history covers this block number
         if (rsaKeyByNodeId.isEmpty()) {
             LOGGER.log(
                     WARNING,
-                    "Address book is empty — cannot verify RSA WRB proof for block {0}."
-                            + " Ensure RsaRosterBootstrapPlugin started successfully.",
+                    "No address book era covers block {0} — cannot verify RSA WRB proof."
+                            + " Ensure rsa-address-book-history.json is loaded and covers this block number.",
                     blockNumber);
             metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false,
-                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
                     blockNumber,
                     null,
                     new BlockUnparsed(blockItems),
@@ -510,7 +510,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 mismatchCount++;
                 LOGGER.log(
                         DEBUG,
-                        "Signature from node {0} not in address book (block {1}) — skipped",
+                        "Signature from node {0} not in era address book for block {1} — skipped",
                         nodeId,
                         blockNumber);
                 continue;
@@ -570,9 +570,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         }
 
         // Acceptance threshold: every signature present in the proof passes validation,
-        // and at least one such signature exists. Signatures from nodes not in the local
-        // roster are skipped (see TODO(2808)). Because we fail fast on any failed
-        // verification, reaching this point means all verifiable signatures passed.
+        // and at least one such signature exists. Signatures from nodes not the
+        // roster are skipped. Reaching this point means all verifiable signatures passed.
         final boolean accepted = validCount > 0;
 
         if (!accepted) {

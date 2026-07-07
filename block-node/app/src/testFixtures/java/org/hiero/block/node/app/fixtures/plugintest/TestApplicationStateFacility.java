@@ -9,6 +9,8 @@ import org.hiero.block.api.NetworkConnection;
 import org.hiero.block.api.NetworkConnection.ConnectionReference;
 import org.hiero.block.api.NetworkConnection.IpProtocol;
 import org.hiero.block.api.NetworkData;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
@@ -22,6 +24,7 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
 public class TestApplicationStateFacility implements ApplicationStateFacility {
     private final Deque<TssData> tssDataUpdates;
     private final Deque<NodeAddressBook> nodeAddressBookUpdates;
+    private RangedAddressBookHistory addressBookHistory = null;
 
     /** Non-empty sample network data used as the default for every connection set. */
     public static final NetworkData DEFAULT_NETWORK_DATA = NetworkData.newBuilder()
@@ -52,6 +55,23 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
 
     public Deque<NodeAddressBook> getNodeAddressBookUpdates() {
         return nodeAddressBookUpdates;
+    }
+
+    public void setAddressBookHistory(RangedAddressBookHistory history) {
+        this.addressBookHistory = history;
+    }
+
+    @Override
+    public NodeAddressBook getAddressBookForBlock(long blockNum) {
+        if (addressBookHistory == null) {
+            return null;
+        }
+        for (final RangedNodeAddressBook entry : addressBookHistory.addressBooks()) {
+            if (blockNum >= entry.startBlock() && (entry.endBlock() == -1 || blockNum <= entry.endBlock())) {
+                return entry.addressBook();
+            }
+        }
+        return null;
     }
 
     public void setKnownPublishers(NetworkData value) {

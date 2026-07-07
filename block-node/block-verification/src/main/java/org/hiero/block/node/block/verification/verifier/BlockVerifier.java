@@ -7,9 +7,11 @@ import static org.hiero.block.node.block.verification.VerificationHelper.isVersi
 
 import com.hedera.hapi.block.stream.BlockProof;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.security.Signature;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
@@ -101,11 +103,13 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
                         proof.signedBlockProof().blockSignature(),
                         verificationDataProvider));
             } else if (proof.hasSignedRecordFileProof()) {
+                final Map<Long, PublicKey> rsaKeys =
+                        verificationDataProvider.rsaPublicKeysForBlock(hashingResult.blockNumber());
                 final Signature sha384WithRSASig = Signature.getInstance("SHA384withRSA");
                 verifiers.add(new RSAProofVerifier(
                         proofVerificationMetrics,
                         hashingResult.blockNumber(),
-                        verificationDataProvider.currentRSAPublicKeys(),
+                        rsaKeys,
                         proof.signedRecordFileProof(),
                         hashingResult.signedWRBPayload(),
                         sha384WithRSASig));

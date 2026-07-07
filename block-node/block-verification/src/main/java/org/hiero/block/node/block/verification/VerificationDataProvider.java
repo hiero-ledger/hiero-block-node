@@ -34,12 +34,16 @@ public final class VerificationDataProvider {
     private static final System.Logger LOGGER = System.getLogger(VerificationDataProvider.class.getName());
     private final BlockNodeContext context;
     private final AtomicReference<TssData> currentTssData;
-    private final AtomicReference<Map<Long, PublicKey>> currentRSAPublicKeys;
+    /// One-entry cache: avoids re-parsing RSA keys for every block in the same address-book era.
+    /// Held as an atomic pair so no thread can observe the new book alongside the old key map.
+    private final AtomicReference<CachedKeyMap> cachedKeyMap;
+
+    private record CachedKeyMap(NodeAddressBook book, Map<Long, PublicKey> keys) {}
 
     public VerificationDataProvider(final BlockNodeContext context) {
         this.context = Objects.requireNonNull(context);
         this.currentTssData = new AtomicReference<>(null);
-        this.currentRSAPublicKeys = new AtomicReference<>(null);
+        this.cachedKeyMap = new AtomicReference<>(null);
     }
 
     public TssData currentTssData() {
@@ -50,9 +54,29 @@ public final class VerificationDataProvider {
         return currentTssData.get() != null;
     }
 
-    public Map<Long, PublicKey> currentRSAPublicKeys() {
-        final Map<Long, PublicKey> value = currentRSAPublicKeys.get();
-        return value == null ? Map.of() : value;
+    /// Returns the RSA public key map for the address book era that covers {@code blockNumber},
+    /// resolved via {@link org.hiero.block.node.spi.ApplicationStateFacility#getAddressBookForBlock}.
+    /// Returns {@code empty map} when no era covers the block (the caller must fail the block with
+    /// {@link org.hiero.block.node.block.verification.session.SessionFailureType#MISSING_VERIFICATION_DATA}).
+    ///
+    /// The result is cached by address-book identity: consecutive blocks in the same era share the
+    /// same [NodeAddressBook] instance from the history lookup, so key parsing only happens once per
+    /// era transition rather than once per block.
+    public Map<Long, PublicKey> rsaPublicKeysForBlock(final long blockNumber) {
+
+        final NodeAddressBook book = context.applicationStateFacility().getAddressBookForBlock(blockNumber);
+        final CachedKeyMap cached = cachedKeyMap.get();
+        if (cached != null && cached.book() == book) {
+            return cached.keys();
+        }
+        try {
+            final Map<Long, PublicKey> keys = buildKeyMap(book);
+            if (!keys.isEmpty()) cachedKeyMap.set(new CachedKeyMap(book, keys));
+            return keys;
+        } catch (final NoSuchAlgorithmException e) {
+            LOGGER.log(WARNING, "RSA KeyFactory not available for block {0} — returning empty key map", blockNumber);
+            return Map.of();
+        }
     }
 
     /// Safely update the TSS data.
@@ -111,44 +135,6 @@ public final class VerificationDataProvider {
         }
     }
 
-    /// Safely update the RSA keys.
-    public void safeUpdateNodeAddressBook(final NodeAddressBook nodeAddressBook) {
-        try {
-            if (nodeAddressBook == null) {
-                LOGGER.log(INFO, "No NodeAddressBook in current update");
-            } else {
-                updateNodeAddressBook(nodeAddressBook);
-            }
-        } catch (final NoSuchAlgorithmException e) {
-            LOGGER.log(WARNING, "RSA KeyFactory not available, cannot update RSA key map", e);
-        } catch (final RuntimeException e) {
-            LOGGER.log(WARNING, "Failed to update RSA key map in verification", e);
-        }
-    }
-
-    private void updateNodeAddressBook(final NodeAddressBook nodeAddressBook) throws NoSuchAlgorithmException {
-        // Count non-blank address book entries — these are the nodes that should be signable.
-        final int declaredCount = (int) nodeAddressBook.nodeAddress().stream()
-                .filter(a -> !a.rsaPubKey().isBlank())
-                .count();
-        final Map<Long, PublicKey> updatedKeys = buildKeyMap(nodeAddressBook);
-        currentRSAPublicKeys.set(updatedKeys);
-        final int effectiveCount = updatedKeys.size();
-        LOGGER.log(INFO, "RSA key map updated: {0}/{1} nodes loaded from address book", effectiveCount, declaredCount);
-        if (effectiveCount < declaredCount) {
-            // Malformed DER keys were skipped; threshold is calculated against effectiveCount.
-            // Fix the address book so all declared nodes can contribute signatures.
-            LOGGER.log(
-                    WARNING,
-                    "RSA key map: {0}/{1} keys decoded successfully; {2} node(s) had malformed"
-                            + " hex-DER bytes and cannot contribute signatures. Verification"
-                            + " threshold is calculated against the {0} decodable keys.",
-                    effectiveCount,
-                    declaredCount,
-                    declaredCount - effectiveCount);
-        }
-    }
-
     /// Utility for decoding RSA public keys from a `NodeAddressBook` into a
     /// `node_id → PublicKey` map used by the RSA WRB verification path.
     /// Keys are expected to be hex-encoded DER (X.509 `SubjectPublicKeyInfo`) or DER
@@ -166,33 +152,26 @@ public final class VerificationDataProvider {
     /// @param book the address book loaded by `RsaRosterBootstrapPlugin`
     /// @return an unmodifiable map from node ID to `PublicKey`
     private Map<Long, PublicKey> buildKeyMap(final NodeAddressBook book) throws NoSuchAlgorithmException {
-        final Map<Long, PublicKey> result;
+        if (book == null || book.nodeAddress().isEmpty()) return Map.of();
+
         final List<NodeAddress> nodeAddresses = book.nodeAddress();
-        if (nodeAddresses.isEmpty()) {
-            result = Map.of();
-        } else {
-            final Map<Long, PublicKey> map = new HashMap<>();
-            final HexFormat hex = HexFormat.of();
-            // Obtain KeyFactory once — provider lookup is not cheap and RSA must always be available.
-            final KeyFactory kf = KeyFactory.getInstance("RSA");
-            for (final NodeAddress addr : nodeAddresses) {
-                final String pubKey = addr.rsaPubKey();
-                if (!pubKey.isBlank()) {
-                    try {
-                        final byte[] keyBytes = hex.parseHex(pubKey);
-                        final PublicKey key = kf.generatePublic(new X509EncodedKeySpec(keyBytes));
-                        map.put(addr.nodeId(), key);
-                    } catch (final InvalidKeySpecException | IllegalArgumentException e) {
-                        LOGGER.log(
-                                WARNING,
-                                "Malformed RSA_PubKey for node {0} — skipped: {1}",
-                                addr.nodeId(),
-                                e.getMessage());
-                    }
+        final Map<Long, PublicKey> map = new HashMap<>();
+        final HexFormat hex = HexFormat.of();
+        // Obtain KeyFactory once — provider lookup is not cheap and RSA must always be available.
+        final KeyFactory kf = KeyFactory.getInstance("RSA");
+        for (final NodeAddress addr : nodeAddresses) {
+            final String pubKey = addr.rsaPubKey();
+            if (!pubKey.isBlank()) {
+                try {
+                    final byte[] keyBytes = hex.parseHex(pubKey);
+                    final PublicKey key = kf.generatePublic(new X509EncodedKeySpec(keyBytes));
+                    map.put(addr.nodeId(), key);
+                } catch (final InvalidKeySpecException | IllegalArgumentException e) {
+                    LOGGER.log(
+                            WARNING, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e.getMessage());
                 }
             }
-            result = Collections.unmodifiableMap(map);
         }
-        return result;
+        return Collections.unmodifiableMap(map);
     }
 }
