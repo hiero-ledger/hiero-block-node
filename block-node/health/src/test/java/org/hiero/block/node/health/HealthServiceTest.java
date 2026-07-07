@@ -11,6 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
+import io.helidon.http.HttpPrologue;
+import io.helidon.http.Method;
 import io.helidon.webserver.http.HttpRules;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http.ServerRequest;
@@ -50,9 +52,16 @@ class HealthServiceTest {
         Mockito.when(context.configuration()).thenReturn(configuration);
     }
 
+    /** Stubs {@code request.prologue()} to report HTTP/1.1, matching a real Kubernetes probe. */
+    private static void stubHttp1Request(ServerRequest request) {
+        Mockito.when(request.prologue())
+                .thenReturn(HttpPrologue.create("HTTP/1.1", "HTTP", "1.1", Method.GET, "/", false));
+    }
+
     @Test
     public void testHandleLivez() {
         // given
+        stubHttp1Request(serverRequest);
         Mockito.when(serverResponse.status(200)).thenReturn(serverResponse);
         Mockito.when(serverResponse.header(CONNECTION_CLOSE)).thenReturn(serverResponse);
         Mockito.doNothing().when(serverResponse).send("OK");
@@ -74,9 +83,37 @@ class HealthServiceTest {
         Mockito.verify(serverResponse, Mockito.times(1)).send("OK");
     }
 
+    /// HTTP/2 forbids the `Connection` header (RFC 9113 8.2.2); Helidon throws an
+    /// `Http2Exception` if a handler sets it on an HTTP/2 response, so it must never be added
+    /// for HTTP/2 requests.
+    @Test
+    public void testHandleLivez_http2RequestDoesNotSetConnectionClose() {
+        // given
+        Mockito.when(serverRequest.prologue())
+                .thenReturn(HttpPrologue.create("HTTP/2.0", "HTTP", "2.0", Method.GET, "/", false));
+        Mockito.when(serverResponse.status(200)).thenReturn(serverResponse);
+        Mockito.doNothing().when(serverResponse).send("OK");
+
+        BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
+        HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
+        Mockito.when(healthFacility.isRunning()).thenReturn(true);
+        Mockito.when(context.serverHealth()).thenReturn(healthFacility);
+        setupContextConfig(context);
+
+        // when
+        HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
+        healthServicePlugin.init(context, serviceBuilder);
+        healthServicePlugin.handleLivez(serverRequest, serverResponse);
+
+        // then
+        Mockito.verify(serverResponse, Mockito.never()).header(CONNECTION_CLOSE);
+        Mockito.verify(serverResponse, Mockito.times(1)).send("OK");
+    }
+
     @Test
     public void testHandleLivez_notRunning() {
         // given
+        stubHttp1Request(serverRequest);
         Mockito.when(serverResponse.status(503)).thenReturn(serverResponse);
         Mockito.when(serverResponse.header(CONNECTION_CLOSE)).thenReturn(serverResponse);
 
@@ -100,6 +137,7 @@ class HealthServiceTest {
     @Test
     public void testHandleReadyz() {
         // given
+        stubHttp1Request(serverRequest);
         Mockito.when(serverResponse.status(200)).thenReturn(serverResponse);
         Mockito.when(serverResponse.header(CONNECTION_CLOSE)).thenReturn(serverResponse);
         Mockito.doNothing().when(serverResponse).send("OK");
@@ -124,6 +162,7 @@ class HealthServiceTest {
     @Test
     public void testHandleReadyz_notRunning() {
         // given
+        stubHttp1Request(serverRequest);
         Mockito.when(serverResponse.status(503)).thenReturn(serverResponse);
         Mockito.when(serverResponse.header(CONNECTION_CLOSE)).thenReturn(serverResponse);
 
