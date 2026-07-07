@@ -472,9 +472,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                     currentGroupStart = result.currentGroupStart();
                     nextBlockToQueue = result.uploadId() != null ? result.nextBlockNumber() : currentGroupStart;
                     if (result.completedRanges() != null) {
-                        for (final LongRange range : result.completedRanges()) {
-                            context.applicationStateFacility().addStoredBlockRange(range);
-                        }
+                        result.completedRanges().streamRanges().forEach(range -> context.applicationStateFacility()
+                                .addStoredBlockRange(range));
                     } else if (nextBlockToQueue > 0) {
                         // Case 2 (resume): completed archives unknown; fall back to broad range
                         context.applicationStateFacility().addStoredBlockRange(new LongRange(0, nextBlockToQueue - 1));

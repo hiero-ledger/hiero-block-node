@@ -134,7 +134,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.trailingBytes()).isNull();
         assertThat(result.lastHandedOffBlock()).isEqualTo(-1L);
         assertThat(result.completedRanges()).isNotNull();
-        assertThat(result.completedRanges()).isEmpty();
+        assertThat(result.completedRanges().streamRanges()).isEmpty();
     }
 
     /// Verifies that a completed tar for the first group causes recovery to return the start of
@@ -222,7 +222,9 @@ class StartupRecoveryTaskTest {
         assertThat(result.uploadId()).isNull();
         assertThat(result.trailingBytes()).isNull();
         assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize * groupCount - 1);
-        assertThat(result.completedRanges()).hasSize(groupCount);
+        // The eleven groups are contiguous, so ConcurrentLongRangeSet merges them into one range.
+        assertThat(result.completedRanges().streamRanges())
+                .containsExactly(new LongRange(0, groupSize * groupCount - 1));
     }
 
     /// Verifies that when completed tars live in two different 4th-level S3 "folders"
@@ -769,13 +771,12 @@ class StartupRecoveryTaskTest {
     }
 
     /// Verifies that [StartupRecoveryTask] enumerates all completed tar archives and returns a
-    /// [RecoveryResult#completedRanges()] list with one [LongRange] per archive.
+    /// [RecoveryResult#completedRanges()] covering exactly the completed blocks.
     ///
-    /// Two distinct completed tar archives are planted (groups 0 and 1).  After recovery,
-    /// [RecoveryResult#completedRanges()] must contain exactly two entries with the correct
-    /// `[groupStart, groupStart + groupSize - 1]` ranges.
+    /// Two distinct completed tar archives are planted (groups 0 and 1).  Since the two groups
+    /// are contiguous, [ConcurrentLongRangeSet] merges them into a single range spanning both.
     @Test
-    @DisplayName("Multiple completed archives: completedRanges contains one LongRange per archive")
+    @DisplayName("Multiple completed archives: completedRanges covers both archives")
     void multipleCompletedArchivesReturnCompletedRanges() throws Exception {
         final long groupSize = Math.powExact(10, GROUPING_LEVEL);
         try (S3Client s3 = openS3Client()) {
@@ -794,10 +795,7 @@ class StartupRecoveryTaskTest {
         final RecoveryResult result = new StartupRecoveryTask(config).call();
 
         assertThat(result.completedRanges()).isNotNull();
-        assertThat(result.completedRanges()).hasSize(2);
-        assertThat(result.completedRanges())
-                .containsExactlyInAnyOrder(
-                        new LongRange(0, groupSize - 1), new LongRange(groupSize, groupSize * 2 - 1));
+        assertThat(result.completedRanges().streamRanges()).containsExactly(new LongRange(0, groupSize * 2 - 1));
     }
 
     /// Verifies that a single hanging multipart upload (Case 2) returns [RecoveryResult#completedRanges()]

@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 
 /// Determines where [CloudStorageArchivePlugin] should resume uploading after a restart.
 ///
@@ -131,14 +131,14 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
         final List<String> allTarKeys = findAllTarKeys(s3);
         if (allTarKeys.isEmpty()) {
             LOGGER.log(TRACE, "No prior state found in S3 bucket, starting fresh");
-            recoveryResult = new RecoveryResult(-1, null, null, 0, null, null, -1, List.of());
+            recoveryResult = new RecoveryResult(-1, null, null, 0, null, null, -1, new ConcurrentLongRangeSet());
         } else {
             final long groupSize = Math.powExact(10, config.groupingLevel());
-            final List<LongRange> completedRanges = new ArrayList<>(allTarKeys.size());
+            final ConcurrentLongRangeSet completedRanges = new ConcurrentLongRangeSet();
             long maxGroupStart = -1;
             for (final String key : allTarKeys) {
                 final long groupStart = ArchiveKey.parse(key, config.groupingLevel(), config.objectKeyPrefix());
-                completedRanges.add(new LongRange(groupStart, groupStart + groupSize - 1));
+                completedRanges.add(groupStart, groupStart + groupSize - 1);
                 if (groupStart > maxGroupStart) {
                     maxGroupStart = groupStart;
                 }

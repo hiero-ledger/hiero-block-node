@@ -17,9 +17,9 @@ final class ArchiveKey {
     /// by [parse] (and, for the segment count alone, by [StartupRecoveryTask#directoryDepth]).
     static final int PATH_SEGMENT_WIDTH = 4;
 
-    /// Number of decimal digits `groupStart` is zero-padded to in [format]; `Long.MAX_VALUE` has 19
-    /// digits, so this fits any `long` block number and keeps S3's key ordering numeric.
-    static final int MAX_LONG_DIGITS = 19;
+    /// Number of decimal digits `groupStart` is zero-padded to in [format]; this fits any `long`
+    /// block number and keeps S3's key ordering numeric.
+    static final int MAX_LONG_DIGITS = Long.toString(Long.MAX_VALUE).length();
 
     private ArchiveKey() {}
 
