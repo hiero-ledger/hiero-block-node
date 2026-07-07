@@ -20,9 +20,16 @@ import java.security.GeneralSecurityException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
+import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -768,6 +775,61 @@ class StartupRecoveryTaskTest {
         assertThat(result.tempArchives().getFirst().lastBlock()).isEqualTo(9L);
         // base = groupSize - 1 = 9; temp archive lastBlock = 9 → max = 9.
         assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize - 1);
+    }
+
+    /// Verifies the full interrupt-then-recover flow described in [TempArchiveUploadTask]'s
+    /// class-level Javadoc: a real [TempArchiveUploadTask], interrupted after buffering some
+    /// blocks but before [TempArchiveUploadTask#SEGMENT_END] arrives, durably completes its `.tmp`
+    /// + `.meta` pair as a side effect before rethrowing [InterruptedException] (see
+    /// [TempArchiveUploadTaskTest]). On the next simulated startup, [StartupRecoveryTask] must
+    /// rebuild that segment into a correct [TempArchiveEntry] with no hanging multipart upload left
+    /// behind.
+    @Test
+    @DisplayName("Interrupted TempArchiveUploadTask with buffered blocks: recovery rebuilds correct TempArchiveEntry")
+    void interruptedTempArchiveUploadIsRecoveredCorrectly() throws Exception {
+        final String s3Key = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TestApplicationStateFacility asf = new TestApplicationStateFacility();
+        final CloudStorageArchivePlugin.MetricsHolder metricsHolder =
+                CloudStorageArchivePlugin.MetricsHolder.createMetrics(MetricRegistry.builder()
+                        .setMetricsExporter(new TestMetricsExporter())
+                        .build());
+        final TempArchiveUploadTask task =
+                new TempArchiveUploadTask(config, messaging, asf, metricsHolder, s3Key, 0, queue);
+
+        for (final TestBlock block : TestBlockBuilder.generateBlocksInRange(0, 2)) {
+            queue.put(new BlockWithSource(block.blockUnparsed(), BlockSource.PUBLISHER));
+        }
+
+        final InterruptedException[] caught = {null};
+        final Thread thread = new Thread(() -> {
+            try {
+                task.call();
+            } catch (InterruptedException e) {
+                caught[0] = e;
+            } catch (Exception ignored) {
+            }
+        });
+        thread.start();
+        // Give the task time to consume the queued blocks and block on the next take().
+        Thread.sleep(200);
+        thread.interrupt();
+        thread.join(5_000);
+
+        assertThat(caught[0]).isNotNull();
+
+        // Simulate a restart: recovery must pick up the interrupted segment as a complete entry.
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.tempArchives()).hasSize(1);
+        final TempArchiveEntry entry = result.tempArchives().getFirst();
+        assertThat(entry.firstBlock()).isZero();
+        assertThat(entry.lastBlock()).isEqualTo(2L);
+        assertThat(entry.uploadId()).isNull();
+        try (S3Client s3 = openS3Client()) {
+            assertThat(s3.listMultipartUploads()).doesNotContainKey(s3Key);
+        }
     }
 
     /// Verifies that [StartupRecoveryTask] enumerates all completed tar archives and returns a

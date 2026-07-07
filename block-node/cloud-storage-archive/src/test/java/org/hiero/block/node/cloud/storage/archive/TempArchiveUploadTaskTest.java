@@ -267,10 +267,11 @@ class TempArchiveUploadTaskTest {
     }
 
     /// Verifies that interrupting the virtual thread while it is blocked on [BlockingQueue#take]
-    /// causes [call()] to rethrow [InterruptedException] and abort the in-progress multipart upload.
+    /// with no blocks accumulated causes [call()] to rethrow [InterruptedException] and abort the
+    /// in-progress multipart upload.
     @Test
-    @DisplayName("Thread interruption aborts upload and rethrows InterruptedException")
-    void interruptionAbortsUploadAndRethrows() throws Exception {
+    @DisplayName("Thread interruption with no blocks accumulated aborts upload and rethrows InterruptedException")
+    void interruptionWithNoBlocksAbortsUploadAndRethrows() throws Exception {
         final String s3Key = TempArchiveKey.formatTar(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
@@ -296,6 +297,56 @@ class TempArchiveUploadTaskTest {
         try (S3Client s3 = openS3Client()) {
             assertThat(s3.listMultipartUploads()).doesNotContainKey(s3Key);
         }
+    }
+
+    /// Verifies that interrupting the virtual thread while it is blocked on [BlockingQueue#take]
+    /// after at least one block has been accumulated still rethrows [InterruptedException] from
+    /// [call()] (unlike the zero-blocks case, the interrupt does not abort the upload first): the
+    /// segment is completed and committed to S3 like a normal [TempArchiveUploadTask#SEGMENT_END]
+    /// before the exception is rethrown.
+    @Test
+    @DisplayName("Thread interruption with blocks accumulated completes upload early, then rethrows")
+    void interruptionWithBlocksAccumulatedCompletesEarlyThenRethrows() throws Exception {
+        final String s3Key = TempArchiveKey.formatTar(0, "");
+        final String metaKey = TempArchiveKey.formatMeta(0, "");
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
+        final TempArchiveUploadTask task = buildTask(s3Key, 0, queue, messaging, asf);
+
+        for (int i = 0; i < 3; i++) {
+            queue.put(makeBlock(100));
+        }
+
+        final InterruptedException[] caught = {null};
+        final Thread thread = new Thread(() -> {
+            try {
+                task.call();
+            } catch (InterruptedException e) {
+                caught[0] = e;
+            } catch (Exception ignored) {
+            }
+        });
+        thread.start();
+        // Give the task time to consume the queued blocks and block on the next take().
+        Thread.sleep(200);
+        thread.interrupt();
+        thread.join(5_000);
+
+        assertThat(caught[0]).isNotNull();
+
+        try (S3Client s3 = openS3Client()) {
+            assertThat(s3.listObjects(s3Key, 1)).contains(s3Key);
+            assertThat(s3.listMultipartUploads()).doesNotContainKey(s3Key);
+            assertThat(s3.downloadTextFile(metaKey)).isEqualTo("2");
+        }
+        final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+        assertThat(notifications).hasSize(1);
+        assertThat(notifications.getFirst().blockNumber()).isEqualTo(2L);
+        assertThat(notifications.getFirst().succeeded()).isTrue();
+        assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
+        assertThat(asf.addedRanges).hasSize(1);
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, 2));
     }
 
     /// Verifies that when [doUploadPart] throws during a mid-loop part flush, [call()] rethrows

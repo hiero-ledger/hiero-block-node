@@ -176,7 +176,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// Accessed only from the notification handler thread.
     final ConcurrentSkipListMap<Long, BlockWithSource> tempOverflowStash = new ConcurrentSkipListMap<>();
 
-    /// Groups whose temp archives fully cover [groupStart, groupStart+groupSize), queued for
+    /// Groups whose temp archives fully cover `[groupStart, groupStart+groupSize)`, queued for
     /// consolidation.  Keyed by groupStart.
     /// Accessed only from the notification handler thread.
     final ConcurrentSkipListMap<Long, List<TempArchiveEntry>> pendingConsolidations = new ConcurrentSkipListMap<>();
@@ -496,7 +496,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
-    /// Logs an INFO message explaining why the given [notification] was ignored.  Called only
+    /// Logs an INFO message explaining why the given `notification` was ignored.  Called only
     /// when the notification is `null`, carries a failed verification, or has a `null` block.
     private void logInvalidOrFailedNotification(VerificationNotification notification) {
         if (notification == null) {
@@ -508,7 +508,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
-    /// Starts a new regular [BlockUploadTask] for the group containing [blockNumber], unless the
+    /// Starts a new regular [BlockUploadTask] for the group containing `blockNumber`, unless the
     /// group already has pre-existing temporary archive data (which means [ConsolidationTask]
     /// handles it exclusively).
     private void tryStartNewUploadTask(long blockNumber) {
@@ -520,7 +520,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
-    /// Returns `true` when the group starting at [groupStart] has any in-flight or completed
+    /// Returns `true` when the group starting at `groupStart` has any in-flight or completed
     /// temporary archive data (active streaming segments, in-flight futures, or tracker entries).
     private boolean hasAnyTempDataForGroup(long groupStart) {
         final long groupEnd = groupStart + groupSize;
@@ -529,7 +529,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 || !tempArchiveTracker.subMap(groupStart, groupEnd).isEmpty();
     }
 
-    /// Initialises a new [BlockUploadTask] for the group that contains [blockNumber], submits it
+    /// Initialises a new [BlockUploadTask] for the group that contains `blockNumber`, submits it
     /// to [virtualThreadExecutor], and replays any previously stashed blocks that fall within the
     /// new group's range.
     private void startNewUploadTask(long blockNumber) {
@@ -578,7 +578,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 queue);
     }
 
-    /// Starts a new upload task if none is active, then routes [blockNumber] to the regular pending
+    /// Starts a new upload task if none is active, then routes `blockNumber` to the regular pending
     /// queue (if the block falls within the current group) or to a temp archive otherwise.
     private void routeToCloudArchive(long blockNumber, BlockWithSource blockWithSource) {
         if (currentUploadFuture == null) {
@@ -594,7 +594,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
-    /// Routes [blockNumber] to the appropriate destination.
+    /// Routes `blockNumber` to the appropriate destination.
     ///
     /// During recovery ([recoveryFuture] != null), all blocks are stashed for later replay.
     /// After recovery, contiguous blocks go to the regular pipeline via [currentGroupPending].
@@ -710,7 +710,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// [CloudStorageArchiveConfig#gapBufferSize()] without the gap closing.
     ///
     /// Blocks within the active regular task's remaining range
-    /// ([nextBlockToQueue, currentGroupStart+groupSize)) are salvaged to [currentGroupPending]
+    /// (`[nextBlockToQueue, currentGroupStart+groupSize)`) are salvaged to [currentGroupPending]
     /// so the task is not left waiting for blocks that went to temp.  All other blocks go to
     /// a [TempArchiveUploadTask].
     private void flushGapBufferToTemp() {
@@ -733,14 +733,14 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
-    /// Routes [blockNumber] to a streaming temporary S3 archive segment.
+    /// Routes `blockNumber` to a streaming temporary S3 archive segment.
     ///
     /// Each aligned group maintains at most one active [TempArchiveUploadTask] whose queue receives
     /// blocks in arrival order.  A forward gap (blockNumber > nextExpected) closes the current
-    /// segment and starts a new one at [blockNumber].  A backward arrival (blockNumber < nextExpected)
+    /// segment and starts a new one at `blockNumber`.  A backward arrival (blockNumber < nextExpected)
     /// is either a true duplicate (already covered by some in-flight or completed segment -- discarded)
     /// or a late-arriving block from an abandoned gap between two segments (the active segment is
-    /// closed and a new one is started at [blockNumber]).  The final block of the group also closes
+    /// closed and a new one is started at `blockNumber`).  The final block of the group also closes
     /// the segment.
     private void routeToTempArchive(long blockNumber, BlockWithSource block) {
         final long groupStart = (blockNumber / groupSize) * groupSize;
@@ -805,8 +805,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
-    /// Returns true when [blockNumber] is already covered by any in-flight or completed temp
-    /// archive segment for [groupStart].  Used to distinguish true duplicates (already uploaded)
+    /// Returns true when `blockNumber` is already covered by any in-flight or completed temp
+    /// archive segment for `groupStart`.  Used to distinguish true duplicates (already uploaded)
     /// from late-arriving blocks that fell into an abandoned gap between two segments.
     private boolean isBlockCoveredByAnyTempSegment(long blockNumber, long groupStart) {
         final long groupEnd = groupStart + groupSize;
@@ -830,8 +830,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         return covered;
     }
 
-    /// Starts a new streaming [TempArchiveUploadTask] for a segment beginning at [firstBlock]
-    /// within the group aligned to [groupStart].
+    /// Starts a new streaming [TempArchiveUploadTask] for a segment beginning at `firstBlock`
+    /// within the group aligned to `groupStart`.
     private void startNewTempSegment(long groupStart, long firstBlock) {
         final String s3Key = TempArchiveKey.formatTar(firstBlock, config.objectKeyPrefix());
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
@@ -843,7 +843,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         LOGGER.log(TRACE, "Started streaming temp archive for group {0}, firstBlock={1}", groupStart, firstBlock);
     }
 
-    /// Closes the active temp archive segment for [groupStart] by placing [TempArchiveUploadTask#SEGMENT_END]
+    /// Closes the active temp archive segment for `groupStart` by placing [TempArchiveUploadTask#SEGMENT_END]
     /// in its queue, removing the queue from [tempGroupActiveQueues].
     private void closeActiveTempSegment(long groupStart) {
         final BlockingQueue<BlockWithSource> queue = tempGroupActiveQueues.remove(groupStart);

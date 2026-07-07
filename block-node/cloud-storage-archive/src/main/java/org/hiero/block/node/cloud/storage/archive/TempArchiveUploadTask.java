@@ -35,6 +35,13 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
 /// 3. Offer verified blocks to the queue in ascending block-number order.
 /// 4. Signal the end of the segment by offering [SEGMENT_END].
 ///
+/// If the task's thread is interrupted (e.g. during plugin shutdown), [call] still rethrows
+/// [InterruptedException] in every case. But if at least one block has already been accumulated,
+/// the interrupt is first treated like [SEGMENT_END]: the multipart upload is completed and the
+/// `.meta` companion is written before the exception is rethrown, since a temp archive has no
+/// required end block and whatever was accumulated is already a valid, self-contained archive.
+/// Only an interrupt with zero blocks accumulated aborts the multipart upload instead.
+///
 /// On completion the task:
 /// 1. Completes the S3 multipart upload for the tar content at the `.tmp` key.
 /// 2. Writes a companion `.meta` object containing the decimal string `lastBlock` so that
@@ -110,8 +117,19 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
                         totalBytes += partSizeBytes;
                     }
                 } catch (InterruptedException e) {
-                    LOGGER.log(TRACE, "Temp archive upload task interrupted for key {0}", s3Key, e);
-                    S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
+                    if (lastProcessedBlock >= firstBlock) {
+                        LOGGER.log(
+                                INFO,
+                                "Temp archive upload task for key {0} interrupted with blocks [{1}, {2}]"
+                                        + " accumulated; completing early instead of aborting",
+                                s3Key,
+                                firstBlock,
+                                lastProcessedBlock);
+                        completeSegment(s3, uploadId, etags, buffer, totalBytes, lastProcessedBlock, lastSource);
+                    } else {
+                        LOGGER.log(TRACE, "Temp archive upload task interrupted for key {0}", s3Key, e);
+                        S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
+                    }
                     throw e;
                 } catch (S3ResponseException | IOException e) {
                     LOGGER.log(INFO, "Failed to accumulate block {0} for temp archive {1}", currentBlock, s3Key, e);
@@ -120,55 +138,65 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
                 }
             }
 
-            final long lastBlock = lastProcessedBlock;
+            return completeSegment(s3, uploadId, etags, buffer, totalBytes, lastProcessedBlock, lastSource);
+        }
+    }
 
-            if (buffer.length > 0) {
-                try {
-                    doUploadPart(buffer, s3, uploadId, etags);
-                    totalBytes += buffer.length;
-                } catch (S3ResponseException | IOException e) {
-                    S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
-                    blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlock, false, 1_000, lastSource));
-                    LOGGER.log(INFO, "Failed to upload final temp archive part for key {0}", s3Key, e);
-                    throw e;
-                }
-            }
+    /// Finalises the segment once no more blocks will be offered: flushes any remaining buffered
+    /// bytes, completes the S3 multipart upload, writes the `.meta` companion, and reports success.
+    /// Shared by the normal [SEGMENT_END] path and the early-completion-on-interrupt path.
+    private TempArchiveEntry completeSegment(
+            S3Client s3,
+            String uploadId,
+            List<String> etags,
+            byte[] buffer,
+            long totalBytes,
+            long lastProcessedBlock,
+            BlockSource lastSource)
+            throws S3ResponseException, IOException {
+        final long lastBlock = lastProcessedBlock;
 
+        if (buffer.length > 0) {
             try {
-                doCompleteMultipartUpload(s3, s3Key, uploadId, etags);
+                doUploadPart(buffer, s3, uploadId, etags);
+                totalBytes += buffer.length;
             } catch (S3ResponseException | IOException e) {
                 S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
                 blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlock, false, 1_000, lastSource));
-                LOGGER.log(INFO, "Failed to complete temp archive multipart upload for key {0}", s3Key, e);
+                LOGGER.log(INFO, "Failed to upload final temp archive part for key {0}", s3Key, e);
                 throw e;
             }
-            LOGGER.log(
-                    TRACE,
-                    "Completed temp archive upload for key {0}, blocks [{1}, {2}]",
-                    s3Key,
-                    firstBlock,
-                    lastBlock);
+        }
 
-            final String metaKey = TempArchiveKey.formatMeta(firstBlock, config.objectKeyPrefix());
-            try {
-                doUploadTextFile(s3, metaKey, config.storageClass().name(), String.valueOf(lastBlock));
-            } catch (S3ResponseException | IOException e) {
-                LOGGER.log(INFO, "Failed to write temp archive meta {0}, tar is already committed", metaKey, e);
-                blockMessaging.sendBlockPersisted(new PersistedNotification(lastBlock, true, 1_000, lastSource));
-                applicationStateFacility.addStoredBlockRange(new LongRange(firstBlock, lastBlock));
-                metricsHolder.blocksWritten().increment(lastBlock - firstBlock + 1);
-                metricsHolder.storedBytes().increment(totalBytes);
-                throw e;
-            }
-            LOGGER.log(TRACE, "Wrote temp archive meta {0}", metaKey);
+        try {
+            doCompleteMultipartUpload(s3, s3Key, uploadId, etags);
+        } catch (S3ResponseException | IOException e) {
+            S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
+            blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlock, false, 1_000, lastSource));
+            LOGGER.log(INFO, "Failed to complete temp archive multipart upload for key {0}", s3Key, e);
+            throw e;
+        }
+        LOGGER.log(TRACE, "Completed temp archive upload for key {0}, blocks [{1}, {2}]", s3Key, firstBlock, lastBlock);
 
+        final String metaKey = TempArchiveKey.formatMeta(firstBlock, config.objectKeyPrefix());
+        try {
+            doUploadTextFile(s3, metaKey, config.storageClass().name(), String.valueOf(lastBlock));
+        } catch (S3ResponseException | IOException e) {
+            LOGGER.log(INFO, "Failed to write temp archive meta {0}, tar is already committed", metaKey, e);
             blockMessaging.sendBlockPersisted(new PersistedNotification(lastBlock, true, 1_000, lastSource));
             applicationStateFacility.addStoredBlockRange(new LongRange(firstBlock, lastBlock));
             metricsHolder.blocksWritten().increment(lastBlock - firstBlock + 1);
             metricsHolder.storedBytes().increment(totalBytes);
-
-            return new TempArchiveEntry(s3Key, firstBlock, lastBlock, null);
+            throw e;
         }
+        LOGGER.log(TRACE, "Wrote temp archive meta {0}", metaKey);
+
+        blockMessaging.sendBlockPersisted(new PersistedNotification(lastBlock, true, 1_000, lastSource));
+        applicationStateFacility.addStoredBlockRange(new LongRange(firstBlock, lastBlock));
+        metricsHolder.blocksWritten().increment(lastBlock - firstBlock + 1);
+        metricsHolder.storedBytes().increment(totalBytes);
+
+        return new TempArchiveEntry(s3Key, firstBlock, lastBlock, null);
     }
 
     /// Delegates to [S3UploadUtils#uploadPart].  Overridable so tests can inject part-upload
