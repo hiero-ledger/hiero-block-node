@@ -10,17 +10,21 @@ import io.helidon.http.ServerResponseTrailers;
 import io.helidon.http.Status;
 import io.helidon.webserver.http.ServerResponse;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.UnaryOperator;
 
 /**
  * Minimal {@link ServerResponse} test double that records the status code, the {@code Content-Type}
- * header, and the sent entity, exposing them via accessors. All other operations are unsupported.
+ * header, the headers set via {@link #header(Header)}, and the sent entity, exposing them via
+ * accessors. All other operations are unsupported.
  */
 public class TestServerResponse implements ServerResponse {
     private int statusCode = -1;
     private String contentType;
     private Object sentEntity;
     private boolean sent;
+    private final List<Header> headers = new ArrayList<>();
 
     /** @return the status code passed to {@code status(...)}, or {@code -1} if unset */
     public int sentStatus() {
@@ -35,6 +39,11 @@ public class TestServerResponse implements ServerResponse {
     /** @return the entity passed to {@code send(...)}, or {@code null} if nothing was sent */
     public Object sentEntity() {
         return sentEntity;
+    }
+
+    /** @return {@code true} if the given header was set via {@link #header(Header)} */
+    public boolean hasHeader(Header header) {
+        return headers.contains(header);
     }
 
     @Override
@@ -64,6 +73,7 @@ public class TestServerResponse implements ServerResponse {
 
     @Override
     public ServerResponse header(Header header) {
+        headers.add(header);
         if (header.headerName().equals(HeaderNames.CONTENT_TYPE)) {
             this.contentType = header.values();
         }

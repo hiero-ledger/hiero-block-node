@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.health;
 
+import static io.helidon.http.HeaderValues.CONNECTION_CLOSE;
 import static org.hiero.block.node.health.HealthServicePlugin.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -52,6 +54,7 @@ class HealthServiceTest {
     public void testHandleLivez() {
         // given
         Mockito.when(serverResponse.status(200)).thenReturn(serverResponse);
+        Mockito.when(serverResponse.header(CONNECTION_CLOSE)).thenReturn(serverResponse);
         Mockito.doNothing().when(serverResponse).send("OK");
 
         BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
@@ -67,6 +70,7 @@ class HealthServiceTest {
 
         // then
         Mockito.verify(serverResponse, Mockito.times(1)).status(200);
+        Mockito.verify(serverResponse, Mockito.times(1)).header(CONNECTION_CLOSE);
         Mockito.verify(serverResponse, Mockito.times(1)).send("OK");
     }
 
@@ -74,6 +78,7 @@ class HealthServiceTest {
     public void testHandleLivez_notRunning() {
         // given
         Mockito.when(serverResponse.status(503)).thenReturn(serverResponse);
+        Mockito.when(serverResponse.header(CONNECTION_CLOSE)).thenReturn(serverResponse);
 
         BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
         HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
@@ -88,6 +93,7 @@ class HealthServiceTest {
 
         // then
         Mockito.verify(serverResponse, Mockito.times(1)).status(503);
+        Mockito.verify(serverResponse, Mockito.times(1)).header(CONNECTION_CLOSE);
         Mockito.verify(serverResponse, Mockito.times(1)).send("Service is not running");
     }
 
@@ -95,6 +101,7 @@ class HealthServiceTest {
     public void testHandleReadyz() {
         // given
         Mockito.when(serverResponse.status(200)).thenReturn(serverResponse);
+        Mockito.when(serverResponse.header(CONNECTION_CLOSE)).thenReturn(serverResponse);
         Mockito.doNothing().when(serverResponse).send("OK");
 
         BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
@@ -110,6 +117,7 @@ class HealthServiceTest {
 
         // then
         Mockito.verify(serverResponse, Mockito.times(1)).status(200);
+        Mockito.verify(serverResponse, Mockito.times(1)).header(CONNECTION_CLOSE);
         Mockito.verify(serverResponse, Mockito.times(1)).send("OK");
     }
 
@@ -117,6 +125,7 @@ class HealthServiceTest {
     public void testHandleReadyz_notRunning() {
         // given
         Mockito.when(serverResponse.status(503)).thenReturn(serverResponse);
+        Mockito.when(serverResponse.header(CONNECTION_CLOSE)).thenReturn(serverResponse);
 
         BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
         HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
@@ -127,10 +136,11 @@ class HealthServiceTest {
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
         healthServicePlugin.init(context, serviceBuilder);
-        healthServicePlugin.handleLivez(serverRequest, serverResponse);
+        healthServicePlugin.handleReadyz(serverRequest, serverResponse);
 
         // then
         Mockito.verify(serverResponse, Mockito.times(1)).status(503);
+        Mockito.verify(serverResponse, Mockito.times(1)).header(CONNECTION_CLOSE);
         Mockito.verify(serverResponse, Mockito.times(1)).send("Service is not running");
     }
 
@@ -203,6 +213,7 @@ class HealthServiceTest {
 
         assertEquals(200, response.sentStatus());
         assertEquals("application/json", response.contentType());
+        assertTrue(response.hasHeader(CONNECTION_CLOSE));
         NetworkData sent =
                 NetworkData.JSON.parse(Bytes.wrap(((String) response.sentEntity()).getBytes(StandardCharsets.UTF_8)));
         assertFalse(sent.activeEndpoints().isEmpty());
@@ -222,6 +233,7 @@ class HealthServiceTest {
 
         assertEquals(200, response.sentStatus());
         assertEquals("application/json", response.contentType());
+        assertTrue(response.hasHeader(CONNECTION_CLOSE));
         NetworkData sent =
                 NetworkData.JSON.parse(Bytes.wrap(((String) response.sentEntity()).getBytes(StandardCharsets.UTF_8)));
         assertFalse(sent.activeEndpoints().isEmpty());
@@ -240,5 +252,6 @@ class HealthServiceTest {
         healthServicePlugin.handleStatusz(new TestServerRequest("/statusz/bogus"), response);
 
         assertEquals(404, response.sentStatus());
+        assertTrue(response.hasHeader(CONNECTION_CLOSE));
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.health;
 
+import static io.helidon.http.HeaderValues.CONNECTION_CLOSE;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
@@ -19,6 +20,14 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.health.HealthFacility;
 
 /// Provides implementation for the health endpoints of the server.
+///
+/// Every response sets the `Connection: close` header. Kubernetes probes hit these
+/// endpoints continuously; left on keep-alive they accumulate as idle connections that
+/// Helidon only reaps after `server.idleConnectionTimeoutMinutes`, eventually exhausting
+/// `server.maxTcpConnections` and causing the server to refuse new connections. Closing
+/// after each response keeps the probe traffic from holding sockets open. Helidon flushes
+/// the full response before closing (see `Http1ServerResponse.keepConnectionOpen()`), so
+/// the reply is always delivered.
 public class HealthServicePlugin implements BlockNodePlugin {
     private final Logger LOGGER = System.getLogger(getClass().getName());
     protected static final String HEALTHZ_PATH = "/healthz";
@@ -65,10 +74,10 @@ public class HealthServicePlugin implements BlockNodePlugin {
     public final void handleLivez(@NonNull final ServerRequest req, @NonNull final ServerResponse res) {
         try {
             if (healthFacility.isRunning()) {
-                res.status(200).send("OK");
+                res.status(200).header(CONNECTION_CLOSE).send("OK");
                 LOGGER.log(TRACE, "Responded code 200 (OK) to liveness check");
             } else {
-                res.status(503).send("Service is not running");
+                res.status(503).header(CONNECTION_CLOSE).send("Service is not running");
                 LOGGER.log(INFO, "Responded code 503 (Service is not running) to liveness check");
             }
         } catch (final RuntimeException e) {
@@ -84,10 +93,10 @@ public class HealthServicePlugin implements BlockNodePlugin {
     public final void handleReadyz(@NonNull final ServerRequest req, @NonNull final ServerResponse res) {
         try {
             if (healthFacility.isRunning()) {
-                res.status(200).send("OK");
+                res.status(200).header(CONNECTION_CLOSE).send("OK");
                 LOGGER.log(TRACE, "Responded code 200 (OK) to readiness check");
             } else {
-                res.status(503).send("Service is not running");
+                res.status(503).header(CONNECTION_CLOSE).send("Service is not running");
                 LOGGER.log(INFO, "Responded code 503 (Service is not running) to readiness check");
             }
         } catch (final RuntimeException e) {
@@ -111,11 +120,11 @@ public class HealthServicePlugin implements BlockNodePlugin {
                 new OutboundStatusHandler(req, res, applicationStateFacility).createAndSendResponse();
             } else {
                 LOGGER.log(INFO, "Responded code 404 (Unknown statusz subpath) for {0}", path);
-                res.status(404).send("Unknown statusz subpath");
+                res.status(404).header(CONNECTION_CLOSE).send("Unknown statusz subpath");
             }
         } catch (final RuntimeException e) {
             LOGGER.log(WARNING, "Failed to respond to statusz check due to %s".formatted(e), e);
-            res.status(500).send();
+            res.status(500).header(CONNECTION_CLOSE).send();
         }
     }
 }

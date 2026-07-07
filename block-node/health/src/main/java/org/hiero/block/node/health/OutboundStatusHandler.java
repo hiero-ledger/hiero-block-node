@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.health;
 
+import static io.helidon.http.HeaderValues.CONNECTION_CLOSE;
+
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.http.HeaderNames;
 import io.helidon.webserver.http.ServerRequest;
@@ -45,6 +47,7 @@ final class OutboundStatusHandler {
                 NetworkData.newBuilder().activeEndpoints(endpoints).build();
         response.status(200)
                 .header(HeaderNames.CONTENT_TYPE, "application/json")
+                .header(CONNECTION_CLOSE)
                 .send(NetworkData.JSON.toJSON(data));
     }
 }

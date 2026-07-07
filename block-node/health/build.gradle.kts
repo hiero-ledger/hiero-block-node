@@ -16,6 +16,7 @@ mainModuleInfo {
 
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
+    requires("io.helidon.common")
     requires("org.junit.jupiter.api")
     requires("org.mockito")
     requires("org.mockito.junit.jupiter")
