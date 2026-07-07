@@ -119,15 +119,19 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         }
         System.out.println("  Eras:            " + sorted.size());
 
-        // Use forCurrentNetwork() so that the genesis instant respects the top-level --network
-        // option (mainnet / testnet / previewnet / other). The raw BlockTimeReader(Path) ctor
-        // hardcodes the mainnet genesis, which would break resolution on any other network.
+        // Use the raw ctor (mainnet-anchored) even for --network testnet/previewnet. The
+        // block_times.bin file format stores each block's time as nanos-since-mainnet-first-
+        // block regardless of network: every writer in the extraction chain hardcodes that
+        // anchor via RecordFileDates.instantToBlockTimeLong. Using forCurrentNetwork() here
+        // reads the same bytes with a network-specific anchor and produces a multi-year
+        // offset on non-mainnet networks (see PR #3166 review). Reader and writer must
+        // agree — leave both mainnet-anchored until the write path is network-aware.
         final long[] startBlocks;
         final List<String> resolutionProblems;
         final Instant coverageStart;
         final Instant coverageEnd;
         final long coverageMaxBlock;
-        try (BlockTimeReader reader = BlockTimeReader.forCurrentNetwork(blockTimesFile)) {
+        try (BlockTimeReader reader = new BlockTimeReader(blockTimesFile)) {
             coverageMaxBlock = reader.getMaxBlockNumber();
             coverageStart = reader.getBlockInstant(0);
             coverageEnd = reader.getBlockInstant(coverageMaxBlock);
