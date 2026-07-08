@@ -10,6 +10,12 @@ For operator questions, see the [Operator FAQ](./operator-faq.md).
 
 ## Publish stream protocol (CN → BN)
 
+> **CN multi-BN routing:** When a stream closes due to an `EndOfStream` response, the
+> CN does not necessarily reconnect to the same Block Node. If other Block Nodes are
+> configured and eligible, the CN may route subsequent blocks to a higher-priority BN.
+> A Block Node that generates repeated `EndOfStream` responses in a short window may be
+> temporarily deprioritized by the CN before it is eligible to receive streams again.
+
 ### How does a Consensus Node initiate a publish stream to a Block Node?
 
 The CN opens a **bidirectional gRPC stream** to
@@ -40,8 +46,9 @@ The BN can send five response types during an active stream:
 ### What does `DUPLICATE_BLOCK` mean and what should the CN do?
 
 `DUPLICATE_BLOCK` (code 5 in `EndOfStream`) means the block header the CN sent
-corresponds to a block that is already stored and verified by the BN. The CN **must
-start a new stream** beginning with the block after the last persisted and verified block.
+corresponds to a block that is already stored and verified by the BN. The CN closes the
+stream and resumes streaming — to this BN or a different available Block Node — beginning
+with the block after the last persisted and verified block.
 
 ### What does `TOO_FAR_BEHIND` mean and what should the CN do?
 
@@ -65,13 +72,15 @@ the block. **The block is not necessarily lost** — the CN still has it. The CN
 ### What does `BAD_BLOCK_PROOF` mean?
 
 `BAD_BLOCK_PROOF` (code 6 in `EndOfStream`) means a `BlockProof` item could not be
-validated. The CN must start a new stream beginning before the failed block.
+validated. The CN closes the stream and resumes streaming — to this BN or a different
+available Block Node — from before the failed block.
 
 ### When does the Block Node send `TIMEOUT` to the Consensus Node?
 
 `TIMEOUT` (code 4 in `EndOfStream`) is sent when the delay between stream items
 exceeds the BN's configured timeout — the CN did not deliver the next item within the
-allowed window. The CN must start a new stream beginning before the timed-out block.
+allowed window. The CN closes the stream and resumes streaming — to this BN or a
+different available Block Node — from before the timed-out block.
 
 ### Does the Block Node reconnect to the Consensus Node if the stream drops?
 
