@@ -11,7 +11,9 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.node.app.config.state.ApplicationStateConfig;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.junit.jupiter.api.AfterEach;
@@ -39,26 +41,70 @@ class RsaBootstrapRealFileTest {
         }
     }
 
-    /// previewnet's real fixture is a single, still-open era starting at block 1065122.
+    /// previewnet's real fixture is a single era: startBlock 0, an open-ended endBlock (-1), and 7
+    /// node addresses.
     @Test
     @DisplayName("Real previewnet roster fixture (1 era) loads via ApplicationStateFacility")
     void previewnetFixtureLoadsSuccessfully() throws Exception {
         final RangedAddressBookHistory history = loadRealFixture("/previewnet/rsa-bootstrap-roster.json");
         assertEquals(1, history.addressBooks().size(), "previewnet fixture has exactly one era");
-        assertEquals(1065122L, history.addressBooks().getFirst().startBlock());
-        assertEquals(-1L, history.addressBooks().getFirst().endBlock(), "single era must be open-ended");
+        final RangedNodeAddressBook era = history.addressBooks().getFirst();
+        assertEquals(0L, era.startBlock());
+        assertEquals(-1L, era.endBlock(), "era must be open-ended");
+        assertEquals(7, era.addressBook().nodeAddress().size(), "previewnet era has 7 node addresses");
     }
 
-    /// testnet's real fixture spans 28 eras (its RSA roster has rotated many times), from block 0
-    /// up to an open-ended era starting at block 31090489.
+    /// testnet's real fixture spans 28 eras with real, ascending, non-overlapping block ranges
+    /// (its RSA roster has rotated many times), from block 0 up to an open-ended era starting at
+    /// block 31090489. Each era's address book has 7 node addresses, except two eras (a node
+    /// temporarily joining before another left) which have 8.
     @Test
     @DisplayName("Real testnet roster fixture (28 eras) loads via ApplicationStateFacility")
     void testnetFixtureLoadsSuccessfully() throws Exception {
         final RangedAddressBookHistory history = loadRealFixture("/testnet/rsa-bootstrap-roster.json");
         assertEquals(28, history.addressBooks().size(), "testnet fixture has 28 eras");
-        assertEquals(0L, history.addressBooks().getFirst().startBlock());
-        assertEquals(31090489L, history.addressBooks().getLast().startBlock());
-        assertEquals(-1L, history.addressBooks().getLast().endBlock(), "last era must be open-ended");
+
+        final long[][] expectedRanges = {
+            {0, 491},
+            {492, 12313873},
+            {12313874, 15116048},
+            {15116049, 21766582},
+            {21766583, 22061130},
+            {22061131, 23019378},
+            {23019379, 23270496},
+            {23270497, 24344217},
+            {24344218, 24479727},
+            {24479728, 25597790},
+            {25597791, 26250788},
+            {26250789, 28021425},
+            {28021426, 28023538},
+            {28023539, 28323628},
+            {28323629, 28323658},
+            {28323659, 28325877},
+            {28325878, 29533103},
+            {29533104, 29533133},
+            {29533134, 29535352},
+            {29535353, 31088421},
+            {31088422, 31088451},
+            {31088452, 31088480},
+            {31088481, 31088512},
+            {31088513, 31088541},
+            {31088542, 31088570},
+            {31088571, 31088600},
+            {31088601, 31090488},
+            {31090489, -1}
+        };
+        final int[] expectedNodeCounts = {
+            7, 7, 7, 7, 8, 7, 8, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
+        };
+
+        final List<RangedNodeAddressBook> eras = history.addressBooks();
+        for (int i = 0; i < expectedRanges.length; i++) {
+            final RangedNodeAddressBook era = eras.get(i);
+            assertEquals(expectedRanges[i][0], era.startBlock(), "era " + i + " startBlock");
+            assertEquals(expectedRanges[i][1], era.endBlock(), "era " + i + " endBlock");
+            assertEquals(expectedNodeCounts[i], era.addressBook().nodeAddress().size(), "era " + i + " node count");
+        }
     }
 
     /// Copies the given classpath fixture into the app's configured RSA bootstrap path and starts
