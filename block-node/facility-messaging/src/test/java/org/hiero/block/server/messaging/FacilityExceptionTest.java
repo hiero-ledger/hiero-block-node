@@ -20,6 +20,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -126,19 +127,7 @@ public class FacilityExceptionTest {
         service.registerBlockNotificationHandler(
                 new BlockNotificationHandler() {
                     @Override
-                    public void handleVerification(VerificationNotification notification) {
-                        // Simulate an exception
-                        throw new RuntimeException("Simulated exception");
-                    }
-
-                    @Override
-                    public void handlePersisted(PersistedNotification notification) {
-                        // Simulate an exception
-                        throw new RuntimeException("Simulated exception");
-                    }
-
-                    @Override
-                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                    public void handleNotification(BlockNotification notification) {
                         // Simulate an exception
                         throw new RuntimeException("Simulated exception");
                     }
@@ -152,9 +141,9 @@ public class FacilityExceptionTest {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-        service.sendBlockVerification(new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER));
-        service.sendBlockPersisted(new PersistedNotification(1, true, 1, BlockSource.PUBLISHER));
-        service.sendBackfilledBlockNotification(
+        service.sendBlockNotification(new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER));
+        service.sendBlockNotification(new PersistedNotification(1, true, 1, BlockSource.PUBLISHER));
+        service.sendBlockNotification(
                 new BackfilledBlockNotification(1, BlockUnparsed.newBuilder().build()));
         threadPoolManager.executor().executeAsync(true, 10_000L, true, true, () -> Executors.newSingleThreadExecutor());
         service.stop();

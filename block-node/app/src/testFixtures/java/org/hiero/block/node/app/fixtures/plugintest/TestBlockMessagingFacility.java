@@ -14,6 +14,7 @@ import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
@@ -237,52 +238,19 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public void sendBlockVerification(final VerificationNotification notification) {
+    public void sendBlockNotification(final BlockNotification notification) {
         logNotification(notification);
-        sentVerificationNotifications.add(notification);
-        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
-            handler.handleVerification(notification);
+        switch (notification) {
+            case VerificationNotification v -> sentVerificationNotifications.add(v);
+            case PersistedNotification p -> sentPersistedNotifications.add(p);
+            case NewestBlockKnownToNetworkNotification n -> sentNewestBlockKnownToNetworkNotifications.add(n);
+            case PublisherStatusUpdateNotification s -> sentPublisherStatusUpdateNotifications.add(s);
+            default -> {
+                /* not tracked in a dedicated sent list */
+            }
         }
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void sendBlockPersisted(final PersistedNotification notification) {
-        logNotification(notification);
-        sentPersistedNotifications.add(notification);
         for (final BlockNotificationHandler handler : blockNotificationHandlers) {
-            handler.handlePersisted(notification);
-        }
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void sendBackfilledBlockNotification(final BackfilledBlockNotification notification) {
-        logNotification(notification);
-        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
-            handler.handleBackfilled(notification);
-        }
-    }
-
-    @Override
-    public void sendNewestBlockKnownToNetwork(final NewestBlockKnownToNetworkNotification notification) {
-        logNotification(notification);
-        sentNewestBlockKnownToNetworkNotifications.add(notification);
-        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
-            handler.handleNewestBlockKnownToNetwork(notification);
-        }
-    }
-
-    @Override
-    public void sendPublisherStatusUpdate(final PublisherStatusUpdateNotification notification) {
-        logNotification(notification);
-        sentPublisherStatusUpdateNotifications.add(notification);
-        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
-            handler.handlePublisherStatusUpdate(notification);
+            handler.handleNotification(notification);
         }
     }
 
@@ -303,7 +271,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
         blockNotificationHandlers.remove(handler);
     }
 
-    private void logNotification(final Record notification) {
+    private void logNotification(final BlockNotification notification) {
         switch (notification) {
             case BackfilledBlockNotification backfilled ->
                 LOGGER.log(

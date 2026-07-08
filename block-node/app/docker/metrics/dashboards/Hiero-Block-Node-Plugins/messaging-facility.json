@@ -208,7 +208,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(blocknode_messaging_block_verification_notifications_total[$__rate_interval])",
+          "expr": "rate(blocknode_messaging_block_notifications_sent_total{notification_type=\"VerificationNotification\"}[$__rate_interval])",
           "legendFormat": "verifications/s",
           "refId": "A"
         }
@@ -299,7 +299,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(blocknode_messaging_block_persisted_notifications_total[$__rate_interval])",
+          "expr": "rate(blocknode_messaging_block_notifications_sent_total{notification_type=\"PersistedNotification\"}[$__rate_interval])",
           "legendFormat": "persisted/s",
           "refId": "A"
         }
@@ -391,7 +391,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(blocknode_messaging_block_backfilled_notifications_total[$__rate_interval])",
+          "expr": "rate(blocknode_messaging_block_notifications_sent_total{notification_type=\"BackfilledBlockNotification\"}[$__rate_interval])",
           "legendFormat": "persisted/s",
           "range": true,
           "refId": "A"
@@ -484,7 +484,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(blocknode_messaging_newest_block_known_to_network_notifications_total[$__rate_interval])",
+          "expr": "rate(blocknode_messaging_block_notifications_sent_total{notification_type=\"NewestBlockKnownToNetworkNotification\"}[$__rate_interval])",
           "legendFormat": "persisted/s",
           "range": true,
           "refId": "A"

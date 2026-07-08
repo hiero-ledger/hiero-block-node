@@ -8,6 +8,7 @@ import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.blocks.MinimalBlockAccessor;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -41,12 +42,18 @@ public class VerificationHandlingHistoricalBlockFacility implements HistoricalBl
     }
 
     @Override
-    public void handleVerification(final VerificationNotification notification) {
+    public void handleNotification(final BlockNotification notification) {
+        if (notification instanceof VerificationNotification verification) {
+            handleVerification(verification);
+        }
+    }
+
+    private void handleVerification(final VerificationNotification notification) {
         if (notification.success()) {
             blockStorage.put(notification.blockNumber(), BlockUtils.toBlock(notification.block()));
             availableBlocks.add(notification.blockNumber());
             context.blockMessaging()
-                    .sendBlockPersisted(
+                    .sendBlockNotification(
                             new PersistedNotification(notification.blockNumber(), true, 2_000, notification.source()));
         }
     }

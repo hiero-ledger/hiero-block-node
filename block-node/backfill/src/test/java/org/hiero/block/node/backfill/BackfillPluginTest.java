@@ -31,6 +31,7 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
@@ -628,7 +629,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // Trigger the backfill on-demand by sending a NewestBlockKnownToNetworkNotification
         // to the block messaging system
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(50L);
-        this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+        this.blockMessaging.sendBlockNotification(newestBlockNotification);
         // Wait for the backfill to complete
 
         countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
@@ -683,7 +684,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         registerDefaultTestBackfillHandler();
         registerDefaultTestVerificationHandler(countDownLatch);
 
-        blockMessaging.sendNewestBlockKnownToNetwork(new NewestBlockKnownToNetworkNotification(466L));
+        blockMessaging.sendBlockNotification(new NewestBlockKnownToNetworkNotification(466L));
 
         countDownLatch.await(1, TimeUnit.MINUTES);
 
@@ -729,7 +730,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // Trigger the backfill on-demand by sending a NewestBlockKnownToNetworkNotification
         // to the block messaging system
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(20L);
-        this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+        this.blockMessaging.sendBlockNotification(newestBlockNotification);
         // Wait for the backfill to complete
 
         countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
@@ -775,7 +776,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // Trigger the backfill on-demand by sending a NewestBlockKnownToNetworkNotification
         // to the block messaging system
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(20L);
-        this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+        this.blockMessaging.sendBlockNotification(newestBlockNotification);
         // Wait for the backfill to complete
 
         // allow some time for the backfill process to run
@@ -830,7 +831,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
 
         // Trigger the on-demand backfill by sending a NewestBlockKnownToNetworkNotification
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(50L);
-        this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+        this.blockMessaging.sendBlockNotification(newestBlockNotification);
 
         // LiveStreamPublisherManager
         countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
@@ -893,17 +894,24 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // register the verification handler
         this.blockMessaging.registerBlockNotificationHandler(
                 new BlockNotificationHandler() {
-                    @Override
-                    public void handleVerification(VerificationNotification notification) {
+                    private void handleVerification(VerificationNotification notification) {
                         blockNodeContext
                                 .blockMessaging()
-                                .sendBlockPersisted(new PersistedNotification(
+                                .sendBlockNotification(new PersistedNotification(
                                         notification.blockNumber(), true, 10, notification.source()));
                         latch1.countDown();
                         if (notification.blockNumber() < 50) {
                             latchHistorical.countDown(); // Count down for historical blocks
                         } else if (notification.blockNumber() >= 100) {
                             latchLive.countDown(); // Count down for live blocks
+                        }
+                    }
+
+                    @Override
+                    public void handleNotification(BlockNotification notification) {
+                        switch (notification) {
+                            case VerificationNotification n -> handleVerification(n);
+                            default -> {}
                         }
                     }
                 },
@@ -915,7 +923,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
 
         // Trigger the on-demand backfill by sending a NewestBlockKnownToNetworkNotification
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(200L);
-        this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+        this.blockMessaging.sendBlockNotification(newestBlockNotification);
 
         // Wait for the backfill to complete
         latchHistorical.await(1, TimeUnit.MINUTES); // Wait until latch2.countDown() is called
@@ -981,17 +989,24 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // register the verification handler
         this.blockMessaging.registerBlockNotificationHandler(
                 new BlockNotificationHandler() {
-                    @Override
-                    public void handleVerification(VerificationNotification notification) {
+                    private void handleVerification(VerificationNotification notification) {
                         blockNodeContext
                                 .blockMessaging()
-                                .sendBlockPersisted(new PersistedNotification(
+                                .sendBlockNotification(new PersistedNotification(
                                         notification.blockNumber(), true, 10, notification.source()));
                         latch1.countDown();
                         if (notification.blockNumber() < 50) {
                             latchHistorical.countDown(); // Count down for historical blocks
                         } else if (notification.blockNumber() >= 100) {
                             latchLive.countDown(); // Count down for live blocks
+                        }
+                    }
+
+                    @Override
+                    public void handleNotification(BlockNotification notification) {
+                        switch (notification) {
+                            case VerificationNotification n -> handleVerification(n);
+                            default -> {}
                         }
                     }
                 },
@@ -1004,7 +1019,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // No external trigger the backfill on-demand should receive NewestBlockKnownToNetworkNotification from
         // LiveStreamPublisherManager
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(101L);
-        this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+        this.blockMessaging.sendBlockNotification(newestBlockNotification);
 
         // Wait for the backfill to complete
         latchHistorical.await(1, TimeUnit.MINUTES); // Wait until latch2.countDown() is called
@@ -1076,11 +1091,10 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // register the verification handler
         this.blockMessaging.registerBlockNotificationHandler(
                 new BlockNotificationHandler() {
-                    @Override
-                    public void handleVerification(VerificationNotification notification) {
+                    private void handleVerification(VerificationNotification notification) {
                         blockNodeContext
                                 .blockMessaging()
-                                .sendBlockPersisted(new PersistedNotification(
+                                .sendBlockNotification(new PersistedNotification(
                                         notification.blockNumber(), true, 10, notification.source()));
                         backfillLatch.countDown();
 
@@ -1090,6 +1104,14 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                                 ((SimpleBlockRangeSet) historicalBlockFacility.availableBlocks());
                         newRange.add(notification.blockNumber());
                         historicalBlockFacility.setTemporaryAvailableBlocks(newRange);
+                    }
+
+                    @Override
+                    public void handleNotification(BlockNotification notification) {
+                        switch (notification) {
+                            case VerificationNotification n -> handleVerification(n);
+                            default -> {}
+                        }
                     }
                 },
                 false,
@@ -1170,11 +1192,10 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // register the verification handler
         this.blockMessaging.registerBlockNotificationHandler(
                 new BlockNotificationHandler() {
-                    @Override
-                    public void handleVerification(VerificationNotification notification) {
+                    private void handleVerification(VerificationNotification notification) {
                         blockNodeContext
                                 .blockMessaging()
-                                .sendBlockPersisted(new PersistedNotification(
+                                .sendBlockNotification(new PersistedNotification(
                                         notification.blockNumber(), true, 10, notification.source()));
                         backfillLatch.countDown();
                         if (notification.blockNumber() < localBNEarliestBlock) {
@@ -1190,6 +1211,14 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                         newRange.add(notification.blockNumber());
                         historicalBlockFacility.setTemporaryAvailableBlocks(newRange);
                     }
+
+                    @Override
+                    public void handleNotification(BlockNotification notification) {
+                        switch (notification) {
+                            case VerificationNotification n -> handleVerification(n);
+                            default -> {}
+                        }
+                    }
                 },
                 false,
                 "test-backfill-handler");
@@ -1197,7 +1226,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // Trigger the backfill on-demand by sending a NewestBlockKnownToNetworkNotification
         // to the block messaging system
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(120L);
-        this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+        this.blockMessaging.sendBlockNotification(newestBlockNotification);
 
         // Wait for the backfill to complete
         boolean autonomousSuccess =
@@ -1262,17 +1291,24 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         registerDefaultTestBackfillHandler();
         this.blockMessaging.registerBlockNotificationHandler(
                 new BlockNotificationHandler() {
-                    @Override
-                    public void handleVerification(VerificationNotification notification) {
+                    private void handleVerification(VerificationNotification notification) {
                         blockNodeContext
                                 .blockMessaging()
-                                .sendBlockPersisted(new PersistedNotification(
+                                .sendBlockNotification(new PersistedNotification(
                                         notification.blockNumber(), true, 10, notification.source()));
                         latch.countDown();
                         // Update the store so next scan sees progress
                         SimpleBlockRangeSet newRange = ((SimpleBlockRangeSet) pluginStore.availableBlocks());
                         newRange.add(notification.blockNumber());
                         pluginStore.setTemporaryAvailableBlocks(newRange);
+                    }
+
+                    @Override
+                    public void handleNotification(BlockNotification notification) {
+                        switch (notification) {
+                            case VerificationNotification n -> handleVerification(n);
+                            default -> {}
+                        }
                     }
                 },
                 false,
@@ -1424,17 +1460,24 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     private void registerDefaultTestBackfillHandler() {
         this.blockMessaging.registerBlockNotificationHandler(
                 new BlockNotificationHandler() {
-                    @Override
-                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                    private void handleBackfilled(BackfilledBlockNotification notification) {
                         blockNodeContext
                                 .blockMessaging()
-                                .sendBlockVerification(new VerificationNotification(
+                                .sendBlockNotification(new VerificationNotification(
                                         true,
                                         null,
                                         notification.blockNumber(),
                                         Bytes.wrap("123"),
                                         notification.block(),
                                         BlockSource.BACKFILL));
+                    }
+
+                    @Override
+                    public void handleNotification(BlockNotification notification) {
+                        switch (notification) {
+                            case BackfilledBlockNotification n -> handleBackfilled(n);
+                            default -> {}
+                        }
                     }
                 },
                 false,
@@ -1444,13 +1487,20 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     private void registerDefaultTestVerificationHandler(CountDownLatch countDownLatch) {
         this.blockMessaging.registerBlockNotificationHandler(
                 new BlockNotificationHandler() {
-                    @Override
-                    public void handleVerification(VerificationNotification notification) {
+                    private void handleVerification(VerificationNotification notification) {
                         blockNodeContext
                                 .blockMessaging()
-                                .sendBlockPersisted(new PersistedNotification(
+                                .sendBlockNotification(new PersistedNotification(
                                         notification.blockNumber(), true, 10, notification.source()));
                         countDownLatch.countDown();
+                    }
+
+                    @Override
+                    public void handleNotification(BlockNotification notification) {
+                        switch (notification) {
+                            case VerificationNotification n -> handleVerification(n);
+                            default -> {}
+                        }
                     }
                 },
                 false,

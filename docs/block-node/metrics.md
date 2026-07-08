@@ -103,18 +103,14 @@ Observes the block access service that serves requests for blocks.
 **Plugin:** `messaging [facility-messaging]`
 Observes the messaging system that connects the publisher with subscribers and the rest of the system.
 
-|  Type   |                          Name                           |                      Description                       |
-|---------|---------------------------------------------------------|--------------------------------------------------------|
-| Counter | `messaging_block_items_received`                        | Incoming block items seen by the mediator              |
-| Counter | `messaging_block_verification_notifications`            | Notifications issued after verification                |
-| Counter | `messaging_block_persisted_notifications`               | Notifications issued after persistence                 |
-| Gauge   | `messaging_no_of_item_listeners`                        | Active item listeners                                  |
-| Gauge   | `messaging_no_of_notification_listeners`                | Active notification listeners                          |
-| Gauge   | `messaging_item_queue_percent_used`                     | Percent of item queue utilised                         |
-| Gauge   | `messaging_notification_queue_percent_used`             | Percent of notification queue utilised                 |
-| Counter | `messaging_block_backfilled_notifications`              | Notifications issued after backfilling blocks          |
-| Counter | `messaging_newest_block_known_to_network_notifications` | Notifications issued for newest block known to network |
-| Counter | `messaging_publisher_status_update_notifications`       | Notifications issued for publisher status updates      |
+|  Type   |                    Name                     |                                    Description                                    |
+|---------|---------------------------------------------|-----------------------------------------------------------------------------------|
+| Counter | `messaging_block_items_received`            | Incoming block items seen by the mediator                                         |
+| Counter | `messaging_block_notifications_sent`        | Block notifications sent, labeled by `notification_type` (the notification class) |
+| Gauge   | `messaging_no_of_item_listeners`            | Active item listeners                                                             |
+| Gauge   | `messaging_no_of_notification_listeners`    | Active notification listeners                                                     |
+| Gauge   | `messaging_item_queue_percent_used`         | Percent of item queue utilised                                                    |
+| Gauge   | `messaging_notification_queue_percent_used` | Percent of notification queue utilised                                            |
 
 ---
 

@@ -312,7 +312,7 @@ class CloudStorageArchiveIntegrationTest {
 
     private void sendVerification(final PluginContext pc, final TestBlock block) {
         pc.messaging()
-                .sendBlockVerification(new VerificationNotification(
+                .sendBlockNotification(new VerificationNotification(
                         true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
     }
 

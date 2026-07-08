@@ -17,6 +17,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -57,7 +58,7 @@ public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificatio
         }
         if (currentSession.processBlockItems(blockItems)) {
             // first send the notification, most likely it will be handled on the same thread
-            context.blockMessaging().sendBlockVerification(currentSession.completeSession());
+            context.blockMessaging().sendBlockNotification(currentSession.completeSession());
             // then mark as a failure
             if (currentSession.shouldFail) {
                 final long blockNumber = currentSession.blockNumber;
@@ -70,6 +71,11 @@ public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificatio
     public void stop() {
         context.blockMessaging().unregisterBlockNotificationHandler(this);
         context.blockMessaging().unregisterBlockItemHandler(this);
+    }
+
+    @Override
+    public void handleNotification(final BlockNotification notification) {
+        // this plugin only emits verification notifications; it does not react to any notification
     }
 
     public void setBlockSource(final BlockSource blockSource) {

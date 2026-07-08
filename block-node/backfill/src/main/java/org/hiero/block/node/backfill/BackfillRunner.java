@@ -261,7 +261,7 @@ final class BackfillRunner {
             metricsHolder.backfillFetchedBlocks().increment();
             // always track persistence before sending backfill notification to avoid race conditions
             persistenceAwaiter.trackBlock(blockNumber);
-            messaging.sendBackfilledBlockNotification(new BackfilledBlockNotification(blockNumber, blockUnparsed));
+            messaging.sendBlockNotification(new BackfilledBlockNotification(blockNumber, blockUnparsed));
             final String backfillingBlockMsg = "Backfilling block [{0}]";
             logger.log(TRACE, backfillingBlockMsg, blockNumber);
             pendingBackfillBlocks.incrementAndGet();

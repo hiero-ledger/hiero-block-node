@@ -308,11 +308,20 @@ class BackfillRunnerTest {
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
                     new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
-                        @Override
-                        public void handleBackfilled(
+                        private void handleBackfilled(
                                 org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
-                            messaging.sendBlockPersisted(new PersistedNotification(
+                            messaging.sendBlockNotification(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+
+                        @Override
+                        public void handleNotification(
+                                org.hiero.block.node.spi.blockmessaging.BlockNotification notification) {
+                            switch (notification) {
+                                case org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification b ->
+                                    handleBackfilled(b);
+                                default -> {}
+                            }
                         }
                     },
                     false,
@@ -354,11 +363,20 @@ class BackfillRunnerTest {
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
                     new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
-                        @Override
-                        public void handleBackfilled(
+                        private void handleBackfilled(
                                 org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
-                            messaging.sendBlockPersisted(new PersistedNotification(
+                            messaging.sendBlockNotification(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+
+                        @Override
+                        public void handleNotification(
+                                org.hiero.block.node.spi.blockmessaging.BlockNotification notification) {
+                            switch (notification) {
+                                case org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification b ->
+                                    handleBackfilled(b);
+                                default -> {}
+                            }
                         }
                     },
                     false,
@@ -401,11 +419,20 @@ class BackfillRunnerTest {
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
                     new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
-                        @Override
-                        public void handleBackfilled(
+                        private void handleBackfilled(
                                 org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
-                            messaging.sendBlockPersisted(new PersistedNotification(
+                            messaging.sendBlockNotification(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+
+                        @Override
+                        public void handleNotification(
+                                org.hiero.block.node.spi.blockmessaging.BlockNotification notification) {
+                            switch (notification) {
+                                case org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification b ->
+                                    handleBackfilled(b);
+                                default -> {}
+                            }
                         }
                     },
                     false,
@@ -469,12 +496,21 @@ class BackfillRunnerTest {
             // Register a handler that simulates immediate persistence (verification + persist flow)
             messaging.registerBlockNotificationHandler(
                     new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
-                        @Override
-                        public void handleBackfilled(
+                        private void handleBackfilled(
                                 org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
                             // Simulate immediate persistence
-                            messaging.sendBlockPersisted(new PersistedNotification(
+                            messaging.sendBlockNotification(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+
+                        @Override
+                        public void handleNotification(
+                                org.hiero.block.node.spi.blockmessaging.BlockNotification notification) {
+                            switch (notification) {
+                                case org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification b ->
+                                    handleBackfilled(b);
+                                default -> {}
+                            }
                         }
                     },
                     false,
@@ -509,11 +545,20 @@ class BackfillRunnerTest {
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
                     new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
-                        @Override
-                        public void handleBackfilled(
+                        private void handleBackfilled(
                                 org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
-                            messaging.sendBlockPersisted(new PersistedNotification(
+                            messaging.sendBlockNotification(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+
+                        @Override
+                        public void handleNotification(
+                                org.hiero.block.node.spi.blockmessaging.BlockNotification notification) {
+                            switch (notification) {
+                                case org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification b ->
+                                    handleBackfilled(b);
+                                default -> {}
+                            }
                         }
                     },
                     false,
@@ -600,11 +645,20 @@ class BackfillRunnerTest {
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
                     new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
-                        @Override
-                        public void handleBackfilled(
+                        private void handleBackfilled(
                                 org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
-                            messaging.sendBlockPersisted(new PersistedNotification(
+                            messaging.sendBlockNotification(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+
+                        @Override
+                        public void handleNotification(
+                                org.hiero.block.node.spi.blockmessaging.BlockNotification notification) {
+                            switch (notification) {
+                                case org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification b ->
+                                    handleBackfilled(b);
+                                default -> {}
+                            }
                         }
                     },
                     false,
@@ -665,11 +719,20 @@ class BackfillRunnerTest {
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
                     new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
-                        @Override
-                        public void handleBackfilled(
+                        private void handleBackfilled(
                                 org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
-                            messaging.sendBlockPersisted(new PersistedNotification(
+                            messaging.sendBlockNotification(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+
+                        @Override
+                        public void handleNotification(
+                                org.hiero.block.node.spi.blockmessaging.BlockNotification notification) {
+                            switch (notification) {
+                                case org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification b ->
+                                    handleBackfilled(b);
+                                default -> {}
+                            }
                         }
                     },
                     false,
@@ -722,11 +785,20 @@ class BackfillRunnerTest {
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
                     new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
-                        @Override
-                        public void handleBackfilled(
+                        private void handleBackfilled(
                                 org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
-                            messaging.sendBlockPersisted(new PersistedNotification(
+                            messaging.sendBlockNotification(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+
+                        @Override
+                        public void handleNotification(
+                                org.hiero.block.node.spi.blockmessaging.BlockNotification notification) {
+                            switch (notification) {
+                                case org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification b ->
+                                    handleBackfilled(b);
+                                default -> {}
+                            }
                         }
                     },
                     false,
@@ -759,11 +831,20 @@ class BackfillRunnerTest {
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
                     new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
-                        @Override
-                        public void handleBackfilled(
+                        private void handleBackfilled(
                                 org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
-                            messaging.sendBlockPersisted(new PersistedNotification(
+                            messaging.sendBlockNotification(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+
+                        @Override
+                        public void handleNotification(
+                                org.hiero.block.node.spi.blockmessaging.BlockNotification notification) {
+                            switch (notification) {
+                                case org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification b ->
+                                    handleBackfilled(b);
+                                default -> {}
+                            }
                         }
                     },
                     false,
@@ -799,11 +880,20 @@ class BackfillRunnerTest {
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
                     new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
-                        @Override
-                        public void handleBackfilled(
+                        private void handleBackfilled(
                                 org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
-                            messaging.sendBlockPersisted(new PersistedNotification(
+                            messaging.sendBlockNotification(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+
+                        @Override
+                        public void handleNotification(
+                                org.hiero.block.node.spi.blockmessaging.BlockNotification notification) {
+                            switch (notification) {
+                                case org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification b ->
+                                    handleBackfilled(b);
+                                default -> {}
+                            }
                         }
                     },
                     false,

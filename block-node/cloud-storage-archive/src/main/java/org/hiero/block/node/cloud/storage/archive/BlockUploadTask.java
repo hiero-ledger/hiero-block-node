@@ -248,7 +248,7 @@ public class BlockUploadTask implements Callable<UploadResult> {
                 // fall back to blockNum so the notification is never dropped.
                 final Map.Entry<Long, BlockSource> last =
                         blocksInBuffer.isEmpty() ? Map.entry(blockNum, blockSource) : blocksInBuffer.lastEntry();
-                blockMessaging.sendBlockPersisted(
+                blockMessaging.sendBlockNotification(
                         new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
                 final long rangeStart = blocksInBuffer.isEmpty() ? blockNum : blocksInBuffer.firstKey();
                 applicationStateFacility.addStoredBlockRange(new LongRange(rangeStart, last.getKey()));
@@ -266,7 +266,8 @@ public class BlockUploadTask implements Callable<UploadResult> {
             final BlockSource firstBlockSource = blocksInBuffer.isEmpty()
                     ? blockSource
                     : blocksInBuffer.firstEntry().getValue();
-            blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlockNum, false, 1_000, firstBlockSource));
+            blockMessaging.sendBlockNotification(
+                    new PersistedNotification(firstBlockNum, false, 1_000, firstBlockSource));
             LOGGER.log(INFO, "Failed to upload part containing blocks %d to %d".formatted(firstBlockNum, blockNum), e);
             return null;
         }
@@ -296,7 +297,7 @@ public class BlockUploadTask implements Callable<UploadResult> {
             doUploadPart(buffer, s3, uploadId, etags);
         } catch (S3ResponseException | IOException e) {
             final Map.Entry<Long, BlockSource> first = blocksInBuffer.firstEntry();
-            blockMessaging.sendBlockPersisted(
+            blockMessaging.sendBlockNotification(
                     new PersistedNotification(first.getKey(), false, 1_000, first.getValue()));
             LOGGER.log(INFO, "Failed to upload final part for key {0}", key, e);
             partResult = UploadResult.FAILED;
@@ -304,7 +305,8 @@ public class BlockUploadTask implements Callable<UploadResult> {
         }
         if (partResult == UploadResult.SUCCESS) {
             final Map.Entry<Long, BlockSource> last = blocksInBuffer.lastEntry();
-            blockMessaging.sendBlockPersisted(new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
+            blockMessaging.sendBlockNotification(
+                    new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
             applicationStateFacility.addStoredBlockRange(new LongRange(blocksInBuffer.firstKey(), last.getKey()));
             metricsHolder.blocksWritten().increment(blocksInBuffer.size());
             metricsHolder.storedBytes().increment(buffer.length);

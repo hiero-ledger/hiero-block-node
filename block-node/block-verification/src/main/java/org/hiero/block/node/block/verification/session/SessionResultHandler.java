@@ -98,7 +98,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     /// Send a notification to messaging.
     private void safeSendNotification(final VerificationNotification notification) {
         try {
-            context.blockMessaging().sendBlockVerification(notification);
+            context.blockMessaging().sendBlockNotification(notification);
         } catch (final RuntimeException e) {
             final String message =
                     "Failed to send verification notification for completed session with id %d for block %d with source %s"

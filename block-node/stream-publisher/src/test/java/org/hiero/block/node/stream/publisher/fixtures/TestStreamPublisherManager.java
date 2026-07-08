@@ -25,6 +25,7 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -141,7 +142,7 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     public void notifyTooFarBehind(long newestKnownBlockNumber) {
         final NewestBlockKnownToNetworkNotification notification =
                 new NewestBlockKnownToNetworkNotification(newestKnownBlockNumber);
-        blockMessagingFacility.sendNewestBlockKnownToNetwork(notification);
+        blockMessagingFacility.sendBlockNotification(notification);
     }
 
     @Override
@@ -174,6 +175,14 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     }
 
     @Override
+    public void handleNotification(final BlockNotification notification) {
+        switch (notification) {
+            case VerificationNotification v -> handleVerification(v);
+            case PersistedNotification p -> handlePersisted(p);
+            default -> {}
+        }
+    }
+
     public void handleVerification(final VerificationNotification notification) {
         throw new UnsupportedOperationException("implement handleVerification in test fixture if needed");
     }
@@ -187,7 +196,6 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     /// mitigate false positives in tests that use this fixture. Also, this
     /// method will NOT update the state of the manager (latestBlockNumber)! Any
     /// updates must be explicit!
-    @Override
     public void handlePersisted(final PersistedNotification notification) {
         final long newLastPersistedBlock = notification.blockNumber();
         if (newLastPersistedBlock > latestBlockNumber) {

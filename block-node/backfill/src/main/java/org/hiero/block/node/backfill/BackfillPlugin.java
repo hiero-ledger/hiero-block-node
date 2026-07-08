@@ -26,6 +26,7 @@ import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
@@ -432,10 +433,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     }
 
     /**
-     * {@inheritDoc}
+     * Handles a persisted notification, dispatched from {@link #handleNotification}.
      */
-    @Override
-    public void handlePersisted(PersistedNotification notification) {
+    void handlePersisted(PersistedNotification notification) {
         if (notification.blockSource() == BlockSource.BACKFILL) {
             // Add more detailed logging for persistence notifications
             final String backfillPersistedMsg = "Received backfill persisted notification for block=[{0}]";
@@ -450,10 +450,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     }
 
     /**
-     * {@inheritDoc}
+     * Handles a verification notification, dispatched from {@link #handleNotification}.
      */
-    @Override
-    public void handleVerification(VerificationNotification notification) {
+    void handleVerification(VerificationNotification notification) {
         if (notification.source() == BlockSource.BACKFILL) {
             final String verificationNotificationMsg = "Received verification notification for block [{0}]";
             LOGGER.log(TRACE, verificationNotificationMsg, notification.blockNumber());
@@ -467,8 +466,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
     }
 
-    @Override
-    public void handleNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
+    void handleNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
         if (!hasBNSourcesPath) {
             LOGGER.log(DEBUG, "No block node sources path configured, skipping on-demand backfill");
             return;
@@ -488,6 +486,16 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
         scheduleGap(new GapDetector.Gap(new LongRange(startBackfillFrom, cappedEnd), GapDetector.Type.LIVE_TAIL));
+    }
+
+    @Override
+    public void handleNotification(final BlockNotification notification) {
+        switch (notification) {
+            case VerificationNotification v -> handleVerification(v);
+            case PersistedNotification p -> handlePersisted(p);
+            case NewestBlockKnownToNetworkNotification n -> handleNewestBlockKnownToNetwork(n);
+            default -> {}
+        }
     }
 
     /**

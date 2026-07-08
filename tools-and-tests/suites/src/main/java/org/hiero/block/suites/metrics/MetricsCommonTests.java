@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.util.Map;
 import java.util.concurrent.Future;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
@@ -104,9 +105,13 @@ public class MetricsCommonTests extends BaseSuite {
         long blockItemsReceived =
                 metricsAccessor.getMetricValue("messaging_block_items_received", MetricsAccessor.MetricType.COUNTER);
         long verificationNotifications = metricsAccessor.getMetricValue(
-                "messaging_block_verification_notifications", MetricsAccessor.MetricType.COUNTER);
+                "messaging_block_notifications_sent",
+                MetricsAccessor.MetricType.COUNTER,
+                Map.of("notification_type", "VerificationNotification"));
         long persistedNotifications = metricsAccessor.getMetricValue(
-                "messaging_block_persisted_notifications", MetricsAccessor.MetricType.COUNTER);
+                "messaging_block_notifications_sent",
+                MetricsAccessor.MetricType.COUNTER,
+                Map.of("notification_type", "PersistedNotification"));
 
         assertTrue(blockItemsReceived >= 0, "Block items received should be a non-negative number");
         assertTrue(verificationNotifications >= 0, "Verification notifications should be a non-negative number");
