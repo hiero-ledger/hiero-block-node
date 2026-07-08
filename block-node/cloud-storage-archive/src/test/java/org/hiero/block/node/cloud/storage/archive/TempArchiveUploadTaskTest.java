@@ -19,6 +19,7 @@ import io.minio.errors.MinioException;
 import io.minio.messages.Item;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -56,7 +57,7 @@ class TempArchiveUploadTaskTest {
     private static final String BUCKET_NAME = "test-bucket";
     private static final int GROUPING_LEVEL = 1;
     private static final int PART_SIZE_MB = 5;
-    /// ~600 KB per block; two blocks exceed the 5 MB part threshold, triggering a mid-loop flush.
+    /// ~600 KiB per block; nine or more blocks exceed the 5 MiB part threshold, triggering a mid-loop flush.
     private static final int BLOCK_DATA_BYTES = 600 * 1024;
 
     // @todo(2013) we should remove that and use another approach
@@ -154,9 +155,12 @@ class TempArchiveUploadTaskTest {
     }
 
     private TempArchiveUploadTask buildTask(
-            String s3Key, long firstBlock, BlockingQueue<BlockWithSource> queue, TestBlockMessagingFacility messaging) {
-        return new TempArchiveUploadTask(
-                config, messaging, new NoOpApplicationStateFacility(), createMetricsHolder(), s3Key, firstBlock, queue);
+            String s3Key,
+            long firstBlock,
+            BlockingQueue<BlockWithSource> queue,
+            TestBlockMessagingFacility messaging,
+            TrackingApplicationStateFacility asf) {
+        return new TempArchiveUploadTask(config, messaging, asf, createMetricsHolder(), s3Key, firstBlock, queue);
     }
 
     /// Verifies the happy path: blocks queued followed by SEGMENT_END produce a completed `.tmp`
@@ -170,13 +174,15 @@ class TempArchiveUploadTaskTest {
         final String metaKey = TempArchiveKey.formatMeta(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
 
         for (int i = 0; i < 3; i++) {
             queue.put(makeBlock(100));
         }
         queue.put(TempArchiveUploadTask.SEGMENT_END);
 
-        final TempArchiveEntry entry = buildTask(s3Key, 0, queue, messaging).call();
+        final TempArchiveEntry entry =
+                buildTask(s3Key, 0, queue, messaging, asf).call();
 
         assertThat(entry.s3Key()).isEqualTo(s3Key);
         assertThat(entry.firstBlock()).isZero();
@@ -191,23 +197,27 @@ class TempArchiveUploadTaskTest {
         assertThat(notifications.getFirst().blockNumber()).isEqualTo(2L);
         assertThat(notifications.getFirst().succeeded()).isTrue();
         assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
+        assertThat(asf.addedRanges).hasSize(1);
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, 2));
     }
 
-    /// Verifies that when [doCompleteMultipartUpload] throws, [call()] rethrows the exception and
-    /// neither the `.tmp` key (not yet committed) nor the `.meta` key is present in S3.
+    /// Verifies that when [doCompleteMultipartUpload] throws, [call()] rethrows the exception,
+    /// neither the `.tmp` key (not yet committed) nor the `.meta` key is present in S3, and a
+    /// failed [PersistedNotification] is sent so downstream subscribers are not left dangling.
     @Test
-    @DisplayName("completeMultipartUpload failure: exception rethrown; no keys committed")
+    @DisplayName("completeMultipartUpload failure: exception rethrown; no keys committed; failed notification sent")
     void completeFailureThrowsAndLeavesNoKeys() throws Exception {
         final String s3Key = TempArchiveKey.formatTar(0, "");
         final String metaKey = TempArchiveKey.formatMeta(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
 
         queue.put(makeBlock(100));
         queue.put(TempArchiveUploadTask.SEGMENT_END);
 
-        final TempArchiveUploadTask task = new FailingCompleteTask(
-                config, messaging, new NoOpApplicationStateFacility(), createMetricsHolder(), s3Key, 0, queue);
+        final TempArchiveUploadTask task =
+                new FailingCompleteTask(config, messaging, asf, createMetricsHolder(), s3Key, 0, queue);
 
         assertThatThrownBy(task::call).isInstanceOf(IOException.class);
         try (S3Client s3 = openS3Client()) {
@@ -215,30 +225,45 @@ class TempArchiveUploadTaskTest {
             assertThat(s3.listObjects(s3Key, 1)).doesNotContain(s3Key);
             assertThat(s3.listObjects(metaKey, 1)).doesNotContain(metaKey);
         }
+        assertThat(asf.addedRanges).isEmpty();
+        final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+        assertThat(notifications).hasSize(1);
+        assertThat(notifications.getFirst().succeeded()).isFalse();
+        assertThat(notifications.getFirst().blockNumber()).isZero();
+        assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
     }
 
     /// Verifies that when [doUploadTextFile] (the meta companion write) throws, [call()] rethrows
     /// the exception.  The `.tmp` key was already committed by [doCompleteMultipartUpload], so it
-    /// IS present; only the `.meta` key is absent.
+    /// IS present; only the `.meta` key is absent.  Because the tar is durable, a success
+    /// [PersistedNotification] and range registration are still sent before rethrowing.
     @Test
-    @DisplayName("Meta file write failure: exception rethrown; .tmp exists but .meta absent")
+    @DisplayName("Meta file write failure: exception rethrown; .tmp exists but .meta absent; success notification sent")
     void metaWriteFailureThrowsAndLeavesTmpButNoMeta() throws Exception {
         final String s3Key = TempArchiveKey.formatTar(0, "");
         final String metaKey = TempArchiveKey.formatMeta(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
 
         queue.put(makeBlock(100));
         queue.put(TempArchiveUploadTask.SEGMENT_END);
 
-        final TempArchiveUploadTask task = new FailingMetaTask(
-                config, messaging, new NoOpApplicationStateFacility(), createMetricsHolder(), s3Key, 0, queue);
+        final TempArchiveUploadTask task =
+                new FailingMetaTask(config, messaging, asf, createMetricsHolder(), s3Key, 0, queue);
 
         assertThatThrownBy(task::call).isInstanceOf(IOException.class);
         try (S3Client s3 = openS3Client()) {
             assertThat(s3.listObjects(s3Key, 1)).contains(s3Key);
             assertThat(s3.listObjects(metaKey, 1)).doesNotContain(metaKey);
         }
+        assertThat(asf.addedRanges).hasSize(1);
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, 0));
+        final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+        assertThat(notifications).hasSize(1);
+        assertThat(notifications.getFirst().succeeded()).isTrue();
+        assertThat(notifications.getFirst().blockNumber()).isZero();
+        assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
     }
 
     /// Verifies that interrupting the virtual thread while it is blocked on [BlockingQueue#take]
@@ -249,7 +274,8 @@ class TempArchiveUploadTaskTest {
         final String s3Key = TempArchiveKey.formatTar(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
-        final TempArchiveUploadTask task = buildTask(s3Key, 0, queue, messaging);
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
+        final TempArchiveUploadTask task = buildTask(s3Key, 0, queue, messaging, asf);
 
         final InterruptedException[] caught = {null};
         final Thread thread = new Thread(() -> {
@@ -281,6 +307,7 @@ class TempArchiveUploadTaskTest {
         final String s3Key = TempArchiveKey.formatTar(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
 
         // Large blocks so the cumulative buffer exceeds PART_SIZE_MB before SEGMENT_END,
         // triggering the mid-loop doUploadPart call.
@@ -289,11 +316,12 @@ class TempArchiveUploadTaskTest {
         }
         queue.put(TempArchiveUploadTask.SEGMENT_END);
 
-        final TempArchiveUploadTask task = new FailingUploadPartTask(
-                config, messaging, new NoOpApplicationStateFacility(), createMetricsHolder(), s3Key, 0, queue);
+        final TempArchiveUploadTask task =
+                new FailingUploadPartTask(config, messaging, asf, createMetricsHolder(), s3Key, 0, queue);
 
         assertThatThrownBy(task::call).isInstanceOf(IOException.class);
         assertThat(messaging.getSentPersistedNotifications()).isEmpty();
+        assertThat(asf.addedRanges).isEmpty();
         try (S3Client s3 = openS3Client()) {
             assertThat(s3.listMultipartUploads()).doesNotContainKey(s3Key);
         }
@@ -308,6 +336,7 @@ class TempArchiveUploadTaskTest {
         final String s3Key = TempArchiveKey.formatTar(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
 
         // Small blocks so the buffer stays below PART_SIZE_MB throughout the loop;
         // doUploadPart is only called for the final partial buffer.
@@ -316,8 +345,8 @@ class TempArchiveUploadTaskTest {
         }
         queue.put(TempArchiveUploadTask.SEGMENT_END);
 
-        final TempArchiveUploadTask task = new FailingUploadPartTask(
-                config, messaging, new NoOpApplicationStateFacility(), createMetricsHolder(), s3Key, 0, queue);
+        final TempArchiveUploadTask task =
+                new FailingUploadPartTask(config, messaging, asf, createMetricsHolder(), s3Key, 0, queue);
 
         assertThatThrownBy(task::call).isInstanceOf(IOException.class);
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
@@ -325,9 +354,42 @@ class TempArchiveUploadTaskTest {
         assertThat(notifications.getFirst().succeeded()).isFalse();
         assertThat(notifications.getFirst().blockNumber()).isZero();
         assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
+        assertThat(asf.addedRanges).isEmpty();
         try (S3Client s3 = openS3Client()) {
             assertThat(s3.listMultipartUploads()).doesNotContainKey(s3Key);
         }
+    }
+
+    /// Verifies the multi-part success path: blocks large enough to trigger a mid-loop flush
+    /// produce a single [applicationStateFacility.addStoredBlockRange] call covering the full
+    /// range after both the multipart complete and the meta write succeed.
+    @Test
+    @DisplayName("Multi-part success: single addStoredBlockRange covering full range after completion")
+    void multiPartSuccessRegistersFullRangeAfterCompletion() throws Exception {
+        final String s3Key = TempArchiveKey.formatTar(0, "");
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
+
+        // ~600 KB per block; 10 blocks = ~6 MB, exceeding the 5 MB part threshold so at least
+        // one mid-loop flush occurs before SEGMENT_END.
+        final int numBlocks = 10;
+        for (int i = 0; i < numBlocks; i++) {
+            queue.put(makeBlock(BLOCK_DATA_BYTES));
+        }
+        queue.put(TempArchiveUploadTask.SEGMENT_END);
+
+        final TempArchiveEntry entry =
+                buildTask(s3Key, 0, queue, messaging, asf).call();
+
+        assertThat(entry.firstBlock()).isZero();
+        assertThat(entry.lastBlock()).isEqualTo(numBlocks - 1L);
+        assertThat(asf.addedRanges).hasSize(1);
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, numBlocks - 1L));
+        final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+        assertThat(notifications).hasSize(1);
+        assertThat(notifications.getFirst().blockNumber()).isEqualTo(numBlocks - 1L);
+        assertThat(notifications.getFirst().succeeded()).isTrue();
     }
 
     /// [TempArchiveUploadTask] subclass that always throws from [doUploadPart].
@@ -391,12 +453,16 @@ class TempArchiveUploadTaskTest {
         }
     }
 
-    private static final class NoOpApplicationStateFacility implements ApplicationStateFacility {
+    private static final class TrackingApplicationStateFacility implements ApplicationStateFacility {
+        final List<LongRange> addedRanges = new ArrayList<>();
+
         @Override
         public void updateTssData(TssData tssData) {}
 
         @Override
-        public void addStoredBlockRange(LongRange blockRange) {}
+        public void addStoredBlockRange(LongRange blockRange) {
+            addedRanges.add(blockRange);
+        }
 
         @Override
         public NetworkData knownPublishers() {

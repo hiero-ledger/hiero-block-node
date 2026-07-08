@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 
 /// Determines where [CloudStorageArchivePlugin] should resume uploading after a restart.
 ///
@@ -103,7 +104,8 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                 result.nextBlockNumber(),
                 result.trailingBytes(),
                 tempArchives,
-                lastHandedOffBlock);
+                lastHandedOffBlock,
+                result.completedRanges());
     }
 
     /// Filters a raw [S3Client#listMultipartUploads] result to only the **regular** (non-temp)
@@ -122,84 +124,89 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                 .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
-    /// Case 1: no hanging uploads — find the last completed tar and return the start of the next group.
+    /// Case 1: no hanging uploads — enumerate all completed tar archives and return the start of
+    /// the next group after the last one.
     private RecoveryResult recoverFromCompletedObjects(S3Client s3) throws S3ResponseException, IOException {
         final RecoveryResult recoveryResult;
-        final String lastKey = findLastKey(s3);
-        if (lastKey == null) {
+        final List<String> allTarKeys = findAllTarKeys(s3);
+        if (allTarKeys.isEmpty()) {
             LOGGER.log(TRACE, "No prior state found in S3 bucket, starting fresh");
-            recoveryResult = new RecoveryResult(-1, null, null, 0, null, null, -1);
+            recoveryResult = new RecoveryResult(-1, null, null, 0, null, null, -1, new ConcurrentLongRangeSet());
         } else {
             final long groupSize = Math.powExact(10, config.groupingLevel());
-            final long groupStart = ArchiveKey.parse(lastKey, config.groupingLevel(), config.objectKeyPrefix());
+            final ConcurrentLongRangeSet completedRanges = new ConcurrentLongRangeSet();
+            long maxGroupStart = -1;
+            for (final String key : allTarKeys) {
+                final long groupStart = ArchiveKey.parse(key, config.groupingLevel(), config.objectKeyPrefix());
+                completedRanges.add(groupStart, groupStart + groupSize - 1);
+                if (groupStart > maxGroupStart) {
+                    maxGroupStart = groupStart;
+                }
+            }
             LOGGER.log(
                     TRACE,
                     "Last completed tar group starts at {0}, resuming from {1}",
-                    groupStart,
-                    groupStart + groupSize);
-            recoveryResult = new RecoveryResult(groupStart + groupSize, null, null, 0, null, null, -1);
+                    maxGroupStart,
+                    maxGroupStart + groupSize);
+            recoveryResult =
+                    new RecoveryResult(maxGroupStart + groupSize, null, null, 0, null, null, -1, completedRanges);
         }
         return recoveryResult;
     }
 
-    /// Right-hand path traversal: descends the virtual S3 directory tree by always following
-    /// the alphabetically last common prefix at each level, skipping the `tmp/` virtual directory,
-    /// then pages through the leaf objects to return the key of the last one, or `null` if the
-    /// bucket is empty.
+    /// Walks the `/`-delimited directory hierarchy under the configured prefix (excluding `tmp/`)
+    /// and returns the list of all final tar keys.
     ///
-    /// When [CloudStorageArchiveConfig#objectKeyPrefix()] is configured the traversal is rooted
-    /// at `{prefix}/` so that sibling prefixes in the same bucket are never visited.
-    private String findLastKey(S3Client s3) throws S3ResponseException, IOException {
+    /// [ArchiveKey#format] lays out each group as `directoryDepth` path segments followed by a
+    /// leaf segment folded into the object name (e.g. `0000/0000/0000/0001/23.tar`). This walks
+    /// [directoryDepth] delimiter listings (returning `CommonPrefixes`, one per branch) before
+    /// issuing a single flat listing per leaf directory to read the actual tar keys, bounding the
+    /// list-call count by O(levels x branches) rather than the total number of completed archives,
+    /// with no loss of per-range accuracy since every tar key is still read from a leaf listing.
+    private List<String> findAllTarKeys(S3Client s3) throws S3ResponseException, IOException {
         final String objectKeyPrefix = config.objectKeyPrefix();
         final String excludedPrefix = TempArchiveKey.tmpPrefix(objectKeyPrefix);
-        String currentPrefix = objectKeyPrefix.isEmpty() ? "" : objectKeyPrefix + "/";
-        String lastPrefix = findLastCommonPrefixExcluding(s3, currentPrefix, excludedPrefix);
-        while (lastPrefix != null) {
-            currentPrefix = lastPrefix;
-            lastPrefix = findLastCommonPrefixExcluding(s3, currentPrefix, excludedPrefix);
-        }
-        return findLastObject(s3, currentPrefix);
+        final String rootPrefix = objectKeyPrefix.isEmpty() ? "" : objectKeyPrefix + "/";
+        final List<String> tarKeys = new ArrayList<>();
+        collectTarKeys(s3, rootPrefix, directoryDepth(), excludedPrefix, tarKeys);
+        return tarKeys;
     }
 
-    /// Pages through all common prefixes under [prefix] and returns the alphabetically last one
-    /// that is not equal to [excluded], or `null` if there are no qualifying common prefixes.
-    private String findLastCommonPrefixExcluding(S3Client s3, String prefix, String excluded)
+    /// Number of `/`-delimited directory levels [ArchiveKey#format] emits before the leaf segment
+    /// that is folded into the object name, for the configured [CloudStorageArchiveConfig#groupingLevel()].
+    private int directoryDepth() {
+        final int digitCount = ArchiveKey.MAX_LONG_DIGITS - config.groupingLevel();
+        final int segmentCount = (digitCount + ArchiveKey.PATH_SEGMENT_WIDTH - 1) / ArchiveKey.PATH_SEGMENT_WIDTH;
+        return segmentCount - 1;
+    }
+
+    /// Recursively descends `remainingDepth` levels of `/`-delimited directories starting at
+    /// [prefix], collecting completed tar keys into [out]. At `remainingDepth == 0`, [prefix] is a
+    /// leaf directory: a flat (non-delimited) listing reads its objects directly, giving the exact
+    /// tar keys without ever walking sibling leaf directories.
+    private void collectTarKeys(S3Client s3, String prefix, int remainingDepth, String excludedPrefix, List<String> out)
             throws S3ResponseException, IOException {
-        String lastPrefix = null;
+        final String delimiter = remainingDepth == 0 ? null : "/";
         String token = null;
         boolean hasMore = true;
         while (hasMore) {
-            final S3Client.ListPage page = s3.listObjectsPage(prefix, token, "/", MAX_LIST_RESULTS);
-            for (final String candidate : page.keys()) {
-                if (!candidate.equals(excluded)) {
-                    lastPrefix = candidate;
+            final S3Client.ListPage page = s3.listObjectsPage(prefix, token, delimiter, MAX_LIST_RESULTS);
+            if (remainingDepth == 0) {
+                for (final String key : page.keys()) {
+                    if (key.endsWith(".tar")) {
+                        out.add(key);
+                    }
+                }
+            } else {
+                for (final String childPrefix : page.keys()) {
+                    if (!childPrefix.equals(excludedPrefix)) {
+                        collectTarKeys(s3, childPrefix, remainingDepth - 1, excludedPrefix, out);
+                    }
                 }
             }
             token = page.continuationToken();
             hasMore = token != null;
         }
-        return lastPrefix;
-    }
-
-    /// Pages through all objects under [prefix] and returns the key of the alphabetically last one,
-    /// or `null` if the prefix contains no objects.
-    private String findLastObject(S3Client s3, String prefix) throws S3ResponseException, IOException {
-        String lastKey = null;
-        String token = null;
-        boolean hasMore = true;
-        while (hasMore) {
-            final S3Client.ListPage page = s3.listObjectsPage(prefix, token, null, MAX_LIST_RESULTS);
-            if (!page.keys().isEmpty()) {
-                final String candidate = page.keys().getLast();
-                // Filter out any .tmp or .meta objects that might appear at the leaf level
-                if (!candidate.endsWith(".tmp") && !candidate.endsWith(".meta")) {
-                    lastKey = candidate;
-                }
-            }
-            token = page.continuationToken();
-            hasMore = token != null;
-        }
-        return lastKey;
     }
 
     /// Case 2: one hanging upload — complete it to materialize a readable S3 object, start a fresh
@@ -235,7 +242,8 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                         scanResult.blockNumber(),
                         scanResult.trailingBytes(),
                         null,
-                        -1);
+                        -1,
+                        null);
             } else {
                 LOGGER.log(DEBUG, "No block start found in any part for key {0}; aborting", key);
                 s3.abortMultipartUpload(key, newUploadId);
