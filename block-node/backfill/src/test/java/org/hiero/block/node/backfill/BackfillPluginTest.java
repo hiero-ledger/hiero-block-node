@@ -1510,7 +1510,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // non-throttled implementation would submit it on every one of the ~12 scans.
         parkNanos(2_500_000_000L);
 
-        long submissions = getMetricValue(BackfillPlugin.METRIC_BACKFILL_GAPS_DETECTED);
+        long submissions = getMetricValue(BackfillPlugin.METRIC_BACKFILL_GAPS_SUBMITTED);
         assertTrue(submissions >= 2, "Gap should still be retried (backoff must not hard-stop): " + submissions);
         assertTrue(
                 submissions <= 6,

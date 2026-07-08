@@ -64,6 +64,7 @@ class BackfillRunnerTest {
         mockFetchedBlocksCounter = mock(LongCounter.Measurement.class);
         mockMetricsHolder = new BackfillPlugin.MetricsHolder(
                 mock(LongCounter.Measurement.class), // backfillGapsDetected
+                mock(LongCounter.Measurement.class), // backfillGapsSubmitted
                 mockFetchedBlocksCounter, // backfillFetchedBlocks
                 mock(LongCounter.Measurement.class), // backfillBlocksBackfilled
                 mockFetchErrorsCounter, // backfillFetchErrors

@@ -571,7 +571,7 @@ public class ConcurrentLongRangeSet implements BlockRangeSet {
      * @return an unmodifiable, ascending, non-overlapping list of the ranges in the set
      */
     public List<LongRange> toList() {
-        return ranges.get();
+        return Collections.unmodifiableList(ranges.get());
     }
 
     /**

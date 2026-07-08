@@ -241,16 +241,17 @@ Observes the server status API that provides information about the node.
 **Plugin:** `backfill [block-node-backfill]`
 Provides metrics related to the backfill process, including On-Demand and Historical backfills.
 
-|  Type   |             Name             |                              Description                              |
-|---------|------------------------------|-----------------------------------------------------------------------|
-| Counter | `backfill_gaps_detected`     | Total number of gaps detected at start-up                             |
-| Counter | `backfill_blocks_fetched`    | Total number of blocks fetched during backfill                        |
-| Counter | `backfill_blocks_backfilled` | Total number of blocks successfully backfilled                        |
-| Counter | `backfill_fetch_errors`      | Total number of errors encountered while fetching blocks              |
-| Counter | `backfill_retries`           | Total number of retries attempted during backfill                     |
-| Gauge   | `backfill_status`            | Current status of the backfill process (0=Idle, 1=Running)            |
-| Gauge   | `backfill_pending_blocks`    | Number of blocks pending to be backfilled                             |
-| Gauge   | `backfill_inflight_blocks`   | In-flight backfill blocks currently awaiting verification/persistence |
+|  Type   |             Name             |                                                       Description                                                       |
+|---------|------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| Counter | `backfill_gaps_detected`     | Total number of gaps detected during a scan (includes gaps re-detected while throttled by backoff)                      |
+| Counter | `backfill_gaps_submitted`    | Total number of detected gaps actually submitted for backfill (excludes gaps throttled by backoff or already in-flight) |
+| Counter | `backfill_blocks_fetched`    | Total number of blocks fetched during backfill                                                                          |
+| Counter | `backfill_blocks_backfilled` | Total number of blocks successfully backfilled                                                                          |
+| Counter | `backfill_fetch_errors`      | Total number of errors encountered while fetching blocks                                                                |
+| Counter | `backfill_retries`           | Total number of retries attempted during backfill                                                                       |
+| Gauge   | `backfill_status`            | Current status of the backfill process (0=Idle, 1=Running)                                                              |
+| Gauge   | `backfill_pending_blocks`    | Number of blocks pending to be backfilled                                                                               |
+| Gauge   | `backfill_inflight_blocks`   | In-flight backfill blocks currently awaiting verification/persistence                                                   |
 
 #### Cloud Expanded
 

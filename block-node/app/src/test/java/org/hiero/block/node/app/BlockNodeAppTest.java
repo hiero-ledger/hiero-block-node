@@ -351,10 +351,11 @@ class BlockNodeAppTest {
         BlockNodeContext awaitContext(final long timeoutSeconds, final Predicate<BlockNodeContext> condition)
                 throws InterruptedException {
             final long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
-            long remainingNanos;
             BlockNodeContext delivered;
-            while ((remainingNanos = deadlineNanos - System.nanoTime()) > 0
-                    && (delivered = contextUpdates.poll(remainingNanos, TimeUnit.NANOSECONDS)) != null) {
+            // poll() treats a zero/negative timeout as "don't wait" and returns null immediately, so no
+            // separate deadline check is needed before it — this also sidesteps any ambiguity between
+            // ">" and ">=" for a near-zero remaining duration.
+            while ((delivered = contextUpdates.poll(deadlineNanos - System.nanoTime(), TimeUnit.NANOSECONDS)) != null) {
                 if (condition.test(delivered)) {
                     return delivered;
                 }
