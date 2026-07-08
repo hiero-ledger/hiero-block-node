@@ -8,6 +8,7 @@ import io.helidon.common.uri.UriInfo;
 import io.helidon.common.uri.UriQuery;
 import io.helidon.http.Header;
 import io.helidon.http.HttpPrologue;
+import io.helidon.http.Method;
 import io.helidon.http.RoutedPath;
 import io.helidon.http.ServerRequestHeaders;
 import io.helidon.http.media.ReadableEntity;
@@ -90,9 +91,10 @@ public class TestServerRequest implements ServerRequest {
         throw new UnsupportedOperationException();
     }
 
+    /** Reports HTTP/1.1, matching the protocol the {@code Connection: close} handling checks for. */
     @Override
     public HttpPrologue prologue() {
-        throw new UnsupportedOperationException();
+        return HttpPrologue.create("HTTP/1.1", "HTTP", "1.1", Method.GET, path, false);
     }
 
     @Override

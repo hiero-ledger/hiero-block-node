@@ -20,8 +20,10 @@ import org.hiero.block.node.base.Loggable;
  *     {@code null} to fall back to this value
  * @param shutdownDelayMillis the delay in milliseconds for the service
  * @param maxTcpConnections the maximum number of TCP connections
- * @param idleConnectionPeriodMinutes the period of idle connections check in minutes
- * @param idleConnectionTimeoutMinutes the timeout of idle connections in minutes
+ * @param idleConnectionPeriodMinutes how often (minutes) the idle-connection reaper runs
+ * @param idleConnectionTimeoutMinutes how long (minutes) a connection may sit idle before it is
+ *     closed; kept short so idle sockets are reclaimed well before they accumulate to
+ *     {@code maxTcpConnections} and the server starts refusing new connections
  * @param tcpNoDelay whether to use TCP no delay
  * @param backlogSize the maximum length of the queue of incoming connections on the server socket.
  * @param writeQueueLength the number of buffers queued for write operations
@@ -39,8 +41,10 @@ public record ServerConfig(
             @Min(1024) @Max(65_535) int port,
         @Loggable @ConfigProperty(defaultValue = "500") int shutdownDelayMillis,
         @Loggable @ConfigProperty(defaultValue = "1000") int maxTcpConnections,
-        @Loggable @ConfigProperty(defaultValue = "5") int idleConnectionPeriodMinutes,
-        @Loggable @ConfigProperty(defaultValue = "30") int idleConnectionTimeoutMinutes,
+        @Loggable @ConfigProperty(defaultValue = "1")
+            @Min(1) @Max(60) int idleConnectionPeriodMinutes,
+        @Loggable @ConfigProperty(defaultValue = "2")
+            @Min(1) @Max(1_440) int idleConnectionTimeoutMinutes,
         @Loggable @ConfigProperty(defaultValue = "true") boolean tcpNoDelay,
         @Loggable @ConfigProperty(defaultValue = "8_192") int backlogSize,
         @Loggable @ConfigProperty(defaultValue = "8_192") int writeQueueLength) {}
