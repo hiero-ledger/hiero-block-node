@@ -58,6 +58,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             MetricKey.of("backfill_inflight_blocks", ObservableGauge.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_BACKFILL_GAPS_DETECTED =
             MetricKey.of("backfill_gaps_detected", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_BACKFILL_GAPS_SUBMITTED =
+            MetricKey.of("backfill_gaps_submitted", LongCounter.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_BACKFILL_BLOCKS_FETCHED =
             MetricKey.of("backfill_blocks_fetched", LongCounter.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_BACKFILL_BLOCKS_BACKFILLED =
@@ -372,6 +374,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         final Set<Long> detectedHistoricalStarts = new HashSet<>();
         for (GapDetector.Gap gap : gaps) {
             LOGGER.log(DEBUG, detectedGapMsg, gap.type(), gap.range());
+            metricsHolder.backfillGapsDetected.increment();
             if (gap.type() == GapDetector.Type.HISTORICAL) {
                 final long start = gap.range().start();
                 detectedHistoricalStarts.add(start);
@@ -382,7 +385,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 }
             }
             if (scheduleGap(gap)) {
-                metricsHolder.backfillGapsDetected.increment();
+                metricsHolder.backfillGapsSubmitted.increment();
                 if (gap.type() == GapDetector.Type.HISTORICAL) {
                     recordHistoricalGapAttempt(gap.range().start(), gap.range().size(), now);
                 }
@@ -623,6 +626,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      */
     public record MetricsHolder(
             LongCounter.Measurement backfillGapsDetected,
+            LongCounter.Measurement backfillGapsSubmitted,
             LongCounter.Measurement backfillFetchedBlocks,
             LongCounter.Measurement backfillBlocksBackfilled,
             LongCounter.Measurement backfillFetchErrors,
@@ -650,6 +654,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     metricRegistry
                             .register(LongCounter.builder(METRIC_BACKFILL_GAPS_DETECTED)
                                     .setDescription("Number of gaps detected during the backfill process."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(
+                                    LongCounter.builder(METRIC_BACKFILL_GAPS_SUBMITTED)
+                                            .setDescription(
+                                                    "Number of detected gaps actually submitted for backfill (excludes gaps currently throttled by backoff or already in-flight)."))
                             .getOrCreateNotLabeled(),
                     metricRegistry
                             .register(LongCounter.builder(METRIC_BACKFILL_BLOCKS_FETCHED)
