@@ -68,20 +68,27 @@ spec:
       - name: importer
         image: ${jvm_image}
         env:
+        # BlockNodeProperties in mirror-node v0.157.1 is:
+        #   endpoints: SortedSet<ServiceEndpoint{host, port, apis, requiresTls}>
+        #   priority:  int
+        # so the block-node coordinates live under nodes[N].endpoints[0].host/port,
+        # not the flat nodes[N].host/port shape earlier versions used.
         - name: HIERO_MIRROR_IMPORTER_BLOCK_ENABLED
           value: "true"
         - name: HIERO_MIRROR_IMPORTER_BLOCK_SOURCETYPE
           value: "BLOCK_NODE"
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_HOST
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_PRIORITY
+          value: "0"
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_ENDPOINTS_0_HOST
           value: "${BN_HOST_2}"
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_PORT
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_ENDPOINTS_0_PORT
           value: "40840"
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_1_HOST
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_1_PRIORITY
+          value: "0"
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_1_ENDPOINTS_0_HOST
           value: "${BN_HOST_3}"
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_1_PORT
+        - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_1_ENDPOINTS_0_PORT
           value: "40840"
-        - name: HIERO_MIRROR_IMPORTER_BLOCK_VERIFICATION_ENABLED
-          value: "false"
 EOF
 
 log "Patching ${importer_deploy} (JVM image + block-source env vars)..."
