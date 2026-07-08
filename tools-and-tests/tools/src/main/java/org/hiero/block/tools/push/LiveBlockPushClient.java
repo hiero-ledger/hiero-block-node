@@ -334,6 +334,32 @@ public final class LiveBlockPushClient implements AutoCloseable {
         submitted.incrementAndGet();
     }
 
+    /** Advance {@link #lastAckedBlock} to {@code target} if it is currently lower. */
+    private void advanceAckWatermarkTo(final long target) {
+        long prev;
+        do {
+            prev = lastAckedBlock.get();
+            if (target <= prev) {
+                return;
+            }
+        } while (!lastAckedBlock.compareAndSet(prev, target));
+    }
+
+    /**
+     * Lower {@link #lastAckedBlock} to {@code target} if it is currently higher. Used when the BN
+     * asks us to rewind (ResendBlock / NodeBehindPublisher) so the reconnect's inFlight replay
+     * treats blocks {@code > target} as still-unacked.
+     */
+    private void rewindAckWatermarkTo(final long target) {
+        long prev;
+        do {
+            prev = lastAckedBlock.get();
+            if (target >= prev) {
+                return;
+            }
+        } while (!lastAckedBlock.compareAndSet(prev, target));
+    }
+
     /** Move ACKed blocks off the head of the in-flight deque. */
     private void prunePendingFromAck(final Deque<QueuedBlock> inFlight) {
         final long ack = lastAckedBlock.get();
@@ -482,25 +508,43 @@ public final class LiveBlockPushClient implements AutoCloseable {
                 } while (!lastAckedBlock.compareAndSet(prev, blockNumber));
                 return;
             }
-            // The publish protocol may respond with more than acknowledgements. We surface each
-            // variant so the operator log makes it clear what the BN is telling us, and let the
-            // stream-lifecycle path (streamAlive / completion / worker reconnect) handle the
-            // consequences. Skip/Resend/NodeBehindPublisher are informational for this client;
-            // EndOfStream is a normal close after the max stream duration (or a hard error),
-            // which the outer worker treats as a reconnect trigger.
+            // The publish protocol responses beyond Acknowledgement drive the client's next-block
+            // watermark: continuing to push forward after a Skip/Resend/NodeBehindPublisher (or
+            // ignoring EndOfStream's persisted-block hint) risks a disconnect or a misbehaving-
+            // publisher block from the BN. Each variant is mapped to an ACK-watermark change and,
+            // where applicable, a stream tear-down; the worker's reconnect + inFlight replay then
+            // naturally resumes at the correct next block.
             if (response.hasSkipBlock()) {
-                System.err.println("[push] BN sent SkipBlock: block "
-                        + response.skipBlock().blockNumber());
+                // BN has already persisted this block; treat it as ACKed so we do not resend it.
+                final long skipped = response.skipBlock().blockNumber();
+                System.err.println(
+                        "[push] BN sent SkipBlock: block " + skipped + " already persisted; skipping resend");
+                advanceAckWatermarkTo(skipped);
             } else if (response.hasResendBlock()) {
-                System.err.println("[push] BN sent ResendBlock: block "
-                        + response.resendBlock().blockNumber());
+                // BN wants an earlier block back. Rewind our ACK watermark so the reconnect replays
+                // inFlight from that block; continuing forward here draws a NodeBehindPublisher.
+                final long target = response.resendBlock().blockNumber();
+                System.err.println("[push] BN sent ResendBlock: rewinding to block " + target + " and reconnecting");
+                rewindAckWatermarkTo(target - 1);
+                streamAlive.set(false);
+                completion.complete(null);
             } else if (response.hasNodeBehindPublisher()) {
-                System.err.println("[push] BN reports node behind publisher at block "
-                        + response.nodeBehindPublisher().blockNumber());
+                // Publisher can't accept blocks this far ahead. Rewind and reconnect, or the BN
+                // may disconnect and temporarily block this publisher for misbehaving.
+                final long target = response.nodeBehindPublisher().blockNumber();
+                System.err.println(
+                        "[push] BN reports node behind publisher; rewinding to block " + target + " and reconnecting");
+                rewindAckWatermarkTo(target - 1);
+                streamAlive.set(false);
+                completion.complete(null);
             } else if (response.hasEndStream()) {
                 final PublishStreamResponse.EndOfStream end = response.endStream();
-                System.err.println("[push] BN sent EndOfStream (code=" + end.status() + ", last persisted block=" + end.blockNumber()
-                        + "); worker will reconnect");
+                System.err.println("[push] BN sent EndOfStream (code=" + end.status()
+                        + ", last persisted block=" + end.blockNumber() + "); resuming from block "
+                        + (end.blockNumber() + 1));
+                // Advance to the BN's declared last-persisted watermark so the reconnect resumes
+                // at end.blockNumber() + 1 rather than replaying anything already persisted.
+                advanceAckWatermarkTo(end.blockNumber());
                 streamAlive.set(false);
                 completion.complete(null);
             }
