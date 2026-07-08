@@ -59,12 +59,13 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
         final ServerStatusResponse.Builder serverStatusResponseBuilder = ServerStatusResponse.newBuilder();
         final long firstAvailableBlock = blockProvider.availableBlocks().min();
-        long lastAvailableBlock = blockProvider.availableBlocks().max();
+        long highestAvailableBlock = blockProvider.availableBlocks().max();
         // If this node is configured to manage blocks starting later than what it currently holds, report that
         // later block as the last available block so publishers know they can stream from earliestManagedBlock
-        // instead of assuming the node only wants its currently stored (older) blocks.
-        if (lastAvailableBlock != UNKNOWN_BLOCK_NUMBER && lastAvailableBlock < earliestManagedBlock) {
-            lastAvailableBlock = earliestManagedBlock;
+        // instead of assuming the node only wants older blocks between the oldest stored block and earliest managed
+        // block.
+        if (highestAvailableBlock != UNKNOWN_BLOCK_NUMBER && highestAvailableBlock < earliestManagedBlock) {
+            highestAvailableBlock = earliestManagedBlock;
         }
 
         // TODO(#579) Should get from state config or status, which would be provided by the context from responsible
@@ -78,7 +79,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // Build the response
         ServerStatusResponse response = serverStatusResponseBuilder
                 .firstAvailableBlock(firstAvailableBlock)
-                .lastAvailableBlock(lastAvailableBlock)
+                .lastAvailableBlock(highestAvailableBlock)
                 .onlyLatestState(onlyLatestState)
                 .build();
 
@@ -174,7 +175,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     @Override
     @NonNull
     public List<Class<? extends Record>> configDataTypes() {
-        return List.of(ServerStatusConfig.class, NodeConfig.class);
+        return List.of(ServerStatusConfig.class);
     }
 
     /**
