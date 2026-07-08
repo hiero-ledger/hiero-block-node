@@ -65,6 +65,17 @@ data:
     CREATE EXTENSION IF NOT EXISTS btree_gist;
     CREATE EXTENSION IF NOT EXISTS pg_trgm;
     CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    -- Roles the MN importer's Flyway migrations expect to exist (v1 baseline
+    -- references mirror_importer / mirror_grpc / mirror_rest / mirror_web3).
+    CREATE ROLE readonly;
+    CREATE ROLE readwrite IN ROLE readonly;
+    CREATE ROLE temporary_admin IN ROLE readwrite;
+    CREATE ROLE mirror_importer;
+    CREATE ROLE mirror_grpc;
+    CREATE ROLE mirror_rest;
+    CREATE ROLE mirror_web3;
+    GRANT temporary_admin TO mirror_node;
+    GRANT temporary_admin TO mirror_importer;
     CREATE SCHEMA IF NOT EXISTS temporary;
     GRANT ALL PRIVILEGES ON SCHEMA temporary TO mirror_node;
     ALTER DEFAULT PRIVILEGES IN SCHEMA temporary GRANT ALL ON TABLES TO mirror_node;

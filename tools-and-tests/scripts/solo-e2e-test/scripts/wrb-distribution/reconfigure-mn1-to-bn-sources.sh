@@ -89,6 +89,14 @@ spec:
           value: "${BN_HOST_3}"
         - name: HIERO_MIRROR_IMPORTER_BLOCK_NODES_1_ENDPOINTS_0_PORT
           value: "40840"
+        # ImporterConfiguration.init rejects "block source + record downloader
+        # both enabled" (throws IllegalStateException on startup). MN1's Solo
+        # install has the record/balance downloaders on by default; switching
+        # to a BN source means we must turn them off.
+        - name: HIERO_MIRROR_IMPORTER_DOWNLOADER_RECORD_ENABLED
+          value: "false"
+        - name: HIERO_MIRROR_IMPORTER_DOWNLOADER_BALANCE_ENABLED
+          value: "false"
 EOF
 
 log "Patching ${importer_deploy} (JVM image + block-source env vars)..."
