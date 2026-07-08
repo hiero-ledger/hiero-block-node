@@ -667,7 +667,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             addressBookHistory = null;
         }
 
-        List<BlockRange> storedBlockRange = toBlockRange(storedBlocks);
+        List<BlockRange> storedBlockRange = mergeRanges(storedBlocks, availableBlocks);
         List<BlockRange> availableBlockRange = toBlockRange(availableBlocks);
 
         if (tssData == null
@@ -688,11 +688,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             builder.rangedAddressBookHistory(addressBookHistory);
         }
 
-        // The next two items must remain in order (available first, stored second).
         if (availableBlockRange.hashCode() != context.availableBlocks().hashCode()
                 || !availableBlockRange.equals(context.availableBlocks())) {
             builder.availableBlocks(availableBlockRange);
-            storedBlockRange = mergeRanges(storedBlocks, availableBlocks);
         }
         if (storedBlockRange.hashCode() != context.storedBlocks().hashCode()
                 || !storedBlockRange.equals(context.storedBlocks())) {
@@ -729,14 +727,17 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// Merge two sets of block ranges into a single list of block ranges.
     /// This is a very expensive method, O(n<sup>2</sup>), so it should be used
     /// carefully. Perhaps a future update to BlockRangeSet will add a more
-    /// efficient merge process.
+    /// efficient merge process. Called unconditionally on every scan (not only when
+    /// `availableBlocks` changes) — `storedBlocks` can change independently (e.g. a plugin calling
+    /// `addStoredBlockRange`), and skipping the merge in that case previously let `storedBlocks()`
+    /// regress to the unmerged, durable-only set once `availableBlocks` stabilized.
     ///
     /// @param storedBlocks a set of stored blocks to merge into the result.
     /// @param availableBlocks a set of available blocks to merge into the result.
     private List<BlockRange> mergeRanges(final BlockRangeSet storedBlocks, final BlockRangeSet availableBlocks) {
         ConcurrentLongRangeSet combined = new ConcurrentLongRangeSet();
-        combined.addAll(storedBlocks.streamRanges().toList());
-        combined.addAll(availableBlocks.streamRanges().toList());
+        combined.addAll(storedBlocks);
+        combined.addAll(availableBlocks);
         return combined.streamRanges()
                 .map(longRange -> new BlockRange(longRange.start(), longRange.end()))
                 .toList();

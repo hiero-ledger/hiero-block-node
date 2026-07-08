@@ -219,11 +219,22 @@ public class ConcurrentLongRangeSet implements BlockRangeSet {
      * Adds multiple new ranges to the set. This will expand any existing ranges if they match otherwise it will add one
      * or more new ranges. Only new values that are not in the set will be added.
      *
-     * @param ranges the ranges to add
+     * @param ranges the set of ranges to add
      */
     public void addAll(ConcurrentLongRangeSet ranges) {
-        List<LongRange> otherRanges = ranges.ranges.get();
-        for (LongRange range : otherRanges) {
+        for (final LongRange range : ranges.ranges.get()) {
+            add(range);
+        }
+    }
+
+    /**
+     * Adds multiple new ranges to the set. This will expand any existing ranges if they match otherwise it will add one
+     * or more new ranges. Only new values that are not in the set will be added.
+     *
+     * @param ranges the set of ranges to add
+     */
+    public void addAll(BlockRangeSet ranges) {
+        for (final LongRange range : ranges.streamRanges().toList()) {
             add(range);
         }
     }
@@ -552,6 +563,15 @@ public class ConcurrentLongRangeSet implements BlockRangeSet {
     @Override
     public Stream<LongRange> streamRanges() {
         return ranges.get().stream();
+    }
+
+    /**
+     * Returns the ranges in the set as an unmodifiable list, without the overhead of streaming.
+     *
+     * @return an unmodifiable, ascending, non-overlapping list of the ranges in the set
+     */
+    public List<LongRange> toList() {
+        return Collections.unmodifiableList(ranges.get());
     }
 
     /**

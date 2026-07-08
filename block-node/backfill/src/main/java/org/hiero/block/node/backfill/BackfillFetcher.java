@@ -14,8 +14,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
-import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
@@ -106,16 +107,21 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     }
 
     /**
-     * Determines the new available block range across all configured block nodes,
-     * starting from the latest stored block number + 1 and ending at the maximum
-     * last available block number reported by any of the nodes.
+     * Determines the block ranges available across all configured block nodes that extend beyond the
+     * given baseline. Because peers can have non-contiguous history, this returns the union of their
+     * exact available ranges (each clipped to blocks after the baseline) rather than a single span:
+     * callers must not assume every block between the first and last range is available.
+     * <p>
+     * This only locates the peer network's frontier beyond the baseline (used to size the scan
+     * window in greedy mode); it does not decide which gaps get backfilled. Actual chunk fetching,
+     * including gaps below the baseline, is resolved independently via {@link #getAvailabilityForRange},
+     * which is not clipped to any baseline.
      *
-     * @param latestStoredBlockNumber the latest stored block number
-     * @return a LongRange representing the new available block range
+     * @param latestStoredBlockNumber the highest block already known locally; only blocks beyond it are returned
+     * @return the merged, ascending list of available peer ranges beyond the baseline; empty if none
      */
-    public LongRange getNewAvailableRange(long latestStoredBlockNumber) {
-        long earliestPeerBlock = Long.MAX_VALUE;
-        long latestPeerBlock = Long.MIN_VALUE;
+    public List<LongRange> getNewAvailableRanges(long latestStoredBlockNumber) {
+        final List<LongRange> peerRanges = new ArrayList<>();
 
         for (BlockNodeSourceConfig node : blockNodeSource.nodes()) {
             if (isInBackoff(node)) {
@@ -130,14 +136,12 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             }
 
             try {
-                final ServerStatusResponse nodeStatus =
-                        currentNodeClient.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
-                long firstAvailableBlock = nodeStatus.firstAvailableBlock();
-                long lastAvailableBlock = nodeStatus.lastAvailableBlock();
-
-                // update the earliestPeerBlock to the max lastAvailableBlock
-                latestPeerBlock = Math.max(latestPeerBlock, lastAvailableBlock);
-                earliestPeerBlock = Math.min(earliestPeerBlock, firstAvailableBlock);
+                for (final LongRange range : resolveAvailableRanges(currentNodeClient)) {
+                    if (range.end() > latestStoredBlockNumber) {
+                        final long start = Math.max(range.start(), latestStoredBlockNumber + 1);
+                        peerRanges.add(new LongRange(start, range.end()));
+                    }
+                }
             } catch (RuntimeException e) {
                 final String failedToGetStatusMsg = "Failed to get status from node [%s:%d]: %s"
                         .formatted(node.address(), node.port(), e.getMessage());
@@ -146,27 +150,33 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             }
         }
 
-        // Determine the earliest block we can actually fetch from peers
-        long startBlock = Math.max(latestStoredBlockNumber + 1, earliestPeerBlock);
-        // confirm next block is available if not we still can't backfill
-        if (startBlock > latestPeerBlock) {
-            return null;
-        }
-
-        final String determinedAvailableRangeMsg =
-                "Determined available range from peer blocks nodes start=[{0}] to end=[{1}]";
-        LOGGER.log(DEBUG, determinedAvailableRangeMsg, startBlock, latestPeerBlock);
-        return new LongRange(startBlock, latestPeerBlock);
+        final List<LongRange> mergedRanges = LongRange.mergeContiguousRanges(peerRanges);
+        final String determinedAvailableRangeMsg = "Determined available peer ranges beyond block [{0}]: [{1}]";
+        LOGGER.log(DEBUG, determinedAvailableRangeMsg, latestStoredBlockNumber, mergedRanges);
+        return mergedRanges;
     }
 
     /**
-     * Determine available ranges for a node. Once serverStatusDetail is available, this method could return multiple
-     * ranges; today it returns a single contiguous range from serverStatus.
+     * Determine the exact available block ranges for a node using the {@code serverStatusDetail} RPC.
+     * Unlike the coarse {@code serverStatus} first/last pair, this reports each contiguous range the peer
+     * has, so internal gaps in the peer's history are visible and never requested. Malformed ranges are
+     * skipped defensively.
+     *
+     * @param node the peer client to query
+     * @return the peer's available ranges, sorted ascending; empty if the peer reports none
      */
     protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
-        final ServerStatusResponse nodeStatus =
-                node.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
-        return List.of(new LongRange(nodeStatus.firstAvailableBlock(), nodeStatus.lastAvailableBlock()));
+        final ServerStatusDetailResponse nodeStatus =
+                node.getBlockNodeServiceClient().serverStatusDetail(new ServerStatusRequest());
+        final List<LongRange> ranges =
+                new ArrayList<>(nodeStatus.availableRanges().size());
+        for (final BlockRange range : nodeStatus.availableRanges()) {
+            if (range.rangeStart() < 0 || range.rangeEnd() < range.rangeStart()) {
+                continue;
+            }
+            ranges.add(new LongRange(range.rangeStart(), range.rangeEnd()));
+        }
+        return ranges;
     }
 
     /**
@@ -237,10 +247,11 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 }
             }
 
+            // A peer whose exact ranges do not cover this chunk is not a failure — with serverStatusDetail
+            // reporting real ranges, "I don't have those blocks" is a precise, truthful answer. Only omit
+            // it from the availability map; unreachable/erroring peers are still penalised above.
             if (!intersections.isEmpty()) {
                 availability.put(node, LongRange.mergeContiguousRanges(intersections));
-            } else {
-                markFailure(node);
             }
         }
 

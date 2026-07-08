@@ -230,7 +230,7 @@ public class TestBlockNodeServer {
             // Todo: add TssData flexibility to TestBlockNodeServer to allow tests to pass in TssData to hand back to
             // tests
             return ServerStatusDetailResponse.newBuilder()
-                    .availableRanges(blockRangeBuilder.build())
+                    .availableRanges(blockRanges)
                     .tssData(buildTssData(
                             Bytes.fromHex("01010101"),
                             Bytes.fromHex("02020202"),
