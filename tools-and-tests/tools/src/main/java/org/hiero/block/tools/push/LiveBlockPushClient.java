@@ -499,7 +499,7 @@ public final class LiveBlockPushClient implements AutoCloseable {
                         + response.nodeBehindPublisher().blockNumber());
             } else if (response.hasEndStream()) {
                 final PublishStreamResponse.EndOfStream end = response.endStream();
-                System.err.println("[push] BN sent EndOfStream (code=" + end.status() + ", block=" + end.blockNumber()
+                System.err.println("[push] BN sent EndOfStream (code=" + end.status() + ", last persisted block=" + end.blockNumber()
                         + "); worker will reconnect");
                 streamAlive.set(false);
                 completion.complete(null);
