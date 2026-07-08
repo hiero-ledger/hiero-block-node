@@ -114,13 +114,19 @@ finalising hardware procurement.
 
 ### Does the Block Node support TLS or authentication on its endpoints?
 
-**TLS:** The Block Node process does not terminate TLS in-process on any port. TLS is
-terminated upstream by a Kubernetes Ingress, load balancer, or service mesh. Configure
-`requires_tls = true` in your on-chain registration if TLS is terminated upstream —
-clients use this flag to know whether to wrap their connection.
+**TLS:** The Block Node process does not terminate TLS in-process. TLS is terminated
+upstream by a Kubernetes Ingress, load balancer, or service mesh. TLS support varies
+by port:
 
-**Authentication:** There is no built-in authentication mechanism. Security is enforced
-at the network and transport layer.
+|              Port               |                                                                                                   TLS at ingress                                                                                                   |
+|---------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Publisher (CN → BN, 40840)**  | **Not currently supported.** The Consensus Node PBJ client disables TLS globally; enabling TLS upstream on this port will break CN streaming. Expected to become configurable in a future CN release (~0.78/0.79). |
+| **Subscriber (MN → BN, 40840)** | Permitted if the operator desires it for privacy or compliance.                                                                                                                                                    |
+| **Status (40840)**              | Not supported until a qualified CN release is available.                                                                                                                                                           |
+| **Metrics (16007)**             | Internal only — do not expose publicly. TLS is not relevant.                                                                                                                                                       |
+
+**Authentication:** There is no built-in authentication mechanism, and there are no
+plans to add any. Security is enforced at the network and transport layer.
 
 > See [Network Ports and Protocols](./operations/network-ports-and-protocols.md) and [Block Node On-Chain Registration](./block-node-on-chain-registration.md) for full details.
 
@@ -132,13 +138,9 @@ design: **trust is in the data, not in the node.** Every block carries a
 authenticity — subscribers verify the data itself rather than trusting the node
 delivering it.
 
-**TLS** at the Ingress or load balancer is **advisory**, not required:
-- TLS is not required for data integrity — block proofs provide cryptographic
-verification independently of the transport.
-- TLS is not required to trust the source — subscribers must not blindly trust any
-Block Node regardless of transport security.
-- Operators on public networks may still choose to enable TLS at their ingress for
-privacy or compliance reasons; this is a site-specific decision.
+**TLS** is advisory for subscriber-facing ports only. Do **not** enable TLS on the
+Publisher port (CN → BN) until CN support is qualified (targeted ~0.78/0.79) — doing
+so will break all Consensus Node ingest.
 
 **Practical network controls:**
 - Restrict port 16007 (metrics) to internal cluster access only — never expose it publicly.
