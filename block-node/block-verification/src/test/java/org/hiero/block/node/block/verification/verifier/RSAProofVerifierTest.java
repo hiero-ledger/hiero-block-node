@@ -277,37 +277,45 @@ class RSAProofVerifierTest {
         assertThat(result).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
     }
 
-    // TODO(2808): both tests below cover the current skip-on-missing-key behaviour; once issue 2808
-    //   (historical roster lookup by block number) is resolved, update them to verify against the
-    //   roster that was active when the block was produced rather than the current local roster.
-
     @Test
-    @DisplayName("signature from unknown node_id is skipped; rest still counted")
-    void unknownNodeId_sigSkipped_othersStillCounted() throws Exception {
-        // Nodes 0..4 produce valid sigs; node 99 is not in the key map and is skipped.
+    @DisplayName("signature from unknown node_id is skipped as a roster mismatch; block still accepted")
+    void unknownNodeId_skippedAsMismatch_blockAccepted() throws Exception {
+        // Node 99 is not in the era key map — its signature is skipped and tallied as a roster
+        // mismatch (see @todo(2808)) rather than rejecting the block outright; the five valid
+        // signatures from nodes 0..4 are sufficient to accept.
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
-        // Add a sig from an unknown node
-        sigs.add(
-                new RecordFileSignature(Bytes.wrap(sign(0L)), 99L)); // content irrelevant — node 99 absent from key map
+        sigs.add(new RecordFileSignature(Bytes.wrap(sign(0L)), 99L)); // node 99 absent from era key map
         final Map<Long, PublicKey> keyMap = new HashMap<>(KEY_MAP); // node 99 absent
         final SessionFailureType result = runVerification(keyMap, sigs);
         assertThat(result).isNull();
     }
 
     @Test
-    @DisplayName("roster transition: sig from new node not yet in local AB is skipped; block still accepted")
-    void rosterTransition_newNodeSigSkipped_blockAccepted() throws Exception {
-        // AB1 has nodes 0..4 (5 nodes). AB2 adds node 5. Local roster is still AB1.
-        // The proof arrives with 6 signatures (all AB2 nodes). Node 5 is unknown → skipped.
-        // The 5 known-node signatures all verify → at-least-one-valid rule accepts the block.
-        final Map<Long, PublicKey> ab1KeyMap = new HashMap<>();
+    @DisplayName("signature from node not in era address book is skipped as a roster mismatch; block still accepted")
+    void nodeNotInEraAddressBook_skippedAsMismatch_blockAccepted() throws Exception {
+        // The era key map only has nodes 0..4; the proof has a sig from node 5, which is skipped
+        // and tallied as a roster mismatch. The five valid era signatures accept the block.
+        final Map<Long, PublicKey> eraKeyMap = new HashMap<>();
         for (long id = 0; id < 5; id++) {
-            ab1KeyMap.put(id, KEY_MAP.get(id));
+            eraKeyMap.put(id, KEY_MAP.get(id));
         }
-        // Build proof with all 6 signatures (nodes 0..5)
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L, 5L);
-        final SessionFailureType result = runVerification(ab1KeyMap, sigs);
+        final SessionFailureType result = runVerification(eraKeyMap, sigs);
         assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("all signatures from unknown node_ids are skipped as mismatches, leaving zero valid sigs — rejected")
+    void allSignaturesUnknownNodeIds_skippedAsMismatches_rejected() throws Exception {
+        // Era roster contains nodes 10..12 only — none of the signing nodes (0, 1, 2) are present,
+        // so every signature is skipped as a roster mismatch and validCount stays at 0.
+        final Map<Long, PublicKey> eraKeyMap = new HashMap<>();
+        eraKeyMap.put(10L, KEY_MAP.get(0L));
+        eraKeyMap.put(11L, KEY_MAP.get(1L));
+        eraKeyMap.put(12L, KEY_MAP.get(2L));
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L);
+        final SessionFailureType result = runVerification(eraKeyMap, sigs);
+        assertThat(result).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
     }
 
     @Test
