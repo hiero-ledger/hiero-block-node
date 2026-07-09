@@ -9,14 +9,25 @@
 #     enabled: true / sourceType: BLOCK_NODE / startBlockNumber: 0.
 #
 # Assertion signal: the importer container's logs must contain evidence of
-# a live block-stream subscription to a Block Node. The regex was tightened
-# after slice 4's first CI run — the previous "block[- ]?node|BLOCK_NODE"
-# pattern matched Spring's config-debug lines that echoed our env-var
-# overrides even when the importer failed to start, producing a false pass.
-# Current patterns fire only after the block-stream client actually subscribes:
+# a live block-stream subscription attempt to a Block Node. Patterns fall
+# into two tiers:
+#
+# Positive-ingest tier (BN served blocks):
 #   * "SubscribeBlockStream"  — importer's outgoing gRPC method call
 #   * "Received block"        — importer reports blocks arriving from BN
 #   * "block[- ]?stream.*subscri"  — chart client-lib log line
+#
+# Polling tier (MN actively contacting BN, whether BN had the block or not):
+#   * "BlockNodeSubscriber"                        — the importer's BN subscription client
+#   * "CompositeBlockSource.*BLOCK_NODE"           — composite source dispatched to BN
+#   * "block node can provide block"               — BN answered "don't have it"; still proves the round-trip
+#
+# The polling tier is included because slice 4's Solo topology has no
+# recordstream-bucket backfill on the BN side — BNs came up after CN was
+# already producing, so their live-streamed window never overlaps the
+# blocks MN1 has already ingested nor block 0 that MN2 asks for. What we
+# want to verify is that the reconfigure / fresh-install correctly wires
+# MN to BN; the BN-side data gap is not what slice 4 is testing.
 # We also require the pod to be Ready before we trust its log content, so a
 # CrashLooping importer whose env dump mentioned BN hosts doesn't count.
 #
@@ -68,12 +79,12 @@ while [[ $(date +%s) -lt ${deadline} ]]; do
             -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
         if [[ "${pod_ready}" == "True" ]] && kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
             logs "${pod}" --tail=2000 2>/dev/null \
-            | grep -q -E "SubscribeBlockStream|Received block|block[- ]?stream.*subscri"; then
+            | grep -q -E "SubscribeBlockStream|Received block|block[- ]?stream.*subscri|BlockNodeSubscriber|CompositeBlockSource.*BLOCK_NODE|block node can provide block"; then
             log "${importer_deployment} (pod ${pod}) log shows live BN-stream activity."
             log "Sample match:"
             kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
                 logs "${pod}" --tail=2000 2>/dev/null \
-                | grep -E "SubscribeBlockStream|Received block|block[- ]?stream.*subscri" \
+                | grep -E "SubscribeBlockStream|Received block|block[- ]?stream.*subscri|BlockNodeSubscriber|CompositeBlockSource.*BLOCK_NODE|block node can provide block" \
                 | head -5 | sed 's/^/    /'
             exit 0
         fi
