@@ -67,6 +67,18 @@ spec:
       containers:
       - name: importer
         image: ${jvm_image}
+        # Match wrb-sequential-comparison.sh's memory shape. The Solo-installed
+        # default is too tight for MN v0.157.1's Flyway-migration + BN-source
+        # bootstrap over MN1's already-populated Postgres, which OOM-kills the
+        # importer container between "Successfully connected to database" and
+        # first block subscription.
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
         env:
         # BlockNodeProperties in mirror-node v0.157.1 is:
         #   endpoints: SortedSet<ServiceEndpoint{host, port, apis, requiresTls}>
