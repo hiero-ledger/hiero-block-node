@@ -2,6 +2,7 @@
 package org.hiero.block.node.cloud.storage.archive;
 
 import java.util.List;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 
 /// The outcome of a [StartupRecoveryTask] run.
 ///
@@ -32,6 +33,11 @@ import java.util.List;
 ///                          recovery paths that skip the temporary-archive scan
 /// @param lastHandedOffBlock the last block number handed off to any upload task before the
 ///                           restart, or `-1` when nothing was archived yet (fresh start)
+/// @param completedRanges   the ranges of completed tar archives found during startup, so that
+///                          [CloudStorageArchivePlugin] can register the actual coverage
+///                          (including any gaps) instead of a single broad
+///                          `[0, nextBlockToQueue-1]` range; `null` when the recovery path does
+///                          not enumerate completed archives (Case 2 resume path)
 record RecoveryResult(
         long currentGroupStart,
         String uploadId,
@@ -39,4 +45,5 @@ record RecoveryResult(
         long nextBlockNumber,
         byte[] trailingBytes,
         List<TempArchiveEntry> tempArchives,
-        long lastHandedOffBlock) {}
+        long lastHandedOffBlock,
+        ConcurrentLongRangeSet completedRanges) {}

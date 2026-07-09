@@ -12,6 +12,7 @@ import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
+import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -38,6 +39,8 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     private HistoricalBlockFacility blockProvider;
     /** The block node context, used to provide access to facilities */
     private volatile BlockNodeContext blockNodeContext;
+    /** The earliest block number this node is configured to manage */
+    private long earliestManagedBlock;
     /** Counter for the number of status requests */
     private LongCounter.Measurement requestStatusCounter;
     /** Counter for the number of detail requests */
@@ -56,7 +59,14 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
         final ServerStatusResponse.Builder serverStatusResponseBuilder = ServerStatusResponse.newBuilder();
         final long firstAvailableBlock = blockProvider.availableBlocks().min();
-        final long lastAvailableBlock = blockProvider.availableBlocks().max();
+        long highestAvailableBlock = blockProvider.availableBlocks().max();
+        // If this node is configured to manage blocks starting later than what it currently holds, report that
+        // later block as the last available block so publishers know they can stream from earliestManagedBlock
+        // instead of assuming the node only wants older blocks between the oldest stored block and earliest managed
+        // block.
+        if (highestAvailableBlock != UNKNOWN_BLOCK_NUMBER && highestAvailableBlock < earliestManagedBlock) {
+            highestAvailableBlock = earliestManagedBlock;
+        }
 
         // TODO(#579) Should get from state config or status, which would be provided by the context from responsible
         // facility
@@ -69,7 +79,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // Build the response
         ServerStatusResponse response = serverStatusResponseBuilder
                 .firstAvailableBlock(firstAvailableBlock)
-                .lastAvailableBlock(lastAvailableBlock)
+                .lastAvailableBlock(highestAvailableBlock)
                 .onlyLatestState(onlyLatestState)
                 .build();
 
@@ -136,6 +146,8 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         requireNonNull(serviceBuilder);
         this.blockNodeContext = requireNonNull(context);
         this.blockProvider = requireNonNull(context.historicalBlockProvider());
+        this.earliestManagedBlock =
+                context.configuration().getConfigData(NodeConfig.class).earliestManagedBlock();
 
         final MetricRegistry metricRegistry = context.metricRegistry();
 
