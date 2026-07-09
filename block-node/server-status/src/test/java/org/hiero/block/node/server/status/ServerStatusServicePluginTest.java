@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.hedera.pbj.runtime.ParseException;
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.api.ServerStatusRequest;
@@ -89,6 +90,83 @@ public class ServerStatusServicePluginTest
         assertEquals(0, response.firstAvailableBlock());
         assertEquals(blocks - 1, response.lastAvailableBlock());
         assertFalse(response.onlyLatestState());
+    }
+
+    /**
+     * Tests that when {@code earliestManagedBlock} is configured higher than the last block currently
+     * held by the node, the reported {@code lastAvailableBlock} is raised to that configured value, while
+     * {@code firstAvailableBlock} is left untouched, so publishers know they can stream later blocks even
+     * though the node only holds older ones.
+     *
+     * @throws ParseException if there is an error parsing the response
+     */
+    @Test
+    @DisplayName("Should raise lastAvailableBlock to earliestManagedBlock when node holds only older blocks")
+    void shouldRaiseLastAvailableBlockToEarliestManagedBlock() throws ParseException {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(
+                localPlugin,
+                localPlugin.methods().getFirst(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("block.node.earliestManagedBlock", "100"));
+        sendBlocks(5);
+
+        final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
+        final ServerStatusResponse response = standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getLast());
+
+        assertEquals(0, response.firstAvailableBlock());
+        assertEquals(100, response.lastAvailableBlock());
+    }
+
+    /**
+     * Tests that {@code earliestManagedBlock} has no effect when the node already holds blocks at or
+     * beyond that configured value.
+     *
+     * @throws ParseException if there is an error parsing the response
+     */
+    @Test
+    @DisplayName("Should not lower or otherwise change lastAvailableBlock when it already meets earliestManagedBlock")
+    void shouldNotChangeLastAvailableBlockWhenAlreadyAtOrAboveEarliestManagedBlock() throws ParseException {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(
+                localPlugin,
+                localPlugin.methods().getFirst(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("block.node.earliestManagedBlock", "2"));
+        sendBlocks(5);
+
+        final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
+        final ServerStatusResponse response = standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getLast());
+
+        assertEquals(0, response.firstAvailableBlock());
+        assertEquals(4, response.lastAvailableBlock());
+    }
+
+    /**
+     * Tests that {@code earliestManagedBlock} has no effect when the node holds no blocks at all, since
+     * there is no meaningful "last available block" to report yet.
+     *
+     * @throws ParseException if there is an error parsing the response
+     */
+    @Test
+    @DisplayName(
+            "Should leave lastAvailableBlock as unknown when no blocks are available, even with earliestManagedBlock set")
+    void shouldLeaveLastAvailableBlockUnknownWhenNoBlocksAvailable() throws ParseException {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(
+                localPlugin,
+                localPlugin.methods().getFirst(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("block.node.earliestManagedBlock", "100"));
+
+        final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
+        final ServerStatusResponse response = standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getLast());
+
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.firstAvailableBlock());
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.lastAvailableBlock());
     }
 
     /**
