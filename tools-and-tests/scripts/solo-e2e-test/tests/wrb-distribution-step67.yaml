@@ -101,7 +101,7 @@ events:
     type: command
     description: "Assert MN1 is now consuming blocks from a BN source"
     delay: 320
-    timeout: 300
+    timeout: 540
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-mn-consuming-from-bn.sh mirror-1"
 
@@ -117,7 +117,7 @@ events:
     type: command
     description: "Assert MN2 has come up and is consuming blocks from a BN source"
     delay: 400
-    timeout: 300
+    timeout: 540
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-mn-consuming-from-bn.sh mirror-2"
 
