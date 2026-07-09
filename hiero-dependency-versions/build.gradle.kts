@@ -17,6 +17,7 @@ dependencies.constraints {
     val testContainersVersion = "1.21.4"
     val buckyVersion = "0.1.0-rc5"
     val s3MockVersion = "4.11.0"
+    val jUnitVersion = "6.1.1"
 
     api("com.github.luben:zstd-jni:1.5.7-11") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.10.2") {
@@ -97,9 +98,11 @@ dependencies.constraints {
     // Testing only versions
     api("com.github.docker-java:docker-java-api:3.7.1") { because("com.github.dockerjava.api") }
     api("org.assertj:assertj-core:3.27.7") { because("org.assertj.core") }
-    api("org.junit.jupiter:junit-jupiter-api:6.1.0") { because("org.junit.jupiter.api") }
-    api("org.junit.jupiter:junit-jupiter-engine:6.1.0") { because("org.junit.jupiter.engine") }
-    api("org.junit.platform:junit-platform-launcher:6.1.0") {
+    api("org.junit.jupiter:junit-jupiter-api:${jUnitVersion}") { because("org.junit.jupiter.api") }
+    api("org.junit.jupiter:junit-jupiter-engine:${jUnitVersion}") {
+        because("org.junit.jupiter.engine")
+    }
+    api("org.junit.platform:junit-platform-launcher:${jUnitVersion}") {
         because("org.junit.platform.launcher")
     }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
