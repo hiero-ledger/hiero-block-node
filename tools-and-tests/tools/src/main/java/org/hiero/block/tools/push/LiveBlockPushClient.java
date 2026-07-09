@@ -515,22 +515,29 @@ public final class LiveBlockPushClient implements AutoCloseable {
             // where applicable, a stream tear-down; the worker's reconnect + inFlight replay then
             // naturally resumes at the correct next block.
             if (response.hasSkipBlock()) {
-                // BN has already persisted this block; treat it as ACKed so we do not resend it.
+                // Skip means another publisher is currently sending this block; the BN does not
+                // want two publishers competing. Treat it as effectively ACKed so we don't resend
+                // it. (If the block were already persisted the BN would send EndOfStream(DUPLICATE)
+                // instead of Skip.)
                 final long skipped = response.skipBlock().blockNumber();
-                System.err.println(
-                        "[push] BN sent SkipBlock: block " + skipped + " already persisted; skipping resend");
+                System.err.println("[push] BN sent SkipBlock: block " + skipped
+                        + " is being sent by another publisher; skipping resend");
                 advanceAckWatermarkTo(skipped);
             } else if (response.hasResendBlock()) {
-                // BN wants an earlier block back. Rewind our ACK watermark so the reconnect replays
-                // inFlight from that block; continuing forward here draws a NodeBehindPublisher.
+                // BN wants an earlier block back. Rewind our ACK watermark so the reconnect
+                // replays inFlight from that block. Per the publish protocol we could also
+                // continue on the same stream after rewinding; tearing the stream down is
+                // simpler here because the worker's reconnect already handles inFlight replay.
                 final long target = response.resendBlock().blockNumber();
                 System.err.println("[push] BN sent ResendBlock: rewinding to block " + target + " and reconnecting");
                 rewindAckWatermarkTo(target - 1);
                 streamAlive.set(false);
                 completion.complete(null);
             } else if (response.hasNodeBehindPublisher()) {
-                // Publisher can't accept blocks this far ahead. Rewind and reconnect, or the BN
-                // may disconnect and temporarily block this publisher for misbehaving.
+                // The BN cannot accept blocks this far ahead of what it has persisted, so it is
+                // asking us to rewind to the offered block. Rewind is required; reconnect is
+                // optional (we could continue on the same stream), but tearing the stream down
+                // routes through the worker's reconnect + inFlight replay which is simpler.
                 final long target = response.nodeBehindPublisher().blockNumber();
                 System.err.println(
                         "[push] BN reports node behind publisher; rewinding to block " + target + " and reconnecting");
@@ -539,12 +546,21 @@ public final class LiveBlockPushClient implements AutoCloseable {
                 completion.complete(null);
             } else if (response.hasEndStream()) {
                 final PublishStreamResponse.EndOfStream end = response.endStream();
-                System.err.println("[push] BN sent EndOfStream (code=" + end.status()
-                        + ", last persisted block=" + end.blockNumber() + "); resuming from block "
-                        + (end.blockNumber() + 1));
-                // Advance to the BN's declared last-persisted watermark so the reconnect resumes
-                // at end.blockNumber() + 1 rather than replaying anything already persisted.
-                advanceAckWatermarkTo(end.blockNumber());
+                // end.blockNumber() is the BN's authoritative last-persisted watermark, which can
+                // be ahead of, equal to, or behind our current lastAckedBlock depending on why the
+                // stream ended (routine close after N blocks, error mid-flight, etc.). Move the
+                // watermark to exactly end.blockNumber() in whichever direction is needed so the
+                // worker resumes at end.blockNumber() + 1 rather than replaying anything the BN
+                // already has or skipping anything the BN is missing.
+                final long target = end.blockNumber();
+                final long current = lastAckedBlock.get();
+                System.err.println("[push] BN sent EndOfStream (code=" + end.status() + ", last persisted block="
+                        + target + "); resuming from block " + (target + 1));
+                if (target >= current) {
+                    advanceAckWatermarkTo(target);
+                } else {
+                    rewindAckWatermarkTo(target);
+                }
                 streamAlive.set(false);
                 completion.complete(null);
             }
