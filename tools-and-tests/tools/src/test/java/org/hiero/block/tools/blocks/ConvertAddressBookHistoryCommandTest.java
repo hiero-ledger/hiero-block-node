@@ -200,6 +200,38 @@ class ConvertAddressBookHistoryCommandTest {
             assertEquals(0L, out.addressBooks().get(0).startBlock());
             assertEquals(-1L, out.addressBooks().get(2).endBlock());
         }
+
+        @Test
+        @DisplayName("nodeId=0 is written explicitly per nodeAddress even though PBJ elides uint64 default")
+        void explicitNodeIdZeroPresent() throws IOException {
+            // Genesis-node-0 has nodeId=0, and PBJ elides proto3 uint64 defaults on write.
+            // The BN's roster verifier routes by nodeId; without the fixup, node 0 loses
+            // its identifier in the emitted JSON. Two-node era (0, 1) so we can also
+            // confirm node 1's nodeId survives untouched.
+            final long[] picks = new long[] {100};
+            final List<Instant> instants = blockInstants(picks);
+            writeHistory(inputFile, List.of(dated(instants.get(0), addressBook(0, 2, "dead"))));
+
+            assertEquals(0, execute());
+
+            final String json = Files.readString(outputFile);
+            // PBJ writes uint64 as JSON strings; nodeId="0" for node 0, nodeId="1" for node 1.
+            assertTrue(
+                    json.contains("\"nodeId\" : \"0\""),
+                    "node 0's nodeId must be written explicitly as \"0\" after the fixup");
+            assertTrue(json.contains("\"nodeId\" : \"1\""), "node 1's nodeId must still be present");
+
+            // Every nodeAddress entry must have a nodeId — no missing IDs after the fixup.
+            final RangedAddressBookHistory out = readOutput();
+            assertEquals(
+                    2, out.addressBooks().get(0).addressBook().nodeAddress().size());
+            assertEquals(
+                    0L,
+                    out.addressBooks().get(0).addressBook().nodeAddress().get(0).nodeId());
+            assertEquals(
+                    1L,
+                    out.addressBooks().get(0).addressBook().nodeAddress().get(1).nodeId());
+        }
     }
 
     @Nested

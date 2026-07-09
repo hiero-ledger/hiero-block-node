@@ -253,10 +253,19 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
     }
 
     /**
-     * Re-emit the roster JSON at {@code file} so every entry has an explicit
-     * {@code startBlock} and {@code endBlock} field, defaulting to {@code 0} and
-     * {@code -1} respectively when the PBJ codec elided them. Preserves entry order
-     * and the nested {@code addressBook} structure verbatim.
+     * Re-emit the roster JSON at {@code file} so every entry has explicit fields that PBJ's
+     * JSON codec would otherwise elide as proto3 defaults:
+     *
+     * <ul>
+     *   <li>Per-era: {@code startBlock} defaults to {@code 0}, {@code endBlock} defaults to
+     *       {@code -1} (the {@link #OPEN_ENDED_END_BLOCK} sentinel used only for the last era).</li>
+     *   <li>Per {@code nodeAddress}: {@code nodeId} defaults to {@code 0}. Without this,
+     *       every genesis-node-0 entry loses its identifier and the BN's roster verifier
+     *       can't route by nodeId.</li>
+     * </ul>
+     *
+     * Preserves entry order and the nested {@code addressBook} structure verbatim. PBJ's
+     * parse side reconstructs the same values from either shape, so the BN loader is unaffected.
      */
     private static void ensureExplicitStartAndEndBlock(Path file) throws IOException {
         final ObjectMapper mapper = new ObjectMapper();
@@ -276,6 +285,18 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             }
             if (!entryObj.has("endBlock")) {
                 entryObj.put("endBlock", Long.toString(OPEN_ENDED_END_BLOCK));
+            }
+            // Restore any nodeAddress[].nodeId that PBJ elided as the uint64 default (0).
+            final JsonNode addressBookNode = entryObj.get("addressBook");
+            if (addressBookNode instanceof ObjectNode addressBookObj) {
+                final JsonNode nodeAddressNode = addressBookObj.get("nodeAddress");
+                if (nodeAddressNode != null && nodeAddressNode.isArray()) {
+                    for (final JsonNode addr : nodeAddressNode) {
+                        if (addr instanceof ObjectNode addrObj && !addrObj.has("nodeId")) {
+                            addrObj.put("nodeId", Long.toString(0L));
+                        }
+                    }
+                }
             }
         }
         mapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), root);
