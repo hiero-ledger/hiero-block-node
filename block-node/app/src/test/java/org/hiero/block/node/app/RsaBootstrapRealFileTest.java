@@ -3,7 +3,9 @@ package org.hiero.block.node.app;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -21,8 +23,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// Loads the real-world RSA bootstrap roster fixtures — bundled under
-/// {@code src/test/resources/previewnet/rsa-bootstrap-roster.json} and
-/// {@code src/test/resources/testnet/rsa-bootstrap-roster.json} — through the actual
+/// {@code src/test/resources/previewnet/rsa-bootstrap-roster.json},
+/// {@code src/test/resources/testnet/rsa-bootstrap-roster.json}, and
+/// {@code src/test/resources/mainnet/rsa-bootstrap-roster.json} — through the actual
 /// {@code ApplicationStateFacility} startup path ({@link BlockNodeApp#startApplicationStateFacility()}),
 /// in contrast to the synthetic in-memory histories built elsewhere in {@link BlockNodeAppTest}.
 class RsaBootstrapRealFileTest {
@@ -105,6 +108,42 @@ class RsaBootstrapRealFileTest {
             assertEquals(expectedRanges[i][1], era.endBlock(), "era " + i + " endBlock");
             assertEquals(expectedNodeCounts[i], era.addressBook().nodeAddress().size(), "era " + i + " node count");
         }
+    }
+
+    /// mainnet's real fixture spans 404 eras — the longest and most complex roster history of the
+    /// three network fixtures, including several eras with zero-block or overlapping ranges from
+    /// real-world node churn. Rather than asserting every era's exact block range (impractical at
+    /// this scale), this checks the structural invariants a well-formed history must satisfy: eras
+    /// are ordered by non-decreasing startBlock, exactly the last era is open-ended, and every
+    /// era's address book has at least one node.
+    @Test
+    @DisplayName("Real mainnet roster fixture (404 eras) loads via ApplicationStateFacility")
+    void mainnetFixtureLoadsSuccessfully() throws Exception {
+        final RangedAddressBookHistory history = loadRealFixture("/mainnet/rsa-bootstrap-roster.json");
+        final List<RangedNodeAddressBook> eras = history.addressBooks();
+        assertEquals(404, eras.size(), "mainnet fixture has 404 eras");
+
+        final RangedNodeAddressBook first = eras.getFirst();
+        assertEquals(0L, first.startBlock(), "first era starts at block 0");
+        assertEquals(9659940L, first.endBlock());
+        assertEquals(13, first.addressBook().nodeAddress().size(), "first era has 13 node addresses");
+
+        final RangedNodeAddressBook last = eras.getLast();
+        assertEquals(94341137L, last.startBlock());
+        assertEquals(-1L, last.endBlock(), "last era must be open-ended");
+        assertEquals(33, last.addressBook().nodeAddress().size(), "last era has 33 node addresses");
+
+        long previousStartBlock = -1L;
+        int openEndedCount = 0;
+        for (final RangedNodeAddressBook era : eras) {
+            assertTrue(era.startBlock() >= previousStartBlock, "eras must be ordered by non-decreasing startBlock");
+            previousStartBlock = era.startBlock();
+            assertFalse(era.addressBook().nodeAddress().isEmpty(), "every era must have at least one node address");
+            if (era.endBlock() == -1L) {
+                openEndedCount++;
+            }
+        }
+        assertEquals(1, openEndedCount, "exactly one era (the last) must be open-ended");
     }
 
     /// Copies the given classpath fixture into the app's configured RSA bootstrap path and starts
