@@ -17,9 +17,8 @@ module org.hiero.block.node.health {
     requires com.github.spotbugs.annotations;
     requires io.helidon.http;
 
-    // spotless:off Spotless is broken at the moment, wants to both add and remove the same line.
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
+
     provides org.hiero.block.node.spi.BlockNodePlugin with
             HealthServicePlugin;
-    // spotless:on
 }
