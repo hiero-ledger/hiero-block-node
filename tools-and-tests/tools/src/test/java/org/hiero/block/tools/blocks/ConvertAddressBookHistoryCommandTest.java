@@ -107,8 +107,8 @@ class ConvertAddressBookHistoryCommandTest {
             assertEquals(0, execute());
 
             RangedAddressBookHistory out = readOutput();
-            assertEquals(era0, out.addressBooks().get(0).addressBook());
-            assertEquals(era1, out.addressBooks().get(1).addressBook());
+            assertEquals(slim(era0), out.addressBooks().get(0).addressBook());
+            assertEquals(slim(era1), out.addressBooks().get(1).addressBook());
             assertNotEquals(
                     out.addressBooks().get(0).addressBook(),
                     out.addressBooks().get(1).addressBook(),
@@ -133,6 +133,31 @@ class ConvertAddressBookHistoryCommandTest {
             assertTrue(json.contains("\"RSAPubKey\""), "nested nodeAddress must expose RSAPubKey");
             assertTrue(!json.contains("\"blockTimestamp\""), "blockTimestamp must not be emitted");
             assertTrue(!json.contains("\"entries\""), "legacy top-level 'entries' must not be emitted");
+        }
+
+        @Test
+        @DisplayName("Emitted nodeAddress carries only nodeId + RSAPubKey; other fields are dropped")
+        void slimmedNodeAddressFields() throws IOException {
+            // Build an input with fields the command should drop: memo, nodeAccountId,
+            // description, serviceEndpoint, stake, nodeCertHash. The emitted JSON must
+            // carry only nodeId and RSAPubKey per nodeAddress.
+            final long[] picks = new long[] {100};
+            final List<Instant> instants = blockInstants(picks);
+            writeHistory(inputFile, List.of(dated(instants.get(0), addressBook(0, 2, "cafe"))));
+
+            assertEquals(0, execute());
+
+            String json = Files.readString(outputFile);
+            // Positive: nodeId + RSAPubKey are present.
+            assertTrue(json.contains("\"nodeId\""), "nodeId must be present");
+            assertTrue(json.contains("\"RSAPubKey\""), "RSAPubKey must be present");
+            // Negative: fields the test helper populates but the command drops must be absent.
+            assertTrue(!json.contains("\"memo\""), "memo must be dropped");
+            assertTrue(!json.contains("\"nodeAccountId\""), "nodeAccountId must be dropped");
+            assertTrue(!json.contains("\"description\""), "description must be dropped");
+            assertTrue(!json.contains("\"serviceEndpoint\""), "serviceEndpoint must be dropped");
+            assertTrue(!json.contains("\"stake\""), "stake must be dropped");
+            assertTrue(!json.contains("\"nodeCertHash\""), "nodeCertHash must be dropped");
         }
 
         @Test
@@ -340,8 +365,8 @@ class ConvertAddressBookHistoryCommandTest {
 
             RangedAddressBookHistory out = readOutput();
             // Era A (smaller nanos) must come first.
-            assertEquals(bookA, out.addressBooks().get(0).addressBook(), "smaller-nanos era must sort first");
-            assertEquals(bookB, out.addressBooks().get(1).addressBook());
+            assertEquals(slim(bookA), out.addressBooks().get(0).addressBook(), "smaller-nanos era must sort first");
+            assertEquals(slim(bookB), out.addressBooks().get(1).addressBook());
         }
     }
 
@@ -444,6 +469,22 @@ class ConvertAddressBookHistoryCommandTest {
                     .build());
         }
         return new NodeAddressBook(nodes);
+    }
+
+    /**
+     * Mirror the command's slimming: keep only {@code nodeId} and {@code RSAPubKey} on each
+     * {@link NodeAddress}. Tests that compare the emitted addressBook against a hand-built
+     * input must slim the input first because the command drops the other fields.
+     */
+    private static NodeAddressBook slim(NodeAddressBook book) {
+        List<NodeAddress> slim = new ArrayList<>(book.nodeAddress().size());
+        for (NodeAddress addr : book.nodeAddress()) {
+            slim.add(NodeAddress.newBuilder()
+                    .nodeId(addr.nodeId())
+                    .rsaPubKey(addr.rsaPubKey())
+                    .build());
+        }
+        return new NodeAddressBook(slim);
     }
 
     private static void writeHistory(Path file, List<DatedNodeAddressBook> books) throws IOException {

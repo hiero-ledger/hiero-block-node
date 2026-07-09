@@ -4,6 +4,7 @@ package org.hiero.block.tools.blocks;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.ParseException;
@@ -192,7 +193,7 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
     private int convertAndWrite(List<DatedNodeAddressBook> sorted, long[] startBlocks) throws IOException {
         final List<RangedNodeAddressBook> ranged = new ArrayList<>(sorted.size());
         for (int i = 0; i < sorted.size(); i++) {
-            final NodeAddressBook book = sorted.get(i).addressBookOrThrow();
+            final NodeAddressBook book = slimAddressBook(sorted.get(i).addressBookOrThrow());
             final long start = startBlocks[i];
             final long end = (i + 1 < sorted.size()) ? startBlocks[i + 1] - 1 : OPEN_ENDED_END_BLOCK;
             ranged.add(RangedNodeAddressBook.newBuilder()
@@ -231,6 +232,24 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         System.out.println(Ansi.AUTO.string(
                 "@|green Wrote " + sorted.size() + " roster entries to " + outputFile.toAbsolutePath() + "|@"));
         return 0;
+    }
+
+    /**
+     * Rebuild {@code book} keeping only the two fields the BN's WRB roster verifier consults:
+     * {@code nodeId} (routing key) and {@code RSAPubKey} (signature-verification key). Everything
+     * else on {@link NodeAddress} — service endpoints, node cert hash, account id, description,
+     * stake, memo — is dropped from the emitted bootstrap file to keep it small and free of
+     * PII/network-topology metadata that the BN never reads.
+     */
+    private static NodeAddressBook slimAddressBook(NodeAddressBook book) {
+        final List<NodeAddress> slim = new ArrayList<>(book.nodeAddress().size());
+        for (final NodeAddress addr : book.nodeAddress()) {
+            slim.add(NodeAddress.newBuilder()
+                    .nodeId(addr.nodeId())
+                    .rsaPubKey(addr.rsaPubKey())
+                    .build());
+        }
+        return NodeAddressBook.newBuilder().nodeAddress(slim).build();
     }
 
     /**
