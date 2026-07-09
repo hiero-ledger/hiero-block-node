@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import org.hiero.block.node.backfill.BackfillPlugin;
 
-// SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.backfill {
-    uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
-
     // export configuration classes to the config module and app
     exports org.hiero.block.node.backfill to
             com.swirlds.config.impl,
@@ -20,6 +17,8 @@ module org.hiero.block.node.backfill {
     requires org.hiero.block.node.app.config;
     requires java.logging;
     requires static transitive com.github.spotbugs.annotations;
+
+    uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             BackfillPlugin;

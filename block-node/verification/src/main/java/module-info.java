@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import org.hiero.block.node.verification.VerificationServicePlugin;
 
-// SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.verification {
-    uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
-
     // export configuration classes to the config module and app
     exports org.hiero.block.node.verification to
             com.swirlds.config.impl,
@@ -21,6 +18,8 @@ module org.hiero.block.node.verification {
     requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
+
+    uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             VerificationServicePlugin;

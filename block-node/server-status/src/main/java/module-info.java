@@ -2,6 +2,7 @@
 import org.hiero.block.node.server.status.ServerStatusServicePlugin;
 
 module org.hiero.block.node.server.status {
+    // export configuration classes to the config module
     exports org.hiero.block.node.server.status to
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
@@ -15,6 +16,8 @@ module org.hiero.block.node.server.status {
     requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
+
+    uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             ServerStatusServicePlugin;
