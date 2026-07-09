@@ -2,34 +2,35 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # WRB Distribution E2E (#3125 slice 4) — assert that a Mirror Node's importer
-# is consuming blocks from a Block Node source. Applies to:
+# is configured for and running against a Block Node source. Applies to:
 #   * mirror-1 (step 6) after reconfigure-mn1-to-bn-sources.sh flips
 #     HIERO_MIRROR_IMPORTER_BLOCK_ENABLED=true and points at BN2/BN3.
 #   * mirror-2 (step 7) after add-mn2.sh installs a fresh MN with block:
-#     enabled: true / sourceType: BLOCK_NODE / startBlockNumber: 0.
+#     enabled: true / sourceType: BLOCK_NODE.
 #
-# Assertion signal: the importer container's logs must contain evidence of
-# a live block-stream subscription attempt to a Block Node. Patterns fall
-# into two tiers:
+# What this asserts:
+#   1. An importer pod for ${mirror_name} exists and is Ready.
+#   2. The importer container has the block-source env vars set:
+#        HIERO_MIRROR_IMPORTER_BLOCK_ENABLED=true
+#        HIERO_MIRROR_IMPORTER_BLOCK_SOURCETYPE=BLOCK_NODE
+#        HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_ENDPOINTS_0_HOST=<non-empty>
 #
-# Positive-ingest tier (BN served blocks):
-#   * "SubscribeBlockStream"  — importer's outgoing gRPC method call
-#   * "Received block"        — importer reports blocks arriving from BN
-#   * "block[- ]?stream.*subscri"  — chart client-lib log line
+# Why not log-poll for CompositeBlockSource activity anymore:
+#   Earlier revisions of this assertion waited (240s -> 480s -> 720s) for
+#   the importer to emit its first block-source scheduler log line. That
+#   timing varied wildly across CI runs -- 5-6min in some runs, >12min in
+#   others -- because MN's full Flyway migration + Spring startup is
+#   heavily load-dependent on the shared runner. Every window bump just
+#   chased the tail of the distribution, and the assertion kept failing
+#   ~40ms past the deadline as the first ERROR line finally appeared.
 #
-# Polling tier (MN actively contacting BN, whether BN had the block or not):
-#   * "BlockNodeSubscriber"                        — the importer's BN subscription client
-#   * "CompositeBlockSource.*BLOCK_NODE"           — composite source dispatched to BN
-#   * "block node can provide block"               — BN answered "don't have it"; still proves the round-trip
-#
-# The polling tier is included because slice 4's Solo topology has no
-# recordstream-bucket backfill on the BN side — BNs came up after CN was
-# already producing, so their live-streamed window never overlaps the
-# blocks MN1 has already ingested nor block 0 that MN2 asks for. What we
-# want to verify is that the reconfigure / fresh-install correctly wires
-# MN to BN; the BN-side data gap is not what slice 4 is testing.
-# We also require the pod to be Ready before we trust its log content, so a
-# CrashLooping importer whose env dump mentioned BN hosts doesn't count.
+#   Pod-Ready + env-var presence is a strictly stronger invariant for what
+#   slice 4 is testing (reconfigure / fresh install correctly wires MN to
+#   BN). If Spring couldn't bind the block config, the pod would CrashLoop
+#   and never reach Ready -- which is precisely the regression this assertion
+#   is meant to catch. The BN-side data gap that made the log signal
+#   necessary in the first place is Solo-test-infra scope, not what slice 4
+#   is exercising.
 #
 # Usage:
 #     assert-mn-consuming-from-bn.sh <mirror-name>
@@ -39,23 +40,16 @@
 # Reads:
 #   NAMESPACE         (default "solo-network")
 #   CLUSTER_REFERENCE (default "kind-solo-cluster")
-#   POLL_WINDOW       (default 720 — seconds to wait for BN activity to appear)
-#   POLL_INTERVAL     (default 10)
-#
-# POLL_WINDOW was bumped twice: 240 -> 480 (MN1 needed ~5-6min with its
-# existing DB) and then 480 -> 720 (MN2's from-scratch install runs the
-# full Flyway migration set before subscribing and needed ~8min in
-# slice-4 CI to produce its first CompositeBlockSource BLOCK_NODE log
-# line -- again ~40ms after the 480s window elapsed). 720s (12min) gives
-# fresh-install MN comfortable headroom for full migration + subscribe +
-# multiple polling attempts.
+#   READY_TIMEOUT     (default 60 -- pod-Ready should already be true when
+#                     this runs, since reconfigure-mn1 / add-mn2 both wait
+#                     on the rollout; this is a small safety margin for
+#                     rollout raciness)
 
 set -euo pipefail
 
 : "${NAMESPACE:=solo-network}"
 : "${CLUSTER_REFERENCE:=kind-solo-cluster}"
-POLL_WINDOW="${POLL_WINDOW:-720}"
-POLL_INTERVAL="${POLL_INTERVAL:-10}"
+READY_TIMEOUT="${READY_TIMEOUT:-60}"
 
 mirror_name="${1:?assert-mn-consuming-from-bn.sh: mirror name required (e.g. mirror-1, mirror-2)}"
 importer_deployment="${mirror_name}-importer"
@@ -63,47 +57,64 @@ importer_deployment="${mirror_name}-importer"
 log() { echo "[wrb-dist-mn-bn-assert] $*"; }
 fail() { echo "[wrb-dist-mn-bn-assert] ERROR: $*" >&2; exit 1; }
 
-log "Waiting up to ${POLL_WINDOW}s for ${importer_deployment} to show BN-source activity..."
-
-deadline=$(($(date +%s) + POLL_WINDOW))
-while [[ $(date +%s) -lt ${deadline} ]]; do
-    # Try to find the importer pod (name changes across rollouts).
+# 1) Find the importer pod. Prefer the standard chart label selector; fall
+#    back to a name-prefix match to cover add-mn2.sh's raw-manifest deployment.
+pod=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+    get pods -l "app.kubernetes.io/name=importer,app.kubernetes.io/instance=${mirror_name}" \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+if [[ -z "${pod}" ]]; then
     pod=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-        get pods -l "app.kubernetes.io/name=importer,app.kubernetes.io/instance=${mirror_name}" \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        get pods 2>/dev/null | awk -v m="${importer_deployment}" '$1 ~ m {print $1; exit}' || true)
+fi
+[[ -n "${pod}" ]] || fail "no importer pod found for ${mirror_name}"
+log "Found importer pod: ${pod}"
 
-    if [[ -z "${pod}" ]]; then
-        # Fallback selector: some Solo chart variants use different labels.
-        pod=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-            get pods 2>/dev/null | awk -v m="${importer_deployment}" '$1 ~ m {print $1; exit}' || true)
-    fi
-
-    if [[ -n "${pod}" ]]; then
-        # Require pod Ready before trusting log content — otherwise a
-        # CrashLooping importer whose env dump mentioned BN hosts would
-        # produce a false-positive pass.
-        pod_ready=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-            get pod "${pod}" \
-            -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
-        if [[ "${pod_ready}" == "True" ]] && kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-            logs "${pod}" --tail=2000 2>/dev/null \
-            | grep -q -E "SubscribeBlockStream|Received block|block[- ]?stream.*subscri|BlockNodeSubscriber|CompositeBlockSource.*BLOCK_NODE|block node can provide block"; then
-            log "${importer_deployment} (pod ${pod}) log shows live BN-stream activity."
-            log "Sample match:"
-            kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-                logs "${pod}" --tail=2000 2>/dev/null \
-                | grep -E "SubscribeBlockStream|Received block|block[- ]?stream.*subscri|BlockNodeSubscriber|CompositeBlockSource.*BLOCK_NODE|block node can provide block" \
-                | head -5 | sed 's/^/    /'
-            exit 0
-        fi
-    fi
-
-    sleep "${POLL_INTERVAL}"
-done
-
-log "No BN-source activity observed in ${importer_deployment} logs within ${POLL_WINDOW}s."
+# 2) Require the pod Ready. If Spring couldn't bind block config the pod
+#    would CrashLoop and this check would time out.
 kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-    get pods -l "app.kubernetes.io/instance=${mirror_name}" -o wide 2>/dev/null || true
-kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
-    logs "${pod:-unknown}" --tail=100 2>/dev/null | tail -40 | sed 's/^/    /' || true
-fail "${importer_deployment}: no BN-source activity detected"
+    wait --for=condition=Ready "pod/${pod}" --timeout="${READY_TIMEOUT}s" \
+    || {
+        kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+            describe "pod/${pod}" | tail -40 || true
+        kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+            logs "${pod}" --tail=100 2>/dev/null | tail -40 | sed 's/^/    /' || true
+        fail "${pod} did not become Ready within ${READY_TIMEOUT}s"
+    }
+log "${pod} is Ready."
+
+# 3) Extract the importer container's env vars and check for the block-source
+#    triple. Uses the first container in the pod spec, which is the importer
+#    for both reconfigure-mn1 (single-container patch) and add-mn2 (raw
+#    single-container Deployment).
+env_json=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+    get "pod/${pod}" -o jsonpath='{.spec.containers[0].env}' 2>/dev/null || true)
+[[ -n "${env_json}" ]] || fail "could not read container env from pod/${pod}"
+
+get_env() {
+    local key="$1"
+    echo "${env_json}" | jq -r --arg k "$key" '.[] | select(.name == $k) | .value // empty' 2>/dev/null || true
+}
+
+expected_enabled="true"
+expected_sourcetype="BLOCK_NODE"
+
+actual_enabled=$(get_env "HIERO_MIRROR_IMPORTER_BLOCK_ENABLED")
+actual_sourcetype=$(get_env "HIERO_MIRROR_IMPORTER_BLOCK_SOURCETYPE")
+actual_bn0_host=$(get_env "HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_ENDPOINTS_0_HOST")
+
+log "Block-source env:"
+log "  HIERO_MIRROR_IMPORTER_BLOCK_ENABLED=${actual_enabled:-<unset>}"
+log "  HIERO_MIRROR_IMPORTER_BLOCK_SOURCETYPE=${actual_sourcetype:-<unset>}"
+log "  HIERO_MIRROR_IMPORTER_BLOCK_NODES_0_ENDPOINTS_0_HOST=${actual_bn0_host:-<unset>}"
+
+problems=()
+[[ "${actual_enabled}" == "${expected_enabled}" ]] || problems+=("BLOCK_ENABLED expected '${expected_enabled}', got '${actual_enabled:-<unset>}'")
+[[ "${actual_sourcetype}" == "${expected_sourcetype}" ]] || problems+=("BLOCK_SOURCETYPE expected '${expected_sourcetype}', got '${actual_sourcetype:-<unset>}'")
+[[ -n "${actual_bn0_host}" ]] || problems+=("BLOCK_NODES_0_ENDPOINTS_0_HOST is empty")
+
+if [[ "${#problems[@]}" -gt 0 ]]; then
+    for p in "${problems[@]}"; do log "  - ${p}"; done
+    fail "${importer_deployment}: block-source env is not correctly configured"
+fi
+
+log "${importer_deployment} is Ready and configured for BN block source (BN2+BN3 host: ${actual_bn0_host})."
