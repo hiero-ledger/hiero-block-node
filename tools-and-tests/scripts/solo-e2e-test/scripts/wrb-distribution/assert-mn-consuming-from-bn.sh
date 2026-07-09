@@ -39,21 +39,22 @@
 # Reads:
 #   NAMESPACE         (default "solo-network")
 #   CLUSTER_REFERENCE (default "kind-solo-cluster")
-#   POLL_WINDOW       (default 480 — seconds to wait for BN activity to appear)
+#   POLL_WINDOW       (default 720 — seconds to wait for BN activity to appear)
 #   POLL_INTERVAL     (default 10)
 #
-# POLL_WINDOW was bumped from 240 after slice-4 runs where MN's Flyway
-# migration + startup consumed nearly the full window; the first
-# CompositeBlockSource BLOCK_NODE error line appeared 28ms after the
-# poll deadline elapsed, so the assertion failed while the log evidence
-# was arriving. 480s (8min) gives MN comfortable headroom to complete
-# migration, subscribe, and log multiple polling attempts.
+# POLL_WINDOW was bumped twice: 240 -> 480 (MN1 needed ~5-6min with its
+# existing DB) and then 480 -> 720 (MN2's from-scratch install runs the
+# full Flyway migration set before subscribing and needed ~8min in
+# slice-4 CI to produce its first CompositeBlockSource BLOCK_NODE log
+# line -- again ~40ms after the 480s window elapsed). 720s (12min) gives
+# fresh-install MN comfortable headroom for full migration + subscribe +
+# multiple polling attempts.
 
 set -euo pipefail
 
 : "${NAMESPACE:=solo-network}"
 : "${CLUSTER_REFERENCE:=kind-solo-cluster}"
-POLL_WINDOW="${POLL_WINDOW:-480}"
+POLL_WINDOW="${POLL_WINDOW:-720}"
 POLL_INTERVAL="${POLL_INTERVAL:-10}"
 
 mirror_name="${1:?assert-mn-consuming-from-bn.sh: mirror name required (e.g. mirror-1, mirror-2)}"
