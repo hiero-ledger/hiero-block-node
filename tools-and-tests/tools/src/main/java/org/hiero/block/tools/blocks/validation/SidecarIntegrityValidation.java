@@ -75,7 +75,6 @@ public final class SidecarIntegrityValidation implements BlockValidation {
 
             final List<SidecarFile> sidecarFiles = recordFileItem.sidecarFileContents();
             if (sidecarFiles.isEmpty()) {
-                // No sidecars = nothing to verify.
                 return;
             }
 
@@ -84,25 +83,40 @@ public final class SidecarIntegrityValidation implements BlockValidation {
                         + " sidecar file(s) but no recordFileContents to check them against");
             }
             final RecordStreamFile recordStreamFile = recordFileItem.recordFileContentsOrThrow();
-            final List<SidecarMetadata> sidecarMetadatas = recordStreamFile.sidecars();
-
-            final MessageDigest digest = sha384Digest();
-            for (int i = 0; i < sidecarFiles.size(); i++) {
-                final SidecarFile sidecarFile = sidecarFiles.get(i);
-                // Hash the serialized proto bytes, matching the existing (dead-code) check in
-                // ParsedRecordBlock.validate and the CN's own sidecar-hash computation.
-                SidecarFile.PROTOBUF.toBytes(sidecarFile).writeTo(digest);
-                final byte[] sidecarHash = digest.digest();
-                if (!hashPresentIn(sidecarHash, sidecarMetadatas)) {
-                    throw new ValidationException("Block " + blockNumber + " - sidecar #" + i
-                            + " SHA-384 " + hex(sidecarHash)
-                            + " not found in signed sidecar metadata (" + sidecarMetadatas.size()
-                            + " metadata entry/entries present)");
-                }
-            }
+            validateSidecars(sidecarFiles, recordStreamFile.sidecars(), blockNumber);
         } catch (final ParseException e) {
             throw new ValidationException("Block " + blockNumber + " - sidecar integrity check failed: "
                     + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Verify every {@link SidecarFile} in {@code sidecarFiles} has a matching SHA-384 hash in
+     * {@code sidecarMetadatas}. Shared entry point so the wrap-time paths
+     * ({@code ToWrappedBlocksCommand}, {@code LiveSequential}) can invoke the same check they'd
+     * get on read-back through the validation suite / {@code validate-sidecars} command.
+     *
+     * <p>Passes silently on an empty {@code sidecarFiles} list. Throws {@link ValidationException}
+     * on the first sidecar with no corresponding metadata entry; the message names the block
+     * number, sidecar index, and computed hash.
+     */
+    public static void validateSidecars(
+            final List<SidecarFile> sidecarFiles, final List<SidecarMetadata> sidecarMetadatas, final long blockNumber)
+            throws ValidationException {
+        if (sidecarFiles.isEmpty()) {
+            return;
+        }
+        final MessageDigest digest = sha384Digest();
+        for (int i = 0; i < sidecarFiles.size(); i++) {
+            final SidecarFile sidecarFile = sidecarFiles.get(i);
+            SidecarFile.PROTOBUF.toBytes(sidecarFile).writeTo(digest);
+            final byte[] sidecarHash = digest.digest();
+            if (!hashPresentIn(sidecarHash, sidecarMetadatas)) {
+                throw new ValidationException("Block " + blockNumber + " - sidecar #" + i
+                        + " SHA-384 " + hex(sidecarHash)
+                        + " not found in signed sidecar metadata (" + sidecarMetadatas.size()
+                        + " metadata entry/entries present)");
+            }
         }
     }
 

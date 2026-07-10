@@ -74,6 +74,7 @@ import org.hiero.block.tools.blocks.validation.JumpstartValidation;
 import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
 import org.hiero.block.tools.blocks.validation.ProtobufParsingConstants;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
+import org.hiero.block.tools.blocks.validation.SidecarIntegrityValidation;
 import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
 import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
@@ -619,9 +620,6 @@ public class LiveSequential implements Runnable {
                 }
 
                 // Step 7: Validate hash chain (lightweight, keeps sequential integrity)
-                // TODO: download-live2 also calls UnparsedRecordBlockV6.validate() which verifies sidecar
-                // SHA-384 hashes against the record file metadata. This pipeline only does MD5 at download
-                // time + RSA verification in the wrap thread. Consider adding sidecar hash verification.
                 byte[] newHash =
                         DownloadDayLiveImpl.validateBlockHashes(nextBlockNumber, inMemoryFiles, currentHash, null);
                 Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
@@ -1083,6 +1081,13 @@ public class LiveSequential implements Runnable {
         } catch (Exception e) {
             System.err.printf("[WRAP] Warning: address book auto-update failed at block %d: %s%n", blockNum, e);
         }
+
+        // Sidecar integrity: verify each sidecar's SHA-384 matches an entry in the record file's
+        // signed sidecar hash list before we bake either into the wrapped Block. See issue #3196.
+        SidecarIntegrityValidation.validateSidecars(
+                preVerified.recordBlock().sidecarFiles(),
+                preVerified.recordBlock().recordFile().recordStreamFile().sidecars(),
+                blockNum);
 
         // Convert to wrapped block
         Block wrapped = RecordBlockConverter.toBlock(
