@@ -1,0 +1,187 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# WRB Distribution E2E (#3125) — slice 5 (step 8), builds on slice 4.
+#
+# Extends slice 4 (steps 6+7) with the CN publisher reconfigure:
+#
+#   1-2. Solo brings up CN+MN, wrb-cli baseline wrap, live-wrap loop forked.
+#   3-5. Add BN1/BN2/BN3 with EMB=0/0/100_000_000, assert per-BN EMB.
+#   6.   Reconfigure MN1's importer env to also pull live blocks from BN2/BN3.
+#   7.   Install MN2 v0.157.1 pointing at BN2/BN3.
+#   8.   Reconfigure the 3 CNs to publish blocks to BN3 by writing a fresh
+#        block-nodes.json onto each network-node pod (config-file-only change,
+#        matching the deploy-time apply_cn_block_nodes_configs path).
+#
+# Step 8 is a config-surface change: BN3's EMB=100_000_000 (per slice 3) means
+# BN3 will not persist the low-numbered blocks the CN is currently producing,
+# so we assert that CN's block-nodes.json actually references BN3 rather than
+# that BN3 receives blocks. The functional path is exercised later once EMB
+# gets reconfigured downstream.
+#
+# Step 9 (wrb-cli push to BN1) is intentionally deferred to a follow-up slice
+# while the wrb-cli's --push-enabled feature (PR #3124) is still under review.
+#
+# Usage (locally):
+#   task test:run TEST_FILE=tests/wrb-distribution-step8.yaml \
+#                 TOPOLOGY=wrb-distribution-step8
+
+name: wrb-distribution-step8
+description: "WRB distribution E2E (#3125) — steps 1-8: slice-4 baseline + CN publisher reconfigured to BN3"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Confirm 3 CNs and MN1 are running (no BN yet)"
+    delay: 5
+
+  - id: block-production-wait
+    type: sleep
+    description: "Wait for CNs to produce enough record files"
+    delay: 10
+    args:
+      seconds: 180
+
+  - id: install-and-run-wrb-cli
+    type: command
+    description: "Install wrb-cli, pull records from MinIO, run blocks wrap, assert nested dir"
+    delay: 195
+    timeout: 1200
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/install-and-run-wrb-cli.sh"
+
+  - id: start-live-wrap
+    type: command
+    description: "Fork the live-wrap background worker (polling MinIO + re-wrapping)"
+    delay: 200
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/start-live-wrap.sh"
+
+  # Slice 3 — bring BN1/BN2/BN3 online while the live wrap loop continues.
+
+  - id: add-bn1
+    type: command
+    description: "Add BN1 (Tier-0, EMB=0) via solo block node add and wait for Ready"
+    delay: 210
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/add-bn.sh 1"
+
+  - id: add-bn2
+    type: command
+    description: "Add BN2 (Tier-1, EMB=0) via solo block node add and wait for Ready"
+    delay: 220
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/add-bn.sh 2"
+
+  - id: add-bn3
+    type: command
+    description: "Add BN3 (Tier-1, EMB=100_000_000) via solo block node add and wait for Ready"
+    delay: 230
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/add-bn.sh 3"
+
+  - id: assert-bn-emb
+    type: command
+    description: "Assert each BN's earliestManagedBlock matches its topology overlay"
+    delay: 240
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-emb.sh"
+
+  # Slice 4 — MN reconfiguration and MN2 install.
+
+  - id: reconfigure-mn1-to-bn-sources
+    type: command
+    description: "Step 6: patch MN1 importer env to pull live blocks from BN2 and BN3"
+    delay: 260
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-mn1-to-bn-sources.sh"
+
+  - id: assert-mn1-consuming-from-bn
+    type: command
+    description: "Assert MN1 is now consuming blocks from a BN source"
+    delay: 320
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-mn-consuming-from-bn.sh mirror-1"
+
+  - id: add-mn2
+    type: command
+    description: "Step 7: install MN2 v0.157.1 pointing at BN2/BN3 with startBlockNumber=0"
+    delay: 340
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/add-mn2.sh"
+
+  - id: assert-mn2-consuming-from-bn
+    type: command
+    description: "Assert MN2 has come up and is consuming blocks from a BN source"
+    delay: 400
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-mn-consuming-from-bn.sh mirror-2"
+
+  # Slice 5 — CN publisher reconfigure.
+
+  - id: reconfigure-cn-to-push-bn3
+    type: command
+    description: "Step 8: write block-nodes.json onto each network-node pod pointing at BN3"
+    delay: 410
+    timeout: 180
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-cn-to-push-bn3.sh"
+
+  - id: assert-cn-publishing-to-bn3
+    type: command
+    description: "Assert each CN pod's block-nodes.json references BN3 (address + streamingPort)"
+    delay: 415
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-cn-publishing-to-bn3.sh"
+
+  # Slice 3's tail — observation window + live-wrap assertion + stop.
+
+  - id: live-wrap-observation-window
+    type: sleep
+    description: "Let the live wrap loop pick up records produced while CN reconfig ran"
+    delay: 420
+    args:
+      seconds: 180
+
+  - id: assert-live-wrap-produced-new-blocks
+    type: command
+    description: "Assert live-wrap kept running through the CN reconfig"
+    delay: 605
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-live-wrap-produced-new-blocks.sh"
+
+  - id: stop-live-wrap
+    type: command
+    description: "Tear down the live-wrap background worker"
+    delay: 610
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
+
+  - id: final-status
+    type: network-status
+    description: "Post-test network status (should show BN1/BN2/BN3, MN1 + MN2 up)"
+    delay: 615
+
+# BN + MN health is asserted implicitly by:
+#   * add-bn.sh's kubectl wait --for=condition=Ready pod/block-node-<i>-0
+#   * add-mn2.sh's kubectl wait on mirror-2 pods
+#   * assert-bn-emb.sh and assert-mn-consuming-from-bn.sh exec/curl into pods
+# Explicit target-block-node assertions here would fail the runner's
+# topology-target validation (block-node-N / mirror-2 aren't in the
+# deploy-time topology).
+assertions:
+  - id: no-errors
+    type: no-errors
+    description: "No errors in Block Node logs"
+    target: all
