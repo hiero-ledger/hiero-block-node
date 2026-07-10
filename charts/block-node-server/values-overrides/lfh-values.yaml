@@ -1,7 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# This is an override values example for the block-node-server chart to deploy a Tier 1 BN
+# This is intended for production purposes that adhere to the BN specificiaiton in
+# https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/block-node-hardware-specifications.md
+
 blockNode:
     config:
-        BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "100000000"
-        MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "512"
+        # BNs expect blocks from 0 by default, the following value supports receiving any block before end of 2026
+        # BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "110000000"
+        BACKFILL_GREEDY: "true"
+        BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
+        JAVA_OPTS: "-Xms64G -Xmx64G -XX:+ZGenerational -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/dump.hprof"
+        PROMETHEUS_ENDPOINT_ENABLED: true
+        PROMETHEUS_ENDPOINT_PORT_NUMBER: "16007"
+        # "https://<previewnet|testnet|mainnet>.mirrornode.hedera.com"
+        ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL: "https://mainnet.mirrornode.hedera.com"
+        SERVER_PORT: "40840"
         logs:
             level: "INFO"
             loggingProperties:
@@ -48,12 +62,26 @@ blockNode:
             applicationState:
                 create: false
                 existingClaim: application-state-storage-pvc
+    ports:
+        publisher: 40984    # PRODUCER_PORT    — gRPC, block producers
+        subscriber: 40980   # SUBSCRIBER_PORT  — gRPC, block subscribers
+        blockAccess: 40981  # BLOCK_ACCESS_PORT — gRPC/HTTP, block query API
+        health: 40983        # HEALTH_PORT      — HTTP, /healthz endpoints
+        serverStatus: 40982 # SERVER_STATUS_PORT — HTTP, server-status endpoint
+
+loadBalancer:
+    enabled: true
+    port: "40840"
+    metallb.io/address-pool: public-address-pool
 
 resources:
     requests:
         cpu: "24"
         memory: "256Gi"
+    limits:
+        cpu: "24"
+        memory: "256Gi"
 
 service:
-    type: LoadBalancer
+    type: ClusterIP
     port: 40840
