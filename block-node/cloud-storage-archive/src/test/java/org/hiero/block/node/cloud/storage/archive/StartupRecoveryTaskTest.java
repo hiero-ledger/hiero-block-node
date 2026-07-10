@@ -695,10 +695,11 @@ class StartupRecoveryTaskTest {
         assertThat(result.lastHandedOffBlock()).isEqualTo(19L);
     }
 
-    /// Verifies that a hanging multipart upload targeting a `.tmp` key is aborted during recovery
-    /// and is not included in the returned [RecoveryResult#tempArchives()] list.
+    /// Verifies that a hanging multipart upload targeting a `.tmp` key with no parts is aborted
+    /// during recovery and is absent from both [RecoveryResult#tempArchives()] and
+    /// [RecoveryResult#resumableTempArchives()].
     @Test
-    @DisplayName("Hanging temp upload: aborted during recovery and absent from tempArchives")
+    @DisplayName("Hanging temp upload with no parts: aborted during recovery, absent from both lists")
     void hangingTempUploadIsAbortedAndNotInResult() throws Exception {
         final String tarKey = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
         try (S3Client s3 = openS3Client()) {
@@ -709,9 +710,172 @@ class StartupRecoveryTaskTest {
         final RecoveryResult result = new StartupRecoveryTask(config).call();
 
         assertThat(result.tempArchives()).isEmpty();
+        assertThat(result.resumableTempArchives()).isEmpty();
         try (S3Client s3 = openS3Client()) {
             assertThat(s3.listMultipartUploads()).doesNotContainKey(tarKey);
         }
+    }
+
+    /// Verifies that a hanging temp archive multipart upload with durable parts is resumed rather
+    /// than aborted: recovery completes the old upload, starts a fresh one, and returns a
+    /// [TempArchiveResumeState] with the correct `s3Key`/`firstBlock`/`uploadId`/`etags`/
+    /// `nextBlockNumber`/`trailingBytes`. The segment must be absent from [RecoveryResult#tempArchives()]
+    /// (not yet durable) and the old multipart upload must no longer be hanging.
+    @Test
+    @DisplayName("Hanging temp upload with durable parts: resumed, correct resume state, absent from tempArchives")
+    void hangingTempUploadWithDurablePartsIsResumed() throws Exception {
+        final String tarKey = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
+        final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 4);
+        final byte[] partBytes = buildTarBytes(blocks);
+        final String oldUploadId;
+        try (S3Client s3 = openS3Client()) {
+            oldUploadId = s3.createMultipartUpload(tarKey, config.storageClass().name(), CONTENT_TYPE);
+            s3.multipartUploadPart(tarKey, oldUploadId, 1, partBytes);
+            // deliberately NOT completing — simulate a crash mid-upload
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.tempArchives()).isEmpty();
+        assertThat(result.resumableTempArchives()).hasSize(1);
+        final TempArchiveResumeState resumeState =
+                result.resumableTempArchives().getFirst();
+        assertThat(resumeState.s3Key()).isEqualTo(tarKey);
+        assertThat(resumeState.firstBlock()).isZero();
+        assertThat(resumeState.uploadId()).isNotNull().isNotEqualTo(oldUploadId);
+        assertThat(resumeState.etags()).isEmpty();
+        assertThat(resumeState.nextBlockNumber()).isEqualTo(4L);
+        final int block4HeaderOffset = TarEntries.findLastBlockStart(partBytes);
+        assertThat(resumeState.trailingBytes()).isEqualTo(Arrays.copyOfRange(partBytes, 0, block4HeaderOffset));
+        try (S3Client s3 = openS3Client()) {
+            // The old upload was completed (to materialize a readable object) and a fresh one
+            // opened for the same key -- left open for the resumed TempArchiveUploadTask.
+            final Map<String, List<String>> hangingUploads = s3.listMultipartUploads();
+            assertThat(hangingUploads).containsKey(tarKey);
+            assertThat(hangingUploads.get(tarKey)).doesNotContain(oldUploadId);
+        }
+    }
+
+    /// Verifies the marker-at-offset-0 edge case: the boundary part's block-start header sits at
+    /// byte offset 0 (the preceding part ends exactly on a 512-byte tar boundary), so
+    /// `trailingBytes` is legitimately empty even though a boundary WAS found. Regression test for
+    /// a bug where `trailingBytes().length > 0` was used as the "boundary found" signal, causing
+    /// this case to be misread as "no block start found in any part" and the upload aborted
+    /// instead of resumed.
+    @Test
+    @DisplayName("Hanging temp upload with marker at part offset 0: resumed despite empty trailingBytes")
+    void hangingTempUploadWithMarkerAtPartOffsetZeroIsResumed() throws Exception {
+        final String tarKey = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
+        // Part 1: blocks 0-3, padded to PART_SIZE (a multiple of 512) so part 2 starts exactly on
+        // a tar-block boundary. Part 2: block 4's entry alone, so its header sits at offset 0.
+        final byte[] part1 = Arrays.copyOf(buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, 3)), PART_SIZE);
+        final TestBlock block4 = TestBlockBuilder.generateBlockWithNumber(4);
+        final byte[] part2 = TarEntries.toTarEntry(block4.blockUnparsed(), block4.number());
+        final String oldUploadId;
+        try (S3Client s3 = openS3Client()) {
+            oldUploadId = s3.createMultipartUpload(tarKey, config.storageClass().name(), CONTENT_TYPE);
+            s3.multipartUploadPart(tarKey, oldUploadId, 1, part1);
+            s3.multipartUploadPart(tarKey, oldUploadId, 2, part2);
+            // deliberately NOT completing — simulate a crash mid-upload
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.tempArchives()).isEmpty();
+        assertThat(result.resumableTempArchives()).hasSize(1);
+        final TempArchiveResumeState resumeState =
+                result.resumableTempArchives().getFirst();
+        assertThat(resumeState.s3Key()).isEqualTo(tarKey);
+        assertThat(resumeState.firstBlock()).isZero();
+        assertThat(resumeState.uploadId()).isNotNull().isNotEqualTo(oldUploadId);
+        assertThat(resumeState.etags()).hasSize(1); // part 1 server-side copied into the new upload
+        assertThat(resumeState.nextBlockNumber()).isEqualTo(4L);
+        assertThat(resumeState.trailingBytes()).isEmpty();
+        try (S3Client s3 = openS3Client()) {
+            final Map<String, List<String>> hangingUploads = s3.listMultipartUploads();
+            assertThat(hangingUploads).containsKey(tarKey);
+            assertThat(hangingUploads.get(tarKey)).doesNotContain(oldUploadId);
+        }
+    }
+
+    /// Verifies that a hanging temp archive multipart upload whose parts contain no valid tar
+    /// header is aborted (not resumed): absent from both [RecoveryResult#tempArchives()] and
+    /// [RecoveryResult#resumableTempArchives()], with no leftover multipart upload or intermediate
+    /// S3 object.
+    @Test
+    @DisplayName("Hanging temp upload with gibberish parts: aborted, absent from both lists")
+    void hangingTempUploadWithGibberishPartsIsAborted() throws Exception {
+        final String tarKey = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
+        try (S3Client s3 = openS3Client()) {
+            final String uploadId =
+                    s3.createMultipartUpload(tarKey, config.storageClass().name(), CONTENT_TYPE);
+            final byte[] gibberish = new byte[1024];
+            Arrays.fill(gibberish, (byte) 0x42);
+            s3.multipartUploadPart(tarKey, uploadId, 1, gibberish);
+            // deliberately NOT completing — simulate a crash mid-upload
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.tempArchives()).isEmpty();
+        assertThat(result.resumableTempArchives()).isEmpty();
+        try (S3Client s3 = openS3Client()) {
+            assertThat(s3.listMultipartUploads()).doesNotContainKey(tarKey);
+            assertThat(s3.listObjects(tarKey, 1)).doesNotContain(tarKey);
+        }
+    }
+
+    /// Verifies that two simultaneously hanging temp archive uploads are resolved independently --
+    /// one resumable (durable parts) and one empty (aborted) -- unlike the regular path's
+    /// all-or-nothing [#recoverFromMultipleHangingUploads].
+    @Test
+    @DisplayName("Two simultaneous hanging temp uploads: resolved independently, one resumed one aborted")
+    void twoSimultaneousHangingTempUploadsAreResolvedIndependently() throws Exception {
+        final String resumableKey = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
+        final String emptyKey = TempArchiveKey.formatTar(100, config.objectKeyPrefix());
+        final byte[] partBytes = buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, 4));
+        try (S3Client s3 = openS3Client()) {
+            final String resumableUploadId =
+                    s3.createMultipartUpload(resumableKey, config.storageClass().name(), CONTENT_TYPE);
+            s3.multipartUploadPart(resumableKey, resumableUploadId, 1, partBytes);
+            // No parts uploaded for the empty one.
+            s3.createMultipartUpload(emptyKey, config.storageClass().name(), CONTENT_TYPE);
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.resumableTempArchives()).hasSize(1);
+        final TempArchiveResumeState resumeState =
+                result.resumableTempArchives().getFirst();
+        assertThat(resumeState.s3Key()).isEqualTo(resumableKey);
+        assertThat(resumeState.nextBlockNumber()).isEqualTo(4L);
+        try (S3Client s3 = openS3Client()) {
+            final Map<String, List<String>> hangingUploads = s3.listMultipartUploads();
+            assertThat(hangingUploads).containsKey(resumableKey);
+            assertThat(hangingUploads).doesNotContainKey(emptyKey);
+        }
+    }
+
+    /// Direct test of the [#withTempArchives] fix: [RecoveryResult#lastHandedOffBlock()] must
+    /// reflect `resumed.nextBlockNumber() - 1` so that gap detection in [CloudStorageArchivePlugin]
+    /// does not treat the resumed range as not-yet-handed-off.
+    @Test
+    @DisplayName("Resumable temp upload: lastHandedOffBlock reflects nextBlockNumber - 1")
+    void resumableTempUploadUpdatesLastHandedOffBlock() throws Exception {
+        final String tarKey = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
+        final byte[] partBytes = buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, 4));
+        try (S3Client s3 = openS3Client()) {
+            final String uploadId =
+                    s3.createMultipartUpload(tarKey, config.storageClass().name(), CONTENT_TYPE);
+            s3.multipartUploadPart(tarKey, uploadId, 1, partBytes);
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.resumableTempArchives()).hasSize(1);
+        final TempArchiveResumeState resumeState =
+                result.resumableTempArchives().getFirst();
+        assertThat(result.lastHandedOffBlock()).isEqualTo(resumeState.nextBlockNumber() - 1);
     }
 
     /// Verifies that a `.tmp` object without a companion `.meta` file (orphaned) is deleted from

@@ -225,6 +225,26 @@ class CloudStorageArchivePluginTest {
         }
     }
 
+    /// A [CloudStorageArchivePlugin] subclass that replaces a resumed [TempArchiveUploadTask] with
+    /// a configurable [Callable], mirroring [FailingTempArchivePlugin] for the resume path. Used to
+    /// drive the resumed-temp-upload-failure code path without a live S3 upload actually running.
+    private static class FailingResumedTempArchivePlugin extends CloudStorageArchivePlugin {
+        private final Callable<TempArchiveEntry> tempBehavior;
+
+        FailingResumedTempArchivePlugin(Callable<TempArchiveEntry> tempBehavior) {
+            this.tempBehavior = tempBehavior;
+        }
+
+        @Override
+        Callable<TempArchiveEntry> newResumedTempArchiveUploadTask(
+                String s3Key,
+                long firstBlock,
+                BlockingQueue<BlockWithSource> queue,
+                TempArchiveResumeState resumeState) {
+            return tempBehavior;
+        }
+    }
+
     /// Constructor and init tests that do not require a running plugin.
     @Nested
     @DisplayName("Constructor & Init Tests")
@@ -1721,6 +1741,236 @@ class CloudStorageArchivePluginTest {
             assertThat(capturedRanges).contains(new LongRange(5, 9), new LongRange(20, 29));
         }
 
+        /// Verifies the full resume-from-hanging-temp-archive path end-to-end: a hanging temp
+        /// archive multipart upload for a mid-group segment (blocks 5–9, the tail of group 0) with
+        /// one durable part is planted before recovery runs; recovery must resume it (not abort it)
+        /// into the same live-queue maps a fresh segment would use -- no redundant second segment
+        /// for the group -- and the resumed task must complete the segment correctly once the
+        /// remaining verified block arrives.
+        @Test
+        @DisplayName("Plugin resumes a hanging temp archive upload with durable parts and completes the segment")
+        void resumeFromHangingTempArchiveCompletesSegment() throws Exception {
+            final CloudStorageArchiveConfig config = makeConfig();
+            final long segmentFirstBlock = 5L;
+            final String tarKey = TempArchiveKey.formatTar(segmentFirstBlock, config.objectKeyPrefix());
+            final List<TestBlock> segmentBlocks = TestBlockBuilder.generateBlocksInRange(5, 9);
+
+            // Plant a hanging temp archive multipart upload with a durable part covering blocks
+            // 5-9, simulating a prior run that crashed after flushing this part but before
+            // SEGMENT_END arrived.
+            try (S3Client s3 = openS3Client(config)) {
+                final String uploadId =
+                        s3.createMultipartUpload(tarKey, config.storageClass().name(), CONTENT_TYPE);
+                s3.multipartUploadPart(tarKey, uploadId, 1, buildTarBytes(segmentBlocks, (int) segmentFirstBlock));
+                // deliberately NOT completing — simulate a crash mid-upload
+            }
+
+            // Run startup recovery: finds the hanging temp upload, completes it to materialize a
+            // readable object, and prepares a resumable state (nextBlockNumber=9, trailingBytes =
+            // entries for blocks 5-8).
+            pluginExecutor.executeSerially();
+
+            // Block 9 is both the resume point and the last block of group 0 (groupSize=10); this
+            // notification triggers completeRecoveryIfReady() (registering the resumed segment)
+            // and then routeVerifiedBlock, which enqueues block 9 onto the resumed task's own
+            // queue and immediately closes the segment.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(9, 9).getFirst());
+
+            // The resumed segment is registered under its original firstBlock -- no redundant
+            // second segment for the group.
+            assertThat(plugin.tempUploadFutures).containsOnlyKeys(segmentFirstBlock);
+
+            // Run the resumed TempArchiveUploadTask; its queue already has block 9 + SEGMENT_END.
+            pluginExecutor.executeSerially();
+
+            // Re-send block 9: recognized as a duplicate against the now-completed tracker entry,
+            // which also drains the completed future into tempArchiveTracker as a side effect.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(9, 9).getFirst());
+
+            assertThat(plugin.tempArchiveTracker).containsKey(segmentFirstBlock);
+            final TempArchiveEntry entry = plugin.tempArchiveTracker.get(segmentFirstBlock);
+            assertThat(entry.firstBlock()).isEqualTo(segmentFirstBlock);
+            assertThat(entry.lastBlock()).isEqualTo(9L);
+            assertThat(entry.uploadId()).isNull();
+
+            try (S3Client s3 = openS3Client(config)) {
+                assertThat(s3.listMultipartUploads()).doesNotContainKey(tarKey);
+            }
+            assertThat(getAllObjects())
+                    .contains(tarKey, TempArchiveKey.formatMeta(segmentFirstBlock, config.objectKeyPrefix()));
+        }
+
+        /// Reproduces the race where a resumed temp-archive segment and a freshly-started regular
+        /// [BlockUploadTask] both claim the same group. Group 0's tar completed cleanly before the
+        /// crash, but the temp segment for group 1 (started while group 0 was still active, then
+        /// left hanging by the crash) covers the very group that [StartupRecoveryTask] computes as
+        /// `currentGroupStart` for Case 1 (`groupSize`). Pre-fix, `completeRecoveryIfReady()` started
+        /// a second, conflicting [BlockUploadTask] for that group regardless of the resumed temp
+        /// segment, so the resumed segment's queue never received another block or `SEGMENT_END` and
+        /// its virtual thread blocked forever on `blockQueue.take()`.
+        @Test
+        @DisplayName("Resumed temp archive for the next group prevents a conflicting regular task from starting")
+        void resumedTempArchiveForNextGroupPreventsConflictingRegularTask() throws Exception {
+            final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+            final CloudStorageArchiveConfig config = makeConfig();
+
+            // Group 0 completed cleanly before the crash.
+            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL, "");
+            final List<TestBlock> firstGroupBlocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
+            try (S3Client s3 = openS3Client(config)) {
+                final String uploadId =
+                        s3.createMultipartUpload(firstKey, config.storageClass().name(), CONTENT_TYPE);
+                final String etag = s3.multipartUploadPart(firstKey, uploadId, 1, buildTarBytes(firstGroupBlocks, 0));
+                s3.completeMultipartUpload(firstKey, uploadId, List.of(etag));
+            }
+
+            // Group 1 (blocks 10-19) has a hanging temp archive segment for blocks 15-17, left
+            // over from a gap-buffer flush while group 0 was still the active regular group.
+            final long segmentFirstBlock = groupSize + 5;
+            final String tarKey = TempArchiveKey.formatTar(segmentFirstBlock, config.objectKeyPrefix());
+            final List<TestBlock> segmentBlocks =
+                    TestBlockBuilder.generateBlocksInRange((int) segmentFirstBlock, (int) segmentFirstBlock + 2);
+            try (S3Client s3 = openS3Client(config)) {
+                final String uploadId =
+                        s3.createMultipartUpload(tarKey, config.storageClass().name(), CONTENT_TYPE);
+                s3.multipartUploadPart(tarKey, uploadId, 1, buildTarBytes(segmentBlocks, (int) segmentFirstBlock));
+                // deliberately NOT completing -- simulate a crash mid-upload
+            }
+
+            pluginExecutor.executeSerially();
+
+            // Trigger completeRecoveryIfReady() with the next expected block for the resumed segment.
+            sendVerification(
+                    TestBlockBuilder.generateBlocksInRange((int) segmentFirstBlock + 3, (int) segmentFirstBlock + 3)
+                            .getFirst());
+
+            // The resumed segment still owns group 1's active queue.
+            assertThat(plugin.tempUploadFutures).containsKey(segmentFirstBlock);
+            assertThat(plugin.tempGroupActiveQueues).containsKey(groupSize);
+
+            // No conflicting regular BlockUploadTask was started for the same group -- the resumed
+            // segment is the sole owner, so the plugin must fall through to the temp-archive path
+            // for any further blocks in this group instead of starting a competing regular task.
+            assertThat(plugin.currentUploadFuture).isNull();
+        }
+
+        /// Dedicated test protecting the "never abort" design: once a hanging temp segment is
+        /// resumed, blocks that were already durable in the pre-crash upload (below the resume
+        /// point) must be recognized as duplicates via
+        /// [CloudStorageArchivePlugin#isBlockCoveredByAnyTempSegment] and discarded -- not
+        /// re-queued to the resumed task (which only expects blocks from the resume point onward
+        /// and would otherwise stall forever waiting for a block nobody will send) or
+        /// double-counted -- even while the resumed task is still in flight, not yet completed.
+        @Test
+        @DisplayName(
+                "Redelivered blocks below the resume point are discarded as duplicates while the segment is in flight")
+        void redeliveredBlocksBelowResumePointAreDiscardedWhileSegmentInFlight() throws Exception {
+            final CloudStorageArchiveConfig config = makeConfig();
+            final long segmentFirstBlock = 5L;
+            final String tarKey = TempArchiveKey.formatTar(segmentFirstBlock, config.objectKeyPrefix());
+            final List<TestBlock> segmentBlocks = TestBlockBuilder.generateBlocksInRange(5, 9);
+
+            try (S3Client s3 = openS3Client(config)) {
+                final String uploadId =
+                        s3.createMultipartUpload(tarKey, config.storageClass().name(), CONTENT_TYPE);
+                s3.multipartUploadPart(tarKey, uploadId, 1, buildTarBytes(segmentBlocks, (int) segmentFirstBlock));
+                // deliberately NOT completing — simulate a crash mid-upload
+            }
+
+            pluginExecutor.executeSerially();
+
+            // Trigger completeRecoveryIfReady() with an unrelated, far-ahead block so the resumed
+            // segment is registered without closing it (unlike the full round-trip test above).
+            sendVerification(TestBlockBuilder.generateBlocksInRange(50, 50).getFirst());
+
+            // The resumed segment is registered and its task is in flight (not yet run/completed).
+            assertThat(plugin.tempUploadFutures).containsKey(segmentFirstBlock);
+            assertThat(plugin.tempUploadFutures.get(segmentFirstBlock).isDone()).isFalse();
+
+            final long duplicatesBefore =
+                    getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED);
+
+            // Redeliver block 6 — already durable in the old (pre-crash) part, below nextBlockNumber=9.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(6, 6).getFirst());
+
+            // Discarded as a duplicate — not queued to the resumed task, not double-counted.
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED))
+                    .isEqualTo(duplicatesBefore + 1);
+            assertThat(plugin.tempUploadFutures.get(segmentFirstBlock).isDone()).isFalse();
+        }
+
+        /// Verifies that two hanging temp archive uploads for the SAME group are both resumed and
+        /// both complete, instead of the second [Map#put] in [CloudStorageArchivePlugin
+        /// #completeRecoveryIfReady] silently overwriting the first segment's queue reference in
+        /// `tempGroupActiveQueues` and orphaning its virtual thread on `queue.take()` forever.
+        ///
+        /// Plants two hanging `.tmp` multipart uploads in the same group [0,9]: firstBlock=2
+        /// (blocks 2-3, recoverable nextBlockNumber=3) and firstBlock=6 (blocks 6-7-8, recoverable
+        /// nextBlockNumber=8). Segment 6 has the higher nextBlockNumber, so it becomes the "active"
+        /// continuation that receives blocks 8-9; segment 2 must be seeded with SEGMENT_END so it
+        /// still finalises on its own.
+        @Test
+        @DisplayName("Two hanging temp archives for the same group are both resumed and both complete")
+        void twoResumableTempArchivesForSameGroupBothComplete() throws Exception {
+            final CloudStorageArchiveConfig config = makeConfig();
+            final long supersededFirstBlock = 2L;
+            final long activeFirstBlock = 6L;
+            final String supersededTarKey = TempArchiveKey.formatTar(supersededFirstBlock, config.objectKeyPrefix());
+            final String activeTarKey = TempArchiveKey.formatTar(activeFirstBlock, config.objectKeyPrefix());
+
+            try (S3Client s3 = openS3Client(config)) {
+                final String supersededUploadId = s3.createMultipartUpload(
+                        supersededTarKey, config.storageClass().name(), CONTENT_TYPE);
+                s3.multipartUploadPart(
+                        supersededTarKey,
+                        supersededUploadId,
+                        1,
+                        buildTarBytes(TestBlockBuilder.generateBlocksInRange(2, 3), (int) supersededFirstBlock));
+                // deliberately NOT completing — simulate a crash mid-upload
+
+                final String activeUploadId = s3.createMultipartUpload(
+                        activeTarKey, config.storageClass().name(), CONTENT_TYPE);
+                s3.multipartUploadPart(
+                        activeTarKey,
+                        activeUploadId,
+                        1,
+                        buildTarBytes(TestBlockBuilder.generateBlocksInRange(6, 8), (int) activeFirstBlock));
+                // deliberately NOT completing — simulate a crash mid-upload
+            }
+
+            // Recovery resolves both hanging uploads independently into two resumable entries.
+            pluginExecutor.executeSerially();
+
+            // Block 8 is the resume point for the active segment; this notification triggers
+            // completeRecoveryIfReady() (registering both resumed segments) and then routes block 8
+            // into the active segment's queue.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(8, 8).getFirst());
+            assertThat(plugin.tempUploadFutures).containsOnlyKeys(supersededFirstBlock, activeFirstBlock);
+
+            // Block 9 is the last block of the group; it also routes to the active segment and
+            // closes it with SEGMENT_END.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(9, 9).getFirst());
+
+            // Run both resumed tasks. Without the fix, the superseded segment's task would block
+            // forever on queue.take() (bounded only by BlockingExecutor's 60s per-task timeout).
+            pluginExecutor.executeSerially();
+
+            // An unrelated notification drains the now-completed futures into tempArchiveTracker.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(50, 50).getFirst());
+
+            assertThat(plugin.tempUploadFutures).doesNotContainKeys(supersededFirstBlock, activeFirstBlock);
+            assertThat(plugin.tempArchiveTracker).containsKeys(supersededFirstBlock, activeFirstBlock);
+            assertThat(plugin.tempArchiveTracker.get(supersededFirstBlock).lastBlock())
+                    .isEqualTo(2L);
+            assertThat(plugin.tempArchiveTracker.get(activeFirstBlock).lastBlock())
+                    .isEqualTo(9L);
+
+            try (S3Client s3 = openS3Client(config)) {
+                assertThat(s3.listMultipartUploads()).doesNotContainKeys(supersededTarKey, activeTarKey);
+            }
+            assertThat(getAllObjects()).contains(supersededTarKey, activeTarKey);
+        }
+
         private CloudStorageArchiveConfig makeConfig() {
             final ConfigurationBuilder builder =
                     ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
@@ -2028,6 +2278,59 @@ class CloudStorageArchivePluginTest {
             // Drive recovery and verify it completes.
             executor.executeSerially();
             assertThat(plugin.isRecoveryComplete()).isTrue();
+        }
+
+        /// Verifies that a failing RESUMED [TempArchiveUploadTask] triggers mid-run recovery via
+        /// the same glue code as a fresh one, proving `newResumedTempArchiveUploadTask` is wired
+        /// into [CloudStorageArchivePlugin#checkAndDrainTempUploadResults] identically to
+        /// [CloudStorageArchivePlugin#newTempArchiveUploadTask].
+        ///
+        /// A hanging temp archive multipart upload for a mid-group segment (blocks 5-9) with one
+        /// durable part is planted in S3 before the plugin starts, so recovery resumes it into
+        /// [FailingResumedTempArchivePlugin]'s mocked failing behavior instead of a real upload.
+        @Test
+        @DisplayName("Resumed temp archive upload failure triggers mid-run recovery")
+        void failedResumedTempUploadTriggersMidRunRecovery() throws Exception {
+            final ConfigurationBuilder builder =
+                    ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+            pluginConfig(1, 10).forEach(builder::withValue);
+            final CloudStorageArchiveConfig cfg = builder.build().getConfigData(CloudStorageArchiveConfig.class);
+
+            final long segmentFirstBlock = 5L;
+            final String tarKey = TempArchiveKey.formatTar(segmentFirstBlock, cfg.objectKeyPrefix());
+            final List<TestBlock> segmentBlocks = TestBlockBuilder.generateBlocksInRange(5, 9);
+            try (S3Client s3 = new S3Client(
+                    cfg.regionName(), cfg.endpointUrl(), cfg.bucketName(), cfg.accessKey(), cfg.secretKey())) {
+                final String uploadId =
+                        s3.createMultipartUpload(tarKey, cfg.storageClass().name(), "application/x-tar");
+                final byte[] tarBytes = RecoveryIntegrationTests.buildTarBytes(segmentBlocks, (int) segmentFirstBlock);
+                s3.multipartUploadPart(tarKey, uploadId, 1, tarBytes);
+                // deliberately NOT completing — simulate a crash mid-upload
+            }
+
+            start(
+                    new FailingResumedTempArchivePlugin(() -> {
+                        throw new IOException("simulated resumed temp upload failure");
+                    }),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    pluginConfig(1, 10));
+            final BlockingExecutor executor = testThreadPoolManager.executor();
+            executor.executeSerially(); // drain startup recovery -- prepares the resumable segment
+
+            // Trigger completeRecoveryIfReady(), which registers the resumed segment via
+            // newResumedTempArchiveUploadTask (the mocked failing behavior).
+            sendVerification(TestBlockBuilder.generateBlocksInRange(50, 50).getFirst());
+            assertThat(plugin.tempUploadFutures).containsKey(segmentFirstBlock);
+
+            // Running the mocked task throws — the exception propagates as RuntimeException.
+            assertThatThrownBy(executor::executeSerially).isInstanceOf(RuntimeException.class);
+
+            // The next notification drains the failed future and triggers mid-run recovery.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(51, 51).getFirst());
+
+            assertThat(plugin.tempUploadFutures).doesNotContainKey(segmentFirstBlock);
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
+                    .isEqualTo(1L);
         }
 
         /// Verifies that [triggerMidRunRecovery] clears [gapBuffer] and moves its entries to
