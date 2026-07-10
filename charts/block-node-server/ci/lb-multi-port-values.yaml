@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: Apache-2.0
+# CI values for the LoadBalancer multi-port install test.
+# Exercises both loadBalancer.includePluginPorts (pulls all blockNode.ports onto the LB
+# Service) and loadBalancer.extraPorts (adds one explicit extra port).
+#
+# Port assignments:
+#   grpc (primary LB port) → 40840 → http (main server port)
+#   health                 → 40940   (included via includePluginPorts)
+#   publisher              → 40941   (included via includePluginPorts)
+#   subscriber             → 40942   (included via includePluginPorts)
+#   blockAccess            → 40943   (included via includePluginPorts)
+#   serverStatus           → 40944   (included via includePluginPorts)
+#   extra-test             → 40945   (included via extraPorts)
+
+loadBalancer:
+  enabled: true
+  includePluginPorts: true
+  extraPorts:
+    - name: extra-test
+      port: 40945
+      targetPort: 40944   # routes to serverStatus container port for connectivity verification
+      protocol: TCP
+
+blockNode:
+  ports:
+    health: 40940
+    publisher: 40941
+    subscriber: 40942
+    blockAccess: 40943
+    serverStatus: 40944
+  config:
+    SERVER_PORT: "40840"
+    JAVA_OPTS: '-Xms1G -Xmx2G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+  persistence:
+    archive:
+      size: 1Gi
+    live:
+      size: 1Gi
+    logging:
+      size: 500Mi
+    verification:
+      size: 500Mi
+    plugins:
+      size: 500Mi
+
+resources:
+  requests:
+    cpu: "1"
+    memory: "2Gi"
+  limits:
+    cpu: "2"
+    memory: "3Gi"
+
+plugins:
+  names: "facility-messaging,health,server-status,block-access-service,stream-publisher,stream-subscriber"
