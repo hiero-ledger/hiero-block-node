@@ -136,4 +136,62 @@ class SidecarIntegrityValidationTest {
                 assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 42));
         assertTrue(ex.getMessage().contains("no recordFileContents to check them against"));
     }
+
+    // ── Shared static helper (validateSidecars) — direct tests ─────────────
+
+    @Test
+    @DisplayName("Static helper: empty sidecar list passes without touching metadata")
+    void staticHelper_empty_passes() {
+        assertDoesNotThrow(() -> SidecarIntegrityValidation.validateSidecars(List.of(), List.of(), 42));
+    }
+
+    @Test
+    @DisplayName("Static helper: single matching sidecar passes")
+    void staticHelper_singleMatch_passes() {
+        final SidecarFile s = SidecarFile.DEFAULT;
+        assertDoesNotThrow(() -> SidecarIntegrityValidation.validateSidecars(List.of(s), List.of(metadataFor(s)), 42));
+    }
+
+    @Test
+    @DisplayName("Static helper: multi-sidecar all-match passes")
+    void staticHelper_multiMatch_passes() {
+        final SidecarFile s0 = SidecarFile.DEFAULT;
+        final SidecarFile s1 = SidecarFile.newBuilder().build();
+        // s0 and s1 serialize identically here (both default); the check should still pass
+        // because every sidecar has *some* matching hash in the metadata.
+        assertDoesNotThrow(() -> SidecarIntegrityValidation.validateSidecars(
+                List.of(s0, s1), List.of(metadataFor(s0), metadataFor(s1)), 42));
+    }
+
+    @Test
+    @DisplayName("Static helper: extra metadata entries do not cause failure")
+    void staticHelper_extraMetadata_passes() {
+        final SidecarFile s = SidecarFile.DEFAULT;
+        final byte[] unrelated = new byte[48];
+        for (int i = 0; i < unrelated.length; i++) {
+            unrelated[i] = (byte) 0xEE;
+        }
+        final SidecarMetadata unrelatedMeta = SidecarMetadata.newBuilder()
+                .hash(HashObject.newBuilder()
+                        .algorithm(HashAlgorithm.SHA_384)
+                        .length(unrelated.length)
+                        .hash(Bytes.wrap(unrelated))
+                        .build())
+                .build();
+        assertDoesNotThrow(() -> SidecarIntegrityValidation.validateSidecars(
+                List.of(s), List.of(unrelatedMeta, metadataFor(s)), 42));
+    }
+
+    @Test
+    @DisplayName("Static helper: metadata entries with no hash field are skipped, not treated as matches")
+    void staticHelper_metadataWithoutHash_skipped() {
+        final SidecarFile s = SidecarFile.DEFAULT;
+        final SidecarMetadata noHash = SidecarMetadata.newBuilder().build();
+        // With only a hashless metadata entry present, the sidecar has no match and must fail.
+        final ValidationException ex = assertThrows(
+                ValidationException.class,
+                () -> SidecarIntegrityValidation.validateSidecars(List.of(s), List.of(noHash), 42));
+        assertTrue(ex.getMessage().contains("not found in signed sidecar metadata"));
+    }
+
 }
