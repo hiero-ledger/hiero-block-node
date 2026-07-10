@@ -184,8 +184,9 @@ blockNode:
     # gRPC/HTTP port for block access/query API (env: BLOCK_ACCESS_PORT). hostPorts key: block-access
     blockAccess: null
     # HTTP port for /healthz endpoints (env: HEALTH_PORT). hostPorts key: health
-    # IMPORTANT: when set, liveness and readiness probes are automatically redirected to this port.
-    health: null
+    # The health plugin runs on its own dedicated web server; this is that port, and the liveness/
+    # readiness probes are automatically directed to it. Defaults to the app's health port (40983).
+    health: 40983
     # HTTP port for server-status endpoint (env: SERVER_STATUS_PORT). hostPorts key: server-status
     serverStatus: null
   config:

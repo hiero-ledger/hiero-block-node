@@ -15,9 +15,12 @@ import static org.mockito.Mockito.verify;
 
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.HttpService;
+import io.helidon.webserver.http2.Http2Config;
 import java.util.Map;
+import org.hiero.block.node.app.config.ServerConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,7 +39,10 @@ class ServiceBuilderImplTest {
 
     @BeforeEach
     void setUp() {
-        serviceBuilder = new ServiceBuilderImpl(PUBLISHER_PORT);
+        final Http2Config http2Config = Http2Config.builder().build();
+        final SocketOptions socketOptions = SocketOptions.builder().build();
+        ServerConfig testConfig = new ServerConfig(0, 0, 0, PUBLISHER_PORT, 0, 0, 0, 0, false, 0, 0);
+        serviceBuilder = new ServiceBuilderImpl(testConfig, http2Config, socketOptions);
     }
 
     @Test
@@ -95,7 +101,7 @@ class ServiceBuilderImplTest {
         final ServiceInterface mockService = mock(ServiceInterface.class);
         final PbjRouting.Builder spyBuilder = injectGrpcBuilderSpy(CONSUMER_PORT);
 
-        serviceBuilder.registerGrpcService(mockService, CONSUMER_PORT);
+        serviceBuilder.registerGrpcService(CONSUMER_PORT, mockService);
 
         verify(spyBuilder).service(eq(mockService));
     }
@@ -106,7 +112,7 @@ class ServiceBuilderImplTest {
     void registerGrpcService_shouldThrowNPEForNullService() {
         assertThrows(
                 NullPointerException.class,
-                () -> serviceBuilder.registerGrpcService(null, CONSUMER_PORT),
+                () -> serviceBuilder.registerGrpcService(CONSUMER_PORT, null),
                 "registerGrpcService should throw NullPointerException when passed null");
     }
 
@@ -133,8 +139,8 @@ class ServiceBuilderImplTest {
         final ServiceInterface mockService2 = mock(ServiceInterface.class);
         final PbjRouting.Builder spyBuilder = injectGrpcBuilderSpy(CONSUMER_PORT);
 
-        serviceBuilder.registerGrpcService(mockService1, CONSUMER_PORT);
-        serviceBuilder.registerGrpcService(mockService2, CONSUMER_PORT);
+        serviceBuilder.registerGrpcService(CONSUMER_PORT, mockService1);
+        serviceBuilder.registerGrpcService(CONSUMER_PORT, mockService2);
 
         verify(spyBuilder).service(eq(mockService1));
         verify(spyBuilder).service(eq(mockService2));
@@ -167,7 +173,7 @@ class ServiceBuilderImplTest {
     void registerGrpcService_createsEntry() {
         final ServiceInterface mockService = mock(ServiceInterface.class);
 
-        serviceBuilder.registerGrpcService(mockService, PUBLISHER_PORT);
+        serviceBuilder.registerGrpcService(PUBLISHER_PORT, mockService);
 
         assertNotNull(serviceBuilder.grpcRoutingBuilders().get(PUBLISHER_PORT));
     }
@@ -177,7 +183,7 @@ class ServiceBuilderImplTest {
     void registerGrpcService_publisherPort_doesNotPopulateConsumerPort() {
         final ServiceInterface mockService = mock(ServiceInterface.class);
 
-        serviceBuilder.registerGrpcService(mockService, PUBLISHER_PORT);
+        serviceBuilder.registerGrpcService(PUBLISHER_PORT, mockService);
 
         assertTrue(serviceBuilder.grpcRoutingBuilders().containsKey(PUBLISHER_PORT));
         assertFalse(serviceBuilder.grpcRoutingBuilders().containsKey(CONSUMER_PORT));
@@ -186,7 +192,7 @@ class ServiceBuilderImplTest {
     @Test
     @DisplayName("registerGrpcService throws NullPointerException for null service")
     void registerGrpcService_nullService_throwsNPE() {
-        assertThrows(NullPointerException.class, () -> serviceBuilder.registerGrpcService(null, CONSUMER_PORT));
+        assertThrows(NullPointerException.class, () -> serviceBuilder.registerGrpcService(CONSUMER_PORT, null));
     }
 
     @Test
@@ -195,11 +201,11 @@ class ServiceBuilderImplTest {
         final ServiceInterface mockService1 = mock(ServiceInterface.class);
         final ServiceInterface mockService2 = mock(ServiceInterface.class);
 
-        serviceBuilder.registerGrpcService(mockService1, CONSUMER_PORT);
+        serviceBuilder.registerGrpcService(CONSUMER_PORT, mockService1);
         final PbjRouting.Builder builderAfterFirst =
                 serviceBuilder.grpcRoutingBuilders().get(CONSUMER_PORT);
 
-        serviceBuilder.registerGrpcService(mockService2, CONSUMER_PORT);
+        serviceBuilder.registerGrpcService(CONSUMER_PORT, mockService2);
         final PbjRouting.Builder builderAfterSecond =
                 serviceBuilder.grpcRoutingBuilders().get(CONSUMER_PORT);
 
@@ -228,8 +234,8 @@ class ServiceBuilderImplTest {
     void grpcRegistrations_differentPorts_haveIndependentBuilders() {
         final ServiceInterface mockService = mock(ServiceInterface.class);
 
-        serviceBuilder.registerGrpcService(mockService, PUBLISHER_PORT);
-        serviceBuilder.registerGrpcService(mockService, CONSUMER_PORT);
+        serviceBuilder.registerGrpcService(PUBLISHER_PORT, mockService);
+        serviceBuilder.registerGrpcService(CONSUMER_PORT, mockService);
 
         assertNotSame(
                 serviceBuilder.grpcRoutingBuilders().get(PUBLISHER_PORT),
@@ -242,7 +248,7 @@ class ServiceBuilderImplTest {
     void registerGrpcService_nullPort_resolvesToDefault() {
         final ServiceInterface mockService = mock(ServiceInterface.class);
 
-        serviceBuilder.registerGrpcService(mockService, null);
+        serviceBuilder.registerGrpcService(null, mockService);
 
         assertNotNull(
                 serviceBuilder.grpcRoutingBuilders().get(PUBLISHER_PORT), "null port must resolve to default port");
@@ -266,8 +272,8 @@ class ServiceBuilderImplTest {
     void registerGrpcService_customPort_getsOwnBuilder() {
         final ServiceInterface mockService = mock(ServiceInterface.class);
 
-        serviceBuilder.registerGrpcService(mockService, PUBLISHER_PORT);
-        serviceBuilder.registerGrpcService(mockService, CUSTOM_PORT);
+        serviceBuilder.registerGrpcService(PUBLISHER_PORT, mockService);
+        serviceBuilder.registerGrpcService(CUSTOM_PORT, mockService);
 
         assertNotNull(serviceBuilder.grpcRoutingBuilders().get(CUSTOM_PORT));
         assertNotSame(

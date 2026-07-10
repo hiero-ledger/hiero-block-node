@@ -37,8 +37,8 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
-import org.hiero.block.node.app.fixtures.plugintest.NoOpServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -174,7 +174,7 @@ class BlockFileHistoricPluginTest {
         @DisplayName("Test init throws null pointer when supplied with null context")
         void testInitNullContext() {
             final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
-            assertThatNullPointerException().isThrownBy(() -> toTest.init(null, new NoOpServiceBuilder()));
+            assertThatNullPointerException().isThrownBy(() -> toTest.init(null, new RecordingServiceBuilder()));
         }
 
         /**

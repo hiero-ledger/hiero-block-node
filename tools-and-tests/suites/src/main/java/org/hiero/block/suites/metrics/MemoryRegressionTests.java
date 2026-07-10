@@ -98,8 +98,8 @@ public class MemoryRegressionTests extends BaseSuite {
     /// Reads the maximum VmRSS (KB) across all processes in the container by scanning `/proc`.
     /// The JVM process is the largest consumer and will dominate the max.
     private static long readMaxVmRssKb(GenericContainer<?> container) throws IOException, InterruptedException {
-        Container.ExecResult result = container.execInContainer(
-                "sh", "-c", "awk '/^VmRSS/{if($2>m)m=$2}END{print (m+0)}' /proc/[0-9]*/status 2>/dev/null");
+        Container.ExecResult result = execInContainerWithRetry(
+                container, "sh", "-c", "awk '/^VmRSS/{if($2>m)m=$2}END{print (m+0)}' /proc/[0-9]*/status 2>/dev/null");
         String out = result.getStdout().strip();
         if (out.isEmpty() || "0".equals(out)) {
             throw new IOException("Could not read VmRSS from container (exit=%d stderr=%s)."

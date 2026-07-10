@@ -14,17 +14,20 @@ import com.swirlds.config.api.Configuration;
 import io.helidon.http.HttpPrologue;
 import io.helidon.http.Method;
 import io.helidon.webserver.http.HttpRules;
-import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.TreeMap;
 import org.hiero.block.api.NetworkData;
+import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestServerRequest;
 import org.hiero.block.node.app.fixtures.plugintest.TestServerResponse;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.ServiceBuilder.ServiceWithPath;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.Test;
@@ -51,12 +54,16 @@ class HealthServiceTest {
     private final TestMetricsExporter metricsExporter = new TestMetricsExporter();
 
     /**
-     * Stub the context configuration so {@code init} can read {@link HealthConfig} (port unset = null),
-     * and wire a real {@link MetricRegistry} so {@code init} can register the request counter.
+     * Stub the context configuration so {@code init} can read {@link HealthConfig} (a dedicated health
+     * port), and wire a real {@link MetricRegistry} so {@code init} can register the request counter.
      */
     private void setupContextConfig(BlockNodeContext context) {
         final Configuration configuration = Mockito.mock(Configuration.class);
-        Mockito.when(configuration.getConfigData(HealthConfig.class)).thenReturn(new HealthConfig(null));
+        // port + socket/connection settings (mirroring the HealthConfig defaults)
+        Mockito.when(configuration.getConfigData(HealthConfig.class))
+                .thenReturn(new HealthConfig(40983, 32_768, 32_768, 512, 512, 10, 1, 2, true));
+        Mockito.when(configuration.getConfigData(WebServerHttp2Config.class))
+                .thenReturn(new WebServerHttp2Config(500, 8_388_608, 8L, 10, 8_388_608, 8192L, 50, 10000));
         Mockito.when(context.configuration()).thenReturn(configuration);
         Mockito.when(context.metricRegistry())
                 .thenReturn(MetricRegistry.builder()
@@ -195,10 +202,21 @@ class HealthServiceTest {
         Mockito.verify(serverResponse, Mockito.times(1)).send("Service is not running");
     }
 
+    /** Finds the {@link ServiceWithPath} registered at {@code path} across every port in the map. */
+    private static ServiceWithPath findServiceByPath(
+            final TreeMap<Integer, ServiceWithPath[]> services, final String path) {
+        return services.values().stream()
+                .flatMap(Arrays::stream)
+                .filter(service -> service.path().equals(path))
+                .findFirst()
+                .orElse(null);
+    }
+
     @Test
     public void testRouting() {
         // given
-        ArgumentCaptor<HttpService> httpServiceArgumentCaptor = ArgumentCaptor.forClass(HttpService.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<TreeMap<Integer, ServiceWithPath[]>> servicesCaptor = ArgumentCaptor.forClass(TreeMap.class);
         HttpRules httpRules = Mockito.mock(HttpRules.class);
         Mockito.when(httpRules.get(ArgumentMatchers.anyString(), ArgumentMatchers.any()))
                 .thenReturn(httpRules);
@@ -209,26 +227,22 @@ class HealthServiceTest {
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
         healthServicePlugin.init(context, serviceBuilder);
 
-        // then
+        // then: the health services are registered on a dedicated web server via registerHttpNewServer
         Mockito.verify(serviceBuilder, Mockito.times(1))
-                .registerHttpService(
-                        ArgumentMatchers.eq(HEALTHZ_PATH),
-                        ArgumentMatchers.isNull(),
-                        httpServiceArgumentCaptor.capture());
-        HttpService httpService = httpServiceArgumentCaptor.getValue();
-        assertNotNull(httpService);
+                .registerHttpNewServer(servicesCaptor.capture(), Mockito.any(), Mockito.any(), Mockito.any());
+        ServiceWithPath healthService = findServiceByPath(servicesCaptor.getValue(), HEALTHZ_PATH);
+        assertNotNull(healthService);
 
-        // healthServicePlugin used a functionalInterface to define HttpService so we have to confirm
-        // healthServicePlugin.routing() will apply the expected routing paths
-        // confirm that httRules.get(..) is called twice, once for READINESS_PATH and then once for LIVENESS_PATH
-        httpService.routing(httpRules);
+        // the health service's routing registers both the readiness and liveness paths
+        healthService.services()[0].routing(httpRules);
         Mockito.verify(httpRules, Mockito.times(1)).get(ArgumentMatchers.eq(READYZ_PATH), ArgumentMatchers.any());
         Mockito.verify(httpRules, Mockito.times(1)).get(ArgumentMatchers.eq(LIVEZ_PATH), ArgumentMatchers.any());
     }
 
     @Test
     public void testStatuszRouting() {
-        ArgumentCaptor<HttpService> httpServiceArgumentCaptor = ArgumentCaptor.forClass(HttpService.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<TreeMap<Integer, ServiceWithPath[]>> servicesCaptor = ArgumentCaptor.forClass(TreeMap.class);
         HttpRules httpRules = Mockito.mock(HttpRules.class);
         Mockito.when(httpRules.get(ArgumentMatchers.anyString(), ArgumentMatchers.any()))
                 .thenReturn(httpRules);
@@ -238,15 +252,12 @@ class HealthServiceTest {
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
         healthServicePlugin.init(context, serviceBuilder);
 
-        // the /statusz service is registered as a second HTTP service with * route
+        // the /statusz service is registered on the same dedicated web server with a wildcard route
         Mockito.verify(serviceBuilder, Mockito.times(1))
-                .registerHttpService(
-                        ArgumentMatchers.eq(STATUSZ_PATH),
-                        ArgumentMatchers.isNull(),
-                        httpServiceArgumentCaptor.capture());
-        HttpService httpService = httpServiceArgumentCaptor.getValue();
-        assertNotNull(httpService);
-        httpService.routing(httpRules);
+                .registerHttpNewServer(servicesCaptor.capture(), Mockito.any(), Mockito.any(), Mockito.any());
+        ServiceWithPath statuszService = findServiceByPath(servicesCaptor.getValue(), STATUSZ_PATH);
+        assertNotNull(statuszService);
+        statuszService.services()[0].routing(httpRules);
         Mockito.verify(httpRules, Mockito.times(1)).get(ArgumentMatchers.eq("*"), ArgumentMatchers.any());
     }
 

@@ -31,26 +31,30 @@ public class PositiveServerAvailabilityTests extends BaseSuite {
      */
     @Test
     @DisplayName("Should start gRPC server successfully")
-    public void verifyGrpcServerStartsSuccessfully() {
+    public void verifyGrpcServerStartsSuccessfully() throws IOException {
         assertTrue(blockNodeContainer.isRunning(), "Block Node container should be running.");
-        assertTrue(blockNodeContainer.isHealthy(), "Block Node container should be healthy.");
+        // Replacing docker-specific HEALTHCHECK command with runtime-agnostic equivalent:
+        // container.isHealthy() relies on the image HEALTHCHECK, which is dropped under Podman/OCI,
+        // so assert health directly over HTTP against the dedicated health port instead.
+        assertEquals(200, healthGet("/healthz/livez"), "Block Node should report healthy via /healthz/livez.");
     }
 
     /**
      * Test to verify that the gRPC server is listening on the correct port.
      *
-     * <p>The test asserts that the container is running, exposes exactly one port, and that the
-     * exposed port matches the expected gRPC server port.
+     * <p>The test asserts that the container is running and exposes both the gRPC server port and the
+     * dedicated health server port.
      */
     @Test
     @DisplayName("Should listen on correct gRPC port")
     public void verifyGrpcServerListeningOnCorrectPort() {
         assertTrue(blockNodeContainer.isRunning(), "Block Node container should be running.");
-        assertEquals(1, blockNodeContainer.getExposedPorts().size(), "There should be exactly one exposed port.");
-        assertEquals(
-                blockNodePort,
-                blockNodeContainer.getExposedPorts().getFirst(),
-                "The exposed port should match the expected gRPC server port.");
+        assertTrue(
+                blockNodeContainer.getExposedPorts().contains(blockNodePort),
+                "The gRPC server port should be exposed.");
+        assertTrue(
+                blockNodeContainer.getExposedPorts().contains(blockNodeHealthPort),
+                "The health server port should be exposed.");
     }
 
     /**
@@ -63,23 +67,22 @@ public class PositiveServerAvailabilityTests extends BaseSuite {
     @Test
     @DisplayName("Verify /healthz endpoints")
     public void verifyHealthzEndpoints() throws IOException {
-        final String host = "localhost";
-        final int port = blockNodeContainer.getExposedPorts().getFirst();
-        final String baseUrl = String.format("http://%s:%d", host, port);
+        assertEquals(200, healthGet("/healthz/readyz"), "Expected HTTP 200 for /healthz/readyz endpoint.");
+        assertEquals(200, healthGet("/healthz/livez"), "Expected HTTP 200 for /healthz/livez endpoint.");
+    }
 
-        // Test /healthz/readyz endpoint
-        final HttpURLConnection readyzConnection =
-                (HttpURLConnection) new java.net.URL(baseUrl + "/healthz/readyz").openConnection();
-        readyzConnection.setRequestMethod("GET");
-        final int readyzResponseCode = readyzConnection.getResponseCode();
-        assertEquals(200, readyzResponseCode, "Expected HTTP 200 for /healthz/readyz endpoint.");
-
-        // Test /healthz/livez endpoint
-        final HttpURLConnection livezConnection =
-                (HttpURLConnection) new java.net.URL(baseUrl + "/healthz/livez").openConnection();
-        livezConnection.setRequestMethod("GET");
-        final int livezResponseCode = livezConnection.getResponseCode();
-        assertEquals(200, livezResponseCode, "Expected HTTP 200 for /healthz/livez endpoint.");
+    /**
+     * Sends a GET to the given path on the block node's dedicated health port (the health and statusz
+     * endpoints run on their own web server) and returns the HTTP status code.
+     *
+     * @param path the request path (e.g. {@code /healthz/livez})
+     * @return the HTTP response code
+     */
+    private int healthGet(final String path) throws IOException {
+        final HttpURLConnection connection = (HttpURLConnection)
+                new java.net.URL(String.format("http://localhost:%d%s", blockNodeHealthPort, path)).openConnection();
+        connection.setRequestMethod("GET");
+        return connection.getResponseCode();
     }
 
     /**

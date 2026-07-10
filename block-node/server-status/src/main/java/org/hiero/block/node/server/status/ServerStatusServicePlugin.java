@@ -170,7 +170,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // Register this service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(ServerStatusConfig.class).port();
-        serviceBuilder.registerGrpcService(this, port);
+        serviceBuilder.registerGrpcService(port, this);
     }
 
     /**

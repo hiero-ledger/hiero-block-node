@@ -72,7 +72,7 @@ public class PositiveDataPersistenceTests extends BaseSuite {
     }
 
     private String getContainerCommandResult(String[] command) throws IOException, InterruptedException {
-        Container.ExecResult result = blockNodeContainer.execInContainer(command);
+        Container.ExecResult result = execInContainerWithRetry(blockNodeContainer, command);
         return result.getStdout();
     }
 }
