@@ -17,6 +17,7 @@ import picocli.CommandLine.Spec;
             ConvertAddressBookHistoryCommand.class,
             LsBlockFiles.class,
             ValidateBlocksCommand.class,
+            ValidateSidecarsCommand.class,
             ToWrappedBlocksCommand.class,
             FetchBalanceCheckpointsCommand.class,
             RepairZipsCommand.class,
