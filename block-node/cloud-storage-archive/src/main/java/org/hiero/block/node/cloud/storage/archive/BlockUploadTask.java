@@ -248,8 +248,11 @@ public class BlockUploadTask implements Callable<UploadResult> {
                 // fall back to blockNum so the notification is never dropped.
                 final Map.Entry<Long, BlockSource> last =
                         blocksInBuffer.isEmpty() ? Map.entry(blockNum, blockSource) : blocksInBuffer.lastEntry();
-                blockMessaging.sendBlockPersisted(
-                        new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
+                blockMessaging.sendBlockPersisted(new PersistedNotification(
+                        last.getKey(),
+                        true,
+                        CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
+                        last.getValue()));
                 final long rangeStart = blocksInBuffer.isEmpty() ? blockNum : blocksInBuffer.firstKey();
                 applicationStateFacility.addStoredBlockRange(new LongRange(rangeStart, last.getKey()));
                 metricsHolder.blocksWritten().increment(blocksInBuffer.size());
@@ -266,7 +269,11 @@ public class BlockUploadTask implements Callable<UploadResult> {
             final BlockSource firstBlockSource = blocksInBuffer.isEmpty()
                     ? blockSource
                     : blocksInBuffer.firstEntry().getValue();
-            blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlockNum, false, 1_000, firstBlockSource));
+            blockMessaging.sendBlockPersisted(new PersistedNotification(
+                    firstBlockNum,
+                    false,
+                    CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
+                    firstBlockSource));
             LOGGER.log(INFO, "Failed to upload part containing blocks %d to %d".formatted(firstBlockNum, blockNum), e);
             return null;
         }
@@ -296,15 +303,22 @@ public class BlockUploadTask implements Callable<UploadResult> {
             doUploadPart(buffer, s3, uploadId, etags);
         } catch (S3ResponseException | IOException e) {
             final Map.Entry<Long, BlockSource> first = blocksInBuffer.firstEntry();
-            blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(first.getKey(), false, 1_000, first.getValue()));
+            blockMessaging.sendBlockPersisted(new PersistedNotification(
+                    first.getKey(),
+                    false,
+                    CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
+                    first.getValue()));
             LOGGER.log(INFO, "Failed to upload final part for key {0}", key, e);
             partResult = UploadResult.FAILED;
             // Consistent with flushPartIfNeeded(): false notification signals failure; no retry here.
         }
         if (partResult == UploadResult.SUCCESS) {
             final Map.Entry<Long, BlockSource> last = blocksInBuffer.lastEntry();
-            blockMessaging.sendBlockPersisted(new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
+            blockMessaging.sendBlockPersisted(new PersistedNotification(
+                    last.getKey(),
+                    true,
+                    CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
+                    last.getValue()));
             applicationStateFacility.addStoredBlockRange(new LongRange(blocksInBuffer.firstKey(), last.getKey()));
             metricsHolder.blocksWritten().increment(blocksInBuffer.size());
             metricsHolder.storedBytes().increment(buffer.length);
