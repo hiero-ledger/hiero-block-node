@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import org.hiero.block.node.stream.subscriber.SubscriberServicePlugin;
 
-// SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.stream.subscriber {
-    uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
-
     // export configuration classes to the config module and app
     exports org.hiero.block.node.stream.subscriber to
             com.swirlds.config.impl,
@@ -18,6 +15,8 @@ module org.hiero.block.node.stream.subscriber {
     requires transitive org.hiero.metrics;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
+
+    uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             SubscriberServicePlugin;

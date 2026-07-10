@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import org.hiero.block.node.archive.s3.S3ArchivePlugin;
 
-// SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.archive.s3cloud {
-    uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
-
     // export configuration classes to the config module and app
     exports org.hiero.block.node.archive.s3 to
             com.swirlds.config.impl,
@@ -21,6 +18,8 @@ module org.hiero.block.node.archive.s3cloud {
     requires java.management;
     requires java.net.http;
     requires java.xml;
+
+    uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             S3ArchivePlugin;
