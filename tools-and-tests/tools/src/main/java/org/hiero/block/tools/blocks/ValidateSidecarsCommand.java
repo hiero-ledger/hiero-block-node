@@ -66,19 +66,26 @@ public class ValidateSidecarsCommand implements Runnable {
         }
 
         final AtomicLong corruptZipCount = new AtomicLong(0);
-        final List<BlockSource> sources = BlockZipsUtilities.findBlockSources(files, corruptZipCount);
-        if (sources.isEmpty()) {
+        final List<BlockSource> discovered = BlockZipsUtilities.findBlockSources(files, corruptZipCount);
+        if (discovered.isEmpty()) {
             System.err.println("Error: no block sources discovered in the given inputs");
             return;
         }
 
-        final long totalBlocks = BlockZipsUtilities.estimateTotalBlocks(sources);
         System.out.println(Ansi.AUTO.string("@|yellow Sidecar integrity check:|@"));
-        System.out.println("  Sources discovered: " + sources.size());
-        System.out.println("  Blocks to check:    ~" + totalBlocks);
+        System.out.println("  Sources discovered: " + discovered.size());
         if (corruptZipCount.get() > 0) {
             System.out.println("  Corrupt zip archives skipped: " + corruptZipCount.get());
         }
+
+        // Whole-zip sources are placeholders that need to be opened and expanded into per-entry
+        // sources. Without this step, readBlockData would try to gunzip the .zip archive itself
+        // and fail with "Not in GZIP format". Expansion also sorts by block number so the
+        // progress bar becomes monotonic.
+        System.out.println("  Expanding zip archives...");
+        final List<BlockSource> sources = BlockZipsUtilities.expandWholeZipSources(discovered);
+        final long totalBlocks = sources.size();
+        System.out.println("  Blocks to check:    " + totalBlocks);
         System.out.println();
 
         final SidecarIntegrityValidation validation = new SidecarIntegrityValidation();
