@@ -4,6 +4,13 @@ package org.hiero.block.tools.blocks;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
@@ -58,6 +65,17 @@ public class ValidateSidecarsCommand implements Runnable {
             description = "Suppress the live progress bar (useful when redirecting output to a file)")
     private boolean noProgress = false;
 
+    @Option(
+            names = {"--threads"},
+            description =
+                    "Worker threads for parallel decompression + validation (default: available CPU cores - 1, minimum 1)")
+    private int threads = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+
+    @Option(
+            names = {"--prefetch"},
+            description = "Blocks to buffer ahead of the consumer (default: ${DEFAULT-VALUE})")
+    private int prefetch = 512;
+
     @Override
     public void run() {
         if (files == null || files.length == 0) {
@@ -88,57 +106,113 @@ public class ValidateSidecarsCommand implements Runnable {
         System.out.println("  Blocks to check:    " + totalBlocks);
         System.out.println();
 
+        System.out.println("  Worker threads:     " + threads);
+        System.out.println("  Prefetch queue:     " + prefetch);
+        System.out.println();
+
         final SidecarIntegrityValidation validation = new SidecarIntegrityValidation();
         final ProgressBar progress = new ProgressBar(totalBlocks, !noProgress);
         progress.start();
+
+        // Producer thread streams sources; worker pool decompresses + validates in parallel; main
+        // thread drains submission-order futures so progress + counters stay ordered. Bounded
+        // queue provides backpressure so we don't OOM on a large archive.
+        final ExecutorService workers = Executors.newFixedThreadPool(threads, r -> {
+            final Thread t = new Thread(r, "sidecar-worker");
+            t.setDaemon(true);
+            return t;
+        });
+        final BlockingQueue<Future<BlockResult>> resultQueue = new ArrayBlockingQueue<>(Math.max(threads, prefetch));
+        final AtomicLong stopRequested = new AtomicLong(0);
+
+        final Thread producer = new Thread(
+                () -> {
+                    try {
+                        for (final BlockSource source : sources) {
+                            if (stopRequested.get() != 0) {
+                                break;
+                            }
+                            final Future<BlockResult> f = workers.submit(() -> processOne(source, validation));
+                            resultQueue.put(f);
+                        }
+                    } catch (final InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        // Sentinel: null-completed future so the consumer knows we're done.
+                        try {
+                            resultQueue.put(java.util.concurrent.CompletableFuture.completedFuture(null));
+                        } catch (final InterruptedException ignored) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                },
+                "sidecar-producer");
+        producer.setDaemon(true);
+        producer.start();
 
         long checked = 0;
         long failed = 0;
         long ioErrors = 0;
         String firstFailureMessage = null;
 
-        outer:
-        for (final BlockSource source : sources) {
-            final BlockUnparsed block;
+        while (true) {
+            final Future<BlockResult> f;
             try {
-                final byte[][] data = BlockZipsUtilities.readBlockData(source);
-                final boolean[] flags = BlockZipsUtilities.compressionFlags(source);
-                // data[0] is the compressed bytes as read from disk / zip; that's what
-                // decompressAndPartialParse expects together with the isZstd/isGz flags.
-                block = BlockZipsUtilities.decompressAndPartialParse(data[0], flags[0], flags[1]);
-            } catch (final IOException | RuntimeException e) {
+                f = resultQueue.take();
+            } catch (final InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            final BlockResult r;
+            try {
+                r = f.get();
+            } catch (final InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (final ExecutionException ee) {
+                // A worker threw something unexpected. Bump ioErrors and continue.
                 ioErrors++;
                 progress.advance();
-                progress.pausePrintErr(Ansi.AUTO.string("@|red I/O or parse error at block " + source.blockNumber()
-                        + " (" + source.filePath() + "):|@ " + e.getMessage()));
-                continue;
-            } catch (final Exception e) {
-                ioErrors++;
-                progress.advance();
-                progress.pausePrintErr(Ansi.AUTO.string("@|red Unexpected error at block " + source.blockNumber() + " ("
-                        + source.filePath() + "):|@ " + e.getMessage()));
+                progress.pausePrintErr(Ansi.AUTO.string("@|red worker error:|@ "
+                        + ee.getCause().getClass().getSimpleName() + ": "
+                        + ee.getCause().getMessage()));
                 continue;
             }
-
+            if (r == null) {
+                // Producer sentinel — all done.
+                break;
+            }
+            if (r.ioError != null) {
+                ioErrors++;
+                progress.advance();
+                progress.pausePrintErr(Ansi.AUTO.string("@|red I/O or parse error at block " + r.blockNumber + " ("
+                        + r.filePath + "):|@ " + r.ioError));
+                continue;
+            }
             checked++;
-            try {
-                validation.validate(block, source.blockNumber());
-            } catch (final ValidationException ve) {
+            if (r.failureMessage != null) {
                 failed++;
                 if (firstFailureMessage == null) {
-                    firstFailureMessage = ve.getMessage();
+                    firstFailureMessage = r.failureMessage;
                 }
                 if (verbose || failed == 1) {
-                    progress.pausePrintErr(Ansi.AUTO.string("@|red FAIL:|@ " + ve.getMessage()));
+                    progress.pausePrintErr(Ansi.AUTO.string("@|red FAIL:|@ " + r.failureMessage));
                 }
                 if (failFast) {
+                    stopRequested.set(1);
                     progress.advance();
-                    break outer;
+                    break;
                 }
             }
             progress.advance();
         }
         progress.finish();
+        workers.shutdownNow();
+        try {
+            workers.awaitTermination(5, TimeUnit.SECONDS);
+        } catch (final InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
 
         System.out.println();
         System.out.println(Ansi.AUTO.string("@|yellow Summary:|@"));
@@ -157,6 +231,46 @@ public class ValidateSidecarsCommand implements Runnable {
             System.out.println(Ansi.AUTO.string(
                     "@|yellow No sidecar failures observed, but " + ioErrors + " block(s) could not be read.|@"));
             System.exit(2);
+        }
+    }
+
+    /**
+     * Read + decompress + partial-parse + validate one block. Called on a worker thread.
+     * Returns a {@link BlockResult} describing the outcome; never throws.
+     */
+    private static BlockResult processOne(final BlockSource source, final SidecarIntegrityValidation validation) {
+        final BlockUnparsed block;
+        try {
+            final byte[][] data = BlockZipsUtilities.readBlockData(source);
+            final boolean[] flags = BlockZipsUtilities.compressionFlags(source);
+            // data[0] is the compressed bytes as read from disk / zip; that's what
+            // decompressAndPartialParse expects together with the isZstd/isGz flags.
+            block = BlockZipsUtilities.decompressAndPartialParse(data[0], flags[0], flags[1]);
+        } catch (final IOException | RuntimeException e) {
+            return BlockResult.io(source.blockNumber(), source.filePath().toString(), e.getMessage());
+        } catch (final Exception e) {
+            return BlockResult.io(source.blockNumber(), source.filePath().toString(), e.getMessage());
+        }
+        try {
+            validation.validate(block, source.blockNumber());
+            return BlockResult.ok(source.blockNumber());
+        } catch (final ValidationException ve) {
+            return BlockResult.failure(source.blockNumber(), ve.getMessage());
+        }
+    }
+
+    /** Outcome of a single worker's block. Exactly one of ioError / failureMessage is non-null; both null == pass. */
+    private record BlockResult(long blockNumber, String filePath, String ioError, String failureMessage) {
+        static BlockResult ok(final long blockNumber) {
+            return new BlockResult(blockNumber, null, null, null);
+        }
+
+        static BlockResult failure(final long blockNumber, final String message) {
+            return new BlockResult(blockNumber, null, null, message);
+        }
+
+        static BlockResult io(final long blockNumber, final String filePath, final String message) {
+            return new BlockResult(blockNumber, filePath, message, null);
         }
     }
 
