@@ -40,6 +40,43 @@ tasks:
             - kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/application-state/* /opt/hiero/block-node/backfill/*'
             - kubectl -n ${NAMESPACE} delete pod $POD
 
+    shutdown-bn:
+        cmds:
+            - kubectl scale statefulset/$RELEASE-block-node-server --replicas=0 -n $NAMESPACE
+            - kubectl wait pod -l app.kubernetes.io/instance=$RELEASE -n $NAMESPACE --for=delete --timeout=120s
+
+    # Use when the BN is already offline (scaled to 0 via shutdown-bn).
+    # Mounts PVCs directly via a one-shot busybox pod so no BN process is running
+    # during the wipe — prevents the node from writing new data or initiating backfill
+    # while its storage is being cleared.
+    reset-file-store-offline:
+        cmds:
+            - |
+              kubectl run bn-reset -n $NAMESPACE --image=busybox --restart=Never --rm -i \
+                --overrides='{
+                  "spec": {
+                    "volumes": [
+                      {"name":"live","persistentVolumeClaim":{"claimName":"live-storage-pvc"}},
+                      {"name":"archive","persistentVolumeClaim":{"claimName":"archive-storage-pvc"}},
+                      {"name":"appstate","persistentVolumeClaim":{"claimName":"application-state-storage-pvc"}}
+                    ],
+                    "containers": [{
+                      "name":"bn-reset","image":"busybox",
+                      "command":["sh","-c","rm -rf /live/live-data/* /archive/archive-data/* /appstate/*"],
+                      "volumeMounts": [
+                        {"name":"live","mountPath":"/live"},
+                        {"name":"archive","mountPath":"/archive"},
+                        {"name":"appstate","mountPath":"/appstate"}
+                      ]
+                    }]
+                  }
+                }'
+
+    start-bn:
+        cmds:
+            - kubectl scale statefulset/$RELEASE-block-node-server --replicas=1 -n $NAMESPACE
+            - kubectl rollout status statefulset/$RELEASE-block-node-server -n $NAMESPACE --timeout=300s
+
     reset-upgrade:
         cmds:
             - task: reset-file-store
