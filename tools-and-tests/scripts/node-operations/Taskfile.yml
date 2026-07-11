@@ -3,6 +3,9 @@ version: '3'
 dotenv: ['.env']
 
 tasks:
+    # Uninstalls the Helm release and deletes all associated PVCs, PVs, and the namespace.
+    # DESTRUCTIVE — all block data, application state, and logs are permanently lost.
+    # Requires: RELEASE, NAMESPACE
     clear-release:
         cmds:
             - helm uninstall $RELEASE -n $NAMESPACE
@@ -10,6 +13,9 @@ tasks:
             - kubectl delete pv -n $NAMESPACE application-state-storage-pv archive-storage-pv live-storage-pv logging-storage-pv plugins-pv
             - kubectl delete namespace $NAMESPACE
 
+    # One-time bare-metal setup: copies the kubeadm kubeconfig into ~/.kube/config and
+    # verifies that helm and kubectl can reach the cluster.
+    # Run once per machine before any other task.
     load-kubectl-helm:
         cmds:
             - mkdir -p ${HOME}/.kube
@@ -20,6 +26,11 @@ tasks:
             - kubectl config get-clusters
             - mkdir values-override
 
+    # First-time install of the block node chart into a new namespace.
+    # Applies host-path PV manifests, installs the chart, annotates the service for MetalLB,
+    # then waits 90 s for the pod to start before printing cluster state.
+    # Replace <values> with your operator-specific values file (e.g. bare-metal-values.yaml).
+    # Requires: RELEASE, NAMESPACE, VERSION
     helm-release:
         cmds:
             - kubectl create namespace $NAMESPACE
@@ -29,17 +40,30 @@ tasks:
             - sleep 90
             - kubectl get all -n $NAMESPACE
 
+    # Upgrades (or installs if not present) the chart to $VERSION in an existing namespace.
+    # Safe to run against a live BN — Helm performs a rolling update.
+    # Replace <values> with your operator-specific values file.
+    # Requires: RELEASE, NAMESPACE, VERSION
     helm-upgrade:
         cmds:
             - helm upgrade $RELEASE oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version $VERSION -n $NAMESPACE --install --values values-override/<values>.yaml
             - kubectl get all -n $NAMESPACE
 
+    # Use when the BN is online (scaled to 1) and no inflow is expected via publishing or backfill.
+    # Wipes live, historic, application-state, and backfill directories then restarts the pod.
+    # For a safer fleet reset where multiple BNs must be cleared simultaneously, use
+    # shutdown-bn → reset-file-store-offline → start-bn instead.
+    # Requires: NAMESPACE, POD
     reset-file-store:
         cmds:
             - kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
             - kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/application-state/* /opt/hiero/block-node/backfill/*'
             - kubectl -n ${NAMESPACE} delete pod $POD
 
+    # Gracefully stops the BN by scaling the StatefulSet to 0 and waiting for the pod to terminate.
+    # No new blocks will be accepted and no backfill connections will be initiated after this returns.
+    # Follow with reset-file-store-offline to wipe data, then start-bn to bring the node back up.
+    # Requires: RELEASE, NAMESPACE
     shutdown-bn:
         cmds:
             - kubectl scale statefulset/$RELEASE-block-node-server --replicas=0 -n $NAMESPACE
@@ -49,6 +73,8 @@ tasks:
     # Mounts PVCs directly via a one-shot busybox pod so no BN process is running
     # during the wipe — prevents the node from writing new data or initiating backfill
     # while its storage is being cleared.
+    # backfill/ is ephemeral (pod filesystem) and is implicitly cleared when the pod restarts.
+    # Requires: NAMESPACE
     reset-file-store-offline:
         cmds:
             - |
@@ -72,26 +98,40 @@ tasks:
                   }
                 }'
 
+    # Scales the StatefulSet back to 1 and waits for the pod to pass its readiness probe.
+    # Use after shutdown-bn (and optionally reset-file-store-offline) to bring the node back online.
+    # Requires: RELEASE, NAMESPACE
     start-bn:
         cmds:
             - kubectl scale statefulset/$RELEASE-block-node-server --replicas=1 -n $NAMESPACE
             - kubectl rollout status statefulset/$RELEASE-block-node-server -n $NAMESPACE --timeout=300s
 
+    # Convenience task: wipes block data and immediately upgrades to $VERSION.
+    # BN is briefly offline between reset-file-store (pod deleted) and helm-upgrade (pod recreated).
+    # Requires: RELEASE, NAMESPACE, VERSION, POD
     reset-upgrade:
         cmds:
             - task: reset-file-store
             - task: helm-upgrade
 
+    # Triggers a rolling restart of the BN pod without changing any configuration.
+    # Useful to pick up a new image tag or recover from a hung pod.
+    # Requires: RELEASE, NAMESPACE
     restart-bn:
         cmds:
             - kubectl rollout restart deployment $RELEASE-block-node-server -n $NAMESPACE
 
+    # Downloads the block-node protobuf bundle for $VERSION and extracts it to ~/block-node-protobuf-$VERSION.
+    # Required before using grpcurl to make gRPC calls against the block node.
+    # Requires: VERSION
     setup-bn-proto:
         cmds:
             - curl -L https://github.com/hiero-ledger/hiero-block-node/releases/download/v$VERSION/block-node-protobuf-$VERSION.tgz -o block-node-protobuf-$VERSION.tgz
             - tar -xzf block-node-protobuf-$VERSION.tgz -C ~/block-node-protobuf-$VERSION
             - rm block-node-protobuf-$VERSION.tgz
 
+    # Installs grpcurl v1.8.7 to /usr/local/bin.
+    # Run once per machine. Used alongside setup-bn-proto to make gRPC calls against the block node.
     setup-grpcurl:
         cmds:
             - curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
