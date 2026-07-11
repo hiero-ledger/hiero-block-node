@@ -330,7 +330,7 @@ jobs:
           EXPECTED_PORTS="40840 40945 40980 40981 40982 40983 40984"
           EXPECTED_COUNT=$(echo "${EXPECTED_PORTS}" | wc -w | tr -d ' ')
 
-          SVC_NAME="bn-lb-multi-port-test-external"
+          SVC_NAME="bn-lb-multi-port-test-block-node-server-external"
           ACTUAL_PORTS=$(kubectl get service -n default "${SVC_NAME}" -o json \
             | jq -r '.spec.ports[].port' | sort -n | tr '\n' ' ' | sed 's/ $//')
           ACTUAL_COUNT=$(kubectl get service -n default "${SVC_NAME}" -o json \
