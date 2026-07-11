@@ -165,7 +165,7 @@ jobs:
           APP_VERSION=$(cat version.txt)
           helm install bn-multi-port-test charts/block-node-server \
             --namespace default \
-            --values charts/block-node-server/ci/multi-port-values.yaml \
+            --values charts/block-node-server/ci/multi-port/multi-port-values.yaml \
             --set image.tag="${APP_VERSION}" \
             --wait \
             --timeout 300s
