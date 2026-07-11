@@ -6,8 +6,8 @@ tasks:
     clear-release:
         cmds:
             - helm uninstall $RELEASE -n $NAMESPACE
-            - kubectl delete pvc -n $NAMESPACE live-storage-pvc logging-storage-pvc archive-storage-pvc
-            - kubectl delete pv -n $NAMESPACE archive-storage-pv live-storage-pv logging-storage-pv
+            - kubectl delete pvc -n $NAMESPACE application-state-storage-pvc archive-storage-pvc live-storage-pvc logging-storage-pvc plugins-pvc
+            - kubectl delete pv -n $NAMESPACE application-state-storage-pv archive-storage-pv live-storage-pv logging-storage-pv plugins-pv
             - kubectl delete namespace $NAMESPACE
 
     load-kubectl-helm:
@@ -24,19 +24,20 @@ tasks:
         cmds:
             - kubectl create namespace $NAMESPACE
             - kubectl apply -f values-override/host-path.yaml
-            - helm install $RELEASE oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version $VERSION -n $NAMESPACE --values values-override/bare-metal-values.yaml
+            - helm install $RELEASE oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version $VERSION -n $NAMESPACE --values values-override/<values>.yaml
             - kubectl annotate -n $NAMESPACE service $RELEASE-block-node-server "metallb.io/address-pool=public-address-pool"
             - sleep 90
             - kubectl get all -n $NAMESPACE
 
     helm-upgrade:
         cmds:
-            - helm upgrade $RELEASE oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version $VERSION -n $NAMESPACE  --install --values values-override/bare-metal-values.yaml
+            - helm upgrade $RELEASE oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version $VERSION -n $NAMESPACE --install --values values-override/<values>.yaml
             - kubectl get all -n $NAMESPACE
 
     reset-file-store:
         cmds:
             - kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
+            - kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/application-state/* /opt/hiero/block-node/backfill/*'
             - kubectl -n ${NAMESPACE} delete pod $POD
 
     reset-upgrade:
