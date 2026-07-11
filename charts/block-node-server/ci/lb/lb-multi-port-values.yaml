@@ -23,11 +23,11 @@ loadBalancer:
 
 blockNode:
   ports:
-    health: 40940
-    publisher: 40941
-    subscriber: 40942
-    blockAccess: 40943
-    serverStatus: 40944
+    health: 40983
+    publisher: 40984
+    subscriber: 40980
+    blockAccess: 40981
+    serverStatus: 40982
   config:
     SERVER_PORT: "40840"
     JAVA_OPTS: '-Xms1G -Xmx2G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'

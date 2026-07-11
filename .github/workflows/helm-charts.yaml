@@ -308,20 +308,26 @@ jobs:
         if: steps.install-needed.outputs.needed == 'true'
         run: |
           APP_VERSION=$(cat version.txt)
+          # Do NOT use --wait: Helm waits for LB Services to receive an external IP, which
+          # never happens in kind without MetalLB. Wait for pod readiness explicitly instead.
           helm install bn-lb-multi-port-test charts/block-node-server \
             --namespace default \
-            --values charts/block-node-server/ci/lb-multi-port-values.yaml \
+            --values charts/block-node-server/ci/lb/lb-multi-port-values.yaml \
             --set image.tag="${APP_VERSION}" \
-            --wait \
             --timeout 300s
+          kubectl wait pod \
+            -n default \
+            -l app.kubernetes.io/instance=bn-lb-multi-port-test \
+            --for=condition=Ready \
+            --timeout=300s
 
       - name: Verify LB Service exposes all expected ports
         if: steps.install-needed.outputs.needed == 'true'
         run: |
           # The LB Service should expose 7 ports:
-          #   grpc (40840), health (40940), publisher (40941), subscriber (40942),
-          #   block-access (40943), server-status (40944), extra-test (40945)
-          EXPECTED_PORTS="40840 40940 40941 40942 40943 40944 40945"
+          #   grpc (40840), health (40983), publisher (40984), subscriber (40980),
+          #   block-access (40981), server-status (40982), extra-test (40945)
+          EXPECTED_PORTS="40840 40945 40980 40981 40982 40983 40984"
           EXPECTED_COUNT=$(echo "${EXPECTED_PORTS}" | wc -w | tr -d ' ')
 
           SVC_NAME="bn-lb-multi-port-test-external"
@@ -360,54 +366,54 @@ jobs:
           echo "Testing pod: ${POD}"
 
           # Forward all plugin ports and the shared server.port to the local runner
-          kubectl port-forward -n default "pod/${POD}" 40840:40840 40940:40940 40941:40941 40942:40942 40943:40943 40944:40944 &
+          kubectl port-forward -n default "pod/${POD}" 40840:40840 40980:40980 40981:40981 40982:40982 40983:40983 40984:40984 &
           PF_PID=$!
           sleep 5
 
           failed=0
 
-          # Health port (40940): HTTP liveness endpoint
-          echo "--- port 40940 (health) ---"
-          if curl -sf --max-time 5 http://localhost:40940/healthz/livez; then
+          # Health port (40983): HTTP liveness endpoint
+          echo "--- port 40983 (health) ---"
+          if curl -sf --max-time 5 http://localhost:40983/healthz/livez; then
             echo "OK"
           else
-            echo "FAIL: health port 40940 did not respond"
+            echo "FAIL: health port 40983 did not respond"
             failed=1
           fi
 
-          # Publisher port (40941): TCP connect (gRPC)
-          echo "--- port 40941 (publisher/gRPC) ---"
-          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40941' 2>/dev/null; then
+          # Publisher port (40984): TCP connect (gRPC)
+          echo "--- port 40984 (publisher/gRPC) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40984' 2>/dev/null; then
             echo "OK"
           else
-            echo "FAIL: publisher port 40941 not reachable"
+            echo "FAIL: publisher port 40984 not reachable"
             failed=1
           fi
 
-          # Subscriber port (40942): TCP connect (gRPC)
-          echo "--- port 40942 (subscriber/gRPC) ---"
-          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40942' 2>/dev/null; then
+          # Subscriber port (40980): TCP connect (gRPC)
+          echo "--- port 40980 (subscriber/gRPC) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40980' 2>/dev/null; then
             echo "OK"
           else
-            echo "FAIL: subscriber port 40942 not reachable"
+            echo "FAIL: subscriber port 40980 not reachable"
             failed=1
           fi
 
-          # Block-access port (40943): TCP connect (gRPC)
-          echo "--- port 40943 (block-access/gRPC) ---"
-          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40943' 2>/dev/null; then
+          # Block-access port (40981): TCP connect (gRPC)
+          echo "--- port 40981 (block-access/gRPC) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40981' 2>/dev/null; then
             echo "OK"
           else
-            echo "FAIL: block-access port 40943 not reachable"
+            echo "FAIL: block-access port 40981 not reachable"
             failed=1
           fi
 
-          # Server-status port (40944): TCP connect (HTTP)
-          echo "--- port 40944 (server-status) ---"
-          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40944' 2>/dev/null; then
+          # Server-status port (40982): TCP connect (HTTP)
+          echo "--- port 40982 (server-status) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40982' 2>/dev/null; then
             echo "OK"
           else
-            echo "FAIL: server-status port 40944 not reachable"
+            echo "FAIL: server-status port 40982 not reachable"
             failed=1
           fi
 
