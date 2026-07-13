@@ -68,6 +68,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             MetricKey.of("backfill_fetch_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_BACKFILL_RETRIES =
             MetricKey.of("backfill_retries", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_BACKFILL_PERSISTENCE_FAILURES =
+            MetricKey.of("backfill_persistence_failure", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
@@ -531,11 +533,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      */
     @Override
     public void handlePersisted(PersistedNotification notification) {
-        if (notification.blockSource() == BlockSource.BACKFILL) {
+        if (notification != null && notification.blockSource() == BlockSource.BACKFILL) {
             final long blockNumber = notification.blockNumber();
             if (notification.succeeded()) {
-                final String backfillPersistedMsg = "Received backfill persisted notification for block=[{0}]";
-                LOGGER.log(TRACE, backfillPersistedMsg, blockNumber);
                 metricsHolder.backfillBlocksBackfilled().increment();
             } else {
                 final String backfillPersistFailedMsg =
@@ -549,9 +549,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 }
             }
             pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
-        } else {
-            final String nonBackfillPersistedMsg = "Received non-backfill persisted notification: [{0}]";
-            LOGGER.log(TRACE, nonBackfillPersistedMsg, notification);
         }
     }
 
@@ -641,7 +638,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             LongCounter.Measurement backfillFetchedBlocks,
             LongCounter.Measurement backfillBlocksBackfilled,
             LongCounter.Measurement backfillFetchErrors,
-            LongCounter.Measurement backfillRetries) {
+            LongCounter.Measurement backfillRetries,
+            LongCounter.Measurement backfillPersistenceFailures) {
 
         /**
          * Factory method to create a MetricsHolder with all metrics registered.
@@ -686,6 +684,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                             .getOrCreateNotLabeled(),
                     metricRegistry
                             .register(LongCounter.builder(METRIC_BACKFILL_RETRIES)
+                                    .setDescription("Number of retries during the backfill process."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_BACKFILL_PERSISTENCE_FAILURES)
                                     .setDescription("Number of retries during the backfill process."))
                             .getOrCreateNotLabeled());
         }
