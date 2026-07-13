@@ -8,17 +8,19 @@ description = "Hiero Block Node - Cloud Expanded Plugin"
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 mainModuleInfo {
+    runtimeOnly("com.hedera.pbj.grpc.helidon.config")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
-    runtimeOnly("com.hedera.pbj.grpc.helidon.config")
 }
 
 testModuleInfo {
-    requires("org.junit.jupiter.api")
     requires("org.hiero.block.node.app.test.fixtures")
-    requires("s3mock.testcontainers")
     requires("java.logging")
     requires("java.net.http")
+    requires("jdk.httpserver")
+    requires("org.junit.jupiter.api")
+    requires("s3mock.testcontainers")
+
     runtimeOnly("org.hiero.metrics")
     runtimeOnly("org.testcontainers")
 }
