@@ -267,7 +267,7 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
      * Preserves entry order and the nested {@code addressBook} structure verbatim. PBJ's
      * parse side reconstructs the same values from either shape, so the BN loader is unaffected.
      */
-    private static void ensureExplicitStartAndEndBlock(Path file) throws IOException {
+    private static void ensureExplicitPbjDefaults(Path file) throws IOException {
         final ObjectMapper mapper = new ObjectMapper();
         final ObjectNode root = (ObjectNode) mapper.readTree(file.toFile());
         final JsonNode addressBooksNode = root.get("addressBooks");
