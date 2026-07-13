@@ -541,7 +541,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 final String backfillPersistFailedMsg =
                         "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
                 LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
-                metricsHolder.backfillFetchErrors().increment();
+                metricsHolder.backfillPersistenceFailures.increment();
                 // Submit directly rather than via scheduleGap: the block is very likely already below
                 // the live-tail high-water mark, and scheduleGap's dedup would otherwise drop the retry.
                 if (liveTailScheduler != null) {
