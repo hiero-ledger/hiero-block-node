@@ -856,6 +856,40 @@ class StartupRecoveryTaskTest {
         }
     }
 
+    /// Verifies that when a `.tmp` key has two hanging multipart uploads at once (e.g. two
+    /// block-node instances briefly overlapped against the same bucket), recovery keeps only the
+    /// candidate with the higher `nextBlockNumber` and aborts the other's newly created upload,
+    /// rather than returning two [TempArchiveResumeState]s for the same `firstBlock`.
+    @Test
+    @DisplayName("Two hanging uploads for the same key: higher nextBlockNumber wins, loser's new upload aborted")
+    void twoHangingUploadsForSameKeyKeepsHigherNextBlockNumber() throws Exception {
+        final String tarKey = TempArchiveKey.formatTar(0, config.objectKeyPrefix());
+        final byte[] shorterPartBytes = buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, 4));
+        final byte[] longerPartBytes = buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, 9));
+        try (S3Client s3 = openS3Client()) {
+            final String shorterUploadId =
+                    s3.createMultipartUpload(tarKey, config.storageClass().name(), CONTENT_TYPE);
+            s3.multipartUploadPart(tarKey, shorterUploadId, 1, shorterPartBytes);
+            final String longerUploadId =
+                    s3.createMultipartUpload(tarKey, config.storageClass().name(), CONTENT_TYPE);
+            s3.multipartUploadPart(tarKey, longerUploadId, 1, longerPartBytes);
+            // Both uploads hanging simultaneously for the identical key.
+            assertThat(s3.listMultipartUploads().get(tarKey)).hasSize(2);
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.resumableTempArchives()).hasSize(1);
+        final TempArchiveResumeState resumeState =
+                result.resumableTempArchives().getFirst();
+        assertThat(resumeState.s3Key()).isEqualTo(tarKey);
+        assertThat(resumeState.nextBlockNumber()).isEqualTo(9L);
+        try (S3Client s3 = openS3Client()) {
+            // Only the winner's freshly created upload should remain hanging.
+            assertThat(s3.listMultipartUploads().get(tarKey)).hasSize(1);
+        }
+    }
+
     /// Direct test of the [#withTempArchives] fix: [RecoveryResult#lastHandedOffBlock()] must
     /// reflect `resumed.nextBlockNumber() - 1` so that gap detection in [CloudStorageArchivePlugin]
     /// does not treat the resumed range as not-yet-handed-off.
