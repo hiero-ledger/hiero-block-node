@@ -157,6 +157,10 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                     throw new VerificationSessionFailedException(
                                             blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
                                 }
+                                case UNSET -> {
+                                    throw new VerificationSessionFailedException(
+                                            blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
+                                }
                                 default -> {
                                     // @todo(3195) add field-number based sorting here.
                                 }

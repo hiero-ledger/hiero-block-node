@@ -42,7 +42,7 @@ public final class StateProofVerifier implements ProofVerifier {
             final StateProof stateProof,
             final Bytes rootHash,
             final VerificationDataProvider verificationDataProvider) {
-        this.isCanceled = isCanceled;
+        this.isCanceled = Objects.requireNonNull(isCanceled);
         this.proofVerificationMetrics = Objects.requireNonNull(proofVerificationMetrics);
         this.blockNumber = blockNumber;
         this.stateProof = Objects.requireNonNull(stateProof);
@@ -73,28 +73,12 @@ public final class StateProofVerifier implements ProofVerifier {
                     final MerklePath path = paths.get(leafStartingIndex);
                     if (isLeaf(path)) {
                         // First process the next found leaf
-                        byte[] pathResult =
-                                switch (path.content().kind()) {
-                                    case UNSET ->
-                                        throw new IllegalArgumentException("Unexpected MerklePath content kind");
-                                    case HASH -> {
-                                        final byte[] hash = path.hash().toByteArray();
-                                        if (!foundComputedRootHashMatch) {
-                                            foundComputedRootHashMatch = Arrays.equals(rootHash.toByteArray(), hash);
-                                        }
-                                        yield hash;
-                                    }
-                                    case STATE_ITEM_LEAF ->
-                                        hashLeaf(path.stateItemLeaf().toByteArray());
-                                    case BLOCK_ITEM_LEAF ->
-                                        hashLeaf(path.blockItemLeaf().toByteArray());
-                                    case TIMESTAMP_LEAF ->
-                                        hashLeaf(path.timestampLeaf().toByteArray());
-                                };
+                        byte[] pathResult = computePathStart(path);
                         pathResult = mergeSiblings(path, pathResult);
                         // Now we must follow the next index, which must always be a join point, and
-                        // we keep following that until we can
+                        // we keep following that while we can
                         boolean canFollowNextIndex = true;
+                        int lowestStartingIndex = leafStartingIndex;
                         int currentJoinPointIndex = path.nextPathIndex();
                         while (canFollowNextIndex) {
                             if (isCanceled()) {
@@ -110,10 +94,12 @@ public final class StateProofVerifier implements ProofVerifier {
                                     final MergeCheckpoint checkpoint = checkpoints.remove(currentJoinPointIndex);
                                     if (checkpoint != null) {
                                         // now we need to merge this with the checkpoint
-                                        if (checkpoint.startIndex == leafStartingIndex) {
+                                        if (checkpoint.startIndex == leafStartingIndex
+                                                || checkpoint.startIndex == lowestStartingIndex) {
                                             return SessionFailureType.BAD_BLOCK_PROOF;
-                                        } else if (checkpoint.startIndex < leafStartingIndex) {
+                                        } else if (checkpoint.startIndex < lowestStartingIndex) {
                                             pathResult = hashInternalNode(checkpoint.currentHash, pathResult);
+                                            lowestStartingIndex = checkpoint.startIndex;
                                         } else {
                                             pathResult = hashInternalNode(pathResult, checkpoint.currentHash);
                                         }
@@ -121,7 +107,7 @@ public final class StateProofVerifier implements ProofVerifier {
                                     } else {
                                         checkpoints.put(
                                                 currentJoinPointIndex,
-                                                new MergeCheckpoint(leafStartingIndex, pathResult));
+                                                new MergeCheckpoint(lowestStartingIndex, pathResult));
                                         canFollowNextIndex = false;
                                     }
                                     currentJoinPointIndex = nextPath.nextPathIndex();
@@ -133,25 +119,50 @@ public final class StateProofVerifier implements ProofVerifier {
                     }
                 }
             }
-            if (signedBlockRoot == null || !foundComputedRootHashMatch) {
-                result = SessionFailureType.BAD_BLOCK_PROOF;
-            } else {
-                if (stateProof.hasSignedBlockProof()) {
-                    final TSSVerifier tssVerifier = new TSSVerifier(
-                            proofVerificationMetrics,
-                            Bytes.wrap(signedBlockRoot),
-                            stateProof.signedBlockProof().blockSignature(),
-                            verificationDataProvider);
-                    result = tssVerifier.verify();
-                } else {
-                    result = SessionFailureType.BAD_BLOCK_PROOF;
-                }
-            }
+            result = completeVerification(signedBlockRoot, foundComputedRootHashMatch, stateProof);
         }
         if (result != null) {
             proofVerificationMetrics.stateProofFailure().increment();
         } else {
             proofVerificationMetrics.stateProofSuccess().increment();
+        }
+        return result;
+    }
+
+    private byte[] computePathStart(final MerklePath path) {
+        return switch (path.content().kind()) {
+            case UNSET -> throw new IllegalArgumentException("Unexpected MerklePath content kind");
+            case HASH -> {
+                final byte[] hash = path.hash().toByteArray();
+                if (!foundComputedRootHashMatch) {
+                    foundComputedRootHashMatch = Arrays.equals(rootHash.toByteArray(), hash);
+                }
+                yield hash;
+            }
+            case STATE_ITEM_LEAF -> hashLeaf(path.stateItemLeaf().toByteArray());
+            case BLOCK_ITEM_LEAF -> hashLeaf(path.blockItemLeaf().toByteArray());
+            case TIMESTAMP_LEAF -> hashLeaf(path.timestampLeaf().toByteArray());
+        };
+    }
+
+    private SessionFailureType completeVerification(
+            final byte[] signedBlockRoot, final boolean foundComputedRootHashMatch, final StateProof stateProof) {
+        final SessionFailureType result;
+        if (signedBlockRoot == null || !foundComputedRootHashMatch) {
+            result = SessionFailureType.BAD_BLOCK_PROOF;
+        } else {
+            if (stateProof.hasSignedBlockProof()) {
+                final Bytes signature = stateProof.signedBlockProof().blockSignature();
+                if (signature == null || signature.equals(Bytes.EMPTY)) {
+                    result = SessionFailureType.BAD_BLOCK_PROOF;
+                } else {
+                    final TSSVerifier tssVerifier = new TSSVerifier(
+                            proofVerificationMetrics, Bytes.wrap(signedBlockRoot), signature, verificationDataProvider);
+                    result = tssVerifier.verify();
+                }
+            } else {
+                result = SessionFailureType.BAD_BLOCK_PROOF;
+            }
         }
         return result;
     }
@@ -173,11 +184,7 @@ public final class StateProofVerifier implements ProofVerifier {
     }
 
     private boolean isJoinPoint(final MerklePath path) {
-        return !hasContent(path) && !hasSiblings(path);
-    }
-
-    private boolean hasSiblings(final MerklePath path) {
-        return !path.siblings().isEmpty();
+        return !hasContent(path);
     }
 
     private boolean hasContent(final MerklePath path) {
