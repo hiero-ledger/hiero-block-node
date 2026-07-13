@@ -140,7 +140,8 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
         final List<String> allTarKeys = findAllTarKeys(s3);
         if (allTarKeys.isEmpty()) {
             LOGGER.log(TRACE, "No prior state found in S3 bucket, starting fresh");
-            recoveryResult = new RecoveryResult(-1, null, null, 0, null, null, null, -1, new ConcurrentLongRangeSet());
+            recoveryResult =
+                    new RecoveryResult(-1, null, null, 0, null, List.of(), List.of(), -1, new ConcurrentLongRangeSet());
         } else {
             final long groupSize = Math.powExact(10, config.groupingLevel());
             final ConcurrentLongRangeSet completedRanges = new ConcurrentLongRangeSet();
@@ -157,8 +158,8 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                     "Last completed tar group starts at {0}, resuming from {1}",
                     maxGroupStart,
                     maxGroupStart + groupSize);
-            recoveryResult =
-                    new RecoveryResult(maxGroupStart + groupSize, null, null, 0, null, null, null, -1, completedRanges);
+            recoveryResult = new RecoveryResult(
+                    maxGroupStart + groupSize, null, null, 0, null, List.of(), List.of(), -1, completedRanges);
         }
         return recoveryResult;
     }
@@ -250,8 +251,8 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                         newEtags,
                         scanResult.blockNumber(),
                         scanResult.trailingBytes(),
-                        null,
-                        null,
+                        List.of(),
+                        List.of(),
                         -1,
                         null);
             } else {
@@ -375,9 +376,10 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
         final List<TempArchiveResumeState> resumableEntries = new ArrayList<>();
         for (final Map.Entry<String, List<String>> entry : allUploads.entrySet()) {
             if (entry.getKey().startsWith(tmpPfx)) {
+                final List<TempArchiveResumeState> keyCandidates = new ArrayList<>();
                 for (final String uploadId : entry.getValue()) {
                     try {
-                        resolveHangingTempUpload(s3, entry.getKey(), uploadId, objectKeyPrefix, resumableEntries);
+                        resolveHangingTempUpload(s3, entry.getKey(), uploadId, objectKeyPrefix, keyCandidates);
                     } catch (S3ResponseException | IOException e) {
                         LOGGER.log(
                                 DEBUG,
@@ -387,6 +389,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                                 e);
                     }
                 }
+                keepBestResumeCandidate(s3, keyCandidates, resumableEntries);
             }
         }
 
@@ -482,6 +485,46 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
             s3.abortMultipartUpload(key, newUploadId);
             s3.deleteObject(key);
         }
+    }
+
+    /// `candidates` normally holds at most one entry per `.tmp` key; more than one means two hanging
+    /// uploads existed for the same key. Keeps the highest [TempArchiveResumeState#nextBlockNumber()]
+    /// and aborts the rest so they don't leak into the next restart's recovery scan.
+    private void keepBestResumeCandidate(
+            S3Client s3, List<TempArchiveResumeState> candidates, List<TempArchiveResumeState> resumable) {
+        if (candidates.isEmpty()) {
+            return;
+        }
+        TempArchiveResumeState best = candidates.get(0);
+        for (final TempArchiveResumeState candidate : candidates) {
+            if (candidate.nextBlockNumber() > best.nextBlockNumber()) {
+                best = candidate;
+            }
+        }
+        for (final TempArchiveResumeState candidate : candidates) {
+            if (candidate != best) {
+                LOGGER.log(
+                        DEBUG,
+                        "Multiple hanging uploads resolved for temp archive key {0}; discarding upload {1}"
+                                + " (nextBlockNumber={2}) in favor of {3} (nextBlockNumber={4})",
+                        candidate.s3Key(),
+                        candidate.uploadId(),
+                        candidate.nextBlockNumber(),
+                        best.uploadId(),
+                        best.nextBlockNumber());
+                try {
+                    s3.abortMultipartUpload(candidate.s3Key(), candidate.uploadId());
+                } catch (S3ResponseException | IOException e) {
+                    LOGGER.log(
+                            DEBUG,
+                            "Failed to abort superseded upload {0} for key {1}",
+                            candidate.uploadId(),
+                            candidate.s3Key(),
+                            e);
+                }
+            }
+        }
+        resumable.add(best);
     }
 
     /// Carries the two outcomes of [#recoverTempArchives]: durably completed temp archives (from
