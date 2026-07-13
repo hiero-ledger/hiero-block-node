@@ -89,7 +89,11 @@ message ServerStatusResponse {
      * The greatest block number available from this Block-Node.
      * <p>
      * Any request for a block with a block number higher than this
-     * value MAY fail.
+     * value MAY fail.<br/>
+     * If this value is `uint64_max` then the Block Node MAY accept the next
+     * block offered from a Publisher, regardless of block number.<br/>
+     * If this value is `uint64_max` then Subscribers SHOULD query the
+     * `serverStatusDetail` API for accurate available block information.
      */
     uint64 last_available_block = 2;
 

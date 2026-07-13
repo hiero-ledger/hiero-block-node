@@ -64,8 +64,12 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // later block as the last available block so publishers know they can stream from earliestManagedBlock
         // instead of assuming the node only wants older blocks between the oldest stored block and earliest managed
         // block.
-        if (highestAvailableBlock != UNKNOWN_BLOCK_NUMBER && highestAvailableBlock < earliestManagedBlock) {
-            highestAvailableBlock = earliestManagedBlock;
+        if (highestAvailableBlock != UNKNOWN_BLOCK_NUMBER
+                && highestAvailableBlock < earliestManagedBlock
+                && earliestManagedBlock > 0) {
+            // Fix for bug #3203. CN will stream next block if we return UNKNOWN_BLOCK_NUMBER,
+            //   but if we return a future block here, CN will not send any data.
+            highestAvailableBlock = UNKNOWN_BLOCK_NUMBER;
         }
 
         // TODO(#579) Should get from state config or status, which would be provided by the context from responsible
