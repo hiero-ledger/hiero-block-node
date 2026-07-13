@@ -5,11 +5,11 @@
 #
 # Port assignments:
 #   grpc (primary LB port) → 40840 → http (main server port)
-#   health                 → 40940   (included via includePluginPorts)
-#   publisher              → 40941   (included via includePluginPorts)
-#   subscriber             → 40942   (included via includePluginPorts)
-#   blockAccess            → 40943   (included via includePluginPorts)
-#   serverStatus           → 40944   (included via includePluginPorts)
+#   health                 → 40983   (included via includePluginPorts)
+#   publisher              → 40984   (included via includePluginPorts)
+#   subscriber             → 40980   (included via includePluginPorts)
+#   blockAccess            → 40981   (included via includePluginPorts)
+#   serverStatus           → 40982   (included via includePluginPorts)
 #   extra-test             → 40945   (included via extraPorts)
 
 loadBalancer:
@@ -18,7 +18,7 @@ loadBalancer:
   extraPorts:
     - name: extra-test
       port: 40945
-      targetPort: 40944   # routes to serverStatus container port for connectivity verification
+      targetPort: 40982   # routes to serverStatus container port for connectivity verification
       protocol: TCP
 
 blockNode:

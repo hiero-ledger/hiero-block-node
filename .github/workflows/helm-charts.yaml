@@ -420,10 +420,10 @@ jobs:
           # Confirm that the shared server.port (40840) is NOT serving health plugin traffic
           echo "--- port 40840 (server.port — health plugin must NOT be here) ---"
           if curl -sf --max-time 5 http://localhost:40840/healthz/livez 2>/dev/null; then
-            echo "FAIL: health plugin is still on 40840 — expected it on 40940 per test config"
+            echo "FAIL: health plugin is still on 40840 — expected it on 40983 per test config"
             failed=1
           else
-            echo "OK (health plugin correctly on 40940, not on shared server.port 40840)"
+            echo "OK (health plugin correctly on 40983, not on shared server.port 40840)"
           fi
 
           kill ${PF_PID} 2>/dev/null || true
