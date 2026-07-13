@@ -119,7 +119,11 @@ class SidecarIntegrityValidationTest {
                 assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 42));
         assertTrue(ex.getMessage().contains("Block 42"), "message must name the failing block number");
         assertTrue(ex.getMessage().contains("sidecar #0"), "message must name the failing sidecar index");
-        assertTrue(ex.getMessage().contains("not found in signed sidecar metadata"), "message must be diagnostic");
+        assertTrue(
+                ex.getMessage().contains("TAMPERED or EXTRA"),
+                "message must classify the failure mode as TAMPERED/EXTRA");
+        // The wrongMetadata hash points to nothing in the block, so it also reports as MISSING.
+        assertTrue(ex.getMessage().contains("MISSING"), "message must also flag the orphan metadata entry as MISSING");
     }
 
     @Test
@@ -164,8 +168,8 @@ class SidecarIntegrityValidationTest {
     }
 
     @Test
-    @DisplayName("Static helper: extra metadata entries do not cause failure")
-    void staticHelper_extraMetadata_passes() {
+    @DisplayName("Static helper: unmatched extra metadata entry is flagged as MISSING sidecar")
+    void staticHelper_extraMetadata_flaggedMissing() {
         final SidecarFile s = SidecarFile.DEFAULT;
         final byte[] unrelated = new byte[48];
         for (int i = 0; i < unrelated.length; i++) {
@@ -178,8 +182,13 @@ class SidecarIntegrityValidationTest {
                         .hash(Bytes.wrap(unrelated))
                         .build())
                 .build();
-        assertDoesNotThrow(() -> SidecarIntegrityValidation.validateSidecars(
-                List.of(s), List.of(unrelatedMeta, metadataFor(s)), 42));
+        // Signed list has two hashes: one for s (valid), one unrelated (missing sidecar).
+        final ValidationException ex = assertThrows(
+                ValidationException.class,
+                () -> SidecarIntegrityValidation.validateSidecars(
+                        List.of(s), List.of(unrelatedMeta, metadataFor(s)), 42));
+        assertTrue(ex.getMessage().contains("MISSING"), "orphan metadata hash must be flagged as MISSING");
+        assertTrue(ex.getMessage().contains("signed hash #0"), "message must name the missing metadata index");
     }
 
     @Test
@@ -191,7 +200,34 @@ class SidecarIntegrityValidationTest {
         final ValidationException ex = assertThrows(
                 ValidationException.class,
                 () -> SidecarIntegrityValidation.validateSidecars(List.of(s), List.of(noHash), 42));
-        assertTrue(ex.getMessage().contains("not found in signed sidecar metadata"));
+        assertTrue(ex.getMessage().contains("TAMPERED or EXTRA"), "sidecar with no matching hash is TAMPERED/EXTRA");
+        assertTrue(ex.getMessage().contains("sidecar #0"), "message must name the failing sidecar index");
     }
 
+    @Test
+    @DisplayName("Static helper: MISSING failure mode surfaces when a sidecar is dropped from the block")
+    void staticHelper_missingSidecar_flaggedMissing() {
+        // Two hashes in the signed list, but only one sidecar in the block: the block is missing
+        // the second sidecar. Assemble metadata as two DIFFERENT hashes so we can tell the
+        // missing one from the present one.
+        final SidecarFile present = SidecarFile.DEFAULT;
+        final byte[] missingHash = new byte[48];
+        for (int i = 0; i < missingHash.length; i++) {
+            missingHash[i] = (byte) 0x99;
+        }
+        final SidecarMetadata missingMeta = SidecarMetadata.newBuilder()
+                .hash(HashObject.newBuilder()
+                        .algorithm(HashAlgorithm.SHA_384)
+                        .length(missingHash.length)
+                        .hash(Bytes.wrap(missingHash))
+                        .build())
+                .build();
+        final ValidationException ex = assertThrows(
+                ValidationException.class,
+                () -> SidecarIntegrityValidation.validateSidecars(
+                        List.of(present), List.of(metadataFor(present), missingMeta), 42));
+        assertTrue(ex.getMessage().contains("MISSING"));
+        assertTrue(ex.getMessage().contains("sidecars in block:    1"));
+        assertTrue(ex.getMessage().contains("signed hash entries:  2"));
+    }
 }

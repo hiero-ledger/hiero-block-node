@@ -3,6 +3,7 @@ package org.hiero.block.tools.blocks;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -52,7 +53,7 @@ public class ValidateSidecarsCommand implements Runnable {
 
     @Option(
             names = {"-v", "--verbose"},
-            description = "Print a line for every failing block (default only prints the first failure)")
+            description = "Reserved for future use; every failure is now printed by default")
     private boolean verbose = false;
 
     @Option(
@@ -153,6 +154,7 @@ public class ValidateSidecarsCommand implements Runnable {
         long checked = 0;
         long failed = 0;
         long ioErrors = 0;
+        final List<Long> failedBlocks = new ArrayList<>();
         String firstFailureMessage = null;
 
         while (true) {
@@ -192,12 +194,14 @@ public class ValidateSidecarsCommand implements Runnable {
             checked++;
             if (r.failureMessage != null) {
                 failed++;
+                failedBlocks.add(r.blockNumber);
                 if (firstFailureMessage == null) {
                     firstFailureMessage = r.failureMessage;
                 }
-                if (verbose || failed == 1) {
-                    progress.pausePrintErr(Ansi.AUTO.string("@|red FAIL:|@ " + r.failureMessage));
-                }
+                // Every failure is printed by default; sidecar failures are rare enough that
+                // suppressing them past the first hides exactly the information the investigator
+                // needs (which blocks, and whether the failure mode is TAMPERED / MISSING / EXTRA).
+                progress.pausePrintErr(Ansi.AUTO.string("@|red FAIL:|@ " + r.failureMessage));
                 if (failFast) {
                     stopRequested.set(1);
                     progress.advance();
@@ -220,6 +224,9 @@ public class ValidateSidecarsCommand implements Runnable {
         System.out.println("  Blocks failed:  " + failed);
         if (ioErrors > 0) {
             System.out.println("  I/O or parse errors (uncounted): " + ioErrors);
+        }
+        if (!failedBlocks.isEmpty()) {
+            System.out.println("  Failing block numbers: " + failedBlocks);
         }
         if (failed == 0 && ioErrors == 0) {
             System.out.println(Ansi.AUTO.string("@|green All sidecars verified successfully.|@"));

@@ -12,6 +12,7 @@ import com.hedera.hapi.streams.SidecarMetadata;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import org.hiero.block.internal.BlockUnparsed;
@@ -92,13 +93,23 @@ public final class SidecarIntegrityValidation implements BlockValidation {
 
     /**
      * Verify every {@link SidecarFile} in {@code sidecarFiles} has a matching SHA-384 hash in
-     * {@code sidecarMetadatas}. Shared entry point so the wrap-time paths
-     * ({@code ToWrappedBlocksCommand}, {@code LiveSequential}) can invoke the same check they'd
-     * get on read-back through the validation suite / {@code validate-sidecars} command.
+     * {@code sidecarMetadatas}, and every metadata hash has a matching sidecar file. Shared
+     * entry point so the wrap-time paths ({@code ToWrappedBlocksCommand}, {@code LiveSequential})
+     * can invoke the same check they'd get on read-back through the validation suite /
+     * {@code validate-sidecars} command.
      *
-     * <p>Passes silently on an empty {@code sidecarFiles} list. Throws {@link ValidationException}
-     * on the first sidecar with no corresponding metadata entry; the message names the block
-     * number, sidecar index, and computed hash.
+     * <p>Passes silently on an empty {@code sidecarFiles} list. On any discrepancy, aggregates
+     * every issue across all sidecars and metadata entries and throws a single
+     * {@link ValidationException} whose message classifies each issue by failure mode
+     * (TAMPERED_OR_EXTRA — sidecar bytes with no matching signed hash; MISSING — signed hash
+     * with no matching sidecar bytes). This tells an investigator which of the three
+     * distinct scenarios the bad block hit:
+     *
+     * <ul>
+     *   <li>Byte-for-byte tampering (counts match, hashes don't line up)</li>
+     *   <li>Missing sidecar (fewer sidecar files than signed hashes)</li>
+     *   <li>Extra sidecar (more sidecar files than signed hashes)</li>
+     * </ul>
      */
     public static void validateSidecars(
             final List<SidecarFile> sidecarFiles, final List<SidecarMetadata> sidecarMetadatas, final long blockNumber)
@@ -106,27 +117,70 @@ public final class SidecarIntegrityValidation implements BlockValidation {
         if (sidecarFiles.isEmpty()) {
             return;
         }
+
+        // Compute each sidecar's SHA-384 up front so we can do the two-way cross-check without
+        // rehashing.
         final MessageDigest digest = sha384Digest();
+        final byte[][] sidecarHashes = new byte[sidecarFiles.size()][];
         for (int i = 0; i < sidecarFiles.size(); i++) {
-            final SidecarFile sidecarFile = sidecarFiles.get(i);
-            SidecarFile.PROTOBUF.toBytes(sidecarFile).writeTo(digest);
-            final byte[] sidecarHash = digest.digest();
-            if (!hashPresentIn(sidecarHash, sidecarMetadatas)) {
-                throw new ValidationException("Block " + blockNumber + " - sidecar #" + i
-                        + " SHA-384 " + hex(sidecarHash)
-                        + " not found in signed sidecar metadata (" + sidecarMetadatas.size()
-                        + " metadata entry/entries present)");
+            SidecarFile.PROTOBUF.toBytes(sidecarFiles.get(i)).writeTo(digest);
+            sidecarHashes[i] = digest.digest();
+        }
+
+        // Extract the set of expected hashes from metadata, skipping entries with no hash field.
+        final List<byte[]> metadataHashes = new ArrayList<>(sidecarMetadatas.size());
+        for (final SidecarMetadata meta : sidecarMetadatas) {
+            if (meta.hasHash()) {
+                metadataHashes.add(meta.hashOrThrow().hash().toByteArray());
             }
         }
+
+        // Pass 1: which sidecars have no match in the signed list?
+        //   (bytes-vs-hash divergence — TAMPERED — or count mismatch — EXTRA)
+        final List<String> discrepancies = new ArrayList<>();
+        for (int i = 0; i < sidecarHashes.length; i++) {
+            if (!containsHash(metadataHashes, sidecarHashes[i])) {
+                discrepancies.add(String.format(
+                        "sidecar #%d SHA-384 %s -> no matching hash in signed metadata (TAMPERED or EXTRA)",
+                        i, hex(sidecarHashes[i])));
+            }
+        }
+
+        // Pass 2: which signed hashes have no matching sidecar bytes?
+        //   (dropped-sidecar-at-wrap — MISSING)
+        for (int j = 0; j < metadataHashes.size(); j++) {
+            final byte[] expected = metadataHashes.get(j);
+            boolean found = false;
+            for (final byte[] sidecarHash : sidecarHashes) {
+                if (Arrays.equals(sidecarHash, expected)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                discrepancies.add(String.format(
+                        "signed hash #%d SHA-384 %s -> no matching sidecar file in block (MISSING)", j, hex(expected)));
+            }
+        }
+
+        if (discrepancies.isEmpty()) {
+            return;
+        }
+
+        final StringBuilder sb = new StringBuilder();
+        sb.append("Block ").append(blockNumber).append(" sidecar integrity failed:");
+        sb.append("\n  sidecars in block:    ").append(sidecarFiles.size());
+        sb.append("\n  signed hash entries:  ").append(metadataHashes.size());
+        sb.append("\n  discrepancies:");
+        for (final String d : discrepancies) {
+            sb.append("\n    - ").append(d);
+        }
+        throw new ValidationException(sb.toString());
     }
 
-    private static boolean hashPresentIn(final byte[] sidecarHash, final List<SidecarMetadata> sidecarMetadatas) {
-        for (final SidecarMetadata meta : sidecarMetadatas) {
-            if (!meta.hasHash()) {
-                continue;
-            }
-            final byte[] expected = meta.hashOrThrow().hash().toByteArray();
-            if (Arrays.equals(expected, sidecarHash)) {
+    private static boolean containsHash(final List<byte[]> hashes, final byte[] target) {
+        for (final byte[] h : hashes) {
+            if (Arrays.equals(h, target)) {
                 return true;
             }
         }
