@@ -502,14 +502,14 @@ public class BlockNodeApiRegressionTest {
                 "BlockNodeApp did not reach running=" + running + " within 10 s");
     }
 
-    /// Reproduces the regression where [ServerStatusServicePlugin] returned the configured
+    /// Reproduces the regression where `ServerStatusServicePlugin` returned the configured
     /// EarliestManagedBlock (EMB) value as `lastAvailableBlock` when all stored blocks were
     /// below EMB. Consensus Nodes / publishers interpreted `lastAvailableBlock = EMB` as "the
     /// node is already ahead of me" and went silent — a hang with no error signal.
     ///
     /// ## Root cause
     ///
-    /// When the node held blocks 0–N and EMB > N, [ServerStatusServicePlugin#serverStatus]
+    /// When the node held blocks 0–N and EMB > N, `ServerStatusServicePlugin#serverStatus`
     /// bumped `lastAvailableBlock` up to EMB. Publishers saw the node reporting a block number
     /// far ahead of their head block and stopped streaming.
     ///
