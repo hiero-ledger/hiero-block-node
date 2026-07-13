@@ -20,6 +20,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
@@ -657,6 +658,76 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 20,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 20 verification notifications");
+    }
+
+    @Test
+    @DisplayName("Failed backfill persistence is re-queued for on-demand backfill and eventually succeeds")
+    void testFailedBackfillPersistenceIsRetried() throws InterruptedException {
+        final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 50);
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockNodeServerBlockFacility);
+        testBlockNodeServers.add(mockServer);
+        BlockNodeSourceConfig config = BlockNodeSourceConfig.newBuilder()
+                .address("localhost")
+                .port(mockServer.port())
+                .priority(1)
+                .build();
+        BlockNodeSource backfillSource =
+                BlockNodeSource.newBuilder().nodes(config).build();
+        String backfillSourcePath = testTempDir + "/backfill-source-persist-retry.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+
+        final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .build();
+
+        // create a historical block facility for the plugin (should have a GAP)
+        final HistoricalBlockFacility historicalBlockFacility = getHistoricalBlockFacility(0, 30);
+
+        // start block-node with blocks from 0 to 30; on-demand backfill will cover 31 to 50
+        start(new BackfillPlugin(), historicalBlockFacility, configOverride);
+
+        final long targetBlock = 40L;
+        final AtomicBoolean failedOnce = new AtomicBoolean();
+        // 20 blocks (31..50) must eventually succeed, including the one that fails its first attempt
+        CountDownLatch countDownLatch = new CountDownLatch(20);
+        registerDefaultTestBackfillHandler();
+        this.blockMessaging.registerBlockNotificationHandler(
+                new BlockNotificationHandler() {
+                    @Override
+                    public void handleVerification(VerificationNotification notification) {
+                        boolean induceFailure =
+                                notification.blockNumber() == targetBlock && failedOnce.compareAndSet(false, true);
+                        blockNodeContext
+                                .blockMessaging()
+                                .sendBlockPersisted(new PersistedNotification(
+                                        notification.blockNumber(), !induceFailure, 10, notification.source()));
+                        if (!induceFailure) {
+                            countDownLatch.countDown();
+                        }
+                    }
+                },
+                false,
+                "test-persist-retry-handler");
+
+        NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(50L);
+        this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+
+        assertTrue(
+                countDownLatch.await(1, TimeUnit.MINUTES),
+                "All 20 on-demand blocks should eventually be persisted, including the retried one");
+
+        assertTrue(failedOnce.get(), "The target block should have failed persistence at least once");
+
+        List<PersistedNotification> persisted = blockMessaging.getSentPersistedNotifications();
+        assertEquals(
+                21,
+                persisted.size(),
+                "Should have sent 20 successful notifications plus 1 failed notification for the retried block");
+        long failedCount = persisted.stream().filter(n -> !n.succeeded()).count();
+        assertEquals(1, failedCount, "Exactly one persisted notification should report failure");
+        assertTrue(
+                persisted.stream().anyMatch(n -> n.blockNumber() == targetBlock && n.succeeded()),
+                "The retried block should eventually be persisted successfully");
     }
 
     @Test

@@ -532,11 +532,22 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handlePersisted(PersistedNotification notification) {
         if (notification.blockSource() == BlockSource.BACKFILL) {
-            // Add more detailed logging for persistence notifications
-            final String backfillPersistedMsg = "Received backfill persisted notification for block=[{0}]";
-            LOGGER.log(TRACE, backfillPersistedMsg, notification.blockNumber());
-
-            metricsHolder.backfillBlocksBackfilled().increment();
+            final long blockNumber = notification.blockNumber();
+            if (notification.succeeded()) {
+                final String backfillPersistedMsg = "Received backfill persisted notification for block=[{0}]";
+                LOGGER.log(TRACE, backfillPersistedMsg, blockNumber);
+                metricsHolder.backfillBlocksBackfilled().increment();
+            } else {
+                final String backfillPersistFailedMsg =
+                        "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
+                LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
+                metricsHolder.backfillFetchErrors().increment();
+                // Submit directly rather than via scheduleGap: the block is very likely already below
+                // the live-tail high-water mark, and scheduleGap's dedup would otherwise drop the retry.
+                if (liveTailScheduler != null) {
+                    submitGap(new GapDetector.Gap(new LongRange(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL));
+                }
+            }
             pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
         } else {
             final String nonBackfillPersistedMsg = "Received non-backfill persisted notification: [{0}]";
