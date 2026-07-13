@@ -597,9 +597,8 @@ class ExpandedCloudStoragePluginTest
 
     @Test
     @DisplayName(
-            "Unchecked exception escaping upload task increments failure counter and sends no PersistedNotification")
-    void uncheckedExceptionInTaskIncrementsFailureCounter() throws InterruptedException {
-        final CountDownLatch exceptionThrown = new CountDownLatch(1);
+            "Unchecked exception escaping uploadFile is caught by call() and produces a failed PersistedNotification")
+    void uncheckedExceptionInTaskProducesFailedNotification() throws InterruptedException {
         final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
             public void uploadFile(
@@ -607,7 +606,6 @@ class ExpandedCloudStoragePluginTest
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
                     final String contentType) {
-                exceptionThrown.countDown();
                 throw new RuntimeException("Simulated unexpected task failure");
             }
 
@@ -623,18 +621,21 @@ class ExpandedCloudStoragePluginTest
                         "cloud.storage.expanded.regionName", "us-east-1"));
 
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
-        // Wait for the virtual thread to throw, then give it a moment to fully complete.
-        assertTrue(exceptionThrown.await(5, TimeUnit.SECONDS), "Upload task must have thrown within 5s");
-        Thread.sleep(20);
-        plugin.drainCompletedTasks();
+        awaitNotifications(1);
 
-        assertTrue(
-                blockMessaging.getSentPersistedNotifications().isEmpty(),
-                "No PersistedNotification expected when an unchecked exception escapes the task");
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(
+                1,
+                notifications.size(),
+                "A PersistedNotification must be sent even when an unchecked exception escapes uploadFile");
+        assertEquals(1L, notifications.getFirst().blockNumber());
+        assertFalse(
+                notifications.getFirst().succeeded(),
+                "PersistedNotification must report succeeded=false for the caught RuntimeException");
         assertEquals(
                 1L,
                 getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
-                "uploadFailuresTotal must be incremented for the escaped RuntimeException");
+                "uploadFailuresTotal must still be incremented for the caught RuntimeException");
     }
 
     @Test

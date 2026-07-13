@@ -51,7 +51,11 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
         /// S3 service returned an error (4xx / 5xx HTTP response or client init failure).
         S3_ERROR,
         /// An I/O error occurred while streaming bytes to S3.
-        IO_ERROR
+        IO_ERROR,
+        /// An unchecked exception escaped the {@link S3UploadClient}, violating its documented
+        /// `throws` contract. Kept distinct from {@link #IO_ERROR}/{@link #S3_ERROR} so metrics
+        /// and logs surface it as an anomaly rather than a routine transport/service failure.
+        UNEXPECTED_ERROR
     }
 
     /// The outcome of a single block upload attempt.
@@ -103,7 +107,8 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     /// Compresses the block to ZSTD protobuf bytes and uploads it to S3.
     ///
     /// Calls `S3UploadClient.uploadFile()` directly, relying on S3 SDK
-    /// connection/socket timeouts. Failures are captured as `succeeded=false` results
+    /// connection/socket timeouts. Failures — including any unchecked exception that escapes
+    /// the {@link S3UploadClient} implementation — are captured as `succeeded=false` results
     /// rather than thrown exceptions so the {@link java.util.concurrent.CompletionService}
     /// always receives a result.
     ///
@@ -147,6 +152,14 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
             LOGGER.log(WARNING, msg, e);
             return new UploadResult(
                     blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
+        } catch (final RuntimeException e) {
+            // Defensive: guards against any S3UploadClient implementation leaking an unchecked
+            // exception in violation of its documented `throws` contract, keeping this class's
+            // own "never throws, always returns a result" promise unconditionally true.
+            final String msg = "Block " + blockNumber + ": unexpected exception during upload";
+            LOGGER.log(WARNING, msg, e);
+            return new UploadResult(
+                    blockNumber, UploadStatus.UNEXPECTED_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
         }
     }
 

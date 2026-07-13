@@ -2,6 +2,7 @@
 package org.hiero.block.node.cloud.storage.expanded;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.Iterator;
 
 /// Production implementation of {@link S3UploadClient} backed by `com.hedera.bucky.S3Client`.
@@ -43,6 +44,12 @@ final class BuckyS3UploadClient implements S3UploadClient {
     /// Translates {@code com.hedera.bucky.S3ClientException} into {@link UploadException}
     /// so that bucky types stay contained within this class and do not leak into the
     /// abstract {@link S3UploadClient} interface or any callers.
+    ///
+    /// Also unwraps {@link UncheckedIOException}: bucky's internal HTTP layer wraps checked
+    /// `IOException`/`InterruptedException` failures from the JDK `HttpClient` in an unchecked
+    /// `UncheckedIOException`, even though its public methods declare a checked `IOException`
+    /// in their `throws` clause. Rethrowing the cause restores the checked `IOException` that
+    /// this method's own `throws` clause — and downstream callers — expect.
     @Override
     public void uploadFile(
             final String objectKey,
@@ -54,6 +61,8 @@ final class BuckyS3UploadClient implements S3UploadClient {
             bucky.uploadFile(objectKey, storageClass, contentIterable, contentType);
         } catch (final com.hedera.bucky.S3ClientException e) {
             throw new UploadException(e.getMessage(), e);
+        } catch (final UncheckedIOException e) {
+            throw e.getCause();
         }
     }
 

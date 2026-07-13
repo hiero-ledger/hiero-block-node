@@ -2,6 +2,7 @@
 package org.hiero.block.node.cloud.storage.expanded;
 
 import static org.hiero.block.node.base.ParseHelper.standardParse;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -87,6 +89,36 @@ class SingleBlockStoreTaskTest {
         };
     }
 
+    /// Returns an {@link S3UploadClient} that always throws {@link UncheckedIOException} —
+    /// simulates bucky's internal HTTP layer wrapping a transport failure as an unchecked
+    /// exception instead of the checked {@link IOException} its methods declare.
+    private S3UploadClient throwingUncheckedIoClient() {
+        return new S3UploadClient() {
+            @Override
+            public void uploadFile(String k, String sc, Iterator<byte[]> c, String ct) {
+                throw new UncheckedIOException(new IOException("Simulated unchecked I/O failure"));
+            }
+
+            @Override
+            public void close() {}
+        };
+    }
+
+    /// Returns an {@link S3UploadClient} that always throws a plain {@link RuntimeException} —
+    /// simulates any implementation misbehaving in a way not covered by the documented
+    /// `throws` contract.
+    private S3UploadClient throwingRuntimeExceptionClient() {
+        return new S3UploadClient() {
+            @Override
+            public void uploadFile(String k, String sc, Iterator<byte[]> c, String ct) {
+                throw new RuntimeException("Simulated unexpected failure");
+            }
+
+            @Override
+            public void close() {}
+        };
+    }
+
     // ---- Tests --------------------------------------------------------------
 
     @Test
@@ -149,6 +181,49 @@ class SingleBlockStoreTaskTest {
                 SingleBlockStoreTask.UploadStatus.IO_ERROR, result.status(), "IOException must set status to IO_ERROR");
         assertFalse(result.succeeded(), "succeeded() must return false for IO_ERROR status");
         assertEquals(0L, result.bytesUploaded(), "bytesUploaded must be 0 on I/O failure");
+    }
+
+    @Test
+    @DisplayName("UncheckedIOException escaping uploadFile sets UploadStatus.UNEXPECTED_ERROR and does not propagate")
+    void uncheckedIOExceptionSetsUnexpectedErrorStatus() {
+        final SingleBlockStoreTask task = new SingleBlockStoreTask(
+                4L,
+                testBlock(4L).blockUnparsed(),
+                throwingUncheckedIoClient(),
+                "blocks/0000/0000/0000/0000/004.blk.zstd",
+                "STANDARD",
+                BlockSource.UNKNOWN);
+
+        final SingleBlockStoreTask.UploadResult result =
+                assertDoesNotThrow(task::call, "call() must never propagate an unchecked exception");
+
+        assertEquals(
+                SingleBlockStoreTask.UploadStatus.UNEXPECTED_ERROR,
+                result.status(),
+                "UncheckedIOException must set status to UNEXPECTED_ERROR");
+        assertFalse(result.succeeded(), "succeeded() must return false for UNEXPECTED_ERROR status");
+        assertEquals(0L, result.bytesUploaded(), "bytesUploaded must be 0 on unexpected failure");
+    }
+
+    @Test
+    @DisplayName("RuntimeException escaping uploadFile sets UploadStatus.UNEXPECTED_ERROR and call() never throws")
+    void runtimeExceptionSetsUnexpectedErrorStatus() {
+        final SingleBlockStoreTask task = new SingleBlockStoreTask(
+                5L,
+                testBlock(5L).blockUnparsed(),
+                throwingRuntimeExceptionClient(),
+                "blocks/0000/0000/0000/0000/005.blk.zstd",
+                "STANDARD",
+                BlockSource.UNKNOWN);
+
+        final SingleBlockStoreTask.UploadResult result =
+                assertDoesNotThrow(task::call, "call() must never propagate an unchecked exception");
+
+        assertEquals(
+                SingleBlockStoreTask.UploadStatus.UNEXPECTED_ERROR,
+                result.status(),
+                "RuntimeException must set status to UNEXPECTED_ERROR");
+        assertFalse(result.succeeded(), "succeeded() must return false for UNEXPECTED_ERROR status");
     }
 
     @Test
