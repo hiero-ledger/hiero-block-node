@@ -728,6 +728,10 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         assertTrue(
                 persisted.stream().anyMatch(n -> n.blockNumber() == targetBlock && n.succeeded()),
                 "The retried block should eventually be persisted successfully");
+        assertEquals(
+                1L,
+                getMetricValue(BackfillPlugin.METRIC_BACKFILL_PERSISTENCE_FAILURES),
+                "single backfill persistence failure was captured");
     }
 
     @Test

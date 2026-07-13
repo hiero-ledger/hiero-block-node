@@ -69,7 +69,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     public static final MetricKey<LongCounter> METRIC_BACKFILL_RETRIES =
             MetricKey.of("backfill_retries", LongCounter.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_BACKFILL_PERSISTENCE_FAILURES =
-            MetricKey.of("backfill_persistence_failure", LongCounter.class).addCategory(METRICS_CATEGORY);
+            MetricKey.of("backfill_persistence_failures", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
@@ -533,21 +533,27 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      */
     @Override
     public void handlePersisted(PersistedNotification notification) {
-        if (notification != null && notification.blockSource() == BlockSource.BACKFILL) {
-            final long blockNumber = notification.blockNumber();
+        if (notification.blockSource() == BlockSource.BACKFILL) {
             if (notification.succeeded()) {
                 metricsHolder.backfillBlocksBackfilled().increment();
             } else {
-                final String backfillPersistFailedMsg =
-                        "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
-                LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
-                metricsHolder.backfillPersistenceFailures.increment();
+                metricsHolder.backfillPersistenceFailures().increment();
                 // Submit directly rather than via scheduleGap: the block is very likely already below
                 // the live-tail high-water mark, and scheduleGap's dedup would otherwise drop the retry.
+                final long blockNumber = notification.blockNumber();
                 if (liveTailScheduler != null) {
+                    final String backfillPersistFailedMsg =
+                            "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
+                    LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
                     submitGap(new GapDetector.Gap(new LongRange(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL));
+                } else {
+                    final String liveTailSchedulerNullMsg =
+                            "LiveScheduler unavailable. Persistence failed for block=[{0}], unable to requeue for on-demand backfill";
+                    LOGGER.log(INFO, liveTailSchedulerNullMsg, blockNumber);
                 }
             }
+            // This will be re-incremented if the block is re-queued for persistence in
+            // sendBlocksForPersistence. Always decrement
             pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
         }
     }
@@ -688,7 +694,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                             .getOrCreateNotLabeled(),
                     metricRegistry
                             .register(LongCounter.builder(METRIC_BACKFILL_PERSISTENCE_FAILURES)
-                                    .setDescription("Number of retries during the backfill process."))
+                                    .setDescription("Number of backfill persistence failures"))
                             .getOrCreateNotLabeled());
         }
 

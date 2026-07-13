@@ -68,8 +68,8 @@ class BackfillRunnerTest {
                 mockFetchedBlocksCounter, // backfillFetchedBlocks
                 mock(LongCounter.Measurement.class), // backfillBlocksBackfilled
                 mockFetchErrorsCounter, // backfillFetchErrors
-                mock(LongCounter.Measurement.class),
-                mock(LongCounter.Measurement.class)); // backfillInFlightGauge
+                mock(LongCounter.Measurement.class), // backfillInFlightGauge
+                mock(LongCounter.Measurement.class));
         pendingBackfillBlocks = new AtomicLong(0);
         persistenceAwaiter = new BackfillPersistenceAwaiter();
         logger = System.getLogger(BackfillRunnerTest.class.getName());
