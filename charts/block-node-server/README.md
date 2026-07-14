@@ -260,17 +260,40 @@ blockNode:
 
 ##### LoadBalancer and Per-Plugin Ports
 
-The current `loadBalancer` resource exposes a single port pointing to one target port. When plugins are split across ports on a single physical box with a single IP, configure the LoadBalancer to point to the specific plugin port you want to expose externally:
+The `loadBalancer` Service supports three ways to expose ports externally:
+
+**1. Single port (default)** — expose one port, pointing at any target port:
 
 ```yaml
 loadBalancer:
   enabled: true
   portName: grpc
-  port: 40841        # the external port on the LoadBalancer
-  targetPort: publisher  # matches the containerPort name set by blockNode.ports.publisher
+  port: 40841
+  targetPort: publisher   # matches the containerPort name set by blockNode.ports.publisher
 ```
 
-> **Note:** Multi-port LoadBalancer support (exposing publisher and subscriber on separate LB ports simultaneously) is planned as a follow-on. Today, configure separate `targetPort` values per release or use an Ingress/gateway layer above the Service.
+**2. All plugin ports via `includePluginPorts`** — when `true`, every non-null entry in `blockNode.ports` is added to the LB Service automatically, alongside the primary port:
+
+```yaml
+loadBalancer:
+  enabled: true
+  includePluginPorts: true   # adds health/publisher/subscriber/blockAccess/serverStatus
+```
+
+**3. Explicit extra ports via `extraPorts`** — add individual ports not covered by `blockNode.ports`:
+
+```yaml
+loadBalancer:
+  enabled: true
+  includePluginPorts: true
+  extraPorts:
+    - name: my-extra
+      port: 40845
+      targetPort: 40845   # defaults to port value if omitted
+      protocol: TCP        # defaults to TCP if omitted
+```
+
+> **Constraint:** All ports on the LB Service must have unique port numbers. Ensure `loadBalancer.port`, each `blockNode.ports.*` value, and each `extraPorts[].port` are distinct.
 
 #### Disabling Plugins
 
