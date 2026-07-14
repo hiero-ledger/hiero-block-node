@@ -228,16 +228,16 @@ By default all plugins share a single port (`service.port`, default `40840`). Us
 blockNode:
   ports:
     # gRPC port for block producers (env: PRODUCER_PORT). hostPorts key: publisher
-    publisher: 40841
+    publisher: 40984
     # gRPC port for block subscribers (env: SUBSCRIBER_PORT). hostPorts key: subscriber
-    subscriber: 40842
+    subscriber: 40980
     # gRPC/HTTP port for block access/query API (env: BLOCK_ACCESS_PORT). hostPorts key: block-access
-    blockAccess: 40843
+    blockAccess: 40981
     # HTTP port for /healthz endpoints (env: HEALTH_PORT). hostPorts key: health
     # When set, liveness and readiness probes automatically redirect to this port.
-    health: 40844
+    health: 40983
     # HTTP port for server-status endpoint (env: SERVER_STATUS_PORT). hostPorts key: server-status
-    serverStatus: 40845
+    serverStatus: 40982
 ```
 
 Setting a port here automatically:
@@ -254,8 +254,8 @@ Named ports created by `blockNode.ports` can also be bound to host ports:
 ```yaml
 blockNode:
   hostPorts:
-    publisher: 40841
-    subscriber: 40842
+    publisher: 40984
+    subscriber: 40980
 ```
 
 ##### LoadBalancer and Per-Plugin Ports
