@@ -542,19 +542,18 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 // Submit directly rather than via scheduleGap: the block is very likely already below
                 // the live-tail high-water mark, and scheduleGap's dedup would otherwise drop the retry.
                 final long blockNumber = notification.blockNumber();
-                if (liveTailScheduler != null) {
+                if (liveTailScheduler != null
+                        && submitGap(new GapDetector.Gap(
+                                new LongRange(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL))) {
                     final String backfillPersistFailedMsg =
                             "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
                     LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
-                    if (!submitGap(
-                            new GapDetector.Gap(new LongRange(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL))) {
-                        // if the schedule queue is full mark this as a failure for visibility
-                        // This block will now be picked up during the next periodic autonomous scan of
-                        // detectAndScheduleGaps, which will see the block missing from stored ranges on its next tick
-                        // and re-detect/resubmit it as a gap
-                        metricsHolder.backfillPersistenceFailures().increment();
-                    }
                 } else {
+                    // if the scheduler is null or schedule queue is full mark this as a failure for visibility
+                    // This block will now be picked up during the next periodic autonomous scan of
+                    // detectAndScheduleGaps, which will see the block missing from stored ranges on its next tick
+                    // and re-detect/resubmit it as a gap
+                    metricsHolder.backfillPersistenceFailures().increment();
                     final String liveTailSchedulerNullMsg =
                             "LiveScheduler unavailable. Persistence failed for block=[{0}], unable to requeue for on-demand backfill";
                     LOGGER.log(INFO, liveTailSchedulerNullMsg, blockNumber);
