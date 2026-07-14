@@ -68,6 +68,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             MetricKey.of("backfill_fetch_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_BACKFILL_RETRIES =
             MetricKey.of("backfill_retries", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_BACKFILL_PERSISTENCE_FAILURES =
+            MetricKey.of("backfill_persistence_failures", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
@@ -510,11 +512,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      * Submits a gap to the appropriate scheduler based on its type.
      *
      * @param gap the gap to submit
+     * @return true if the gap was accepted, false if the queue was full (gap discarded)
      */
-    private void submitGap(GapDetector.Gap gap) {
+    private boolean submitGap(GapDetector.Gap gap) {
         BackfillTaskScheduler scheduler =
                 (gap.type() == GapDetector.Type.HISTORICAL) ? historicalScheduler : liveTailScheduler;
-        scheduler.submit(gap);
+        return scheduler.submit(gap);
     }
 
     // Package-private for test visibility
@@ -532,15 +535,32 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handlePersisted(PersistedNotification notification) {
         if (notification.blockSource() == BlockSource.BACKFILL) {
-            // Add more detailed logging for persistence notifications
-            final String backfillPersistedMsg = "Received backfill persisted notification for block=[{0}]";
-            LOGGER.log(TRACE, backfillPersistedMsg, notification.blockNumber());
-
-            metricsHolder.backfillBlocksBackfilled().increment();
+            if (notification.succeeded()) {
+                metricsHolder.backfillBlocksBackfilled().increment();
+            } else {
+                metricsHolder.backfillPersistenceFailures().increment();
+                // Submit directly rather than via scheduleGap: the block is very likely already below
+                // the live-tail high-water mark, and scheduleGap's dedup would otherwise drop the retry.
+                final long blockNumber = notification.blockNumber();
+                if (liveTailScheduler != null
+                        && submitGap(new GapDetector.Gap(
+                                new LongRange(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL))) {
+                    final String backfillPersistFailedMsg =
+                            "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
+                    LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
+                } else {
+                    // The live-tail scheduler is unavailable (plugin not yet started) or its queue is full.
+                    // This block will now be picked up during the next periodic autonomous scan of
+                    // detectAndScheduleGaps, which will see the block missing from stored ranges on its next tick
+                    // and re-detect/resubmit it as a gap
+                    final String requeueFailedMsg =
+                            "Unable to requeue block=[{0}] for on-demand backfill (scheduler unavailable or queue full)";
+                    LOGGER.log(INFO, requeueFailedMsg, blockNumber);
+                }
+            }
+            // This will be re-incremented if the block is re-queued for persistence in
+            // sendBlocksForPersistence. Always decrement
             pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
-        } else {
-            final String nonBackfillPersistedMsg = "Received non-backfill persisted notification: [{0}]";
-            LOGGER.log(TRACE, nonBackfillPersistedMsg, notification);
         }
     }
 
@@ -630,7 +650,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             LongCounter.Measurement backfillFetchedBlocks,
             LongCounter.Measurement backfillBlocksBackfilled,
             LongCounter.Measurement backfillFetchErrors,
-            LongCounter.Measurement backfillRetries) {
+            LongCounter.Measurement backfillRetries,
+            LongCounter.Measurement backfillPersistenceFailures) {
 
         /**
          * Factory method to create a MetricsHolder with all metrics registered.
@@ -676,6 +697,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     metricRegistry
                             .register(LongCounter.builder(METRIC_BACKFILL_RETRIES)
                                     .setDescription("Number of retries during the backfill process."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_BACKFILL_PERSISTENCE_FAILURES)
+                                    .setDescription("Number of backfill persistence failures"))
                             .getOrCreateNotLabeled());
         }
 
