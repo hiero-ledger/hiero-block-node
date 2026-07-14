@@ -30,11 +30,14 @@ import java.util.function.Function;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
+import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.ServerStatusRequest;
+import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.node.app.BlockNodeApp;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.health.HealthFacility.State;
@@ -480,5 +483,91 @@ public class BlockNodeApiRegressionTest {
             throws InterruptedException {
         latch.get().await(DEFAULT_AWAIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         assertEquals(0, latch.get().getCount(), "Timed out waiting for " + description);
+    }
+
+    /// Polls until [blockNodeApp] reaches (or leaves) the [State#RUNNING] state.
+    /// Fails the test if the state is not reached within 10 s.
+    private void awaitAppState(final BlockNodeApp blockNodeApp, final boolean running) throws InterruptedException {
+        final long deadline = System.currentTimeMillis() + 10_000L;
+        while (System.currentTimeMillis() < deadline) {
+            final boolean isRunning = blockNodeApp.blockNodeState() == State.RUNNING;
+            if (isRunning == running) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        assertEquals(
+                running,
+                blockNodeApp.blockNodeState() == State.RUNNING,
+                "BlockNodeApp did not reach running=" + running + " within 10 s");
+    }
+
+    /// Reproduces the regression where `ServerStatusServicePlugin` returned the configured
+    /// EarliestManagedBlock (EMB) value as `lastAvailableBlock` when all stored blocks were
+    /// below EMB. Consensus Nodes / publishers interpreted `lastAvailableBlock = EMB` as "the
+    /// node is already ahead of me" and went silent — a hang with no error signal.
+    ///
+    /// ## Root cause
+    ///
+    /// When the node held blocks 0–N and EMB > N, `ServerStatusServicePlugin#serverStatus`
+    /// bumped `lastAvailableBlock` up to EMB. Publishers saw the node reporting a block number
+    /// far ahead of their head block and stopped streaming.
+    ///
+    /// ## Fix
+    ///
+    /// When EMB > highestAvailableBlock (and stored blocks do exist), `lastAvailableBlock` must
+    /// be reported as `UNKNOWN_BLOCK_NUMBER` (-1). This tells publishers the node has no blocks
+    /// in the range they care about so they can reconnect and stream from the correct point.
+    @Test
+    @DisplayName("serverStatus returns -1 for lastAvailableBlock when EMB exceeds all stored blocks")
+    void serverStatusReturnsUnknownWhenEarliestManagedBlockExceedsStoredBlocks()
+            throws IOException, InterruptedException {
+        app.shutdown("embRegressionTest", "restart with EMB above stored blocks");
+        awaitAppState(app, false);
+
+        System.setProperty("block.node.earliestManagedBlock", "100");
+        try {
+            app = new BlockNodeApp(new ServiceLoaderFunction(), false);
+            app.start();
+            awaitAppState(app, true);
+
+            // Publish blocks 0–2, all below EMB=100.
+            final Bytes hash0 = BlockItemBuilderUtils.computeBlockHash(0L, null);
+            final Bytes hash1 = BlockItemBuilderUtils.computeBlockHash(1L, hash0);
+
+            final PbjGrpcClient publishGrpcClient = createGrpcClient();
+            final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publisherClient =
+                    new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(publishGrpcClient, OPTIONS);
+            final ResponsePipelineUtils<PublishStreamResponse> publisherObserver = new ResponsePipelineUtils<>();
+            final Pipeline<? super PublishStreamRequest> publisherStream =
+                    publisherClient.publishBlockStream(publisherObserver);
+
+            final Bytes[] previousHashes = {null, hash0, hash1};
+            for (long blockNum = 0L; blockNum <= 2L; blockNum++) {
+                final AtomicReference<CountDownLatch> ackLatch = publisherObserver.setAndGetOnNextLatch(1);
+                publisherStream.onNext(buildPublishRequest(
+                        BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNum, previousHashes[(int) blockNum])));
+                endBlock(blockNum, publisherStream);
+                awaitLatch(ackLatch, "ACK for block " + blockNum);
+            }
+
+            // serverStatus must report lastAvailableBlock=-1 because no stored block meets or
+            // exceeds EMB=100. Returning 100 instead caused publishers to go silent (regression).
+            final PbjGrpcClient statusGrpcClient = createGrpcClient();
+            final BlockNodeServiceInterface.BlockNodeServiceClient statusClient =
+                    new BlockNodeServiceInterface.BlockNodeServiceClient(statusGrpcClient, OPTIONS);
+            final ServerStatusResponse status =
+                    statusClient.serverStatus(ServerStatusRequest.newBuilder().build());
+
+            assertThat(status.lastAvailableBlock())
+                    .as("lastAvailableBlock must be -1 when all stored blocks are below EMB; "
+                            + "returning EMB caused publishers to go silent (regression)")
+                    .isEqualTo(-1L);
+
+            publisherClient.close();
+            statusClient.close();
+        } finally {
+            System.clearProperty("block.node.earliestManagedBlock");
+        }
     }
 }
