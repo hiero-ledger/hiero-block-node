@@ -12,11 +12,12 @@
 # raw-K8s manifest (postgres + importer + service) modelled on the proven
 # recipe in wrb-sequential-comparison.sh's deploy_mn2_to_bn2 function.
 #
-# Scope for slice 4: importer-only (no REST/gRPC/Web3 sidecars) with
-# `hiero.mirror.importer.block.verification.enabled=false`, which lets us skip
-# the address-book extract step. The step 7 assertion only needs to observe
-# "MN2 is consuming blocks from a BN source", which is visible in the importer
-# container logs.
+# Scope for slice 4: importer-only (no REST/gRPC/Web3 sidecars). MN v0.157.1 has
+# no `hiero.mirror.importer.block.verification.enabled` toggle -- block-stream
+# verification is TSS-driven, and Solo does not set up TSS data, so verification
+# is a natural no-op here. The step 7 assertion only needs to observe "MN2 is
+# consuming blocks from a BN source" via the importer pod's block-source env
+# vars + Ready state.
 #
 # Reads:
 #   NAMESPACE         (default "solo-network")
@@ -25,6 +26,8 @@
 #                     live image if unset)
 #   BN_HOST_2         (default block-node-2.${NAMESPACE}.svc.cluster.local)
 #   BN_HOST_3         (default block-node-3.${NAMESPACE}.svc.cluster.local)
+#   BN2_GRPC_PORT     (default 40841 — matches add-bn.sh's convention:
+#                     grpc_port = 40839 + bn_index; BN2 has bn_index=2)
 #   MN2_READY_TIMEOUT (default 600)
 
 set -euo pipefail
@@ -33,6 +36,11 @@ set -euo pipefail
 : "${CLUSTER_REFERENCE:=kind-solo-cluster}"
 : "${BN_HOST_2:=block-node-2.${NAMESPACE}.svc.cluster.local}"
 : "${BN_HOST_3:=block-node-3.${NAMESPACE}.svc.cluster.local}"
+# BN2's grpc port on the runner is set up by add-bn.sh at 40839+bn_index
+# (see the port-forward layout in add-bn.sh L104). Keep the same formula
+# here rather than hard-coding the literal, so the derivation stays obvious
+# and both scripts can be updated together if the base port ever changes.
+: "${BN2_GRPC_PORT:=$((40839 + 2))}"
 MN2_READY_TIMEOUT="${MN2_READY_TIMEOUT:-600}"
 
 log() { echo "[wrb-dist-add-mn2] $*"; }
@@ -55,10 +63,10 @@ log "  Using JVM importer image: ${importer_image}"
 #    block 0 therefore trips "No block node can provide block 0" and MN2
 #    never ingests. Instead, start from whatever BN2 has been streaming
 #    live since it joined, so MN2 subscribes to real work immediately.
-#    Port-forward for BN2 is set up by add-bn.sh at localhost:40841.
+#    Port-forward for BN2 is set up by add-bn.sh at localhost:${BN2_GRPC_PORT}.
 start_block=0
 if command -v grpcurl >/dev/null 2>&1; then
-    status_json=$(grpcurl -plaintext -d '{}' localhost:40841 \
+    status_json=$(grpcurl -plaintext -d '{}' "localhost:${BN2_GRPC_PORT}" \
         org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null || echo '{}')
     bn_last=$(echo "${status_json}" | jq -r '.lastAvailableBlock // empty' 2>/dev/null || echo "")
     if [[ -n "${bn_last}" && "${bn_last}" =~ ^[0-9]+$ ]]; then
