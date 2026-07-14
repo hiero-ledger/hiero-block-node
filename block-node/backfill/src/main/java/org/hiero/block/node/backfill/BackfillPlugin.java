@@ -512,11 +512,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      * Submits a gap to the appropriate scheduler based on its type.
      *
      * @param gap the gap to submit
+     * @return true if the gap was accepted, false if the queue was full (gap discarded)
      */
-    private void submitGap(GapDetector.Gap gap) {
+    private boolean submitGap(GapDetector.Gap gap) {
         BackfillTaskScheduler scheduler =
                 (gap.type() == GapDetector.Type.HISTORICAL) ? historicalScheduler : liveTailScheduler;
-        scheduler.submit(gap);
+        return scheduler.submit(gap);
     }
 
     // Package-private for test visibility
@@ -545,7 +546,14 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     final String backfillPersistFailedMsg =
                             "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
                     LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
-                    submitGap(new GapDetector.Gap(new LongRange(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL));
+                    if (!submitGap(
+                            new GapDetector.Gap(new LongRange(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL))) {
+                        // if the schedule queue is full mark this as a failure for visibility
+                        // This block will now be picked up during the next periodic autonomous scan of
+                        // detectAndScheduleGaps, which will see the block missing from stored ranges on its next tick
+                        // and re-detect/resubmit it as a gap
+                        metricsHolder.backfillPersistenceFailures().increment();
+                    }
                 } else {
                     final String liveTailSchedulerNullMsg =
                             "LiveScheduler unavailable. Persistence failed for block=[{0}], unable to requeue for on-demand backfill";
