@@ -297,11 +297,14 @@ for the JSON schema.
 
 ### Verification Plugin Configuration
 
-| ENV Variable                                      | Description                                                                                                      | Default |
-|:--------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------|--------:|
-| VERIFICATION_RECENTLY_VERIFIED_BLOCKS_BUFFER_SIZE | Size of recently verified blocks buffer. Affects informational failures.                                         |     100 |
-| VERIFICATION_ACTIVE_SESSIONS_BUFFER_SIZE          | Size of active active sessions allowed simultaneously.                                                           |     100 |
-| VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING         | Flag, indicating if all sources require the strict ordering guarantee on the last verified block high watermark. |    true |
+| ENV Variable                                      | Description                                                                                                      |                                  Default |
+|:--------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------|-----------------------------------------:|
+| VERIFICATION_RECENTLY_VERIFIED_BLOCKS_BUFFER_SIZE | Size of recently verified blocks buffer. Affects informational failures.                                         |                                      100 |
+| VERIFICATION_ACTIVE_SESSIONS_BUFFER_SIZE          | Size of active active sessions allowed simultaneously.                                                           |                                      100 |
+| VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING         | Flag, indicating if all sources require the strict ordering guarantee on the last verified block high watermark. |                                     true |
+| VERIFICATION_DUMP_ENABLED                         | Flag, indicating if the bad block dumper is enabled. (Write blocks that failed verification to disk)             |                                    false |
+| VERIFICATION_DUMP_DIRECTORY_PATH                  | Root path to be used by the bad block dumper.                                                                    | /opt/hiero/block-node/verification/dumps |
+| VERIFICATION_DUMP_RETENTION_DAYS                  | How many days dumped blocks will be retained for.                                                                |                                        7 |
 
 > _NOTE_ the `VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING` value should remain `true` in all "Tier 1" Block Nodes.
 >

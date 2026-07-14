@@ -114,13 +114,20 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                     item.item().kind();
                             switch (kind) {
                                 case BLOCK_HEADER -> {
-                                    this.blockHeader = standardParse(BlockHeader.PROTOBUF, item.blockHeader());
-                                    this.hapiProtoVersion = this.blockHeader.hapiProtoVersion();
-                                    if (this.hapiProtoVersion == null) {
-                                        throw new VerificationSessionFailedException(
-                                                blockNumber, SessionFailureType.MISSING_MANDATORY_FIELD, blockSource);
+                                    if (this.blockHeader == null) {
+                                        this.blockHeader = standardParse(BlockHeader.PROTOBUF, item.blockHeader());
+                                        this.hapiProtoVersion = this.blockHeader.hapiProtoVersion();
+                                        if (this.hapiProtoVersion == null) {
+                                            throw new VerificationSessionFailedException(
+                                                    blockNumber,
+                                                    SessionFailureType.MISSING_MANDATORY_FIELD,
+                                                    blockSource);
+                                        } else {
+                                            outputTreeHasher.addLeaf(getBlockItemHash(item));
+                                        }
                                     } else {
-                                        outputTreeHasher.addLeaf(getBlockItemHash(item));
+                                        throw new VerificationSessionFailedException(
+                                                blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
                                     }
                                 }
                                 case ROUND_HEADER, EVENT_HEADER ->
@@ -143,11 +150,22 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                 case STATE_CHANGES -> stateChangesHasher.addLeaf(getBlockItemHash(item));
                                 case TRACE_DATA -> traceDataHasher.addLeaf(getBlockItemHash(item));
                                 case RECORD_FILE -> {
-                                    this.rawRecordFileItemProtoBytes = item.recordFileOrThrow();
-                                    outputTreeHasher.addLeaf(getBlockItemHash(item));
+                                    if (this.rawRecordFileItemProtoBytes == null) {
+                                        this.rawRecordFileItemProtoBytes = item.recordFileOrThrow();
+                                        outputTreeHasher.addLeaf(getBlockItemHash(item));
+                                    } else {
+                                        throw new VerificationSessionFailedException(
+                                                blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
+                                    }
                                 }
-                                case BLOCK_FOOTER ->
-                                    this.blockFooter = standardParse(BlockFooter.PROTOBUF, item.blockFooter());
+                                case BLOCK_FOOTER -> {
+                                    if (this.blockFooter == null) {
+                                        this.blockFooter = standardParse(BlockFooter.PROTOBUF, item.blockFooter());
+                                    } else {
+                                        throw new VerificationSessionFailedException(
+                                                blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
+                                    }
+                                }
                                 case BLOCK_PROOF -> {
                                     final BlockProof blockProof = standardParse(BlockProof.PROTOBUF, item.blockProof());
                                     blockProofs.add(blockProof);
@@ -158,6 +176,10 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                             blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
                                 }
                                 case UNSET -> {
+                                    throw new VerificationSessionFailedException(
+                                            blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
+                                }
+                                case null -> {
                                     throw new VerificationSessionFailedException(
                                             blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
                                 }

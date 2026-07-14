@@ -422,10 +422,6 @@ class RSAProofVerifierTest {
                 .isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
     }
 
-    // @todo(3007) port below tests as a follow up
-    //    add test in order and out of order based on high water mark and all sources ordering config
-    //    add test passing in any order if lower than high water mark
-
     @Test
     @DisplayName("Null signed payload rejected")
     void testNullSignedPayloadRejected() throws Exception {

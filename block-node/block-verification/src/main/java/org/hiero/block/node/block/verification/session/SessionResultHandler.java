@@ -209,6 +209,9 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
                 verificationResult.rootHash(),
                 verificationResult.block(),
                 verificationResult.source());
+        // @todo safe sending of notification should return a result.
+        //    If we were unable to send a notification, we should mark unhealthy
+        //    once we have the updates to health plugin
         safeSendNotification(notification);
         markRecentlyVerified(verifiedBlockNumber);
         // Note that the below CAS has an interaction with the `allSourcesRequireOrdering` config.

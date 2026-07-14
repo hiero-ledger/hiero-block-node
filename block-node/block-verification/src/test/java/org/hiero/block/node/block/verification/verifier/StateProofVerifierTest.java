@@ -162,7 +162,7 @@ class StateProofVerifierTest {
     @DisplayName("verify() reject when empty signed proof")
     void testShouldRejectEmptySignedProof() throws IOException, ParseException {
         initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof with empty signed proof.
+        // Swap state proof with empty signed proof
         final TssSignedBlockProof emptySignedProof =
                 TssSignedBlockProof.newBuilder().blockSignature(Bytes.EMPTY).build();
         final ResourceTestBlock tamperedBlock =
@@ -183,7 +183,7 @@ class StateProofVerifierTest {
     @DisplayName("verify() reject when tampered signed proof")
     void testShouldRejectTamperedSignedProof() throws IOException, ParseException {
         initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof with tampered signed proof.
+        // Swap state proof with tampered signed proof
         final TssSignedBlockProof emptySignedProof = TssSignedBlockProof.newBuilder()
                 .blockSignature(Bytes.wrap("tampered"))
                 .build();
@@ -206,7 +206,7 @@ class StateProofVerifierTest {
     @DisplayName("verify() reject when not enough merkle paths")
     void testShouldRejectNoMerklePaths(final int pathCount) throws IOException, ParseException {
         initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof with tampered signed proof.
+        // Swap state proof
         final List<MerklePath> paths = new ArrayList<>();
         for (int i = 0; i < pathCount; i++) {
             paths.add(generateGenericMerklePath(true));
@@ -222,6 +222,90 @@ class StateProofVerifierTest {
                 verificationDataProvider);
         final SessionFailureType actual = toTest.verify();
         assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
+    @Test
+    @DisplayName("verify() reject when first path is not a leaf")
+    void testShouldRejectFirstPathNotLeaf() throws IOException, ParseException {
+        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
+        // Swap state proof
+        final List<MerklePath> paths = new ArrayList<>();
+        paths.add(generateGenericMerklePath(false));
+        paths.add(generateGenericMerklePath(true));
+        paths.add(generateGenericMerklePath(true));
+        final ResourceTestBlock tamperedBlock = swapPaths(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), paths);
+        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
+        final StateProofVerifier toTest = new StateProofVerifier(
+                isCanceled,
+                metricsHolder.proofVerificationMetrics(),
+                tamperedBlock.number(),
+                hashingResult.blockProofs().getFirst().blockStateProof(),
+                hashingResult.rootHash(),
+                verificationDataProvider);
+        final SessionFailureType actual = toTest.verify();
+        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
+    @Test
+    @DisplayName("verify() reject when a leaf has a path outside of bounds")
+    void testShouldRejectWhenNextPathOfALeafIsOutsideOfBounds() throws IOException, ParseException {
+        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
+        // Swap state proof
+        final List<MerklePath> paths = new ArrayList<>();
+        paths.add(generateGenericMerklePath(true, 1_000));
+        paths.add(generateGenericMerklePath(true));
+        paths.add(generateGenericMerklePath(true));
+        final ResourceTestBlock tamperedBlock = swapPaths(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), paths);
+        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
+        final StateProofVerifier toTest = new StateProofVerifier(
+                isCanceled,
+                metricsHolder.proofVerificationMetrics(),
+                tamperedBlock.number(),
+                hashingResult.blockProofs().getFirst().blockStateProof(),
+                hashingResult.rootHash(),
+                verificationDataProvider);
+        final SessionFailureType actual = toTest.verify();
+        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
+    @Test
+    @DisplayName("verify() reject when the next path of leaf is not a join point")
+    void testShouldRejectWhenNextPathOfALeafIsNotAJoinPoint() throws IOException, ParseException {
+        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
+        // Swap state proof
+        final List<MerklePath> paths = new ArrayList<>();
+        paths.add(generateGenericMerklePath(true, 1));
+        paths.add(generateGenericMerklePath(true, 2));
+        paths.add(generateGenericMerklePath(true));
+        final ResourceTestBlock tamperedBlock = swapPaths(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), paths);
+        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
+        final StateProofVerifier toTest = new StateProofVerifier(
+                isCanceled,
+                metricsHolder.proofVerificationMetrics(),
+                tamperedBlock.number(),
+                hashingResult.blockProofs().getFirst().blockStateProof(),
+                hashingResult.rootHash(),
+                verificationDataProvider);
+        final SessionFailureType actual = toTest.verify();
+        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
+    @Test
+    @DisplayName("verify() reject if canceled")
+    void testShouldRejectIfCanceled() throws IOException, ParseException {
+        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
+        final ResourceTestBlock block3 = ResourceTestBlockBuilder.load(StateProof.BLOCK_3);
+        final HashingResult hashingResult = runHashing(verificationDataProvider, block3);
+        final StateProofVerifier toTest = new StateProofVerifier(
+                isCanceled,
+                metricsHolder.proofVerificationMetrics(),
+                block3.number(),
+                hashingResult.blockProofs().getFirst().blockStateProof(),
+                hashingResult.rootHash(),
+                verificationDataProvider);
+        isCanceled.set(true);
+        final SessionFailureType actual = toTest.verify();
+        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.CANCELLED);
     }
 
     private MerklePath generateGenericMerklePath(final boolean isLeaf) {
@@ -262,10 +346,12 @@ class StateProofVerifierTest {
         final BlockProof proof = block.proofs().getFirst();
         final com.hedera.hapi.block.stream.StateProof stateProof = proof.blockStateProof();
         assertThat(stateProof).isNotNull();
-        final com.hedera.hapi.block.stream.StateProof toSwap = com.hedera.hapi.block.stream.StateProof.newBuilder()
-                .paths(stateProof.paths())
-                .signedBlockProof(signedProof)
-                .build();
+        final com.hedera.hapi.block.stream.StateProof.Builder builder =
+                com.hedera.hapi.block.stream.StateProof.newBuilder().paths(stateProof.paths());
+        if (signedProof != null) {
+            builder.signedBlockProof(signedProof);
+        }
+        final com.hedera.hapi.block.stream.StateProof toSwap = builder.build();
         final List<BlockItem> proofsExcluded =
                 block.asBlockItemFiltered(i -> i.item().kind() != BlockItem.ItemOneOfType.BLOCK_PROOF);
         final ArrayList<BlockItem> resultItems = new ArrayList<>(proofsExcluded);

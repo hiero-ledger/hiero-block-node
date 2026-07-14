@@ -11,6 +11,7 @@ import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureI
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 /// Plugin-level integration test for [VerificationServicePlugin].
@@ -1103,6 +1105,177 @@ class VerificationServicePluginTest {
                             VerificationNotification::failureInfo)
                     .returns(reportedBlockNumber, VerificationNotification::blockNumber)
                     .returns(BlockSource.BACKFILL, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+    }
+
+    @Nested
+    @DisplayName("Block Order Tests")
+    class BlockOrderTests extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        BlockOrderTests() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility());
+        }
+
+        /// This test aims to assert that when blocks are received out of order, order will be preserved
+        /// when completing verification. Proof type and source are irrelevant here.
+        @RepeatedTest(100)
+        @DisplayName("Block Order Preserved for Out of Order Blocks Received")
+        void testOutOfOrderBlocksPreserveOrderingOnCompletion() throws IOException, ParseException {
+            final List<ResourceTestBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRAPSBlocks);
+            // Load block 0 first which will update tss data, make sure it passes before continuing to ensure
+            // no flakiness due to missing tss data. Other tests can pre-load tss data and it will not be
+            // relevant to wait.
+            plugin.handleBlockItemsReceived(loadedBlocks.getFirst().asBlockItems());
+            blockMessaging.getSentVerificationNotifications(1);
+            // Now send the rest out of order
+            final List<ResourceTestBlock> shuffledBlocks =
+                    new ArrayList<>(loadedBlocks.subList(1, loadedBlocks.size()));
+            Collections.shuffle(shuffledBlocks);
+            for (final ResourceTestBlock block : shuffledBlocks) {
+                // We push the block to the live items RB
+                plugin.handleBlockItemsReceived(block.asBlockItems());
+            }
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications =
+                    blockMessaging.getSentVerificationNotifications(loadedBlocks.size());
+            assertThat(notifications).hasSize(loadedBlocks.size());
+            for (int i = 0; i < notifications.size(); i++) {
+                final ResourceTestBlock block = loadedBlocks.get(i);
+                final VerificationNotification notification = notifications.get(i);
+                assertThat(notification)
+                        .returns(true, VerificationNotification::success)
+                        .returns(null, VerificationNotification::failureInfo)
+                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                        .returns(block.blockUnparsed(), VerificationNotification::block)
+                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+            }
+        }
+
+        /// This test aims to assert that when a block is submitted for verification but it is below
+        /// the high watermark, it will pass immediately and no strict ordering applies.
+        @RepeatedTest(100)
+        @DisplayName("No Strict Ordering Below High Water Mark")
+        void testNoStrictOrderingBelowHighWaterMark() throws IOException, ParseException {
+            final List<ResourceTestBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRAPSBlocks);
+            // Load block 0 first which will update tss data, make sure it passes before continuing to ensure
+            // no flakiness due to missing tss data. Other tests can pre-load tss data and it will not be
+            // relevant to wait.
+            plugin.handleBlockItemsReceived(loadedBlocks.getFirst().asBlockItems());
+            blockMessaging.getSentVerificationNotifications(1);
+            // Now send the rest out of order
+            final List<ResourceTestBlock> restOfBlocks = new ArrayList<>(loadedBlocks.subList(1, loadedBlocks.size()));
+            for (final ResourceTestBlock block : restOfBlocks) {
+                // We push the block to the live items RB
+                plugin.handleBlockItemsReceived(block.asBlockItems());
+            }
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications =
+                    blockMessaging.getSentVerificationNotifications(loadedBlocks.size());
+            assertThat(notifications).hasSize(loadedBlocks.size());
+            for (int i = 0; i < notifications.size(); i++) {
+                final ResourceTestBlock block = loadedBlocks.get(i);
+                final VerificationNotification notification = notifications.get(i);
+                assertThat(notification)
+                        .returns(true, VerificationNotification::success)
+                        .returns(null, VerificationNotification::failureInfo)
+                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                        .returns(block.blockUnparsed(), VerificationNotification::block)
+                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+            }
+            // Now clear all notifications so we can cleanly assert again
+            final ArrayList<ResourceTestBlock> shuffled = new ArrayList<>(restOfBlocks);
+            Collections.shuffle(shuffled);
+            notifications.clear();
+            for (final ResourceTestBlock block : shuffled) {
+                // Push a random block that is below the high water mark
+                plugin.handleBlockItemsReceived(block.asBlockItems());
+                // Await for the successful notification
+                blockMessaging.getSentVerificationNotifications(1);
+                final VerificationNotification notification = notifications.getFirst();
+                assertThat(notification)
+                        .returns(true, VerificationNotification::success)
+                        .returns(null, VerificationNotification::failureInfo)
+                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                        .returns(block.blockUnparsed(), VerificationNotification::block)
+                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+                // Finally, clear the notifications and continue with the next block
+                notifications.clear();
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("Live RB Ingestion Tests")
+    class LiveRBIngestionTests
+            extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        LiveRBIngestionTests() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility());
+        }
+
+        /// This test aims to assert that we are able to receive a block in multiple batches via the Live RB
+        /// (Publisher Source). The block proof type is irrelevant for this test.
+        @Test
+        @DisplayName("Live RB Ingestion - Block Received in Multiple Batches")
+        void testLiveRBIngestionBlockReceivedInMultipleBatches() throws IOException, ParseException {
+            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
+            // We push the block in multiple batches
+            for (final BlockItemUnparsed item : block0.blockUnparsed().blockItems()) {
+                final boolean isStartOfNewBlock = item.hasBlockHeader();
+                final boolean isEndOfBlock = item.hasBlockProof();
+                final BlockItems itemAsBlockItems =
+                        new BlockItems(List.of(item), block0.number(), isStartOfNewBlock, isEndOfBlock);
+                plugin.handleBlockItemsReceived(itemAsBlockItems);
+            }
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(true, VerificationNotification::success)
+                    .returns(null, VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(block0.blockUnparsed(), VerificationNotification::block)
+                    .returns(block0.blockRootHash(), VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that when we receive the start of a new block via the Live RB (Publisher Source),
+        /// but we have not yet received the last item for the current live publisher session, the current live
+        /// publisher session will be canceled and the newly received block will start a new session.
+        /// The block proof type is irrelevant for this test. Also, it is irrelevant which block will be started
+        /// in the middle of current session.
+        @Test
+        @DisplayName(
+                "Live RB Ingestion - Cancel Current Live Session When New Block Received While Not Finished Current One")
+        void testLiveRBIngestionCancelLiveSessionWhenNewBlockReceivedAndCurrentNotComplete()
+                throws IOException, ParseException {
+            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
+            // We push an item to start a session
+            final BlockItems headerAsBlockItems =
+                    new BlockItems(List.of(block0.getHeaderUnparsed()), block0.number(), true, false);
+            plugin.handleBlockItemsReceived(headerAsBlockItems);
+            // Now we push that same item again, which starts a new session
+            plugin.handleBlockItemsReceived(headerAsBlockItems);
+            // Now, we expect the cancellation
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            // Assert cancellation received
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
         }
