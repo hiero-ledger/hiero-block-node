@@ -92,16 +92,14 @@ public class ServerStatusServicePluginTest
         assertFalse(response.onlyLatestState());
     }
 
-    /**
-     * Tests that when {@code earliestManagedBlock} is configured higher than the last block currently
-     * held by the node, the reported {@code lastAvailableBlock} is raised to that configured value, while
-     * {@code firstAvailableBlock} is left untouched, so publishers know they can stream later blocks even
-     * though the node only holds older ones.
-     *
-     * @throws ParseException if there is an error parsing the response
-     */
+    /// Tests that when `earliestManagedBlock` is configured higher than the last block currently
+    /// held by the node, the reported `lastAvailableBlock` is \`-1\` (unknown block), while
+    /// `firstAvailableBlock` is left untouched, so publishers know they can stream later blocks even
+    /// though the node only holds older ones.
+    ///
+    /// @throws ParseException if there is an error parsing the response
     @Test
-    @DisplayName("Should raise lastAvailableBlock to earliestManagedBlock when node holds only older blocks")
+    @DisplayName("Should return -1 for lastAvailableBlock when < earliestManagedBlock and node holds only older blocks")
     void shouldRaiseLastAvailableBlockToEarliestManagedBlock() throws ParseException {
         final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
         start(
@@ -116,7 +114,7 @@ public class ServerStatusServicePluginTest
         final ServerStatusResponse response = standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getLast());
 
         assertEquals(0, response.firstAvailableBlock());
-        assertEquals(100, response.lastAvailableBlock());
+        assertEquals(-1, response.lastAvailableBlock());
     }
 
     /**
