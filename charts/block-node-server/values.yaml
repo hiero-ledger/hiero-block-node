@@ -63,6 +63,16 @@ loadBalancer:
     # - 203.0.113.0/24  # your clients
     # - 35.191.0.0/16   # GCP health check (example)
     # - 130.211.0.0/22  # GCP health check (example)
+  # When true, all non-null blockNode.ports entries are added to the LB Service in addition to
+  # the primary port. Requires each plugin port to be distinct from loadBalancer.port.
+  includePluginPorts: false
+  # Explicit additional ports to expose on the LB Service (beyond the primary port and any
+  # plugin ports included via includePluginPorts). Each entry must have a unique name and port.
+  extraPorts: []
+  # - name: my-extra
+  #   port: 40845
+  #   targetPort: 40845   # optional; defaults to port value
+  #   protocol: TCP       # optional; defaults to TCP
 
 ingress:
   enabled: false

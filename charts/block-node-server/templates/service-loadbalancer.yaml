@@ -25,6 +25,15 @@ spec:
       port: {{ default .Values.service.port .Values.loadBalancer.port }}
       targetPort: {{ default "http" .Values.loadBalancer.targetPort }}
       protocol: {{ default "TCP" .Values.loadBalancer.protocol }}
+    {{- if .Values.loadBalancer.includePluginPorts }}
+    {{- include "hiero-block-node.pluginServicePorts" . | nindent 4 }}
+    {{- end }}
+    {{- range .Values.loadBalancer.extraPorts }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ default .port .targetPort }}
+      protocol: {{ default "TCP" .protocol }}
+    {{- end }}
   {{- with .Values.loadBalancer.loadBalancerSourceRanges }}
   loadBalancerSourceRanges:
     {{- toYaml . | nindent 4 }}
