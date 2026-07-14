@@ -165,7 +165,7 @@ jobs:
           APP_VERSION=$(cat version.txt)
           helm install bn-multi-port-test charts/block-node-server \
             --namespace default \
-            --values charts/block-node-server/ci/multi-port-values.yaml \
+            --values charts/block-node-server/ci/multi-port/multi-port-values.yaml \
             --set image.tag="${APP_VERSION}" \
             --wait \
             --timeout 300s
@@ -237,6 +237,193 @@ jobs:
             failed=1
           else
             echo "OK (health plugin correctly on 40940, not on shared server.port 40840 as configured)"
+          fi
+
+          kill ${PF_PID} 2>/dev/null || true
+          exit ${failed}
+
+  lb-multi-port-install-test:
+    timeout-minutes: 20
+    name: LoadBalancer Multi-Port Install Test
+    runs-on: hl-bn-lin-md
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Check if install test is needed
+        id: install-needed
+        run: |
+          changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
+          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|build\.gradle\.kts)|charts/|tools-and-tests/simulator/(docker/|build\.gradle\.kts))"; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "Image/chart/build files changed - will run LB multi-port test"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "No relevant changes - skipping LB multi-port install test"
+          fi
+
+      - name: Set up Helm
+        if: steps.install-needed.outputs.needed == 'true'
+        uses: Azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.14.4
+
+      - name: Set up Java
+        if: steps.install-needed.outputs.needed == 'true'
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Create kind cluster
+        if: steps.install-needed.outputs.needed == 'true'
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+
+      - name: Build Docker images
+        if: steps.install-needed.outputs.needed == 'true'
+        run: ${CGEXEC} ./gradlew :app:createDockerImage
+
+      - name: Load image into kind
+        if: steps.install-needed.outputs.needed == 'true'
+        run: |
+          APP_VERSION=$(cat version.txt)
+          docker tag "block-node-server:${APP_VERSION}" "ghcr.io/hiero-ledger/hiero-block-node:${APP_VERSION}"
+          kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node:${APP_VERSION}" --name chart-testing
+
+      - name: Update chart dependencies
+        if: steps.install-needed.outputs.needed == 'true'
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm dependency update charts/block-node-server
+
+      - name: Install chart with LB multi-port values
+        if: steps.install-needed.outputs.needed == 'true'
+        run: |
+          APP_VERSION=$(cat version.txt)
+          # Do NOT use --wait: Helm waits for LB Services to receive an external IP, which
+          # never happens in kind without MetalLB. Wait for pod readiness explicitly instead.
+          helm install bn-lb-multi-port-test charts/block-node-server \
+            --namespace default \
+            --values charts/block-node-server/ci/lb/lb-multi-port-values.yaml \
+            --set image.tag="${APP_VERSION}" \
+            --timeout 300s
+          kubectl wait pod \
+            -n default \
+            -l app.kubernetes.io/instance=bn-lb-multi-port-test \
+            --for=condition=Ready \
+            --timeout=300s
+
+      - name: Verify LB Service exposes all expected ports
+        if: steps.install-needed.outputs.needed == 'true'
+        run: |
+          # The LB Service should expose 7 ports:
+          #   grpc (40840), health (40983), publisher (40984), subscriber (40980),
+          #   block-access (40981), server-status (40982), extra-test (40945)
+          EXPECTED_PORTS="40840 40945 40980 40981 40982 40983 40984"
+          EXPECTED_COUNT=$(echo "${EXPECTED_PORTS}" | wc -w | tr -d ' ')
+
+          SVC_NAME="bn-lb-multi-port-test-block-node-server-external"
+          ACTUAL_PORTS=$(kubectl get service -n default "${SVC_NAME}" -o json \
+            | jq -r '.spec.ports[].port' | sort -n | tr '\n' ' ' | sed 's/ $//')
+          ACTUAL_COUNT=$(kubectl get service -n default "${SVC_NAME}" -o json \
+            | jq '.spec.ports | length')
+
+          echo "Expected ports: ${EXPECTED_PORTS}"
+          echo "Actual ports:   ${ACTUAL_PORTS}"
+
+          failed=0
+
+          if [ "${ACTUAL_COUNT}" -ne "${EXPECTED_COUNT}" ]; then
+            echo "FAIL: LB Service has ${ACTUAL_COUNT} port(s), expected ${EXPECTED_COUNT}"
+            failed=1
+          else
+            echo "OK: LB Service port count matches (${ACTUAL_COUNT})"
+          fi
+
+          for p in ${EXPECTED_PORTS}; do
+            if echo "${ACTUAL_PORTS}" | grep -qw "${p}"; then
+              echo "OK: port ${p} present in LB Service"
+            else
+              echo "FAIL: port ${p} missing from LB Service"
+              failed=1
+            fi
+          done
+
+          exit ${failed}
+
+      - name: Verify per-plugin ports are reachable via pod port-forward
+        if: steps.install-needed.outputs.needed == 'true'
+        run: |
+          POD=$(kubectl get pod -n default -l app.kubernetes.io/instance=bn-lb-multi-port-test -o jsonpath='{.items[0].metadata.name}')
+          echo "Testing pod: ${POD}"
+
+          # Forward all plugin ports and the shared server.port to the local runner
+          kubectl port-forward -n default "pod/${POD}" 40840:40840 40980:40980 40981:40981 40982:40982 40983:40983 40984:40984 &
+          PF_PID=$!
+          sleep 5
+
+          failed=0
+
+          # Health port (40983): HTTP liveness endpoint
+          echo "--- port 40983 (health) ---"
+          if curl -sf --max-time 5 http://localhost:40983/healthz/livez; then
+            echo "OK"
+          else
+            echo "FAIL: health port 40983 did not respond"
+            failed=1
+          fi
+
+          # Publisher port (40984): TCP connect (gRPC)
+          echo "--- port 40984 (publisher/gRPC) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40984' 2>/dev/null; then
+            echo "OK"
+          else
+            echo "FAIL: publisher port 40984 not reachable"
+            failed=1
+          fi
+
+          # Subscriber port (40980): TCP connect (gRPC)
+          echo "--- port 40980 (subscriber/gRPC) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40980' 2>/dev/null; then
+            echo "OK"
+          else
+            echo "FAIL: subscriber port 40980 not reachable"
+            failed=1
+          fi
+
+          # Block-access port (40981): TCP connect (gRPC)
+          echo "--- port 40981 (block-access/gRPC) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40981' 2>/dev/null; then
+            echo "OK"
+          else
+            echo "FAIL: block-access port 40981 not reachable"
+            failed=1
+          fi
+
+          # Server-status port (40982): TCP connect (HTTP)
+          echo "--- port 40982 (server-status) ---"
+          if timeout 5 bash -c 'echo > /dev/tcp/localhost/40982' 2>/dev/null; then
+            echo "OK"
+          else
+            echo "FAIL: server-status port 40982 not reachable"
+            failed=1
+          fi
+
+          # Confirm that the shared server.port (40840) is NOT serving health plugin traffic
+          echo "--- port 40840 (server.port — health plugin must NOT be here) ---"
+          if curl -sf --max-time 5 http://localhost:40840/healthz/livez 2>/dev/null; then
+            echo "FAIL: health plugin is still on 40840 — expected it on 40983 per test config"
+            failed=1
+          else
+            echo "OK (health plugin correctly on 40983, not on shared server.port 40840)"
           fi
 
           kill ${PF_PID} 2>/dev/null || true
