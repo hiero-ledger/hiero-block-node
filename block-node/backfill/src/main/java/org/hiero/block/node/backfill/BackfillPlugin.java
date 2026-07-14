@@ -549,14 +549,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                             "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
                     LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
                 } else {
-                    // if the scheduler is null or schedule queue is full mark this as a failure for visibility
+                    // The live-tail scheduler is unavailable (plugin not yet started) or its queue is full.
                     // This block will now be picked up during the next periodic autonomous scan of
                     // detectAndScheduleGaps, which will see the block missing from stored ranges on its next tick
                     // and re-detect/resubmit it as a gap
-                    metricsHolder.backfillPersistenceFailures().increment();
-                    final String liveTailSchedulerNullMsg =
-                            "LiveScheduler unavailable. Persistence failed for block=[{0}], unable to requeue for on-demand backfill";
-                    LOGGER.log(INFO, liveTailSchedulerNullMsg, blockNumber);
+                    final String requeueFailedMsg =
+                            "Unable to requeue block=[{0}] for on-demand backfill (scheduler unavailable or queue full)";
+                    LOGGER.log(INFO, requeueFailedMsg, blockNumber);
                 }
             }
             // This will be re-incremented if the block is re-queued for persistence in

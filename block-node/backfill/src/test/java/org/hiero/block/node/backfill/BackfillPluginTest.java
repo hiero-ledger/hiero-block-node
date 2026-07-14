@@ -735,6 +735,41 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     }
 
     @Test
+    @DisplayName("Failed persistence before start() is recorded without requeuing (no live-tail scheduler yet)")
+    void testFailedPersistenceBeforeStartIsHandledGracefully() {
+        final HistoricalBlockFacility historicalBlockFacility = getHistoricalBlockFacility(0, 10);
+        final String backfillSourcePath = testTempDir + "/backfill-source-persist-no-scheduler.json";
+        createTestBlockNodeSourcesFile(
+                BlockNodeSource.newBuilder()
+                        .nodes(BlockNodeSourceConfig.newBuilder()
+                                .address("localhost")
+                                .port(1)
+                                .priority(1)
+                                .build())
+                        .build(),
+                backfillSourcePath);
+        final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .build();
+
+        // init() only: the live-tail scheduler isn't created until start(), so a failed persistence
+        // notification arriving in this window can't be requeued on-demand and must fall back to the
+        // periodic autonomous scan instead.
+        doInit(new BackfillPlugin(), historicalBlockFacility, null, configOverride, Map.of());
+
+        blockMessaging.sendBlockPersisted(new PersistedNotification(42L, false, 10, BlockSource.BACKFILL));
+
+        assertEquals(
+                1L,
+                getMetricValue(BackfillPlugin.METRIC_BACKFILL_PERSISTENCE_FAILURES),
+                "Should record the persistence failure even when the live-tail scheduler isn't available yet");
+        assertEquals(
+                1,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "Should not trigger any further activity beyond the injected failed notification itself");
+    }
+
+    @Test
     @DisplayName("On-Demand Backfill - TSS Wraps Transition Block (466)")
     void testBackfillOnDemandTssWrapsBlock() throws InterruptedException, IOException, ParseException {
         final BlockUtils.SampleBlockInfo tssBlockInfo =
