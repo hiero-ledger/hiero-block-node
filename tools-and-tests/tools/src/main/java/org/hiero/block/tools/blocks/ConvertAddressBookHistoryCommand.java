@@ -223,7 +223,7 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             // endBlock defaults to -1 (OPEN_ENDED_END_BLOCK sentinel, used only for the last
             // era). PBJ's parse side reconstructs the same values from either shape, so the
             // BN loader is unaffected.
-            ensureExplicitStartAndEndBlock(tmp);
+            ensureExplicitPbjDefaults(tmp);
             Files.move(tmp, outputFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
             Files.deleteIfExists(tmp);

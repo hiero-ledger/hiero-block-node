@@ -292,8 +292,9 @@ service BlockNodeService {
  * RSA public keys.
  *
  * Entries MUST be ordered by start_block ascending and MUST NOT overlap.
- * The last entry typically has end_block = 0, meaning it covers all block
- * numbers >= start_block with no upper bound (open-ended).
+ * The last entry typically has end_block = -1 (rendered as -1 by PBJ's JSON
+ * codec; equivalently the max uint64 value in wire form), meaning it covers
+ * all block numbers >= start_block with no upper bound (open-ended).
  *
  * On-disk format: JSON-serialized via PBJ's RangedAddressBookHistory.JSON
  * codec, written to the path configured by app.state.rsaAddressBookHistoryFilePath
@@ -317,9 +318,9 @@ message RangedAddressBookHistory {
  * The address book is valid for all blocks whose block number satisfies:
  *   start_block &le; block_number &le; end_block
  *
- * When end_block is 0 the entry is open-ended: it covers all blocks with
- * block number >= start_block. Only the last entry in a
- * RangedAddressBookHistory should have end_block = 0.
+ * When end_block is -1 (max uint64 in wire form) the entry is open-ended:
+ * it covers all blocks with block number >= start_block. Only the last entry
+ * in a RangedAddressBookHistory should have end_block = -1.
  */
 message RangedNodeAddressBook {
     /**
@@ -337,9 +338,12 @@ message RangedNodeAddressBook {
 
     /**
      * The last block number for which this address book is valid (inclusive).
-     * A value of 0 is a sentinel meaning open-ended: this address book covers
-     * all blocks with block number &ge; start_block.
-     * All entries except the last MUST have end_block &gt; 0.
+     * A value of -1 (max uint64 in wire form, rendered as "-1" by PBJ's JSON
+     * codec) is a sentinel meaning open-ended: this address book covers all
+     * blocks with block number &ge; start_block.
+     * Only the last entry in a RangedAddressBookHistory should carry the
+     * open-ended sentinel; every other entry MUST have a finite end_block
+     * &ge; its own start_block.
      */
     uint64 end_block = 3;
 }
