@@ -52,9 +52,9 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
         S3_ERROR,
         /// An I/O error occurred while streaming bytes to S3.
         IO_ERROR,
-        /// An unchecked exception escaped the {@link S3UploadClient}, violating its documented
-        /// `throws` contract. Kept distinct from {@link #IO_ERROR}/{@link #S3_ERROR} so metrics
-        /// and logs surface it as an anomaly rather than a routine transport/service failure.
+        /// An unchecked exception escaped the {@link S3UploadClient}. Kept distinct from
+        /// {@link #IO_ERROR}/{@link #S3_ERROR} so metrics and logs surface it as an anomaly
+        /// rather than a routine transport/service failure.
         UNEXPECTED_ERROR
     }
 
@@ -153,9 +153,8 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
             return new UploadResult(
                     blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
         } catch (final RuntimeException e) {
-            // Defensive: guards against any S3UploadClient implementation leaking an unchecked
-            // exception in violation of its documented `throws` contract, keeping this class's
-            // own "never throws, always returns a result" promise unconditionally true.
+            // Defensive: guards against any S3UploadClient implementation leaking an unchecked exception,
+            // keeping this class's own "never throws, always returns a result" promise unconditionally true.
             final String msg = "Block " + blockNumber + ": unexpected exception during upload";
             LOGGER.log(WARNING, msg, e);
             return new UploadResult(
