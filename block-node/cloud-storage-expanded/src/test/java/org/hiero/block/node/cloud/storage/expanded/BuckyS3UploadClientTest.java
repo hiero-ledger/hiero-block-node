@@ -57,8 +57,8 @@ class BuckyS3UploadClientTest {
     }
 
     @Test
-    @DisplayName("uploadFile unwraps bucky's UncheckedIOException as a checked IOException")
-    void uploadFileUnwrapsUncheckedIOExceptionAsIOException() throws Exception {
+    @DisplayName("uploadFile throws a checked IOException when the connection is refused")
+    void uploadFileThrowsCheckedIOExceptionOnConnectionFailure() throws Exception {
         final BuckyS3UploadClient client = new BuckyS3UploadClient(configFor("http://127.0.0.1:" + closedPort() + "/"));
 
         assertThrows(

@@ -90,8 +90,8 @@ class SingleBlockStoreTaskTest {
     }
 
     /// Returns an {@link S3UploadClient} that always throws {@link UncheckedIOException} —
-    /// simulates bucky's internal HTTP layer wrapping a transport failure as an unchecked
-    /// exception instead of the checked {@link IOException} its methods declare.
+    /// simulates an implementation that leaks a transport failure as an unchecked exception
+    /// instead of the checked {@link IOException} its interface method declares.
     private S3UploadClient throwingUncheckedIoClient() {
         return new S3UploadClient() {
             @Override
