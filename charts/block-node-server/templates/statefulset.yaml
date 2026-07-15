@@ -72,6 +72,11 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.blockNode.persistence.plugins.existingClaim }}
         {{- end }}
+        {{- if and .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.enabled .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.existingClaim }}
+        - name: {{ default "cloud-storage-expanded-retry-staging" .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.volumeName }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.existingClaim }}
+        {{- end }}
       {{- if or .Values.blockNode.initContainers .Values.plugins.names .Values.blockNode.persistence.plugins.existingClaim }}
       initContainers:
         {{- with .Values.blockNode.initContainers }}
@@ -252,6 +257,10 @@ spec:
             mountPath: /opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}/plugins
             readOnly: true
           {{- end }}
+          {{- if .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.enabled }}
+          - name: {{ default "cloud-storage-expanded-retry-staging" .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.volumeName }}
+            mountPath: {{ .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.mountPath }}
+          {{- end }}
         {{- with  .Values.resources }}
         {{- if not (and .limits .requests) }}
           {{- fail "Both resource requests and limits must be specified for containers" }}
@@ -351,5 +360,18 @@ spec:
             storage: {{ .Values.blockNode.persistence.plugins.size }}
         {{- if .Values.blockNode.persistence.plugins.storageClass }}
         storageClassName: {{ .Values.blockNode.persistence.plugins.storageClass }}
+        {{- end }}
+    {{- end }}
+    {{- if and .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.enabled (not .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.existingClaim) }}
+    - metadata:
+        name: {{ default "cloud-storage-expanded-retry-staging" .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.volumeName }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.size }}
+        {{- if .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.storageClass }}
+        storageClassName: {{ .Values.blockNode.persistence.cloudStorageExpandedRetryStaging.storageClass }}
         {{- end }}
     {{- end }}

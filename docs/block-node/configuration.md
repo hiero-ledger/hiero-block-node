@@ -335,16 +335,23 @@ Uploads each verified block as a single ZSTD-compressed `.blk.zstd` object to an
 S3-compatible store (AWS S3, GCS S3-interop, MinIO, etc.). The plugin is **disabled by
 default** — setting `CLOUD_EXPANDED_ENDPOINT_URL` to a non-empty value activates it.
 
-| ENV Variable                                  | Description                                                                                     |  Default |
-|:----------------------------------------------|:------------------------------------------------------------------------------------------------|---------:|
-| CLOUD_STORAGE_EXPANDED_ENDPOINT_URL           | S3-compatible endpoint URL. **Blank disables the plugin.**                                      |       "" |
-| CLOUD_STORAGE_EXPANDED_BUCKET_NAME            | Name of the S3 bucket where blocks are stored. Required; must not be blank.                     |       "" |
-| CLOUD_STORAGE_EXPANDED_OBJECT_KEY_PREFIX      | Prefix prepended to every object key (e.g. `blocks`). Set to `""` for no prefix.                |       "" |
-| CLOUD_STORAGE_EXPANDED_STORAGE_CLASS          | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version. | STANDARD |
-| CLOUD_STORAGE_EXPANDED_REGION_NAME            | AWS / S3-compatible region name. Required; must not be blank.                                   |       "" |
-| CLOUD_STORAGE_EXPANDED_ACCESS_KEY             | S3 access key (not logged).                                                                     |       "" |
-| CLOUD_STORAGE_EXPANDED_SECRET_KEY             | S3 secret key (not logged).                                                                     |       "" |
-| CLOUD_STORAGE_EXPANDED_UPLOAD_TIMEOUT_SECONDS | Max seconds per block upload before treating the upload as failed.                              |       60 |
+| ENV Variable                                        | Description                                                                                     |                                                    Default |
+|:----------------------------------------------------|:------------------------------------------------------------------------------------------------|-----------------------------------------------------------:|
+| CLOUD_STORAGE_EXPANDED_ENDPOINT_URL                 | S3-compatible endpoint URL. **Blank disables the plugin.**                                      |                                                         "" |
+| CLOUD_STORAGE_EXPANDED_BUCKET_NAME                  | Name of the S3 bucket where blocks are stored. Required; must not be blank.                     |                                                         "" |
+| CLOUD_STORAGE_EXPANDED_OBJECT_KEY_PREFIX            | Prefix prepended to every object key (e.g. `blocks`). Set to `""` for no prefix.                |                                                         "" |
+| CLOUD_STORAGE_EXPANDED_STORAGE_CLASS                | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version. |                                                   STANDARD |
+| CLOUD_STORAGE_EXPANDED_REGION_NAME                  | AWS / S3-compatible region name. Required; must not be blank.                                   |                                                         "" |
+| CLOUD_STORAGE_EXPANDED_ACCESS_KEY                   | S3 access key (not logged).                                                                     |                                                         "" |
+| CLOUD_STORAGE_EXPANDED_SECRET_KEY                   | S3 secret key (not logged).                                                                     |                                                         "" |
+| CLOUD_STORAGE_EXPANDED_UPLOAD_TIMEOUT_SECONDS       | Max seconds per block upload before treating the upload as failed.                              |                                                         60 |
+| CLOUD_STORAGE_EXPANDED_RETRY_ENABLED                | Stage failed uploads to disk and retry them in the background instead of failing immediately.   |                                                       true |
+| CLOUD_STORAGE_EXPANDED_RETRY_STAGING_DIRECTORY_PATH | Directory where compressed bytes of failed uploads are staged for background retry.             | /opt/hiero/block-node/cloud-storage-expanded/retry-staging |
+| CLOUD_STORAGE_EXPANDED_RETRY_INTERVAL_SECONDS       | How often the background retry tick scans for staged blocks due for another attempt.            |                                                         30 |
+| CLOUD_STORAGE_EXPANDED_RETRY_BASE_BACKOFF_SECONDS   | Initial backoff delay before the first retry attempt.                                           |                                                         30 |
+| CLOUD_STORAGE_EXPANDED_RETRY_MAX_BACKOFF_SECONDS    | Upper bound on the exponential backoff delay between retries.                                   |                                                        900 |
+| CLOUD_STORAGE_EXPANDED_RETRY_MAX_ATTEMPTS           | Maximum retry attempts before a staged block is dropped and reported as a terminal failure.     |                                                         20 |
+| CLOUD_STORAGE_EXPANDED_RETRY_MAX_AGE_HOURS          | Maximum time a block may remain staged for retry, regardless of retry attempt count.            |                                                          6 |
 
 Object keys follow the format `{prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`, where the
 19-digit zero-padded block number is split into a 4/4/4/4/3 folder hierarchy:

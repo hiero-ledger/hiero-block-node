@@ -125,6 +125,7 @@ class ExpandedCloudStoragePluginIntegrationTest
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", s3Endpoint,
                         "cloud.storage.expanded.bucketName", BUCKET_NAME,
                         "cloud.storage.expanded.objectKeyPrefix", "blocks",
@@ -156,6 +157,7 @@ class ExpandedCloudStoragePluginIntegrationTest
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", s3Endpoint,
                         "cloud.storage.expanded.bucketName", BUCKET_NAME,
                         "cloud.storage.expanded.objectKeyPrefix", "intblocks",
@@ -187,6 +189,7 @@ class ExpandedCloudStoragePluginIntegrationTest
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", s3Endpoint,
                         "cloud.storage.expanded.bucketName", BUCKET_NAME,
                         "cloud.storage.expanded.objectKeyPrefix", "",
@@ -214,6 +217,7 @@ class ExpandedCloudStoragePluginIntegrationTest
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", s3Endpoint,
                         "cloud.storage.expanded.bucketName", BUCKET_NAME,
                         "cloud.storage.expanded.objectKeyPrefix", "roundtrip",
@@ -265,6 +269,7 @@ class ExpandedCloudStoragePluginIntegrationTest
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", s3Endpoint,
                         "cloud.storage.expanded.bucketName", BUCKET_NAME,
                         "cloud.storage.expanded.objectKeyPrefix", "badcreds",
@@ -289,6 +294,7 @@ class ExpandedCloudStoragePluginIntegrationTest
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", s3Endpoint,
                         "cloud.storage.expanded.bucketName", BUCKET_NAME,
                         "cloud.storage.expanded.objectKeyPrefix", "concurrent",
@@ -316,6 +322,7 @@ class ExpandedCloudStoragePluginIntegrationTest
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", s3Endpoint,
                         "cloud.storage.expanded.bucketName", BUCKET_NAME,
                         "cloud.storage.expanded.objectKeyPrefix", "metrics",
