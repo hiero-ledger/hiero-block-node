@@ -18,6 +18,7 @@ import picocli.CommandLine.Spec;
             LsBlockFiles.class,
             ValidateBlocksCommand.class,
             ValidateSidecarsCommand.class,
+            FindBlockCommand.class,
             ToWrappedBlocksCommand.class,
             FetchBalanceCheckpointsCommand.class,
             RepairZipsCommand.class,
