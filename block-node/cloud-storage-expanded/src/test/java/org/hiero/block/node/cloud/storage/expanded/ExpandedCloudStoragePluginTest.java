@@ -21,6 +21,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -30,6 +31,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -636,6 +638,46 @@ class ExpandedCloudStoragePluginTest
                 1L,
                 getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
                 "uploadFailuresTotal must still be incremented for the caught RuntimeException");
+    }
+
+    @Test
+    @DisplayName("RejectedExecutionException from an already-stopped messaging facility is caught during publish")
+    void rejectedExecutionExceptionDuringPublishIsCaught() throws InterruptedException {
+        // Simulates BlockNodeApp shutdown ordering: the messaging facility's own stop() runs
+        // before this plugin's, so a late-completing upload's attempt to publish can find the
+        // messaging facility's executor already terminated.
+        blockMessaging = new TestBlockMessagingFacility() {
+            @Override
+            public void sendBlockPersisted(final PersistedNotification notification) {
+                throw new RejectedExecutionException("Simulated: messaging facility already stopped");
+            }
+        };
+        final CapturingS3Client capturing = new CapturingS3Client();
+        start(
+                new ExpandedCloudStoragePlugin(capturing),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
+
+        plugin.handleVerification(verifiedNotification(99L, testBlock(99).blockUnparsed()));
+
+        final long deadline = System.currentTimeMillis() + 5_000L;
+        while (System.currentTimeMillis() < deadline && capturing.uploads.isEmpty()) {
+            plugin.drainCompletedTasks();
+            Thread.sleep(10);
+        }
+        // One more drain to process the now-completed upload result.
+        plugin.drainCompletedTasks();
+
+        assertTrue(
+                blockMessaging.getSentPersistedNotifications().isEmpty(),
+                "Notification delivery was rejected, so nothing should be recorded as sent");
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
+                "uploadsTotal must still be incremented even though notification delivery failed");
     }
 
     @Test
