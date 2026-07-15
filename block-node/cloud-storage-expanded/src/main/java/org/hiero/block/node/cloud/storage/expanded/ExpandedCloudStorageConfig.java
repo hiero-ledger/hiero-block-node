@@ -4,6 +4,7 @@ package org.hiero.block.node.cloud.storage.expanded;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Min;
+import java.nio.file.Path;
 import org.hiero.block.node.base.Loggable;
 
 /// Configuration for the expanded cloud storage plugin.
@@ -48,6 +49,19 @@ import org.hiero.block.node.base.Loggable;
 ///                             variables or IAM instance role.
 /// @param uploadTimeoutSeconds maximum seconds to wait for in-flight uploads during
 ///                             `stop()` before treating them as failed. Default: 60.
+/// @param retryEnabled         whether failed uploads are staged to disk and retried in the
+///                             background instead of being reported as failed immediately.
+///                             Default: `true`.
+/// @param retryStagingDirectoryPath directory where compressed bytes of failed uploads are
+///                             staged for background retry.
+/// @param retryIntervalSeconds how often the background retry tick scans for staged blocks
+///                             that are due for another attempt.
+/// @param retryBaseBackoffSeconds initial backoff delay before the first retry attempt.
+/// @param retryMaxBackoffSeconds upper bound on the exponential backoff delay between retries.
+/// @param retryMaxAttempts     maximum number of retry attempts before a staged block is
+///                             dropped and reported as a terminal failure.
+/// @param retryMaxAgeHours     maximum time a block may remain staged for retry, regardless of
+///                             `retryMaxAttempts`, before it is dropped as a terminal failure.
 // spotless:off - long annotations on record components must stay on one line
 @ConfigData("cloud.storage.expanded")
 public record ExpandedCloudStorageConfig(
@@ -58,7 +72,15 @@ public record ExpandedCloudStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "") String regionName,
         @ConfigProperty(defaultValue = "") String accessKey,
         @ConfigProperty(defaultValue = "") String secretKey,
-        @Loggable @ConfigProperty(defaultValue = "60") @Min(1) int uploadTimeoutSeconds) {
+        @Loggable @ConfigProperty(defaultValue = "60") @Min(1) int uploadTimeoutSeconds,
+        @Loggable @ConfigProperty(defaultValue = "true") boolean retryEnabled,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/cloud-storage-expanded/retry-staging")
+                Path retryStagingDirectoryPath,
+        @Loggable @ConfigProperty(defaultValue = "30") @Min(1) int retryIntervalSeconds,
+        @Loggable @ConfigProperty(defaultValue = "30") @Min(1) int retryBaseBackoffSeconds,
+        @Loggable @ConfigProperty(defaultValue = "900") @Min(1) int retryMaxBackoffSeconds,
+        @Loggable @ConfigProperty(defaultValue = "20") @Min(1) int retryMaxAttempts,
+        @Loggable @ConfigProperty(defaultValue = "6") @Min(1) int retryMaxAgeHours) {
 
     /// S3 storage class values accepted by this plugin.
     public enum StorageClass {

@@ -130,11 +130,14 @@ written into a `ByteArrayOutputStream`.
 2. Compressing to ZSTD (`CompressionType.ZSTD.compress(...)`).
 3. Uploading via `S3UploadClient.uploadFile()` directly, relying on S3 SDK connection/socket timeouts.
 
-Returns `UploadResult(blockNumber, status, bytesUploaded, blockSource, uploadDurationNs)`.
+Returns `UploadResult(blockNumber, status, bytesUploaded, blockSource, uploadDurationNs, stagedForRetry)`.
 The `uploadDurationNs` field records wall-clock time of the upload call in nanoseconds, used
 to populate the latency metric. Failures (`UploadException`, `IOException`) are captured as
 `succeeded=false` and `bytesUploaded=0` so the `CompletionService` always receives a result —
-exceptions never propagate to the caller.
+exceptions never propagate to the caller. On `S3_ERROR` / `IO_ERROR`, the task hands the
+already-compressed bytes to `RetryStagingManager.stage(...)`; `stagedForRetry` reflects whether
+staging succeeded (`false` for `COMPRESSION_ERROR`, since there are no valid bytes to stage, or if
+`stage(...)` itself was rejected).
 
 The `UploadStatus` enum distinguishes failure types:
 
@@ -145,12 +148,39 @@ The `UploadStatus` enum distinguishes failure types:
 | `IO_ERROR`          | `IOException` (transport / socket error)       |
 | `COMPRESSION_ERROR` | Compressed bytes were empty (should not occur) |
 
+### `RetryStagingManager`
+
+Package-private class encapsulating the on-disk retry queue for blocks whose upload failed.
+Each staged block is written as a `{blockNumber}.blk.zstd` blob plus a
+`{blockNumber}.meta.properties` sidecar (via `java.util.Properties`) under
+`retryStagingDirectoryPath`. An in-memory `ConcurrentHashMap<Long, StagedEntry>` mirrors the
+sidecars for fast lookup; `loadExisting()` rebuilds this index from disk on `start()` so blocks
+staged before a restart are not lost — any sidecar/blob file whose counterpart is missing, or
+whose filename or content cannot be parsed, is logged and deleted rather than crashing startup.
+
+Key operations: `stage(...)` (writes both files; no-op returning `false` if `retryEnabled` is
+`false`), `dueForRetry(now)` (entries whose backoff has elapsed), `readBytes(entry)`,
+`unstage(blockNumber)` (deletes both files), and `recordFailure(blockNumber)` (grows the
+backoff exponentially — `delay = min(baseBackoff << (attempts-1), maxBackoff)` — and returns
+`EXHAUSTED` once `retryMaxAttempts` or `retryMaxAgeHours` is exceeded, at which point both files
+are deleted).
+
+### `RetryUploadTask`
+
+Package-private `Callable<UploadResult>` used for retry attempts. Takes the block number,
+pre-compressed bytes read back from disk, and the upload target; calls
+`S3UploadClient.uploadFile(...)` directly — no compression step, since the bytes were already
+compressed when originally staged. Reuses `SingleBlockStoreTask.UploadResult`; `stagedForRetry`
+is always `false` on its results, since the retry pipeline in `ExpandedCloudStoragePlugin`
+handles staging bookkeeping itself (`unstage` / `recordFailure`) rather than re-staging an
+already-staged block.
+
 ### `ExpandedCloudStorageConfig`
 
 `@ConfigData("cloud.storage.expanded")` record carrying all plugin settings. The
 `storageClass` field is typed as `StorageClass` (an enum), which causes the config
-framework to reject unknown values at startup. The `uploadTimeoutSeconds` field carries
-`@Min(1)` for framework-level range validation.
+framework to reject unknown values at startup. `uploadTimeoutSeconds` and the `retry*` numeric
+fields carry `@Min(1)` for framework-level range validation.
 
 ### `ExpandedCloudStoragePlugin`
 
@@ -162,6 +192,12 @@ The notification handler is always registered during `init()`. If `start()` fail
 the S3 client (blank endpoint URL, bad credentials, unreachable endpoint), `s3Client` remains
 `null` and all `handleVerification` calls are no-ops for the duration of the process
 (`completionService` is always created regardless).
+
+When `retryEnabled` is `true`, `start()` also creates the staging directory, calls
+`RetryStagingManager.loadExisting()`, and schedules `retryStagedBlocks()` on a dedicated
+single-thread scheduled executor (`ThreadPoolManager.createSingleThreadScheduledExecutor`) at
+`retryIntervalSeconds` intervals. `stop()` shuts this scheduler down first (`shutdownNow()` — no
+await needed, since staged files persist on disk and are picked up again by the next `start()`).
 
 ## Design
 
@@ -216,10 +252,46 @@ block number.
 `uploadFailuresTotal` and logs WARNING. No `PersistedNotification` is sent for this case.
 
 **`publishResult(result)`** — called per staged result in ascending block-number order:
-1. Publishes `PersistedNotification(blockNumber, succeeded, 0, blockSource)`.
-2. On failure: increments `uploadFailuresTotal`, logs INFO.
-3. On success: increments `uploadsTotal` and `uploadBytesTotal` by `bytesUploaded`.
+1. On success: publishes `PersistedNotification(blockNumber, true, 0, blockSource)`; increments
+`uploadsTotal` and `uploadBytesTotal` by `bytesUploaded`.
+2. On failure **with** `stagedForRetry == true`: publishes **no** notification yet — logs INFO and
+updates the `cloud_expanded_pending_retry_blocks` gauge. The deferred `succeeded=false` fires
+later, only once retries are exhausted (see [Background retry](#background-retry) below).
+3. On failure **without** `stagedForRetry` (compression error, or retry disabled/staging
+rejected): publishes `PersistedNotification(blockNumber, false, 0, blockSource)` immediately;
+increments `uploadFailuresTotal`, logs INFO.
 4. Always increments `uploadLatencyNs` by `uploadDurationNs`.
+
+### Background retry
+
+**Why deferred, not immediate, on failure:** two downstream consumers overreact to an immediate
+`succeeded=false` for what may be a merely-transient S3 error — `LiveStreamPublisherManager`
+tears down all live publisher connections for `BlockSource.PUBLISHER`, and `BackfillPlugin`
+re-fetches the block from a peer. Since the block already passed verification and just needs an
+S3 retry, `succeeded=false` is deferred until local retries are exhausted (or staging itself
+isn't possible) rather than sent on the first failure.
+
+When `retryStagingDirectoryPath()` and enough attempts remain, a failed upload's compressed bytes
+are staged via `RetryStagingManager.stage(...)` instead of being discarded. The scheduled tick
+`retryStagedBlocks()`:
+1. Returns immediately if `s3Client == null`.
+2. For each `RetryStagingManager.dueForRetry(now)` entry not already retrying
+(`retryInFlight` guards against a second concurrent attempt for the same block), submits a
+`RetryUploadTask` on `virtualThreadExecutor` — independent of `completionService` /
+`pendingPublish`, since that machinery exists to keep the *live* stream monotonically
+increasing, and retries are out-of-band corrections for already-verified blocks.
+
+`processRetryResult(entry, result)` applies the outcome:
+- **Success**: `RetryStagingManager.unstage(...)`, publish `PersistedNotification(true)`,
+increment `retrySuccessTotal` + `uploadsTotal` + `uploadBytesTotal`.
+- **Failure, `RETRYING`**: `RetryStagingManager.recordFailure(...)` grows the backoff; log DEBUG;
+no notification yet.
+- **Failure, `EXHAUSTED`**: publish `PersistedNotification(false)`, increment
+`retryExhaustedTotal` + `uploadFailuresTotal`, log WARNING — this is the "silently missing"
+failure mode the feature exists to surface.
+
+The `cloud_expanded_pending_retry_blocks` gauge is refreshed after every outcome that changes the
+staged set.
 
 ### Object key format
 
@@ -316,14 +388,21 @@ classDiagram
         -virtualThreadExecutor: ExecutorService
         -pendingPublish: ConcurrentSkipListMap
         -metricsHolder: MetricsHolder
+        -threadPoolManager: ThreadPoolManager
+        -stagingManager: RetryStagingManager
+        -retryScheduler: ScheduledExecutorService
+        -retryInFlight: Set~Long~
         +init(context, serviceBuilder)
         +start()
         +stop()
         +handleVerification(notification)
         +buildBlockObjectKey(blockNumber) String
         ~drainCompletedTasks()
+        ~retryStagedBlocks()
         -processCompletedFuture(future)
         -publishResult(result)
+        -executeRetry(entry)
+        -processRetryResult(entry, result)
     }
     class SingleBlockStoreTask {
         -blockNumber: long
@@ -331,6 +410,7 @@ classDiagram
         -s3Client: S3UploadClient
         -objectKey: String
         -storageClass: String
+        -stagingManager: RetryStagingManager
         +call() UploadResult
     }
     class UploadResult {
@@ -339,14 +419,39 @@ classDiagram
         +bytesUploaded: long
         +blockSource: BlockSource
         +uploadDurationNs: long
+        +stagedForRetry: boolean
         +succeeded() boolean
+    }
+    class RetryStagingManager {
+        -config: ExpandedCloudStorageConfig
+        -staged: ConcurrentHashMap
+        +stage(blockNumber, bytes, objectKey, storageClass, blockSource) boolean
+        +loadExisting()
+        +dueForRetry(now) List~StagedEntry~
+        +readBytes(entry) byte[]
+        +unstage(blockNumber)
+        +recordFailure(blockNumber) RetryOutcome
+        +pendingCount() int
+    }
+    class RetryUploadTask {
+        -blockNumber: long
+        -compressedBytes: byte[]
+        -s3Client: S3UploadClient
+        -objectKey: String
+        -storageClass: String
+        +call() UploadResult
     }
     S3UploadClient <|.. BuckyS3UploadClient
     BuckyS3UploadClient ..> UploadException : throws
     ExpandedCloudStoragePlugin --> S3UploadClient
     ExpandedCloudStoragePlugin --> SingleBlockStoreTask : submits
+    ExpandedCloudStoragePlugin --> RetryUploadTask : submits
+    ExpandedCloudStoragePlugin --> RetryStagingManager
     SingleBlockStoreTask --> S3UploadClient
     SingleBlockStoreTask --> UploadResult : returns
+    SingleBlockStoreTask --> RetryStagingManager : stages on failure
+    RetryUploadTask --> S3UploadClient
+    RetryUploadTask --> UploadResult : returns
     ExpandedCloudStoragePlugin --> ExpandedCloudStorageConfig
 ```
 
@@ -354,16 +459,29 @@ classDiagram
 
 All properties are under the `cloud.storage.expanded` namespace.
 
-|                   Property                    |  Default   |                                              Description                                              |
-|-----------------------------------------------|------------|-------------------------------------------------------------------------------------------------------|
-| `cloud.storage.expanded.endpointUrl`          | `""`       | S3-compatible endpoint URL. **Required. Blank value causes plugin to log a WARNING and be inactive.** |
-| `cloud.storage.expanded.bucketName`           | `""`       | Name of the S3 bucket. Required when plugin is active.                                                |
-| `cloud.storage.expanded.objectKeyPrefix`      | `""`       | Prefix prepended to every object key. Set to empty string for no prefix.                              |
-| `cloud.storage.expanded.storageClass`         | `STANDARD` | S3 storage class (`STANDARD`). Validated as enum at startup.                                          |
-| `cloud.storage.expanded.regionName`           | `""`       | AWS / S3-compatible region. Required when plugin is active.                                           |
-| `cloud.storage.expanded.accessKey`            | `""`       | S3 access key (not logged). Leave blank to use env vars or IAM role.                                  |
-| `cloud.storage.expanded.secretKey`            | `""`       | S3 secret key (not logged). Leave blank to use env vars or IAM role.                                  |
-| `cloud.storage.expanded.uploadTimeoutSeconds` | `60`       | Max seconds to wait for in-flight uploads during `stop()`. Min value: 1.                              |
+|                      Property                      |                           Default                            |                                                Description                                                |
+|----------------------------------------------------|--------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| `cloud.storage.expanded.endpointUrl`               | `""`                                                         | S3-compatible endpoint URL. **Required. Blank value causes plugin to log a WARNING and be inactive.**     |
+| `cloud.storage.expanded.bucketName`                | `""`                                                         | Name of the S3 bucket. Required when plugin is active.                                                    |
+| `cloud.storage.expanded.objectKeyPrefix`           | `""`                                                         | Prefix prepended to every object key. Set to empty string for no prefix.                                  |
+| `cloud.storage.expanded.storageClass`              | `STANDARD`                                                   | S3 storage class (`STANDARD`). Validated as enum at startup.                                              |
+| `cloud.storage.expanded.regionName`                | `""`                                                         | AWS / S3-compatible region. Required when plugin is active.                                               |
+| `cloud.storage.expanded.accessKey`                 | `""`                                                         | S3 access key (not logged). Leave blank to use env vars or IAM role.                                      |
+| `cloud.storage.expanded.secretKey`                 | `""`                                                         | S3 secret key (not logged). Leave blank to use env vars or IAM role.                                      |
+| `cloud.storage.expanded.uploadTimeoutSeconds`      | `60`                                                         | Max seconds to wait for in-flight uploads during `stop()`. Min value: 1.                                  |
+| `cloud.storage.expanded.retryEnabled`              | `true`                                                       | Whether failed uploads are staged to disk and retried in the background instead of failing immediately.   |
+| `cloud.storage.expanded.retryStagingDirectoryPath` | `/opt/hiero/block-node/cloud-storage-expanded/retry-staging` | Directory where compressed bytes of failed uploads are staged for background retry.                       |
+| `cloud.storage.expanded.retryIntervalSeconds`      | `30`                                                         | How often the background retry tick scans for staged blocks due for another attempt. Min value: 1.        |
+| `cloud.storage.expanded.retryBaseBackoffSeconds`   | `30`                                                         | Initial backoff delay before the first retry attempt. Min value: 1.                                       |
+| `cloud.storage.expanded.retryMaxBackoffSeconds`    | `900`                                                        | Upper bound on the exponential backoff delay between retries. Min value: 1.                               |
+| `cloud.storage.expanded.retryMaxAttempts`          | `20`                                                         | Maximum retry attempts before a staged block is dropped and reported as a terminal failure. Min value: 1. |
+| `cloud.storage.expanded.retryMaxAgeHours`          | `6`                                                          | Maximum time a block may remain staged for retry, regardless of `retryMaxAttempts`. Min value: 1.         |
+
+**Why `retryMaxAgeHours` defaults to 6, not higher:** at the default backoff settings,
+`retryMaxAttempts=20` alone already exhausts a block after ~4h of cumulative backoff (the
+exponential delay hits the 900s cap on the 5th retry). So `retryMaxAttempts` is the bound that
+actually binds in practice; `retryMaxAgeHours` is set a bit above that as a secondary backstop,
+not the primary ceiling. Tune the two together if you change the backoff settings.
 
 ### Credential options
 
@@ -384,24 +502,33 @@ All counters are registered under the `hiero_block_node` Prometheus category via
 `MetricsHolder.createMetrics(MetricRegistry)` in `start()`. Each counter uses the
 `org.hiero.metrics.LongCounter` / `MetricKey` API.
 
-|              Metric name               |                                   Description                                    |
-|----------------------------------------|----------------------------------------------------------------------------------|
-| `cloud_expanded_total_uploads`         | Number of blocks successfully uploaded to S3-compatible storage.                 |
-| `cloud_expanded_total_upload_failures` | Number of block uploads that failed (S3 error, timeout, compression error).      |
-| `cloud_expanded_total_upload_bytes`    | Total compressed bytes successfully uploaded to S3-compatible storage.           |
-| `cloud_expanded_upload_latency_ns`     | Total wall-clock time spent in upload calls, in nanoseconds (success + failure). |
+|              Metric name               |                                                        Description                                                         |
+|----------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `cloud_expanded_total_uploads`         | Number of blocks successfully uploaded to S3-compatible storage (first attempt or retry).                                  |
+| `cloud_expanded_total_upload_failures` | Number of block uploads that ended in terminal failure (compression error, retry disabled/rejected, or retries exhausted). |
+| `cloud_expanded_total_upload_bytes`    | Total compressed bytes successfully uploaded to S3-compatible storage.                                                     |
+| `cloud_expanded_upload_latency_ns`     | Total wall-clock time spent in upload calls, in nanoseconds (success + failure).                                           |
+| `cloud_expanded_pending_retry_blocks`  | Gauge: current number of blocks staged on disk and awaiting a background retry upload.                                     |
+| `cloud_expanded_retry_success_total`   | Number of blocks recovered by a later background retry after an initial upload failure.                                    |
+| `cloud_expanded_retry_exhausted_total` | Number of blocks dropped after exhausting all background retry attempts.                                                   |
+
+`cloud_expanded_total_upload_failures` changed meaning with the retry feature: it now counts
+*terminal* failures only, not every single failed attempt — a block that fails once and later
+recovers via retry does **not** increment it.
 
 Counters are registered in `start()`. If `start()` fails (e.g., S3 client creation error),
 `metricsHolder` remains `null` and no counters are registered.
 
 ## Exceptions
 
-|              Exception              |              Source               |                                                                         Handling                                                                          |
-|-------------------------------------|-----------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `UploadException`                   | `S3UploadClient.uploadFile`       | Logged at WARNING; upload marked `S3_ERROR`; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                       |
-| `IOException`                       | `S3UploadClient.uploadFile`       | Logged at WARNING; upload marked `IO_ERROR`; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                       |
-| `UploadException` (init)            | `BuckyS3UploadClient` constructor | Caught in `start()`; logged at WARNING; `s3Client` remains `null`; plugin is effectively inactive (all subsequent `handleVerification` calls are no-ops). |
-| Block bytes empty after compression | `SingleBlockStoreTask.call`       | Logged at WARNING; upload skipped; `PersistedNotification` sent with `succeeded=false` (`COMPRESSION_ERROR` status).                                      |
+|                 Exception                  |                      Source                       |                                                                                                     Handling                                                                                                      |
+|--------------------------------------------|---------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `UploadException`                          | `S3UploadClient.uploadFile`                       | Logged at WARNING; upload marked `S3_ERROR`; compressed bytes staged for retry (`stagedForRetry=true`) if `retryEnabled`, else `PersistedNotification` sent immediately with `succeeded=false`; plugin continues. |
+| `IOException`                              | `S3UploadClient.uploadFile`                       | Same handling as `UploadException`, marked `IO_ERROR`.                                                                                                                                                            |
+| `UploadException` (init)                   | `BuckyS3UploadClient` constructor                 | Caught in `start()`; logged at WARNING; `s3Client` remains `null`; plugin is effectively inactive (all subsequent `handleVerification` calls are no-ops).                                                         |
+| Block bytes empty after compression        | `SingleBlockStoreTask.call`                       | Logged at WARNING; upload skipped; `PersistedNotification` sent with `succeeded=false` immediately (`COMPRESSION_ERROR` status; nothing valid to stage).                                                          |
+| `UploadException` / `IOException` (retry)  | `S3UploadClient.uploadFile` via `RetryUploadTask` | Logged at DEBUG (expected during backoff, not the first-failure signal); `RetryStagingManager.recordFailure` grows backoff or exhausts.                                                                           |
+| Corrupt / unreadable retry sidecar or blob | `RetryStagingManager.loadExisting`                | Logged at WARNING; malformed file(s) deleted; recovery of other staged blocks is unaffected — never propagates to abort `start()`.                                                                                |
 
 `UploadException` is a package-private wrapper that isolates the rest of the package from
 bucky's exception hierarchy. `BuckyS3UploadClient` is the only class that imports
@@ -419,7 +546,8 @@ crash the node.
 3. **Correct storage class**: `uploadFile` receives the configured `storageClass` value.
 4. **Failed verification skip**: `VerificationNotification` with `success=false` → no upload.
 5. **`UploadException` isolation**: `UploadException` thrown by `uploadFile` → plugin does
-   not rethrow; sends `PersistedNotification` with `succeeded=false`.
+   not rethrow; with `retryEnabled=false`, sends `PersistedNotification` with `succeeded=false`
+   immediately.
 6. **`IOException` isolation**: `IOException` thrown by `uploadFile` → same handling as above.
 7. **Uploads skipped on blank s3 credentials**: If `bucketName`, `endPointUrl` or `regionName` are blank →
    `BuckyS3UploadClient` constructor throws `UploadException` → plugin logs WARNING and
@@ -428,11 +556,29 @@ crash the node.
    appear in the S3Mock bucket with the correct folder-hierarchy keys.
 9. **PersistedNotification on success**: successful upload publishes
    `PersistedNotification(blockNumber, succeeded=true)`.
-10. **PersistedNotification on failure**: failed upload publishes
-    `PersistedNotification(blockNumber, succeeded=false)`.
+10. **PersistedNotification on failure**: with `retryEnabled=false`, failed upload publishes
+    `PersistedNotification(blockNumber, succeeded=false)` immediately.
 11. **Latency metric recorded**: `uploadLatencyNs` counter is incremented for both successful
     and failed uploads.
 12. **stop() drains before close**: in-flight uploads complete and publish
     `PersistedNotification` before `stop()` calls `s3Client.close()`.
 13. **ExecutionException isolation**: unchecked exception escaping `SingleBlockStoreTask.call()`
     increments `uploadFailuresTotal`, sends no `PersistedNotification`, and does not propagate.
+14. **Deferred notification on staged failure**: with retry enabled (default), a failed upload
+    stages the compressed bytes to disk and sends **no** `PersistedNotification` yet; the
+    `cloud_expanded_pending_retry_blocks` gauge reflects the staged block.
+15. **Retry recovers a transient failure**: driving `retryStagedBlocks()` after a block that
+    failed once now succeeds → publishes `PersistedNotification(succeeded=true)`, clears
+    staging, increments `cloud_expanded_retry_success_total`.
+16. **Retry exhaustion**: with `retryMaxAttempts=1`, the first retry tick after a persistent
+    failure exhausts immediately → publishes `PersistedNotification(succeeded=false)`,
+    increments `cloud_expanded_retry_exhausted_total`.
+17. **Restart recovery**: a block staged to disk (by an earlier process, or a `stop()`ped
+    instance) is recovered by `RetryStagingManager.loadExisting()` on the next `start()` — the
+    pending-retry gauge reflects it, and it can still be retried to completion.
+18. **Malformed staging files tolerated**: a stray file in the staging directory with a
+    non-numeric name, or a sidecar with corrupt/missing fields, is logged and deleted by
+    `loadExisting()` without aborting `start()` or losing other legitimately staged blocks.
+19. **`stage()` respects `retryEnabled=false`**: with retry disabled, `stage(...)` is a no-op
+    that writes no files and returns `false`, so a disabled retry feature never left stale
+    files nor logged spurious disk-fault warnings.
