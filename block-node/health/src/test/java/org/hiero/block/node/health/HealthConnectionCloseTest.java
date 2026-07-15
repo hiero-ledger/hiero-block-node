@@ -9,10 +9,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
+import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.HttpService;
+import io.helidon.webserver.http2.Http2Config;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -21,6 +23,8 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -49,17 +53,16 @@ import org.junit.jupiter.api.Test;
 ///
 /// It uses [PluginTestBase] (real
 /// [org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility] and configuration) and captures
-/// the [HttpService] the plugin registers by implementing [ServiceBuilder], then mounts it on the
-/// live server.
-class HealthConnectionCloseTest extends PluginTestBase<HealthServicePlugin, BlockingExecutor, ScheduledExecutorService>
-        implements ServiceBuilder {
+/// the [HttpService] the plugin registers via a local [ServiceBuilder] implementation
+/// (`CapturingServiceBuilder`), then mounts it on the live server.
+class HealthConnectionCloseTest
+        extends PluginTestBase<HealthServicePlugin, BlockingExecutor, ScheduledExecutorService> {
 
     private static final int SOCKET_TIMEOUT_MILLIS = 5_000;
 
-    /// Captures the HTTP services the plugin registers during {@code init}, keyed by base path.
-    private final Map<String, HttpService> registeredServices = new HashMap<>();
-
-    private WebServer webServer;
+    /// The builder the plugin is initialized against; it captures the registered HTTP services and
+    /// mounts them on a real Helidon [WebServer] for socket-level testing.
+    private final CapturingServiceBuilder serviceBuilder = new CapturingServiceBuilder();
 
     HealthConnectionCloseTest() {
         super(
@@ -67,34 +70,23 @@ class HealthConnectionCloseTest extends PluginTestBase<HealthServicePlugin, Bloc
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
     }
 
-    /// Because this test implements {@link ServiceBuilder}, {@code PluginTestBase} passes it to
-    /// {@code plugin.init(...)}, so the plugin registers its real routing here.
+    /// Hands the capturing builder to {@link PluginTestBase} so the plugin registers its real routing
+    /// into {@link CapturingServiceBuilder} during {@code init}.
     @Override
-    public void registerHttpService(final String path, @Nullable final Integer port, final HttpService... service) {
-        for (final HttpService httpService : service) {
-            registeredServices.put(path, httpService);
-        }
-    }
-
-    @Override
-    public void registerGrpcService(@NonNull final ServiceInterface service, @Nullable final Integer port) {
-        // health plugin registers no gRPC services
+    protected ServiceBuilder createServiceBuilder() {
+        return serviceBuilder;
     }
 
     @BeforeEach
     void startServer() {
         start(new HealthServicePlugin(), new NoBlocksHistoricalBlockFacility());
-        final HttpRouting.Builder routing = HttpRouting.builder();
-        registeredServices.forEach(routing::register);
-        webServer = WebServerConfig.builder().port(0).addRouting(routing).build();
-        webServer.start();
+        serviceBuilder.buildGeneralWebServer();
+        serviceBuilder.startAll();
     }
 
     @AfterEach
     void stopServer() {
-        if (webServer != null) {
-            webServer.stop();
-        }
+        serviceBuilder.stopAll();
     }
 
     @Test
@@ -137,7 +129,7 @@ class HealthConnectionCloseTest extends PluginTestBase<HealthServicePlugin, Bloc
     @NonNull
     private HttpResponse fetch(@NonNull final String path) throws IOException {
         try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress("127.0.0.1", webServer.port()), SOCKET_TIMEOUT_MILLIS);
+            socket.connect(new InetSocketAddress("127.0.0.1", serviceBuilder.port()), SOCKET_TIMEOUT_MILLIS);
             socket.setSoTimeout(SOCKET_TIMEOUT_MILLIS);
 
             final OutputStream out = socket.getOutputStream();
@@ -202,6 +194,74 @@ class HealthConnectionCloseTest extends PluginTestBase<HealthServicePlugin, Bloc
             // status line looks like: HTTP/1.1 200 OK
             final String[] parts = head.split("\r\n", 2)[0].split(" ");
             return Integer.parseInt(parts[1]);
+        }
+    }
+
+    /// A local [ServiceBuilder] that captures the HTTP services a plugin registers and mounts them on
+    /// a real Helidon [WebServer], so the plugin's handlers can be exercised over an actual socket.
+    private static final class CapturingServiceBuilder implements ServiceBuilder {
+        /// Captures the HTTP services the plugin registers during {@code init}, keyed by base path.
+        private final Map<String, HttpService> registeredServices = new HashMap<>();
+
+        private WebServer webServer;
+
+        @Override
+        public void registerHttpService(final String path, @Nullable final Integer port, final HttpService... service) {
+            for (final HttpService httpService : service) {
+                registeredServices.put(path, httpService);
+            }
+        }
+
+        @Override
+        public void registerGrpcService(@Nullable final Integer port, final ServiceInterface service) {
+            // the health plugin registers no gRPC services
+        }
+
+        @Override
+        public WebServerResult registerHttpNewServer(
+                final TreeMap<Integer, ServiceWithPath[]> services, final CommonSocketValues commonSocketValues) {
+            for (final ServiceWithPath[] serviceGroup : services.values()) {
+                for (final ServiceWithPath serviceWithPath : serviceGroup) {
+                    for (final HttpService httpService : serviceWithPath.services()) {
+                        registeredServices.put(serviceWithPath.path(), httpService);
+                    }
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public WebServerResult registerHttpNewServer(
+                final TreeMap<Integer, ServiceWithPath[]> services,
+                final Http2Config http2Config,
+                final SocketOptions socketOptions,
+                final CommonSocketValues commonSocketValues) {
+            return registerHttpNewServer(services, commonSocketValues);
+        }
+
+        @Override
+        public Set<Integer> buildGeneralWebServer() {
+            final HttpRouting.Builder routing = HttpRouting.builder();
+            registeredServices.forEach(routing::register);
+            webServer = WebServerConfig.builder().port(0).addRouting(routing).build();
+            return Set.of(0);
+        }
+
+        @Override
+        public void startAll() {
+            webServer.start();
+        }
+
+        @Override
+        public void stopAll() {
+            if (webServer != null) {
+                webServer.stop();
+            }
+        }
+
+        /// @return the port the live web server bound to
+        int port() {
+            return webServer.port();
         }
     }
 }

@@ -162,7 +162,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         // have registered at all. A null port (the default) shares server.port.
         final Integer port =
                 context.configuration().getConfigData(PublisherConfig.class).port();
-        serviceBuilder.registerGrpcService(this, port);
+        serviceBuilder.registerGrpcService(port, this);
     }
 
     @Override

@@ -12,10 +12,13 @@ module org.hiero.block.node.health {
     requires transitive org.hiero.metrics;
     requires transitive io.helidon.webserver;
     requires com.hedera.pbj.runtime;
+    requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;
     requires org.hiero.block.protobuf.pbj;
     requires com.github.spotbugs.annotations;
+    requires io.helidon.common.socket;
     requires io.helidon.http;
+    requires io.helidon.webserver.http2;
 
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 

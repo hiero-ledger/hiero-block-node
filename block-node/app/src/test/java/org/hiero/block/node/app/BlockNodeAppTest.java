@@ -899,8 +899,8 @@ class BlockNodeAppTest {
             }
         };
         final BlockNodeApp twoPortApp = new BlockNodeApp(twoPortLoader, false);
-        assertNotNull(twoPortApp.webServer, "A single WebServer must be created even in two-port mode");
-        assertEquals(2, twoPortApp.allPorts.size(), "Two distinct ports must be tracked");
+        assertNotNull(twoPortApp.serviceBuilder, "A single WebServer must be created even in two-port mode");
+        assertEquals(2, twoPortApp.portsEnabled.size(), "Two distinct ports must be tracked");
     }
 
     /**
@@ -958,9 +958,11 @@ class BlockNodeAppTest {
             }
         };
         final BlockNodeApp singlePortApp = new BlockNodeApp(singlePortLoader, false);
-        assertNotNull(singlePortApp.webServer, "A single WebServer must be created");
+        assertNotNull(singlePortApp.serviceBuilder, "A single WebServer must be created");
         assertEquals(
-                1, singlePortApp.allPorts.size(), "Only one port must be tracked when all plugins use the same port");
+                1,
+                singlePortApp.portsEnabled.size(),
+                "Only one port must be tracked when all plugins use the same port");
     }
 
     /// build a `TssData` object from individual fields from the `TssBootstrapConfig`

@@ -3,13 +3,11 @@ package org.hiero.block.node.app.fixtures.plugintest;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.node.base.NodeAddressBook;
-import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.api.converter.ConfigConverter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
-import io.helidon.webserver.http.HttpService;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -142,6 +140,18 @@ public abstract class PluginTestBase<
     }
 
     /**
+     * Creates the {@link ServiceBuilder} that the historical block facility, any additional plugins,
+     * and the plugin under test are initialized against in {@link #doInit}. The default records every
+     * registration in a {@link RecordingServiceBuilder}; override to supply a custom builder — for
+     * example one that mounts the registered services on a real web server for socket-level tests.
+     *
+     * @return the ServiceBuilder passed to each {@code init(...)} call in {@link #doInit}
+     */
+    protected ServiceBuilder createServiceBuilder() {
+        return new RecordingServiceBuilder();
+    }
+
+    /**
      * Initialise the test context and call {@code plugin.init()} without starting the plugin.
      *
      * <p>Use this together with {@link #doStart} when a
@@ -178,7 +188,8 @@ public abstract class PluginTestBase<
         ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
                 .withConfigDataType(org.hiero.block.node.app.config.node.NodeConfig.class)
                 .withConfigDataTypes(plugin.configDataTypes().toArray(new Class[0]))
-                .withConfigDataType(org.hiero.block.node.app.config.ServerConfig.class);
+                .withConfigDataType(org.hiero.block.node.app.config.ServerConfig.class)
+                .withConfigDataType(org.hiero.block.node.app.config.WebServerHttp2Config.class);
         if (configOverrides != null) {
             for (Entry<String, String> override : configOverrides.entrySet()) {
                 configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());
@@ -217,18 +228,9 @@ public abstract class PluginTestBase<
                 null,
                 storedBlocks,
                 availableBlocks);
-        // if the subclass implements ServiceBuilder, use it otherwise create a mock
-        final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
-                ? (ServiceBuilder) this
-                : new ServiceBuilder() {
-                    @Override
-                    public void registerHttpService(String path, Integer port, HttpService... service) {}
-
-                    @Override
-                    public void registerGrpcService(@NonNull ServiceInterface service, Integer port) {}
-                };
+        final ServiceBuilder testServiceBuilder = createServiceBuilder();
         // initialize the block messaging facility
-        historicalBlockFacility.init(blockNodeContext, mockServiceBuilder);
+        historicalBlockFacility.init(blockNodeContext, testServiceBuilder);
         // if HistoricalBlockFacility is a BlockItemHandler, register it with the messaging facility
         if (historicalBlockFacility instanceof BlockItemHandler blockItemHandler) {
             blockMessaging.registerBlockItemHandler(
@@ -243,12 +245,12 @@ public abstract class PluginTestBase<
         }
         if (additionalPlugins != null) {
             for (final BlockNodePlugin additionalPlugin : additionalPlugins) {
-                additionalPlugin.init(blockNodeContext, mockServiceBuilder);
+                additionalPlugin.init(blockNodeContext, testServiceBuilder);
                 additionalPlugin.start();
             }
         }
         // init plugin (but do not start — caller decides when to start via doStart())
-        plugin.init(blockNodeContext, mockServiceBuilder);
+        plugin.init(blockNodeContext, testServiceBuilder);
     }
 
     /**

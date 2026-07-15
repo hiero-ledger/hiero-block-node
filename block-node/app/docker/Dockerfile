@@ -76,16 +76,20 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV JAVA_VERSION="jdk-25.0.2+10"
 ENV BN_WORKDIR=/opt/hiero/block-node
 
-# Expose the port that the application will run on
+# Document the ports the application runs on: the default gRPC/server port and the default health web server port
+# This is documentation, not function, and the actual ports may be different
 EXPOSE 40840/tcp
+EXPOSE 40983/tcp
 
 USER hedera
 WORKDIR ${BN_WORKDIR}
 
-# HEALTHCHECK for liveness and readiness
+# HEALTHCHECK for liveness and readiness.
+# The health endpoints run on their own web server; target the configured HEALTH_PORT
+# (env, same value the app reads for health.port), falling back to the app default.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
-  CMD curl -f http://localhost:40840/healthz/livez || exit 1 && \
-      curl -f http://localhost:40840/healthz/readyz || exit 1
+  CMD curl -f http://localhost:${HEALTH_PORT:-40983}/healthz/livez || exit 1 && \
+      curl -f http://localhost:${HEALTH_PORT:-40983}/healthz/readyz || exit 1
 
 # RUN the bin script for starting the server
 ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/app-${VERSION}/bin/app || sleep 30d"]

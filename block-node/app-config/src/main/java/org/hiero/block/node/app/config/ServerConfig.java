@@ -31,20 +31,14 @@ import org.hiero.block.node.base.Loggable;
 // spotless:off - long annotations on record components must stay on one line
 @ConfigData("server")
 public record ServerConfig(
-        @Loggable @ConfigProperty(defaultValue = "131_072_000")
-            @Min(1_048_576) @Max(1_610_612_736) int maxMessageSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = "131_072")
-            @Min(32768) @Max(Integer.MAX_VALUE) int socketSendBufferSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = "8_388_608")
-            @Min(32768) @Max(Integer.MAX_VALUE) int socketReceiveBufferSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = "40840")
-            @Min(1024) @Max(65_535) int port,
+        @Loggable @ConfigProperty(defaultValue = "131_072_000") @Min(1_048_576) @Max(1_610_612_736) int maxMessageSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = "131_072") @Min(32768) @Max(Integer.MAX_VALUE) int socketSendBufferSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = "8_388_608") @Min(32768) @Max(Integer.MAX_VALUE) int socketReceiveBufferSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = "40840") @Min(1024) @Max(65_535) int port,
         @Loggable @ConfigProperty(defaultValue = "500") int shutdownDelayMillis,
         @Loggable @ConfigProperty(defaultValue = "1000") int maxTcpConnections,
-        @Loggable @ConfigProperty(defaultValue = "1")
-            @Min(1) @Max(60) int idleConnectionPeriodMinutes,
-        @Loggable @ConfigProperty(defaultValue = "2")
-            @Min(1) @Max(1_440) int idleConnectionTimeoutMinutes,
+        @Loggable @ConfigProperty(defaultValue = "5") @Min(1) @Max(60) int idleConnectionPeriodMinutes,
+        @Loggable @ConfigProperty(defaultValue = "30") @Min(1) @Max(1_440) int idleConnectionTimeoutMinutes,
         @Loggable @ConfigProperty(defaultValue = "true") boolean tcpNoDelay,
         @Loggable @ConfigProperty(defaultValue = "8_192") int backlogSize,
         @Loggable @ConfigProperty(defaultValue = "8_192") int writeQueueLength) {}

@@ -12,7 +12,6 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.converter.ConfigConverter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
-import io.helidon.webserver.http.HttpService;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -39,7 +38,7 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
  */
 public abstract class GrpcPluginTestBase<
                 P extends BlockNodePlugin, E extends ExecutorService, S extends ScheduledExecutorService>
-        extends PluginTestBase<P, E, S> implements ServiceBuilder {
+        extends PluginTestBase<P, E, S> {
     private static final long RESPONSE_TIMEOUT_NS = 5_000_000_000L; // 5 seconds
 
     private record ReqOptions(Optional<String> authority, boolean isProtobuf, boolean isJson, String contentType)
@@ -54,9 +53,22 @@ public abstract class GrpcPluginTestBase<
     protected ServiceInterface serviceInterface;
     /// The gRPC method used
     protected Method method;
+    /// Records the services the plugin registers during init. The plugin under test is initialized
+    /// against this builder (see {@link #createServiceBuilder()}), and the gRPC service it registers is
+    /// recovered into {@link #serviceInterface} when {@link #start} completes.
+    protected ServiceBuilder webserviceBuilder;
 
     protected GrpcPluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
         super(executorService, scheduledExecutorService);
+        webserviceBuilder = createServiceBuilder();
+    }
+
+    /// Initializes the plugin under test (and the facilities) against {@link #webserviceBuilder} so
+    /// their gRPC/HTTP registrations are captured here, letting {@link #start} recover the plugin's
+    /// gRPC service into {@link #serviceInterface}.
+    @Override
+    protected ServiceBuilder createServiceBuilder() {
+        return webserviceBuilder == null ? new RecordingServiceBuilder() : webserviceBuilder;
     }
 
     /**
@@ -106,15 +118,24 @@ public abstract class GrpcPluginTestBase<
             @NonNull final Map<Class<?>, ConfigConverter<?>> converters) {
         super.start(plugin, historicalBlockFacility, additionalPlugins, configOverrides, converters);
         this.method = Objects.requireNonNull(method);
+        // The plugin under test is initialized last (after the facilities/additional plugins), so the
+        // last recorded gRPC registration is its service — recover it for the fake GRPC connection.
+        if (webserviceBuilder instanceof RecordingServiceBuilder recordingBuilder
+                && !recordingBuilder.grpcServiceRegistrations().isEmpty()) {
+            serviceInterface =
+                    recordingBuilder.grpcServiceRegistrations().getLast().service();
+        }
         setupNewPipelines();
     }
 
     /// Setup new pipelines to be used.
     protected void setupNewPipelines() {
         final TestPipeline newPipeline = createNewPipeline();
-        fromPluginPipe = newPipeline.fromPluginPipe;
-        toPluginPipe = newPipeline.toPluginPipe;
-        fromPluginBytes = newPipeline.fromPluginBytes;
+        if (newPipeline != null) {
+            fromPluginPipe = newPipeline.fromPluginPipe;
+            toPluginPipe = newPipeline.toPluginPipe;
+            fromPluginBytes = newPipeline.fromPluginBytes;
+        }
     }
 
     /// Setup new pipelines to be used.
@@ -147,22 +168,16 @@ public abstract class GrpcPluginTestBase<
                 LOGGER.log(TRACE, "onComplete");
             }
         };
-        // open a fake GRPC connection to the plugin
-        final Pipeline<? super Bytes> toPipe = serviceInterface.open(
-                Objects.requireNonNull(method),
-                new ReqOptions(Optional.empty(), true, false, "application/grpc"),
-                fromPipe);
-        return new TestPipeline(toPipe, fromPipe, bytes);
-    }
-
-    @Override
-    public void registerHttpService(String path, Integer port, HttpService... service) {
-        fail("Register http service not expected: " + path);
-    }
-
-    @Override
-    public void registerGrpcService(@NonNull ServiceInterface service, Integer port) {
-        serviceInterface = service;
+        // open a fake GRPC connection to the plugin, if we have an interface
+        if (serviceInterface != null) {
+            final Pipeline<? super Bytes> toPipe = serviceInterface.open(
+                    Objects.requireNonNull(method),
+                    new ReqOptions(Optional.empty(), true, false, "application/grpc"),
+                    fromPipe);
+            return new TestPipeline(toPipe, fromPipe, bytes);
+        } else {
+            return null;
+        }
     }
 
     /// Polls until `fromPluginBytes` reaches the expected size or the

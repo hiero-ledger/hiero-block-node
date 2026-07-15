@@ -44,8 +44,8 @@ import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
-import org.hiero.block.node.app.fixtures.plugintest.NoOpServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -238,7 +238,7 @@ class CloudStorageArchivePluginTest {
         @DisplayName("init throws NullPointerException when context is null")
         void testInitNullContext() {
             final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
-            assertThatNullPointerException().isThrownBy(() -> plugin.init(null, new NoOpServiceBuilder()));
+            assertThatNullPointerException().isThrownBy(() -> plugin.init(null, new RecordingServiceBuilder()));
         }
 
         /// Verifies that [CloudStorageArchivePlugin#init] does not throw when [ServiceBuilder] is null.

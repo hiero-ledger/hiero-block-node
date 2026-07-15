@@ -7,15 +7,23 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.health.HttpConnectionSupport.closeAfterHttp1;
 
+import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
+import io.helidon.webserver.http2.Http2Config;
 import java.lang.System.Logger;
+import java.time.Duration;
 import java.util.List;
+import java.util.TreeMap;
+import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.ServiceBuilder.CommonSocketValues;
+import org.hiero.block.node.spi.ServiceBuilder.ServiceWithPath;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
@@ -57,6 +65,8 @@ public class HealthServicePlugin implements BlockNodePlugin {
 
     /// The health facility, used for getting server status
     private HealthFacility healthFacility;
+    /// configuration for this plugin.
+    private HealthConfig healthConfig;
 
     /// The application state facility, used to obtain connection information
     /// for the statusz endpoints
@@ -74,13 +84,24 @@ public class HealthServicePlugin implements BlockNodePlugin {
         requestCounter = metricRegistry.register(LongCounter.builder(METRIC_HEALTH_REQUESTS)
                 .setDescription("Health check requests by endpoint and result")
                 .addDynamicLabelNames(LABEL_ENDPOINT, LABEL_RESULT));
-        // A null port (the default) shares server.port
-        final Integer port =
-                context.configuration().getConfigData(HealthConfig.class).port();
-        serviceBuilder.registerHttpService(HEALTHZ_PATH, port, httpRules -> httpRules
-                .get(LIVEZ_PATH, this::handleLivez)
-                .get(READYZ_PATH, this::handleReadyz));
-        serviceBuilder.registerHttpService(STATUSZ_PATH, port, httpRules -> httpRules.get("*", this::handleStatusz));
+        final Configuration configuration = context.configuration();
+        healthConfig = configuration.getConfigData(HealthConfig.class);
+        Http2Config webserverHttpConfig = getHttp2Config(configuration);
+        SocketOptions socketConfig = getSocketOptions(healthConfig);
+        CommonSocketValues commonSocketValues = getCommonSocketValues(healthConfig);
+        // This must not be null, and the Health Plugin cannot share the
+        // "general" webserver with the rest of the Block Node.
+        final Integer port = healthConfig.port();
+        // Construct a map from port to services
+        TreeMap<Integer, ServiceWithPath[]> servicesToRegister = new TreeMap<>();
+        ServiceWithPath healthService = new ServiceWithPath(
+                HEALTHZ_PATH,
+                httpRules -> httpRules.get(LIVEZ_PATH, this::handleLivez).get(READYZ_PATH, this::handleReadyz));
+        ServiceWithPath statusService =
+                new ServiceWithPath(STATUSZ_PATH, httpRules -> httpRules.get("*", this::handleStatusz));
+        servicesToRegister.put(port, new ServiceWithPath[] {healthService, statusService});
+        // register a new web server
+        serviceBuilder.registerHttpNewServer(servicesToRegister, webserverHttpConfig, socketConfig, commonSocketValues);
         LOGGER.log(DEBUG, "Completed health facility initialization");
     }
 
@@ -166,5 +187,38 @@ public class HealthServicePlugin implements BlockNodePlugin {
         requestCounter
                 .getOrCreateLabeled(LABEL_ENDPOINT, ENDPOINT_HEALTH, LABEL_RESULT, result)
                 .increment();
+    }
+
+    private static Http2Config getHttp2Config(final Configuration configuration) {
+        WebServerHttp2Config webServerHttp2Config = configuration.getConfigData(WebServerHttp2Config.class);
+        return Http2Config.builder()
+                .flowControlTimeout(Duration.ofMillis(webServerHttp2Config.flowControlTimeout()))
+                .initialWindowSize(webServerHttp2Config.initialWindowSize())
+                .maxConcurrentStreams(webServerHttp2Config.maxConcurrentStreams())
+                .maxEmptyFrames(webServerHttp2Config.maxEmptyFrames())
+                .maxFrameSize(webServerHttp2Config.maxFrameSize())
+                .maxHeaderListSize(webServerHttp2Config.maxHeaderListSize())
+                .maxRapidResets(webServerHttp2Config.maxRapidResets())
+                .rapidResetCheckPeriod(Duration.ofMillis(webServerHttp2Config.rapidResetCheckPeriod()))
+                .build();
+    }
+
+    private static SocketOptions getSocketOptions(final HealthConfig healthConfig) {
+        return SocketOptions.builder()
+                .socketSendBufferSize(healthConfig.socketSendBufferSizeBytes())
+                .socketReceiveBufferSize(healthConfig.socketReceiveBufferSizeBytes())
+                .tcpNoDelay(healthConfig.tcpNoDelay())
+                .build();
+    }
+
+    /// Builds the connection-management values for the health web server from the health plugin's
+    /// own [HealthConfig].
+    private static CommonSocketValues getCommonSocketValues(final HealthConfig healthConfig) {
+        return new CommonSocketValues(
+                healthConfig.backlogSize(),
+                healthConfig.writeQueueLength(),
+                healthConfig.maxTcpConnections(),
+                healthConfig.idleConnectionPeriodMinutes(),
+                healthConfig.idleConnectionTimeoutMinutes());
     }
 }

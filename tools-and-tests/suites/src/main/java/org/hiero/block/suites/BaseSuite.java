@@ -17,6 +17,7 @@ import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -47,6 +48,9 @@ public abstract class BaseSuite {
 
     /** Port that is used by the Block Node Application for metrics */
     protected static int blockNodeMetricsPort;
+
+    /** The dedicated port the health and statusz endpoints bind to on the container. */
+    protected static int blockNodeHealthPort;
 
     /** Executor service for managing threads */
     protected static ErrorLoggingExecutor executorService;
@@ -164,8 +168,66 @@ public abstract class BaseSuite {
         for (long block = 0; block < blocks; block++) {
             String blockFileName =
                     String.format("/opt/hiero/block-node/data/live/000/000/000/000/000/0/%019d.blk.zstd", block);
-            genericContainer.execInContainer("rm", "-f", blockFileName);
+            execInContainerWithRetry(genericContainer, "rm", "-f", blockFileName);
         }
+    }
+
+    /// Executes a command in the given container, retrying if the call fails because podman closed an
+    /// idle Docker-API socket connection.
+    ///
+    /// Podman closes idle connections on its Docker-compat API socket after only a few seconds.
+    /// When a test idles longer than that (for example while streaming blocks) the next exec can be
+    /// handed a stale pooled connection by docker-java. Because exec-start is a non-idempotent
+    /// `POST`, the underlying HTTP client does not auto-retry it, and the failure surfaces as a
+    /// `NoHttpResponseException` ("... failed to respond"). Reissuing the call makes docker-java open a
+    /// fresh connection, which succeeds. On real Docker (for example CI) the first attempt already
+    /// succeeds. Retrying is safe for the current callers (`rm -f` and a read-only `awk`).
+    ///
+    /// @param container the container to execute the command in
+    /// @param command the command and its arguments
+    /// @return the execution result
+    /// @throws IOException if the command fails for a reason other than a stale connection
+    /// @throws InterruptedException if interrupted while retrying
+    protected static Container.ExecResult execInContainerWithRetry(GenericContainer<?> container, String... command)
+            throws IOException, InterruptedException {
+        int maxAttempts = 3;
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return container.execInContainer(command);
+            } catch (IOException | RuntimeException e) {
+                if (attempt >= maxAttempts || !isStaleConnectionFailure(e)) {
+                    throw e;
+                }
+                // Pause briefly so docker-java opens a fresh connection on the retry.
+                Thread.sleep(100L);
+            }
+        }
+    }
+
+    /**
+     * Returns {@code true} if the throwable (or any of its causes) indicates the Docker-API
+     * connection was closed by the server while idle, which is how podman dropping idle socket
+     * connections surfaces through docker-java.
+     *
+     * @param throwable the throwable to inspect
+     * @return whether the failure looks like a server-closed idle connection
+     */
+    private static boolean isStaleConnectionFailure(Throwable throwable) {
+        Throwable cause = throwable;
+        while (cause != null) {
+            String className = cause.getClass().getName();
+            String message = cause.getMessage();
+            if (className.contains("NoHttpResponseException")
+                    || (message != null
+                            && (message.contains("failed to respond")
+                                    || message.contains("Connection reset")
+                                    || message.contains("connection was closed")))) {
+                return true;
+            }
+            Throwable next = cause.getCause();
+            cause = (next == cause) ? null : next;
+        }
+        return false;
     }
 
     protected void restartBlockNode(int blockNode) {
@@ -200,19 +262,26 @@ public abstract class BaseSuite {
         String blockNodeVersion = BaseSuite.getBlockNodeVersion();
         blockNodePort = 40840;
         blockNodeMetricsPort = 16007;
+        blockNodeHealthPort = 40983;
         List<String> portBindings = new ArrayList<>();
         portBindings.add(String.format("%d:%2d", blockNodePort, blockNodePort));
         portBindings.add(String.format("%d:%2d", blockNodeMetricsPort, blockNodeMetricsPort));
+        portBindings.add(PORT_BINDING_FORMAT.formatted(blockNodeHealthPort, blockNodeHealthPort));
         String pluginsContainerPath = "/opt/hiero/block-node/app-" + blockNodeVersion + "/plugins";
         blockNodeContainer = new GenericContainer<>(DockerImageName.parse("block-node-server:" + blockNodeVersion))
-                .withExposedPorts(blockNodePort)
+                .withExposedPorts(blockNodePort, blockNodeHealthPort)
                 .withNetworkAliases("block-node-source")
                 .withNetwork(network)
                 .withEnv("VERSION", blockNodeVersion)
+                .withEnv("HEALTH_PORT", String.valueOf(blockNodeHealthPort))
                 .withEnv("JAVA_TOOL_OPTIONS", "-Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0")
                 .withFileSystemBind(getPluginsDir(), pluginsContainerPath)
-                .waitingFor(Wait.forListeningPort())
-                .waitingFor(Wait.forHealthcheck());
+                // Replacing docker-specific HEALTHCHECK command with runtime-agnostic equivalent:
+                // the image HEALTHCHECK is not honored by all container runtimes (Podman builds OCI
+                // images, which drop HEALTHCHECK), so wait on the health endpoint over HTTP instead.
+                .waitingFor(Wait.forHttp("/healthz/livez")
+                        .forPort(blockNodeHealthPort)
+                        .forStatusCode(200));
         blockNodeContainer.setPortBindings(portBindings);
         return blockNodeContainer;
     }
