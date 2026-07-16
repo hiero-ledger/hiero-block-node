@@ -16,6 +16,7 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -302,9 +303,10 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 Thread.currentThread().interrupt();
                 LOGGER.log(WARNING, "Interrupted while collecting upload result.", e);
             } catch (final ExecutionException e) {
-                // SingleBlockStoreTask.call() catches all known exceptions internally and returns
-                // an UploadResult. An ExecutionException here means an unexpected RuntimeException
-                // escaped the task — count it as a failure and log the root cause.
+                // SingleBlockStoreTask.call() catches all known exceptions, including any
+                // RuntimeException, internally and returns an UploadResult. An ExecutionException
+                // here means something more severe (e.g. an Error) escaped the task — count it as
+                // a failure and log the root cause.
                 metricsHolder.uploadFailuresTotal().increment();
                 LOGGER.log(WARNING, "Unexpected exception in upload task", e.getCause());
             }
@@ -315,8 +317,21 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
 
     /// Publishes a {@link PersistedNotification} for the given upload result and updates metrics.
     private void publishResult(final SingleBlockStoreTask.UploadResult result) {
-        blockMessaging.sendBlockPersisted(
-                new PersistedNotification(result.blockNumber(), result.succeeded(), 0, result.blockSource()));
+        try {
+            blockMessaging.sendBlockPersisted(
+                    new PersistedNotification(result.blockNumber(), result.succeeded(), 0, result.blockSource()));
+        } catch (final RejectedExecutionException e) {
+            // The messaging facility's own stop() runs before this plugin's during
+            // BlockNodeApp shutdown (loadedPlugins order), so an upload that finishes during
+            // this plugin's final drain (see stop()) can find messaging already stopped.
+            // Nothing downstream can consume the notification at that point, so log and
+            // continue rather than letting this escape stop() and abort the app's shutdown
+            // sequence for every plugin still left to stop.
+            LOGGER.log(
+                    WARNING,
+                    "Block {0}: could not deliver PersistedNotification; messaging facility already stopped.",
+                    result.blockNumber());
+        }
         if (!result.succeeded()) {
             metricsHolder.uploadFailuresTotal().increment();
             LOGGER.log(

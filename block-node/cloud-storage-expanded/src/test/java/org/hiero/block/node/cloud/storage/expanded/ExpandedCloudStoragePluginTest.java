@@ -21,6 +21,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -30,6 +31,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -597,9 +599,8 @@ class ExpandedCloudStoragePluginTest
 
     @Test
     @DisplayName(
-            "Unchecked exception escaping upload task increments failure counter and sends no PersistedNotification")
-    void uncheckedExceptionInTaskIncrementsFailureCounter() throws InterruptedException {
-        final CountDownLatch exceptionThrown = new CountDownLatch(1);
+            "Unchecked exception escaping uploadFile is caught by call() and produces a failed PersistedNotification")
+    void uncheckedExceptionInTaskProducesFailedNotification() throws InterruptedException {
         final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
             public void uploadFile(
@@ -607,7 +608,6 @@ class ExpandedCloudStoragePluginTest
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
                     final String contentType) {
-                exceptionThrown.countDown();
                 throw new RuntimeException("Simulated unexpected task failure");
             }
 
@@ -623,18 +623,61 @@ class ExpandedCloudStoragePluginTest
                         "cloud.storage.expanded.regionName", "us-east-1"));
 
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
-        // Wait for the virtual thread to throw, then give it a moment to fully complete.
-        assertTrue(exceptionThrown.await(5, TimeUnit.SECONDS), "Upload task must have thrown within 5s");
-        Thread.sleep(20);
+        awaitNotifications(1);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(
+                1,
+                notifications.size(),
+                "A PersistedNotification must be sent even when an unchecked exception escapes uploadFile");
+        assertEquals(1L, notifications.getFirst().blockNumber());
+        assertFalse(
+                notifications.getFirst().succeeded(),
+                "PersistedNotification must report succeeded=false for the caught RuntimeException");
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
+                "uploadFailuresTotal must still be incremented for the caught RuntimeException");
+    }
+
+    @Test
+    @DisplayName("RejectedExecutionException from an already-stopped messaging facility is caught during publish")
+    void rejectedExecutionExceptionDuringPublishIsCaught() throws InterruptedException {
+        // Simulates BlockNodeApp shutdown ordering: the messaging facility's own stop() runs
+        // before this plugin's, so a late-completing upload's attempt to publish can find the
+        // messaging facility's executor already terminated.
+        blockMessaging = new TestBlockMessagingFacility() {
+            @Override
+            public void sendBlockPersisted(final PersistedNotification notification) {
+                throw new RejectedExecutionException("Simulated: messaging facility already stopped");
+            }
+        };
+        final CapturingS3Client capturing = new CapturingS3Client();
+        start(
+                new ExpandedCloudStoragePlugin(capturing),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
+
+        plugin.handleVerification(verifiedNotification(99L, testBlock(99).blockUnparsed()));
+
+        final long deadline = System.currentTimeMillis() + 5_000L;
+        while (System.currentTimeMillis() < deadline && capturing.uploads.isEmpty()) {
+            plugin.drainCompletedTasks();
+            Thread.sleep(10);
+        }
+        // One more drain to process the now-completed upload result.
         plugin.drainCompletedTasks();
 
         assertTrue(
                 blockMessaging.getSentPersistedNotifications().isEmpty(),
-                "No PersistedNotification expected when an unchecked exception escapes the task");
+                "Notification delivery was rejected, so nothing should be recorded as sent");
         assertEquals(
                 1L,
-                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
-                "uploadFailuresTotal must be incremented for the escaped RuntimeException");
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
+                "uploadsTotal must still be incremented even though notification delivery failed");
     }
 
     @Test
