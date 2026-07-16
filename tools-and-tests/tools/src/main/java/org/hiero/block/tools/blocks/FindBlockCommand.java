@@ -14,7 +14,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
@@ -58,9 +57,6 @@ import picocli.CommandLine.Parameters;
         description = "Locate a block by number inside WRB zip archives and print its contents with sidecar analysis",
         mixinStandardHelpOptions = true)
 public class FindBlockCommand implements Runnable {
-
-    /** Maximum protobuf parse size in bytes (120 MB); matches ConvertToJson. */
-    private static final int MAX_BLOCK_SIZE_BYTES = 120 * 1024 * 1024;
 
     @SuppressWarnings("unused")
     @Parameters(index = "0", description = "Block number to locate")
@@ -318,8 +314,4 @@ public class FindBlockCommand implements Runnable {
         final String s = Integer.toString(nanos);
         return "0".repeat(Math.max(0, 9 - s.length())) + s;
     }
-
-    // Suppress unused warning; List retained for future filter flags.
-    @SuppressWarnings("unused")
-    private static final List<Object> UNUSED = new ArrayList<>();
 }
