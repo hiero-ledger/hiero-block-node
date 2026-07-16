@@ -149,7 +149,6 @@ jobs:
           git cliff \
             --config cliff.toml \
             --latest \
-            --strip header \
             --output "${RELEASE_NOTES_FILENAME}.md"
 
       - name: Create Github Release

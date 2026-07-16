@@ -4,12 +4,19 @@
 # See: https://git-cliff.org/docs/configuration
 
 [changelog]
-header = ""
+# Rendered once at the top of the output — appears in the GitHub draft release edit box
+# as a visible reminder to add a prose summary before publishing.
+# git-cliff cannot auto-write a narrative; the author fills this in (or uses the
+# GitHub Copilot ✨ button in the release editor to generate one).
+header = """
+> ✏️ _Add a 2–4 sentence summary of the key changes in this release, then delete this line._
+
+"""
 body = """
 {% for group, commits in commits | group_by(attribute="group") -%}
 ### {{ group }}
 
-{% for commit in commits | sort(attribute="description") -%}
+{% for commit in commits -%}
 - {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.description | upper_first }}
 {% endfor %}
 {% endfor %}
@@ -38,3 +45,6 @@ commit_parsers = [
 filter_commits = true
 # Match all release tags (stable and rc alike).
 tag_pattern = "v[0-9].*"
+# Newest commits appear first within each section, avoiding the case-sensitivity
+# quirk of alphabetical sort (uppercase ASCII < lowercase ASCII).
+sort_commits = "newest"
