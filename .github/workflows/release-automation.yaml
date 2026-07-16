@@ -23,6 +23,10 @@ jobs:
     runs-on: hl-bn-lin-md
     env:
       RELEASE_NOTES_FILENAME: release_notes
+      # Bump this to pick up a new git-cliff release; verify the new SHA via:
+      #   gh release view v<VERSION> --repo orhun/git-cliff --json assets \
+      #     | jq '.assets[].name' | grep sha256
+      GIT_CLIFF_VERSION: "2.8.0"
     outputs:
       create_pr: ${{ env.CREATE_PR }}
       next_version_snapshot: ${{ env.NEXT_VERSION_SNAPSHOT }}
@@ -122,15 +126,40 @@ jobs:
           commit_user_email: ${{ steps.gpg_importer.outputs.email }}
           tagging_message: ${{ env.RELEASE_TAG }}
 
+      - name: Install git-cliff
+        run: |
+          TARBALL="git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          gh release download "v${GIT_CLIFF_VERSION}" \
+            --repo orhun/git-cliff \
+            --pattern "${TARBALL}" \
+            --pattern "${TARBALL}.sha256"
+          sha256sum --check "${TARBALL}.sha256"
+          tar xzf "${TARBALL}" \
+            --strip-components=1 \
+            "git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl/git-cliff"
+          sudo install -m755 git-cliff /usr/local/bin/git-cliff
+          rm "${TARBALL}" "${TARBALL}.sha256"
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+
+      - name: Generate Release Notes
+        run: |
+          git cliff \
+            --config cliff.toml \
+            --latest \
+            --strip header \
+            --output "${RELEASE_NOTES_FILENAME}.md"
+
       - name: Create Github Release
         uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
         with:
           allowUpdates: true
+          bodyFile: "${{ env.RELEASE_NOTES_FILENAME }}.md"
           commit: ${{ env.RELEASE_BRANCH }}
           draft: true
           generateReleaseNotes: false
           name: ${{ env.RELEASE_TAG }}
-          omitBody: ${{ steps.milestone.outputs.milestone_id == '' }}
+          omitBody: false
           prerelease: ${{ steps.version_parser.outputs.prerelease != '' }}
           tag: ${{ env.RELEASE_TAG }}
           token: ${{ secrets.GH_ACCESS_TOKEN }}

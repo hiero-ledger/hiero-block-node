@@ -1,0 +1,40 @@
+# cliff.toml — git-cliff changelog configuration
+# Reads squash-merge commit messages (which are PR titles following Conventional Commits)
+# and groups them into labelled sections for GitHub release notes.
+# See: https://git-cliff.org/docs/configuration
+
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") -%}
+### {{ group }}
+
+{% for commit in commits | sort(attribute="description") -%}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.description | upper_first }}
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+# Commits that do not follow Conventional Commits are excluded from the changelog.
+# All PRs in this repo are required to use conventional commit titles, so nothing
+# legitimate should be filtered here.
+filter_unconventional = true
+split_commits = false
+commit_parsers = [
+  { message = "^feat",     group = "✨ Features" },
+  { message = "^fix",      group = "🐛 Bug Fixes" },
+  { message = "^docs",     group = "📚 Documentation" },
+  { message = "^perf",     group = "⚡ Performance" },
+  { message = "^refactor", group = "♻️ Refactoring" },
+  { message = "^test",     group = "🧪 Tests" },
+  { message = "^build",    group = "🔧 Build & Maintenance" },
+  { message = "^chore",    group = "🔧 Build & Maintenance" },
+  # ci: commits are infra-only noise; skip them entirely.
+  { message = "^ci",       skip = true },
+]
+filter_commits = true
+# Match all release tags (stable and rc alike).
+tag_pattern = "v[0-9].*"
