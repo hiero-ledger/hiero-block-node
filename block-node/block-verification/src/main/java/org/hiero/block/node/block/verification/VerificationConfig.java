@@ -21,7 +21,6 @@ import org.hiero.block.node.base.Loggable;
 ///     for blocks received from any source. If false, only
 ///     [org.hiero.block.node.spi.blockmessaging.BlockSource#PUBLISHER] will be strictly ordered.<br/>
 ///     _NOTE_ that this value should remain `true` in all "Tier 1" Block Nodes.
-///     [org.hiero.block.node.spi.blockmessaging.BlockSource#PUBLISHER] will be strictly ordered.
 /// @param dumpEnabled whether to write failing block bytes and metadata to disk for diagnostics (off by default)
 /// @param dumpDirectoryPath directory where bad-block dump files are written
 /// @param dumpRetentionDays how many days to retain dump files before the daily purge removes them

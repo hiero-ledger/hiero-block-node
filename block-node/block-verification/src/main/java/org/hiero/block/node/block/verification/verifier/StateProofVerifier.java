@@ -66,6 +66,7 @@ public final class StateProofVerifier implements ProofVerifier {
         } else {
             // Iterate over all paths, processing leafs in the order they are encountered until we have reconstructed
             // the signed block root.
+            final boolean[] visited = new boolean[allPaths.size()];
             for (int leafStartingIndex = 0; leafStartingIndex < allPaths.size(); leafStartingIndex++) {
                 if (signedBlockRoot != null) {
                     // If we have set the signedBlockRoot, this means that we can now complete verification
@@ -74,21 +75,31 @@ public final class StateProofVerifier implements ProofVerifier {
                     return SessionFailureType.CANCELLED;
                 } else {
                     final MerklePath currentPath = allPaths.get(leafStartingIndex);
+                    visited[leafStartingIndex] = true;
                     if (isLeaf(currentPath)) {
                         // First process the found leaf
                         final byte[] leafResult = processLeaf(currentPath);
                         // Now we must follow the next index, which must always be a join point,
                         // and we keep following that while we can
                         final SessionFailureType followPathResult =
-                                followNextPath(currentPath, allPaths, leafStartingIndex, leafResult);
+                                followNextPath(currentPath, allPaths, leafStartingIndex, leafResult, visited);
                         if (followPathResult != null) {
                             return followPathResult;
                         }
                     }
                 }
             }
-            // After we have finished iterating over all paths, now we can complete verification
-            result = completeVerification(signedBlockRoot, foundComputedRootHashMatch, stateProof);
+            if (!checkpoints.isEmpty()) {
+                result = SessionFailureType.BAD_BLOCK_PROOF;
+            } else {
+                for (int i = 0; i < visited.length; i++) {
+                    if (!visited[i]) {
+                        return SessionFailureType.BAD_BLOCK_PROOF;
+                    }
+                }
+                // After we have finished iterating over all paths, now we can complete verification
+                result = completeVerification(signedBlockRoot, foundComputedRootHashMatch, stateProof);
+            }
         }
         if (result != null) {
             proofVerificationMetrics.stateProofFailure().increment();
@@ -131,7 +142,8 @@ public final class StateProofVerifier implements ProofVerifier {
             final MerklePath currentPath,
             final List<MerklePath> allPaths,
             final int leafStartingIndex,
-            final byte[] leafResult) {
+            final byte[] leafResult,
+            final boolean[] visited) {
         byte[] currentResult = leafResult;
         int lowestStartingIndex = leafStartingIndex;
         int currentJoinPointIndex = currentPath.nextPathIndex();
@@ -146,6 +158,7 @@ public final class StateProofVerifier implements ProofVerifier {
                 return SessionFailureType.BAD_BLOCK_PROOF;
             } else {
                 final MerklePath nextPath = allPaths.get(currentJoinPointIndex);
+                visited[currentJoinPointIndex] = true;
                 if (isJoinPoint(nextPath)) {
                     final MergeCheckpoint checkpoint = checkpoints.remove(currentJoinPointIndex);
                     if (checkpoint != null) {
@@ -166,12 +179,12 @@ public final class StateProofVerifier implements ProofVerifier {
                             currentResult = hashInternalNode(currentResult, checkpoint.currentHash);
                         }
                         currentResult = mergeSiblings(nextPath, currentResult);
+                        currentJoinPointIndex = nextPath.nextPathIndex();
                     } else {
                         this.checkpoints.put(
                                 currentJoinPointIndex, new MergeCheckpoint(lowestStartingIndex, currentResult));
                         canFollowNextIndex = false;
                     }
-                    currentJoinPointIndex = nextPath.nextPathIndex();
                 } else {
                     return SessionFailureType.BAD_BLOCK_PROOF;
                 }

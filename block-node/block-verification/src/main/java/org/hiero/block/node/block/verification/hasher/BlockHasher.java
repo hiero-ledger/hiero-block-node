@@ -13,6 +13,7 @@ import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.UnknownField;
 import com.hedera.pbj.runtime.io.ReadableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.MessageDigest;
@@ -177,15 +178,19 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                 }
                                 case UNSET -> {
                                     throw new VerificationSessionFailedException(
-                                            blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
-                                }
-                                case null -> {
-                                    throw new VerificationSessionFailedException(
-                                            blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
+                                            blockNumber, SessionFailureType.UNKNOWN_ERROR, blockSource);
                                 }
                                 default -> {
                                     // @todo(3195) add field-number based sorting here.
+                                    throw new VerificationSessionFailedException(
+                                            blockNumber, SessionFailureType.UNKNOWN_ERROR, blockSource);
                                 }
+                            }
+                            final List<UnknownField> itemUnknownFields = item.getUnknownFields();
+                            if (!itemUnknownFields.isEmpty()) {
+                                // @todo(3195) add field-number based sorting here.
+                                throw new VerificationSessionFailedException(
+                                        blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
                             }
                         }
                     }

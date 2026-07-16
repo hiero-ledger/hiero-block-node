@@ -308,6 +308,52 @@ class StateProofVerifierTest {
         assertThat(actual).isNotNull().isEqualTo(SessionFailureType.CANCELLED);
     }
 
+    @Test
+    @DisplayName("verify() reject when not all paths visited")
+    void testShouldRejectWhenNotAllPathsVisited() throws IOException, ParseException {
+        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
+        // Swap state proof
+        final List<MerklePath> paths = new ArrayList<>();
+        paths.add(generateGenericMerklePath(true, 2));
+        paths.add(generateGenericMerklePath(true, 2));
+        paths.add(generateGenericMerklePath(false, -1));
+        paths.add(generateGenericMerklePath(true, -1));
+        final ResourceTestBlock tamperedBlock = swapPaths(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), paths);
+        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
+        final StateProofVerifier toTest = new StateProofVerifier(
+                isCanceled,
+                metricsHolder.proofVerificationMetrics(),
+                tamperedBlock.number(),
+                hashingResult.blockProofs().getFirst().blockStateProof(),
+                hashingResult.rootHash(),
+                verificationDataProvider);
+        final SessionFailureType actual = toTest.verify();
+        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
+    @Test
+    @DisplayName("verify() reject when checkpoints left after visiting all indices")
+    void testShouldRejectWhenCheckpointsLeftAfterVisitingAllIndices() throws IOException, ParseException {
+        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
+        // Swap state proof
+        final List<MerklePath> paths = new ArrayList<>();
+        paths.add(generateGenericMerklePath(true, 2));
+        paths.add(generateGenericMerklePath(true, 2));
+        paths.add(generateGenericMerklePath(false, 3));
+        paths.add(generateGenericMerklePath(false, -1));
+        final ResourceTestBlock tamperedBlock = swapPaths(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), paths);
+        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
+        final StateProofVerifier toTest = new StateProofVerifier(
+                isCanceled,
+                metricsHolder.proofVerificationMetrics(),
+                tamperedBlock.number(),
+                hashingResult.blockProofs().getFirst().blockStateProof(),
+                hashingResult.rootHash(),
+                verificationDataProvider);
+        final SessionFailureType actual = toTest.verify();
+        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
     private MerklePath generateGenericMerklePath(final boolean isLeaf) {
         return generateGenericMerklePath(isLeaf, -1);
     }
