@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
+import org.hiero.block.node.app.config.AppConfigExtension;
+
 module org.hiero.block.node.app.config {
+    exports org.hiero.block.node.app.config.state;
+
     // export configuration classes to the config module
     exports org.hiero.block.node.app.config to
             com.swirlds.config.impl,
@@ -13,7 +17,6 @@ module org.hiero.block.node.app.config {
             org.hiero.block.node.health;
     // export the node-wide configuration to everything.
     exports org.hiero.block.node.app.config.node;
-    exports org.hiero.block.node.app.config.state;
 
     requires transitive com.swirlds.config.api;
     requires com.swirlds.base;
@@ -21,4 +24,7 @@ module org.hiero.block.node.app.config {
     requires java.logging;
     requires static transitive com.github.spotbugs.annotations;
     requires static java.compiler;
+
+    provides com.swirlds.config.api.ConfigurationExtension with
+            AppConfigExtension;
 }

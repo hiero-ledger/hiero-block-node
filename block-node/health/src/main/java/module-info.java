@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import org.hiero.block.node.health.HealthConfigExtension;
 import org.hiero.block.node.health.HealthServicePlugin;
 
 module org.hiero.block.node.health {
@@ -22,6 +23,8 @@ module org.hiero.block.node.health {
 
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
+    provides com.swirlds.config.api.ConfigurationExtension with
+            HealthConfigExtension;
     provides org.hiero.block.node.spi.BlockNodePlugin with
             HealthServicePlugin;
 }

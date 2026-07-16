@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import org.hiero.block.node.server.status.ServerStatusConfigExtension;
 import org.hiero.block.node.server.status.ServerStatusServicePlugin;
 
 module org.hiero.block.node.server.status {
@@ -19,6 +20,8 @@ module org.hiero.block.node.server.status {
 
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
+    provides com.swirlds.config.api.ConfigurationExtension with
+            ServerStatusConfigExtension;
     provides org.hiero.block.node.spi.BlockNodePlugin with
             ServerStatusServicePlugin;
 }

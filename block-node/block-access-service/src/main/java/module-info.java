@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
+import org.hiero.block.node.access.service.BlockAccessConfigExtension;
 import org.hiero.block.node.access.service.BlockAccessServicePlugin;
 
 module org.hiero.block.node.access.service {
-    uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
-
     // export configuration classes to the config module and app
     exports org.hiero.block.node.access.service to
             com.swirlds.config.impl,
@@ -17,6 +16,10 @@ module org.hiero.block.node.access.service {
     requires transitive org.hiero.metrics;
     requires org.hiero.block.node.base;
 
+    uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
+
+    provides com.swirlds.config.api.ConfigurationExtension with
+            BlockAccessConfigExtension;
     provides org.hiero.block.node.spi.BlockNodePlugin with
             BlockAccessServicePlugin;
 }
