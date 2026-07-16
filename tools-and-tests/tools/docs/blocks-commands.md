@@ -71,16 +71,21 @@ blocks ls [-c] [-ms=<minSizeMb>] [-o=<outputFile>] [<files>...]
 
 ### The `validate` Subcommand
 
-Validates wrapped block stream files produced by the `wrap` command. Walks all blocks in the input directory in order and performs the following checks:
+Validates wrapped block stream files produced by the `wrap` command. Walks all blocks in the input directory in order and runs a suite of individual validations against each block plus a set of end-of-run state file checks.
+
+At a high level:
 
 - **Hash chain continuity** — each block's `previousBlockRootHash` in the footer matches the computed hash of the preceding block.
 - **Genesis block** — first block has 48 zero bytes for previous hash.
 - **Historical block tree root** — the `rootHashOfAllBlockHashesTree` in the footer matches the expected merkle tree root computed from all preceding block hashes (only when starting from block 0).
 - **Required items** — every block contains at least one `BlockHeader`, `RecordFile`, `BlockFooter`, and `BlockProof`.
 - **Item ordering** — items appear in the correct order: `BlockHeader`, optional `StateChanges`, `RecordFile`, `BlockFooter`, one or more `BlockProof` items, with no duplicates or misplaced items.
-- **Signature validation** — at least 1/3 + 1 of address book nodes must sign.
+- **Signature validation** — stake-weighted RSA (or TSS when applicable) signature threshold met.
 - **50 billion HBAR supply** — tracks account balances across all blocks (from `StateChanges` and `RecordFile` transfer lists) and verifies the total equals exactly 50 billion HBAR after each block (only when starting from block 0).
 - **Balance checkpoints** — validates computed account balances against pre-fetched balance checkpoints at configurable intervals.
+- **State file integrity** — end-of-run comparison of the block-hash registry, streaming merkle tree, and jumpstart state files against freshly-computed values.
+
+For a complete catalog of the individual validations that fire under the hood (what each one checks, whether it runs per block or at end, and how to skip it), see [Validations in detail](#validations-in-detail) below.
 
 #### Supported Inputs
 
@@ -132,6 +137,160 @@ For example, if checkpoints were fetched with `--interval-days 30` (monthly), yo
 weekly since weekly checkpoints don't exist in the file. To validate at a smaller interval, you
 must first re-fetch checkpoints using `fetchBalanceCheckpoints` with a matching `--interval-days`
 value.
+
+#### Validations in detail
+
+The `validate` command orchestrates a set of individual validation classes under the hood. Some are stateless and run in parallel (one instance per block, no cross-block dependency); others are sequential (need prior blocks or accumulated state and run in strict block order). A final group runs only once, at the end of the run, to check state files against freshly-recomputed values.
+
+##### Summary table
+
+|                     Validation                     |    Type    |   Genesis-only?   |             How to skip             |                                       What it checks                                       |
+|----------------------------------------------------|------------|-------------------|-------------------------------------|--------------------------------------------------------------------------------------------|
+| [RequiredItemsValidation](#requireditemsvalidation) | Parallel   | No                | `--skip-required-items`             | Every block has ≥1 BlockHeader, RecordFile, BlockFooter, BlockProof                        |
+| [BlockStructureValidation](#blockstructurevalidation) | Parallel | No                | `--skip-required-items`             | Item ordering: BlockHeader, StateChanges\*, RecordFile, BlockFooter, BlockProof+           |
+| [SignatureValidation](#signaturevalidation)         | Parallel   | No                | `--skip-signatures`                 | RSA (SignedRecordFileProof) or non-empty TSS (SignedBlockProof) signature threshold        |
+| [AddressBookUpdateValidation](#addressbookupdatevalidation) | Sequential | No        | Always on                           | Discovers CN address-book updates from block data, keeps registry current                  |
+| [NodeStakeUpdateValidation](#nodestakeupdatevalidation) | Sequential | No             | Always on                           | Discovers `NodeStakeUpdate` transactions, keeps stake registry current                     |
+| [TssEnablementValidation](#tssenablementvalidation) | Sequential | No                | Always on                           | Discovers `LedgerIdPublication` transactions and writes `tss-enablement.bin`               |
+| [BlockChainValidation](#blockchainvalidation)       | Sequential | No                | Always on                           | `previous_block_hash` in footer matches hash of prior block                                |
+| [HistoricalBlockTreeValidation](#historicalblocktreevalidation) | Sequential | Yes       | Always on (auto-skipped otherwise)  | `root_hash_of_block_hashes_merkle_tree` in footer matches streaming merkle tree            |
+| [HbarSupplyValidation](#hbarsupplyvalidation)       | Sequential | Yes               | `--skip-supply`                     | Total HBAR supply = 50 billion after every block                                           |
+| [BalanceCheckpointValidation](#balancecheckpointvalidation) | Sequential | Yes       | `--no-validate-balances`            | Computed balances match pre-fetched checkpoint snapshots at configurable intervals         |
+| [HashRegistryValidation](#hashregistryvalidation)   | Sequential | No                | Auto-skipped if no registry file    | Per-block hash matches the `blockStreamBlockHashes.bin` registry                           |
+| [StreamingMerkleTreeValidation](#streamingmerkletreevalidation) | End-of-run | Yes     | Auto-skipped when not from genesis  | `streamingMerkleTree.bin` matches freshly-computed streaming hasher                        |
+| [JumpstartValidation](#jumpstartvalidation)         | End-of-run | Yes               | Auto-skipped when not from genesis  | `jumpstart.bin` matches freshly-computed streaming hasher + block hashes                   |
+
+"Genesis-only" validations require starting from block 0 because they depend on accumulated state (block hash history, running HBAR balances, streaming merkle tree). They're transparently disabled when validation resumes from a checkpoint or starts mid-stream.
+
+##### RequiredItemsValidation
+
+**Type:** Parallel · **Skip:** `--skip-required-items` (together with `BlockStructureValidation`)
+
+Confirms every wrapped block contains at least one instance of each required item type: `BlockHeader`, `RecordFile`, `BlockFooter`, and `BlockProof`. A missing required item usually indicates a truncated or corrupted block file.
+
+**Example failure:**
+
+```
+Block 12345 missing required BlockProof item
+```
+
+**When to skip:** validating live-stream blocks that don't yet carry `RecordFile` / `BlockProof` items (e.g., streaming ingest scenarios).
+
+##### BlockStructureValidation
+
+**Type:** Parallel · **Skip:** `--skip-required-items` (together with `RequiredItemsValidation`)
+
+Enforces the canonical item ordering inside a wrapped block:
+
+1. Exactly one `BlockHeader`
+2. Zero or more `StateChanges` (genesis amendments for block 0)
+3. Exactly one `RecordFile`
+4. Exactly one `BlockFooter`
+5. One or more `BlockProof` items
+
+Duplicated or out-of-order items fail this check.
+
+**When to skip:** same as `RequiredItemsValidation` above.
+
+##### SignatureValidation
+
+**Type:** Parallel · **Skip:** `--skip-signatures`
+
+Verifies the cryptographic signatures over the block's signed payload:
+
+- For `SignedRecordFileProof` (record-file-era WRBs): RSA signatures from CN nodes. Stake-weighted consensus is used when stake data is available (verified stake must be `>= ceil(totalStake / 3)`). When stake data is unavailable (pre-staking era, before roughly July 2022), it falls back to equal-weight mode where each node counts as 1 and threshold is `(nodeCount / 3) + 1`.
+- For `SignedBlockProof` (post-block-stream): non-empty TSS signature check.
+
+Stateless; each block is verified independently.
+
+**When to skip:** operating on data known to have stale signatures, or when only hash chain / state file continuity is being verified.
+
+##### AddressBookUpdateValidation
+
+**Type:** Sequential · **Skip:** always on
+
+Discovers CN address-book updates from `RecordFile` items (file update / append transactions targeting file `0.0.102`) and keeps the in-memory `AddressBookRegistry` current. This lets `validate` proceed without a pre-generated `addressBookHistory.json` covering the full block range.
+
+Failures here typically manifest downstream as `SignatureValidation` failures once the registry falls out of sync with what a block signed.
+
+##### NodeStakeUpdateValidation
+
+**Type:** Sequential · **Skip:** always on
+
+Discovers `NodeStakeUpdate` transactions (issued daily at 00:00 UTC) and updates the `NodeStakeRegistry`. Downstream, `SignatureValidation` reads these stakes for stake-weighted consensus.
+
+##### TssEnablementValidation
+
+**Type:** Sequential · **Skip:** always on
+
+Watches for `LedgerIdPublication` transactions. When one is found, the raw protobuf is written to `tss-enablement.bin` (and a companion `tss-bootstrap-roster.json`) so the block node's `VerificationServicePlugin` can consume them directly.
+
+##### BlockChainValidation
+
+**Type:** Sequential · **Skip:** always on (foundational; other validations depend on it)
+
+Compares each block's footer field `previousBlockRootHash` to the hash of the previously-committed block. On the first block validated (when no prior hash is yet known), the chain check is skipped for that block only.
+
+**Example failure:**
+
+```
+Block 12345 previousBlockRootHash mismatch:
+  expected: <hex of block 12344's computed hash>
+  actual:   <hex from block 12345's footer>
+```
+
+Other validations (`HashRegistryValidation`, `HistoricalBlockTreeValidation`) piggyback on the computed hash from this validation to avoid recomputation.
+
+##### HistoricalBlockTreeValidation
+
+**Type:** Sequential · **Skip:** always on (auto-skipped when not starting from block 0)
+
+Maintains a `StreamingHasher` over the sequence of block hashes and verifies the `root_hash_of_block_hashes_merkle_tree` field in each footer matches the running merkle root before the current block's hash is folded in.
+
+Requires starting from block 0 because the full block hash history is needed to reconstruct the correct merkle tree. When validation is resumed from a checkpoint or started mid-stream, this validation is transparently skipped and a message is printed to that effect.
+
+##### HbarSupplyValidation
+
+**Type:** Sequential · **Skip:** `--skip-supply`, auto-skipped when not starting from block 0
+
+Tracks account balances via two sources within each block:
+
+1. `StateChanges` items set absolute HBAR balances or delete accounts.
+2. `RecordFile` items apply relative balance changes via transfer lists.
+
+After every block, the sum of all account balances must equal exactly 50,000,000,000 HBAR (in tinybar). Any deviation fails the block.
+
+**When to skip:** networks with known transfer-list imbalances (dev / test networks that started with non-standard supply).
+
+##### BalanceCheckpointValidation
+
+**Type:** Sequential · **Skip:** `--no-validate-balances`, auto-skipped when not starting from block 0 or when no checkpoint file is loaded
+
+At configured checkpoint block numbers, snapshots the computed account state and compares each account's balance to a pre-fetched balance file (from a saved state or the compiled checkpoints file). See the [Balance Validation](#balance-validation) section above for how the checkpoint file, interval, and sources are configured.
+
+Every checkpoint that fails records a per-account mismatch summary.
+
+##### HashRegistryValidation
+
+**Type:** Sequential · **Skip:** auto-skipped when no registry file is available
+
+Compares each block's computed hash (provided by `BlockChainValidation`) against the value stored in `blockStreamBlockHashes.bin` (produced by `wrap`). A mismatch means the registry was written from a different set of bytes than what `validate` is now computing — usually a symptom of an interrupted or forked wrap run.
+
+##### StreamingMerkleTreeValidation
+
+**Type:** End-of-run · **Skip:** auto-skipped when not starting from block 0
+
+Runs once, in `finalize()`, after every block has been validated. Compares the on-disk `streamingMerkleTree.bin` file to the streaming hasher state that `HistoricalBlockTreeValidation` built up during the run.
+
+A mismatch indicates the state file was checkpointed from a wrap run that saw a different sequence of block hashes than this validation.
+
+##### JumpstartValidation
+
+**Type:** End-of-run · **Skip:** auto-skipped when not starting from block 0
+
+Runs once, in `finalize()`, after every block. Reads `jumpstart.bin` and confirms its fields (block number, block hash, consensus timestamp hash, output items tree root hash, streaming hasher state) match what was freshly computed during this validation run.
+
+`jumpstart.bin` is what the Consensus Node consumes for WRB catch-up integrity checks, so any mismatch here would indicate the WRB archive is inconsistent with the state that CN expects.
 
 #### Notes
 
