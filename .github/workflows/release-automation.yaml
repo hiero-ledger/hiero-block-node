@@ -4,9 +4,24 @@ name: Release Automation
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version (semver)"
+      release_type:
+        description: |
+          Release type.
+          rc    → bumps current rc (0.38.0-rc1 → 0.38.0-rc2) or starts rc1 from SNAPSHOT.
+          alpha → same logic for alpha pre-releases.
+          GA    → strips the pre-release suffix (0.38.0-rc2 → 0.38.0).
+          custom → uses the custom_version field below verbatim; all other inputs are ignored.
         required: true
+        default: "rc"
+        type: choice
+        options:
+          - rc
+          - alpha
+          - GA
+          - custom
+      custom_version:
+        description: "Full version string — only honoured when release_type is 'custom' (e.g. 0.38.0-hotfix.1)"
+        required: false
 
 permissions:
   contents: write
@@ -39,12 +54,61 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: Compute Release Version
+        run: |
+          RELEASE_TYPE="${{ github.event.inputs.release_type }}"
+          if [[ "$RELEASE_TYPE" == "custom" ]]; then
+            CUSTOM="${{ github.event.inputs.custom_version }}"
+            if [[ -z "$CUSTOM" ]]; then
+              echo "::error::custom_version input is required when release_type is 'custom'"
+              exit 1
+            fi
+            COMPUTED_VERSION="$CUSTOM"
+          else
+            # Read version.txt from main via the GitHub API — no checkout needed yet.
+            CURRENT=$(gh api "repos/${{ github.repository }}/contents/version.txt" \
+              --jq '.content' | base64 -d | tr -d '[:space:]')
+            echo "Current repo version: $CURRENT"
+
+            if [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc([0-9]+)$ ]]; then
+              BASE="${BASH_REMATCH[1]}" && RC_N="${BASH_REMATCH[2]}" && KIND="rc"
+            elif [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-alpha([0-9]+)$ ]]; then
+              BASE="${BASH_REMATCH[1]}" && ALPHA_N="${BASH_REMATCH[2]}" && KIND="alpha"
+            elif [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-SNAPSHOT)?$ ]]; then
+              BASE="${BASH_REMATCH[1]}" && KIND="snapshot"
+            else
+              echo "::error::Unrecognised version format '$CURRENT' in version.txt"
+              exit 1
+            fi
+
+            case "$RELEASE_TYPE" in
+              rc)
+                [[ "$KIND" == "rc" ]] \
+                  && COMPUTED_VERSION="${BASE}-rc$((RC_N + 1))" \
+                  || COMPUTED_VERSION="${BASE}-rc1"
+                ;;
+              alpha)
+                [[ "$KIND" == "alpha" ]] \
+                  && COMPUTED_VERSION="${BASE}-alpha$((ALPHA_N + 1))" \
+                  || COMPUTED_VERSION="${BASE}-alpha1"
+                ;;
+              GA)
+                COMPUTED_VERSION="$BASE"
+                ;;
+            esac
+          fi
+
+          echo "Computed release version: $COMPUTED_VERSION"
+          echo "COMPUTED_VERSION=$COMPUTED_VERSION" >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+
       - name: Parse Version
         id: version_parser
         uses: step-security/semver-utils@5bb182a08240146b23b61cc002cb74004377da4b # v5.0.0
         with:
           lenient: false
-          version: ${{ github.event.inputs.version }}
+          version: ${{ env.COMPUTED_VERSION }}
 
       - name: Set Release Environment Variables
         run: |
