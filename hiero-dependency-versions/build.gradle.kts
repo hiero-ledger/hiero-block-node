@@ -6,7 +6,7 @@ dependencies {
 
 dependencies.constraints {
     val daggerVersion = "2.60"
-    val grpcIoVersion = "1.82.1"
+    val grpcIoVersion = "1.82.2"
     val hederaCryptographyVersion = "3.11.2"
     val helidonVersion = "4.5.0"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
