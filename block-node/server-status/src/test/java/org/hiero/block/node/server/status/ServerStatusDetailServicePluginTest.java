@@ -77,6 +77,15 @@ public class ServerStatusDetailServicePluginTest
     @Test
     @DisplayName("Should return valid Server Detail Status when requested")
     void shouldReturnValidServerStatus() throws ParseException {
+        // Block ranges to test with
+        final List<BlockRange> storedBlocks = List.of(new BlockRange(0L, 5L), new BlockRange(1_000_000L, 1_000_005L));
+        final List<BlockRange> availableBlocks = List.of(
+                new BlockRange(0L, 5L),
+                new BlockRange(1_000_000L, 1_000_005L),
+                new BlockRange(1_000_000_000L, 1_000_000_005L),
+                new BlockRange(1_000_000_000_000L, 1_000_000_000_005L));
+        replaceAvailableBlocks(availableBlocks);
+        replaceStoredBlocks(storedBlocks);
         final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
         assertEquals(1, fromPluginBytes.size());

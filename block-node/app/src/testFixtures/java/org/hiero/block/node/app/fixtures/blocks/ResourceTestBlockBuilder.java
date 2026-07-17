@@ -182,28 +182,28 @@ public class ResourceTestBlockBuilder {
     public enum StateProof implements ResourceBlock {
         /// Genesis block — bootstraps TSS parameters and ledger ID. Direct Schnorr proof.
         BLOCK_0(
-                "CN_0_73_TSS_SCHNORR/0.blk.gz",
-                "abca002469f5a59badf0634f8e759895891c65a0df3c3c7f9b78ef0920bc53670e9c5da867ab20d95a4bafb7a192e7f8",
+                "CN_0_77_TSS_SCHNORR/0.blk.gz",
+                "bfeea5194985638c8dfd3fd56ef8627ff65982fae48a2f4c29eda4accd400b5d2c0414a8496770de531903b7d781522d",
                 0),
         /// Indirect proof — 3-gap state proof (15 siblings), references signed block 4.
         BLOCK_1(
-                "CN_0_73_TSS_SCHNORR/1.blk.gz",
-                "16be13db66b0ee4b8b5c1f1173eb081fe267197e219273bc501a293c51eedd4a301edd9db12a452e23a874eab71b32d5",
+                "CN_0_77_TSS_SCHNORR/1.blk.gz",
+                "e2c09c05295e4e73133e7d59b8374aab9f274d0a5dfb0d5e5e9a76487cf71443b56525664cf044f3a893145744067f86",
                 1),
         /// Indirect proof — 2-gap state proof (11 siblings), references signed block 4.
         BLOCK_2(
-                "CN_0_73_TSS_SCHNORR/2.blk.gz",
-                "ebb69bd6d03e4a152baf68f2bdd3cebb0bf90fbe5d3b7e6f0f4134f043945355f170cc162a352367230a377312e4efc8",
+                "CN_0_77_TSS_SCHNORR/2.blk.gz",
+                "9d25ef1473fe5665ff1c8ac1ceab8f0d77c5d0e5030cf93980ea8dcef21fa73be0bdd5f0deb0fe2d5e5658ad30a50b64",
                 2),
         /// Indirect proof — 1-gap state proof (7 siblings), references signed block 4.
         BLOCK_3(
-                "CN_0_73_TSS_SCHNORR/3.blk.gz",
-                "ab58d1104bb0a09b2562927b5dbd46e47c2e9962f6e0938de529babe43077636e8ee3f67473be490c28e781998294a33",
+                "CN_0_77_TSS_SCHNORR/3.blk.gz",
+                "8ced3ee04edad4c4eae5955523c9f00cc3c6712a47491bd8521d43a67ff3ebacbced21bf45dd31de3128ecdb1ac6db36",
                 3),
         /// Direct Schnorr TSS proof — the signed block referenced by blocks 1-3.
         BLOCK_4(
-                "CN_0_73_TSS_SCHNORR/4.blk.gz",
-                "fedfb3dafcb18673938f71da192efdf246cfb1e6e80016aba18cc97a09484f610acc087ae1f468d46e34dd00e92dcfc0",
+                "CN_0_77_TSS_SCHNORR/4.blk.gz",
+                "5a6dda11d4d05184a1eda31db0c9a798ff465c7f551f6454f2bd739ee8e141539652170a737b21d7bfef31bbb86ce54a",
                 4);
         private final String resourceName;
         private final Bytes blockRootHash;

@@ -13,6 +13,7 @@ import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.UnknownField;
 import com.hedera.pbj.runtime.io.ReadableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.MessageDigest;
@@ -114,13 +115,20 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                     item.item().kind();
                             switch (kind) {
                                 case BLOCK_HEADER -> {
-                                    this.blockHeader = standardParse(BlockHeader.PROTOBUF, item.blockHeader());
-                                    this.hapiProtoVersion = this.blockHeader.hapiProtoVersion();
-                                    if (this.hapiProtoVersion == null) {
-                                        throw new VerificationSessionFailedException(
-                                                blockNumber, SessionFailureType.MISSING_MANDATORY_FIELD, blockSource);
+                                    if (this.blockHeader == null) {
+                                        this.blockHeader = standardParse(BlockHeader.PROTOBUF, item.blockHeader());
+                                        this.hapiProtoVersion = this.blockHeader.hapiProtoVersion();
+                                        if (this.hapiProtoVersion == null) {
+                                            throw new VerificationSessionFailedException(
+                                                    blockNumber,
+                                                    SessionFailureType.MISSING_MANDATORY_FIELD,
+                                                    blockSource);
+                                        } else {
+                                            outputTreeHasher.addLeaf(getBlockItemHash(item));
+                                        }
                                     } else {
-                                        outputTreeHasher.addLeaf(getBlockItemHash(item));
+                                        throw new VerificationSessionFailedException(
+                                                blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
                                     }
                                 }
                                 case ROUND_HEADER, EVENT_HEADER ->
@@ -132,7 +140,8 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                                 findLedgerIdPublication(item.signedTransaction());
                                         if (publication != null) {
                                             // publish TSS Data
-                                            final TssData tssData = VerificationHelper.extractTssData(publication);
+                                            final TssData tssData =
+                                                    VerificationHelper.extractTssData(publication, blockNumber);
                                             verificationDataProvider.safeUpdateTssData(tssData, true);
                                         }
                                     }
@@ -142,15 +151,46 @@ public final class BlockHasher implements Supplier<HashingResult> {
                                 case STATE_CHANGES -> stateChangesHasher.addLeaf(getBlockItemHash(item));
                                 case TRACE_DATA -> traceDataHasher.addLeaf(getBlockItemHash(item));
                                 case RECORD_FILE -> {
-                                    this.rawRecordFileItemProtoBytes = item.recordFileOrThrow();
-                                    outputTreeHasher.addLeaf(getBlockItemHash(item));
+                                    if (this.rawRecordFileItemProtoBytes == null) {
+                                        this.rawRecordFileItemProtoBytes = item.recordFileOrThrow();
+                                        outputTreeHasher.addLeaf(getBlockItemHash(item));
+                                    } else {
+                                        throw new VerificationSessionFailedException(
+                                                blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
+                                    }
                                 }
-                                case BLOCK_FOOTER ->
-                                    this.blockFooter = standardParse(BlockFooter.PROTOBUF, item.blockFooter());
+                                case BLOCK_FOOTER -> {
+                                    if (this.blockFooter == null) {
+                                        this.blockFooter = standardParse(BlockFooter.PROTOBUF, item.blockFooter());
+                                    } else {
+                                        throw new VerificationSessionFailedException(
+                                                blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
+                                    }
+                                }
                                 case BLOCK_PROOF -> {
                                     final BlockProof blockProof = standardParse(BlockProof.PROTOBUF, item.blockProof());
                                     blockProofs.add(blockProof);
                                 }
+                                case REDACTED_ITEM, FILTERED_SINGLE_ITEM -> {
+                                    // not permitted currently, fail the hashing.
+                                    throw new VerificationSessionFailedException(
+                                            blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
+                                }
+                                case UNSET -> {
+                                    throw new VerificationSessionFailedException(
+                                            blockNumber, SessionFailureType.UNKNOWN_ERROR, blockSource);
+                                }
+                                default -> {
+                                    // @todo(3195) add field-number based sorting here.
+                                    throw new VerificationSessionFailedException(
+                                            blockNumber, SessionFailureType.UNKNOWN_ERROR, blockSource);
+                                }
+                            }
+                            final List<UnknownField> itemUnknownFields = item.getUnknownFields();
+                            if (!itemUnknownFields.isEmpty()) {
+                                // @todo(3195) add field-number based sorting here.
+                                throw new VerificationSessionFailedException(
+                                        blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource);
                             }
                         }
                     }
@@ -184,8 +224,6 @@ public final class BlockHasher implements Supplier<HashingResult> {
     private HashingResult finalHashingResult() throws NoSuchAlgorithmException {
         final HashingResult hashingResult;
         if (blockHeader == null || blockFooter == null || blockProofs.isEmpty()) {
-            // todo(2528) validate that when we see an WRB we have:
-            //    1x Block Header, 1x RECORD_ITEM, 1x Block Footer, N number (at least 1) Block Proof
             throw new VerificationSessionFailedException(
                     blockNumber, SessionFailureType.MISSING_MANDATORY_ITEM, blockSource);
         } else {
@@ -297,7 +335,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
     /// <ol>
     ///     - Read the next field tag varint and decode its field number and wire type.
     ///     - If `fieldNumber == 2` and `wireType == LEN`: read the length prefix varint,
-    ///     read exactly that many bytes, and return them — these are the
+    ///     read exactly that many bytes, and return them - these are the
     ///     `record_file_contents`.
     ///     - Otherwise skip the field using the wire type to know how many bytes to consume:
     ///
@@ -329,7 +367,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
                     input.readBytes(raw);
                     return Bytes.wrap(raw);
                 }
-                // Not field 2 — skip this field using its wire type to advance the cursor correctly
+                // Not field 2 - skip this field using its wire type to advance the cursor correctly
                 switch (wireType) {
                     case 0 -> input.readVarLong(false); // VARINT: read and discard the value
                     case 1 -> input.skip(8); // I64: fixed 64-bit, skip 8 bytes
@@ -339,7 +377,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
                     }
                     case 5 -> input.skip(4); // I32: fixed 32-bit, skip 4 bytes
                     default -> {
-                        return Bytes.EMPTY; // Unknown wire type — bail out safely
+                        return Bytes.EMPTY; // Unknown wire type - bail out safely
                     }
                 }
             }

@@ -2,6 +2,8 @@
 package org.hiero.block.node.block.verification.verifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.InstanceOfAssertFactories.type;
 
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.RecordFileSignature;
@@ -25,19 +27,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.node.app.fixtures.TestConfigurationBuilder;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.hasher.BlockHasher;
 import org.hiero.block.node.block.verification.hasher.HashingResult;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
+import org.hiero.block.node.block.verification.session.VerificationSessionFailedException;
+import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /// Tests for [RSAProofVerifier].
 class RSAProofVerifierTest {
@@ -52,7 +59,7 @@ class RSAProofVerifierTest {
     private static final Timestamp BLOCK_TIMESTAMP = new Timestamp(1_700_000_000L, 0);
     private static final long BLOCK_NUMBER = 42L;
     /// Raw bytes used as the `record_file_contents` (field 2) of the test `RecordFileItem`.
-    /// These represent a minimal placeholder — only the bytes matter for the hash computation.
+    /// These represent a minimal placeholder - only the bytes matter for the hash computation.
     private static final byte[] RECORD_STREAM_FILE_BYTES = "test-record-stream-file-v6-content".getBytes();
     /// RSA public keys indexed by node_id (0 .. ROSTER_SIZE-1). Used by the existing 6-node tests.
     private static final Map<Long, PublicKey> KEY_MAP = new HashMap<>();
@@ -71,7 +78,7 @@ class RSAProofVerifierTest {
 
     @BeforeAll
     static void generateKeysAndPayload() throws Exception {
-        // 2048-bit RSA keys are used for test speed only — production network uses 4096-bit keys.
+        // 2048-bit RSA keys are used for test speed only - production network uses 4096-bit keys.
         // CodeQL flags anything below 2048 as a weak-key warning even in test code, so we stay at 2048.
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
@@ -140,59 +147,52 @@ class RSAProofVerifierTest {
         return List.of(headerItem, recordFileItem, footerItem, proofItem);
     }
 
-    /// Builds a `BlockItemUnparsed` list representing a WRB block with multiple `BLOCK_PROOF`
-    /// items, one per `SignedRecordFileProof`. Used to test the multi-proof verification path.
-    ///
-    /// @param signaturesPerProof one signature list per `BLOCK_PROOF` item to append
-    /// @return list of unparsed block items ready to pass to `processBlockItems`
-    private static List<BlockItemUnparsed> buildWrbBlockWithMultipleProofs(
-            final List<List<RecordFileSignature>> signaturesPerProof) {
+    /// Builds a WRB block using custom {@code recordFileItemBytes} instead of the global fixture.
+    /// Used by the edge-case tests for {@code extractRecordStreamFileBytes}.
+    private static List<BlockItemUnparsed> buildWrbBlockWithCustomRecordFile(
+            final Bytes customRecordFileBytes, final List<RecordFileSignature> signatures) {
         final BlockHeader header =
                 new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
         final BlockFooter footer = new BlockFooter(Bytes.wrap("hash1"), Bytes.wrap("hash2"), Bytes.wrap("hash3"));
-        final List<BlockItemUnparsed> items = new ArrayList<>();
-        items.add(BlockItemUnparsed.newBuilder()
-                .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
-                .build());
-        items.add(BlockItemUnparsed.newBuilder().recordFile(recordFileItemBytes).build());
-        items.add(BlockItemUnparsed.newBuilder()
-                .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
-                .build());
-        for (final List<RecordFileSignature> signatures : signaturesPerProof) {
-            final BlockProof proof = BlockProof.newBuilder()
-                    .block(BLOCK_NUMBER)
-                    .signedRecordFileProof(new SignedRecordFileProof(6, signatures))
-                    .build();
-            items.add(BlockItemUnparsed.newBuilder()
-                    .blockProof(BlockProof.PROTOBUF.toBytes(proof))
-                    .build());
-        }
-        return items;
+        final BlockProof proof = BlockProof.newBuilder()
+                .block(BLOCK_NUMBER)
+                .signedRecordFileProof(new SignedRecordFileProof(6, signatures))
+                .build();
+        return List.of(
+                BlockItemUnparsed.newBuilder()
+                        .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                        .build(),
+                BlockItemUnparsed.newBuilder().recordFile(customRecordFileBytes).build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                        .build());
     }
 
     /// Runs a single-call verification through `ExtendedMerkleTreeSession` using the given
     /// key map and signatures.
     private static SessionFailureType runVerification(
             final Map<Long, PublicKey> keyMap, final List<RecordFileSignature> signatures) throws Exception {
-        final List<BlockItemUnparsed> items = buildWrbBlock(signatures);
-        final VerificationDataProvider verificationDataProvider = new VerificationDataProvider(
-                TestUtils.testContext(new TestConfigurationBuilder().getOrCreateConfig(), null));
+        return runVerification(buildWrbBlock(signatures), keyMap);
+    }
+
+    /// Runs a single-call verification through `ExtendedMerkleTreeSession` using the given
+    /// key map and signatures.
+    private static SessionFailureType runVerification(
+            final List<BlockItemUnparsed> items, final Map<Long, PublicKey> keyMap) throws Exception {
+        final BlockNodeContext context = TestUtils.testContext();
+        final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
         final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
-        final MetricsHolder metricsHolder = MetricsHolder.create(TestUtils.createMetrics());
-        final AtomicBoolean isCanceled = new AtomicBoolean(false);
-        final BlockHasher hasher = new BlockHasher(
-                isCanceled,
-                blockItemsDeque,
-                metricsHolder.hashingMetrics(),
-                BLOCK_NUMBER,
-                BlockSource.PUBLISHER,
-                verificationDataProvider);
+        final BlockHasher hasher = createHasher(blockItemsDeque, BLOCK_NUMBER, context, metricsHolder);
         blockItemsDeque.offer(new BlockItems(items, BLOCK_NUMBER, true, true));
         final HashingResult hashingResult = hasher.get();
         final SignedRecordFileProof proof =
                 hashingResult.blockProofs().getFirst().signedRecordFileProofOrThrow();
         final Signature sha384WithRSASig = Signature.getInstance("SHA384withRSA");
         final RSAProofVerifier proofVerifier = new RSAProofVerifier(
+                new AtomicBoolean(false),
                 metricsHolder.proofVerificationMetrics(),
                 hashingResult.blockNumber(),
                 keyMap,
@@ -200,6 +200,22 @@ class RSAProofVerifierTest {
                 signedPayload,
                 sha384WithRSASig);
         return proofVerifier.verify();
+    }
+
+    private static BlockHasher createHasher(
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque,
+            final long blockNumber,
+            final BlockNodeContext context,
+            final MetricsHolder metricsHolder) {
+        final VerificationDataProvider verificationDataProvider = new VerificationDataProvider(context);
+        final AtomicBoolean isCanceled = new AtomicBoolean(false);
+        return new BlockHasher(
+                isCanceled,
+                blockItemsDeque,
+                metricsHolder.hashingMetrics(),
+                blockNumber,
+                BlockSource.PUBLISHER,
+                verificationDataProvider);
     }
 
     /// Signs with the given node IDs (from the 6-node pool) and returns a `RecordFileSignature` list.
@@ -260,7 +276,7 @@ class RSAProofVerifierTest {
     @Test
     @DisplayName("all-zero signature bytes are skipped, leaving zero valid sigs → rejected")
     void allZeroSignatures_rejected() throws Exception {
-        // Every entry is all-zero — the defensive pre-filter skips each, validCount stays at 0,
+        // Every entry is all-zero - the defensive pre-filter skips each, validCount stays at 0,
         // and the at-least-one-valid rule rejects the block.
         final List<RecordFileSignature> sigs = new ArrayList<>();
         for (long id = 0; id < ROSTER_SIZE; id++) {
@@ -280,7 +296,7 @@ class RSAProofVerifierTest {
     @Test
     @DisplayName("signature from unknown node_id is skipped as a roster mismatch; block still accepted")
     void unknownNodeId_skippedAsMismatch_blockAccepted() throws Exception {
-        // Node 99 is not in the era key map — its signature is skipped and tallied as a roster
+        // Node 99 is not in the era key map - its signature is skipped and tallied as a roster
         // mismatch (see @todo(2808)) rather than rejecting the block outright; the five valid
         // signatures from nodes 0..4 are sufficient to accept.
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
@@ -305,9 +321,9 @@ class RSAProofVerifierTest {
     }
 
     @Test
-    @DisplayName("all signatures from unknown node_ids are skipped as mismatches, leaving zero valid sigs — rejected")
+    @DisplayName("all signatures from unknown node_ids are skipped as mismatches, leaving zero valid sigs - rejected")
     void allSignaturesUnknownNodeIds_skippedAsMismatches_rejected() throws Exception {
-        // Era roster contains nodes 10..12 only — none of the signing nodes (0, 1, 2) are present,
+        // Era roster contains nodes 10..12 only - none of the signing nodes (0, 1, 2) are present,
         // so every signature is skipped as a roster mismatch and validCount stays at 0.
         final Map<Long, PublicKey> eraKeyMap = new HashMap<>();
         eraKeyMap.put(10L, KEY_MAP.get(0L));
@@ -322,7 +338,7 @@ class RSAProofVerifierTest {
     @DisplayName("wrong payload signature (signed wrong data) causes immediate block rejection")
     void wrongPayloadSignature_immediatelyRejectsBlock() throws Exception {
         // CN only sends signatures from consensus-contributing nodes, so a failed RSA verify
-        // means the proof or block is tampered — the block is rejected at the first failing sig.
+        // means the proof or block is tampered - the block is rejected at the first failing sig.
         final List<RecordFileSignature> sigs = new ArrayList<>();
         final byte[] wrongData = "totally-wrong-payload".getBytes();
         for (long id = 0; id < ROSTER_SIZE; id++) {
@@ -338,7 +354,7 @@ class RSAProofVerifierTest {
     @Test
     @DisplayName("one bad sig among otherwise valid sigs causes immediate block rejection")
     void oneBadSigAmongValids_immediatelyRejectsBlock() throws Exception {
-        // 5 valid sigs from nodes 0..4, but node 5 signs the wrong payload — the block must be
+        // 5 valid sigs from nodes 0..4, but node 5 signs the wrong payload - the block must be
         // rejected immediately by the "any failed verify rejects" rule, regardless of how many
         // other sigs are valid.
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
@@ -362,7 +378,7 @@ class RSAProofVerifierTest {
     @Test
     @DisplayName("malformed DER key in address book is excluded; remaining keys still counted")
     void malformedKeyExcludedFromMap_restStillCounted() throws Exception {
-        // Build a key map where node 5 has a malformed (random) key — RsaKeyDecoder would skip it.
+        // Build a key map where node 5 has a malformed (random) key - RsaKeyDecoder would skip it.
         // Here we simulate by simply omitting node 5 from the map (as if buildKeyMap had skipped it).
         final Map<Long, PublicKey> reducedMap = new HashMap<>(KEY_MAP);
         reducedMap.remove(5L);
@@ -383,240 +399,167 @@ class RSAProofVerifierTest {
         assertThat(result).isNull();
     }
 
-    // @todo(3007) port below tests as a follow up
-    //    add test for null signed payload
-    //    add test for failure on non version 6
-    //
-    //        @Test
-    //        @DisplayName("multiple RSA proofs all valid are accepted")
-    //        void multipleValidProofs_accepted() throws Exception {
-    //            // Two RSA proofs, each with all-valid signatures — both must verify for the block to accept.
-    //            final List<List<RecordFileSignature>> proofs =
-    //                List.of(signaturesFor(0L, 1L, 2L, 3L), signaturesFor(0L, 1L, 2L, 3L, 4L, 5L));
-    //            final List<BlockItemUnparsed> items = buildWrbBlockWithMultipleProofs(proofs);
-    //
-    //            final CompletableVerificationSession session = new CompletableVerificationSession();
-    //            session.start();
-    //            session.getBlockItemsDeque().offer(new BlockItems(items, BLOCK_NUMBER, true, true));
-    //            final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-    //                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
-    //            final VerificationNotification result =
-    //                session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
-    //
-    //            assertNotNull(result);
-    //            assertTrue(result.success(), "Block with multiple valid RSA proofs must be accepted");
-    //            assertNotNull(result.blockHash(), "Block hash must be set on success");
-    //            assertNotNull(result.block(), "Block must be present on success");
-    //        }
-    //
-    //    @Test
-    //    @DisplayName("multiple RSA proofs with one containing a failed signature rejects the block")
-    //    void multipleProofs_oneFailing_rejected() throws Exception {
-    //        // First proof is fully valid; second proof contains one signature against a wrong
-    //        // payload — that single failed verify must reject the whole block.
-    //        final List<RecordFileSignature> secondProofSigs = signaturesFor(0L, 1L);
-    //        final byte[] wrongData = "tampered-payload".getBytes();
-    //        final Signature wrongEngine = Signature.getInstance("SHA384withRSA");
-    //        wrongEngine.initSign(PRIVATE_KEY_MAP.get(2L));
-    //        wrongEngine.update(wrongData);
-    //        secondProofSigs.add(new RecordFileSignature(Bytes.wrap(wrongEngine.sign()), 2L));
-    //
-    //        final List<List<RecordFileSignature>> proofs = List.of(signaturesFor(0L, 1L, 2L, 3L, 4L, 5L),
-    // secondProofSigs);
-    //        final List<BlockItemUnparsed> items = buildWrbBlockWithMultipleProofs(proofs);
-    //        final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-    //            BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
-    //        final VerificationNotification result =
-    //            session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
-    //
-    //        assertNotNull(result);
-    //        assertFalse(result.success(), "Block must be rejected when any RSA proof present fails verification");
-    //        assertNull(result.blockHash(), "Block hash must not be set on failure");
-    //        assertNull(result.block(), "Block must not be present on failure");
-    //    }
-    //
-    //    @Test
-    //    @DisplayName("unsupported proof version (V5) is rejected")
-    //    void unsupportedVersion_rejected() throws Exception {
-    //        final List<BlockItemUnparsed> items;
-    //        {
-    //            final BlockHeader header = new BlockHeader(
-    //                HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-    //            final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
-    //            // Version 5 — only V6 is supported in Phase 2a
-    //            final BlockProof proof = BlockProof.newBuilder()
-    //                .block(BLOCK_NUMBER)
-    //                .signedRecordFileProof(new SignedRecordFileProof(5, signaturesFor(0L, 1L, 2L, 3L, 4L)))
-    //                .build();
-    //            items = List.of(
-    //                BlockItemUnparsed.newBuilder()
-    //                    .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
-    //                    .build(),
-    //                BlockItemUnparsed.newBuilder()
-    //                    .recordFile(recordFileItemBytes)
-    //                    .build(),
-    //                BlockItemUnparsed.newBuilder()
-    //                    .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
-    //                    .build(),
-    //                BlockItemUnparsed.newBuilder()
-    //                    .blockProof(BlockProof.PROTOBUF.toBytes(proof))
-    //                    .build());
-    //        }
-    //        final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-    //            BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
-    //        final VerificationNotification result =
-    //            session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
-    //
-    //        assertNotNull(result);
-    //        assertFalse(result.success(), "SignedRecordFileProof version 5 must be rejected — only V6 is supported");
-    //    }
-    //
-    //    @Test
-    //    @DisplayName("RSA V6: extractRecordStreamFileBytes correctly isolates field-2 bytes")
-    //    void recordStreamFileBytesExtractedCorrectly_signatureVerifies() throws Exception {
-    //        // Add a field-1 entry before field-2 in the proto bytes to confirm the parser skips correctly.
-    //        // Field 1 (tag=10, wire=LEN): creation_time — we put some dummy bytes there.
-    //        final ByteArrayOutputStream bos = new ByteArrayOutputStream();
-    //        final byte[] dummyField1 = new byte[] {8, 0, 16, 0}; // minimal Timestamp proto (seconds=0, nanos=0)
-    //        bos.write(0x0A); // tag: field 1 (LEN)
-    //        bos.write(dummyField1.length);
-    //        bos.write(dummyField1);
-    //        bos.write(0x12); // tag: field 2 (LEN)
-    //        bos.write(RECORD_STREAM_FILE_BYTES.length);
-    //        bos.write(RECORD_STREAM_FILE_BYTES);
-    //        final Bytes protoWithBothFields = Bytes.wrap(bos.toByteArray());
-    //
-    //        // Build a session using these proto bytes as the RECORD_FILE item
-    //        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
-    //        final List<BlockItemUnparsed> items;
-    //        {
-    //            final BlockHeader header = new BlockHeader(
-    //                HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-    //            final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
-    //            final BlockProof proof = BlockProof.newBuilder()
-    //                .block(BLOCK_NUMBER)
-    //                .signedRecordFileProof(new SignedRecordFileProof(6, sigs))
-    //                .build();
-    //            items = List.of(
-    //                BlockItemUnparsed.newBuilder()
-    //                    .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
-    //                    .build(),
-    //                BlockItemUnparsed.newBuilder()
-    //                    .recordFile(protoWithBothFields)
-    //                    .build(),
-    //                BlockItemUnparsed.newBuilder()
-    //                    .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
-    //                    .build(),
-    //                BlockItemUnparsed.newBuilder()
-    //                    .blockProof(BlockProof.PROTOBUF.toBytes(proof))
-    //                    .build());
-    //        }
-    //        final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-    //            BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
-    //        final VerificationNotification result =
-    //            session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
-    //
-    //        assertNotNull(result);
-    //        assertTrue(result.success(), "Field-2 bytes must be correctly extracted even when field-1 precedes them");
-    //    }
-    //
-    //    /**
-    //     * Builds a WRB block using custom {@code recordFileItemBytes} instead of the global fixture.
-    //     * Used by the edge-case tests for {@code extractRecordStreamFileBytes}.
-    //     */
-    //    private static List<BlockItemUnparsed> buildWrbBlockWithCustomRecordFile(
-    //        final Bytes customRecordFileBytes, final List<RecordFileSignature> signatures) {
-    //        final BlockHeader header =
-    //            new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-    //        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
-    //        final BlockProof proof = BlockProof.newBuilder()
-    //            .block(BLOCK_NUMBER)
-    //            .signedRecordFileProof(new SignedRecordFileProof(6, signatures))
-    //            .build();
-    //        return List.of(
-    //            BlockItemUnparsed.newBuilder()
-    //                .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
-    //                .build(),
-    //            BlockItemUnparsed.newBuilder().recordFile(customRecordFileBytes).build(),
-    //            BlockItemUnparsed.newBuilder()
-    //                .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
-    //                .build(),
-    //            BlockItemUnparsed.newBuilder()
-    //                .blockProof(BlockProof.PROTOBUF.toBytes(proof))
-    //                .build());
-    //    }
-    //
-    //    @Test
-    //    @DisplayName("extractRecordStreamFileBytes: empty, field-2-absent, unknown-wire-type all return EMPTY →
-    // failure")
-    //    void extractRecordStreamFileBytes_defensiveCases() throws Exception {
-    //        // All cases use valid signatures so any failure is from extraction, not signature validation.
-    //        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
-    //
-    //        // Case 1: empty RECORD_FILE bytes — nothing to extract → field not found → Bytes.EMPTY → fail
-    //        final ExtendedMerkleTreeSession session1 = new ExtendedMerkleTreeSession(
-    //            BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
-    //        final VerificationNotification result1 = session1.processBlockItems(
-    //            new BlockItems(buildWrbBlockWithCustomRecordFile(Bytes.EMPTY, sigs), BLOCK_NUMBER, true, true));
-    //        assertNotNull(result1);
-    //        assertFalse(result1.success(), "Empty RECORD_FILE bytes must cause extraction failure → rejected");
-    //
-    //        // Case 2: only field 1 present, no field 2 — iterator exhausts without finding field 2 → Bytes.EMPTY →
-    // fail
-    //        // Tag=0x0A (field 1, LEN), length=1, one payload byte
-    //        final Bytes field1Only = Bytes.wrap(new byte[] {0x0A, 0x01, 0x42});
-    //        final ExtendedMerkleTreeSession session2 = new ExtendedMerkleTreeSession(
-    //            BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
-    //        final VerificationNotification result2 = session2.processBlockItems(
-    //            new BlockItems(buildWrbBlockWithCustomRecordFile(field1Only, sigs), BLOCK_NUMBER, true, true));
-    //        assertNotNull(result2);
-    //        assertFalse(result2.success(), "RECORD_FILE with no field-2 must cause extraction failure → rejected");
-    //
-    //        // Case 3: unknown wire type (wire type 3) as first tag — bail-out path returns Bytes.EMPTY → fail
-    //        // Tag = (1 << 3) | 3 = 0x0B (field 1, wire 3 = SGROUP — unused in proto3 but valid tag encoding)
-    //        final Bytes unknownWireType = Bytes.wrap(new byte[] {0x0B});
-    //        final ExtendedMerkleTreeSession session3 = new ExtendedMerkleTreeSession(
-    //            BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
-    //        final VerificationNotification result3 = session3.processBlockItems(
-    //            new BlockItems(buildWrbBlockWithCustomRecordFile(unknownWireType, sigs), BLOCK_NUMBER, true, true));
-    //        assertNotNull(result3);
-    //        assertFalse(result3.success(), "Unknown wire type in RECORD_FILE must bail out → rejected");
-    //    }
-    //
-    //    /**
-    //     * Verifies the at-least-one-valid acceptance rule across a range of roster sizes:
-    //     * a single valid signature accepts, zero valid signatures rejects.
-    //     */
-    //    @ParameterizedTest(name = "rosterSize={0}")
-    //    @MethodSource("rosterSizes")
-    //    @DisplayName("one valid signature accepts and zero valid signatures rejects across roster sizes")
-    //    void oneValidSignatureSuffices_zeroRejected(final int rosterSize) throws Exception {
-    //        // Build a key map from the extended pool so existing 6-node KEY_MAP is unaffected.
-    //        final Map<Long, PublicKey> keyMap = new HashMap<>();
-    //        for (long id = 0; id < rosterSize; id++) {
-    //            keyMap.put(id, EXTENDED_KEY_MAP.get(id));
-    //        }
-    //
-    //        // 1 valid sig → must be accepted
-    //        final List<RecordFileSignature> one = List.of(extendedSignature(0L));
-    //        assertTrue(
-    //            runVerification(keyMap, one).success(), "rosterSize=" + rosterSize + ": 1 valid sig must be
-    // accepted");
-    //
-    //        // 0 valid sigs (empty list) → must be rejected
-    //        assertFalse(
-    //            runVerification(keyMap, List.of()).success(),
-    //            "rosterSize=" + rosterSize + ": 0 valid sigs must be rejected");
-    //    }
-    //
-    //    static Stream<Arguments> rosterSizes() {
-    //        return Stream.of(
-    //                Arguments.of(3),
-    //                Arguments.of(4),
-    //                Arguments.of(5),
-    //                Arguments.of(6),
-    //                Arguments.of(7),
-    //                Arguments.of(8),
-    //                Arguments.of(9));
-    //    }
+    /// Verifies the at-least-one-valid acceptance rule across a range of roster sizes:
+    /// a single valid signature accepted, zero valid signatures rejected.
+    @ParameterizedTest(name = "rosterSize={0}")
+    @MethodSource("rosterSizes")
+    @DisplayName("one valid signature accepts and zero valid signatures rejects across roster sizes")
+    void oneValidSignatureSuffices_zeroRejected(final int rosterSize) throws Exception {
+        // Build a key map from the extended pool so existing 6-node KEY_MAP is unaffected.
+        final Map<Long, PublicKey> keyMap = new HashMap<>();
+        for (long id = 0; id < rosterSize; id++) {
+            keyMap.put(id, EXTENDED_KEY_MAP.get(id));
+        }
+        // 1 valid sig → must be accepted
+        final List<RecordFileSignature> one = List.of(extendedSignature(0L));
+        assertThat(runVerification(keyMap, one))
+                .withFailMessage("rosterSize=" + rosterSize + ": 1 valid sig must be accepted")
+                .isNull();
+        // 0 valid sigs (empty list) → must be rejected
+        assertThat(runVerification(keyMap, List.of()))
+                .withFailMessage("rosterSize=" + rosterSize + ": 0 valid sigs must be rejected")
+                .isNotNull()
+                .isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
+    @Test
+    @DisplayName("Null signed payload rejected")
+    void testNullSignedPayloadRejected() throws Exception {
+        final BlockNodeContext context = TestUtils.testContext();
+        final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
+        final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+        final BlockHasher hasher = createHasher(blockItemsDeque, BLOCK_NUMBER, context, metricsHolder);
+        blockItemsDeque.offer(new BlockItems(buildWrbBlock(signaturesFor(0L)), BLOCK_NUMBER, true, true));
+        final HashingResult hashingResult = hasher.get();
+        final SignedRecordFileProof proof =
+                hashingResult.blockProofs().getFirst().signedRecordFileProofOrThrow();
+        final Signature sha384WithRSASig = Signature.getInstance("SHA384withRSA");
+        final RSAProofVerifier proofVerifier = new RSAProofVerifier(
+                new AtomicBoolean(false),
+                metricsHolder.proofVerificationMetrics(),
+                hashingResult.blockNumber(),
+                KEY_MAP,
+                proof,
+                null,
+                sha384WithRSASig);
+        final SessionFailureType actual = proofVerifier.verify();
+        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.MISSING_VERIFICATION_DATA);
+    }
+
+    @Test
+    @DisplayName("unsupported proof version is rejected")
+    void unsupportedVersion_rejected() throws Exception {
+        final List<BlockItemUnparsed> items;
+        {
+            final BlockHeader header = new BlockHeader(
+                    HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+            final BlockFooter footer = new BlockFooter(Bytes.wrap("hash1"), Bytes.wrap("hash2"), Bytes.wrap("hash3"));
+            // Version 5 - only V6 is supported in Phase 2a
+            final BlockProof proof = BlockProof.newBuilder()
+                    .block(BLOCK_NUMBER)
+                    .signedRecordFileProof(new SignedRecordFileProof(5, signaturesFor(0L, 1L, 2L, 3L, 4L)))
+                    .build();
+            items = List.of(
+                    BlockItemUnparsed.newBuilder()
+                            .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                            .build(),
+                    BlockItemUnparsed.newBuilder()
+                            .recordFile(recordFileItemBytes)
+                            .build(),
+                    BlockItemUnparsed.newBuilder()
+                            .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                            .build(),
+                    BlockItemUnparsed.newBuilder()
+                            .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                            .build());
+        }
+        final SessionFailureType sessionFailureType = runVerification(items, KEY_MAP);
+        assertThat(sessionFailureType).isNotNull().isEqualTo(SessionFailureType.MISSING_MANDATORY_FIELD);
+    }
+
+    @Test
+    @DisplayName("RSA V6: extractRecordStreamFileBytes correctly isolates field-2 bytes")
+    void recordStreamFileBytesExtractedCorrectly_signatureVerifies() throws Exception {
+        // Add a field-1 entry before field-2 in the proto bytes to confirm the parser skips correctly.
+        // Field 1 (tag=10, wire=LEN): creation_time - we put some dummy bytes there.
+        final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        final byte[] dummyField1 = new byte[] {8, 0, 16, 0}; // minimal Timestamp proto (seconds=0, nanos=0)
+        bos.write(0x0A); // tag: field 1 (LEN)
+        bos.write(dummyField1.length);
+        bos.write(dummyField1);
+        bos.write(0x12); // tag: field 2 (LEN)
+        bos.write(RECORD_STREAM_FILE_BYTES.length);
+        bos.write(RECORD_STREAM_FILE_BYTES);
+        final Bytes protoWithBothFields = Bytes.wrap(bos.toByteArray());
+        // Build a session using these proto bytes as the RECORD_FILE item
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
+        final List<BlockItemUnparsed> items;
+        {
+            final BlockHeader header = new BlockHeader(
+                    HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+            final BlockFooter footer = new BlockFooter(Bytes.wrap("hash1"), Bytes.wrap("hash2"), Bytes.wrap("hash3"));
+            final BlockProof proof = BlockProof.newBuilder()
+                    .block(BLOCK_NUMBER)
+                    .signedRecordFileProof(new SignedRecordFileProof(6, sigs))
+                    .build();
+            items = List.of(
+                    BlockItemUnparsed.newBuilder()
+                            .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                            .build(),
+                    BlockItemUnparsed.newBuilder()
+                            .recordFile(protoWithBothFields)
+                            .build(),
+                    BlockItemUnparsed.newBuilder()
+                            .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                            .build(),
+                    BlockItemUnparsed.newBuilder()
+                            .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                            .build());
+        }
+        final SessionFailureType sessionFailureType = runVerification(items, KEY_MAP);
+        assertThat(sessionFailureType).isNull();
+    }
+
+    @Test
+    @DisplayName("extractRecordStreamFileBytes: empty, field-2-absent, unknown-wire-type all return EMPTY → failure")
+    void extractRecordStreamFileBytes_defensiveCases() throws Exception {
+        // All cases use valid signatures so any failure is from extraction, not signature validation.
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
+        // Case 1: empty RECORD_FILE bytes - nothing to extract → field not found → Bytes.EMPTY → fail
+        // We expect hasher to fail
+        assertThatExceptionOfType(VerificationSessionFailedException.class)
+                .isThrownBy(() -> runVerification(buildWrbBlockWithCustomRecordFile(Bytes.EMPTY, sigs), KEY_MAP))
+                .asInstanceOf(type(VerificationSessionFailedException.class))
+                .returns(
+                        SessionFailureType.MISSING_MANDATORY_FIELD, VerificationSessionFailedException::getFailureType);
+        // Case 2: only field 1 present, no field 2 - iterator exhausts without finding field 2 → Bytes.EMPTY → fail
+        // Tag=0x0A (field 1, LEN), length=1, one payload byte
+        // We expect hasher to fail
+        final Bytes field1Only = Bytes.wrap(new byte[] {0x0A, 0x01, 0x42});
+        assertThatExceptionOfType(VerificationSessionFailedException.class)
+                .isThrownBy(() -> runVerification(buildWrbBlockWithCustomRecordFile(field1Only, sigs), KEY_MAP))
+                .asInstanceOf(type(VerificationSessionFailedException.class))
+                .returns(
+                        SessionFailureType.MISSING_MANDATORY_FIELD, VerificationSessionFailedException::getFailureType);
+        // Case 3: unknown wire type (wire type 3) as first tag - bail-out path returns Bytes.EMPTY → fail
+        // Tag = (1 << 3) | 3 = 0x0B (field 1, wire 3 = SGROUP - unused in proto3 but valid tag encoding)
+        final Bytes unknownWireType = Bytes.wrap(new byte[] {0x0B});
+        // We expect hasher to fail
+        assertThatExceptionOfType(VerificationSessionFailedException.class)
+                .isThrownBy(() -> runVerification(buildWrbBlockWithCustomRecordFile(unknownWireType, sigs), KEY_MAP))
+                .asInstanceOf(type(VerificationSessionFailedException.class))
+                .returns(
+                        SessionFailureType.MISSING_MANDATORY_FIELD, VerificationSessionFailedException::getFailureType);
+    }
+
+    static Stream<Arguments> rosterSizes() {
+        return Stream.of(
+                Arguments.of(3),
+                Arguments.of(4),
+                Arguments.of(5),
+                Arguments.of(6),
+                Arguments.of(7),
+                Arguments.of(8),
+                Arguments.of(9));
+    }
 }

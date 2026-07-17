@@ -80,6 +80,9 @@ public abstract class PluginTestBase<
     /** The stored-block set backing {@link #addStoredBlockRange} and {@link #updateStoredBlocks}. */
     protected final ConcurrentLongRangeSet appStoredBlocks = new ConcurrentLongRangeSet();
 
+    protected List<BlockRange> storedBlocks = List.of();
+    protected List<BlockRange> availableBlocks = List.of();
+
     protected PluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
         testThreadPoolManager = new TestThreadPoolManager<>(executorService, scheduledExecutorService);
     }
@@ -204,14 +207,6 @@ public abstract class PluginTestBase<
                 MetricRegistry.builder().setMetricsExporter(testMetricsExporter).build();
         // mock health facility
         final HealthFacility healthFacility = new TestHealthFacility();
-
-        // Block ranges to test with
-        List<BlockRange> storedBlocks = List.of(new BlockRange(0L, 5L), new BlockRange(1_000_000L, 1_000_005L));
-        List<BlockRange> availableBlocks = List.of(
-                new BlockRange(0L, 5L),
-                new BlockRange(1_000_000L, 1_000_005L),
-                new BlockRange(1_000_000_000L, 1_000_000_005L),
-                new BlockRange(1_000_000_000_000L, 1_000_000_000_005L));
 
         // create block node context with no address book
         blockNodeContext = new BlockNodeContext(
@@ -364,8 +359,46 @@ public abstract class PluginTestBase<
     }
 
     @Override
-    public void addStoredBlockRange(LongRange blockRange) {
+    public void addStoredBlockRange(final LongRange blockRange) {
         appStoredBlocks.add(blockRange);
+    }
+
+    public void replaceAvailableBlocks(final List<BlockRange> availableBlocks) {
+        this.availableBlocks = Objects.requireNonNull(availableBlocks);
+        blockNodeContext = new BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metricRegistry(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.applicationStateFacility(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                blockNodeContext.blockNodeVersions(),
+                blockNodeContext.tssData(),
+                blockNodeContext.rangedAddressBookHistory(),
+                blockNodeContext.storedBlocks(),
+                availableBlocks);
+        plugin.onContextUpdate(blockNodeContext);
+    }
+
+    public void replaceStoredBlocks(final List<BlockRange> storedBlocks) {
+        this.storedBlocks = Objects.requireNonNull(storedBlocks);
+        blockNodeContext = new BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metricRegistry(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.applicationStateFacility(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                blockNodeContext.blockNodeVersions(),
+                blockNodeContext.tssData(),
+                blockNodeContext.rangedAddressBookHistory(),
+                storedBlocks,
+                blockNodeContext.availableBlocks());
+        plugin.onContextUpdate(blockNodeContext);
     }
 
     /**

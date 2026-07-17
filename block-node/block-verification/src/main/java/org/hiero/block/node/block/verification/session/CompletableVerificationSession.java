@@ -32,7 +32,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     private final AtomicBoolean isCancelled;
     private final BlockNodeContext context;
     private final AtomicLong lastVerifiedBlock;
-    private final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks;
+    private final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
     private final VerificationDataProvider verificationDataProvider;
     private final ConcurrentLinkedDeque<BlockItems> blockItemsDeque;
     private final ConcurrentSkipListSet<SessionKey> finishedSessions;
@@ -48,7 +48,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
             final BlockSource blockSource,
             final VerificationDataProvider verificationDataProvider,
             final AtomicLong lastVerifiedBlock,
-            final ConcurrentSkipListSet<Long> recentlyVerifiedBlocks,
+            final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
             final ExecutorService executor,
             final BlockNodeContext context,
             final VerificationConfig verificationConfig,
@@ -109,6 +109,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
                 new ResultOrderingManager(isCancelled, lastVerifiedBlock, verificationConfig);
         final SessionResultHandler sessionResultHandler = new SessionResultHandler(
                 context,
+                verificationConfig,
                 metricsHolder.sessionResultMetrics(),
                 badBlockDumper,
                 lastVerifiedBlock,
@@ -121,13 +122,14 @@ public final class CompletableVerificationSession implements BlockVerificationSe
                         hasher, executor)
                 .thenApply(verifier)
                 .thenApply(resultOrderManager);
+        // Note that we save the completion chain just before the terminating stage `whenComplete`
+        // so we can cancel that to work around a bug in CompletableFuture.
         completionChain.whenComplete(sessionResultHandler);
         sessionCompletionChain = completionChain;
     }
 
     @Override
     public void cancel() {
-        // todo(2528) verify correct cancellation of session
         final CompletableFuture<BlockVerificationResult> localChain = sessionCompletionChain;
         try {
             if (localChain != null) {

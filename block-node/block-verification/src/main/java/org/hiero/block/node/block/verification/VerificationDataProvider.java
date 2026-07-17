@@ -74,30 +74,29 @@ public final class VerificationDataProvider {
             if (!keys.isEmpty()) cachedKeyMap.set(new CachedKeyMap(book, keys));
             return keys;
         } catch (final NoSuchAlgorithmException e) {
-            LOGGER.log(WARNING, "RSA KeyFactory not available for block {0} — returning empty key map", blockNumber);
+            LOGGER.log(WARNING, "RSA KeyFactory not available for block {0} - returning empty key map", blockNumber);
             return Map.of();
         }
     }
 
     /// Safely update the TSS data.
-    public void safeUpdateTssData(final TssData tssData, final boolean sendUpdateToMessaging) {
+    public void safeUpdateTssData(final TssData tssData, final boolean sendUpdateToAppState) {
         try {
             if (tssData == null) {
                 LOGGER.log(DEBUG, "No TSS data in current update");
             } else {
-                updateTssData(tssData, sendUpdateToMessaging);
+                updateTssData(tssData, sendUpdateToAppState);
             }
         } catch (final RuntimeException e) {
             LOGGER.log(WARNING, "Failed to update TSS data in verification", e);
         }
     }
 
-    private void updateTssData(final TssData updatedTssData, final boolean sendUpdateToMessaging) {
+    private void updateTssData(final TssData updatedTssData, final boolean sendUpdateToAppState) {
         final TssData localCurrentTss = currentTssData.get();
         // Only update if we see new TSS data
         if (!updatedTssData.equals(localCurrentTss)) {
             LOGGER.log(INFO, "Updating TSS data from application state");
-            // @todo(2528) is the below if statement the right one? Do we update when valid from is higher?
             if (localCurrentTss == null || updatedTssData.validFromBlock() > localCurrentTss.validFromBlock()) {
                 final TssRoster roster = updatedTssData.currentRoster();
                 if (roster != null) {
@@ -113,12 +112,11 @@ public final class VerificationDataProvider {
                             nodeIds[i] = contribution.nodeId();
                             weights[i] = contribution.weight();
                         }
-                        // todo(2528) verify these updates and sequence of actions is correct
                         TSS.setAddressBook(publicKeys, weights, nodeIds);
                         WRAPSVerificationKey.setCurrentKey(
                                 updatedTssData.wrapsVerificationKey().toByteArray());
                         if (currentTssData.compareAndSet(localCurrentTss, updatedTssData)) {
-                            if (sendUpdateToMessaging) {
+                            if (sendUpdateToAppState) {
                                 context.applicationStateFacility().updateTssData(currentTssData.get());
                             }
                             LOGGER.log(INFO, "Successfully updated TSS data");
@@ -157,7 +155,7 @@ public final class VerificationDataProvider {
         final List<NodeAddress> nodeAddresses = book.nodeAddress();
         final Map<Long, PublicKey> map = new HashMap<>();
         final HexFormat hex = HexFormat.of();
-        // Obtain KeyFactory once — provider lookup is not cheap and RSA must always be available.
+        // Obtain KeyFactory once - provider lookup is not cheap and RSA must always be available.
         final KeyFactory kf = KeyFactory.getInstance("RSA");
         for (final NodeAddress addr : nodeAddresses) {
             final String pubKey = addr.rsaPubKey();
@@ -168,7 +166,7 @@ public final class VerificationDataProvider {
                     map.put(addr.nodeId(), key);
                 } catch (final InvalidKeySpecException | IllegalArgumentException e) {
                     LOGGER.log(
-                            WARNING, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e.getMessage());
+                            WARNING, "Malformed RSA_PubKey for node {0} - skipped: {1}", addr.nodeId(), e.getMessage());
                 }
             }
         }

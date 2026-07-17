@@ -8,6 +8,8 @@ import static org.assertj.core.api.InstanceOfAssertFactories.type;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.FilteredSingleItem;
+import com.hedera.hapi.block.stream.RedactedItem;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
@@ -16,6 +18,7 @@ import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -62,6 +65,10 @@ class BlockHasherTest {
             "org.hiero.block.node.block.verification.hasher.BlockHasherTest#allResourceNonWRBBlocks";
     private static final String FOOTER_WITH_MISSING_VALUES =
             "org.hiero.block.node.block.verification.hasher.BlockHasherTest#footerWithMissingValues";
+    private static final String UNSUPPORTED_ITEM_TYPES =
+            "org.hiero.block.node.block.verification.hasher.BlockHasherTest#unsupportedItemTypes";
+    private static final String ITEM_TYPES_ALLOWED_ONLY_ONCE_PER_BLOCK =
+            "org.hiero.block.node.block.verification.hasher.BlockHasherTest#itemTypesAllowedOnlyOncePerBlock";
     private MetricRegistry metricsRegistry;
     private MetricsHolder metrics;
     private BlockNodeContext context;
@@ -494,7 +501,7 @@ class BlockHasherTest {
         @ParameterizedTest
         @MethodSource(FOOTER_WITH_MISSING_VALUES)
         @DisplayName("get() failed hashing when footer values missing")
-        void testMissingFooterValues(final BlockItemUnparsed footerWithMissingValue) throws ParseException {
+        void testMissingFooterValues(final BlockItemUnparsed footerWithMissingValue) {
             final long blockNumber = 0;
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber)
                     .replace(BlockItemUnparsed::hasBlockFooter, footerWithMissingValue);
@@ -520,6 +527,98 @@ class BlockHasherTest {
                                         VerificationSessionFailedException::getFailureType);
                     });
         }
+
+        /// This test aims to verify that if an unsupported item type is received, we will fail hashing.
+        @ParameterizedTest
+        @MethodSource(UNSUPPORTED_ITEM_TYPES)
+        @DisplayName("get() fail when getting an unsupported ")
+        void testUnsupportedItemTypes(final BlockItemUnparsed unsupportedItem) {
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockSource blockSource = BlockSource.PUBLISHER;
+            final long blockNumber = 0L;
+            final BlockHasher toTest = new BlockHasher(
+                    new AtomicBoolean(false),
+                    blockItemsDeque,
+                    metrics.hashingMetrics(),
+                    blockNumber,
+                    blockSource,
+                    verificationDataProvider);
+            blockItemsDeque.offer(new BlockItems(List.of(unsupportedItem), blockNumber, false, false));
+            assertThatThrownBy(toTest::get)
+                    .isInstanceOf(VerificationSessionFailedException.class)
+                    .asInstanceOf(type(VerificationSessionFailedException.class))
+                    .satisfies(e -> {
+                        assertThat(e)
+                                .returns(blockNumber, VerificationSessionFailedException::getBlockNumber)
+                                .returns(blockSource, VerificationSessionFailedException::getBlockSource)
+                                .returns(
+                                        SessionFailureType.UNABLE_TO_PARSE,
+                                        VerificationSessionFailedException::getFailureType);
+                    });
+        }
+
+        /// This test aims to assert that when a block with multiple items of specific types is received, we fail.
+        /// Some item types are required to only be present once for a block
+        @ParameterizedTest
+        @MethodSource(ITEM_TYPES_ALLOWED_ONLY_ONCE_PER_BLOCK)
+        @DisplayName("get() failed when block has multiple items when only one of specific type is allowed")
+        void testNotAllowedMultipleItems(final BlockItemUnparsed item, final long blockNumber) {
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockSource blockSource = BlockSource.PUBLISHER;
+            final BlockHasher toTest = new BlockHasher(
+                    new AtomicBoolean(false),
+                    blockItemsDeque,
+                    metrics.hashingMetrics(),
+                    blockNumber,
+                    blockSource,
+                    verificationDataProvider);
+            blockItemsDeque.offer(new BlockItems(List.of(item, item), blockNumber, item.hasBlockHeader(), false));
+            assertThatThrownBy(toTest::get)
+                    .isInstanceOf(VerificationSessionFailedException.class)
+                    .asInstanceOf(type(VerificationSessionFailedException.class))
+                    .satisfies(e -> {
+                        assertThat(e)
+                                .returns(blockNumber, VerificationSessionFailedException::getBlockNumber)
+                                .returns(blockSource, VerificationSessionFailedException::getBlockSource)
+                                .returns(
+                                        SessionFailureType.UNABLE_TO_PARSE,
+                                        VerificationSessionFailedException::getFailureType);
+                    });
+        }
+
+        /// This test aims to assert that when a block where the header is not the first item is received, hashing
+        /// will fail
+        @Test
+        @DisplayName("get() failed when header is not first item")
+        void testHeaderNotFirstItem() throws ParseException {
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockSource blockSource = BlockSource.PUBLISHER;
+            final BlockHasher toTest = new BlockHasher(
+                    new AtomicBoolean(false),
+                    blockItemsDeque,
+                    metrics.hashingMetrics(),
+                    block.number(),
+                    blockSource,
+                    verificationDataProvider);
+            final List<BlockItemUnparsed> headerRemoved = block.asBlockItemUnparsedFiltered(i -> !i.hasBlockHeader());
+            final List<BlockItemUnparsed> headerNotFirstItem = new ArrayList<>(headerRemoved);
+            headerNotFirstItem.add(TestBlockBuilder.convertToUnparsedItem(
+                    BlockItem.newBuilder().blockHeader(block.header()).build()));
+            final BlockItems blockItems = new BlockItems(headerNotFirstItem, block.number(), true, true);
+            blockItemsDeque.offer(blockItems);
+            assertThatThrownBy(toTest::get)
+                    .isInstanceOf(VerificationSessionFailedException.class)
+                    .asInstanceOf(type(VerificationSessionFailedException.class))
+                    .satisfies(e -> {
+                        assertThat(e)
+                                .returns(block.number(), VerificationSessionFailedException::getBlockNumber)
+                                .returns(blockSource, VerificationSessionFailedException::getBlockSource)
+                                .returns(
+                                        SessionFailureType.MISSING_MANDATORY_ITEM,
+                                        VerificationSessionFailedException::getFailureType);
+                    });
+        }
     }
 
     private BlockItemUnparsed headerWithNoValues(final long blockNumber) throws ParseException {
@@ -533,12 +632,6 @@ class BlockHasherTest {
                 SemanticVersion.DEFAULT, SemanticVersion.DEFAULT, blockNumber, null, BlockHashAlgorithm.SHA2_384);
         return TestBlockBuilder.convertToUnparsedItem(
                 new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, headerWithNoTimestamp)));
-    }
-
-    private BlockItemUnparsed footerWithNoValues() throws ParseException {
-        final BlockFooter footerWithNoValues = new BlockFooter(null, null, null);
-        return TestBlockBuilder.convertToUnparsedItem(
-                new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, new BlockFooter(null, null, null))));
     }
 
     /// All available resource blocks.
@@ -578,5 +671,31 @@ class BlockHasherTest {
                         new OneOf<>(ItemOneOfType.BLOCK_FOOTER, new BlockFooter(someBytes, someBytes, null))))),
                 Arguments.of(TestBlockBuilder.convertToUnparsedItem(new BlockItem(
                         new OneOf<>(ItemOneOfType.BLOCK_FOOTER, new BlockFooter(someBytes, someBytes, empty))))));
+    }
+
+    private static Stream<Arguments> unsupportedItemTypes() throws ParseException {
+        return Stream.of(
+                Arguments.of(TestBlockBuilder.convertToUnparsedItem(new BlockItem(new OneOf<>(
+                        ItemOneOfType.REDACTED_ITEM, RedactedItem.newBuilder().build())))),
+                Arguments.of(TestBlockBuilder.convertToUnparsedItem(new BlockItem(new OneOf<>(
+                        ItemOneOfType.FILTERED_SINGLE_ITEM,
+                        FilteredSingleItem.newBuilder().build())))));
+    }
+
+    private static Stream<Arguments> itemTypesAllowedOnlyOncePerBlock() throws IOException, ParseException {
+        final long blockNumber = 0L;
+        final ResourceTestWRBBlock block0WRB = ResourceTestBlockBuilder.load(WRB.SOLO_4N_BLOCK_0);
+        final BlockItemUnparsed recordFile =
+                block0WRB.blockUnparsed().blockItems().get(1);
+        if (recordFile.hasRecordFile()) {
+            final BlockItemUnparsed header = TestBlockBuilder.sampleHeaderUnparsed(blockNumber);
+            final BlockItemUnparsed footer = TestBlockBuilder.sampleFooterUnparsed(blockNumber);
+            return Stream.of(
+                    Arguments.of(header, blockNumber),
+                    Arguments.of(footer, blockNumber),
+                    Arguments.of(recordFile, blockNumber));
+        } else {
+            throw new IllegalStateException();
+        }
     }
 }

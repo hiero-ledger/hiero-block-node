@@ -44,7 +44,6 @@ public class TestBlock {
     }
 
     private TestBlock(final long number, final Block block, final BlockUnparsed blockUnparsed) {
-        this.number = number;
         this.block = Objects.requireNonNull(block);
         this.blockUnparsed = Objects.requireNonNull(blockUnparsed);
         this.blockSize = this.block.items().size();
@@ -60,11 +59,14 @@ public class TestBlock {
                 .toList();
         if (header != null) {
             this.hapiVersion = header.hapiProtoVersion();
+            this.number = header.number();
         } else {
             this.hapiVersion = null;
+            this.number = number;
         }
     }
 
+    ///  Returns the block number from the header, if it is present, else what was passed to the constructor.
     public long number() {
         return number;
     }
@@ -162,5 +164,11 @@ public class TestBlock {
         }
         return new TestBlock(
                 number, BlockUnparsed.newBuilder().blockItems(items).build());
+    }
+
+    public TestBlock append(final BlockItem toAppend) {
+        final List<BlockItem> items = new ArrayList<>(block.items());
+        items.add(toAppend);
+        return new TestBlock(number, Block.newBuilder().items(items).build());
     }
 }
