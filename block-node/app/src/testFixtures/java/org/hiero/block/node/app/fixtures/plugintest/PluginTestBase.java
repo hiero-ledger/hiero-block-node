@@ -186,13 +186,10 @@ public abstract class PluginTestBase<
         this.plugin = plugin;
         this.activeHistoricalBlockFacility = historicalBlockFacility;
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
-        // Build the configuration
-        //noinspection unchecked
-        ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
-                .withConfigDataType(org.hiero.block.node.app.config.node.NodeConfig.class)
-                .withConfigDataTypes(plugin.configDataTypes().toArray(new Class[0]))
-                .withConfigDataType(org.hiero.block.node.app.config.ServerConfig.class)
-                .withConfigDataType(org.hiero.block.node.app.config.WebServerHttp2Config.class);
+        // Build the configuration; autoDiscoverExtensions() picks up the ConfigurationExtension of the plugin under
+        // test (and any other module on the test classpath), the same source of truth BlockNodeApp uses in production.
+        ConfigurationBuilder configurationBuilder =
+                ConfigurationBuilder.create().autoDiscoverExtensions();
         if (configOverrides != null) {
             for (Entry<String, String> override : configOverrides.entrySet()) {
                 configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());

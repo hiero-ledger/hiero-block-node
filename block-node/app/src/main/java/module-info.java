@@ -31,6 +31,5 @@ module org.hiero.block.node.app {
     uses BlockNodePlugin;
     uses BlockProviderPlugin;
     uses ConfigurationExtension;
-    // it is expected the app module will never export any packages, only use others
     uses HistoricalBlockFacility;
 }

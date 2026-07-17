@@ -26,7 +26,6 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Deque;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -117,15 +116,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private LongCounter.Measurement zipsDeletedFailedCounter;
 
     // ==== BlockProviderPlugin Methods ================================================================================
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(FilesHistoricConfig.class);
-    }
 
     /**
      * {@inheritDoc}

@@ -12,7 +12,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
@@ -83,15 +82,6 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     @Override
     public void stop() {
         clientHandler.stop();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    @NonNull
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(SubscriberConfig.class);
     }
 
     /*==================== BlockStreamSubscribeServiceInterface Methods ====================*/

@@ -175,15 +175,6 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
     /**
      * {@inheritDoc}
-     */
-    @Override
-    @NonNull
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(ServerStatusConfig.class);
-    }
-
-    /**
-     * {@inheritDoc}
      * This method is called on a separate thread. Make sure this.context is marked as `volatile`
      */
     @Override

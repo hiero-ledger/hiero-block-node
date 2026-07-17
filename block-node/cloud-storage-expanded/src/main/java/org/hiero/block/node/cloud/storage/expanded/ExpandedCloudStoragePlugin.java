@@ -6,7 +6,6 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletionService;
@@ -138,13 +137,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     }
 
     // ---- BlockNodePlugin ----------------------------------------------------
-
-    /// {@inheritDoc}
-    @NonNull
-    @Override
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(ExpandedCloudStorageConfig.class);
-    }
 
     /// {@inheritDoc}
     @Override

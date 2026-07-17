@@ -10,7 +10,6 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.List;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
@@ -188,14 +187,5 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         final Integer port =
                 context.configuration().getConfigData(BlockAccessConfig.class).port();
         serviceBuilder.registerGrpcService(port, this);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    @NonNull
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(BlockAccessConfig.class);
     }
 }

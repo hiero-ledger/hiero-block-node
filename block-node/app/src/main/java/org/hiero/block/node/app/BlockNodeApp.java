@@ -18,7 +18,6 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
-import com.swirlds.config.api.ConfigurationExtension;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
 import io.helidon.common.socket.SocketOptions;
@@ -206,21 +205,17 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // Load all the plugins, just the classes are crated at this point, they are not initialized
         serviceLoader.loadServices(BlockNodePlugin.class).forEach(loadedPlugins::add);
         // ==== CONFIGURATION ==========================================================================================
-        // Collect all the config data types registered by every module's ConfigurationExtension; this is the same
-        // source of truth that autoDiscoverExtensions() below resolves against, so the env var source below sees
-        // exactly the same set of config data types as get registered with the configuration.
-        final List<Class<? extends Record>> allConfigDataTypes = serviceLoader
-                .loadServices(ConfigurationExtension.class)
-                .flatMap(extension -> extension.getConfigDataTypes().stream())
-                .distinct()
-                .toList();
         // Init BlockNode Configuration
         String appProperties = getClass().getClassLoader().getResource(APPLICATION_TEST_PROPERTIES) != null
                 ? APPLICATION_TEST_PROPERTIES
                 : APPLICATION_PROPERTIES;
-        final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
-                .autoDiscoverExtensions()
-                .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, System::getenv))
+        final ConfigurationBuilder configurationBuilder =
+                ConfigurationBuilder.create().autoDiscoverExtensions();
+        // AutomaticEnvironmentVariableConfigSource does its own ConfigurationExtension lookup to learn every
+        // config data type; it must be constructed after autoDiscoverExtensions() above returns, not from within
+        // another extension's callback, or the nested ServiceLoader lookup deadlocks against the one in progress.
+        configurationBuilder
+                .withSource(new AutomaticEnvironmentVariableConfigSource(serviceLoader, System::getenv))
                 .withSource(SystemPropertiesConfigSource.getInstance())
                 .withSources(new ClasspathFileConfigSource(Path.of(appProperties)));
         // Build the configuration
