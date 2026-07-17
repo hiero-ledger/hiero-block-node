@@ -184,10 +184,12 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     }
 
     /// Stages the compressed bytes for background retry if compression completed before the upload
-    /// failed. Returns `false` without staging when `compressed` is `null` (the `IOException` came from
-    /// compression itself, not the upload) or when {@link RetryStagingManager#stage} rejects the bytes.
+    /// failed. Returns `false` without staging when `compressed` is `null` or empty (the `IOException`
+    /// came from compression itself, not the upload) or when {@link RetryStagingManager#stage} rejects
+    /// the bytes.
     private boolean stageForRetry(final byte[] compressed) {
         return compressed != null
+                && compressed.length > 0
                 && stagingManager.stage(blockNumber, compressed, objectKey, storageClass, blockSource);
     }
 }

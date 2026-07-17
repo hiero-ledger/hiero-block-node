@@ -3,6 +3,7 @@ package org.hiero.block.node.cloud.storage.expanded;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -78,6 +79,15 @@ class RetryUploadTask implements Callable<UploadResult> {
             LOGGER.log(DEBUG, "Block {0}: I/O error during retry upload", blockNumber, e);
             return new UploadResult(
                     blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs, false);
+        } catch (final RuntimeException e) {
+            LOGGER.log(WARNING, "Block {0}: unexpected error during retry upload", blockNumber, e);
+            return new UploadResult(
+                    blockNumber,
+                    UploadStatus.UNEXPECTED_ERROR,
+                    0L,
+                    blockSource,
+                    System.nanoTime() - uploadStartNs,
+                    false);
         }
     }
 }
