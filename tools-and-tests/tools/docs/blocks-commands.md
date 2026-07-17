@@ -144,21 +144,21 @@ The `validate` command orchestrates a set of individual validation classes under
 
 ##### Summary table
 
-|                     Validation                     |    Type    |   Genesis-only?   |             How to skip             |                                       What it checks                                       |
-|----------------------------------------------------|------------|-------------------|-------------------------------------|--------------------------------------------------------------------------------------------|
-| [RequiredItemsValidation](#requireditemsvalidation) | Parallel   | No                | `--skip-required-items`             | Every block has ≥1 BlockHeader, RecordFile, BlockFooter, BlockProof                        |
-| [BlockStructureValidation](#blockstructurevalidation) | Parallel | No                | `--skip-required-items`             | Item ordering: BlockHeader, StateChanges\*, RecordFile, BlockFooter, BlockProof+           |
-| [SignatureValidation](#signaturevalidation)         | Parallel   | No                | `--skip-signatures`                 | RSA (SignedRecordFileProof) or non-empty TSS (SignedBlockProof) signature threshold        |
-| [AddressBookUpdateValidation](#addressbookupdatevalidation) | Sequential | No        | Always on                           | Discovers CN address-book updates from block data, keeps registry current                  |
-| [NodeStakeUpdateValidation](#nodestakeupdatevalidation) | Sequential | No             | Always on                           | Discovers `NodeStakeUpdate` transactions, keeps stake registry current                     |
-| [TssEnablementValidation](#tssenablementvalidation) | Sequential | No                | Always on                           | Discovers `LedgerIdPublication` transactions and writes `tss-enablement.bin`               |
-| [BlockChainValidation](#blockchainvalidation)       | Sequential | No                | Always on                           | `previous_block_hash` in footer matches hash of prior block                                |
-| [HistoricalBlockTreeValidation](#historicalblocktreevalidation) | Sequential | Yes       | Always on (auto-skipped otherwise)  | `root_hash_of_block_hashes_merkle_tree` in footer matches streaming merkle tree            |
-| [HbarSupplyValidation](#hbarsupplyvalidation)       | Sequential | Yes               | `--skip-supply`                     | Total HBAR supply = 50 billion after every block                                           |
-| [BalanceCheckpointValidation](#balancecheckpointvalidation) | Sequential | Yes       | `--no-validate-balances`            | Computed balances match pre-fetched checkpoint snapshots at configurable intervals         |
-| [HashRegistryValidation](#hashregistryvalidation)   | Sequential | No                | Auto-skipped if no registry file    | Per-block hash matches the `blockStreamBlockHashes.bin` registry                           |
-| [StreamingMerkleTreeValidation](#streamingmerkletreevalidation) | End-of-run | Yes     | Auto-skipped when not from genesis  | `streamingMerkleTree.bin` matches freshly-computed streaming hasher                        |
-| [JumpstartValidation](#jumpstartvalidation)         | End-of-run | Yes               | Auto-skipped when not from genesis  | `jumpstart.bin` matches freshly-computed streaming hasher + block hashes                   |
+|                           Validation                            |    Type    | Genesis-only? |            How to skip             |                                   What it checks                                    |
+|-----------------------------------------------------------------|------------|---------------|------------------------------------|-------------------------------------------------------------------------------------|
+| [RequiredItemsValidation](#requireditemsvalidation)             | Parallel   | No            | `--skip-required-items`            | Every block has ≥1 BlockHeader, RecordFile, BlockFooter, BlockProof                 |
+| [BlockStructureValidation](#blockstructurevalidation)           | Parallel   | No            | `--skip-required-items`            | Item ordering: BlockHeader, StateChanges\*, RecordFile, BlockFooter, BlockProof+    |
+| [SignatureValidation](#signaturevalidation)                     | Parallel   | No            | `--skip-signatures`                | RSA (SignedRecordFileProof) or non-empty TSS (SignedBlockProof) signature threshold |
+| [AddressBookUpdateValidation](#addressbookupdatevalidation)     | Sequential | No            | Always on                          | Discovers CN address-book updates from block data, keeps registry current           |
+| [NodeStakeUpdateValidation](#nodestakeupdatevalidation)         | Sequential | No            | Always on                          | Discovers `NodeStakeUpdate` transactions, keeps stake registry current              |
+| [TssEnablementValidation](#tssenablementvalidation)             | Sequential | No            | Always on                          | Discovers `LedgerIdPublication` transactions and writes `tss-enablement.bin`        |
+| [BlockChainValidation](#blockchainvalidation)                   | Sequential | No            | Always on                          | `previous_block_hash` in footer matches hash of prior block                         |
+| [HistoricalBlockTreeValidation](#historicalblocktreevalidation) | Sequential | Yes           | Always on (auto-skipped otherwise) | `root_hash_of_block_hashes_merkle_tree` in footer matches streaming merkle tree     |
+| [HbarSupplyValidation](#hbarsupplyvalidation)                   | Sequential | Yes           | `--skip-supply`                    | Total HBAR supply = 50 billion after every block                                    |
+| [BalanceCheckpointValidation](#balancecheckpointvalidation)     | Sequential | Yes           | `--no-validate-balances`           | Computed balances match pre-fetched checkpoint snapshots at configurable intervals  |
+| [HashRegistryValidation](#hashregistryvalidation)               | Sequential | No            | Auto-skipped if no registry file   | Per-block hash matches the `blockStreamBlockHashes.bin` registry                    |
+| [StreamingMerkleTreeValidation](#streamingmerkletreevalidation) | End-of-run | Yes           | Auto-skipped when not from genesis | `streamingMerkleTree.bin` matches freshly-computed streaming hasher                 |
+| [JumpstartValidation](#jumpstartvalidation)                     | End-of-run | Yes           | Auto-skipped when not from genesis | `jumpstart.bin` matches freshly-computed streaming hasher + block hashes            |
 
 "Genesis-only" validations require starting from block 0 because they depend on accumulated state (block hash history, running HBAR balances, streaming merkle tree). They're transparently disabled when validation resumes from a checkpoint or starts mid-stream.
 
