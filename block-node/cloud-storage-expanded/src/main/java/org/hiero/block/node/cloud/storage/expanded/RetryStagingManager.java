@@ -178,7 +178,7 @@ class RetryStagingManager {
         // computeIfAbsent leaves an already-staged block untouched (a duplicate VerificationNotification
         // for the same block must not reset its attempts/backoff) and serializes this write against a
         // concurrent recordFailure()/unstage() for the same block number.
-        staged.computeIfAbsent(blockNumber, key -> {
+        final StagedEntry result = staged.computeIfAbsent(blockNumber, key -> {
             final long now = System.currentTimeMillis();
             final StagedEntry entry = new StagedEntry(key, objectKey, storageClass, blockSource, 1, now, now);
             final Path blobPath = blobPath(key);
@@ -195,7 +195,7 @@ class RetryStagingManager {
                 return null;
             }
         });
-        return staged.containsKey(blockNumber);
+        return result != null;
     }
 
     /// Scans {@link ExpandedCloudStorageConfig#retryStagingDirectoryPath()} and rebuilds the in-memory
@@ -226,6 +226,8 @@ class RetryStagingManager {
                     continue;
                 }
                 final Path blobPath = blobPath(blockNumber);
+                // isRegularFile() returns false both when blobPath is missing and when it exists but
+                // isn't a regular file; either way there is no usable blob, so the sidecar is an orphan.
                 if (!Files.isRegularFile(blobPath)) {
                     LOGGER.log(DEBUG, "Orphaned retry sidecar {0} has no matching blob; deleting.", metaPath);
                     silentDelete(metaPath);
@@ -314,6 +316,7 @@ class RetryStagingManager {
         final StagedEntry result = staged.compute(blockNumber, (key, previous) -> {
             if (previous == null) {
                 // Should not happen in practice, but treat an unknown block as already exhausted.
+                LOGGER.log(WARNING, "recordFailure() called for block {0}, which is not staged.", key);
                 return null;
             }
             final int attempts = previous.attempts() + 1;
