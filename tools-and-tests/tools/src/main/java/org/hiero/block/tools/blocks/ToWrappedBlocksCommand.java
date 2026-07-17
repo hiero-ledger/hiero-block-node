@@ -50,6 +50,7 @@ import org.hiero.block.tools.blocks.model.PreVerifiedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.BlockHashResult;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
+import org.hiero.block.tools.blocks.validation.SidecarIntegrityValidation;
 import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
 import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
 import org.hiero.block.tools.config.NetworkConfig;
@@ -62,6 +63,7 @@ import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.records.model.parsed.ParsedRecordBlock;
 import org.hiero.block.tools.records.model.parsed.RecordBlockConverter;
+import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.hiero.block.tools.utils.PrettyPrint;
 import org.jspecify.annotations.NonNull;
@@ -729,6 +731,28 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                             System.out.println("Monthly checkpoint saved before block " + blockNum);
                         }
                         lastSavedBlockMonth = blockMonth;
+
+                        // Sidecar integrity: verify each sidecar's SHA-384 matches an entry in the
+                        // record file's signed sidecar hash list before we bake either into the
+                        // wrapped Block. See issue #3196.
+                        try {
+                            SidecarIntegrityValidation.validateSidecars(
+                                    effectiveBlock.recordBlock().sidecarFiles(),
+                                    effectiveBlock
+                                            .recordBlock()
+                                            .recordFile()
+                                            .recordStreamFile()
+                                            .sidecars(),
+                                    blockNum);
+                        } catch (final ValidationException sve) {
+                            PrettyPrint.clearProgress();
+                            System.err.println("[sidecar-integrity] " + sve.getMessage());
+                            addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+                            parseFailureMessage =
+                                    "Sidecar integrity check failed at block " + blockNum + ": " + sve.getMessage();
+                            shutdownRequested = true;
+                            break;
+                        }
 
                         // Convert record file block to wrapped block using pre-verified signatures
                         final Block wrapped = RecordBlockConverter.toBlock(
