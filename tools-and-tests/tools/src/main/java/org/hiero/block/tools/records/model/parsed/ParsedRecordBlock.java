@@ -5,6 +5,7 @@ import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.streams.SidecarFile;
+import com.hedera.hapi.streams.SidecarMetadata;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
@@ -13,7 +14,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.zip.GZIPOutputStream;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
@@ -48,40 +51,113 @@ public record ParsedRecordBlock(
     /**
      * Parse an unparsed record block into a parsed record block.
      *
+     * <p>Sidecar candidates picked up from the source (any file matching the {@code _NN.rcd}
+     * sidecar naming pattern next to the record file) are filtered against the record file's
+     * signed {@code sidecars[]} manifest. Any candidate whose SHA-384 does not appear in the
+     * signed manifest is dropped with a warning: the record file's manifest is authoritative,
+     * and embedding a candidate the CN never signed produces a wrapped block with unsigned
+     * bytes that downstream integrity checks will reject. See issue #3224 for background.
+     *
      * @param recordFileBlock the unparsed record block
      * @return the parsed record block
      */
     public static ParsedRecordBlock parse(UnparsedRecordBlock recordFileBlock) {
-        return new ParsedRecordBlock(
-                ParsedRecordFile.parse(recordFileBlock.primaryRecordFile()),
-                recordFileBlock.signatureFiles().stream()
-                        .map(sigFile -> {
-                            try {
-                                return new ParsedSignatureFile(sigFile);
-                            } catch (RuntimeException e) {
-                                System.err.println("Warning: Skipping corrupted signature file: " + sigFile.path()
-                                        + " (" + sigFile.data().length + " bytes) - " + e.getMessage());
-                                return null;
-                            }
-                        })
-                        .filter(sig -> sig != null)
-                        .toList(),
-                recordFileBlock.primarySidecarFiles().stream()
-                        .map(ps -> {
-                            try {
-                                // Use 5-arg parse to specify both maxDepth and maxSize
-                                // The 3-arg parse incorrectly passes maxSize as maxDepth
-                                return SidecarFile.PROTOBUF.parse(
-                                        Bytes.wrap(ps.data()).toReadableSequentialData(),
-                                        false, // strictMode
-                                        true, // parseUnknownFields
-                                        MAX_DEPTH, // maxDepth
-                                        MAX_SIDECAR_SIZE); // maxSize
-                            } catch (ParseException e) {
-                                throw new RuntimeException(e);
-                            }
-                        })
-                        .toList());
+        final ParsedRecordFile recordFile = ParsedRecordFile.parse(recordFileBlock.primaryRecordFile());
+        final List<ParsedSignatureFile> signatureFiles = recordFileBlock.signatureFiles().stream()
+                .map(sigFile -> {
+                    try {
+                        return new ParsedSignatureFile(sigFile);
+                    } catch (RuntimeException e) {
+                        System.err.println("Warning: Skipping corrupted signature file: " + sigFile.path() + " ("
+                                + sigFile.data().length + " bytes) - " + e.getMessage());
+                        return null;
+                    }
+                })
+                .filter(sig -> sig != null)
+                .toList();
+        final List<SidecarFile> parsedSidecars = recordFileBlock.primarySidecarFiles().stream()
+                .map(ps -> {
+                    try {
+                        // Use 5-arg parse to specify both maxDepth and maxSize
+                        // The 3-arg parse incorrectly passes maxSize as maxDepth
+                        return SidecarFile.PROTOBUF.parse(
+                                Bytes.wrap(ps.data()).toReadableSequentialData(),
+                                false, // strictMode
+                                true, // parseUnknownFields
+                                MAX_DEPTH, // maxDepth
+                                MAX_SIDECAR_SIZE); // maxSize
+                    } catch (ParseException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .toList();
+        final List<SidecarFile> filteredSidecars = filterOrphanSidecars(
+                parsedSidecars, recordFile.recordStreamFile().sidecars());
+        return new ParsedRecordBlock(recordFile, signatureFiles, filteredSidecars);
+    }
+
+    /**
+     * Filter a list of parsed sidecar files, keeping only those whose SHA-384 appears in the
+     * record file's signed sidecar manifest. Any sidecar without a matching signed hash is
+     * dropped with a warning printed to {@code stderr}.
+     *
+     * <p>Motivation: at wrap time, sidecar candidates are gathered by filename pattern next to
+     * the record file. In rare cases a single dissenting CN node writes a sidecar file for a
+     * block that consensus later declared had no sidecar; that orphan lingers in the bucket
+     * and gets swept in by the filename matcher. Embedding it into the WRB produces bytes with
+     * no cryptographic backing. Since the RSA signature only covers the manifest, treating the
+     * manifest as authoritative and dropping unmatched candidates keeps the WRB honest.
+     *
+     * <p>The returned list preserves the relative order of the retained sidecars. This is
+     * package-private so tests can exercise the filter directly.
+     */
+    static List<SidecarFile> filterOrphanSidecars(
+            final List<SidecarFile> parsedSidecars, final List<SidecarMetadata> sidecarMetadatas) {
+        return filterOrphanSidecars(parsedSidecars, sidecarMetadatas, System.err::println);
+    }
+
+    /**
+     * Overload of {@link #filterOrphanSidecars(List, List)} with an injectable warning sink so
+     * tests can capture drop diagnostics without racing on {@code System.setErr}. The sink is
+     * invoked once per dropped sidecar with a human-readable message.
+     */
+    static List<SidecarFile> filterOrphanSidecars(
+            final List<SidecarFile> parsedSidecars,
+            final List<SidecarMetadata> sidecarMetadatas,
+            final java.util.function.Consumer<String> warningSink) {
+        if (parsedSidecars.isEmpty()) {
+            return parsedSidecars;
+        }
+        final List<byte[]> signedHashes = new ArrayList<>(sidecarMetadatas.size());
+        for (final SidecarMetadata meta : sidecarMetadatas) {
+            if (meta.hasHash()) {
+                signedHashes.add(meta.hashOrThrow().hash().toByteArray());
+            }
+        }
+        final MessageDigest digest = sha384Digest();
+        final List<SidecarFile> kept = new ArrayList<>(parsedSidecars.size());
+        for (int i = 0; i < parsedSidecars.size(); i++) {
+            final SidecarFile sf = parsedSidecars.get(i);
+            SidecarFile.PROTOBUF.toBytes(sf).writeTo(digest);
+            final byte[] hash = digest.digest();
+            if (containsHash(signedHashes, hash)) {
+                kept.add(sf);
+            } else {
+                warningSink.accept("Warning: Dropping orphan sidecar #" + i + " (SHA-384 "
+                        + HexFormat.of().formatHex(hash)
+                        + ") not referenced by record file's signed sidecars[] manifest");
+            }
+        }
+        return kept;
+    }
+
+    private static boolean containsHash(final List<byte[]> hashes, final byte[] target) {
+        for (final byte[] h : hashes) {
+            if (Arrays.equals(h, target)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
