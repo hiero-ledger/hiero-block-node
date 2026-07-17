@@ -16,6 +16,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.zip.GZIPOutputStream;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
@@ -142,7 +143,8 @@ public record ParsedRecordBlock(
             if (containsHash(signedHashes, hash)) {
                 kept.add(sf);
             } else {
-                warningSink.accept("Warning: Dropping orphan sidecar #" + i + " (SHA-384 " + hex(hash)
+                warningSink.accept("Warning: Dropping orphan sidecar #" + i + " (SHA-384 "
+                        + HexFormat.of().formatHex(hash)
                         + ") not referenced by record file's signed sidecars[] manifest");
             }
         }
@@ -156,14 +158,6 @@ public record ParsedRecordBlock(
             }
         }
         return false;
-    }
-
-    private static String hex(final byte[] bytes) {
-        final StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (final byte b : bytes) {
-            sb.append(String.format("%02x", b));
-        }
-        return sb.toString();
     }
 
     /**
