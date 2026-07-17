@@ -81,6 +81,7 @@ At a high level:
 - **Required items** — every block contains at least one `BlockHeader`, `RecordFile`, `BlockFooter`, and `BlockProof`.
 - **Item ordering** — items appear in the correct order: `BlockHeader`, optional `StateChanges`, `RecordFile`, `BlockFooter`, one or more `BlockProof` items, with no duplicates or misplaced items.
 - **Signature validation** — stake-weighted RSA (or TSS when applicable) signature threshold met.
+- **Sidecar integrity** — every sidecar file embedded in a block hashes to a SHA-384 that appears in the record file's signed `sidecars[]` manifest, and every signed hash has a matching sidecar file. Catches orphan (`TAMPERED_OR_EXTRA`) and missing (`MISSING`) sidecars in wrapped block records.
 - **50 billion HBAR supply** — tracks account balances across all blocks (from `StateChanges` and `RecordFile` transfer lists) and verifies the total equals exactly 50 billion HBAR after each block (only when starting from block 0).
 - **Balance checkpoints** — validates computed account balances against pre-fetched balance checkpoints at configurable intervals.
 - **State file integrity** — end-of-run comparison of the block-hash registry, streaming merkle tree, and jumpstart state files against freshly-computed values.
@@ -144,21 +145,22 @@ The `validate` command orchestrates a set of individual validation classes under
 
 ##### Summary table
 
-|                           Validation                            |    Type    | Genesis-only? |            How to skip             |                                   What it checks                                    |
-|-----------------------------------------------------------------|------------|---------------|------------------------------------|-------------------------------------------------------------------------------------|
-| [RequiredItemsValidation](#requireditemsvalidation)             | Parallel   | No            | `--skip-required-items`            | Every block has ≥1 BlockHeader, RecordFile, BlockFooter, BlockProof                 |
-| [BlockStructureValidation](#blockstructurevalidation)           | Parallel   | No            | `--skip-required-items`            | Item ordering: BlockHeader, StateChanges\*, RecordFile, BlockFooter, BlockProof+    |
-| [SignatureValidation](#signaturevalidation)                     | Parallel   | No            | `--skip-signatures`                | RSA (SignedRecordFileProof) or non-empty TSS (SignedBlockProof) signature threshold |
-| [AddressBookUpdateValidation](#addressbookupdatevalidation)     | Sequential | No            | Always on                          | Discovers CN address-book updates from block data, keeps registry current           |
-| [NodeStakeUpdateValidation](#nodestakeupdatevalidation)         | Sequential | No            | Always on                          | Discovers `NodeStakeUpdate` transactions, keeps stake registry current              |
-| [TssEnablementValidation](#tssenablementvalidation)             | Sequential | No            | Always on                          | Discovers `LedgerIdPublication` transactions and writes `tss-enablement.bin`        |
-| [BlockChainValidation](#blockchainvalidation)                   | Sequential | No            | Always on                          | `previous_block_hash` in footer matches hash of prior block                         |
-| [HistoricalBlockTreeValidation](#historicalblocktreevalidation) | Sequential | Yes           | Always on (auto-skipped otherwise) | `root_hash_of_block_hashes_merkle_tree` in footer matches streaming merkle tree     |
-| [HbarSupplyValidation](#hbarsupplyvalidation)                   | Sequential | Yes           | `--skip-supply`                    | Total HBAR supply = 50 billion after every block                                    |
-| [BalanceCheckpointValidation](#balancecheckpointvalidation)     | Sequential | Yes           | `--no-validate-balances`           | Computed balances match pre-fetched checkpoint snapshots at configurable intervals  |
-| [HashRegistryValidation](#hashregistryvalidation)               | Sequential | No            | Auto-skipped if no registry file   | Per-block hash matches the `blockStreamBlockHashes.bin` registry                    |
-| [StreamingMerkleTreeValidation](#streamingmerkletreevalidation) | End-of-run | Yes           | Auto-skipped when not from genesis | `streamingMerkleTree.bin` matches freshly-computed streaming hasher                 |
-| [JumpstartValidation](#jumpstartvalidation)                     | End-of-run | Yes           | Auto-skipped when not from genesis | `jumpstart.bin` matches freshly-computed streaming hasher + block hashes            |
+|                           Validation                            |    Type    | Genesis-only? |            How to skip             |                                                            What it checks                                                             |
+|-----------------------------------------------------------------|------------|---------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| [RequiredItemsValidation](#requireditemsvalidation)             | Parallel   | No            | `--skip-required-items`            | Every block has ≥1 BlockHeader, RecordFile, BlockFooter, BlockProof                                                                   |
+| [BlockStructureValidation](#blockstructurevalidation)           | Parallel   | No            | `--skip-required-items`            | Item ordering: BlockHeader, StateChanges\*, RecordFile, BlockFooter, BlockProof+                                                      |
+| [SignatureValidation](#signaturevalidation)                     | Parallel   | No            | `--skip-signatures`                | RSA (SignedRecordFileProof) or non-empty TSS (SignedBlockProof) signature threshold                                                   |
+| [SidecarIntegrityValidation](#sidecarintegrityvalidation)       | Parallel   | No            | `--skip-sidecar-integrity`         | Each embedded sidecar's SHA-384 matches an entry in the record file's signed manifest (catches orphan sidecars swept in at wrap time) |
+| [AddressBookUpdateValidation](#addressbookupdatevalidation)     | Sequential | No            | Always on                          | Discovers CN address-book updates from block data, keeps registry current                                                             |
+| [NodeStakeUpdateValidation](#nodestakeupdatevalidation)         | Sequential | No            | Always on                          | Discovers `NodeStakeUpdate` transactions, keeps stake registry current                                                                |
+| [TssEnablementValidation](#tssenablementvalidation)             | Sequential | No            | Always on                          | Discovers `LedgerIdPublication` transactions and writes `tss-enablement.bin`                                                          |
+| [BlockChainValidation](#blockchainvalidation)                   | Sequential | No            | Always on                          | `previous_block_hash` in footer matches hash of prior block                                                                           |
+| [HistoricalBlockTreeValidation](#historicalblocktreevalidation) | Sequential | Yes           | Always on (auto-skipped otherwise) | `root_hash_of_block_hashes_merkle_tree` in footer matches streaming merkle tree                                                       |
+| [HbarSupplyValidation](#hbarsupplyvalidation)                   | Sequential | Yes           | `--skip-supply`                    | Total HBAR supply = 50 billion after every block                                                                                      |
+| [BalanceCheckpointValidation](#balancecheckpointvalidation)     | Sequential | Yes           | `--no-validate-balances`           | Computed balances match pre-fetched checkpoint snapshots at configurable intervals                                                    |
+| [HashRegistryValidation](#hashregistryvalidation)               | Sequential | No            | Auto-skipped if no registry file   | Per-block hash matches the `blockStreamBlockHashes.bin` registry                                                                      |
+| [StreamingMerkleTreeValidation](#streamingmerkletreevalidation) | End-of-run | Yes           | Auto-skipped when not from genesis | `streamingMerkleTree.bin` matches freshly-computed streaming hasher                                                                   |
+| [JumpstartValidation](#jumpstartvalidation)                     | End-of-run | Yes           | Auto-skipped when not from genesis | `jumpstart.bin` matches freshly-computed streaming hasher + block hashes                                                              |
 
 "Genesis-only" validations require starting from block 0 because they depend on accumulated state (block hash history, running HBAR balances, streaming merkle tree). They're transparently disabled when validation resumes from a checkpoint or starts mid-stream.
 
@@ -204,6 +206,28 @@ Verifies the cryptographic signatures over the block's signed payload:
 Stateless; each block is verified independently.
 
 **When to skip:** operating on data known to have stale signatures, or when only hash chain / state file continuity is being verified.
+
+##### SidecarIntegrityValidation
+
+**Type:** Parallel · **Skip:** `--skip-sidecar-integrity`
+
+Verifies that every sidecar file embedded in a wrapped block hashes to a SHA-384 that appears in the record file's signed `sidecars[]` manifest, and vice versa. Failures are classified so an investigator can tell the modes apart:
+
+- **`TAMPERED_OR_EXTRA`** — a sidecar with no matching signed hash. Either the bytes were altered in transit, or an unsigned "orphan" sidecar (one written by a single dissenting CN node for a block that the majority consensus record file declared had no sidecar) was swept into the WRB by wrap.
+- **`MISSING`** — a signed hash with no matching sidecar file in the block. Sidecar was dropped somewhere in the pipeline between record-file production and wrap.
+
+**Example failure:**
+
+```
+Block 12345 sidecar integrity failed:
+  sidecars in block:    3
+  signed hash entries:  3
+  discrepancies:
+    - sidecar #1 SHA-384 abc123... -> no matching hash in signed metadata (TAMPERED or EXTRA)
+    - signed hash #2 SHA-384 def456... -> no matching sidecar file in block (MISSING)
+```
+
+**When to skip:** when running against a known-anomaly historical archive (e.g., mainnet blocks 52,333,943 / 58,446,161 / 62,113,066 which carry orphan sidecars locked into the canonical chain hash — see issue #3196 for background) and you want the rest of the pipeline to still exercise. A standalone `blocks validate-sidecars` subcommand exists for spot-checks without setup cost; see its section below.
 
 ##### AddressBookUpdateValidation
 
