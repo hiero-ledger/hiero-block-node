@@ -10,7 +10,7 @@ blockNode:
         # BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "110000000"
         BACKFILL_GREEDY: "true"
         BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
-        JAVA_OPTS: "-Xms64G -Xmx64G -XX:+ZGenerational -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/dump.hprof"
+        JAVA_OPTS: "-Xms192G -Xmx192G -XX:+ZGenerational -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/dump.hprof"
         PROMETHEUS_ENDPOINT_ENABLED: true
         PROMETHEUS_ENDPOINT_PORT_NUMBER: "16007"
         # "https://<previewnet|testnet|mainnet>.mirrornode.hedera.com"
@@ -19,7 +19,7 @@ blockNode:
         logs:
             level: "INFO"
             loggingProperties:
-                org.hiero.block.level: "FINE"
+                org.hiero.block.level: "INFO"
                 java.util.logging.ConsoleHandler.level: "FINEST"
                 java.util.logging.FileHandler.level: "FINEST"
         initContainers:
@@ -77,10 +77,10 @@ loadBalancer:
 resources:
     requests:
         cpu: "24"
-        memory: "256Gi"
+        memory: "212Gi"
     limits:
         cpu: "24"
-        memory: "256Gi"
+        memory: "212Gi"
 
 service:
     type: ClusterIP
