@@ -10,7 +10,7 @@ blockNode:
         # BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "110000000"
         BACKFILL_GREEDY: "true"
         BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
-        JAVA_OPTS: "-Xms192G -Xmx192G -XX:+ZGenerational -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/dump.hprof"
+        JAVA_OPTS: "-Xms192G -Xmx192G -XX:+ZGenerational"
         PROMETHEUS_ENDPOINT_ENABLED: true
         PROMETHEUS_ENDPOINT_PORT_NUMBER: "16007"
         # "https://<previewnet|testnet|mainnet>.mirrornode.hedera.com"
