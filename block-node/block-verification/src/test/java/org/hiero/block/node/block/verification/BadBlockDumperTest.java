@@ -233,6 +233,6 @@ class BadBlockDumperTest {
     }
 
     private VerificationConfig generateVerificationConfig(final boolean dumpEnabled, final int dumpRetentionDays) {
-        return new VerificationConfig(100, 100, true, dumpEnabled, tempDir, dumpRetentionDays);
+        return new VerificationConfig(100, 100, 0L, true, dumpEnabled, tempDir, dumpRetentionDays);
     }
 }

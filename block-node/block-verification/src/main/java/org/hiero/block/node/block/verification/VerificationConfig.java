@@ -17,6 +17,8 @@ import org.hiero.block.node.base.Loggable;
 /// @param activeSessionsBufferSize size of maximum allowed active sessions. When full and a new session needs to
 ///     start, room will be made for it by canceling the one with the lowest block being verified, except when
 ///     the session we just started is the one with the lowest block being verified.
+/// @param firstOrderedBlock the first block number that will require strict ordering. All blocks below this
+///     setting will not await order, and successful verification will be reported immediately.
 /// @param allSourcesRequireOrdering if true, strict ordering of the next expected block to verify will be enforced
 ///     for blocks received from any source. If false, only
 ///     [org.hiero.block.node.spi.blockmessaging.BlockSource#PUBLISHER] will be strictly ordered.<br/>
@@ -28,6 +30,7 @@ import org.hiero.block.node.base.Loggable;
 public record VerificationConfig(
     @Loggable @ConfigProperty(defaultValue = "100") int recentlyVerifiedBlocksBufferSize,
     @Loggable @ConfigProperty(defaultValue = "100") int activeSessionsBufferSize,
+    @Loggable @ConfigProperty(defaultValue = "0") long firstOrderedBlock,
     @Loggable @ConfigProperty(defaultValue = "true") boolean allSourcesRequireOrdering,
     @Loggable @ConfigProperty(defaultValue = "false") boolean dumpEnabled,
     @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/verification/dumps") Path dumpDirectoryPath,

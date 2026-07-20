@@ -64,7 +64,9 @@ public final class ResultOrderingManager implements Function<BlockVerificationRe
 
     private boolean shouldPark(final BlockVerificationResult verificationResult, final long nextExpectedBlock) {
         // spotless:off
-        return (verificationResult.blockNumber() > nextExpectedBlock)
+        final long verifiedBlockNumber = verificationResult.blockNumber();
+        return (verifiedBlockNumber >= verificationConfig.firstOrderedBlock())
+            && (verifiedBlockNumber > nextExpectedBlock)
             && (verificationResult.source() == BlockSource.PUBLISHER || verificationConfig.allSourcesRequireOrdering());
         // spotless:on
     }
