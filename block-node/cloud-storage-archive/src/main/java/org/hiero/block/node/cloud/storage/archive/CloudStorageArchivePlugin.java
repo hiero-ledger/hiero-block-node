@@ -8,7 +8,9 @@ import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -181,6 +183,11 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// Accessed only from the notification handler thread.
     final ConcurrentSkipListMap<Long, BlockWithSource> tempOverflowStash = new ConcurrentSkipListMap<>();
 
+    /// Resumed temp archives deferred at startup because [CloudStorageArchiveConfig#maxConcurrentTempArchives()]
+    /// was already reached. Drained in order whenever a temp upload slot frees up.
+    /// Accessed only from the notification handler thread.
+    final Deque<TempArchiveResumeState> pendingResumedArchives = new ArrayDeque<>();
+
     /// Groups whose temp archives fully cover `[groupStart, groupStart+groupSize)`, queued for
     /// consolidation.  Keyed by groupStart.
     /// Accessed only from the notification handler thread.
@@ -232,6 +239,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 // the current block since the plugin is shutting down.
                 if (!checkCompletedUpload()) {
                     checkAndDrainTempUploadResults();
+                    drainPendingResumedArchives();
                     drainOverflowStash();
                     checkAndDrainConsolidations();
                     // While recovery is running, stash every block.  routeVerifiedBlock() sends
@@ -383,8 +391,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     }
 
     /// Re-routes blocks from [tempOverflowStash] in block-number order while upload slots are free.
-    /// Called after [checkAndDrainTempUploadResults] so that any just-freed slots are visible.
-    /// Skipped during recovery to avoid racing with the recovery result.
+    /// Called after [checkAndDrainTempUploadResults] and [#drainPendingResumedArchives] so that any
+    /// just-freed slots are visible. Skipped during recovery to avoid racing with the recovery result.
     ///
     /// A block is always eligible to drain if its group already has an active streaming queue
     /// (adding to an existing segment costs no new slot).  A block whose group has no active queue
@@ -527,7 +535,11 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
 
     /// Resumes each hanging temp archive upload found by [StartupRecoveryTask].  When two entries
     /// share a groupStart, only the one with the highest [TempArchiveResumeState#nextBlockNumber()]
-    /// becomes the active queue for that group; the others finalise immediately via `SEGMENT_END`.
+    /// becomes the active queue for that group; the others finalise immediately via `SEGMENT_END`,
+    /// uncapped since finalising is one-shot, not an ongoing slot. Active winners beyond
+    /// [CloudStorageArchiveConfig#maxConcurrentTempArchives()] (counted via [tempGroupActiveQueues],
+    /// which only winners occupy) are deferred to [pendingResumedArchives] and started later by
+    /// [#drainPendingResumedArchives].
     private void resumeHangingTempArchives(List<TempArchiveResumeState> resumableTempArchives) {
         final Map<Long, TempArchiveResumeState> activeResumedByGroup = new HashMap<>();
         for (final TempArchiveResumeState resumed : resumableTempArchives) {
@@ -539,30 +551,59 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
         for (final TempArchiveResumeState resumed : resumableTempArchives) {
             final long groupStart = (resumed.firstBlock() / groupSize) * groupSize;
-            final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
             tempSegmentLastBlock.put(resumed.firstBlock(), resumed.nextBlockNumber() - 1);
-            if (activeResumedByGroup.get(groupStart) == resumed) {
-                tempGroupActiveQueues.put(groupStart, queue);
-                tempGroupActiveSegmentFirstBlock.put(groupStart, resumed.firstBlock());
-                tempGroupNextExpected.put(groupStart, resumed.nextBlockNumber());
-            } else {
+            if (activeResumedByGroup.get(groupStart) != resumed) {
+                final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
                 queue.offer(TempArchiveUploadTask.SEGMENT_END);
                 LOGGER.log(
                         TRACE,
                         "Resumable temp archive firstBlock={0} for group {1} superseded; finalising as-is",
                         resumed.firstBlock(),
                         groupStart);
+                tempUploadFutures.put(
+                        resumed.firstBlock(),
+                        virtualThreadExecutor.submit(newResumedTempArchiveUploadTask(
+                                resumed.s3Key(), resumed.firstBlock(), queue, resumed)));
+            } else if (tempGroupActiveQueues.size() >= config.maxConcurrentTempArchives()) {
+                pendingResumedArchives.add(resumed);
+                LOGGER.log(
+                        TRACE,
+                        "Concurrent temp archive limit ({0}) reached; deferring resume of firstBlock={1} for group {2}",
+                        config.maxConcurrentTempArchives(),
+                        resumed.firstBlock(),
+                        groupStart);
+            } else {
+                startResumedTempSegment(groupStart, resumed);
             }
-            tempUploadFutures.put(
-                    resumed.firstBlock(),
-                    virtualThreadExecutor.submit(
-                            newResumedTempArchiveUploadTask(resumed.s3Key(), resumed.firstBlock(), queue, resumed)));
-            LOGGER.log(
-                    TRACE,
-                    "Resumed hanging temp archive for group {0}, firstBlock={1}, nextBlockNumber={2}",
-                    groupStart,
-                    resumed.firstBlock(),
-                    resumed.nextBlockNumber());
+        }
+    }
+
+    /// Starts (or resumes, via [#drainPendingResumedArchives]) the active streaming segment for
+    /// `resumed`, registering it as the group's active queue and submitting its upload task.
+    private void startResumedTempSegment(long groupStart, TempArchiveResumeState resumed) {
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        tempGroupActiveQueues.put(groupStart, queue);
+        tempGroupActiveSegmentFirstBlock.put(groupStart, resumed.firstBlock());
+        tempGroupNextExpected.put(groupStart, resumed.nextBlockNumber());
+        tempUploadFutures.put(
+                resumed.firstBlock(),
+                virtualThreadExecutor.submit(
+                        newResumedTempArchiveUploadTask(resumed.s3Key(), resumed.firstBlock(), queue, resumed)));
+        LOGGER.log(
+                TRACE,
+                "Resumed hanging temp archive for group {0}, firstBlock={1}, nextBlockNumber={2}",
+                groupStart,
+                resumed.firstBlock(),
+                resumed.nextBlockNumber());
+    }
+
+    /// Starts deferred resumed temp archives (see [#resumeHangingTempArchives]) in the order
+    /// [StartupRecoveryTask] returned them, one per freed slot, while
+    /// [CloudStorageArchiveConfig#maxConcurrentTempArchives()] allows it.
+    private void drainPendingResumedArchives() {
+        while (!pendingResumedArchives.isEmpty() && tempUploadFutures.size() < config.maxConcurrentTempArchives()) {
+            final TempArchiveResumeState resumed = pendingResumedArchives.poll();
+            startResumedTempSegment((resumed.firstBlock() / groupSize) * groupSize, resumed);
         }
     }
 
@@ -590,13 +631,16 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
-    /// Returns `true` when the group starting at `groupStart` has any in-flight or completed
-    /// temporary archive data (active streaming segments, in-flight futures, or tracker entries).
+    /// Returns `true` when the group starting at `groupStart` has any in-flight, completed, or
+    /// deferred-but-pending temporary archive data (active streaming segments, in-flight futures,
+    /// tracker entries, or a resumed archive waiting in [pendingResumedArchives] for a free slot).
     private boolean hasAnyTempDataForGroup(long groupStart) {
         final long groupEnd = groupStart + groupSize;
         return tempGroupActiveQueues.containsKey(groupStart)
                 || !tempUploadFutures.subMap(groupStart, groupEnd).isEmpty()
-                || !tempArchiveTracker.subMap(groupStart, groupEnd).isEmpty();
+                || !tempArchiveTracker.subMap(groupStart, groupEnd).isEmpty()
+                || pendingResumedArchives.stream()
+                        .anyMatch(r -> (r.firstBlock() / groupSize) * groupSize == groupStart);
     }
 
     /// Initialises a new [BlockUploadTask] for the group that contains `blockNumber`, submits it
@@ -912,6 +956,16 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 }
             }
         }
+        if (!covered) {
+            // Deferred resumed archives (see resumeHangingTempArchives) aren't in tempUploadFutures
+            // yet, but their pre-crash range was already durably uploaded.
+            for (TempArchiveResumeState pending : pendingResumedArchives) {
+                if (blockNumber >= pending.firstBlock() && blockNumber < pending.nextBlockNumber()) {
+                    covered = true;
+                    break;
+                }
+            }
+        }
         return covered;
     }
 
@@ -1027,6 +1081,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         tempSegmentLastBlock.clear();
         tempUploadFutures.clear();
         tempOverflowStash.clear();
+        pendingResumedArchives.clear();
         pendingConsolidations.clear();
         consolidationFutures.clear();
         LOGGER.log(TRACE, "Cloud storage archive plugin stopped");

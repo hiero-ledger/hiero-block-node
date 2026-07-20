@@ -1971,6 +1971,89 @@ class CloudStorageArchivePluginTest {
             assertThat(getAllObjects()).contains(supersededTarKey, activeTarKey);
         }
 
+        /// Five hanging temp archives for five distinct groups are found resumable at startup, but
+        /// the default `maxConcurrentTempArchives=4`. Only the first four (in S3-key / ascending
+        /// firstBlock order) should be started immediately; the fifth must be deferred to
+        /// [CloudStorageArchivePlugin#pendingResumedArchives] rather than pushing `tempUploadFutures`
+        /// past the configured limit.
+        @Test
+        @DisplayName("Resumable archives beyond the concurrency limit are deferred, not started immediately")
+        void excessResumableArchivesAreDeferred() throws Exception {
+            final CloudStorageArchiveConfig config = makeConfig();
+            for (final long firstBlock : List.of(20L, 40L, 60L, 80L, 100L)) {
+                plantHangingTempArchive(config, firstBlock);
+            }
+
+            // Recovery resolves all five hanging uploads into resumable entries.
+            pluginExecutor.executeSerially();
+
+            // Trigger completeRecoveryIfReady() with an unrelated, far-ahead block.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(200, 200).getFirst());
+
+            // Only four of the five winning resumed archives fit under the default cap of 4.
+            assertThat(plugin.tempUploadFutures).containsOnlyKeys(20L, 40L, 60L, 80L);
+            assertThat(plugin.tempGroupActiveQueues).containsOnlyKeys(20L, 40L, 60L, 80L);
+            assertThat(plugin.pendingResumedArchives).hasSize(1);
+            assertThat(plugin.pendingResumedArchives.peek().firstBlock()).isEqualTo(100L);
+        }
+
+        /// Once a slot frees, the deferred resumable archive for group 100 must be started by
+        /// `CloudStorageArchivePlugin.drainPendingResumedArchives`. [BlockingExecutor#executeSerially]
+        /// runs every queued task, not just one, so all four active segments (20, 40, 60, 80) are
+        /// closed here before running it -- otherwise the still-open ones would block on
+        /// `queue.take()` for up to their 60s per-task timeout.
+        @Test
+        @DisplayName("Deferred resumable archive is started once a temp-upload slot frees")
+        void deferredResumableArchiveStartsWhenSlotFrees() throws Exception {
+            final int groupSize = Math.powExact(10, GROUPING_LEVEL);
+            final CloudStorageArchiveConfig config = makeConfig();
+            for (final long firstBlock : List.of(20L, 40L, 60L, 80L, 100L)) {
+                plantHangingTempArchive(config, firstBlock);
+            }
+
+            pluginExecutor.executeSerially();
+            sendVerification(TestBlockBuilder.generateBlocksInRange(200, 200).getFirst());
+            assertThat(plugin.pendingResumedArchives).hasSize(1);
+
+            // Complete every active segment's group. Each segment was planted with 2 blocks
+            // (firstBlock, firstBlock+1); recovery conservatively treats the last written tar entry
+            // as unconfirmed and resumes from it, so the resume point is firstBlock+1, not +2 (see
+            // resumeFromHangingUploadCompletesGroup, which resends the last uploaded block the same way).
+            for (final long groupStart : List.of(20L, 40L, 60L, 80L)) {
+                sendVerifications(
+                        TestBlockBuilder.generateBlocksInRange((int) groupStart + 1, (int) groupStart + groupSize - 1));
+            }
+            assertThat(plugin.tempGroupActiveQueues).isEmpty();
+
+            // Run all four now-closed TempArchiveUploadTasks to completion.
+            pluginExecutor.executeSerially();
+
+            // Drives checkAndDrainTempUploadResults (frees all four slots), then
+            // drainPendingResumedArchives (starts the deferred firstBlock=100 archive), then
+            // drainOverflowStash (block 200, stashed earlier while slots were full, starts its own
+            // new segment with a slot to spare).
+            sendVerification(TestBlockBuilder.generateBlocksInRange(201, 201).getFirst());
+
+            assertThat(plugin.pendingResumedArchives).isEmpty();
+            assertThat(plugin.tempUploadFutures).containsOnlyKeys(100L, 200L);
+            assertThat(plugin.tempGroupActiveQueues).containsKeys(100L, 200L);
+            assertThat(plugin.tempArchiveTracker).containsKeys(20L, 40L, 60L, 80L);
+        }
+
+        /// Plants a hanging (never-completed) multipart upload for a 2-block temp archive segment
+        /// starting at `firstBlock`, simulating a crash mid-upload.
+        private void plantHangingTempArchive(CloudStorageArchiveConfig config, long firstBlock) throws Exception {
+            final String tarKey = TempArchiveKey.formatTar(firstBlock, config.objectKeyPrefix());
+            final List<TestBlock> blocks =
+                    TestBlockBuilder.generateBlocksInRange((int) firstBlock, (int) firstBlock + 1);
+            try (S3Client s3 = openS3Client(config)) {
+                final String uploadId =
+                        s3.createMultipartUpload(tarKey, config.storageClass().name(), CONTENT_TYPE);
+                s3.multipartUploadPart(tarKey, uploadId, 1, buildTarBytes(blocks, (int) firstBlock));
+                // deliberately NOT completing — simulate a crash mid-upload
+            }
+        }
+
         private CloudStorageArchiveConfig makeConfig() {
             final ConfigurationBuilder builder =
                     ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
