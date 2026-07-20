@@ -8,15 +8,16 @@ description = "Hiero Block Node - Blocks File Archive Cloud Storage"
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 mainModuleInfo {
-    runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
+    runtimeOnly("com.swirlds.config.impl")
 }
 
 testModuleInfo {
+    requires("org.hiero.block.node.app.test.fixtures")
+    requires("io.minio")
+    requires("java.logging")
+    requires("org.assertj.core")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
-    requires("org.assertj.core")
-    requires("org.hiero.block.node.app.test.fixtures")
     requires("org.testcontainers")
-    requires("io.minio")
 }

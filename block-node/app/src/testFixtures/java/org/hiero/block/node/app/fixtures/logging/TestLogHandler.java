@@ -11,10 +11,14 @@ import java.util.logging.LogRecord;
  */
 public class TestLogHandler extends Handler {
     private final List<String> messages = new ArrayList<>();
+    private final List<Throwable> thrownExceptions = new ArrayList<>();
 
     @Override
     public void publish(LogRecord record) {
         messages.add(record.getMessage());
+        if (record.getThrown() != null) {
+            thrownExceptions.add(record.getThrown());
+        }
     }
 
     @Override
@@ -31,5 +35,13 @@ public class TestLogHandler extends Handler {
         return (int) messages.stream()
                 .filter(msg -> msg != null && msg.contains(substring))
                 .count();
+    }
+
+    /**
+     * Returns every {@link Throwable} attached to a captured log record (via
+     * {@link LogRecord#getThrown()}), in the order the records were published.
+     */
+    public List<Throwable> thrownExceptions() {
+        return List.copyOf(thrownExceptions);
     }
 }
