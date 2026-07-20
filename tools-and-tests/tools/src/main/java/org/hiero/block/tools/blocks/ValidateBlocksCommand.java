@@ -50,6 +50,7 @@ import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
 import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor;
 import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor.PreprocessedData;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
+import org.hiero.block.tools.blocks.validation.SidecarIntegrityValidation;
 import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
 import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
@@ -148,6 +149,11 @@ public class ValidateBlocksCommand implements Runnable {
             description =
                     "Skip required items and block structure validations (useful for validating live blocks without RecordFile/BlockProof)")
     private boolean skipRequiredItems = false;
+
+    @Option(
+            names = {"--skip-sidecar-integrity"},
+            description = "Skip sidecar-hash integrity validation")
+    private boolean skipSidecarIntegrity = false;
 
     @Option(
             names = {"--validate-balances"},
@@ -422,6 +428,12 @@ public class ValidateBlocksCommand implements Runnable {
             parallelValidations.add(sigVal);
         } else {
             System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ Signature validation (--skip-signatures)"));
+        }
+        if (!skipSidecarIntegrity) {
+            parallelValidations.add(new SidecarIntegrityValidation());
+        } else {
+            System.out.println(
+                    Ansi.AUTO.string("@|yellow Skipping:|@ Sidecar integrity validation (--skip-sidecar-integrity)"));
         }
         final SignatureValidation signatureValidation = sigVal;
         if (skipSupply) {
