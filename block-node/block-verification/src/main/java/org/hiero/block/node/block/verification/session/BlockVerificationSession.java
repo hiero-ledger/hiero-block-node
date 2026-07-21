@@ -51,8 +51,14 @@ public interface BlockVerificationSession {
     /// A composite key for a [BlockVerificationSession].
     /// We allow multiple sessions for the same block.
     /// We first compare by the block number. If that conflicts, then we compare
-    /// by the unique id, which will always be different for a different sesion.
+    /// by the unique id, which will always be different for a different session.
+    /// @param blockNumber the number of the block the session verifies
+    /// @param uniqueId a unique id distinguishing sessions for the same block
     record SessionKey(long blockNumber, long uniqueId) implements Comparable<SessionKey> {
+        /// {@inheritDoc}
+        /// ---
+        /// Compares first by block number, then by unique id. A `null` other
+        /// sorts before any non-null key.
         @Override
         public int compareTo(final SessionKey other) {
             if (this == other) {

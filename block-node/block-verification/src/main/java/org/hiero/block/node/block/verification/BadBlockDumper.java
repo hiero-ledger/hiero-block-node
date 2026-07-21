@@ -25,49 +25,43 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
-/**
- * Writes failing block bytes and metadata to disk for post-incident diagnostics.
- *
- * <p>Activated only when {@link VerificationConfig#dumpEnabled()} is {@code true}. Each unique
- * {@code (blockNumber, failureType)} combination is dumped at most once per process lifetime
- * (rate limiting), so a retried bad block does not flood disk.
- *
- * <p>Two files are written per dump:
- * <ul>
- *   <li>{@code block-<N>-<TYPE>.blk} - raw protobuf-encoded {@link BlockUnparsed} bytes
- *   <li>{@code block-<N>-<TYPE>.meta.json} - JSON sidecar with correlation id, failure
- *       category, BN identity, and HAPI version
- * </ul>
- *
- * <p>A scheduled daily task purges files older than {@link VerificationConfig#dumpRetentionDays()}.
- */
+/// Writes failing block bytes and metadata to disk for post-incident diagnostics.
+///
+/// Activated only when [VerificationConfig#dumpEnabled()] is `true`. Each unique
+/// `(blockNumber, failureType)` combination is dumped at most once per process lifetime
+/// (rate limiting), so a retried bad block does not flood disk.
+///
+/// Two files are written per dump:
+/// - `block-<N>-<TYPE>.blk` - raw protobuf-encoded [BlockUnparsed] bytes
+/// - `block-<N>-<TYPE>.meta.json` - JSON sidecar with correlation id, failure
+///   category, BN identity, and HAPI version
+///
+/// A scheduled daily task purges files older than [VerificationConfig#dumpRetentionDays()].
 public class BadBlockDumper {
+    /// Logger for the dumper.
     private static final System.Logger LOGGER = System.getLogger(BadBlockDumper.class.getName());
-
+    /// The verification configuration, source of the dump settings.
     private final VerificationConfig config;
+    /// A human-readable identifier for this Block Node instance, written into the metadata sidecar.
     private final String bnIdentity;
-
-    /** Tracks which (blockNumber, failureType) pairs have already been dumped this session. */
+    /// Tracks which `(blockNumber, failureType)` pairs have already been dumped this session.
     private final Set<String> dumpedKeys = ConcurrentHashMap.newKeySet();
-
+    /// Scheduler for the daily purge task, created on [#start(ThreadPoolManager)].
     private ScheduledExecutorService scheduler;
 
-    /**
-     * Creates a {@code BadBlockDumper}.
-     *
-     * @param config the verification configuration
-     * @param bnIdentity a human-readable identifier for this Block Node instance (e.g. hostname)
-     */
+    /// Constructor.
+    ///
+    /// @param config the verification configuration
+    /// @param bnIdentity a human-readable identifier for this Block Node instance (e.g. hostname)
     public BadBlockDumper(@NonNull final VerificationConfig config, @NonNull final String bnIdentity) {
         this.config = config;
         this.bnIdentity = bnIdentity;
     }
 
-    /**
-     * Starts the dumper: creates the dump directory and schedules the daily purge task.
-     *
-     * @param threadPoolManager source of scheduled executor services
-     */
+    /// Starts the dumper: creates the dump directory and schedules the daily purge task.
+    /// Does nothing when dumping is disabled.
+    ///
+    /// @param threadPoolManager source of scheduled executor services
     public void start(@NonNull final ThreadPoolManager threadPoolManager) {
         if (config.dumpEnabled()) {
             try {
@@ -86,27 +80,21 @@ public class BadBlockDumper {
         }
     }
 
-    /**
-     * Stops the purge scheduler. Safe to call even if {@link #start} was never called.
-     */
+    /// Stops the purge scheduler. Safe to call even if [#start(ThreadPoolManager)] was never called.
     public void stop() {
         if (scheduler != null) {
             scheduler.shutdownNow();
         }
     }
 
-    /**
-     * Dumps the failing block to disk if:
-     * <ul>
-     *   <li>dumping is enabled,
-     *   <li>the notification carries block bytes, and
-     *   <li>this {@code (blockNumber, failureType)} has not been dumped before.
-     * </ul>
-     *
-     * @param notification the failed verification notification (must have {@code success=false})
-     * @param hapiVersion the HAPI proto version from the block header, may be {@code null}
-     * @param blockItems the raw block items captured at the failure site, may be {@code null}
-     */
+    /// Dumps the failing block to disk if:
+    /// - dumping is enabled,
+    /// - the notification carries block bytes, and
+    /// - this `(blockNumber, failureType)` has not been dumped before.
+    ///
+    /// @param notification the failed verification notification (must have `success=false`)
+    /// @param hapiVersion the HAPI proto version from the block header, may be `null`
+    /// @param blockItems the raw block items captured at the failure site, may be `null`
     public void attemptDump(
             @NonNull final VerificationNotification notification,
             final SemanticVersion hapiVersion,
@@ -145,6 +133,11 @@ public class BadBlockDumper {
         }
     }
 
+    /// Writes the raw protobuf-encoded block bytes to the given path.
+    ///
+    /// @param path the target file path
+    /// @param blockItems the raw block items to wrap and write as a [BlockUnparsed]
+    /// @throws IOException if writing fails
     private void writeBlockFile(@NonNull final Path path, @NonNull final List<BlockItemUnparsed> blockItems)
             throws IOException {
         final BlockUnparsed block =
@@ -156,6 +149,14 @@ public class BadBlockDumper {
         }
     }
 
+    /// Writes the JSON metadata sidecar for a dumped block.
+    ///
+    /// @param path the target file path
+    /// @param correlationId a unique id correlating this dump with log entries
+    /// @param blockNumber the number of the failed block
+    /// @param failureType the failure type that caused the dump
+    /// @param hapiVersion the HAPI proto version from the block header, may be `null`
+    /// @throws IOException if writing fails
     private void writeMetaFile(
             @NonNull final Path path,
             @NonNull final String correlationId,
@@ -179,7 +180,7 @@ public class BadBlockDumper {
         Files.writeString(path, json, StandardCharsets.UTF_8);
     }
 
-    /** Deletes files in the dump directory whose last-modified time is older than the configured retention. */
+    /// Deletes files in the dump directory whose last-modified time is older than the configured retention.
     private void purgeOldDumps() {
         final Path dir = config.dumpDirectoryPath();
         if (Files.isDirectory(dir)) {
@@ -203,6 +204,10 @@ public class BadBlockDumper {
         }
     }
 
+    /// Removes the rate-limiting key derived from a purged dump file, so the same
+    /// `(blockNumber, failureType)` can be dumped again after its files are gone.
+    ///
+    /// @param file the purged dump file
     private void removeDumpedKey(@NonNull final Path file) {
         final String name = file.getFileName().toString();
         final int dotIdx = name.indexOf('.');
@@ -211,6 +216,9 @@ public class BadBlockDumper {
         }
     }
 
+    /// Best-effort file deletion that swallows any [IOException].
+    ///
+    /// @param path the file to delete
     private static void silentDelete(@NonNull final Path path) {
         try {
             Files.deleteIfExists(path);

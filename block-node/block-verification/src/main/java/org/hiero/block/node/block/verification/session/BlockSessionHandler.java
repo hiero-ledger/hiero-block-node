@@ -22,28 +22,52 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
 /// Handler for [BlockVerificationSession]s.
 /// This handler is responsible for creating, managing, and canceling
-/// [org.hiero.block.node.block.verification.verifier.BlockVerificationResult].
+/// [BlockVerificationSession]s.
 /// The handler is also able to receive data from multiple sources and forward it to the correct session.
 /// We have a limited number of sessions we can have running simultaneously, configurable via
 /// [VerificationConfig#activeSessionsBufferSize()]. When the buffer fills up and a new session has to be started,
-/// the oldest one will be canceled to make room for the new one.
+/// the session verifying the lowest block will be canceled to make room for the new one.
 public final class BlockSessionHandler {
+    /// Logger for the handler.
     private static final System.Logger LOGGER = System.getLogger(BlockSessionHandler.class.getName());
+    /// The block node context, for access to core facilities.
     private final BlockNodeContext context;
+    /// The holder for all verification metrics, passed to created sessions.
     private final MetricsHolder metricsHolder;
+    /// Metrics recorded by this handler.
     private final SessionHandlerMetrics sessionHandlerMetrics;
+    /// The configuration for verification.
     private final VerificationConfig verificationConfig;
+    /// The last successfully verified block, shared with the sessions.
     private final AtomicLong lastVerifiedBlock;
+    /// The set of recently verified blocks, shared with the sessions.
     private final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
+    /// The source of unique ids for new sessions.
     private final AtomicLong nextUniqueSessionIdentifier;
+    /// The executor used to run sessions.
     private final ExecutorService executor;
+    /// All currently active sessions, keyed and ordered by [SessionKey].
     private final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions;
+    /// Provider of the verification data, passed to created sessions.
     private final VerificationDataProvider verificationDataProvider;
+    /// The session currently receiving live items from the publisher, if any.
     private final AtomicReference<BlockVerificationSession> activePublisherSession;
+    /// Keys of sessions that have marked themselves finished and await graceful completion.
     private final ConcurrentSkipListSet<SessionKey> finishedSessions;
+    /// Dumps failing block bytes to disk for diagnostics, passed to created sessions.
     private final BadBlockDumper badBlockDumper;
 
     /// Constructor.
+    ///
+    /// @param context the block node context, must not be null
+    /// @param metricsHolder the holder for all verification metrics, must not be null
+    /// @param verificationConfig the configuration for verification, must not be null
+    /// @param verificationDataProvider provider of the verification data, must not be null
+    /// @param lastVerifiedBlock the last successfully verified block, must not be null
+    /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
+    /// @param activeSessions the map to hold active sessions, must not be null
+    /// @param executor the executor used to run sessions, must not be null
+    /// @param badBlockDumper the bad block dumper for diagnostics, must not be null
     public BlockSessionHandler(
             final BlockNodeContext context,
             final MetricsHolder metricsHolder,
@@ -71,6 +95,10 @@ public final class BlockSessionHandler {
 
     /// Process the supplied [BlockItems] based on the source.
     /// Items supplied here must be validated beforehand.
+    /// Before processing, any finished sessions are gracefully completed.
+    ///
+    /// @param blockItems the block items to process, must be validated beforehand
+    /// @param blockSource the source the items were received from
     public void processBlockItems(final BlockItems blockItems, final BlockSource blockSource) {
         completeFinishedSessions();
         switch (blockSource) {
@@ -81,7 +109,9 @@ public final class BlockSessionHandler {
         }
     }
 
-    /// Attempt to complete finished sessions
+    /// Attempt to complete finished sessions.
+    /// Every session that has marked itself finished is asked to complete; when it
+    /// does, it is removed from the finished set and the active sessions buffer.
     private void completeFinishedSessions() {
         for (final SessionKey candidate : finishedSessions) {
             final BlockVerificationSession sessionToComplete = activeSessions.get(candidate);
@@ -102,6 +132,8 @@ public final class BlockSessionHandler {
     /// however, guarantee that a block will finish. If a new block starts prematurely (this can be detected
     /// because we can follow along an active session), the current session must be canceled as we can safely
     /// assume we have moved on.
+    ///
+    /// @param blockItems the publisher supplied block items to process
     private void processPublisherLiveItems(final BlockItems blockItems) {
         BlockVerificationSession local = activePublisherSession.get();
         if (blockItems.isStartOfNewBlock()) {
@@ -132,7 +164,11 @@ public final class BlockSessionHandler {
         session.getBlockItemsDeque().offer(blockItems);
     }
 
-    /// Start a new session.
+    /// Start a new session and increment the blocks received metric.
+    ///
+    /// @param blockItems the first block items of the block to verify
+    /// @param blockSource the source of the block
+    /// @return the started session
     private BlockVerificationSession startNewSession(final BlockItems blockItems, final BlockSource blockSource) {
         final BlockVerificationSession session = createSession(blockItems, blockSource);
         session.start();
@@ -141,6 +177,10 @@ public final class BlockSessionHandler {
     }
 
     /// Create a new [CompletableVerificationSession].
+    ///
+    /// @param blockItems the first block items of the block to verify
+    /// @param blockSource the source of the block
+    /// @return a new, not yet started session
     private CompletableVerificationSession createSession(final BlockItems blockItems, final BlockSource blockSource) {
         return new CompletableVerificationSession(
                 nextUniqueSessionIdentifier.getAndIncrement(),
@@ -158,8 +198,11 @@ public final class BlockSessionHandler {
     }
 
     /// Activate a new session.
-    /// This method will activate the session and potentially cancel the oldest one if the buffer for
-    /// maximum allowed sessions is full.
+    /// This method will activate the session and potentially cancel the one verifying the lowest
+    /// block if the buffer for maximum allowed sessions is full, unless that is the session that
+    /// was just activated.
+    ///
+    /// @param session the session to activate
     private void activateSession(final BlockVerificationSession session) {
         activeSessions.put(session.sessionKey(), session);
         final SessionKey candidateSessionKey = activeSessions.firstKey();
