@@ -17,7 +17,7 @@ Escalate in tier order:
 | 3 - P0 escalation    | On-call contact (provided at handoff)                                                     | Production outages requiring immediate response       |
 
 Response timeframes for Tier 2 and 3 are governed by the Operating Agreement,
-Exhibit B § 7c.
+Exhibit B §7c.
 
 ---
 
@@ -59,7 +59,12 @@ Exhibit B § 7c.
 
 - [HIP-1081 - Block Node](https://hips.hedera.com/hip/hip-1081)
 - [HIP-1056 - Block Streams](https://hips.hedera.com/hip/hip-1056)
+- [HIP-1137 - Block Node Discovery](https://hips.hedera.com/hip/hip-1137)
+- [HIP-1357 - Block Node Tier 1 Rewards](https://hips.hedera.com/hip/hip-1357)
+- [HIP-1193 - Block Stream Cutover](https://hips.hedera.com/hip/hip-1193)
 - [HIP-1200 - hinTS](https://hips.hedera.com/hip/hip-1200)
+- [HIP-1424 - Block Merkle Hashing](https://hips.hedera.com/hip/hip-1424)
+- [HIP-1427 - Record File Wrapping](https://hips.hedera.com/hip/hip-1427)
 
 ---
 
