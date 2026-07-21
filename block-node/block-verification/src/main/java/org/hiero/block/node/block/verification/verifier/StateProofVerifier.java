@@ -24,18 +24,36 @@ import org.hiero.block.node.block.verification.session.SessionFailureType;
 
 /// State proof verifier.
 public final class StateProofVerifier implements ProofVerifier {
+    /// Logger for the verifier.
     private static final Logger LOGGER = System.getLogger(StateProofVerifier.class.getName());
+    /// Cancellation flag shared with the owning session.
     private final AtomicBoolean isCanceled;
+    /// Metrics for proof verification results.
     private final ProofVerificationMetrics proofVerificationMetrics;
+    /// The number of the block being verified, used for logging.
     private final long blockNumber;
+    /// The state proof to verify.
     private final StateProof stateProof;
+    /// The computed root hash of the block being verified.
     private final Bytes rootHash;
+    /// Provider of the TSS data required for the final signature verification.
     private final VerificationDataProvider verificationDataProvider;
+    /// Pending merge checkpoints, keyed by join point index. See [MergeCheckpoint].
     private final HashMap<Integer, MergeCheckpoint> checkpoints;
+    /// Set to `true` once a hash leaf matching the computed block root hash has been seen.
     private boolean foundComputedRootHashMatch = false;
+    /// The reconstructed signed block root, set once the final join has been reached.
     private byte[] signedBlockRoot = null;
 
     /// Constructor.
+    ///
+    /// @param isCanceled cancellation flag shared with the owning session, must not be null
+    /// @param proofVerificationMetrics metrics for proof verification results, must not be null
+    /// @param blockNumber the number of the block being verified
+    /// @param stateProof the state proof to verify, must not be null
+    /// @param rootHash the computed root hash of the block being verified, must not be null
+    /// @param verificationDataProvider provider of the TSS data for the final signature
+    ///     verification, must not be null
     public StateProofVerifier(
             final AtomicBoolean isCanceled,
             final ProofVerificationMetrics proofVerificationMetrics,
@@ -52,7 +70,32 @@ public final class StateProofVerifier implements ProofVerifier {
         this.checkpoints = new HashMap<>();
     }
 
-    /// todo(2879) add documentation
+    /// {@inheritDoc}
+    /// ---
+    /// Verifies a state proof (an indirect proof) for the block.
+    ///
+    /// A state proof carries a list of [MerklePath]s: *leaves* (paths with
+    /// content) and *join points* (paths without content). The verifier walks
+    /// every leaf, merges its siblings, and follows its next path index through
+    /// the join points, merging partial results via [MergeCheckpoint]s, until the
+    /// *signed block root* is reconstructed at the final join (next index below
+    /// zero). Along the way it checks that one of the hash leaves matches the
+    /// computed block root hash, which ties the proof to the block content.
+    ///
+    /// The proof is rejected when the structure is malformed: fewer than three
+    /// paths, a non-leaf first path, an out-of-range next index, a leaf pointing
+    /// to another leaf, a duplicate checkpoint, unvisited paths, or leftover
+    /// checkpoints after the walk.
+    ///
+    /// Once reconstructed, the signed block root is verified with a [TSSVerifier]
+    /// against the signature carried by the proof. The success or failure state
+    /// proof series of the proof verification metrics is incremented accordingly
+    /// before returning.
+    ///
+    /// @return `null` if the proof verifies, [SessionFailureType#CANCELLED] when
+    ///     the session was cancelled mid-walk, or
+    ///     [SessionFailureType#BAD_BLOCK_PROOF] when the proof is malformed, does
+    ///     not match the computed root hash, or its signature does not verify
     @Override
     public SessionFailureType verify() {
         final SessionFailureType result;
@@ -259,6 +302,7 @@ public final class StateProofVerifier implements ProofVerifier {
         }
     }
 
+    /// Returns `true` if the owning session has been cancelled or the current thread interrupted.
     private boolean isCanceled() {
         return isCanceled.get() || Thread.currentThread().isInterrupted();
     }

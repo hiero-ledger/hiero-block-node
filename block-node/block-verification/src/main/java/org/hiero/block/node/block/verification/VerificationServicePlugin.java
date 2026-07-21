@@ -145,16 +145,21 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     /// This is also an important assumption for setting the last verified block initially.
     @Override
     public void onContextUpdate(final BlockNodeContext updatedContext) {
-        if (updatedContext != null) {
-            verificationDataProvider.safeUpdateTssData(updatedContext.tssData(), false);
-            safeUpdateLastVerified(updatedContext.storedBlocks());
+        try {
+            if (updatedContext != null) {
+                verificationDataProvider.safeUpdateTssData(updatedContext.tssData(), false);
+                updateLastVerifiedBlock(updatedContext.storedBlocks());
+            }
+        } catch (final RuntimeException e) {
+            LOGGER.log(WARNING, "onContextUpdate failed", e);
         }
     }
 
-    /// Safe update the last verified block.
+    /// Update the last verified block.
     /// If the latest update from application state has a high watermark for stored blocks
     /// higher than what we last verified, we want to roll forward.
-    private void safeUpdateLastVerified(final List<BlockRange> storedBlocks) {
+    /// We expect updates here to happen very infrequently.
+    private void updateLastVerifiedBlock(final List<BlockRange> storedBlocks) {
         if (storedBlocks != null && !storedBlocks.isEmpty()) {
             final BlockRange lastRange = storedBlocks.getLast();
             final long highestStoredBlock = lastRange.rangeEnd();
@@ -163,6 +168,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 lastVerifiedBlock.compareAndSet(localLastVerified, highestStoredBlock);
                 localLastVerified = lastVerifiedBlock.get();
             }
+            LOGGER.log(INFO, "onContextUpdate received, updated last verified block to {0}", lastVerifiedBlock.get());
         }
     }
 
@@ -258,12 +264,21 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     /// @param notification a [PersistedNotification] received as an event.
     @Override
     public void handlePersisted(final PersistedNotification notification) {
-        if (notification != null && !notification.succeeded()) {
-            recentlyVerifiedBlocks.remove(notification.blockNumber());
+        try {
+            if (notification != null && !notification.succeeded()) {
+                recentlyVerifiedBlocks.remove(notification.blockNumber());
+            }
+        } catch (final RuntimeException e) {
+            LOGGER.log(WARNING, "Failed to handle persisted notification in verification ", e);
         }
     }
 
-    /// Send a notification to messaging.
+    /// Send a failure notification to messaging. Any failure to send is logged
+    /// and swallowed; this method never throws.
+    ///
+    /// @param blockNumber the number of the block the failure is for
+    /// @param blockSource the source of the block
+    /// @param sessionFailureType the failure type to report
     private void safeSendNotification(
             final long blockNumber, final BlockSource blockSource, final SessionFailureType sessionFailureType) {
         try {
@@ -282,6 +297,13 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
         }
     }
 
+    /// Validate the start of a block. When the supplied items mark the start of a
+    /// new block, the first item must be a block header and the header's number
+    /// must match the block number announced with the items. Items that do not
+    /// mark the start of a block are always considered valid here.
+    ///
+    /// @param blockItems the block items to validate
+    /// @return `true` if the items are valid to process, `false` otherwise
     private boolean validateStartOfBlock(final BlockItems blockItems) {
         try {
             final boolean result;
@@ -305,6 +327,9 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
         }
     }
 
+    /// Resolve the local hostname, used as the Block Node identity in bad block dumps.
+    ///
+    /// @return the local hostname, or `"unknown"` when it cannot be resolved
     private String resolveHostname() {
         try {
             return InetAddress.getLocalHost().getHostName();

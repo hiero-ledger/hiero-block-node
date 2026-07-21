@@ -20,17 +20,37 @@ import org.hiero.block.node.block.verification.session.SessionFailureType;
 
 /// RSA proof verifier.
 public final class RSAProofVerifier implements ProofVerifier {
+    /// Logger for the verifier.
     private static final System.Logger LOGGER = System.getLogger(RSAProofVerifier.class.getName());
+    /// Cancellation flag shared with the owning session.
     private final AtomicBoolean isCanceled;
+    /// Metrics for proof verification results.
     private final ProofVerificationMetrics proofVerificationMetrics;
+    /// The number of the block being verified, used for logging.
     private final long blockNumber;
+    /// Map from `node_id` to RSA [PublicKey], resolved from the address book era covering the block.
     private final Map<Long, PublicKey> rsaKeyByNodeId;
+    /// The signed record file proof to verify.
     private final SignedRecordFileProof proof;
+    /// The record file format version declared by the proof.
     private final int version;
+    /// The precomputed V6 signed payload, `SHA-384(int32(6) || record_file_contents)`,
+    /// produced by the hashing stage. Null when the block carried no `RECORD_FILE` item.
     private final byte[] signedWRBPayload;
+    /// The `SHA384withRSA` signature engine used to verify each signature.
     private final Signature sha384WithRSA;
 
     /// Constructor.
+    ///
+    /// @param isCanceled cancellation flag shared with the owning session, must not be null
+    /// @param proofVerificationMetrics metrics for proof verification results, must not be null
+    /// @param blockNumber the number of the block being verified
+    /// @param rsaKeyByNodeId map from `node_id` to RSA [PublicKey] for the era covering the
+    ///     block; an empty map fails verification, must not be null
+    /// @param proof the signed record file proof to verify
+    /// @param signedWRBPayload the precomputed V6 signed payload from the hashing stage,
+    ///     may be null when the block carried no `RECORD_FILE` item
+    /// @param sha384WithRSA the `SHA384withRSA` signature engine, must not be null
     public RSAProofVerifier(
             final AtomicBoolean isCanceled,
             final ProofVerificationMetrics proofVerificationMetrics,
@@ -49,6 +69,8 @@ public final class RSAProofVerifier implements ProofVerifier {
         this.sha384WithRSA = Objects.requireNonNull(sha384WithRSA);
     }
 
+    /// {@inheritDoc}
+    /// ---
     /// Verifies a `SignedRecordFileProof` (WRB RSA proof).
     ///
     /// **Algorithm (V6 only for Phase 2a):**
@@ -203,6 +225,7 @@ public final class RSAProofVerifier implements ProofVerifier {
         return true;
     }
 
+    /// Returns `true` if the owning session has been cancelled or the current thread interrupted.
     private boolean isCanceled() {
         return isCanceled.get() || Thread.currentThread().isInterrupted();
     }

@@ -85,7 +85,7 @@ public record ProofVerificationMetrics(
                 proofResultCounter.getOrCreateLabeled(LABEL_PROOF_TYPE, PROOF_TYPE_TSS, LABEL_RESULT, RESULT_FAILURE);
         final Measurement verificationBlockTime = metricRegistry
                 .register(LongCounter.builder(METRIC_VERIFICATION_BLOCK_TIME)
-                        .setDescription("Verification time per block (ms)"))
+                        .setDescription("Verification time per block (ns)"))
                 .getOrCreateNotLabeled();
         return new ProofVerificationMetrics(
                 rsaSuccess,
