@@ -239,6 +239,22 @@ class RetryStagingManagerTest {
     }
 
     @Test
+    @DisplayName("recordFailure() returns NOT_STAGED, not EXHAUSTED, for a block that was already unstaged")
+    void recordFailureReturnsNotStagedForAlreadyUnstagedBlock() {
+        final RetryStagingManager manager = newManager();
+        manager.stage(20L, new byte[] {1}, "blocks/key20", "STANDARD", BlockSource.PUBLISHER);
+
+        // Simulates a concurrent live-path success (a duplicate VerificationNotification) resolving
+        // this block while a background retry attempt for it is still in flight.
+        manager.unstage(20L);
+
+        assertEquals(
+                RetryStagingManager.RetryOutcome.NOT_STAGED,
+                manager.recordFailure(20L),
+                "a block removed by a concurrent unstage() must not be reported as EXHAUSTED");
+    }
+
+    @Test
     @DisplayName("stage() is idempotent: a duplicate call for an already-staged block does not reset its attempts")
     void stageIsIdempotentForAlreadyStagedBlock() throws IOException {
         final RetryStagingManager manager = newManager();
@@ -310,6 +326,38 @@ class RetryStagingManagerTest {
         assertEquals(0, manager.pendingCount());
         assertFalse(Files.exists(tempDir.resolve("3.blk.zstd")));
         assertFalse(Files.exists(tempDir.resolve("3.meta.properties")));
+    }
+
+    @Test
+    @DisplayName("unstage() is a no-op when retryEnabled is false")
+    void unstageIsNoOpWhenRetryDisabled() {
+        final RetryStagingManager manager = newManager();
+        manager.stage(3L, new byte[] {1, 2}, "blocks/key3", "STANDARD", BlockSource.PUBLISHER);
+        assertEquals(1, manager.pendingCount());
+
+        final RetryStagingManager disabledManager = new RetryStagingManager(new ExpandedCloudStorageConfig(
+                "http://fake:9000",
+                "bucket",
+                "blocks",
+                ExpandedCloudStorageConfig.StorageClass.STANDARD,
+                "us-east-1",
+                "",
+                "",
+                60,
+                false,
+                tempDir,
+                30,
+                30,
+                900,
+                20,
+                6));
+
+        assertDoesNotThrow(() -> disabledManager.unstage(3L));
+
+        assertTrue(Files.exists(tempDir.resolve("3.blk.zstd")), "files staged by another manager must be untouched");
+        assertTrue(
+                Files.exists(tempDir.resolve("3.meta.properties")),
+                "files staged by another manager must be untouched");
     }
 
     @Test

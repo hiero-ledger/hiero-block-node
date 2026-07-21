@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
@@ -41,7 +42,10 @@ class RetryStagingManager {
         /// The block remains staged; its backoff has been extended and it will be retried again later.
         RETRYING,
         /// The block exceeded `retryMaxAttempts` or `retryMaxAgeHours` and has been dropped from staging.
-        EXHAUSTED
+        EXHAUSTED,
+        /// The block was not staged; likely already resolved by a concurrent {@link #unstage}. Not the
+        /// same as {@link #EXHAUSTED} — the block may already be reported successful.
+        NOT_STAGED
     }
 
     /// In-memory mirror of a staged block's sidecar.
@@ -294,10 +298,12 @@ class RetryStagingManager {
     /// Removes a block from staging: deletes both files and the in-memory entry. Called both when a
     /// retry succeeds and, from {@link #recordFailure(long)}, when a block's retries are exhausted.
     void unstage(final long blockNumber) {
-        staged.compute(blockNumber, (key, previous) -> {
-            deleteStagedFiles(key);
-            return null;
-        });
+        if (config.retryEnabled()) {
+            staged.compute(blockNumber, (key, previous) -> {
+                deleteStagedFiles(key);
+                return null;
+            });
+        }
     }
 
     /// Records another failed retry attempt for the given block, growing its backoff. If the block has
@@ -305,18 +311,21 @@ class RetryStagingManager {
     ///
     /// @param blockNumber the block that failed another retry attempt
     /// @return {@link RetryOutcome#RETRYING} if the block remains staged, {@link RetryOutcome#EXHAUSTED}
-    ///         if it was dropped
+    ///         if it was dropped for exceeding retry limits, or {@link RetryOutcome#NOT_STAGED} if it
+    ///         was not staged to begin with
     @NonNull
     RetryOutcome recordFailure(final long blockNumber) {
         // Computed atomically per block number (via ConcurrentHashMap#compute) so a concurrent stage()
-        // or unstage() for the same block cannot interleave with this read-modify-write. compute()
-        // returns the new mapping (or null once removed), which already tells us the outcome: null means
-        // the block was dropped (unknown block or retry limits exceeded), so no separate outcome variable
-        // is needed.
+        // or unstage() for the same block cannot interleave with this read-modify-write. compute()'s own
+        // return value tells RETRYING (non-null) from the rest; wasStaged breaks the one remaining tie,
+        // since EXHAUSTED and NOT_STAGED both return null.
+        final AtomicBoolean wasStaged = new AtomicBoolean(true);
         final StagedEntry result = staged.compute(blockNumber, (key, previous) -> {
             if (previous == null) {
-                // Should not happen in practice, but treat an unknown block as already exhausted.
-                LOGGER.log(WARNING, "recordFailure() called for block {0}, which is not staged.", key);
+                // A concurrent unstage() (e.g. a duplicate VerificationNotification succeeding via the
+                // live path) can legitimately remove the entry while a retry attempt for it is in flight.
+                LOGGER.log(DEBUG, "recordFailure() called for block {0}, which is no longer staged.", key);
+                wasStaged.set(false);
                 return null;
             }
             final int attempts = previous.attempts() + 1;
@@ -351,7 +360,9 @@ class RetryStagingManager {
             }
             return updated;
         });
-        return result == null ? RetryOutcome.EXHAUSTED : RetryOutcome.RETRYING;
+        return result != null
+                ? RetryOutcome.RETRYING
+                : (wasStaged.get() ? RetryOutcome.EXHAUSTED : RetryOutcome.NOT_STAGED);
     }
 
     /// @return the number of blocks currently staged and awaiting retry
@@ -397,7 +408,7 @@ class RetryStagingManager {
         try {
             Files.deleteIfExists(path);
         } catch (final IOException ignored) {
-            // best-effort cleanup
+            LOGGER.log(DEBUG, "Failed to delete retry staging file {0}: {1}", path, ignored.toString());
         }
     }
 }
