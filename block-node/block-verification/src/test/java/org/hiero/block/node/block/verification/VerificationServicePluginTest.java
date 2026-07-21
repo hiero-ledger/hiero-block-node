@@ -997,6 +997,103 @@ class VerificationServicePluginTest {
     }
 
     @Nested
+    @DisplayName("First Ordered Block Tests")
+    class FirstOrderedBlock
+            extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        FirstOrderedBlock() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            final Map<String, String> configOverrides = Map.ofEntries(Map.entry("verification.firstOrderedBlock", "2"));
+            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverrides);
+        }
+
+        /// This test aims to assert that when we receive a block that is below the first ordered block
+        /// config, it will pass verification and report success immediately. The source and type of proof are
+        /// irrelevant for this test.
+        @Test
+        @DisplayName("First Ordered Block - Success for All Below Configured")
+        void testSuccessBelowConfigured() throws IOException, ParseException {
+            final ResourceTestWRBBlock block1 = ResourceTestBlockBuilder.load(WRB.SOLO_4N_BLOCK_1);
+            // First, we update the node address book
+            updateAddressBook(block1.nodeAddressBook());
+            // Then, we push the block to the live items RB
+            plugin.handleBlockItemsReceived(block1.asBlockItems());
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(true, VerificationNotification::success)
+                    .returns(null, VerificationNotification::failureInfo)
+                    .returns(block1.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(block1.blockUnparsed(), VerificationNotification::block)
+                    .returns(block1.blockRootHash(), VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that when we receive a block that is above or equal the first ordered block
+        /// config, it will pass verification and await order. The source and type of proof are
+        /// irrelevant for this test.
+        @RepeatedTest(100)
+        @DisplayName("First Ordered Block - Awaits if Above or Equal to Configured")
+        void testAwaitsIfAboveConfigured() throws IOException, ParseException {
+            // Send block 2, which is the first ordered block
+            final ResourceTestWRBBlock block2 = ResourceTestBlockBuilder.load(WRB.SOLO_4N_BLOCK_2);
+            updateAddressBook(block2.nodeAddressBook());
+            plugin.handleBlockItemsReceived(block2.asBlockItems());
+            // Now send block 1, which is below the first ordered block and will report success immediately.
+            // This will also make the plugin to expect block 2 as the next in line.
+            final ResourceTestWRBBlock block1 = ResourceTestBlockBuilder.load(WRB.SOLO_4N_BLOCK_1);
+            final List<ResourceTestWRBBlock> loadedBlocks = List.of(block1, block2);
+            updateAddressBook(block1.nodeAddressBook());
+            plugin.handleBlockItemsReceived(block1.asBlockItems());
+            // Finally, await two responses and assert success, the success can come in any order as at switchover
+            // sessions race if they are close to or at the ordering stage.
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(2);
+            assertThat(notifications).hasSize(loadedBlocks.size());
+            for (int i = 0; i < notifications.size(); i++) {
+                final VerificationNotification notification = notifications.get(i);
+                final ResourceTestWRBBlock block = loadedBlocks.get(i);
+                assertThat(notification)
+                        .returns(true, VerificationNotification::success)
+                        .returns(null, VerificationNotification::failureInfo)
+                        .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                        .satisfiesAnyOf(
+                                n -> assertThat(block1.blockUnparsed().equals(n.block())),
+                                n -> assertThat(block2.blockUnparsed().equals(n.block())))
+                        .satisfiesAnyOf(
+                                n -> assertThat(block1.blockRootHash().equals(n.blockHash())),
+                                n -> assertThat(block2.blockRootHash().equals(n.blockHash())));
+            }
+            // Now if we stream blocks after we have crossed the first ordered block, we expect everything to be in
+            // order
+            notifications.clear();
+            final ResourceTestWRBBlock block3 = ResourceTestBlockBuilder.load(WRB.SOLO_4N_BLOCK_3);
+            final ResourceTestWRBBlock block4 = ResourceTestBlockBuilder.load(WRB.SOLO_4N_BLOCK_3);
+            final List<ResourceTestWRBBlock> nextLoadedBlocks = List.of(block3, block4);
+            for (final ResourceTestWRBBlock block : nextLoadedBlocks.reversed()) {
+                updateAddressBook(block.nodeAddressBook());
+                plugin.handleBlockItemsReceived(block.asBlockItems());
+            }
+            final List<VerificationNotification> notificationsUpdated =
+                    blockMessaging.getSentVerificationNotifications(nextLoadedBlocks.size());
+            assertThat(notificationsUpdated).hasSize(nextLoadedBlocks.size());
+            for (int i = 0; i < notificationsUpdated.size(); i++) {
+                final VerificationNotification notification = notificationsUpdated.get(i);
+                final ResourceTestWRBBlock block = nextLoadedBlocks.get(i);
+                assertThat(notification)
+                        .returns(true, VerificationNotification::success)
+                        .returns(null, VerificationNotification::failureInfo)
+                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                        .returns(block.blockUnparsed(), VerificationNotification::block)
+                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+            }
+        }
+    }
+
+    @Nested
     @DisplayName("Invalid Start of Block Tests")
     class InvalidStartOfBlockTests
             extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
