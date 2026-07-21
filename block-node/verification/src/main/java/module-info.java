@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import org.hiero.block.node.verification.VerificationConfigExtension;
 import org.hiero.block.node.verification.VerificationServicePlugin;
 
 module org.hiero.block.node.verification {
@@ -21,6 +22,8 @@ module org.hiero.block.node.verification {
 
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
+    provides com.swirlds.config.api.ConfigurationExtension with
+            VerificationConfigExtension;
     provides org.hiero.block.node.spi.BlockNodePlugin with
             VerificationServicePlugin;
 }

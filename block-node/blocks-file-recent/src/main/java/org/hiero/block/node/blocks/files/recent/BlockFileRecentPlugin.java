@@ -28,7 +28,6 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
@@ -148,15 +147,6 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     public BlockFileRecentPlugin() {}
 
     // ==== BlockProviderPlugin Methods ================================================================================
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(FilesRecentConfig.class);
-    }
 
     /**
      * {@inheritDoc}

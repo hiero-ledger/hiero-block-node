@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import org.hiero.block.node.blocks.files.historic.BlockFileHistoricPlugin;
+import org.hiero.block.node.blocks.files.historic.FilesHistoricConfigExtension;
 
 module org.hiero.block.node.blocks.files.historic {
     // export configuration classes to the config module and app
@@ -19,6 +20,8 @@ module org.hiero.block.node.blocks.files.historic {
 
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
+    provides com.swirlds.config.api.ConfigurationExtension with
+            FilesHistoricConfigExtension;
     provides org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin with
             BlockFileHistoricPlugin;
 }

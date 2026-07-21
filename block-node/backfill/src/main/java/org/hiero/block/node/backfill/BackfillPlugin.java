@@ -125,15 +125,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private MetricsHolder metricsHolder;
 
     /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(BackfillConfiguration.class);
-    }
-
-    /**
      * Initializes the metrics for the backfill process.
      */
     private void initMetrics() {

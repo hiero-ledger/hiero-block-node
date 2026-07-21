@@ -132,12 +132,6 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
     /// {@inheritDoc}
     @Override
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(RsaRosterBootstrapConfig.class);
-    }
-
-    /// {@inheritDoc}
-    @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = context;
         this.config = context.configuration().getConfigData(RsaRosterBootstrapConfig.class);

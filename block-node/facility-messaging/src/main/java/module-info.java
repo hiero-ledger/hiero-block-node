@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
+import org.hiero.block.node.messaging.MessagingConfigExtension;
 
 module org.hiero.block.node.messaging {
     // export configuration classes to the config module
@@ -18,6 +19,8 @@ module org.hiero.block.node.messaging {
 
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
+    provides com.swirlds.config.api.ConfigurationExtension with
+            MessagingConfigExtension;
     provides org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility with
             BlockMessagingFacilityImpl;
 }

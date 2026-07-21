@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi;
 
-import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.Collections;
-import java.util.List;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.node.spi.module.ModuleInfoAccessor;
 
@@ -29,19 +26,6 @@ public interface BlockNodePlugin {
      */
     default String name() {
         return getClass().getSimpleName();
-    }
-
-    /**
-     * Get all configuration data types that should be added to the configuration api. The returned collection must not
-     * be null but can be empty set if no configuration is needed for this plugin. This is called before init and all
-     * configuration is loaded before init is called.
-     *
-     * @return list of Java record classes that use the {@link com.swirlds.config.api.ConfigData} and
-     * {@link com.swirlds.config.api.ConfigProperty} annotations
-     */
-    @NonNull
-    default List<Class<? extends Record>> configDataTypes() {
-        return Collections.emptyList();
     }
 
     /**

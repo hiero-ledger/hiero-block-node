@@ -8,7 +8,6 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.List;
 import java.util.Objects;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
 import org.hiero.block.api.PublishStreamRequest;
@@ -181,12 +180,6 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     public void stop() {
         context.blockMessaging().unregisterBlockNotificationHandler(publisherManager);
         publisherManager.shutdown();
-    }
-
-    @Override
-    @NonNull
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(PublisherConfig.class);
     }
 
     /// This method is called when a new publisher handler is created.

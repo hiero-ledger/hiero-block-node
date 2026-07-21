@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import org.hiero.block.node.roster.bootstrap.tss.RosterBootstrapTssConfigExtension;
 import org.hiero.block.node.roster.bootstrap.tss.RosterBootstrapTssPlugin;
 
 module org.hiero.block.node.roster.bootstrap.tss {
@@ -15,6 +16,8 @@ module org.hiero.block.node.roster.bootstrap.tss {
     requires transitive org.hiero.metrics;
     requires com.hedera.pbj.runtime;
 
+    provides com.swirlds.config.api.ConfigurationExtension with
+            RosterBootstrapTssConfigExtension;
     provides org.hiero.block.node.spi.BlockNodePlugin with
             RosterBootstrapTssPlugin;
 }

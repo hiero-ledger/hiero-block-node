@@ -12,7 +12,6 @@ import com.lmax.disruptor.SequenceBarrier;
 import com.lmax.disruptor.SleepingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
-import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger.Level;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -214,15 +213,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             new ArrayList<>();
 
     private ExecutorService messageForwarder;
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(MessagingConfig.class);
-    }
 
     /**
      * {@inheritDoc}

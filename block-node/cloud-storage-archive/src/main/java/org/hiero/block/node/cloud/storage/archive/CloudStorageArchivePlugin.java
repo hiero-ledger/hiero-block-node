@@ -187,13 +187,6 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
 
     /// {@inheritDoc}
     @Override
-    @NonNull
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(CloudStorageArchiveConfig.class);
-    }
-
-    /// {@inheritDoc}
-    @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = requireNonNull(context);
         this.config = context.configuration().getConfigData(CloudStorageArchiveConfig.class);

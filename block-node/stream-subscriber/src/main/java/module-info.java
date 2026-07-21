@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import org.hiero.block.node.stream.subscriber.SubscriberConfigExtension;
 import org.hiero.block.node.stream.subscriber.SubscriberServicePlugin;
 
 module org.hiero.block.node.stream.subscriber {
@@ -18,6 +19,8 @@ module org.hiero.block.node.stream.subscriber {
 
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
+    provides com.swirlds.config.api.ConfigurationExtension with
+            SubscriberConfigExtension;
     provides org.hiero.block.node.spi.BlockNodePlugin with
             SubscriberServicePlugin;
 }

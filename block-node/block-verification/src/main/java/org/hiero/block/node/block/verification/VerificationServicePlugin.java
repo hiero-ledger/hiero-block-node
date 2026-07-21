@@ -8,7 +8,6 @@ import static java.lang.System.Logger.Level.WARNING;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import edu.umd.cs.findbugs.annotations.NonNull;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
@@ -73,15 +72,6 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     public VerificationServicePlugin() {
         this.lastVerifiedBlock = new AtomicLong(-1);
         this.recentlyVerifiedBlocks = new ConcurrentLinkedDeque<>();
-    }
-
-    /// {@inheritDoc}
-    /// ---
-    /// Exposes [VerificationConfig] as a configuration data type.
-    @NonNull
-    @Override
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(VerificationConfig.class);
     }
 
     /// {@inheritDoc}

@@ -968,16 +968,6 @@ class RsaRosterBootstrapPluginTest
     }
 
     // -------------------------------------------------------------------------
-    // Config registration
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("configDataTypes() includes RsaRosterBootstrapConfig")
-    void configDataTypesIncludesRsaRosterBootstrapConfig() {
-        assertTrue(new RsaRosterBootstrapPlugin().configDataTypes().contains(RsaRosterBootstrapConfig.class));
-    }
-
-    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

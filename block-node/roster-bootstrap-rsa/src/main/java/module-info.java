@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import org.hiero.block.node.roster.bootstrap.rsa.RsaRosterBootstrapConfigExtension;
 import org.hiero.block.node.roster.bootstrap.rsa.RsaRosterBootstrapPlugin;
 
 /// RSA Roster Bootstrap Plugin module.
@@ -28,6 +29,8 @@ module org.hiero.block.node.roster.bootstrap.rsa {
     requires org.hiero.block.node.base;
     requires java.net.http;
 
+    provides com.swirlds.config.api.ConfigurationExtension with
+            RsaRosterBootstrapConfigExtension;
     provides org.hiero.block.node.spi.BlockNodePlugin with
             RsaRosterBootstrapPlugin;
 }

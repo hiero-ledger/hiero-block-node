@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import org.hiero.block.node.blocks.files.recent.BlockFileRecentPlugin;
+import org.hiero.block.node.blocks.files.recent.FilesRecentConfigExtension;
 
 module org.hiero.block.node.blocks.files.recent {
     // export configuration classes to the config module and app
@@ -18,6 +19,8 @@ module org.hiero.block.node.blocks.files.recent {
 
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
+    provides com.swirlds.config.api.ConfigurationExtension with
+            FilesRecentConfigExtension;
     provides org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin with
             BlockFileRecentPlugin;
 }

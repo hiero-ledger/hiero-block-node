@@ -84,7 +84,6 @@ class BlockNodeAppTest {
     private static <T extends BlockNodePlugin> T createMockedPlugin(int num, Class<T> pluginClass) {
         T plugin = mock(pluginClass);
         when(plugin.name()).thenReturn(pluginClass.getSimpleName() + " " + num);
-        when(plugin.configDataTypes()).thenReturn(List.of());
         return plugin;
     }
 
@@ -865,11 +864,6 @@ class BlockNodeAppTest {
                         }
 
                         @Override
-                        public List<Class<? extends Record>> configDataTypes() {
-                            return List.of();
-                        }
-
-                        @Override
                         public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
                             serviceBuilder.registerHttpService("/pub", 40840, rules -> {});
                         }
@@ -878,11 +872,6 @@ class BlockNodeAppTest {
                         @Override
                         public String name() {
                             return "TestConsumer";
-                        }
-
-                        @Override
-                        public List<Class<? extends Record>> configDataTypes() {
-                            return List.of();
                         }
 
                         @Override
@@ -924,11 +913,6 @@ class BlockNodeAppTest {
                         }
 
                         @Override
-                        public List<Class<? extends Record>> configDataTypes() {
-                            return List.of();
-                        }
-
-                        @Override
                         public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
                             serviceBuilder.registerHttpService("/svc1", 40840, rules -> {});
                         }
@@ -937,11 +921,6 @@ class BlockNodeAppTest {
                         @Override
                         public String name() {
                             return "TestPlugin2";
-                        }
-
-                        @Override
-                        public List<Class<? extends Record>> configDataTypes() {
-                            return List.of();
                         }
 
                         @Override

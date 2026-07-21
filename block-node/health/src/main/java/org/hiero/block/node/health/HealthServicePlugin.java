@@ -15,7 +15,6 @@ import io.helidon.webserver.http.ServerResponse;
 import io.helidon.webserver.http2.Http2Config;
 import java.lang.System.Logger;
 import java.time.Duration;
-import java.util.List;
 import java.util.TreeMap;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.spi.ApplicationStateFacility;
@@ -103,13 +102,6 @@ public class HealthServicePlugin implements BlockNodePlugin {
         // register a new web server
         serviceBuilder.registerHttpNewServer(servicesToRegister, webserverHttpConfig, socketConfig, commonSocketValues);
         LOGGER.log(DEBUG, "Completed health facility initialization");
-    }
-
-    /// {@inheritDoc}
-    @Override
-    @NonNull
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(HealthConfig.class);
     }
 
     /// Handles the request for liveness endpoint, that must be defined

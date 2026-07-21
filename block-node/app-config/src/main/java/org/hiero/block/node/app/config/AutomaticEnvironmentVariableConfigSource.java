@@ -4,6 +4,7 @@ package org.hiero.block.node.app.config;
 import com.swirlds.base.ArgumentUtils;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
+import com.swirlds.config.api.ConfigurationExtension;
 import com.swirlds.config.api.source.ConfigSource;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
@@ -16,6 +17,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.hiero.block.node.spi.ServiceLoaderFunction;
 
 /**
  * Config source that automatically maps environment variables to configuration properties based on micro profile
@@ -33,14 +35,22 @@ public final class AutomaticEnvironmentVariableConfigSource implements ConfigSou
     private final Function<String, String> envVarGetter;
 
     /**
-     * Creates a new AutomaticEnvironmentVariableConfigSource instance.
+     * Creates a new AutomaticEnvironmentVariableConfigSource instance, discovering the configuration types to collect
+     * property names from via every {@link ConfigurationExtension} on {@code serviceLoader}. This is the same source
+     * of truth that {@link com.swirlds.config.api.ConfigurationBuilder#autoDiscoverExtensions()} resolves against, so
+     * this source sees exactly the same set of config data types as get registered with the configuration.
      *
-     * @param configTypes the configuration types to collect property names from
+     * @param serviceLoader the service loader used to discover {@link ConfigurationExtension} implementations
      * @param envVarGetter the function to get the environment variable value, this is needed to all for testing
      */
     public AutomaticEnvironmentVariableConfigSource(
-            @NonNull final List<Class<? extends Record>> configTypes, Function<String, String> envVarGetter) {
+            @NonNull final ServiceLoaderFunction serviceLoader, Function<String, String> envVarGetter) {
         this.envVarGetter = envVarGetter;
+        final List<Class<? extends Record>> configTypes = serviceLoader
+                .loadServices(ConfigurationExtension.class)
+                .flatMap(extension -> extension.getConfigDataTypes().stream())
+                .distinct()
+                .toList();
         final Map<String, String> envToPropertyNameMap = collectEnvToPropertyNameMappings(configTypes);
         propertyNameToEnvMap = envToPropertyNameMap.entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));

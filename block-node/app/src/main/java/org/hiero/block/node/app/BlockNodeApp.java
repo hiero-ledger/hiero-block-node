@@ -55,7 +55,6 @@ import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
-import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.config.state.ApplicationStateConfig;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
 import org.hiero.block.node.app.logging.ConfigLogger;
@@ -206,24 +205,19 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // Load all the plugins, just the classes are crated at this point, they are not initialized
         serviceLoader.loadServices(BlockNodePlugin.class).forEach(loadedPlugins::add);
         // ==== CONFIGURATION ==========================================================================================
-        // Collect all the config data types from the plugins and global server level
-        final List<Class<? extends Record>> allConfigDataTypes = new ArrayList<>();
-        allConfigDataTypes.add(ServerConfig.class);
-        allConfigDataTypes.add(WebServerHttp2Config.class);
-        allConfigDataTypes.add(NodeConfig.class);
-        allConfigDataTypes.add(ApplicationStateConfig.class);
-        loadedPlugins.forEach(plugin -> allConfigDataTypes.addAll(plugin.configDataTypes()));
         // Init BlockNode Configuration
         String appProperties = getClass().getClassLoader().getResource(APPLICATION_TEST_PROPERTIES) != null
                 ? APPLICATION_TEST_PROPERTIES
                 : APPLICATION_PROPERTIES;
-        //noinspection unchecked
-        final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
-                .autoDiscoverExtensions()
-                .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, System::getenv))
+        final ConfigurationBuilder configurationBuilder =
+                ConfigurationBuilder.create().autoDiscoverExtensions();
+        // AutomaticEnvironmentVariableConfigSource does its own ConfigurationExtension lookup to learn every
+        // config data type; it must be constructed after autoDiscoverExtensions() above returns, not from within
+        // another extension's callback, or the nested ServiceLoader lookup deadlocks against the one in progress.
+        configurationBuilder
+                .withSource(new AutomaticEnvironmentVariableConfigSource(serviceLoader, System::getenv))
                 .withSource(SystemPropertiesConfigSource.getInstance())
-                .withSources(new ClasspathFileConfigSource(Path.of(appProperties)))
-                .withConfigDataTypes(allConfigDataTypes.toArray(new Class[0]));
+                .withSources(new ClasspathFileConfigSource(Path.of(appProperties)));
         // Build the configuration
         final Configuration configuration = configurationBuilder.build();
         // Log the configuration

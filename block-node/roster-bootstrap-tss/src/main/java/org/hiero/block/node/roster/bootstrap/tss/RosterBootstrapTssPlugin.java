@@ -64,13 +64,6 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     private final AtomicLong currentBlockNodePeers = new AtomicLong(0);
 
     /// {@inheritDoc}
-    @NonNull
-    @Override
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(RosterBootstrapTssConfig.class);
-    }
-
-    /// {@inheritDoc}
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.applicationStateFacility = Objects.requireNonNull(context.applicationStateFacility());

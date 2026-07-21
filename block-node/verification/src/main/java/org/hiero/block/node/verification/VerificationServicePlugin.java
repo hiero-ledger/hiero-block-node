@@ -157,15 +157,6 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private record CachedRsaKeys(NodeAddressBook book, Map<Long, PublicKey> keys) {}
 
     /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(VerificationConfig.class);
-    }
-
-    /**
      * Initialize metrics for the verification plugin.
      *
      * @param context The block node context

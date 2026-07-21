@@ -11,7 +11,6 @@ import static org.hiero.block.node.base.ParseHelper.standardParse;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.lang.System.Logger.Level;
 import java.time.Instant;
@@ -19,7 +18,6 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
@@ -85,15 +83,6 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
     private final AtomicLong lastArchivedBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
 
     // ==== Plugin Methods =============================================================================================
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public List<Class<? extends Record>> configDataTypes() {
-        return List.of(S3ArchiveConfig.class);
-    }
 
     /**
      * {@inheritDoc}
