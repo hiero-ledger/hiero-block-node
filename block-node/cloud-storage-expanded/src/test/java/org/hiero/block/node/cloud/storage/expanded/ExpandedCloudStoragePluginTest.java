@@ -1197,4 +1197,174 @@ class ExpandedCloudStoragePluginTest
         assertEquals(4L, notifications.getFirst().blockNumber());
         assertTrue(notifications.getFirst().succeeded());
     }
+
+    @Test
+    @DisplayName("A duplicate VerificationNotification that succeeds live clears a stale staged entry")
+    void duplicateLiveSuccessClearsStaleStagedEntry() throws InterruptedException {
+        final AtomicInteger attempt = new AtomicInteger();
+        final S3UploadClient flakyClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                if (attempt.getAndIncrement() == 0) {
+                    throw new UploadException("Simulated S3 failure", null);
+                }
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(flakyClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString()));
+
+        // First attempt fails and is staged for background retry.
+        plugin.handleVerification(verifiedNotification(6L, testBlock(6L).blockUnparsed()));
+        awaitPendingRetryCount(1);
+        assertTrue(Files.exists(tempDir.resolve("6.blk.zstd")), "precondition: block must be staged");
+
+        // A duplicate VerificationNotification for the same block succeeds via the live path
+        // before the retry scheduler ever picks up the staged entry.
+        plugin.handleVerification(verifiedNotification(6L, testBlock(6L).blockUnparsed()));
+        awaitNotifications(1);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size());
+        assertTrue(notifications.getFirst().succeeded());
+        assertFalse(Files.exists(tempDir.resolve("6.blk.zstd")), "stale staged blob must be cleared on live success");
+        assertFalse(
+                Files.exists(tempDir.resolve("6.meta.properties")),
+                "stale staged sidecar must be cleared on live success");
+        assertEquals(
+                0L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS),
+                "gauge must reflect the cleared staged entry, not just the disk state");
+
+        // The retry scheduler must find nothing left to retry for this block.
+        plugin.retryStagedBlocks();
+        plugin.drainCompletedTasks();
+        assertEquals(
+                1,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "no further notification should be produced for an already-delivered block");
+    }
+
+    @Test
+    @DisplayName("RejectedExecutionException from an already-stopped messaging facility is caught during a "
+            + "successful retry")
+    void rejectedExecutionExceptionDuringRetrySuccessIsCaught() throws InterruptedException {
+        final AtomicInteger attempt = new AtomicInteger();
+        final S3UploadClient flakyClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                if (attempt.getAndIncrement() == 0) {
+                    throw new UploadException("Simulated transient S3 failure", null);
+                }
+            }
+
+            @Override
+            public void close() {}
+        };
+        blockMessaging = new TestBlockMessagingFacility() {
+            @Override
+            public void sendBlockPersisted(final PersistedNotification notification) {
+                throw new RejectedExecutionException("Simulated: messaging facility already stopped");
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(flakyClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString()));
+
+        plugin.handleVerification(verifiedNotification(11L, testBlock(11L).blockUnparsed()));
+        awaitPendingRetryCount(1);
+
+        plugin.retryStagedBlocks();
+        final long deadline = System.currentTimeMillis() + 5_000L;
+        while (System.currentTimeMillis() < deadline
+                && getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS) > 0) {
+            Thread.sleep(10);
+        }
+
+        assertTrue(
+                blockMessaging.getSentPersistedNotifications().isEmpty(),
+                "notification delivery was rejected, so nothing should be recorded as sent");
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_RETRY_SUCCESS_TOTAL),
+                "retrySuccessTotal must still be incremented even though notification delivery failed");
+        assertFalse(Files.exists(tempDir.resolve("11.blk.zstd")), "staged blob must still be removed on success");
+    }
+
+    @Test
+    @DisplayName("RejectedExecutionException from an already-stopped messaging facility is caught when retries "
+            + "are exhausted")
+    void rejectedExecutionExceptionDuringRetryExhaustionIsCaught() throws InterruptedException {
+        final S3UploadClient throwingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                throw new UploadException("Simulated persistent S3 failure", null);
+            }
+
+            @Override
+            public void close() {}
+        };
+        blockMessaging = new TestBlockMessagingFacility() {
+            @Override
+            public void sendBlockPersisted(final PersistedNotification notification) {
+                throw new RejectedExecutionException("Simulated: messaging facility already stopped");
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(throwingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString(),
+                        "cloud.storage.expanded.retryMaxAttempts", "1"));
+
+        plugin.handleVerification(verifiedNotification(12L, testBlock(12L).blockUnparsed()));
+        awaitPendingRetryCount(1);
+
+        plugin.retryStagedBlocks();
+        final long deadline = System.currentTimeMillis() + 5_000L;
+        while (System.currentTimeMillis() < deadline
+                && getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS) > 0) {
+            Thread.sleep(10);
+        }
+
+        assertTrue(
+                blockMessaging.getSentPersistedNotifications().isEmpty(),
+                "notification delivery was rejected, so nothing should be recorded as sent");
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_RETRY_EXHAUSTED_TOTAL),
+                "retryExhaustedTotal must still be incremented even though notification delivery failed");
+        assertFalse(Files.exists(tempDir.resolve("12.blk.zstd")), "staged blob must still be removed once exhausted");
+    }
 }
