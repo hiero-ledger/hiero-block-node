@@ -10,7 +10,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -385,9 +384,12 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// connections or trigger a peer re-fetch while a local retry is still in progress.
     private void publishResult(final SingleBlockStoreTask.UploadResult result) {
         if (result.succeeded()) {
+            // Clears any stale staged entry from an earlier failed attempt for this block.
+            stagingManager.unstage(result.blockNumber());
             sendPersistedNotification(result.blockNumber(), true, result.blockSource());
             metricsHolder.uploadsTotal().increment();
             metricsHolder.uploadBytesTotal().increment(result.bytesUploaded());
+            updatePendingRetryGauge();
         } else if (result.stagedForRetry()) {
             LOGGER.log(
                     INFO,
@@ -487,8 +489,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     private void processRetryResult(final StagedEntry entry, final SingleBlockStoreTask.UploadResult result) {
         if (result.succeeded()) {
             stagingManager.unstage(entry.blockNumber());
-            blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(entry.blockNumber(), true, 0, entry.blockSource()));
+            sendPersistedNotification(entry.blockNumber(), true, entry.blockSource());
             metricsHolder.retrySuccessTotal().increment();
             metricsHolder.uploadsTotal().increment();
             metricsHolder.uploadBytesTotal().increment(result.bytesUploaded());
@@ -496,13 +497,18 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         } else {
             final RetryOutcome outcome = stagingManager.recordFailure(entry.blockNumber());
             if (outcome == RetryOutcome.EXHAUSTED) {
-                blockMessaging.sendBlockPersisted(
-                        new PersistedNotification(entry.blockNumber(), false, 0, entry.blockSource()));
+                sendPersistedNotification(entry.blockNumber(), false, entry.blockSource());
                 metricsHolder.retryExhaustedTotal().increment();
                 metricsHolder.uploadFailuresTotal().increment();
                 LOGGER.log(
                         WARNING,
                         "Block {0}: exhausted background retries; reporting persistent failure.",
+                        entry.blockNumber());
+            } else if (outcome == RetryOutcome.NOT_STAGED) {
+                // Already resolved elsewhere; a notification here would contradict the one already sent.
+                LOGGER.log(
+                        DEBUG,
+                        "Block {0}: retry attempt failed but the block was already resolved; no notification sent.",
                         entry.blockNumber());
             } else {
                 LOGGER.log(
