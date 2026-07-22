@@ -69,8 +69,8 @@ Key plugins include:
 - **BlockAccessServicePlugin:** Provides a block retrieval API.
 - **BlocksFilesHistoricPlugin:** Provides long term block persistence and retrieval.
 - **BlocksFilesRecentPlugin:** Provides short term block persistence and retrieval, with a retention policy to limit storage use and duration.
-- **CloudStorageArchivePlugin:** Archives blocks to cloud storage (S3-compatible). Replaces `S3ArchivePlugin`.
-- **CloudStorageExpandedPlugin:** Provides expanded cloud storage support for large block archives.
+- **CloudStorageArchivePlugin:** Archives blocks to cloud storage (replaces the deprecated S3-Archive plugin).
+- **CloudStorageExpandedPlugin:** Provides expanded cloud storage with additional access controls.
 - **HealthServicePlugin:** Provides kubernetes health check endpoints, additional status endpoints to integrate with Kubernetes features, and overall system health decision support.
 - **RosterBootstrapRsaPlugin:** Bootstraps the RSA roster used for WRB verification at first startup.
 - **RosterBootstrapTssPlugin:** Bootstraps the TSS roster for post-cutover block verification.
