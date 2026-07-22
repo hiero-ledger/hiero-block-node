@@ -162,7 +162,7 @@ deployment environment requires it.
 | `stream-publisher` plugin | **Required**                         | **Must be removed** from `plugins.names`               |
 | Hardware                  | Mainnet bare-metal specs             | Lower — sized to retention window                      |
 
-> See [Block Node Types and Tiers](../../Block-Node-Types.md) and [Configuration Reference](./configuration.md) for full details.
+> See [Block Node Types and Tiers](../Block-Node-Types.md) and [Configuration Reference](./configuration.md) for full details.
 
 ### What is the difference between node types (Full Node, Rolling-History, Light Node, Archive Server)?
 
