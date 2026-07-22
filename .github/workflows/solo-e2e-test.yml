@@ -217,7 +217,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -760,7 +760,7 @@ jobs:
       # Checkout TCK and checkout latest tag
       - name: Checkout TCK SDK
         if: ${{ inputs.run-tck-regression-tests }}
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: sdk-tck/regression
           repository: hiero-ledger/hiero-sdk-tck
@@ -779,7 +779,7 @@ jobs:
       # Checkout JS-SDK and checkout latest tag
       - name: Checkout JS-SDK Server
         if: ${{ inputs.run-tck-regression-tests }}
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: sdk-tck/sdk-server
           repository: hiero-ledger/hiero-sdk-js
