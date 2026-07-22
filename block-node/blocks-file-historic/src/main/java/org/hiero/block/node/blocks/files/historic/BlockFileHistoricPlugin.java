@@ -18,7 +18,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
 import java.nio.file.Files;
@@ -324,7 +323,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     @Override
     public void handleVerification(VerificationNotification notification) {
         if (notification != null && notification.success()) {
-            writeBlockToStagingPath(notification.block(), notification.blockNumber());
+            writeBlockToStagingPath(notification.block(), notification.blockNumber(), notification.source());
         }
         try {
             attemptZipping();
@@ -335,14 +334,23 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     }
 
     // ==== Private Methods ============================================================================================
-    private void writeBlockToStagingPath(final BlockUnparsed block, final long blockNumber) {
+    private void sendBlockNotification(final long blockNumber, final boolean succeeded, final BlockSource source) {
+        context.blockMessaging()
+                .sendBlockPersisted(new PersistedNotification(
+                        blockNumber, succeeded, defaultPriority(), source == null ? BlockSource.UNKNOWN : source));
+    }
+
+    private void writeBlockToStagingPath(final BlockUnparsed block, final long blockNumber, final BlockSource source) {
         if (block == null || block.blockItems() == null || block.blockItems().isEmpty()) {
+            LOGGER.log(WARNING, "Block {0} is null or has no block items, cannot write to staging path", blockNumber);
+            sendBlockNotification(blockNumber, false, source);
             return;
         }
 
         BlockItemUnparsed firstItem = block.blockItems().getFirst();
         if (!firstItem.hasBlockHeader()) {
             LOGGER.log(WARNING, "Block {0} has no block header, cannot write to staging path", blockNumber);
+            sendBlockNotification(blockNumber, false, source);
             return;
         }
 
@@ -354,13 +362,21 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     "Block number mismatch between notification {0} and block header {1}, not writing block",
                     blockNumber,
                     headerNumber);
+            sendBlockNotification(blockNumber, false, source);
             return;
         }
 
-        final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
-        createDirectoryOrFail(verifiedBlockPath);
-        writeBlockOrFail(block, blockNumber, verifiedBlockPath);
+        try {
+            final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
+                    stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
+            if (createDirectoryOrFail(verifiedBlockPath, blockNumber, source)) {
+                writeBlockOrFail(block, blockNumber, source, verifiedBlockPath);
+            }
+        } catch (final RuntimeException e) {
+            final String message = "Failed to persist block %d due to %s".formatted(blockNumber, e);
+            LOGGER.log(WARNING, message, e);
+            sendBlockNotification(blockNumber, false, source);
+        }
     }
 
     private BlockHeader getBlockHeader(final BlockUnparsed block) {
@@ -373,19 +389,23 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         }
     }
 
-    private void createDirectoryOrFail(final Path verifiedBlockPath) {
+    private boolean createDirectoryOrFail(
+            final Path verifiedBlockPath, final long blockNumber, final BlockSource source) {
         try {
             // create parent directory if it does not exist
             Files.createDirectories(verifiedBlockPath.getParent());
+            return true;
         } catch (final IOException e) {
             final String message = "Failed to create directories for path %s due to %s"
                     .formatted(verifiedBlockPath.toAbsolutePath(), e);
-            LOGGER.log(INFO, message, e);
-            throw new UncheckedIOException(e.getMessage(), e);
+            LOGGER.log(WARNING, message, e);
+            sendBlockNotification(blockNumber, false, source);
+            return false;
         }
     }
 
-    private void writeBlockOrFail(final BlockUnparsed block, final long blockNumber, final Path verifiedBlockPath) {
+    private void writeBlockOrFail(
+            final BlockUnparsed block, final long blockNumber, final BlockSource source, final Path verifiedBlockPath) {
         try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
                 config.compression().wrapStream(Files.newOutputStream(verifiedBlockPath)), 16384))) {
             BlockUnparsed.PROTOBUF.write(block, streamingData);
@@ -397,6 +417,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         } catch (final IOException e) {
             final String message = "Failed to write file for block %d due to %s".formatted(blockNumber, e);
             LOGGER.log(WARNING, message, e);
+            sendBlockNotification(blockNumber, false, source);
         }
     }
 
@@ -612,14 +633,16 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     plugin.LOGGER.log(DEBUG, successMessage, batchFirstBlockNumber, batchLastBlockNumber);
                     // now all the blocks are in the zip file and accessible, send notification
                     // @todo is this needed? Does anything actually care when a zip file is completed?
-                    plugin.context
-                            .blockMessaging()
-                            .sendBlockPersisted(
-                                    new PersistedNotification(batchLastBlockNumber, true, 1_000, BlockSource.HISTORY));
+                    plugin.sendBlockNotification(batchLastBlockNumber, true, BlockSource.HISTORY);
                     plugin.cleanup();
                 }
             } catch (final IOException e) {
                 final String failMessage = "Failed to move batch of blocks [%d -> %d] to zip file"
+                        .formatted(batchFirstBlockNumber, batchLastBlockNumber);
+                plugin.LOGGER.log(WARNING, failMessage, e);
+                cleanupZipWorkFiles();
+            } catch (final RuntimeException e) {
+                final String failMessage = "Unexpected failure moving batch of blocks [%d -> %d] to zip file"
                         .formatted(batchFirstBlockNumber, batchLastBlockNumber);
                 plugin.LOGGER.log(WARNING, failMessage, e);
                 cleanupZipWorkFiles();

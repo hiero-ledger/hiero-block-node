@@ -42,6 +42,7 @@ import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
+import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -906,6 +907,107 @@ class BlockFileHistoricPluginTest {
         }
 
         /**
+         * This test aims to verify that the plugin will send a failed
+         * {@link PersistedNotification} when the verified block passed in the
+         * notification is empty.
+         */
+        @Test
+        @DisplayName("Test failed notification sent for empty block")
+        void testFailedNotificationSentForEmptyBlock() {
+            final long blockNumber = 0L;
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true, null, blockNumber, Bytes.EMPTY, new BlockUnparsed(List.of()), BlockSource.PUBLISHER));
+            assertThat(toTest.availableBlocks().contains(blockNumber)).isFalse();
+            final List<PersistedNotification> sentPersistedNotifications =
+                    blockMessaging.getSentPersistedNotifications();
+            assertThat(sentPersistedNotifications)
+                    .isNotEmpty()
+                    .hasSize(1)
+                    .element(0)
+                    .returns(false, PersistedNotification::succeeded)
+                    .returns(blockNumber, PersistedNotification::blockNumber);
+        }
+
+        /**
+         * This test aims to verify that the plugin will send a failed
+         * {@link PersistedNotification} when the first item of the verified
+         * block is not a block header.
+         */
+        @Test
+        @DisplayName("Test failed notification sent for missing block header")
+        void testFailedNotificationSentForMissingBlockHeader() {
+            final long blockNumber = 0L;
+            final BlockUnparsed block = new BlockUnparsed(List.of(TestBlockBuilder.sampleRoundHeaderUnparsed(0L)));
+            blockMessaging.sendBlockVerification(
+                    new VerificationNotification(true, null, blockNumber, Bytes.EMPTY, block, BlockSource.PUBLISHER));
+            assertThat(toTest.availableBlocks().contains(blockNumber)).isFalse();
+            final List<PersistedNotification> sentPersistedNotifications =
+                    blockMessaging.getSentPersistedNotifications();
+            assertThat(sentPersistedNotifications)
+                    .isNotEmpty()
+                    .hasSize(1)
+                    .element(0)
+                    .returns(false, PersistedNotification::succeeded)
+                    .returns(blockNumber, PersistedNotification::blockNumber);
+        }
+
+        /**
+         * This test aims to verify that the plugin will send a failed
+         * {@link PersistedNotification} when the block header number does not
+         * match the notification's block number.
+         */
+        @Test
+        @DisplayName("Test failed notification sent for block number mismatch")
+        void testFailedNotificationSentForBlockNumberMismatch() {
+            final long notifiedBlockNumber = 5L;
+            final BlockUnparsed block =
+                    TestBlockBuilder.generateBlockWithNumber(0L).blockUnparsed();
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true, null, notifiedBlockNumber, Bytes.EMPTY, block, BlockSource.PUBLISHER));
+            assertThat(toTest.availableBlocks().contains(notifiedBlockNumber)).isFalse();
+            final List<PersistedNotification> sentPersistedNotifications =
+                    blockMessaging.getSentPersistedNotifications();
+            assertThat(sentPersistedNotifications)
+                    .isNotEmpty()
+                    .hasSize(1)
+                    .element(0)
+                    .returns(false, PersistedNotification::succeeded)
+                    .returns(notifiedBlockNumber, PersistedNotification::blockNumber);
+        }
+
+        /**
+         * This test aims to verify that the plugin will send a failed
+         * {@link PersistedNotification} when the staging directory for the
+         * verified block cannot be created.
+         */
+        @Test
+        @DisplayName("Test failed notification sent when staging directory creation fails")
+        void testFailedNotificationSentWhenStagingDirectoryCreationFails() throws IOException {
+            final long blockNumber = 0L;
+            // pre-create a regular file at the path where the plugin needs to create a staging
+            // directory, this forces Files.createDirectories to throw inside createDirectoryOrFail
+            final Path stagingPath = testConfig.rootPath().resolve("staging");
+            final Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
+                    stagingPath, blockNumber, testConfig.compression(), testConfig.maxFilesPerDir());
+            final Path blockParentDir = blockFilePath.getParent();
+            Files.createDirectories(blockParentDir.getParent());
+            Files.createFile(blockParentDir);
+            final BlockUnparsed block =
+                    TestBlockBuilder.generateBlockWithNumber(blockNumber).blockUnparsed();
+            blockMessaging.sendBlockVerification(
+                    new VerificationNotification(true, null, blockNumber, Bytes.EMPTY, block, BlockSource.PUBLISHER));
+            assertThat(toTest.availableBlocks().contains(blockNumber)).isFalse();
+            final List<PersistedNotification> sentPersistedNotifications =
+                    blockMessaging.getSentPersistedNotifications();
+            assertThat(sentPersistedNotifications)
+                    .isNotEmpty()
+                    .hasSize(1)
+                    .element(0)
+                    .returns(false, PersistedNotification::succeeded)
+                    .returns(blockNumber, PersistedNotification::blockNumber);
+        }
+
+        /**
          * This test aims to verify that the plugin will properly update it's
          * available blocks list after a successful archival.
          */
@@ -1060,10 +1162,19 @@ class BlockFileHistoricPluginTest {
             Files.setPosixFilePermissions(targetZipDir, Collections.emptySet());
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
-            // assert that no notification was sent to the block messaging
+            // assert that no notification was sent to the block messaging, the blocks
+            // are still safely staged and will be retried on the next verification
             final int totalSentNotifications =
                     blockMessaging.getSentPersistedNotifications().size();
             assertThat(totalSentNotifications).isEqualTo(0);
+            // assert that the staged block files are still present on disk, i.e. the
+            // blocks were not lost, only the zip archival step failed
+            final Path stagingPath = testConfig.rootPath().resolve("staging");
+            for (int i = 0; i < 10; i++) {
+                final Path stagedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
+                        stagingPath, i, testConfig.compression(), testConfig.maxFilesPerDir());
+                assertThat(stagedBlockPath).exists();
+            }
         }
 
         /**

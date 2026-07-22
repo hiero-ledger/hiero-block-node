@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -27,6 +28,7 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
@@ -369,6 +371,42 @@ class BlockFileRecentPluginTest {
                         filesRecentConfigOverride.maxFilesPerDir());
                 assertThat(persistedBlock).exists();
             }
+        }
+
+        /**
+         * Test that a failed persistence notification is sent when the live block
+         * directory cannot be created (e.g. an unexpected {@link RuntimeException}
+         * escapes the write path).
+         */
+        @Test
+        @DisplayName("Test failed notification sent when directory creation fails")
+        void testFailedNotificationSentWhenDirectoryCreationFails() throws IOException {
+            final long blockNumber = 0L;
+            // pre-create a regular file at the path where the plugin needs to create a directory,
+            // this forces Files.createDirectories to throw inside createDirectoryOrFail
+            final Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
+                    blocksRootPath, blockNumber, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
+            final Path blockParentDir = blockFilePath.getParent();
+            Files.createDirectories(blockParentDir.getParent());
+            Files.createFile(blockParentDir);
+            // send verified block notification
+            final BlockUnparsed block =
+                    TestBlockBuilder.generateBlockWithNumber(blockNumber).blockUnparsed();
+            blockMessaging.sendBlockVerification(
+                    new VerificationNotification(true, null, blockNumber, Bytes.EMPTY, block, BlockSource.PUBLISHER));
+            // assert the block was not persisted
+            assertThat(plugin.block(blockNumber)).isNull();
+            assertThat(plugin.availableBlocks().contains(blockNumber)).isFalse();
+            // assert that a failed persistence notification was sent
+            final List<PersistedNotification> sentPersistedNotifications =
+                    blockMessaging.getSentPersistedNotifications();
+            assertThat(sentPersistedNotifications)
+                    .isNotEmpty()
+                    .hasSize(1)
+                    .element(0)
+                    .returns(false, PersistedNotification::succeeded)
+                    .returns(blockNumber, PersistedNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, PersistedNotification::blockSource);
         }
 
         /**
