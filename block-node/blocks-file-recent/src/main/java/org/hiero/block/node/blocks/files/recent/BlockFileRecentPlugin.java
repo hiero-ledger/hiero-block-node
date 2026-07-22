@@ -367,15 +367,9 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                     final Path verifiedBlockPath = RecentBlockPath.computeBlockPath(config, blockNumber)
                             .path();
                     try {
-                        if (createDirectoryOrFail(verifiedBlockPath)) {
-                            if (writeBlockOrFail(block, blockNumber, verifiedBlockPath)) {
-                                sendBlockNotification(blockNumber, true, effectiveSource);
-                            } else {
-                                sendBlockNotification(blockNumber, false, effectiveSource);
-                            }
-                        } else {
-                            sendBlockNotification(blockNumber, false, effectiveSource);
-                        }
+                        final boolean success = createDirectoryOrFail(verifiedBlockPath)
+                                && writeBlockOrFail(block, blockNumber, verifiedBlockPath);
+                        sendBlockNotification(blockNumber, success, effectiveSource);
                     } catch (final RuntimeException e) {
                         final String message = "Failed to persist block %d due to %s".formatted(blockNumber, e);
                         LOGGER.log(WARNING, message, e);
