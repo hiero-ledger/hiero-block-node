@@ -134,6 +134,7 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
                 } catch (S3ResponseException | IOException e) {
                     LOGGER.log(INFO, "Failed to accumulate block {0} for temp archive {1}", currentBlock, s3Key, e);
                     S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
+                    blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlock, false, 1_000, lastSource));
                     throw e;
                 }
             }

@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.bucky.S3Client;
+import com.hedera.bucky.S3ResponseException;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
@@ -36,6 +37,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.logging.Logger;
 import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -44,6 +46,7 @@ import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
+import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
@@ -59,6 +62,7 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -1764,10 +1768,26 @@ class CloudStorageArchivePluginTest {
     final class MidRunRecoveryTests
             extends PluginTestBase<CloudStorageArchivePlugin, BlockingExecutor, ScheduledBlockingExecutor> {
 
+        /// Captures log records emitted by [CloudStorageArchivePlugin] so failure tests can assert
+        /// the real exception was logged, not a causeless [IllegalStateException].
+        private final TestLogHandler logHandler = new TestLogHandler();
+        private Logger pluginLogger;
+
         MidRunRecoveryTests() {
             super(
                     new BlockingExecutor(new LinkedBlockingQueue<>()),
                     new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+        }
+
+        @BeforeEach
+        void attachLogHandler() {
+            pluginLogger = Logger.getLogger(CloudStorageArchivePlugin.class.getName());
+            pluginLogger.addHandler(logHandler);
+        }
+
+        @AfterEach
+        void detachLogHandler() {
+            pluginLogger.removeHandler(logHandler);
         }
 
         /// Verifies that a task returning [UploadResult.FAILED] triggers recovery:
@@ -1934,10 +1954,11 @@ class CloudStorageArchivePluginTest {
             // RuntimeException.
             assertThatThrownBy(executor::executeSerially).isInstanceOf(RuntimeException.class);
 
-            // Block 10 triggers handleVerification() -> checkCompletedUpload() -> resultNow() throws
-            // IllegalStateException -> caught by handleVerification() -> triggerMidRunRecovery()
-            // (moves currentGroupPending blocks 5-9 to stash) -> blocksStash.put(10) stashes the
-            // triggering block explicitly.
+            // Block 10 triggers handleVerification() -> checkCompletedUpload() calls
+            // currentUploadFuture.get(), which throws ExecutionException, propagating up to
+            // handleVerification()'s catch block. It logs the real cause via e.getCause(), then
+            // calls triggerMidRunRecovery() (moves currentGroupPending blocks 5-9 to stash) and
+            // manually stashes block 10 itself, since routeVerifiedBlock(10) is never reached.
             sendVerification(blocks.get(10));
 
             assertThat(plugin.currentUploadFuture).isNull();
@@ -1945,6 +1966,9 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.blocksStash).containsKeys(5L, 6L, 7L, 8L, 9L, 10L);
             assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
                     .isEqualTo(1L);
+            assertThat(logHandler.thrownExceptions())
+                    .anySatisfy(
+                            t -> assertThat(t).isInstanceOf(IOException.class).hasMessage("simulated S3 failure"));
 
             executor.executeSerially();
             assertThat(plugin.isRecoveryComplete()).isTrue();
@@ -1997,6 +2021,9 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.blocksStash).containsKey(20L);
             assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
                     .isEqualTo(1L);
+            assertThat(logHandler.thrownExceptions())
+                    .anySatisfy(t ->
+                            assertThat(t).isInstanceOf(IOException.class).hasMessage("simulated temp upload failure"));
 
             // Drive recovery and verify it completes.
             executor.executeSerially();
@@ -2136,6 +2163,11 @@ class CloudStorageArchivePluginTest {
         private static final int GROUPING_LEVEL = 1;
         private final BlockingExecutor pluginExecutor;
 
+        /// Captures log records emitted by [CloudStorageArchivePlugin] so the failed-recovery test
+        /// can assert the real exception was logged, not a causeless [IllegalStateException].
+        private final TestLogHandler logHandler = new TestLogHandler();
+        private Logger pluginLogger;
+
         TaskMetricsTests() {
             super(
                     new BlockingExecutor(new LinkedBlockingQueue<>()),
@@ -2145,6 +2177,17 @@ class CloudStorageArchivePluginTest {
                     new SimpleInMemoryHistoricalBlockFacility(),
                     pluginConfig(GROUPING_LEVEL, 10));
             pluginExecutor = testThreadPoolManager.executor();
+        }
+
+        @BeforeEach
+        void attachLogHandler() {
+            pluginLogger = Logger.getLogger(CloudStorageArchivePlugin.class.getName());
+            pluginLogger.addHandler(logHandler);
+        }
+
+        @AfterEach
+        void detachLogHandler() {
+            pluginLogger.removeHandler(logHandler);
         }
 
         /// Drains the main plugin's startup recovery task before each test.
@@ -2243,8 +2286,6 @@ class CloudStorageArchivePluginTest {
                 pluginExecutor.executeSerially();
             } catch (RuntimeException ignored) {
             }
-            // handleVerification() detects the done-but-failed recovery future, catches the
-            // resulting ExecutionException, and increments failedTasks.
             final TestBlock block = TestBlockBuilder.generateBlocksInRange(0, 0).getFirst();
             failingMessaging.sendBlockVerification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
@@ -2252,6 +2293,10 @@ class CloudStorageArchivePluginTest {
                     .isEqualTo(1L);
             assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS.name()))
                     .isZero();
+            assertThat(logHandler.thrownExceptions()).anySatisfy(t -> {
+                assertThat(t).isInstanceOf(S3ResponseException.class);
+                assertThat(((S3ResponseException) t).getResponseStatusCode()).isEqualTo(403);
+            });
             failingPlugin.stop();
         }
 
@@ -2280,6 +2325,11 @@ class CloudStorageArchivePluginTest {
         private static final int GROUPING_LEVEL = 1; // groupSize = 10^1 = 10
         private final BlockingExecutor pluginExecutor;
 
+        /// Captures log records emitted by [CloudStorageArchivePlugin] so the retry test can assert
+        /// the real exception was logged, not a causeless [IllegalStateException].
+        private final TestLogHandler logHandler = new TestLogHandler();
+        private Logger pluginLogger;
+
         ConsolidationRetryTests() {
             super(
                     new BlockingExecutor(new LinkedBlockingQueue<>()),
@@ -2289,6 +2339,17 @@ class CloudStorageArchivePluginTest {
                     new SimpleInMemoryHistoricalBlockFacility(),
                     pluginConfig(GROUPING_LEVEL, 10));
             pluginExecutor = testThreadPoolManager.executor();
+        }
+
+        @BeforeEach
+        void attachLogHandler() {
+            pluginLogger = Logger.getLogger(CloudStorageArchivePlugin.class.getName());
+            pluginLogger.addHandler(logHandler);
+        }
+
+        @AfterEach
+        void detachLogHandler() {
+            pluginLogger.removeHandler(logHandler);
         }
 
         @BeforeEach
@@ -2341,6 +2402,9 @@ class CloudStorageArchivePluginTest {
             sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 4 - 1, groupSize * 4 - 1)
                     .getFirst());
             assertThat(plugin.consolidationFutures).containsKey((long) groupSize);
+            assertThat(logHandler.thrownExceptions()).anySatisfy(t -> assertThat(t)
+                    .isInstanceOf(IOException.class)
+                    .hasMessage("simulated consolidation failure"));
 
             // Run the remaining queued tasks: BlockUploadTask[20,29] (still queued from before)
             // and the retry ConsolidationTask[10,19].

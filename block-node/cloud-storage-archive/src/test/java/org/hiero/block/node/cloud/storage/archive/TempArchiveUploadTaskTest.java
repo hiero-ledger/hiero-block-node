@@ -350,11 +350,12 @@ class TempArchiveUploadTaskTest {
     }
 
     /// Verifies that when [doUploadPart] throws during a mid-loop part flush, [call()] rethrows
-    /// the exception, aborts the multipart upload, and sends no [PersistedNotification] (no data
-    /// was durably confirmed before the failure).
+    /// the exception, aborts the multipart upload, and sends one failed [PersistedNotification]
+    /// for the first unseen block — consistent with the other two upload-failure paths in this
+    /// class, even though the aborted parts never became a retrievable object.
     @Test
-    @DisplayName("Part upload failure during loop: exception rethrown, no notifications sent, upload aborted")
-    void partUploadFailureDuringLoopThrowsAndAbortsUpload() throws Exception {
+    @DisplayName("Part upload failure during loop: failed notification sent, exception rethrown, upload aborted")
+    void partUploadFailureDuringLoopSendsFailedNotificationAndThrows() throws Exception {
         final String s3Key = TempArchiveKey.formatTar(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
@@ -371,7 +372,11 @@ class TempArchiveUploadTaskTest {
                 new FailingUploadPartTask(config, messaging, asf, createMetricsHolder(), s3Key, 0, queue);
 
         assertThatThrownBy(task::call).isInstanceOf(IOException.class);
-        assertThat(messaging.getSentPersistedNotifications()).isEmpty();
+        final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+        assertThat(notifications).hasSize(1);
+        assertThat(notifications.getFirst().succeeded()).isFalse();
+        assertThat(notifications.getFirst().blockNumber()).isZero();
+        assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
         assertThat(asf.addedRanges).isEmpty();
         try (S3Client s3 = openS3Client()) {
             assertThat(s3.listMultipartUploads()).doesNotContainKey(s3Key);
