@@ -369,8 +369,12 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         try {
             final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
                     stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
-            if (createDirectoryOrFail(verifiedBlockPath, blockNumber, source)) {
-                writeBlockOrFail(block, blockNumber, source, verifiedBlockPath);
+            if (createDirectoryOrFail(verifiedBlockPath)) {
+                if (!writeBlockOrFail(block, blockNumber, verifiedBlockPath)) {
+                    sendBlockNotification(blockNumber, false, source);
+                }
+            } else {
+                sendBlockNotification(blockNumber, false, source);
             }
         } catch (final RuntimeException e) {
             final String message = "Failed to persist block %d due to %s".formatted(blockNumber, e);
@@ -389,8 +393,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         }
     }
 
-    private boolean createDirectoryOrFail(
-            final Path verifiedBlockPath, final long blockNumber, final BlockSource source) {
+    private boolean createDirectoryOrFail(final Path verifiedBlockPath) {
         try {
             // create parent directory if it does not exist
             Files.createDirectories(verifiedBlockPath.getParent());
@@ -399,13 +402,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final String message = "Failed to create directories for path %s due to %s"
                     .formatted(verifiedBlockPath.toAbsolutePath(), e);
             LOGGER.log(WARNING, message, e);
-            sendBlockNotification(blockNumber, false, source);
             return false;
         }
     }
 
-    private void writeBlockOrFail(
-            final BlockUnparsed block, final long blockNumber, final BlockSource source, final Path verifiedBlockPath) {
+    private boolean writeBlockOrFail(final BlockUnparsed block, final long blockNumber, final Path verifiedBlockPath) {
         try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
                 config.compression().wrapStream(Files.newOutputStream(verifiedBlockPath)), 16384))) {
             BlockUnparsed.PROTOBUF.write(block, streamingData);
@@ -414,10 +415,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             LOGGER.log(DEBUG, "Wrote verified block {0} to file {1}", blockNumber, verifiedBlockPath.toAbsolutePath());
             // update the oldest and newest verified block numbers
             availableStagedBlocks.add(blockNumber);
+            return true;
         } catch (final IOException e) {
             final String message = "Failed to write file for block %d due to %s".formatted(blockNumber, e);
             LOGGER.log(WARNING, message, e);
-            sendBlockNotification(blockNumber, false, source);
+            return false;
         }
     }
 
