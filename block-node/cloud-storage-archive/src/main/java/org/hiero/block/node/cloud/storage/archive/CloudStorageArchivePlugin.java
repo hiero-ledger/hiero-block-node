@@ -455,6 +455,11 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// [handleVerification] will fall through to [tryStartNewUploadTask] as normal.
     private void completeRecoveryIfReady() throws ExecutionException, InterruptedException {
         if (recoveryFuture != null && recoveryFuture.isDone()) {
+            if (recoveryFuture.isCancelled()) {
+                LOGGER.log(TRACE, "Startup recovery task was cancelled");
+                recoveryFuture = null;
+                return;
+            }
             try {
                 final RecoveryResult result = recoveryFuture.get();
 
