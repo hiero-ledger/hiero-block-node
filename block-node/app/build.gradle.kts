@@ -291,6 +291,17 @@ val prepareDockerPlugins =
         }
     }
 
+// The solo-dev image stage bakes plugins (Dockerfile `COPY ./plugins`), so make sure they are
+// prepared before the image is built — otherwise the solo-dev image ships an empty plugins dir and
+// the
+// BN fails with "No BlockMessagingFacility provided". This only affects the solo-dev variant: the
+// barebone `block-node-server` (base-image) stage copies no plugins, so plugin-less images and
+// normal
+// non-docker builds (build/assemble/test never trigger createDockerImage) are unaffected.
+// Previously
+// this was done ad-hoc by running `:app:prepareDockerPlugins` first in the CI/release workflows.
+createDockerImage.configure { dependsOn(prepareDockerPlugins) }
+
 tasks.register<Exec>("startDockerContainer") {
     description = "Starts the docker container of the Block Node Server for the current version"
     group = "docker"
