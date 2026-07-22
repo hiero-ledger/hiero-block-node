@@ -163,6 +163,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 lastVerifiedBlock.compareAndSet(localLastVerified, highestStoredBlock);
                 localLastVerified = lastVerifiedBlock.get();
             }
+            LOGGER.log(INFO, "onContext update received, updated last verified block to {0}", lastVerifiedBlock.get());
         }
     }
 
@@ -247,9 +248,11 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     /// We want to handle persisted notification so that we can update our
     /// recently verified blocks. If a block, that was recently verified has
     /// failed to persist, we have to expect its reception again. We want, in
-    /// those cases, to remove it from our set of recently verified blocks,
+    /// those cases, to remove it from our queue of recently verified blocks,
     /// because we want subsequent possible failures of verification to not
-    /// be informational.
+    /// be informational. The queue can hold duplicates of the same block
+    /// number (a block verified more than once is recorded once per
+    /// verification), so all occurrences must be removed, not just the first.
     /// Note that even if a subsequent failure happens before this update and
     /// an informational failure is propagated, this is still not disruptive
     /// because a failed persistence notification will inevitably follow
@@ -258,8 +261,13 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     /// @param notification a [PersistedNotification] received as an event.
     @Override
     public void handlePersisted(final PersistedNotification notification) {
-        if (notification != null && !notification.succeeded()) {
-            recentlyVerifiedBlocks.remove(notification.blockNumber());
+        try {
+            if (notification != null && !notification.succeeded()) {
+                final long blockNumber = notification.blockNumber();
+                recentlyVerifiedBlocks.removeIf(block -> block == blockNumber);
+            }
+        } catch (final RuntimeException e) {
+            LOGGER.log(INFO, "Failed to handle persisted notification in verification ", e);
         }
     }
 

@@ -36,6 +36,7 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
@@ -1372,6 +1373,57 @@ class VerificationServicePluginTest {
                     .returns(false, VerificationNotification::success)
                     .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
                     .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+    }
+
+    /// Tests for the recently verified blocks queue.
+    @Nested
+    @DisplayName("Recently Verified Blocks Tests")
+    class RecentlyVerifiedBlocksTests
+            extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        RecentlyVerifiedBlocksTests() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility());
+        }
+
+        /// This test aims to assert that a failed persistence notification removes
+        /// all occurrences of a block from the recently verified blocks queue. The
+        /// queue can hold duplicates when the same block passes verification more
+        /// than once. If only the first occurrence were removed, a subsequent
+        /// verification failure for that block would still (incorrectly) be
+        /// reported as informational. We verify the same block twice, report a
+        /// failed persistence once, and then expect a subsequent verification
+        /// failure to be standard, not informational.
+        @Test
+        @DisplayName("Failed Persistence Removes All Duplicates from Recently Verified Blocks")
+        void testFailedPersistenceRemovesAllDuplicates() throws IOException, ParseException {
+            final ResourceTestBlock block0Valid = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
+            // Verify block 0 successfully twice, the queue now holds its number twice
+            plugin.handleBlockItemsReceived(block0Valid.asBlockItems());
+            final List<VerificationNotification> firstPass = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(firstPass).hasSize(1).first().returns(true, VerificationNotification::success);
+            firstPass.clear();
+            plugin.handleBlockItemsReceived(block0Valid.asBlockItems());
+            final List<VerificationNotification> secondPass = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(secondPass).hasSize(1).first().returns(true, VerificationNotification::success);
+            secondPass.clear();
+            // Report failed persistence for block 0, all duplicates must be removed
+            plugin.handlePersisted(new PersistedNotification(block0Valid.number(), false, 0, BlockSource.PUBLISHER));
+            // Now fail verification of block 0, the failure must be standard, not informational
+            final ResourceTestBlock block0Invalid = appendProof(block0Valid, badTssSignedProof());
+            plugin.handleBlockItemsReceived(block0Invalid.asBlockItems());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), VerificationNotification::failureInfo)
+                    .returns(block0Invalid.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
