@@ -38,6 +38,7 @@ import org.hiero.block.signing.TssBlockSigner;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
+import org.hiero.block.simulator.config.types.TssProofType;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.hiero.block.simulator.generator.itemhandler.BlockFooterHandler;
 import org.hiero.block.simulator.generator.itemhandler.BlockHeaderHandler;
@@ -125,8 +126,11 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.simulatorStartupData = simulatorStartupData;
         // Deterministic so that every simulator instance (e.g. multiple publishers in one test) shares
         // one roster: the node self-provisions from any publisher's genesis block, and duplicate blocks
-        // across publishers are byte-identical.
-        this.blockSigner = TssBlockSigner.createDeterministic();
+        // across publishers are byte-identical. The proof type selects the genesis Schnorr-aggregate
+        // path (default) or the settled WRAPS path (a pre-computed compressed proof).
+        this.blockSigner = blockGeneratorConfig.tssProofType() == TssProofType.WRAPS
+                ? TssBlockSigner.createDeterministicSettled()
+                : TssBlockSigner.createDeterministic();
         // currently we are not supporting startup saved data due to the calculation of the
         // root hash of all block hashes tree hasher
         this.currentBlockNumber = 0;

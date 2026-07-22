@@ -12,3 +12,7 @@ testModuleInfo {
     requires("org.assertj.core")
     requires("org.junit.jupiter.api")
 }
+
+// Headroom for the offline WRAPS proof regeneration (WrapsProofGeneratorTest), which loads a large
+// proving key and runs a SNARK. Normal tests use only a fraction of this.
+tasks.test { maxHeapSize = "6g" }
