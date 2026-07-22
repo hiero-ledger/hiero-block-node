@@ -123,7 +123,10 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.stateChangesHasher = new NaiveStreamingTreeHasher();
         this.traceDataHasher = new NaiveStreamingTreeHasher();
         this.simulatorStartupData = simulatorStartupData;
-        this.blockSigner = TssBlockSigner.create();
+        // Deterministic so that every simulator instance (e.g. multiple publishers in one test) shares
+        // one roster: the node self-provisions from any publisher's genesis block, and duplicate blocks
+        // across publishers are byte-identical.
+        this.blockSigner = TssBlockSigner.createDeterministic();
         // currently we are not supporting startup saved data due to the calculation of the
         // root hash of all block hashes tree hasher
         this.currentBlockNumber = 0;

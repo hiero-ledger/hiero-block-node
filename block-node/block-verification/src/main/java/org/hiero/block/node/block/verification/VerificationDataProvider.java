@@ -112,9 +112,15 @@ public final class VerificationDataProvider {
                             nodeIds[i] = contribution.nodeId();
                             weights[i] = contribution.weight();
                         }
-                        TSS.setAddressBook(publicKeys, weights, nodeIds);
-                        WRAPSVerificationKey.setCurrentKey(
-                                updatedTssData.wrapsVerificationKey().toByteArray());
+                        // Serialize the native calls: the hinTS/WRAPS library is a JVM-wide singleton
+                        // and is not thread-safe. The address book and WRAPS key mutate the same shared
+                        // native state that concurrent verifyTSS calls read, so both updates must happen
+                        // together under the shared lock (see NativeVerificationLibraryLock).
+                        synchronized (NativeVerificationLibraryLock.LOCK) {
+                            TSS.setAddressBook(publicKeys, weights, nodeIds);
+                            WRAPSVerificationKey.setCurrentKey(
+                                    updatedTssData.wrapsVerificationKey().toByteArray());
+                        }
                         if (currentTssData.compareAndSet(localCurrentTss, updatedTssData)) {
                             if (sendUpdateToAppState) {
                                 context.applicationStateFacility().updateTssData(currentTssData.get());

@@ -16,6 +16,7 @@ import com.hedera.hapi.node.tss.LedgerIdNodeContribution;
 import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.List;
 import org.hiero.block.api.RosterEntry;
@@ -41,6 +42,9 @@ public final class TssBlockSigner implements BlockSigner {
 
     private static final long NODE_ID = 0L;
     private static final long WEIGHT = 1L;
+
+    /// Fixed seed for [#createDeterministic]; any constant works since these are test-only keys.
+    private static final byte[] DETERMINISTIC_SEED = "hiero-block-signing-test-seed".getBytes();
     private static final int[] PARTIES = {0};
     private static final long[] WEIGHTS = {WEIGHT};
     private static final long[] NODE_IDS = {NODE_ID};
@@ -86,15 +90,37 @@ public final class TssBlockSigner implements BlockSigner {
                 .build());
     }
 
-    /// Runs the full one-time key ceremony and returns a ready-to-use signer.
+    /// Runs the full one-time key ceremony with fresh random key material and returns a ready-to-use
+    /// signer.
     ///
     /// The hinTS native library keeps singleton state cached from the most recent ceremony, so the
     /// cache is reset first. As a result only one [TssBlockSigner] should be actively signing at a
     /// time in a given JVM; creating a second signer invalidates the first.
     @NonNull
     public static TssBlockSigner create() {
+        return create(new SecureRandom());
+    }
+
+    /// Runs the ceremony with a fixed seed, producing the SAME roster and keys every time.
+    ///
+    /// Use this when several signer instances must agree on one roster within a single JVM — e.g.
+    /// multiple simulator publishers streaming to one Block Node: they all sign with the same keys,
+    /// the node self-provisions from any one of them, and duplicate blocks are byte-identical (and so
+    /// detectable). Because every instance derives the same key material, the shared native cache is
+    /// never invalidated between them.
+    @NonNull
+    public static TssBlockSigner createDeterministic() {
+        try {
+            final SecureRandom random = SecureRandom.getInstance("SHA1PRNG");
+            random.setSeed(DETERMINISTIC_SEED);
+            return create(random);
+        } catch (final NoSuchAlgorithmException fatal) {
+            throw new IllegalStateException("SHA1PRNG unavailable", fatal);
+        }
+    }
+
+    private static TssBlockSigner create(final SecureRandom random) {
         HINTS.resetCache();
-        final SecureRandom random = new SecureRandom();
 
         // Schnorr roster + ledger id (Poseidon hash of the address book).
         final SchnorrKeys schnorr = require("generateSchnorrKeys", WRAPS.generateSchnorrKeys(random32(random)));
