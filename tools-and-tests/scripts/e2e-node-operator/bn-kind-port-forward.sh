@@ -25,14 +25,17 @@ kubectl wait pod -n "${NAMESPACE}" -l "${SELECTOR}" --for=condition=Ready --time
 
 kubectl port-forward -n "${NAMESPACE}" "${SVC}" "${LOCAL_PORT}:${SVC_PORT}" >/tmp/bn-pf.log 2>&1 &
 
-# Wait for the forwarded port to accept TCP connections.
+# Readiness is already gated by `kubectl wait condition=Ready` above (the pod's readiness probe hits the
+# BN health port). Here we only confirm the port-forward we use for grpcurl accepts connections, and fail
+# if it never does. Do NOT curl /healthz on ${LOCAL_PORT}: health endpoints live on a separate health
+# port, not the server port, so they aren't served here.
 for _ in $(seq 1 30); do
   if nc -z localhost "${LOCAL_PORT}" 2>/dev/null; then
-    break
+    echo "Block Node is ready and port-forwarded on localhost:${LOCAL_PORT}"
+    exit 0
   fi
   sleep 2
 done
-
-# Gate on the health endpoint so callers know the BN is actually serving.
-curl -sf --retry 10 --retry-delay 3 "http://localhost:${LOCAL_PORT}/healthz/readyz"
-echo "Block Node is ready and port-forwarded on localhost:${LOCAL_PORT}"
+echo "ERROR: port-forward to localhost:${LOCAL_PORT} never became reachable" >&2
+cat /tmp/bn-pf.log >&2 2>/dev/null || true
+exit 1
