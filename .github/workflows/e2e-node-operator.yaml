@@ -42,12 +42,15 @@ on:
     - cron: "0 4 * * 1-5"
   pull_request:
     paths:
-      - "charts/**"
+      - ".github/workflows/e2e-node-operator.yaml"
       - "block-node/app/**"
+      - "block-node/app-config/**"
+      - "charts/**"
+      - "protobuf-sources/**"
       - "tools-and-tests/scripts/e2e-node-operator/**"
       - "tools-and-tests/scripts/node-operations/**"
       - "tools-and-tests/suites/src/main/java/**/e2e/**"
-      - ".github/workflows/e2e-node-operator.yaml"
+      - "version.txt"
 
 defaults:
   run:
