@@ -1,0 +1,21 @@
+profile: mainnet
+log:
+    level: info
+    consoleLogging: true
+    fileLogging: false
+blockNode:
+    namespace: block-node
+    release: block-node
+    chart: oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server
+    version: "0.37.1"
+    storage:
+        applicationStatePath: /mnt/fast-storage/block-node/application-state
+        applicationStateSize: 50Gi
+        archivePath: /mnt/fast-storage/block-node/archive
+        archiveSize: 90Ti
+        livePath: /mnt/fast-storage/block-node/live
+        liveSize: 6Ti
+        logPath: /mnt/fast-storage/block-node/logs
+        logSize: 100Gi
+        pluginsPath: /mnt/fast-storage/block-node/plugins
+        pluginsSize: 5Gi
