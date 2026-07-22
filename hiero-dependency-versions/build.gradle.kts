@@ -56,6 +56,9 @@ dependencies.constraints {
     api("com.hedera.cryptography:hedera-cryptography-wraps:$hederaCryptographyVersion") {
         because("com.hedera.cryptography.wraps")
     }
+    api("com.hedera.cryptography:hedera-cryptography-hints:$hederaCryptographyVersion") {
+        because("com.hedera.cryptography.hints")
+    }
     api("com.hedera.common:hedera-common-nativesupport:$hederaCryptographyVersion") {
         because("com.hedera.common.nativesupport")
     }

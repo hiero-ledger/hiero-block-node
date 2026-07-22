@@ -16,7 +16,6 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.UnknownField;
 import com.hedera.pbj.runtime.io.ReadableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -390,17 +389,12 @@ public final class BlockHasher implements Supplier<HashingResult> {
 
     /// Computes the V6 RSA signed payload: `SHA-384(int32(6) || rawRecordStreamFileBytes)`.
     ///
-    /// This matches `SignatureDataExtractor.computeSignedHash(6, ...)` in
-    /// `tools-and-tests/tools`. Inlined here because that module cannot be imported from
-    /// `block-node/application-state`.
+    /// Delegates to [HashingUtilities#computeV6SignedPayload] so the verifier and the block-signing
+    /// library share one definition of the payload.
     ///
     /// @param rawRecordStreamFileBytes raw bytes of the `record_file_contents` field
     /// @return 48-byte SHA-384 digest
-    private byte[] computeV6SignedPayload(final Bytes rawRecordStreamFileBytes) throws NoSuchAlgorithmException {
-        final MessageDigest digest = MessageDigest.getInstance("SHA-384");
-        digest.reset();
-        digest.update(new byte[] {0, 0, 0, 6}); // int32(6) big-endian
-        rawRecordStreamFileBytes.writeTo(digest);
-        return digest.digest();
+    private byte[] computeV6SignedPayload(final Bytes rawRecordStreamFileBytes) {
+        return HashingUtilities.computeV6SignedPayload(rawRecordStreamFileBytes);
     }
 }

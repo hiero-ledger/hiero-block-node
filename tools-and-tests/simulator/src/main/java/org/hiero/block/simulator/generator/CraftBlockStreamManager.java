@@ -34,6 +34,7 @@ import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.signing.TssBlockSigner;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
@@ -43,6 +44,7 @@ import org.hiero.block.simulator.generator.itemhandler.BlockHeaderHandler;
 import org.hiero.block.simulator.generator.itemhandler.BlockProofHandler;
 import org.hiero.block.simulator.generator.itemhandler.EventHeaderHandler;
 import org.hiero.block.simulator.generator.itemhandler.ItemHandler;
+import org.hiero.block.simulator.generator.itemhandler.LedgerIdPublicationHandler;
 import org.hiero.block.simulator.generator.itemhandler.SignedTransactionHandler;
 import org.hiero.block.simulator.generator.itemhandler.TransactionResultHandler;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
@@ -87,6 +89,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
     private final BlockGeneratorConfig blockGeneratorConfig;
     private final SimulatorStartupData simulatorStartupData;
+    private final TssBlockSigner blockSigner;
 
     StreamingHasher rootHashOfAllBlockHashesTreeHasher;
     Bytes ZERO_BLOCK_HASH = Bytes.wrap(EMPTY_TREE_HASH);
@@ -120,6 +123,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.stateChangesHasher = new NaiveStreamingTreeHasher();
         this.traceDataHasher = new NaiveStreamingTreeHasher();
         this.simulatorStartupData = simulatorStartupData;
+        this.blockSigner = TssBlockSigner.create();
         // currently we are not supporting startup saved data due to the calculation of the
         // root hash of all block hashes tree hasher
         this.currentBlockNumber = 0;
@@ -262,6 +266,16 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         items.add(headerItemHandler);
         blockItemsUnparsed.add(headerItemHandler.unparseBlockItem());
         currentBlockHeader = headerItemHandler.getItem().getBlockHeader();
+
+        // Block 0 carries the signer's roster as a ledger-id publication so the verifier can
+        // self-provision its TSS data directly from the stream (no bootstrap file needed).
+        if (currentBlockNumber == 0) {
+            final ItemHandler ledgerIdHandler =
+                    new LedgerIdPublicationHandler(blockSigner.genesisLedgerIdSignedTransaction());
+            items.add(ledgerIdHandler);
+            blockItemsUnparsed.add(ledgerIdHandler.unparseBlockItem());
+        }
+
         final int eventsNumber = minEventsPerBlock; // for deterministic testing
         for (int i = 0; i < eventsNumber; i++) {
             final ItemHandler eventHeaderHandler = new EventHeaderHandler();
@@ -303,7 +317,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
             random.nextBytes(currentBlockHash);
         }
 
-        ItemHandler proofItemHandler = new BlockProofHandler(currentBlockHash, currentBlockNumber);
+        ItemHandler proofItemHandler = new BlockProofHandler(currentBlockHash, currentBlockNumber, blockSigner);
         items.add(proofItemHandler);
         LOGGER.log(DEBUG, "Created block number {0} with hash {1}", currentBlockNumber, Bytes.wrap(currentBlockHash));
 

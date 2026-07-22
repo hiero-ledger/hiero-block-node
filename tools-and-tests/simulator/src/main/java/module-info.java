@@ -3,19 +3,19 @@ import org.hiero.block.simulator.config.SimulatorConfigExtension;
 
 module org.hiero.block.simulator {
     exports org.hiero.block.simulator.config.data;
-    exports org.hiero.block.simulator.exception;
-    exports org.hiero.block.simulator;
     exports org.hiero.block.simulator.config.types;
     exports org.hiero.block.simulator.config;
-    exports org.hiero.block.simulator.grpc;
+    exports org.hiero.block.simulator.exception;
     exports org.hiero.block.simulator.generator;
-    exports org.hiero.block.simulator.metrics;
     exports org.hiero.block.simulator.grpc.impl;
-    exports org.hiero.block.simulator.mode;
+    exports org.hiero.block.simulator.grpc;
+    exports org.hiero.block.simulator.logging;
+    exports org.hiero.block.simulator.metrics;
     exports org.hiero.block.simulator.mode.impl;
+    exports org.hiero.block.simulator.mode;
+    exports org.hiero.block.simulator;
     exports org.hiero.block.simulator.config.logging to
             com.swirlds.config.impl;
-    exports org.hiero.block.simulator.logging;
 
     requires com.hedera.pbj.runtime;
     requires com.swirlds.config.api;
@@ -23,6 +23,7 @@ module org.hiero.block.simulator {
     requires org.hiero.block.common;
     requires org.hiero.block.protobuf.pbj;
     requires org.hiero.block.protobuf.protoc;
+    requires org.hiero.block.signing;
     requires org.hiero.metrics;
     requires com.google.protobuf;
     requires dagger;
