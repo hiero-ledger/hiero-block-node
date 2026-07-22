@@ -1,15 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 name: E2E Node Operator Lifecycle
 
-# Mirrors the standalone block-node operator lifecycle using solo-provisioner (the solo-weaver CLI):
-# install (base GA/RC) -> push 0-2 -> verify -> upgrade (snapshot) -> verify survive + push 3-4 ->
-# reset -> push 0-4 -> uninstall. No consensus node is involved; blocks are replayed from fixtures by
-# BlockNodeE2EClient.
-#
-# The install/push/verify/reset/uninstall path (incl. snapshot-chart pull from the local OCI registry over
-# plain HTTP, the local storage class, and real TSS verification in a kind cluster with no consensus node)
-# has been validated green. Base and snapshot are both assumed 0.37+ (the chart's application-state volume),
-# so the upgrade is a plain `helm upgrade` on chart defaults; re-confirm it on each solo-provisioner bump.
+# End-to-end block-node operator lifecycle via solo-provisioner (the solo-weaver CLI): install (base
+# GA/RC) -> push 0-2 -> verify -> upgrade (snapshot) -> verify + push 3-4 -> reset -> push 0-4 ->
+# uninstall. No consensus node; blocks are replayed from fixtures by BlockNodeE2EClient. Base and
+# snapshot are both assumed 0.37+ (chart's application-state volume), so the upgrade is a plain
+# `helm upgrade` on chart defaults.
 
 on:
   workflow_dispatch:
@@ -246,48 +242,25 @@ jobs:
       - name: Pull + load base image into kind
         run: |
           BASE="${{ steps.versions.outputs.BASE_VERSION }}"
-          # Why crane here (and nowhere else in this repo): this is the only workflow that side-loads a
-          # *published, multi-arch* image (ghcr.io/.../hiero-block-node:<release>) into kind from the host.
-          # helm-charts.yaml / solo-e2e-test.yml only `kind load` their own *locally built, single-arch*
-          # image (so they never see a manifest list), and Solo lets the kind node pull from ghcr itself.
-          # The hl-bn-lin runners' Docker uses the containerd image store, which keeps the full manifest
-          # list even on `docker pull --platform`; `kind load docker-image` then runs
-          # `ctr import --all-platforms --digests` and fails with "content digest ... not found" for the
-          # arch we didn't pull. crane pulls exactly one platform into a plain (no-index) archive that
-          # `kind load image-archive` imports cleanly.
-          #
-          # ALTERNATIVE (no crane): drop this pre-load entirely and let containerd in the kind node pull
-          # the base image from ghcr during install (it's public; containerd resolves manifest lists
-          # natively). Pre-loading is kept for determinism / fewer network pulls. To revert to crane-free,
-          # remove this step + the "Install crane" step and rely on image.pullPolicy in the chart values.
-          #
-          # We load the -solo-dev image (plugins baked in) so the chart can skip the maven resolve-plugins
-          # init container; see solo-ci-values.yaml (image.repository + plugins.names: "").
+          # crane loads a published *multi-arch* image into kind as a single-platform archive; a plain
+          # `kind load docker-image` fails on the manifest list (containerd image store keeps all arches).
+          # We load the -solo-dev variant (plugins baked) so the chart skips the maven resolve-plugins init.
           crane pull --platform linux/amd64 "ghcr.io/hiero-ledger/hiero-block-node-solo-dev:${BASE}" /tmp/base-image.tar
           kind load image-archive /tmp/base-image.tar --name "${CLUSTER_NAME}"
 
       - name: Build + load snapshot image into kind
         run: |
           SNAP="${{ steps.versions.outputs.SNAP_VERSION }}"
-          # We use the -solo-dev image variant (plugins baked in) so the chart skips the maven
-          # resolve-plugins init container; see solo-ci-values.yaml (image.repository + plugins.names: "").
+          # Load the -solo-dev image variant (plugins baked) so the chart skips the maven resolve-plugins
+          # init container; see solo-ci-values.yaml.
           if [[ "${{ inputs.build-image }}" == "false" ]]; then
             # Published image is multi-arch — use crane + image-archive (see the base-image step).
             crane pull --platform linux/amd64 "ghcr.io/hiero-ledger/hiero-block-node-solo-dev:${SNAP}" /tmp/snapshot-image.tar
             kind load image-archive /tmp/snapshot-image.tar --name "${CLUSTER_NAME}"
           else
-            # createDockerImage builds BOTH block-node-server:${ver} and block-node-server-solo-dev:${ver}
-            # (docker-build.sh). The locally built image is single-arch, so kind load docker-image works
-            # directly (same pattern as helm-charts.yaml / solo-e2e-test.yml). We load the solo-dev variant.
-            #
-            # prepareDockerPlugins FIRST: the solo-dev Dockerfile does `COPY ./plugins`, but createDockerImage
-            # does NOT depend on prepareDockerPlugins (only copyDockerFolder + assemble), so on its own it
-            # bakes an EMPTY plugins dir -> the BN fails with "No BlockMessagingFacility provided". The
-            # published image is built the same way (release-push-image.yaml runs :app:prepareDockerPlugins
-            # before the docker build). prepareDockerPlugins populates build/docker/plugins with the
-            # locally-built plugin jars; copyDockerFolder is a Copy (merge, never deletes), so the subsequent
-            # createDockerImage keeps those jars when docker-build.sh copies them into the image.
-            ./gradlew :app:prepareDockerPlugins
+            # Locally built image is single-arch, so kind load docker-image works directly.
+            # createDockerImage bakes plugins (it depends on prepareDockerPlugins) and builds both the
+            # barebone and -solo-dev variants; we load solo-dev.
             ./gradlew :app:createDockerImage
             docker tag "block-node-server-solo-dev:${SNAP}" "ghcr.io/hiero-ledger/hiero-block-node-solo-dev:${SNAP}"
             kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node-solo-dev:${SNAP}" --name "${CLUSTER_NAME}"
@@ -487,16 +460,12 @@ jobs:
       # ── PHASE 5: Reset -> re-push full set 0-4 ─────────────────────────────
       - name: Reset via solo-provisioner
         run: |
-          # --namespace/--release-name as on upgrade: solo-provisioner's state ReleaseInfo is empty, so it
-          # cannot resolve the deployed release without them. NOTE: reset has NO --purge-storage flag (that
-          # exists only on uninstall). As of solo-provisioner v0.24.0, reset CLEARS the configured storage
-          # directories on the local profile (scaleDown -> clear -> scaleUp): block data (live/archive/log)
-          # AND application-state (tss-parameters.bin) AND plugins. So the node returns to empty on its own —
-          # plugins are re-seeded by the seed-plugins init container on scale-up, and the re-push of 0-4 below
-          # re-bootstraps TSS from block 0 (exactly as the install phase does from empty).
-          # --load-balancer-enabled=false for consistency with install/upgrade: the local profile otherwise
-          # defaults LoadBalancerEnabled=true (seen in reset's effectiveInputs). reset has no
-          # --no-reuse-values flag (unlike upgrade), so value reuse is left as-is.
+          # --namespace/--release-name: solo-provisioner's state ReleaseInfo is empty, so it can't resolve
+          # the deployed release without them. v0.24.0 reset clears all storage on the local profile (block
+          # data + application-state incl. tss-parameters.bin + plugins); plugins are re-seeded on scale-up
+          # and the re-push of 0-4 below re-bootstraps TSS.
+          # --load-balancer-enabled=false: the local profile otherwise defaults it true, which hangs
+          # helm --wait in kind (no external IP).
           sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node reset \
             --profile=local --namespace="${NAMESPACE}" --release-name="${RELEASE}" --non-interactive \
             --load-balancer-enabled=false \
@@ -505,10 +474,8 @@ jobs:
       - name: Wait for BN ready + port-forward (post-reset)
         run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
-      # Confirm the node is empty after reset: block data dirs should hold no block files and serverStatus
-      # should report uint64 -1. On v0.24.0 reset also clears application-state (so tss-parameters.bin is
-      # absent here) and the plugins dir (re-seeded by the init container on scale-up); the re-push below
-      # re-bootstraps TSS. This step is diagnostic only — it never fails the job.
+      # Diagnostic only (never fails the job): confirm the node is empty after reset — no block files and
+      # serverStatus uint64 -1. On v0.24.0 reset also clears application-state, so tss-parameters.bin is absent.
       - name: Inspect storage after reset
         run: |
           POD="${RELEASE}-block-node-server-0"
