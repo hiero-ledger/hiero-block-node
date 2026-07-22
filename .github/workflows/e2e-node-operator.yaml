@@ -36,9 +36,9 @@ on:
           - all
         required: false
       solo-provisioner-version:
-        description: "solo-provisioner (solo-weaver) release tag to install (e.g. v0.21.0). Bump as needed."
+        description: "solo-provisioner (solo-weaver) release tag to install (e.g. v0.24.0). Bump as needed."
         required: false
-        default: "v0.21.0"
+        default: "v0.24.0"
   schedule:
     # Nightly Mon-Fri 04:00 UTC (offset from the solo-e2e scheduler at 06:00).
     - cron: "0 4 * * 1-5"
@@ -85,7 +85,7 @@ jobs:
       CHART_REGISTRY: localhost:5001
       # Pinned solo-provisioner (solo-weaver) release for reproducible runs. workflow_dispatch can override
       # via the solo-provisioner-version input; schedule/pull_request fall back to this default.
-      SOLO_PROVISIONER_VERSION: ${{ inputs.solo-provisioner-version || 'v0.21.0' }}
+      SOLO_PROVISIONER_VERSION: ${{ inputs.solo-provisioner-version || 'v0.24.0' }}
     steps:
       # ── PHASE 0: Setup ─────────────────────────────────────────────────────
       - name: Harden Runner
@@ -489,10 +489,11 @@ jobs:
         run: |
           # --namespace/--release-name as on upgrade: solo-provisioner's state ReleaseInfo is empty, so it
           # cannot resolve the deployed release without them. NOTE: reset has NO --purge-storage flag (that
-          # exists only on uninstall). The solo-weaver quickstart says reset clears the storage directories,
-          # and it does in other environments, but here the block files survive on the retained PVCs
-          # (confirmed via the diagnostic below) — so the manual-clear step below brings the node to the
-          # empty state reset is meant to produce.
+          # exists only on uninstall). As of solo-provisioner v0.24.0, reset CLEARS the configured storage
+          # directories on the local profile (scaleDown -> clear -> scaleUp): block data (live/archive/log)
+          # AND application-state (tss-parameters.bin) AND plugins. So the node returns to empty on its own —
+          # plugins are re-seeded by the seed-plugins init container on scale-up, and the re-push of 0-4 below
+          # re-bootstraps TSS from block 0 (exactly as the install phase does from empty).
           # --load-balancer-enabled=false for consistency with install/upgrade: the local profile otherwise
           # defaults LoadBalancerEnabled=true (seen in reset's effectiveInputs). reset has no
           # --no-reuse-values flag (unlike upgrade), so value reuse is left as-is.
@@ -501,34 +502,13 @@ jobs:
             --load-balancer-enabled=false \
             --config=tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml
 
-      # WORKAROUND (remove once solo-provisioner's reset clears storage for the local profile): manually wipe
-      # the block data so the node returns to empty, then restart the pod so it rebuilds its in-memory block
-      # index from the now-empty storage and serverStatus returns uint64 -1. tss-parameters.bin is left in
-      # place (verification state, not block data) so the subsequent re-push of 0-4 verifies normally. With
-      # this step the empty-state assert and the re-push run exactly as if reset had purged storage itself —
-      # no special-casing in those steps. Delete this whole step when the provisioner fix lands.
-      - name: Manually clear BN block stores (workaround — reset does not purge on local profile)
-        run: |
-          POD="${RELEASE}-block-node-server-0"
-          kubectl wait pod -n "${NAMESPACE}" "${POD}" --for=condition=Ready --timeout=120s
-          BEFORE=$(kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
-            sh -c 'find /opt/hiero/block-node/data/live /opt/hiero/block-node/data/historic -type f 2>/dev/null | wc -l' | tr -d '[:space:]')
-          echo "block files present before clear: ${BEFORE}"
-          if [ "${BEFORE}" = "0" ]; then
-            echo "Block stores already empty — manual clear is a no-op (reset may now purge correctly)."
-          fi
-          kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
-            sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/* 2>/dev/null || true; \
-                   echo "block files remaining: $(find /opt/hiero/block-node/data/live /opt/hiero/block-node/data/historic -type f 2>/dev/null | wc -l)"'
-          # Restart so the BN re-scans the now-empty storage (it caches the available range in memory at boot).
-          kubectl delete pod -n "${NAMESPACE}" "${POD}" --wait=true
-
       - name: Wait for BN ready + port-forward (post-reset)
         run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
-      # Confirm the node is empty after the manual clear: block data dirs should hold no block files and
-      # serverStatus should report uint64 -1. (This also documents the provisioner gap — reset alone left the
-      # blocks in data/live; tss-parameters.bin is intentionally retained.) Remove with the workaround.
+      # Confirm the node is empty after reset: block data dirs should hold no block files and serverStatus
+      # should report uint64 -1. On v0.24.0 reset also clears application-state (so tss-parameters.bin is
+      # absent here) and the plugins dir (re-seeded by the init container on scale-up); the re-push below
+      # re-bootstraps TSS. This step is diagnostic only — it never fails the job.
       - name: Inspect storage after reset
         run: |
           POD="${RELEASE}-block-node-server-0"
