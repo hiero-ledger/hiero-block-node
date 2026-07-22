@@ -1,18 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# Wait for the kind-deployed Block Node to be Ready, then (re)establish a local port-forward.
-# Used by .github/workflows/e2e-node-operator.yaml after each lifecycle phase that restarts the pod
-# (install, upgrade, reset).
+# Wait for the kind-deployed Block Node to be Ready, then (re)establish a local port-forward. Used by
+# e2e-node-operator.yaml after each phase that restarts the pod (install/upgrade/reset).
 #
-# The chart names objects "<release>-block-node-server"; the Helm instance label is the release name.
-#
-# Usage: bn-kind-port-forward.sh [release] [namespace] [local_port] [svc_port]
-#   release    (default: block-node)
-#   namespace  (default: default)
-#   local_port (default: 40840)
-#   svc_port   (default: 40840)
-# -x traces the kubectl wait / port-forward / readiness commands into the CI run log.
+# Usage: bn-kind-port-forward.sh [release=block-node] [namespace=default] [local_port=40840] [svc_port=40840]
 set -euxo pipefail
 
 RELEASE="${1:-block-node}"
