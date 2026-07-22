@@ -27,11 +27,11 @@ operator-owned bare-metal hardware. The supported interface for installation and
 management is **Solo Provisioner** (`solo-provisioner`), distributed from the
 [`solo-weaver`](https://github.com/hashgraph/solo-weaver) repository.
 
-|                 Component                 |                                                                     Role                                                                      |
-|-------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| **Block Node** (`hiero-block-node`)       | Ingests block streams from Consensus Nodes, maintains live state, serves block data to subscribers                                            |
-| **Solo Provisioner** (`solo-provisioner`) | Installs and manages the full host stack: Kubernetes (kubeadm/kubelet, CRI-O, Cilium, MetalLB), Helm, the Block Node chart, and Grafana Alloy |
-| **Grafana Alloy**                         | Telemetry agent shipping Prometheus metrics and Loki logs to the operator's observability infrastructure                                      |
+|                 Component                 |                                                                                     Role                                                                                     |
+|-------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Block Node** (`hiero-block-node`)       | Ingests block streams from Consensus Nodes, maintains live state, serves block data to subscribers                                                                           |
+| **Solo Provisioner** (`solo-provisioner`) | Installs and manages the full host stack: Kubernetes (kubeadm/kubelet, CRI-O, Cilium, MetalLB), the Block Node Helm chart via a Kubernetes Operator (CRD), and Grafana Alloy |
+| **Grafana Alloy**                         | Telemetry agent shipping Prometheus metrics and Loki logs to the operator's observability infrastructure                                                                     |
 
 This guide covers:
 

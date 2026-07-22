@@ -48,13 +48,13 @@ is `HASHGRAPH`.
 
 > Destroy any local copy of the credentials file after creating the Secret. The tokens now
 > live only in the cluster.
-
-> **Security note:** Kubernetes Secrets backed by etcd are not encrypted at rest by default
+>
+> **Security note:** Kubernetes Secrets backed by `etcd` are not encrypted at rest by default
 > and may leak sensitive data into swap or temporary files. For production deployments, using
 > an External Secrets Operator integrated with a managed vault (HashiCorp Vault, AWS Secrets
 > Manager, GCP Secret Manager, or similar) is **strongly recommended**. If you use the default
-> etcd provider, configure
-> [encryption at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/)
+> `etcd` provider, configure
+> [encryption at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/#ensure-all-secrets-are-encrypted)
 > before storing credentials.
 
 You can also populate the Secret using the External Secrets Operator from a vault, Terraform,

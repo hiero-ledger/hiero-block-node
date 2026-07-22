@@ -54,8 +54,10 @@ mainnet profile requirements.
 ## Step 4 - Prepare the RSA bootstrap roster **[COORDINATED]**
 
 The Block Node requires an RSA bootstrap roster at first startup for Wrapped Record Block
-(WRB) verification. This is a JSON `NodeAddressBook` mapping Consensus Node IDs to their RSA
-public keys.
+(WRB) verification. This is a JSON `AddressBookHistory` which contains repeated
+`DatedNodeAddressBook` entries for each historical address book for the network. Each entry
+maps Consensus Node IDs to their RSA public keys and other details for a specified range of
+blocks.
 
 Default path:
 `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json`
@@ -74,6 +76,11 @@ Hashgraph will confirm the delivery method before installation:
 > surfaces a degraded state and keeps running. If a local cached file exists, the Block Node
 > uses it and retries the Mirror Node in the background.
 
+The Block Node also re-queries the mirror node on a regular basis to retrieve any updated
+address books. This process will continue until the Cutover release (per HIP-1193), after
+which a new BN release will incorporate the final address book history file in the codebase
+and the RSA Bootstrap plugin will be removed.
+
 ---
 
 ## Step 5 - Install the Block Node **[OPERATOR]**
@@ -89,8 +96,8 @@ sudo solo-provisioner block node install \
   --base-path=/opt/hiero/block-node/data \
   --live-size=2500Gi \
   --archive-size=<ARCHIVE_SIZE> \
-  --verification-size=30Gi \
-  --log-size=8Gi
+  --application-state-size=30Gi \
+  --log-size=10Gi
 ```
 
 **Flag notes:**
@@ -107,12 +114,12 @@ sudo solo-provisioner block node install \
 
 **Storage layout created by this command:**
 
-|       Volume        |   Drive   |            Size             |         Flag          |                       Purpose                       |
-|---------------------|-----------|-----------------------------|-----------------------|-----------------------------------------------------|
-| `live`              | Fast NVMe | 2.5 TB                      | `--live-size`         | Recent blocks and live state (performance-critical) |
-| `archive`           | Bulk HDD  | 80% of provisioned bulk HDD | `--archive-size`      | Compressed historic block archive                   |
-| `application-state` | Bulk HDD  | 30 GB                       | `--verification-size` | Verification and application state                  |
-| `log`               | OS disk   | 8 GB                        | `--log-size`          | Logs (kept off the NVMe working set)                |
+|       Volume        |   Drive   |            Size             |            Flag            |                       Purpose                       |
+|---------------------|-----------|-----------------------------|----------------------------|-----------------------------------------------------|
+| `live`              | Fast NVMe | 2.5 TB                      | `--live-size`              | Recent blocks and live state (performance-critical) |
+| `archive`           | Bulk HDD  | 80% of provisioned bulk HDD | `--archive-size`           | Compressed historic block archive                   |
+| `application-state` | Bulk HDD  | 30 GB                       | `--application-state-size` | Internal application state                          |
+| `log`               | OS disk   | 10 GB                       | `--log-size`               | Logs (kept off the NVMe working set)                |
 
 > **Storage sizes are passed as flags, not in the values file.** Solo Provisioner creates the
 > PVCs from these flags; the chart references the resulting claims.
@@ -163,7 +170,7 @@ On a fresh install with no blocks ingested yet:
 grpcurl -plaintext -emit-defaults \
   -import-path block-node-protobuf-<VERSION> \
   -proto block-node/api/node_service.proto \
-  -d '{}' <BLOCK_NODE_PUBLIC_IP>:40840 \
+  -d '{}' <BLOCK_NODE_PUBLIC_IP>:40982 \
   org.hiero.block.api.BlockNodeService/serverStatus
 ```
 
@@ -181,7 +188,7 @@ Expected response before the first block arrives:
 ```
 
 The value `18446744073709551615` is `uint64` max - the sentinel for "no blocks received yet."
-This persists until the first block stream arrives from the Consensus Node.
+This value is returned until at least one block from the Consensus Node or backfill is received and stored.
 
 ---
 

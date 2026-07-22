@@ -41,6 +41,7 @@ Before scheduling any installation work:
 
 > **Enterprise NVMe sizing.** Drives marketed as "8 TB" often ship at 7.84 TB, 7.68 TB, or
 > 6.4 TB usable after overprovisioning. Acceptable as long as usable space is ≥ 7.5 TB.
+> Usable space may be the aggregate capacity across multiple drives.
 
 Storage performance targets (aggregate across all drives, not per-drive):
 
@@ -68,24 +69,56 @@ For full capacity derivations and planning models, see
 
 ## Firewall and connectivity
 
-The Block Node's only required inbound exposure is the gRPC port. Lock inbound access to
-the Consensus Node source IPs provided by Hashgraph DevOps. Deny all other inbound by
+The Block Node exposes per-service ports. Lock inbound access to the **publisher port**
+(`40984`) to Consensus Node source IPs provided by Hashgraph DevOps. The remaining
+per-service ports are accessible to their respective clients. Deny all other inbound by
 default.
+
+| Port  |    Service    |                  Restrict to                   |
+|-------|---------------|------------------------------------------------|
+| 40984 | Publisher     | Consensus Node source IPs (Hashgraph-provided) |
+| 40980 | Subscriber    | Mirror Nodes and peer Block Nodes              |
+| 40981 | Block Access  | Authorized clients                             |
+| 40982 | Server Status | Monitoring and operators                       |
+| 40983 | Health        | Monitoring and operators                       |
+| 40840 | LoadBalancer  | External clients (MetalLB front-end)           |
 
 ```bash
 # nftables
-sudo nft add rule inet filter input ip saddr { <ALLOWED_CN_SOURCE_IPS> } tcp dport 40840 accept
+# Publisher port — Consensus Nodes only
+sudo nft add rule inet filter input ip saddr { <ALLOWED_CN_SOURCE_IPS> } tcp dport 40984 accept
+sudo nft add rule inet filter input tcp dport 40984 drop
+# Other per-service ports
+sudo nft add rule inet filter input tcp dport { 40840, 40980, 40981, 40982, 40983 } accept
 
-# iptables (one ACCEPT per source, then a default DROP for the port)
-sudo iptables -A INPUT -p tcp -s <ALLOWED_CN_SOURCE_IPS> --dport 40840 -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 40840 -j DROP
+# iptables
+# Publisher port — Consensus Nodes only
+sudo iptables -A INPUT -p tcp -s <ALLOWED_CN_SOURCE_IPS> --dport 40984 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 40984 -j DROP
+# Other per-service ports
+for port in 40840 40980 40981 40982 40983; do
+  sudo iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+done
 
 # ufw
-sudo ufw allow from <ALLOWED_CN_SOURCE_IPS> to any port 40840 proto tcp
+# Publisher port — Consensus Nodes only
+sudo ufw allow from <ALLOWED_CN_SOURCE_IPS> to any port 40984 proto tcp
+sudo ufw deny 40984/tcp
+# Other per-service ports
+for port in 40840 40980 40981 40982 40983; do
+  sudo ufw allow "$port"/tcp
+done
 ```
 
 Replace `<ALLOWED_CN_SOURCE_IPS>` with the CN public IP(s) provided by Hashgraph DevOps.
 Persist rules across reboots per your distribution's conventions.
+
+> **Tip:** If the `/opt/hiero/block-node/application-state/known-publishers.json` configuration
+> file is populated with the Consensus Node source IPs, Solo Provisioner handles these firewall
+> rules automatically. Two related partner configuration files are also available:
+> - `inbound-partners.json` — Block Nodes permitted to backfill from this node.
+> - `outbound-partners.json` — Mirror Nodes and partner systems with priority access to the
+> `subscribeStream` API.
 
 Outbound requirements:
 
@@ -127,9 +160,11 @@ coordinated with Hashgraph DevOps before installation.
 
 **If enabling TLS on the subscriber port:**
 
-- Generate a TLS certificate and private key for `<BLOCK_NODE_FQDN>:40840` - either a
+- Configure TLS termination at the firewall, ingress controller, or load balancer — the
+  Block Node application does not terminate TLS connections.
+- Generate a TLS certificate and private key for `<BLOCK_NODE_FQDN>:40980` - either a
   publicly-trusted certificate or an org-issued certificate from internal PKI
-- Deliver the certificate, private key, and full chain to Hashgraph DevOps through the agreed
+- Deliver the certificate, and full authority chain to Hashgraph DevOps through the agreed
   secure channel
 - Record the expiry date and renewal owner - TLS material is operator-owned for the life of
   the Block Node
@@ -201,15 +236,16 @@ curl -sSI --max-time 5 https://<LOKI_REMOTE_WRITE_URL> | head -1
 # Confirm host's public IP
 curl -sS https://ifconfig.me; echo
 
-# Confirm port 40840 reachable from outside the network (run from a remote host)
-# nc -vz <BLOCK_NODE_PUBLIC_IP> 40840
+# Confirm publisher port 40984 reachable from CN source IPs (run from a remote host)
+# nc -vz <BLOCK_NODE_PUBLIC_IP> 40984
 ```
 
 Also confirm:
 
-- Static IPv4 is actually static (not ephemeral/cloud-assigned), externally reachable, and
-  shared with Hashgraph for expected-source ACLs
-- Inbound ALLOW on TCP 40840 from the Hashgraph-provided CN public IP(s) is confirmed
+- Static IPv4 (or IPv6, if preferred and supported by the hosting environment) is actually
+  static (not ephemeral/cloud-assigned), externally reachable, and shared with Hashgraph for
+  expected-source ACLs
+- Inbound ALLOW on TCP 40984 (publisher) from the Hashgraph-provided CN public IP(s) is confirmed
 - Any non-standard port configuration communicated to Hashgraph DevOps
 
 ---

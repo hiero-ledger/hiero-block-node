@@ -65,8 +65,8 @@ For details on the on-chain registration process, see
 Hashgraph DevOps confirms:
 - The Block Node is ingesting blocks from the configured Consensus Node
 - The Block Node is reachable on its public endpoints
-- Hashgraph adds the Block Node `/status` endpoint to the central health monitor and standard
-dashboards
+- Hashgraph adds the Block Node `/healthz` health endpoint to the central health monitor and
+standard dashboards
 
 The operator is formally added to the upgrade pool after this step.
 
