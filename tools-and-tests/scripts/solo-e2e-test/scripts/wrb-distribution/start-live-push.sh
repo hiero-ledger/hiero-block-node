@@ -28,8 +28,9 @@
 # Optional overrides:
 #   LIVE_PUSH_POLL_SECONDS              (default: 30)
 #   LIVE_PUSH_MAX_CONSECUTIVE_FAILURES  (default: 5)
-#   BN_HOST_1                           (default block-node-1.${NAMESPACE}.svc.cluster.local)
-#   BN_PORT_1                           (default 40840)
+#   BN_HOST_1                           (default localhost)
+#   BN1_GRPC_PORT                       (default 40840 — matches add-bn.sh's port-forward
+#                                       convention: grpc_port = 40839 + bn_index, so BN1 -> 40840)
 
 set -euo pipefail
 
@@ -40,8 +41,13 @@ if [[ -f "${ENV_FILE}" ]]; then
 fi
 
 : "${NAMESPACE:=solo-network}"
-: "${BN_HOST_1:=block-node-1.${NAMESPACE}.svc.cluster.local}"
-BN_PORT_1="${BN_PORT_1:-40840}"
+# This worker runs as a plain process on the test runner host, not inside the
+# cluster, so it must reach BN1 through the localhost port-forward add-bn.sh
+# sets up (grpc :40839+bn_index) rather than BN1's in-cluster service DNS name
+# (which only resolves from within a pod, e.g. the CN's own block-nodes.json
+# target in reconfigure-cn-to-push-bn3.sh).
+: "${BN_HOST_1:=localhost}"
+BN1_GRPC_PORT="${BN1_GRPC_PORT:-$((40839 + 1))}"
 
 : "${WRB_DIST_WORK_DIR:?WRB_DIST_WORK_DIR must be set (written by install-and-run-wrb-cli.sh)}"
 : "${CLI_LIB:?CLI_LIB must be set (written by install-and-run-wrb-cli.sh)}"
@@ -73,7 +79,7 @@ nohup setsid bash -c '
     CLI_LIB='"'${CLI_LIB}'"'
     wrapped_dir='"'${wrapped_dir}'"'
     BN_HOST_1='"'${BN_HOST_1}'"'
-    BN_PORT_1='"'${BN_PORT_1}'"'
+    BN1_GRPC_PORT='"'${BN1_GRPC_PORT}'"'
     LIVE_PUSH_POLL_SECONDS='"${LIVE_PUSH_POLL_SECONDS}"'
     LIVE_PUSH_MAX_CONSECUTIVE_FAILURES='"${LIVE_PUSH_MAX_CONSECUTIVE_FAILURES}"'
 
@@ -81,13 +87,13 @@ nohup setsid bash -c '
     iteration=0
     while true; do
         iteration=$(( iteration + 1 ))
-        echo "[live-push][iter ${iteration}] pushing wrapped blocks to ${BN_HOST_1}:${BN_PORT_1}..."
+        echo "[live-push][iter ${iteration}] pushing wrapped blocks to ${BN_HOST_1}:${BN1_GRPC_PORT}..."
 
         java -cp "${CLI_LIB}/*" \
             org.hiero.block.tools.BlockStreamTool blocks push \
                 --input-dir "${wrapped_dir}" \
                 --bn-host "${BN_HOST_1}" \
-                --bn-port "${BN_PORT_1}" \
+                --bn-port "${BN1_GRPC_PORT}" \
             >> /tmp/wrb-dist-live-push.log 2>&1 \
             && rc=0 || rc=$?
 
@@ -109,4 +115,4 @@ nohup setsid bash -c '
 
 worker_pid=$!
 echo "${worker_pid}" > "${PID_FILE}"
-log "Live push started (pid ${worker_pid}, log ${LOG_FILE}, poll every ${LIVE_PUSH_POLL_SECONDS}s, target ${BN_HOST_1}:${BN_PORT_1})"
+log "Live push started (pid ${worker_pid}, log ${LOG_FILE}, poll every ${LIVE_PUSH_POLL_SECONDS}s, target ${BN_HOST_1}:${BN1_GRPC_PORT})"
