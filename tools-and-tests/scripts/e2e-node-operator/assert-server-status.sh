@@ -42,14 +42,9 @@ assert_get_block() {
   echo "OK: getBlock(${block_number})"
 }
 
-# assert_subscribe <first> <last>
-# Exercises the raw subscribeBlockStream server-streaming RPC over grpcurl (a lightweight, client-lib-
-# independent check that a subscriber can attach and drain a bounded range). Asserts the stream returns a
-# block header for every block in [first,last] and terminates with a SUCCESS status. -emit-defaults is
-# required so block 0's header.number (proto3 default 0) and the terminal status are actually rendered.
-# Recursive-descent jq (`.. | .blockHeader?`) tolerates the BlockItemSet response nesting.
-# The (potentially large) raw stream is written to a temp file and parsed from there — never echoed — so
-# it doesn't bloat the run log under `set -x`. Only the one-line summary + verdict are printed.
+# assert_subscribe <first> <last>: subscribe the bounded range over grpcurl and assert a block header for
+# every block in [first,last] plus a terminal SUCCESS. -emit-defaults renders block 0's header.number
+# (proto3 default 0) and the status. Stream goes to a temp file (never echoed) so it doesn't bloat the log.
 assert_subscribe() {
   local first="$1" last="$2" tmp count min max status expected_count
   expected_count=$((last - first + 1))
