@@ -111,7 +111,7 @@ public final class HashingUtilities {
      * <p>
      * This is the exact payload the consensus node signs (and the block node verifies) for a version 6
      * record-file (WRB) block proof. The {@code int32be(6)} prefix is the four bytes
-     * {@code 0x00 0x00 0x00 0x06}. Keeping this in one place guarantees the signer and the verifier
+     * {@code 0x00 0x00 0x00 0x06}. Keeping this in one place helps to ensure the test signer and the verifier
      * agree byte-for-byte.
      *
      * @param recordFileContents the verbatim {@code record_file_contents} bytes

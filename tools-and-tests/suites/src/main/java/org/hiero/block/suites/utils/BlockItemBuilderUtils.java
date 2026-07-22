@@ -45,20 +45,22 @@ public final class BlockItemBuilderUtils {
         RANDOM_HALF_MB = Bytes.wrap(randomBytes);
     }
 
-    /// Shared signer used to produce verifiable block proofs. A single instance per JVM keeps the
-    /// hinTS native singleton state stable, and its roster is what [#provisionTssBootstrap] hands to
-    /// the block node.
-    private static volatile TssBlockSigner blockSigner;
-
     // Required to quiet warnings.
     private BlockItemBuilderUtils() {}
 
+    /// Initialization-on-demand holder for the shared signer. A single instance per JVM keeps the
+    /// hinTS native singleton state stable, and its roster is what [#provisionTssBootstrap] hands to
+    /// the block node. Class-initialization semantics make the lazy creation thread-safe without any
+    /// explicit locking.
+    private static final class SignerHolder {
+        private static final TssBlockSigner SIGNER = TssBlockSigner.create();
+
+        private SignerHolder() {}
+    }
+
     /// Returns the shared [TssBlockSigner], creating it on first use.
-    public static synchronized TssBlockSigner blockSigner() {
-        if (blockSigner == null) {
-            blockSigner = TssBlockSigner.create();
-        }
-        return blockSigner;
+    public static TssBlockSigner blockSigner() {
+        return SignerHolder.SIGNER;
     }
 
     /// Writes the shared signer's TSS roster to a temp bootstrap file and points a to-be-constructed

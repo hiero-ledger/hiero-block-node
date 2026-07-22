@@ -26,31 +26,25 @@ import org.hiero.block.simulator.config.types.TssProofType;
  * @param endBlockNumber the optional end block number for the BlockAsFileLargeDataSets manager
  * @param invalidBlockHash if set to true, will send invalid block root hash
  */
+// spotless:off
 @ConfigData("generator")
 public record BlockGeneratorConfig(
         @Loggable @ConfigProperty(defaultValue = "CRAFT") GenerationMode generationMode,
-
-        @Loggable @ConfigProperty(defaultValue = "1") @Min(1)
-        int minEventsPerBlock,
-
+        @Loggable @ConfigProperty(defaultValue = "1") @Min(1) int minEventsPerBlock,
         @Loggable @ConfigProperty(defaultValue = "10") int maxEventsPerBlock,
-
-        @Loggable @ConfigProperty(defaultValue = "1") @Min(1)
-        int minTransactionsPerEvent,
-
+        @Loggable @ConfigProperty(defaultValue = "1") @Min(1) int minTransactionsPerEvent,
         @Loggable @ConfigProperty(defaultValue = "10") int maxTransactionsPerEvent,
         @Loggable @ConfigProperty(defaultValue = "") String folderRootPath,
         @Loggable @ConfigProperty(defaultValue = "36") int paddedLength,
         @Loggable @ConfigProperty(defaultValue = ".blk.gz") String fileExtension,
         // Optional block number range for the BlockAsFileLargeDataSets manager
-        @Loggable @ConfigProperty(defaultValue = "0") @Min(0)
-        int startBlockNumber,
-
+        @Loggable @ConfigProperty(defaultValue = "0") @Min(0) int startBlockNumber,
         @Loggable @ConfigProperty(defaultValue = "-1") int endBlockNumber,
         @Loggable @ConfigProperty(defaultValue = "false") boolean invalidBlockHash,
         @Loggable @ConfigProperty(defaultValue = "0") int shardNum,
         @Loggable @ConfigProperty(defaultValue = "0") int realmNum,
         @Loggable @ConfigProperty(defaultValue = "SCHNORR") TssProofType tssProofType) {
+// spotless:on
 
     /**
      * Constructs a new {@code BlockGeneratorConfig} instance with validation.

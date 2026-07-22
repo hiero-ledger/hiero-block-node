@@ -5,6 +5,8 @@ blockNode:
         # Change the following Value with the next expected Block to be
         # published by the Network.
         # BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "0"
+        # Only enforce strict next-block ordering for the publisher source.
+        VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING: "false"
         # Archive Node Configuration
         CLOUD_STORAGE_ARCHIVE_GROUPING_LEVEL: "5"
         CLOUD_STORAGE_ARCHIVE_PART_SIZE_MB: "32"
