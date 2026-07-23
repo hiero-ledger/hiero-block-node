@@ -1,39 +1,22 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# WRB Distribution E2E (#3125 slice 5 — step 9) — assert-live-push-produced-new-blocks.
+# WRB Distribution E2E (#3125 slice 5 — step 9, live half) —
+# assert-live-push-produced-new-blocks.
 #
-# Runs between start-live-push.sh and stop-live-push.sh. This is the "did both
-# the historical backfill and the live continuation happen?" check for step 9:
-#
-#   * Historical: query BN1's serverStatus over the port-forward add-bn.sh set
-#     up and assert lastAvailableBlock is present (>= 0) — proves the first
-#     `blocks push` iteration landed the backlog wrapped during steps 1-7.
-#   * Live / "continue to move over": compare the "push OK" iteration count in
-#     the worker log against the snapshot taken at start-live-push.sh time
-#     (/tmp/wrb-dist-push.state) and fail if the loop hasn't completed a new
-#     iteration — mirrors assert-live-wrap-produced-new-blocks.sh's own
-#     liveness check for the wrap loop.
+# Runs between start-live-push.sh and stop-live-push.sh. The historical half of
+# step 9 is proven separately by assert-bn1-historical-backfill-landed.sh right
+# after bulk-load-historical-to-bn1.sh; this script only proves the "continue
+# to move over" half: that the live-push loop (blocks push, wrappedBlocks ->
+# BN1) kept completing iterations after the historical backfill, mirroring
+# assert-live-wrap-produced-new-blocks.sh's own liveness check for the wrap
+# loop.
 #
 # Reads:
-#   BN1_GRPC_PORT  (default 40840 — matches add-bn.sh's port-forward convention:
-#                  grpc_port = 40839 + bn_index, so BN1 -> 40840)
-#   PROTO_PATH     (default ${REPO_ROOT}/protobuf-sources/proto — the extracted
-#                  proto artifact the "Untar Protobuf Sources" CI step produces)
-#
-# grpcurl needs -import-path/-proto explicitly: the Block Node's gRPC server
-# does not expose reflection, so a plain `-d '{}' host:port service/method`
-# call (as used elsewhere, e.g. add-mn2.sh's BN2 lastAvailableBlock lookup)
-# silently returns nothing to parse. Matches the working invocation in
-# solo-e2e-test.yml's "Get ServerStatus from Block Node" step.
+#   (none directly — everything comes from /tmp/wrb-dist-push.state / .pid / .log
+#   written by start-live-push.sh)
 
 set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)"
-
-: "${BN1_GRPC_PORT:=$((40839 + 1))}"
-: "${PROTO_PATH:=${REPO_ROOT}/protobuf-sources/proto}"
 
 STATE_FILE="/tmp/wrb-dist-push.state"
 PID_FILE="/tmp/wrb-dist-push.pid"
@@ -58,38 +41,7 @@ else
     fail "Live-push worker died before assertion"
 fi
 
-# Historical check: BN1 should report a lastAvailableBlock by now (the first
-# `blocks push` iteration backfills everything wrapped so far).
-if ! command -v grpcurl >/dev/null 2>&1; then
-    fail "grpcurl not on PATH; cannot query BN1 serverStatus"
-fi
-if [[ ! -d "${PROTO_PATH}" ]]; then
-    fail "PROTO_PATH not found: ${PROTO_PATH} (expected the extracted protobuf artifact)"
-fi
-
-grpcurl_err="${TMPDIR:-/tmp}/wrb-dist-push-assert-grpcurl.err"
-status_json=$(grpcurl -plaintext -emit-defaults \
-    -import-path "${PROTO_PATH}" \
-    -proto block-node/api/node_service.proto \
-    -d '{}' "localhost:${BN1_GRPC_PORT}" \
-    org.hiero.block.api.BlockNodeService/serverStatus 2>"${grpcurl_err}") || {
-        log "grpcurl query failed:"
-        sed 's/^/  /' "${grpcurl_err}" || true
-        fail "Could not query BN1 serverStatus via grpcurl"
-    }
-bn1_last=$(echo "${status_json}" | jq -r '.lastAvailableBlock // empty' 2>/dev/null || echo "")
-
-# An empty BN reports lastAvailableBlock as UINT64_MAX (18446744073709551615),
-# not 0 — 0 means "block 0 is available". Treat the sentinel as "no blocks".
-NO_BLOCKS_SENTINEL="18446744073709551615"
-if [[ -n "${bn1_last}" && "${bn1_last}" =~ ^[0-9]+$ && "${bn1_last}" != "${NO_BLOCKS_SENTINEL}" ]]; then
-    log "BN1 lastAvailableBlock=${bn1_last} (historical backfill landed)"
-else
-    fail "BN1 has no blocks yet (lastAvailableBlock='${bn1_last}'); historical push did not land"
-fi
-
-# Live / "continue to move over" check: at least one new successful push
-# iteration since start-live-push.sh's snapshot.
+# At least one new successful push iteration since start-live-push.sh's snapshot.
 current_push_ok_count=$( grep -cE '\] push OK' "${LOG_FILE}" 2>/dev/null || echo 0 )
 log "push_ok_iterations: initial=${initial_push_ok_count} current=${current_push_ok_count}"
 

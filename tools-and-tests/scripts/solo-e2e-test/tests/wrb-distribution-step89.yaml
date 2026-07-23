@@ -16,17 +16,26 @@
 #        change; BN3's EMB=100_000_000 means this only proves the config
 #        surface, not that BN3 has received blocks yet — see
 #        reconfigure-cn-to-push-bn3.sh).
-#   9.   Fork a live-push loop that runs the wrb-cli `blocks push` subcommand
-#        against BN1 (EMB=0). The first iteration backfills every WRB wrapped
-#        so far (historical); later iterations push whatever start-live-wrap
-#        has produced since (continues to move over).
+#   9.   Move blocks from the wrb-cli to BN1 (EMB=0) in two parts:
+#        9a. Historical: bulk-load-historical-to-bn1.sh copies every WRB
+#            wrapped so far directly into BN1's historic storage and restarts
+#            it so BlockFileHistoricPlugin picks them up. This does NOT go
+#            through BN1's live publish/gRPC stream — that pipeline is a
+#            single-slot-per-block-number race meant for freshly-produced
+#            blocks, not historical replay (see the script's header for the
+#            SKIP failure this avoids).
+#        9b. Live: a live-push loop runs the wrb-cli `blocks push` subcommand
+#            against BN1, pushing whatever start-live-wrap produces after the
+#            historical backfill (continues to move over).
 #
 # Assertions:
 #   * assert-mn-consuming-from-bn.sh mirror-1 / mirror-2 — from slice 4.
 #   * assert-cn-publishing-to-bn3.sh — each CN's block-nodes.json references BN3.
-#   * assert-live-push-produced-new-blocks.sh — BN1 reports a lastAvailableBlock
-#     (historical backlog landed) and the push loop completed at least one new
-#     iteration during the observation window (still moving live blocks over).
+#   * assert-bn1-historical-backfill-landed.sh — BN1 reports firstAvailableBlock=0
+#     and a real lastAvailableBlock after the bulk-load + restart.
+#   * assert-live-push-produced-new-blocks.sh — the live-push loop completed at
+#     least one new iteration during the observation window (still moving live
+#     blocks over after the historical backfill).
 #
 # Usage (locally):
 #   task test:run TEST_FILE=tests/wrb-distribution-step89.yaml \
@@ -150,10 +159,26 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-cn-publishing-to-bn3.sh"
 
+  - id: bulk-load-historical-to-bn1
+    type: command
+    description: "Step 9a: copy wrapped blocks into BN1's historic storage and restart it"
+    delay: 430
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/bulk-load-historical-to-bn1.sh"
+
+  - id: assert-bn1-historical-backfill-landed
+    type: command
+    description: "Assert BN1 reports firstAvailableBlock=0 and a real lastAvailableBlock after bulk-load"
+    delay: 435
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn1-historical-backfill-landed.sh"
+
   - id: start-live-push
     type: command
-    description: "Step 9: fork the live-push background worker (blocks push, wrappedBlocks -> BN1)"
-    delay: 430
+    description: "Step 9b: fork the live-push background worker (blocks push, wrappedBlocks -> BN1)"
+    delay: 440
     timeout: 60
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/start-live-push.sh"
@@ -163,22 +188,22 @@ events:
   - id: live-wrap-observation-window
     type: sleep
     description: "Let the live wrap and live push loops run through several iterations"
-    delay: 440
+    delay: 450
     args:
       seconds: 180
 
   - id: assert-live-wrap-produced-new-blocks
     type: command
     description: "Assert live-wrap kept running through the CN/push reconfig"
-    delay: 625
+    delay: 635
     timeout: 60
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-live-wrap-produced-new-blocks.sh"
 
   - id: assert-live-push-produced-new-blocks
     type: command
-    description: "Assert BN1 has a lastAvailableBlock (historical landed) and the push loop kept running (live continues)"
-    delay: 630
+    description: "Assert the live-push loop kept running after the historical backfill"
+    delay: 640
     timeout: 60
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-live-push-produced-new-blocks.sh"
@@ -186,7 +211,7 @@ events:
   - id: stop-live-push
     type: command
     description: "Tear down the live-push background worker"
-    delay: 635
+    delay: 645
     timeout: 60
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stop-live-push.sh"
@@ -194,7 +219,7 @@ events:
   - id: stop-live-wrap
     type: command
     description: "Tear down the live-wrap background worker"
-    delay: 640
+    delay: 650
     timeout: 60
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
@@ -202,7 +227,7 @@ events:
   - id: final-status
     type: network-status
     description: "Post-test network status (should show BN1/BN2/BN3, MN1 + MN2 up)"
-    delay: 645
+    delay: 655
 
 # BN + MN health is asserted implicitly by:
 #   * add-bn.sh's kubectl wait --for=condition=Ready pod/block-node-<i>-0
