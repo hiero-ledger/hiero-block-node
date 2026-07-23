@@ -55,15 +55,17 @@ jobs:
           egress-policy: audit
 
       - name: Compute Release Version
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+          INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type }}
+          INPUT_CUSTOM_VERSION: ${{ github.event.inputs.custom_version }}
         run: |
-          RELEASE_TYPE="${{ github.event.inputs.release_type }}"
-          if [[ "$RELEASE_TYPE" == "custom" ]]; then
-            CUSTOM="${{ github.event.inputs.custom_version }}"
-            if [[ -z "$CUSTOM" ]]; then
+          if [[ "$INPUT_RELEASE_TYPE" == "custom" ]]; then
+            if [[ -z "$INPUT_CUSTOM_VERSION" ]]; then
               echo "::error::custom_version input is required when release_type is 'custom'"
               exit 1
             fi
-            COMPUTED_VERSION="$CUSTOM"
+            COMPUTED_VERSION="$INPUT_CUSTOM_VERSION"
           else
             # Read version.txt from the dispatching branch — no checkout needed yet.
             # Using github.ref_name (not 'main') so rc2/GA runs off release/* read
@@ -83,7 +85,7 @@ jobs:
               exit 1
             fi
 
-            case "$RELEASE_TYPE" in
+            case "$INPUT_RELEASE_TYPE" in
               rc)
                 [[ "$KIND" == "rc" ]] \
                   && COMPUTED_VERSION="${BASE}-rc$((RC_N + 1))" \
@@ -102,8 +104,6 @@ jobs:
 
           echo "Computed release version: $COMPUTED_VERSION"
           echo "COMPUTED_VERSION=$COMPUTED_VERSION" >> "$GITHUB_ENV"
-        env:
-          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
       - name: Parse Version
         id: version_parser
