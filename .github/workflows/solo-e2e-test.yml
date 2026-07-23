@@ -12,17 +12,15 @@ on:
       block-node-version:
         description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.21.2')"
         type: string
-        default: "latest"
+        default: "main"
       consensus-node-version:
         description: "Consensus Node version ('latest', 'rc', or tag like 'v0.68.6')"
         type: string
-        default: "latest"
+        default: "rc"
       mirror-node-version:
-        # Pinned: MN v0.157.0+ (HIP-1137) broke Solo CLI's block node env var injection.
-        # Track https://github.com/hiero-ledger/solo/issues/4863 to unpin.
         description: "Mirror Node version ('latest', 'rc', or tag like 'v0.146.0')"
         type: string
-        default: "v0.156.0"
+        default: "latest"
       relay-version:
         description: "Relay version ('latest' or tag like 'v0.75.0')"
         type: string
@@ -38,7 +36,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         type: string
-        default: "0.79.0"
+        default: "0.83.0"
       solo-source:
         description: "Solo install source: 'npm' or 'git' (build an approved fork/branch)"
         type: string
@@ -121,17 +119,15 @@ on:
       block-node-version:
         description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.29.0')"
         required: false
-        default: "latest"
+        default: "main"
       consensus-node-version:
         description: "Consensus Node version ('latest', 'rc' or tag like 'v0.73.0-rc3')"
         required: false
-        default: "latest"
+        default: "rc"
       mirror-node-version:
-        # Pinned: MN v0.157.0+ (HIP-1137) broke Solo CLI's block node env var injection.
-        # Track https://github.com/hiero-ledger/solo/issues/4863 to unpin.
         description: "Mirror Node version ('latest', 'rc' or tag like 'v0.150.0')"
         required: false
-        default: "v0.156.0"
+        default: "latest"
       relay-version:
         description: "Relay version ('latest' or tag like 'v0.75.0')"
         required: false
@@ -147,7 +143,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         required: false
-        default: "0.79.0"
+        default: "0.83.0"
       solo-source:
         description: "Solo install source"
         required: false
