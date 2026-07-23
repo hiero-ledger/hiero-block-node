@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
+import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,10 +18,11 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Callable;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.internal.AddressBookHistory;
 import org.hiero.block.internal.DatedNodeAddressBook;
 import org.hiero.block.tools.metadata.MetadataFiles;
@@ -30,31 +32,29 @@ import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
 
 /**
- * Convert the CLI's address-book history JSON into a block-number-scoped roster file the BN can load
- * to verify historical Wrapped Record Blocks.
+ * Convert the CLI's address-book history JSON into a {@link RangedAddressBookHistory} JSON that the
+ * Block Node can load to verify historical Wrapped Record Blocks.
  *
  * <p>Each entry in the input {@code AddressBookHistory} carries a consensus {@code block_timestamp};
  * this command resolves that timestamp to the block number that became valid at or after that time
- * (via {@link BlockTimeReader#getNearestBlockAfterTime(LocalDateTime)}) and emits a roster history
- * file with the following shape:
+ * (via {@link BlockTimeReader#getNearestBlockAfterTime(LocalDateTime)}) and emits the shape defined
+ * by the {@code RangedAddressBookHistory} proto (see {@code node_service.proto}):
  *
  * <pre>{@code
  * {
- *   "entries": [
+ *   "addressBooks": [
  *     {
- *       "startBlock": <long>,
- *       "endBlock":   <long>|null,
- *       "blockTimestamp": { "seconds": <long>, "nanos": <int> },
- *       "addressBook": "<base64-encoded NodeAddressBook proto>"
+ *       "addressBook": { "nodeAddress": [ { "nodeId": ..., "rsaPubKey": "...", ... }, ... ] },
+ *       "startBlock":  <long>,
+ *       "endBlock":    <long>
  *     },
  *     ...
  *   ]
  * }
  * }</pre>
  *
- * <p>{@code endBlock} is {@code (next.startBlock - 1)}; the most recent era's {@code endBlock}
- * is {@code null} to mark it as open-ended. The full {@code NodeAddressBook} proto is preserved
- * per era (Base64) so the BN can extract the fields it needs at load time.
+ * <p>{@code endBlock} for the last era is {@code -1}, the open-ended sentinel used by
+ * {@code RangedAddressBookHistory}. For all other eras {@code endBlock} is {@code (next.startBlock - 1)}.
  *
  * <p>Intended consumer: the BN's historical RSA-roster bootstrap (issue #2958 / T4).
  */
@@ -65,6 +65,9 @@ import picocli.CommandLine.Option;
         mixinStandardHelpOptions = true)
 public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
 
+    /** Sentinel value used by {@link RangedAddressBookHistory} for the open-ended (most-recent) era. */
+    static final long OPEN_ENDED_END_BLOCK = -1L;
+
     @Option(
             names = {"-i", "--input"},
             description =
@@ -73,12 +76,13 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
     private Path inputFile;
 
     /**
-     * Default output path mirrors today's single-book layout (see
-     * {@code ApplicationStateConfig.rsaBootstrapFilePath}) so that, by default, the file lands
-     * where the BN's historical-roster bootstrap (T4) is expected to read it from.
+     * Default output path is the same file the BN reads for its RSA bootstrap
+     * ({@code ApplicationStateConfig.rsaBootstrapFilePath}). T4's loader accepts
+     * either a single-book {@link NodeAddressBook} JSON or a
+     * {@link RangedAddressBookHistory} JSON at this path.
      */
     static final Path DEFAULT_OUTPUT_PATH =
-            Path.of("/opt/hiero/block-node/application-state/rsa-bootstrap-roster-history.json");
+            Path.of("/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json");
 
     @Option(
             names = {"-o", "--output"},
@@ -90,8 +94,6 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             description =
                     "Path to block_times.bin used for consensus-time → block-number lookup (default: ${DEFAULT-VALUE})")
     private Path blockTimesFile = MetadataFiles.BLOCK_TIMES_FILE;
-
-    private static final ObjectMapper JSON_MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
 
     @Override
     public Integer call() throws Exception {
@@ -118,34 +120,90 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         }
         System.out.println("  Eras:            " + sorted.size());
 
+        // Use the raw ctor (mainnet-anchored) even for --network testnet/previewnet. The
+        // block_times.bin file format stores each block's time as nanos-since-mainnet-first-
+        // block regardless of network: every writer in the extraction chain hardcodes that
+        // anchor via RecordFileDates.instantToBlockTimeLong. Using forCurrentNetwork() here
+        // reads the same bytes with a network-specific anchor and produces a multi-year
+        // offset on non-mainnet networks (see PR #3166 review). Reader and writer must
+        // agree — leave both mainnet-anchored until the write path is network-aware.
         final long[] startBlocks;
+        final List<String> resolutionProblems;
+        final Instant coverageStart;
+        final Instant coverageEnd;
+        final long coverageMaxBlock;
         try (BlockTimeReader reader = new BlockTimeReader(blockTimesFile)) {
+            coverageMaxBlock = reader.getMaxBlockNumber();
+            coverageStart = reader.getBlockInstant(0);
+            coverageEnd = reader.getBlockInstant(coverageMaxBlock);
             startBlocks = resolveStartBlocks(sorted, reader);
+            resolutionProblems = validateResolutions(sorted, startBlocks, reader);
+        }
+
+        if (!resolutionProblems.isEmpty()) {
+            System.err.println();
+            System.err.println("Error: consensus-time -> block-number resolution failed for "
+                    + resolutionProblems.size() + " era(s):");
+            for (String p : resolutionProblems) {
+                System.err.println("  * " + p);
+            }
+            System.err.println();
+            System.err.println("block_times.bin coverage (" + blockTimesFile.toAbsolutePath() + "):");
+            System.err.println("  first indexed block: 0 @ " + coverageStart);
+            System.err.println("  last indexed block:  " + coverageMaxBlock + " @ " + coverageEnd);
+            System.err.println();
+            System.err.println("Check that --network matches the network the block_times.bin was extracted for,");
+            System.err.println("and that the file covers your input's timestamp range. Regenerate via");
+            System.err.println("`mirror extractBlockTimes` (and `mirror addNewerBlockTimes` to top it up)");
+            System.err.println("if it's stale or short.");
+            return 1;
         }
 
         return convertAndWrite(sorted, startBlocks);
     }
 
-    private int convertAndWrite(List<DatedNodeAddressBook> sorted, long[] startBlocks) throws IOException {
-        final ObjectNode root = JSON_MAPPER.createObjectNode();
-        final ArrayNode entries = root.putArray("entries");
+    /**
+     * Sanity-check every resolved {@code startBlock}. The binary search inside
+     * {@link BlockTimeReader#getNearestBlockAfterTime(LocalDateTime)} silently clamps to {@code 0}
+     * when the target time falls before every indexed block, and to {@code maxBlock} when it falls
+     * after every indexed block -- which combined with PBJ's {@code uint64} default-value elision
+     * hides the failure downstream (era's {@code startBlock} disappears, next era's
+     * {@code endBlock} collapses to {@code -1}). Detect both here and surface a real error.
+     */
+    private static List<String> validateResolutions(
+            List<DatedNodeAddressBook> sorted, long[] startBlocks, BlockTimeReader reader) {
+        final long maxBlock = reader.getMaxBlockNumber();
+        final List<String> problems = new ArrayList<>();
         for (int i = 0; i < sorted.size(); i++) {
-            final DatedNodeAddressBook era = sorted.get(i);
-            final Timestamp ts = era.blockTimestampOrThrow();
-            final NodeAddressBook book = era.addressBookOrThrow();
-
-            final ObjectNode entry = entries.addObject();
-            entry.put("startBlock", startBlocks[i]);
-            if (i + 1 < sorted.size()) {
-                entry.put("endBlock", startBlocks[i + 1] - 1);
-            } else {
-                entry.putNull("endBlock");
+            final Timestamp ts = sorted.get(i).blockTimestampOrThrow();
+            final Instant target = Instant.ofEpochSecond(ts.seconds(), ts.nanos());
+            final long block = startBlocks[i];
+            final Instant blockInstant = reader.getBlockInstant(block);
+            if (block == 0 && blockInstant.isAfter(target)) {
+                problems.add("era " + i + " (block_timestamp=" + target
+                        + ") is before the earliest indexed block (block 0 @ " + blockInstant + ")");
+            } else if (block == maxBlock && blockInstant.isBefore(target)) {
+                problems.add("era " + i + " (block_timestamp=" + target + ") is after the last indexed block (block "
+                        + maxBlock + " @ " + blockInstant + ")");
             }
-            final ObjectNode tsNode = entry.putObject("blockTimestamp");
-            tsNode.put("seconds", ts.seconds());
-            tsNode.put("nanos", ts.nanos());
-            entry.put("addressBook", encodeAddressBook(book));
         }
+        return problems;
+    }
+
+    private int convertAndWrite(List<DatedNodeAddressBook> sorted, long[] startBlocks) throws IOException {
+        final List<RangedNodeAddressBook> ranged = new ArrayList<>(sorted.size());
+        for (int i = 0; i < sorted.size(); i++) {
+            final NodeAddressBook book = slimAddressBook(sorted.get(i).addressBookOrThrow());
+            final long start = startBlocks[i];
+            final long end = (i + 1 < sorted.size()) ? startBlocks[i + 1] - 1 : OPEN_ENDED_END_BLOCK;
+            ranged.add(RangedNodeAddressBook.newBuilder()
+                    .addressBook(book)
+                    .startBlock(start)
+                    .endBlock(end)
+                    .build());
+        }
+        final RangedAddressBookHistory rangedHistory =
+                RangedAddressBookHistory.newBuilder().addressBooks(ranged).build();
 
         Path parent = outputFile.toAbsolutePath().getParent();
         if (parent != null) {
@@ -155,7 +213,17 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         // leave the destination half-written for the BN to read.
         final Path tmp = outputFile.resolveSibling(outputFile.getFileName() + ".tmp");
         try {
-            JSON_MAPPER.writeValue(tmp.toFile(), root);
+            try (WritableStreamingData out = new WritableStreamingData(Files.newOutputStream(tmp))) {
+                RangedAddressBookHistory.JSON.write(rangedHistory, out);
+            }
+            // PBJ's JSON codec elides proto3 default values (uint64 == 0), which makes a
+            // legitimate genesis-era startBlock=0 or open-ended endBlock look identical to a
+            // missing field. This bootstrap file gets inspected by operators, so re-emit it
+            // with both fields always present: startBlock defaults to 0 (proto3 default),
+            // endBlock defaults to -1 (OPEN_ENDED_END_BLOCK sentinel, used only for the last
+            // era). PBJ's parse side reconstructs the same values from either shape, so the
+            // BN loader is unaffected.
+            ensureExplicitPbjDefaults(tmp);
             Files.move(tmp, outputFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
             Files.deleteIfExists(tmp);
@@ -164,6 +232,74 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         System.out.println(Ansi.AUTO.string(
                 "@|green Wrote " + sorted.size() + " roster entries to " + outputFile.toAbsolutePath() + "|@"));
         return 0;
+    }
+
+    /**
+     * Rebuild {@code book} keeping only the two fields the BN's WRB roster verifier consults:
+     * {@code nodeId} (routing key) and {@code RSAPubKey} (signature-verification key). Everything
+     * else on {@link NodeAddress} — service endpoints, node cert hash, account id, description,
+     * stake, memo — is dropped from the emitted bootstrap file to keep it small and free of
+     * PII/network-topology metadata that the BN never reads.
+     */
+    private static NodeAddressBook slimAddressBook(NodeAddressBook book) {
+        final List<NodeAddress> slim = new ArrayList<>(book.nodeAddress().size());
+        for (final NodeAddress addr : book.nodeAddress()) {
+            slim.add(NodeAddress.newBuilder()
+                    .nodeId(addr.nodeId())
+                    .rsaPubKey(addr.rsaPubKey())
+                    .build());
+        }
+        return NodeAddressBook.newBuilder().nodeAddress(slim).build();
+    }
+
+    /**
+     * Re-emit the roster JSON at {@code file} so every entry has explicit fields that PBJ's
+     * JSON codec would otherwise elide as proto3 defaults:
+     *
+     * <ul>
+     *   <li>Per-era: {@code startBlock} defaults to {@code 0}, {@code endBlock} defaults to
+     *       {@code -1} (the {@link #OPEN_ENDED_END_BLOCK} sentinel used only for the last era).</li>
+     *   <li>Per {@code nodeAddress}: {@code nodeId} defaults to {@code 0}. Without this,
+     *       every genesis-node-0 entry loses its identifier and the BN's roster verifier
+     *       can't route by nodeId.</li>
+     * </ul>
+     *
+     * Preserves entry order and the nested {@code addressBook} structure verbatim. PBJ's
+     * parse side reconstructs the same values from either shape, so the BN loader is unaffected.
+     */
+    private static void ensureExplicitPbjDefaults(Path file) throws IOException {
+        final ObjectMapper mapper = new ObjectMapper();
+        final ObjectNode root = (ObjectNode) mapper.readTree(file.toFile());
+        final JsonNode addressBooksNode = root.get("addressBooks");
+        if (addressBooksNode == null || !addressBooksNode.isArray()) {
+            return; // nothing to patch — an empty roster history is legal
+        }
+        for (final JsonNode entry : addressBooksNode) {
+            if (!(entry instanceof ObjectNode entryObj)) {
+                continue;
+            }
+            // Match PBJ's convention: uint64 fields serialize as JSON strings so JS
+            // consumers don't hit the 2^53 precision cliff.
+            if (!entryObj.has("startBlock")) {
+                entryObj.put("startBlock", Long.toString(0L));
+            }
+            if (!entryObj.has("endBlock")) {
+                entryObj.put("endBlock", Long.toString(OPEN_ENDED_END_BLOCK));
+            }
+            // Restore any nodeAddress[].nodeId that PBJ elided as the uint64 default (0).
+            final JsonNode addressBookNode = entryObj.get("addressBook");
+            if (addressBookNode instanceof ObjectNode addressBookObj) {
+                final JsonNode nodeAddressNode = addressBookObj.get("nodeAddress");
+                if (nodeAddressNode != null && nodeAddressNode.isArray()) {
+                    for (final JsonNode addr : nodeAddressNode) {
+                        if (addr instanceof ObjectNode addrObj && !addrObj.has("nodeId")) {
+                            addrObj.put("nodeId", Long.toString(0L));
+                        }
+                    }
+                }
+            }
+        }
+        mapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), root);
     }
 
     /**
@@ -203,10 +339,5 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             startBlocks[i] = reader.getNearestBlockAfterTime(ldt);
         }
         return startBlocks;
-    }
-
-    private static String encodeAddressBook(NodeAddressBook book) {
-        return Base64.getEncoder()
-                .encodeToString(NodeAddressBook.PROTOBUF.toBytes(book).toByteArray());
     }
 }
