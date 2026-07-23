@@ -2,10 +2,10 @@
 
 ## Overview
 
-Block Nodes can offer many services and features. The core system encompasses a
+[Block Nodes](./block-node/glossary.md#block-node) can offer many services and features. The core system encompasses a
 wide array of flexible options made possible by composing relatively small and
 focused "plug-ins" within a framework designed to support very low latency
-processing of high volume block stream data. There are many "types" of block
+processing of high volume [block stream](./block-node/glossary.md#block-stream) data. There are many "types" of block
 nodes discussed in various places, each of which is actually the same core block
 node, with different combinations of "plug-ins" deployed. This demonstrates the
 flexibility of the block node system to meet a specific set of needs, but the
@@ -25,28 +25,6 @@ offered and operating intent.
 ## Definitions
 
 <dl>
-<dt>Block Stream</dt>
-<dd>A continuous stream of consensus network data organized into blocks. Blocks
-are independent, self-contained, chained, and cryptographically verifiable
-units of data.</dd>
-<dt>Block Node</dt>
-<dd>A software system that enables processing of block stream data for a wide
-variety of purposes and in myriad ways. A Block Node may be deployed with any,
-or many, set or subset of service plugins built to provide specific capabilities
-within the context of processing the block stream.</dd>
-<dt>Mirror Node</dt>
-<dd>A service available in Hiero networks that provides extensive history and
-query capabilities for that network. A Mirror Node is a client of one or more
-Block Nodes, which deliver the block stream to the Mirror Node for indexing,
-storage, and related purposes.</dd>
-<dt>Consensus Node</dt>
-<dd>One node in the consensus network of an Hiero network. Consensus Nodes
-perform the critical work of executing the network consensus algorithm,
-executing transactions in consensus order, maintaining a current network state,
-and producing the Block Stream.</dd>
-<dt>Private Sphere</dt>
-<dd>An Hiero network operated on behalf of a private entity.<br/>
-Also a commercial service offered by Hashgraph Foundry Inc.</dd>
 <dt>Block Node Services</dt>
 <dd>
     <dl>
