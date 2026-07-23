@@ -69,7 +69,8 @@ jobs:
           git checkout -b "$BRANCH"
           git commit -S --signoff -m "chore: sync block-node docs from hiero-block-node@${GITHUB_SHA::7}"
           git push --force --set-upstream origin "$BRANCH"
-          if gh pr view "$BRANCH" --repo hiero-ledger/hiero-docs >/dev/null 2>&1; then
+          OPEN_PRS=$(gh pr list --repo hiero-ledger/hiero-docs --head "$BRANCH" --state open --json number --jq 'length')
+          if [ "$OPEN_PRS" -gt 0 ]; then
             echo "Sync PR already open for $BRANCH; it now reflects the latest docs."
           else
             gh pr create --repo hiero-ledger/hiero-docs \
