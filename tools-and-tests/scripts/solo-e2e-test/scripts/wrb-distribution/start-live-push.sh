@@ -8,15 +8,22 @@
 # writes its PID to a well-known file, and returns immediately so the runner
 # can move on. A later stop-live-push.sh reads the PID file and tears it down.
 #
+# Run AFTER bulk-load-historical-to-bn1.sh, which handles the "historical"
+# half of step 9 by copying wrapped blocks directly into BN1's historic
+# storage (bypassing the live publish/gRPC stream entirely — that pipeline is
+# a single-slot-per-block-number race meant for freshly-produced blocks, not
+# historical replay; see bulk-load-historical-to-bn1.sh's header for why).
+# This script only covers the "continue to move over" / live half.
+#
 # What the worker does:
 #   * Every LIVE_PUSH_POLL_SECONDS seconds, run `blocks push` (the new wrb-cli
 #     subcommand) against the wrappedBlocks output directory that
 #     install-and-run-wrb-cli.sh / start-live-wrap.sh are writing into,
 #     targeting BN1. `blocks push` re-queries BN1's lastAvailableBlock and the
 #     local blockStreamBlockHashes.bin watermark on every invocation and only
-#     pushes the gap, so the first iteration backfills everything wrapped so
-#     far (the "historical" half of step 9) and later iterations push whatever
-#     has been wrapped since (the "continue to move over" / live half).
+#     pushes the gap — since the historical backlog is already on BN1 via
+#     bulk-load by the time this runs, that gap is just whatever `blocks wrap`
+#     has produced since.
 #   * Continues until stop-live-push.sh signals it or `blocks push` hard-fails
 #     LIVE_PUSH_MAX_CONSECUTIVE_FAILURES times in a row.
 #

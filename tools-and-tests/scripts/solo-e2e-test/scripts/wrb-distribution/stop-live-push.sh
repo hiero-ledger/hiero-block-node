@@ -55,4 +55,10 @@ rm -f "${PID_FILE}"
 
 log "Tail of ${LOG_FILE}:"
 tail -30 "${LOG_FILE}" 2>/dev/null | sed 's/^/  /' || true
+
+# The outer loop's echoes above only say whether `blocks push` exited 0; its
+# own stdout/stderr (e.g. "[push] Pushing blocks X..Y" or "[push] No wrapped
+# blocks found") is separately redirected to this file inside the loop body.
+log "Tail of /tmp/wrb-dist-live-push.log ('blocks push' subprocess output):"
+tail -60 /tmp/wrb-dist-live-push.log 2>/dev/null | sed 's/^/  /' || true
 log "Live push stopped."
