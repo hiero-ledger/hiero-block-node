@@ -1,0 +1,579 @@
+# SPDX-License-Identifier: Apache-2.0
+name: E2E Node Operator Lifecycle
+
+# End-to-end block-node operator lifecycle via solo-provisioner (the solo-weaver CLI): install (base
+# GA/RC) -> push 0-2 -> verify -> upgrade (snapshot) -> verify + push 3-4 -> reset -> push 0-4 ->
+# uninstall. No consensus node; blocks are replayed from fixtures by BlockNodeE2EClient. Base and
+# snapshot are both assumed 0.37+ (chart's application-state volume), so the upgrade is a plain
+# `helm upgrade` on chart defaults.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base-version:
+        description: "Base BN version to install (default: latest published GA/RC)."
+        required: false
+        default: ""
+      snapshot-version:
+        description: "Snapshot version to upgrade to (default: version.txt)"
+        required: false
+        default: ""
+      build-image:
+        description: "Build the snapshot image locally (true) or pull a published one (false)"
+        required: false
+        default: "true"
+      plugin-profile:
+        description: "Which plugin profile to install (lfh = local-file-historic, rfh = remote-file-historic, all)"
+        type: choice
+        default: "lfh"
+        options:
+          - lfh
+          - rfh
+          - all
+        required: false
+      solo-provisioner-version:
+        description: "solo-provisioner (solo-weaver) release tag to install (e.g. v0.21.0). Bump as needed."
+        required: false
+        # Pinned to v0.21.0: v0.22.0+ install unconditionally installs a tc-egress systemd service that
+        # fails on the systemd-less CI runner (hashgraph/solo-weaver#915). Re-bump once an opt-out lands.
+        default: "v0.21.0"
+  schedule:
+    # Nightly Mon-Fri 04:00 UTC (offset from the solo-e2e scheduler at 06:00).
+    - cron: "0 4 * * 1-5"
+  pull_request:
+    paths:
+      - ".github/workflows/e2e-node-operator.yaml"
+      - "block-node/app/**"
+      - "block-node/app-config/**"
+      - "charts/**"
+      - "protobuf-sources/**"
+      - "tools-and-tests/scripts/e2e-node-operator/**"
+      - "tools-and-tests/scripts/node-operations/**"
+      - "tools-and-tests/suites/src/main/java/**/e2e/**"
+      - "version.txt"
+
+defaults:
+  run:
+    # -x traces every command to the run log; -u is omitted so unset optional vars don't abort steps.
+    shell: bash --noprofile --norc -e -x -o pipefail {0}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-node-operator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-node-operator-test:
+    name: E2E Node Operator Lifecycle Test
+    runs-on: hl-bn-lin-lg
+    timeout-minutes: 60
+    env:
+      # solo-provisioner defaults — its upgrade reality-checker resolves the deployed release against the
+      # profile default "block-node"; custom namespace/release fail to resolve on upgrade ("not deployed").
+      NAMESPACE: block-node
+      CLUSTER_NAME: operator-test
+      RELEASE: block-node
+      SERVER_PORT: "40840"
+      PROTO_PATH: protobuf-sources/proto
+      BLOCKS_DIR: /tmp/test-blocks
+      # Local OCI registry the snapshot chart is pushed to (solo-provisioner is locked down and won't
+      # take a local chart path). Reachable from the runner host where solo-provisioner runs.
+      CHART_REGISTRY: localhost:5001
+      # Pinned solo-provisioner (solo-weaver) release for reproducible runs. workflow_dispatch can override
+      # via the solo-provisioner-version input; schedule/pull_request fall back to this default.
+      SOLO_PROVISIONER_VERSION: ${{ inputs.solo-provisioner-version || 'v0.21.0' }}
+    steps:
+      # ── PHASE 0: Setup ─────────────────────────────────────────────────────
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: "25.0.2"
+          # Cache Gradle dependencies/wrapper to speed up the image + jar builds.
+          cache: gradle
+
+      - name: Set up Helm
+        uses: Azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          # Pin to Helm 3.x — solo cannot parse Helm 4.x install output.
+          version: v3.14.4
+
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          cluster_name: operator-test
+          node_image: kindest/node:v1.31.4@sha256:2cb39f7295fe7eafee0842b1052a599a4fb0f8bcf3f83d96c7f4864c357c6c30
+          version: v0.26.0
+          kubectl_version: v1.31.4
+
+      - name: Export KUBECONFIG for sudo solo-provisioner
+        run: |
+          # solo-provisioner runs under sudo (root), whose default kubeconfig differs from the runner
+          # user's. Pin KUBECONFIG so each `sudo KUBECONFIG="$KUBECONFIG" solo-provisioner ...` finds the
+          # kind cluster.
+          echo "KUBECONFIG=${KUBECONFIG:-$HOME/.kube/config}" >> "$GITHUB_ENV"
+
+      - name: Start local OCI registry (for the snapshot chart)
+        run: docker run -d --restart=always -p 5001:5000 --name kind-registry registry:2
+
+      - name: Start cloud-provider-kind (assign LoadBalancer external IPs)
+        run: |
+          # solo-provisioner makes the BN Service type LoadBalancer, but kind has no LB controller, so the
+          # external IP stays <pending> and helm --wait --atomic times out. cloud-provider-kind assigns LB
+          # IPs from the kind docker network so --wait completes. Runs in background.
+          URL=$(curl -fsSL -H "Authorization: Bearer ${{ github.token }}" \
+            https://api.github.com/repos/kubernetes-sigs/cloud-provider-kind/releases/latest \
+            | grep browser_download_url | grep -E 'linux_amd64\.tar\.gz"' | head -1 | cut -d'"' -f4)
+          echo "cloud-provider-kind asset: ${URL}"
+          curl -fsSL "${URL}" | sudo tar -xz -C /usr/local/bin cloud-provider-kind
+          sudo cloud-provider-kind > /tmp/cloud-provider-kind.log 2>&1 &
+          sleep 3
+          echo "cloud-provider-kind started (pid groups): $(pgrep -f cloud-provider-kind || true)"
+
+      - name: Install solo-provisioner
+        run: |
+          # Pin both the installer and the binary to SOLO_PROVISIONER_VERSION: fetch install.sh from the
+          # version tag, and pass the tag as the positional arg (install.sh otherwise defaults to latest).
+          # solo-provisioner is Ubuntu-only and installs to a system path (needs sudo).
+          curl -sSL "https://raw.githubusercontent.com/hashgraph/solo-weaver/${SOLO_PROVISIONER_VERSION}/install.sh" \
+            | bash -s -- "${SOLO_PROVISIONER_VERSION}"
+          sudo solo-provisioner --version || true
+
+      - name: Install grpcurl + jq
+        run: |
+          curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.9.1/grpcurl_1.9.1_linux_x86_64.tar.gz -o grpcurl.tar.gz
+          sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
+          rm grpcurl.tar.gz
+          sudo apt-get update -qq && sudo apt-get install -y jq netcat-openbsd
+
+      - name: Install crane
+        run: |
+          # crane pulls a single-platform image archive; a plain `kind load docker-image` fails on the
+          # multi-arch manifest list (containerd image store). See the base-image load step.
+          curl -sSL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin crane
+          crane version
+
+      - name: Fetch proto sources (released bundle; build fallback)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # PROTO_PATH is used only by grpcurl. Download the published proto bundle for the latest release
+          # (grpcurl reads only stable core fields, so it decodes both BN versions); build from source if
+          # the download fails.
+          mkdir -p "${PROTO_PATH}"
+          PROTO_VER=$(gh release list --repo hiero-ledger/hiero-block-node --exclude-drafts --limit 20 \
+            --json tagName \
+            --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-rc[0-9.]+)?$"))] | first | .tagName | ltrimstr("v")')
+          URL="https://github.com/hiero-ledger/hiero-block-node/releases/download/v${PROTO_VER}/block-node-protobuf-${PROTO_VER}.tgz"
+          if [[ -n "${PROTO_VER}" ]] && curl -fsSL "${URL}" -o /tmp/proto.tgz; then
+            tar -xzf /tmp/proto.tgz -C "${PROTO_PATH}"
+            echo "Fetched proto bundle ${PROTO_VER} from release"
+          else
+            echo "::warning::proto release download failed (${URL:-<no release version>}); building from source"
+            ./gradlew :protobuf-sources:generateBlockNodeProtoArtifact
+            PROTO_FILE=$(ls protobuf-sources/block-node-protobuf-*.tgz 2>/dev/null | head -1)
+            if [[ -z "${PROTO_FILE}" ]]; then echo "::error::No protobuf artifact found"; exit 1; fi
+            tar -xzf "${PROTO_FILE}" -C "${PROTO_PATH}"
+          fi
+          # Sanity: the protos grpcurl imports must be present.
+          ls "${PROTO_PATH}/block-node/api/node_service.proto" "${PROTO_PATH}/block-node/api/block_access_service.proto"
+
+      - name: Determine versions
+        id: versions
+        run: |
+          if [[ -n "${{ inputs.base-version }}" ]]; then
+            BASE="${{ inputs.base-version }}"
+          else
+            # Latest published GA/RC tag — must be older than the snapshot (version.txt) and 0.37+ (the
+            # chart's application-state volume, so no state-volume-rename handling on upgrade). Both hold
+            # as long as version.txt stays above the latest RC.
+            BASE=$(gh release list --repo hiero-ledger/hiero-block-node --exclude-drafts --limit 20 \
+              --json tagName \
+              --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-rc[0-9.]+)?$"))] | first | .tagName | ltrimstr("v")')
+          fi
+          if [[ -n "${{ inputs.snapshot-version }}" ]]; then
+            SNAP="${{ inputs.snapshot-version }}"
+          else
+            SNAP=$(cat version.txt)
+          fi
+          echo "BASE_VERSION=${BASE}" >> "$GITHUB_OUTPUT"
+          echo "SNAP_VERSION=${SNAP}" >> "$GITHUB_OUTPUT"
+          echo "Installing ${BASE}; upgrading to ${SNAP}"
+
+          # Plugin profile -> comma-separated plugin names the seed-plugins init container keeps.
+          # all -> empty (keep every baked plugin). lfh/rfh -> read plugins.names from the profile file.
+          # (grep the names: line so a malformed first line in the profile file doesn't break parsing.)
+          PROFILE="${{ inputs.plugin-profile }}"; PROFILE="${PROFILE:-lfh}"
+          case "${PROFILE}" in
+            all) NAMES="" ;;
+            lfh|rfh)
+              NAMES=$(grep -m1 'names:' "charts/block-node-server/values-overrides/plugin-profile-${PROFILE}.yaml" \
+                | sed -E 's/.*names:[[:space:]]*"?([^"]*)"?.*/\1/') ;;
+            *) echo "::error::unknown plugin-profile '${PROFILE}'"; exit 1 ;;
+          esac
+          echo "PLUGIN_NAMES=${NAMES}" >> "$GITHUB_OUTPUT"
+          echo "Plugin profile: ${PROFILE} -> ${NAMES:-<all>}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Pull + load base image into kind
+        run: |
+          BASE="${{ steps.versions.outputs.BASE_VERSION }}"
+          # crane loads a published *multi-arch* image into kind as a single-platform archive; a plain
+          # `kind load docker-image` fails on the manifest list (containerd image store keeps all arches).
+          # We load the -solo-dev variant (plugins baked) so the chart skips the maven resolve-plugins init.
+          crane pull --platform linux/amd64 "ghcr.io/hiero-ledger/hiero-block-node-solo-dev:${BASE}" /tmp/base-image.tar
+          kind load image-archive /tmp/base-image.tar --name "${CLUSTER_NAME}"
+
+      - name: Build + load snapshot image into kind
+        run: |
+          SNAP="${{ steps.versions.outputs.SNAP_VERSION }}"
+          # Load the -solo-dev image variant (plugins baked) so the chart skips the maven resolve-plugins
+          # init container; see solo-ci-values.yaml.
+          if [[ "${{ inputs.build-image }}" == "false" ]]; then
+            # Published image is multi-arch — use crane + image-archive (see the base-image step).
+            crane pull --platform linux/amd64 "ghcr.io/hiero-ledger/hiero-block-node-solo-dev:${SNAP}" /tmp/snapshot-image.tar
+            kind load image-archive /tmp/snapshot-image.tar --name "${CLUSTER_NAME}"
+          else
+            # Locally built image is single-arch, so kind load docker-image works directly.
+            # createDockerImage bakes plugins (it depends on prepareDockerPlugins) and builds both the
+            # barebone and -solo-dev variants; we load solo-dev.
+            ./gradlew :app:createDockerImage
+            docker tag "block-node-server-solo-dev:${SNAP}" "ghcr.io/hiero-ledger/hiero-block-node-solo-dev:${SNAP}"
+            kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node-solo-dev:${SNAP}" --name "${CLUSTER_NAME}"
+          fi
+
+      - name: Package + push snapshot chart to local OCI registry
+        run: |
+          SNAP="${{ steps.versions.outputs.SNAP_VERSION }}"
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm dependency update charts/block-node-server
+          mkdir -p /tmp/chart
+          helm package charts/block-node-server --version "${SNAP}" --app-version "${SNAP}" -d /tmp/chart
+          # --plain-http: the local registry is HTTP, so solo-provisioner also pulls the snapshot chart over
+          # plain-http for the oci://localhost ref on upgrade (confirmed working).
+          helm push "/tmp/chart/block-node-server-${SNAP}.tgz" \
+            "oci://${CHART_REGISTRY}/hiero-ledger/hiero-block-node" --plain-http
+
+      - name: Build BlockNodeE2EClient fat-jar
+        run: ./gradlew :suites:blockPusherJar
+
+      - name: Extract test blocks 0-4
+        run: |
+          mkdir -p "${BLOCKS_DIR}"
+          SRC=block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS
+          for i in 0 1 2 3 4; do
+            cp "${SRC}/${i}.blk.gz" "${BLOCKS_DIR}/"
+            gunzip -f "${BLOCKS_DIR}/${i}.blk.gz"
+          done
+          ls -l "${BLOCKS_DIR}"
+
+      # ── PHASE 1: Install (base version) ────────────────────────────────────
+      - name: Install block node (base version)
+        run: |
+          # helm --atomic DELETES the release on timeout, wiping evidence before the diagnostics step. Watch
+          # pod/PVC/events DURING install to capture why it never goes Ready. Remove once install is green.
+          ( for i in $(seq 1 24); do
+              echo "===== watch t=$((i*15))s ====="
+              # helm --wait blocks until pods/pvc/svc/statefulset/endpoints are all ready — show them all.
+              kubectl get pods,pvc,svc,statefulset,endpoints -n "${NAMESPACE}" -o wide 2>/dev/null || true
+              # StatefulSet status fields helm actually checks (ready/updated replicas + revisions).
+              kubectl get statefulset -n "${NAMESPACE}" -o jsonpath='{range .items[*]}STS {.metadata.name} ready={.status.readyReplicas}/{.status.replicas} updated={.status.updatedReplicas} curRev={.status.currentRevision} updRev={.status.updateRevision}{"\n"}{end}' 2>/dev/null || true
+              kubectl get events -n "${NAMESPACE}" --sort-by=.lastTimestamp 2>/dev/null | tail -15 || true
+              # All containers incl. init (seed-plugins/init-storage-dirs) — slow boot vs crashing container.
+              kubectl logs -n "${NAMESPACE}" "${RELEASE}-block-node-server-0" --all-containers=true --prefix --tail=20 2>/dev/null || true
+              sleep 15
+            done ) &
+          WATCH_PID=$!
+
+          # Render CI values for this phase (image tag + plugin profile); volumes use chart defaults.
+          sed -e "s/__BN_TAG__/${{ steps.versions.outputs.BASE_VERSION }}/g" \
+              -e "s/__PLUGIN_NAMES__/${{ steps.versions.outputs.PLUGIN_NAMES }}/g" \
+            tools-and-tests/scripts/e2e-node-operator/solo-ci-values.yaml > /tmp/solo-ci-values-base.yaml
+
+          set +e
+          # --load-balancer-enabled=false is required: the local profile forces it true regardless of the
+          # values file, creating a LoadBalancer Service that never gets an IP in kind → helm --wait hangs.
+          sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node install \
+            --profile=local --namespace="${NAMESPACE}" --non-interactive \
+            --load-balancer-enabled=false \
+            --config=tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml \
+            --values=/tmp/solo-ci-values-base.yaml \
+            --chart-version="${{ steps.versions.outputs.BASE_VERSION }}"
+          RC=$?
+          set -e
+
+          kill "${WATCH_PID}" 2>/dev/null || true
+          # Final snapshot + describe of any block-node pod that survived (best-effort; atomic may have
+          # already torn it down).
+          echo "===== post-install snapshot (rc=${RC}) ====="
+          kubectl get pods,pvc,svc,statefulset,endpoints -n "${NAMESPACE}" -o wide 2>/dev/null || true
+          kubectl describe statefulset -n "${NAMESPACE}" 2>/dev/null || true
+          kubectl describe pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=${RELEASE}" 2>/dev/null || true
+          exit "${RC}"
+
+      - name: Wait for BN ready + port-forward
+        run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
+
+      # ── PHASE 2: Push bootstrap blocks 0-2 ─────────────────────────────────
+      - name: Push blocks 0-2
+        run: |
+          SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
+            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk,${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk" \
+            java -jar tools-and-tests/suites/build/libs/block-pusher.jar
+
+      # ── PHASE 3: Verify (post-install) ─────────────────────────────────────
+      - name: Verify after install (blocks 0-2)
+        run: |
+          source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
+          assert_range 0 2
+          assert_get_block 0
+          assert_get_block 2
+          # Confirm a subscriber can attach and drain the bounded range over the raw gRPC endpoint.
+          assert_subscribe 0 2
+          SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=SUBSCRIBE BN_E2E_START_BLOCK=0 BN_E2E_EXPECT_COUNT=3 \
+            java -jar tools-and-tests/suites/build/libs/block-pusher.jar
+          bash tools-and-tests/scripts/node-operations/bn-endpoint-checker.sh "localhost:${SERVER_PORT}" || true
+
+      # Confirm the base BN persisted tss-parameters.bin to the state PVC after verifying block 0 — the
+      # verification plugin reloads it on init(), so it must survive on the retained PVC for the upgrade.
+      - name: Inspect TSS parameter persistence after install
+        run: |
+          POD="${RELEASE}-block-node-server-0"
+          echo "::group::State mount contents on the running base pod"
+          # 0.37+ mounts the state PVC at /opt/hiero/block-node/application-state; tss-parameters.bin lives here.
+          kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
+            sh -c 'ls -la /opt/hiero/block-node/application-state 2>&1 || true'
+          echo "::endgroup::"
+          echo "::group::Verification persist/load + block-0 log lines (base install pod)"
+          kubectl logs -n "${NAMESPACE}" "${POD}" -c block-node-server 2>/dev/null \
+            | grep -iE "Persisted TSS|Loaded TSS|tssParametersFilePath|block=0|Verification (failed|succe)" || echo "(no matching log lines)"
+          echo "::endgroup::"
+
+      # ── PHASE 4: Upgrade (base -> snapshot) + continued ingestion ──────────
+      # Base and snapshot are both 0.37+, so the state volume (application-state) is stable and this is a
+      # plain `helm upgrade` — no StatefulSet surgery. Block + state data (incl. tss-parameters.bin) carry
+      # across via solo-provisioner's provisioner-owned hostPath existingClaims (outlive the StatefulSet).
+      - name: Upgrade to snapshot version
+        run: |
+          # Point the chart ref at the local OCI registry (snapshot pushed above). --no-reuse-values
+          # re-applies the CI values (solo-provisioner reuses prior values by default).
+          sed "s#oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server#oci://${CHART_REGISTRY}/hiero-ledger/hiero-block-node/block-node-server#" \
+            tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml > /tmp/solo-ci-config-snapshot.yaml
+          # Render CI values for the snapshot phase (image tag + plugin profile); volumes use chart defaults.
+          sed -e "s/__BN_TAG__/${{ steps.versions.outputs.SNAP_VERSION }}/g" \
+              -e "s/__PLUGIN_NAMES__/${{ steps.versions.outputs.PLUGIN_NAMES }}/g" \
+            tools-and-tests/scripts/e2e-node-operator/solo-ci-values.yaml > /tmp/solo-ci-values-snap.yaml
+          # --namespace AND --release-name are both required: solo-provisioner records an empty ReleaseInfo
+          # after install, so without them upgrade reports "block node is not deployed".
+          sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node upgrade \
+            --profile=local --namespace="${NAMESPACE}" --release-name="${RELEASE}" --non-interactive \
+            --no-reuse-values --load-balancer-enabled=false \
+            --config=/tmp/solo-ci-config-snapshot.yaml \
+            --values=/tmp/solo-ci-values-snap.yaml \
+            --chart-version="${{ steps.versions.outputs.SNAP_VERSION }}"
+
+      - name: Wait for BN ready + port-forward (post-upgrade)
+        run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
+
+      # Confirm the upgraded pod seeded only the snapshot's plugins (no stale base-version verification jar),
+      # reads /application-state, and loaded the base-persisted tss-parameters.bin so new TSS blocks verify.
+      - name: Inspect plugins + TSS state after upgrade
+        run: |
+          POD="${RELEASE}-block-node-server-0"
+          echo "::group::Seeded plugins on the upgraded pod (expect exactly one verification-*.jar)"
+          # Anchor '^verification-': don't count the separate block-verification plugin — just the one
+          # 'verification' jar.
+          kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
+            sh -c 'ls -1 /opt/hiero/block-node/app-*/plugins | grep -E "^verification-.*\.jar$" || true'
+          echo "::endgroup::"
+          echo "::group::State mount + TSS path/load on the upgraded 0.37 pod"
+          kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
+            sh -c 'ls -la /opt/hiero/block-node/application-state 2>&1 || true'
+          kubectl logs -n "${NAMESPACE}" "${POD}" -c block-node-server 2>/dev/null \
+            | grep -iE "verification.tssParametersFilePath|Loaded TSS|Persisted TSS" || echo "(no matching log lines)"
+          echo "::endgroup::"
+
+      - name: Verify blocks survived upgrade (0-2)
+        run: |
+          source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
+          assert_range 0 2
+
+      - name: Push blocks 3-4 (post-upgrade ingestion)
+        run: |
+          SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
+            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
+            java -jar tools-and-tests/suites/build/libs/block-pusher.jar
+
+      - name: Verify ingestion after upgrade (0-4)
+        run: |
+          source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
+          assert_range 0 4
+          assert_get_block 3
+          assert_get_block 4
+          # Confirm subscribe still works on the upgraded (snapshot) node across the full range.
+          assert_subscribe 0 4
+
+      # ── PHASE 5: Reset -> re-push full set 0-4 ─────────────────────────────
+      - name: Reset via solo-provisioner
+        run: |
+          # --namespace/--release-name: solo-provisioner's state ReleaseInfo is empty, so it can't resolve
+          # the deployed release without them. On v0.21.0 reset does NOT clear storage on the local profile
+          # (block files survive on the retained PVCs), so the manual-clear step below brings the node to the
+          # empty state reset is meant to produce.
+          # --load-balancer-enabled=false: the local profile otherwise defaults it true, which hangs
+          # helm --wait in kind (no external IP).
+          sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node reset \
+            --profile=local --namespace="${NAMESPACE}" --release-name="${RELEASE}" --non-interactive \
+            --load-balancer-enabled=false \
+            --config=tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml
+
+      # WORKAROUND (v0.21.0 reset doesn't purge storage on the local profile): wipe block data and restart
+      # the pod so it rescans empty storage and serverStatus reports uint64 -1. tss-parameters.bin is left in
+      # place so the re-push of 0-4 verifies without re-bootstrapping TSS. Remove once we can move to a
+      # provisioner version whose reset clears storage AND installs without the tc-egress systemd step
+      # (hashgraph/solo-weaver#915).
+      - name: Manually clear BN block stores (workaround — reset does not purge on local profile)
+        run: |
+          POD="${RELEASE}-block-node-server-0"
+          kubectl wait pod -n "${NAMESPACE}" "${POD}" --for=condition=Ready --timeout=120s
+          kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
+            sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/* 2>/dev/null || true; \
+                   echo "block files remaining: $(find /opt/hiero/block-node/data/live /opt/hiero/block-node/data/historic -type f 2>/dev/null | wc -l)"'
+          kubectl delete pod -n "${NAMESPACE}" "${POD}" --wait=true
+
+      - name: Wait for BN ready + port-forward (post-reset)
+        run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
+
+      # Diagnostic only (never fails the job): confirm the node is empty after the manual clear — no block
+      # files and serverStatus uint64 -1. tss-parameters.bin is intentionally retained.
+      - name: Inspect storage after reset
+        run: |
+          POD="${RELEASE}-block-node-server-0"
+          echo "::group::Block data dirs (live / historic)"
+          kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
+            sh -c 'echo "== data/live =="; ls -laR /opt/hiero/block-node/data/live 2>&1 | head -40; \
+                   echo "== data/historic =="; ls -laR /opt/hiero/block-node/data/historic 2>&1 | head -40' || true
+          echo "::endgroup::"
+          echo "::group::application-state dir + block-ranges.json"
+          kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
+            sh -c 'ls -la /opt/hiero/block-node/application-state 2>&1; \
+                   echo "== block-ranges.json =="; cat /opt/hiero/block-node/application-state/block-ranges.json 2>&1 || true; \
+                   echo "== tss-parameters.bin present? =="; ls -la /opt/hiero/block-node/application-state/tss-parameters.bin 2>&1 || true' || true
+          echo "::endgroup::"
+          echo "::group::serverStatus as reported now"
+          grpcurl -plaintext -import-path "${PROTO_PATH}" -proto block-node/api/node_service.proto \
+            "localhost:${SERVER_PORT}" org.hiero.block.api.BlockNodeService/serverStatus || true
+          echo "::endgroup::"
+
+      - name: Assert empty state after reset
+        run: |
+          source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
+          # A fresh BN reports uint64 -1 (18446744073709551615) for both range fields.
+          assert_range 18446744073709551615 18446744073709551615
+
+      - name: Re-push full set 0-4 and verify
+        run: |
+          source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
+          SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
+            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk,${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk,${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
+            java -jar tools-and-tests/suites/build/libs/block-pusher.jar
+          assert_range 0 4
+          # Confirm subscribe works against the freshly re-populated store over the raw gRPC endpoint.
+          assert_subscribe 0 4
+          SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=SUBSCRIBE BN_E2E_START_BLOCK=0 BN_E2E_EXPECT_COUNT=5 \
+            java -jar tools-and-tests/suites/build/libs/block-pusher.jar
+
+      # ── PHASE 6: Uninstall ─────────────────────────────────────────────────
+      - name: Uninstall via solo-provisioner
+        run: |
+          # --namespace/--release-name as on upgrade/reset (empty state ReleaseInfo cannot resolve the
+          # deployed release otherwise).
+          sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node uninstall \
+            --profile=local --namespace="${NAMESPACE}" --release-name="${RELEASE}" --non-interactive \
+            --purge-storage
+
+      - name: Assert clean teardown
+        run: |
+          NAME="${RELEASE}-block-node-server"
+          if kubectl get statefulset -n "${NAMESPACE}" 2>/dev/null | grep -q "${NAME}"; then
+            echo "::error::${NAME} statefulset still present after uninstall"; exit 1
+          fi
+          if kubectl get svc -n "${NAMESPACE}" 2>/dev/null | grep -q "${NAME}"; then
+            echo "::error::${NAME} service still present after uninstall"; exit 1
+          fi
+          echo "Teardown clean"
+
+      # ── Always: diagnostics ────────────────────────────────────────────────
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          kubectl logs -l app.kubernetes.io/name=block-node-server -n "${NAMESPACE}" --tail=500 || true
+          kubectl describe pods -n "${NAMESPACE}" || true
+          kubectl get statefulset -n "${NAMESPACE}" -o yaml || true
+          kubectl get pvc -n "${NAMESPACE}" || true
+          helm list -n "${NAMESPACE}" || true
+          cat /tmp/bn-pf.log 2>/dev/null || true
+
+      # Capture the BN store (blocks, logs, config, reported state) as an artifact for post-mortem. The pod
+      # survives push/verify/upgrade/reset failures (only install's --atomic rollback deletes it → skipped).
+      - name: Collect BN store + serverStatus
+        if: always()
+        run: |
+          set +e
+          mkdir -p bn-artifact
+          POD=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=block-node-server \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+          if [ -z "${POD}" ]; then
+            echo "No BN pod present (install --atomic rollback?); nothing to collect" | tee bn-artifact/NO_POD.txt
+            exit 0
+          fi
+          echo "Collecting from pod ${POD}"
+          # The block range the BN reports (the thing we keep wanting to see). Needs the port-forward, which
+          # is still running for any post-install failure.
+          grpcurl -plaintext -emit-defaults -import-path "${PROTO_PATH}" -proto block-node/api/node_service.proto \
+            -d '{}' "localhost:${SERVER_PORT}" org.hiero.block.api.BlockNodeService/serverStatus \
+            > bn-artifact/serverStatus.json 2>&1
+          echo "=== serverStatus ===" && cat bn-artifact/serverStatus.json
+          # Full container logs (stdout) + the store. zip is not in the image, so cp to the runner then zip;
+          # exclude the heavy app jars/plugins so the artifact stays small (we want blocks/logs/config).
+          kubectl logs -n "${NAMESPACE}" "${POD}" --all-containers --timestamps --prefix --tail=-1 \
+            > bn-artifact/bn-stdout.log 2>&1
+          kubectl cp "${NAMESPACE}/${POD}:/opt/hiero/block-node" ./bn-store 2>/dev/null
+          zip -r bn-artifact/bn-store.zip ./bn-store -x '*/app-*/lib/*' '*/app-*/plugins/*' >/dev/null 2>&1
+          ls -lhR bn-artifact | head -40
+
+      - name: Upload BN store + logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bn-store-and-logs
+          path: bn-artifact/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # Tear down everything this run created (kind cluster, local registry, cloud-provider-kind, leftover
+      # release) so nothing accumulates on the persistent self-hosted runner. Best-effort (|| true).
+      - name: Cleanup (always)
+        if: always()
+        run: |
+          sudo solo-provisioner block node uninstall --profile=local --namespace="${NAMESPACE}" \
+            --release-name="${RELEASE}" --non-interactive --purge-storage 2>/dev/null || true
+          kind delete cluster --name "${CLUSTER_NAME}" || true
+          docker rm -f kind-registry || true
+          sudo pkill -f cloud-provider-kind || true
+          echo "cleanup complete"

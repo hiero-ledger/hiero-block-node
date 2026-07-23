@@ -100,15 +100,14 @@ mainModuleInfo {
 // Authoritative list of block node plugins. When adding a new plugin, add it here
 // and in testModuleInfo below. See docs/block-node/architecture/plugins.md for details.
 
-val blockNodePlugins: Configuration by
-    configurations.creating {
-        // Other projects (e.g. suites) can depend on this configuration's artifacts
-        isCanBeConsumed = true
-        // This configuration can be resolved into actual jar files
-        isCanBeResolved = true
-        // Include transitive dependencies (e.g. gRPC, Helidon) alongside direct plugin jars
-        isTransitive = true
-    }
+val blockNodePlugins: Configuration by configurations.creating {
+    // Other projects (e.g. suites) can depend on this configuration's artifacts
+    isCanBeConsumed = true
+    // This configuration can be resolved into actual jar files
+    isCanBeResolved = true
+    // Include transitive dependencies (e.g. gRPC, Helidon) alongside direct plugin jars
+    isTransitive = true
+}
 
 // If you want to test locally with a new plugin or without some plugins, comment or add them here.
 dependencies {
@@ -290,6 +289,10 @@ val prepareDockerPlugins =
                 .forEach { jar -> jar.copyTo(File(outputDir, jar.name), overwrite = true) }
         }
     }
+
+// The solo-dev image stage bakes plugins (Dockerfile `COPY ./plugins`); prepare them before the
+// image build so it isn't shipped with an empty plugins dir. Only affects the solo-dev stage.
+createDockerImage.configure { dependsOn(prepareDockerPlugins) }
 
 tasks.register<Exec>("startDockerContainer") {
     description = "Starts the docker container of the Block Node Server for the current version"

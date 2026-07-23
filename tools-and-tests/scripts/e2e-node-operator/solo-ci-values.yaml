@@ -1,0 +1,111 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Helm value overrides for the E2E node-operator lifecycle test in CI (kind), passed to
+# solo-provisioner via --values (add --no-reuse-values on `upgrade`). The workflow sed-replaces two
+# placeholders per phase: __BN_TAG__ (base/snapshot version) and __PLUGIN_NAMES__ (profile plugins to
+# keep; empty = keep all). Sized for a single-node kind cluster with no consensus node.
+#
+# Uses the solo-dev image (all plugins baked in) with plugins.names: "" to skip the chart's Maven
+# resolve-plugins init container, whose ~4-min cold resolve blows solo-provisioner's hard-coded 5-min
+# `helm install --atomic` timeout (upstream: hashgraph/solo-weaver#912). solo-provisioner still
+# force-mounts a managed plugins PVC read-only over the baked plugins dir (#913), so seed-plugins
+# copies them into that PVC below.
+#
+# Permissions: solo-provisioner backs PVCs with root-owned hostPath PVs and fsGroup is not honored, so
+# root init containers must chown the data dirs and own the plugins dir.
+image:
+  repository: ghcr.io/hiero-ledger/hiero-block-node-solo-dev
+  tag: "__BN_TAG__"
+plugins:
+  names: ""
+
+resources:
+  requests:
+    cpu: "1"
+    memory: "2Gi"
+  limits:
+    cpu: "2"
+    memory: "3Gi"
+
+blockNode:
+  config:
+    # Real verification against the real fixture blocks (CN_0_73_TSS_WRAPS), whose chain starts at
+    # block 0 with the embedded TSS bootstrap. JAVA_OPTS sized for the kind envelope; SERVER_PORT
+    # inherits the chart default.
+    JAVA_OPTS: "-Xms1G -Xmx2G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/dump.hprof"
+  # Relax liveness so a cold BN boot in kind isn't killed before it binds :40840.
+  health:
+    liveness:
+      initialDelaySeconds: 120
+      failureThreshold: 6
+    readiness:
+      initialDelaySeconds: 15
+  # Replaces the chart's default init list (lists replace, not merge) to add seed-plugins. Both run as
+  # root: the hostPath PVC roots are root-owned and the BN runs as non-root 'hedera' (2000).
+  initContainers:
+    - name: init-storage-dirs
+      image: busybox
+      command:
+        - sh
+        - -c
+        - |
+          set -eux
+          # Chown/chmod the data/log/state PVCs to the BN (uid 2000): hostPath PVs are root-owned and
+          # fsGroup is not honored. live/archive use subPath; logs and state mount at the PVC root.
+          mkdir -p /live-pvc/live-data /archive-pvc/archive-data
+          chown -R 2000:2000 /live-pvc /archive-pvc /logs-pvc /state-pvc
+          chmod -R 777 /live-pvc /archive-pvc /logs-pvc /state-pvc
+          ls -ln /live-pvc /archive-pvc /logs-pvc /state-pvc
+      volumeMounts:
+        - name: live-storage
+          mountPath: /live-pvc
+        - name: archive-storage
+          mountPath: /archive-pvc
+        - name: logging-storage
+          mountPath: /logs-pvc
+        - name: application-state-storage
+          mountPath: /state-pvc
+    - name: seed-plugins
+      image: ghcr.io/hiero-ledger/hiero-block-node-solo-dev:__BN_TAG__
+      securityContext:
+        runAsUser: 0
+      command:
+        - sh
+        - -c
+        - |
+          set -eux
+          # CLEAR FIRST: the plugins PVC persists across upgrades, so wipe it before seeding — otherwise a
+          # stale prior-version jar (e.g. old verification) is loaded next to the new one.
+          find /plugins-pvc -mindepth 1 -delete 2>/dev/null || true
+          # Run as root (PVC root is hostPath/root-owned); chmod a+rX so the non-root main container reads them.
+          cp -R /opt/hiero/block-node/app-*/plugins/. /plugins-pvc/
+          # Profile prune: solo-dev bakes ALL plugins and the BN loads every jar, so drop plugin jars
+          # (<name>-<ver>.jar) not in NAMES. Dependency jars have other versions and are kept; empty NAMES keeps all.
+          NAMES="__PLUGIN_NAMES__"
+          VER="__BN_TAG__"
+          if [ -n "${NAMES}" ]; then
+            for jar in /plugins-pvc/*-"${VER}".jar; do
+              [ -e "${jar}" ] || continue
+              base=$(basename "${jar}"); name=${base%-${VER}.jar}
+              case ",${NAMES}," in
+                *",${name},"*) ;;
+                *) echo "pruning plugin not in profile: ${name}"; rm -f "${jar}" ;;
+              esac
+            done
+          fi
+          chmod -R a+rX /plugins-pvc
+          echo "Plugins after profile prune (NAMES=${NAMES:-all}):" && ls -1 /plugins-pvc | wc -l && ls -1 /plugins-pvc
+      volumeMounts:
+        - name: plugins-storage
+          mountPath: /plugins-pvc
+  # Only PVC sizes are overridden; volume names/mounts/claims use the chart defaults. On 0.37+ the
+  # provisioner-owned state existingClaim persists across the upgrade (tss-parameters.bin + blocks intact).
+  persistence:
+    archive:
+      size: 1Gi
+    live:
+      size: 1Gi
+    logging:
+      size: 500Mi
+    applicationState:
+      size: 500Mi
