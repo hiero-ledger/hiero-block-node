@@ -370,7 +370,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
                     stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
             if (createDirectoryOrFail(verifiedBlockPath)) {
-                if (!writeBlockOrFail(block, blockNumber, verifiedBlockPath)) {
+                if (writeBlockOrFail(block, blockNumber, verifiedBlockPath)) {
+                    if (config.stagedBlockNotificationsEnabled()) {
+                        sendBlockNotification(blockNumber, true, source);
+                    }
+                } else {
                     sendBlockNotification(blockNumber, false, source);
                 }
             } else {
@@ -633,9 +637,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     plugin.totalZipFiles.incrementAndGet();
                     final String successMessage = "Successfully moved batch of blocks[{0} -> {1}] to zip file.";
                     plugin.LOGGER.log(DEBUG, successMessage, batchFirstBlockNumber, batchLastBlockNumber);
-                    // now all the blocks are in the zip file and accessible, send notification
-                    // @todo is this needed? Does anything actually care when a zip file is completed?
-                    plugin.sendBlockNotification(batchLastBlockNumber, true, BlockSource.HISTORY);
+                    // now all the blocks are in the zip file and accessible, send notification, unless
+                    // notifications were already sent per block as each one was staged
+                    if (!plugin.config.stagedBlockNotificationsEnabled()) {
+                        plugin.sendBlockNotification(batchLastBlockNumber, true, BlockSource.HISTORY);
+                    }
                     plugin.cleanup();
                 }
             } catch (final IOException e) {
