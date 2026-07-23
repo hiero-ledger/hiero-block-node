@@ -23,6 +23,7 @@ import java.io.UncheckedIOException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
@@ -68,6 +69,12 @@ public final class TssBlockSigner implements BlockSigner {
 
     private static final HintsLibraryBridge HINTS = HintsLibraryBridge.getInstance();
     private static final WRAPSLibraryBridge WRAPS = WRAPSLibraryBridge.getInstance();
+
+    /// Serializes access to the JVM-wide hinTS/WRAPS native singletons above. They are shared by every
+    /// signer instance and are not thread-safe, so the key ceremony (which resets the native cache) and
+    /// signing must never overlap across instances in one JVM — the multi-publisher suites run several
+    /// signers on separate threads in a single JVM.
+    private static final ReentrantLock NATIVE_LOCK = new ReentrantLock();
 
     private final byte[] crs;
     private final byte[] hintsVerificationKey;
@@ -139,19 +146,29 @@ public final class TssBlockSigner implements BlockSigner {
     /// roster this factory builds, so its ledger id and hinTS key match.
     @NonNull
     public static TssBlockSigner createDeterministicSettled() {
-        final Era era = buildEra(deterministicRandom());
-        return fromEra(era, loadCommittedWrapsProof());
+        NATIVE_LOCK.lock();
+        try {
+            final Era era = buildEra(deterministicRandom());
+            return fromEra(era, loadCommittedWrapsProof());
+        } finally {
+            NATIVE_LOCK.unlock();
+        }
     }
 
     private static TssBlockSigner create(final SecureRandom random) {
-        final Era era = buildEra(random);
-        // Genesis address-book proof: a 192-byte Schnorr aggregate over the rotation message
-        // `ledgerId || hashArray(hintsVerificationKey)`, which is exactly what TSS.verifyTSS rebuilds.
-        final byte[] rotationMessage =
-                concat(era.ledgerId(), require("hashArray", WRAPS.hashArray(era.hintsVerificationKey())));
-        final byte[] addressBookProof = aggregateSchnorr(
-                era.schnorr(), new byte[][] {era.schnorr().publicKey()}, rotationMessage, random32(random));
-        return fromEra(era, addressBookProof);
+        NATIVE_LOCK.lock();
+        try {
+            final Era era = buildEra(random);
+            // Genesis address-book proof: a 192-byte Schnorr aggregate over the rotation message
+            // `ledgerId || hashArray(hintsVerificationKey)`, which is exactly what TSS.verifyTSS rebuilds.
+            final byte[] rotationMessage =
+                    concat(era.ledgerId(), require("hashArray", WRAPS.hashArray(era.hintsVerificationKey())));
+            final byte[] addressBookProof = aggregateSchnorr(
+                    era.schnorr(), new byte[][] {era.schnorr().publicKey()}, rotationMessage, random32(random));
+            return fromEra(era, addressBookProof);
+        } finally {
+            NATIVE_LOCK.unlock();
+        }
     }
 
     /// Constructs the 704-byte compressed genesis WRAPS proof for the deterministic roster.
@@ -167,34 +184,39 @@ public final class TssBlockSigner implements BlockSigner {
                     "WRAPS proving artifacts unavailable; set TSS_LIB_WRAPS_ARTIFACTS_PATH to a directory containing"
                             + " decider_pp.bin/decider_vp.bin/nova_pp.bin/nova_vp.bin");
         }
-        final SecureRandom random = deterministicRandom();
-        final Era era = buildEra(random);
-        final byte[][] schnorrPublicKeys = {era.schnorr().publicKey()};
-        // The WRAPS proof's aggregate signature is over formatRotationMessage(roster, hintsVK).
-        final byte[] wrapsMessage = require(
-                "formatRotationMessage",
-                WRAPS.formatRotationMessage(schnorrPublicKeys, WEIGHTS, NODE_IDS, era.hintsVerificationKey()));
-        final byte[] aggregateSignature =
-                aggregateSchnorr(era.schnorr(), schnorrPublicKeys, wrapsMessage, random32(random));
-        // Genesis proof: prev == next == this roster, real hinTS VK, no previous proof.
-        final Proof proof = require(
-                "constructWrapsProof",
-                WRAPS.constructWrapsProof(
-                        era.ledgerId(),
-                        schnorrPublicKeys,
-                        WEIGHTS,
-                        NODE_IDS,
-                        schnorrPublicKeys,
-                        WEIGHTS,
-                        NODE_IDS,
-                        null,
-                        era.hintsVerificationKey(),
-                        aggregateSignature));
-        final byte[] compressed = proof.compressed();
-        if (compressed.length != COMPRESSED_WRAPS_PROOF_LENGTH) {
-            throw new IllegalStateException("unexpected compressed WRAPS proof length " + compressed.length);
+        NATIVE_LOCK.lock();
+        try {
+            final SecureRandom random = deterministicRandom();
+            final Era era = buildEra(random);
+            final byte[][] schnorrPublicKeys = {era.schnorr().publicKey()};
+            // The WRAPS proof's aggregate signature is over formatRotationMessage(roster, hintsVK).
+            final byte[] wrapsMessage = require(
+                    "formatRotationMessage",
+                    WRAPS.formatRotationMessage(schnorrPublicKeys, WEIGHTS, NODE_IDS, era.hintsVerificationKey()));
+            final byte[] aggregateSignature =
+                    aggregateSchnorr(era.schnorr(), schnorrPublicKeys, wrapsMessage, random32(random));
+            // Genesis proof: prev == next == this roster, real hinTS VK, no previous proof.
+            final Proof proof = require(
+                    "constructWrapsProof",
+                    WRAPS.constructWrapsProof(
+                            era.ledgerId(),
+                            schnorrPublicKeys,
+                            WEIGHTS,
+                            NODE_IDS,
+                            schnorrPublicKeys,
+                            WEIGHTS,
+                            NODE_IDS,
+                            null,
+                            era.hintsVerificationKey(),
+                            aggregateSignature));
+            final byte[] compressed = proof.compressed();
+            if (compressed.length != COMPRESSED_WRAPS_PROOF_LENGTH) {
+                throw new IllegalStateException("unexpected compressed WRAPS proof length " + compressed.length);
+            }
+            return compressed;
+        } finally {
+            NATIVE_LOCK.unlock();
         }
-        return compressed;
     }
 
     @NonNull
@@ -208,7 +230,9 @@ public final class TssBlockSigner implements BlockSigner {
         }
     }
 
-    /// Runs the one-time key ceremony (roster, hinTS CRS, keys) shared by every factory.
+    /// Runs the one-time key ceremony (roster, hinTS CRS, keys) shared by every factory. Callers hold
+    /// [#NATIVE_LOCK]; the `HINTS.resetCache()` here would corrupt an in-flight sign on the shared
+    /// native singleton otherwise.
     private static Era buildEra(final SecureRandom random) {
         HINTS.resetCache();
 
@@ -272,12 +296,18 @@ public final class TssBlockSigner implements BlockSigner {
     @NonNull
     public BlockProof signBlockProof(final long blockNumber, @NonNull final Bytes blockRootHash) {
         final byte[] message = blockRootHash.toByteArray();
-        final byte[] partialSignature = require("signBls", HINTS.signBls(message, blsSecretKey));
-        final byte[] hintsSignature = require(
-                "aggregateSignatures",
-                HINTS.aggregateSignatures(
-                        crs, aggregationKey, hintsVerificationKey, PARTIES, new byte[][] {partialSignature}));
-        final byte[] tssSignature = TSS.composeSignature(hintsVerificationKey, hintsSignature, addressBookProof);
+        final byte[] tssSignature;
+        NATIVE_LOCK.lock();
+        try {
+            final byte[] partialSignature = require("signBls", HINTS.signBls(message, blsSecretKey));
+            final byte[] hintsSignature = require(
+                    "aggregateSignatures",
+                    HINTS.aggregateSignatures(
+                            crs, aggregationKey, hintsVerificationKey, PARTIES, new byte[][] {partialSignature}));
+            tssSignature = TSS.composeSignature(hintsVerificationKey, hintsSignature, addressBookProof);
+        } finally {
+            NATIVE_LOCK.unlock();
+        }
         return BlockProof.newBuilder()
                 .block(blockNumber)
                 .signedBlockProof(TssSignedBlockProof.newBuilder()
