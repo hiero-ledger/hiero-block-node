@@ -58,7 +58,7 @@ These flows are illustrated in detail in the [Data Flow](data-flow.md) document.
 - **Block Management:** Block storage and access is managed by implementations of `BlockProviderPlugin` in cooperation
   with one implementation of the `HistoricalBlockFacility`. Together these aggregate multiple block providers and expose
   a unified view of available blocks.
-- **BlockVerification:** Blocks are verified for integrity using the `BlockVerificationServicePlugin` which builds the
+- **Block Verification:** Blocks are verified for integrity using the `BlockVerificationServicePlugin` which builds the
   virtual merkle tree and validates the block proof prior to persistence.
 
 ## Plugins
@@ -69,7 +69,11 @@ Key plugins include:
 - **BlockAccessServicePlugin:** Provides a block retrieval API.
 - **BlocksFilesHistoricPlugin:** Provides long term block persistence and retrieval.
 - **BlocksFilesRecentPlugin:** Provides short term block persistence and retrieval, with a retention policy to limit storage use and duration.
+- **CloudStorageArchivePlugin:** Archives blocks to cloud storage (replaces the deprecated S3-Archive plugin).
+- **CloudStorageExpandedPlugin:** Provides expanded cloud storage with additional access controls.
 - **HealthServicePlugin:** Provides kubernetes health check endpoints, additional status endpoints to integrate with Kubernetes features, and overall system health decision support.
+- **RosterBootstrapRsaPlugin:** Bootstraps the RSA roster used for WRB verification at first startup.
+- **RosterBootstrapTssPlugin:** Bootstraps the TSS roster for post-cutover block verification.
 - **ServerStatusServicePlugin:** Provides block node status API endpoints.
 - **StreamPublisherPlugin:** Provides a block stream publishing API as documented in the [communication protocol](./../../design/communication-protocol/README.md).
 - **SubscriberServicePlugin:** Provides an _unverified_ Block Subscription API.
@@ -99,3 +103,7 @@ The following modules provide additional functionality and are loaded as plugins
 - `stream-publisher`: Plugin for a Stream publishing API.
 - `stream-subscriber`: Plugin for Stream subscribing API.
 - `block-verification`: Plugin for Block verification.
+- `cloud-storage-archive`: Plugin for cloud-based block archiving (replaces `s3-archive`).
+- `cloud-storage-expanded`: Plugin for expanded cloud storage.
+- `roster-bootstrap-rsa`: Plugin for RSA-based roster bootstrapping.
+- `roster-bootstrap-tss`: Plugin for TSS-based roster bootstrapping.
