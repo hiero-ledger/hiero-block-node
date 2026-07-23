@@ -35,9 +35,7 @@ public interface ApplicationStateFacility {
      * @return {@code true} if the history is queued for update, {@code false} if it was not
      *     (e.g. equal to the currently stored value or implementation does not support history)
      */
-    default boolean updateAddressBookHistory(RangedAddressBookHistory history) {
-        return false;
-    }
+    boolean updateAddressBookHistory(RangedAddressBookHistory history);
 
     /**
      * Records a contiguous range of blocks as stored (persisted but not necessarily retrievable by
@@ -53,9 +51,7 @@ public interface ApplicationStateFacility {
      * @param blockNum the block number whose address book you need
      * @return the {@link NodeAddressBook} or null if not found
      */
-    default NodeAddressBook getAddressBookForBlock(long blockNum) {
-        return null;
-    }
+    NodeAddressBook getAddressBookForBlock(long blockNum);
 
     /**
      * The set of known inbound publishers, loaded from configuration on startup. Reported by the
@@ -91,6 +87,16 @@ public interface ApplicationStateFacility {
     NetworkData backfillSources();
 
     /**
+     * The next block expected from publishers. This is approximate, but should
+     * be greater than the latest available block, in most situations, but may
+     * differ significantly if `EarliestManagedBlock` is configured or under
+     * some other conditions.
+     *
+     * @return the current value of the next expected block
+     */
+    long nextExpectedBlock();
+
+    /**
      * Registers (or replaces) the set of backfill source connections. Called by the backfill plugin
      * when it loads its sources, so that all connection information is owned by the Application State
      * facility rather than read directly from backfill configuration.
@@ -98,4 +104,13 @@ public interface ApplicationStateFacility {
      * @param sources the backfill source connections to publish
      */
     void updateBackfillSources(NetworkData sources);
+
+    /**
+     * Update the current value of the next expected block.
+     * This value is ephemeral, and is not written to, or read from, persistent
+     * storage.
+     *
+     * @param updatedExpectedBlock The new value for the next expected block.
+     */
+    void updateExpectedBlock(final long updatedExpectedBlock);
 }

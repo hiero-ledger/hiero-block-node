@@ -13,6 +13,7 @@ import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.node.app.config.node.NodeConfig;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -57,33 +58,27 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     public ServerStatusResponse serverStatus(@NonNull final ServerStatusRequest request) {
         requestStatusCounter.increment();
 
+        final ApplicationStateFacility stateFacility = blockNodeContext.applicationStateFacility();
         final ServerStatusResponse.Builder serverStatusResponseBuilder = ServerStatusResponse.newBuilder();
         final long firstAvailableBlock = blockProvider.availableBlocks().min();
         long highestAvailableBlock = blockProvider.availableBlocks().max();
-        // If this node is configured to manage blocks starting later than what it currently holds, report that
-        // later block as the last available block so publishers know they can stream from earliestManagedBlock
-        // instead of assuming the node only wants older blocks between the oldest stored block and earliest managed
-        // block.
-        if (highestAvailableBlock != UNKNOWN_BLOCK_NUMBER
-                && highestAvailableBlock < earliestManagedBlock
-                && earliestManagedBlock > 0) {
-            // Fix for bug #3203. CN will stream next block if we return UNKNOWN_BLOCK_NUMBER,
-            //   but if we return a future block here, CN will not send any data.
-            highestAvailableBlock = UNKNOWN_BLOCK_NUMBER;
+        long nextExpectedBlock = stateFacility.nextExpectedBlock();
+        if (nextExpectedBlock < earliestManagedBlock) {
+            nextExpectedBlock = UNKNOWN_BLOCK_NUMBER;
         }
 
-        // TODO(#579) Should get from state config or status, which would be provided by the context from responsible
-        // facility
-        boolean onlyLatestState = false;
+        // TODO(#579) Should get from state config or status, which would be provided by
+        //     calls to the responsible plugin.
+        boolean onlyLatestState = true;
 
-        // TODO(#1139) Should get construct a block node version object from application config, which would be provided
-        // by
-        // the context from responsible facility
+        // TODO(#1139) Should construct a block node version object from application config,
+        //     which would be provided from the application state
 
         // Build the response
         ServerStatusResponse response = serverStatusResponseBuilder
                 .firstAvailableBlock(firstAvailableBlock)
                 .lastAvailableBlock(highestAvailableBlock)
+                .nextExpectedBlock(nextExpectedBlock)
                 .onlyLatestState(onlyLatestState)
                 .build();
 

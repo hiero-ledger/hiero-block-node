@@ -22,6 +22,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -393,7 +394,9 @@ class PublisherManagerRegressionTest {
                 .build();
         final MetricRegistry metrics = TestUtils.createMetrics();
         final HealthFacility serverHealth = null;
-        final ApplicationStateFacility applicationStateFacility = null;
+        // Non-null facility required: the manager publishes the next expected block on every
+        // successful next-unstreamed CAS and would otherwise NPE.
+        final ApplicationStateFacility applicationStateFacility = new TestApplicationStateFacility();
         final ServiceLoaderFunction serviceLoader = null;
         return new BlockNodeContext(
                 configuration,

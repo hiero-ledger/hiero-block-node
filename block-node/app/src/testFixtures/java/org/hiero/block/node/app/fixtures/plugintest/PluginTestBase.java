@@ -82,6 +82,7 @@ public abstract class PluginTestBase<
 
     protected List<BlockRange> storedBlocks = List.of();
     protected List<BlockRange> availableBlocks = List.of();
+    protected volatile long nextExpectedBlock = -1L;
 
     protected PluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
         testThreadPoolManager = new TestThreadPoolManager<>(executorService, scheduledExecutorService);
@@ -358,6 +359,16 @@ public abstract class PluginTestBase<
     @Override
     public void addStoredBlockRange(final LongRange blockRange) {
         appStoredBlocks.add(blockRange);
+    }
+
+    @Override
+    public long nextExpectedBlock() {
+        return nextExpectedBlock;
+    }
+
+    @Override
+    public void updateExpectedBlock(final long updatedExpectedBlock) {
+        nextExpectedBlock = updatedExpectedBlock;
     }
 
     public void replaceAvailableBlocks(final List<BlockRange> availableBlocks) {

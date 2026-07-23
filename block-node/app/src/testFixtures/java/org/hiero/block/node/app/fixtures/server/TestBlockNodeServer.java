@@ -2,6 +2,7 @@
 package org.hiero.block.node.app.fixtures.server;
 
 import static org.hiero.block.node.base.ParseHelper.standardParse;
+import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
@@ -202,13 +203,17 @@ public class TestBlockNodeServer {
         @Override
         @NonNull
         public ServerStatusResponse serverStatus(@NonNull final ServerStatusRequest request) {
-            // Returns the available block range from the historical facility
+            // Fabricate the response from the available block range. The next expected block is the
+            // block after the highest available one, or -1 ("accept any block") when none are held.
+            final long lastAvailableBlock =
+                    historicalBlockFacility.availableBlocks().max();
+            final long nextExpectedBlock =
+                    lastAvailableBlock == UNKNOWN_BLOCK_NUMBER ? UNKNOWN_BLOCK_NUMBER : lastAvailableBlock + 1;
             return ServerStatusResponse.newBuilder()
                     .firstAvailableBlock(
                             historicalBlockFacility.availableBlocks().min())
-                    .lastAvailableBlock(
-                            historicalBlockFacility.availableBlocks().max())
-                    .onlyLatestState(false)
+                    .lastAvailableBlock(lastAvailableBlock)
+                    .nextExpectedBlock(nextExpectedBlock)
                     .build();
         }
 
