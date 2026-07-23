@@ -163,7 +163,10 @@ events:
     type: command
     description: "Step 9a: copy wrapped blocks into BN1's historic storage and restart it"
     delay: 430
-    timeout: 300
+    # 600s (not 300s): the script's own READY_TIMEOUT default is 300s, applied to two sequential
+    # kubectl waits (rollout status, then pod Ready) on top of the bulk-load staging + tar transfer
+    # + port-forward setup that precede them — a 300s event timeout leaves no headroom.
+    timeout: 600
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/bulk-load-historical-to-bn1.sh"
 
