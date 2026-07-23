@@ -47,20 +47,18 @@ mainModuleInfo {
 val testPluginsDir: Provider<Directory> = layout.buildDirectory.dir("test-plugins")
 
 // Resolves the app's core runtime jars (for exclusion filtering)
-val appCoreRuntime: Configuration by
-    configurations.creating {
-        isCanBeConsumed = false
-        isCanBeResolved = true
-        isTransitive = true
-    }
+val appCoreRuntime: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = true
+}
 
 // Resolves all plugin jars from the app's allPlugins configuration
-val testPlugins: Configuration by
-    configurations.creating {
-        isCanBeConsumed = false
-        isCanBeResolved = true
-        isTransitive = true
-    }
+val testPlugins: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = true
+}
 
 dependencies {
     // Both configurations need version constraints for transitive dependency resolution
@@ -72,36 +70,34 @@ dependencies {
 }
 
 // Task to prepare plugins for E2E test container mounting
-val prepareTestPlugins by
-    tasks.registering {
-        description = "Copies plugin jars for E2E test container mounting"
-        group = "suites"
+val prepareTestPlugins by tasks.registering {
+    description = "Copies plugin jars for E2E test container mounting"
+    group = "suites"
 
-        val pluginFiles: FileCollection = testPlugins.incoming.files
-        val coreFiles: FileCollection = appCoreRuntime.incoming.files
-        val outputDir: Provider<Directory> = testPluginsDir
+    val pluginFiles: FileCollection = testPlugins.incoming.files
+    val coreFiles: FileCollection = appCoreRuntime.incoming.files
+    val outputDir: Provider<Directory> = testPluginsDir
 
-        inputs.files(pluginFiles)
-        inputs.files(coreFiles)
-        outputs.dir(outputDir)
+    inputs.files(pluginFiles)
+    inputs.files(coreFiles)
+    outputs.dir(outputDir)
 
-        doLast {
-            // Normalize jar names by stripping Gradle's "-module" suffix so that
-            // e.g. "lazysodium-java-5.1.4-module.jar" (core) matches
-            // "lazysodium-java-5.1.4.jar" (plugin transitive dep).
-            // NOTE: This filtering logic is duplicated in block-node/app/build.gradle.kts
-            // (prepareDockerPlugins task). Keep both in sync when changing.
-            val normalizeJarName = { name: String -> name.replace("-module.jar", ".jar") }
-            val coreJarNames: Set<String> =
-                coreFiles.files.map { normalizeJarName(it.name) }.toSet()
-            val targetDir: File = outputDir.get().asFile
-            targetDir.deleteRecursively()
-            targetDir.mkdirs()
-            pluginFiles.files
-                .filter { normalizeJarName(it.name) !in coreJarNames }
-                .forEach { jar -> jar.copyTo(File(targetDir, jar.name), overwrite = true) }
-        }
+    doLast {
+        // Normalize jar names by stripping Gradle's "-module" suffix so that
+        // e.g. "lazysodium-java-5.1.4-module.jar" (core) matches
+        // "lazysodium-java-5.1.4.jar" (plugin transitive dep).
+        // NOTE: This filtering logic is duplicated in block-node/app/build.gradle.kts
+        // (prepareDockerPlugins task). Keep both in sync when changing.
+        val normalizeJarName = { name: String -> name.replace("-module.jar", ".jar") }
+        val coreJarNames: Set<String> = coreFiles.files.map { normalizeJarName(it.name) }.toSet()
+        val targetDir: File = outputDir.get().asFile
+        targetDir.deleteRecursively()
+        targetDir.mkdirs()
+        pluginFiles.files
+            .filter { normalizeJarName(it.name) !in coreJarNames }
+            .forEach { jar -> jar.copyTo(File(targetDir, jar.name), overwrite = true) }
     }
+}
 
 // =============================================================================
 // Block Pusher fat-jar

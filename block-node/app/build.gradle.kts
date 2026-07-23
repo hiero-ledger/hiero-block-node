@@ -100,15 +100,14 @@ mainModuleInfo {
 // Authoritative list of block node plugins. When adding a new plugin, add it here
 // and in testModuleInfo below. See docs/block-node/architecture/plugins.md for details.
 
-val blockNodePlugins: Configuration by
-    configurations.creating {
-        // Other projects (e.g. suites) can depend on this configuration's artifacts
-        isCanBeConsumed = true
-        // This configuration can be resolved into actual jar files
-        isCanBeResolved = true
-        // Include transitive dependencies (e.g. gRPC, Helidon) alongside direct plugin jars
-        isTransitive = true
-    }
+val blockNodePlugins: Configuration by configurations.creating {
+    // Other projects (e.g. suites) can depend on this configuration's artifacts
+    isCanBeConsumed = true
+    // This configuration can be resolved into actual jar files
+    isCanBeResolved = true
+    // Include transitive dependencies (e.g. gRPC, Helidon) alongside direct plugin jars
+    isTransitive = true
+}
 
 // If you want to test locally with a new plugin or without some plugins, comment or add them here.
 dependencies {
