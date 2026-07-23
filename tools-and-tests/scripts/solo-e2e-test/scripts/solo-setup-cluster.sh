@@ -215,11 +215,15 @@ function check_prerequisites {
   fi
   end_task "FOUND ($(command -v solo))"
 
-  # Enforce minimum Solo version (required for TSS support)
+  # Enforce minimum Solo version (required for TSS support).
+  # A custom build (SOLO_SOURCE=git) may be based on older code; we trust the
+  # operator who explicitly selected a git source and skip the hard-fail.
   local solo_min_version="0.61.0"
   local solo_version
   solo_version=$(solo --version 2>&1 | grep 'Version' | sed 's/.*: *//' | tr -d '[:space:]')
-  if [[ -n "${solo_version}" ]]; then
+  if [[ "${SOLO_SOURCE:-npm}" == "git" ]]; then
+    log_line "  NOTE: Custom Solo build detected (SOLO_SOURCE=git), version ${solo_version:-unknown} - skipping minimum-version check"
+  elif [[ -n "${solo_version}" ]]; then
     IFS='.' read -r cur_major cur_minor cur_patch <<< "${solo_version}"
     IFS='.' read -r min_major min_minor min_patch <<< "${solo_min_version}"
     local is_outdated="false"

@@ -894,10 +894,14 @@ function check_prerequisites {
     fail "ERROR: solo CLI not found. Install with: npm i @hashgraph/solo -g" 1
   fi
 
-  # Enforce minimum Solo version (required for TSS support)
+  # Enforce minimum Solo version (required for TSS support).
+  # A custom build (SOLO_SOURCE=git) may be based on older code; we trust the
+  # operator who explicitly selected a git source and skip the hard-fail.
   local solo_version
   solo_version=$(solo --version 2>&1 | grep 'Version' | sed 's/.*: *//' | tr -d '[:space:]')
-  if [[ -n "${solo_version}" ]]; then
+  if [[ "${SOLO_SOURCE:-npm}" == "git" ]]; then
+    log_line "  NOTE: Custom Solo build detected (SOLO_SOURCE=git), version %s - skipping minimum-version check" "${solo_version:-unknown}"
+  elif [[ -n "${solo_version}" ]]; then
     # Simple semver comparison: split into major.minor.patch and compare numerically
     IFS='.' read -r cur_major cur_minor cur_patch <<< "${solo_version}"
     IFS='.' read -r min_major min_minor min_patch <<< "${SOLO_MIN_VERSION}"
