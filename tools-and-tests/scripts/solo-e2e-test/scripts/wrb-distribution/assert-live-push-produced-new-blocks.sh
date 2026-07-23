@@ -18,10 +18,22 @@
 # Reads:
 #   BN1_GRPC_PORT  (default 40840 — matches add-bn.sh's port-forward convention:
 #                  grpc_port = 40839 + bn_index, so BN1 -> 40840)
+#   PROTO_PATH     (default ${REPO_ROOT}/protobuf-sources/proto — the extracted
+#                  proto artifact the "Untar Protobuf Sources" CI step produces)
+#
+# grpcurl needs -import-path/-proto explicitly: the Block Node's gRPC server
+# does not expose reflection, so a plain `-d '{}' host:port service/method`
+# call (as used elsewhere, e.g. add-mn2.sh's BN2 lastAvailableBlock lookup)
+# silently returns nothing to parse. Matches the working invocation in
+# solo-e2e-test.yml's "Get ServerStatus from Block Node" step.
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)"
+
 : "${BN1_GRPC_PORT:=$((40839 + 1))}"
+: "${PROTO_PATH:=${REPO_ROOT}/protobuf-sources/proto}"
 
 STATE_FILE="/tmp/wrb-dist-push.state"
 PID_FILE="/tmp/wrb-dist-push.pid"
@@ -51,15 +63,29 @@ fi
 if ! command -v grpcurl >/dev/null 2>&1; then
     fail "grpcurl not on PATH; cannot query BN1 serverStatus"
 fi
+if [[ ! -d "${PROTO_PATH}" ]]; then
+    fail "PROTO_PATH not found: ${PROTO_PATH} (expected the extracted protobuf artifact)"
+fi
 
-status_json=$(grpcurl -plaintext -d '{}' "localhost:${BN1_GRPC_PORT}" \
-    org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null || echo '{}')
+grpcurl_err="${TMPDIR:-/tmp}/wrb-dist-push-assert-grpcurl.err"
+status_json=$(grpcurl -plaintext -emit-defaults \
+    -import-path "${PROTO_PATH}" \
+    -proto block-node/api/node_service.proto \
+    -d '{}' "localhost:${BN1_GRPC_PORT}" \
+    org.hiero.block.api.BlockNodeService/serverStatus 2>"${grpcurl_err}") || {
+        log "grpcurl query failed:"
+        sed 's/^/  /' "${grpcurl_err}" || true
+        fail "Could not query BN1 serverStatus via grpcurl"
+    }
 bn1_last=$(echo "${status_json}" | jq -r '.lastAvailableBlock // empty' 2>/dev/null || echo "")
 
-if [[ -n "${bn1_last}" && "${bn1_last}" =~ ^[0-9]+$ ]]; then
+# An empty BN reports lastAvailableBlock as UINT64_MAX (18446744073709551615),
+# not 0 — 0 means "block 0 is available". Treat the sentinel as "no blocks".
+NO_BLOCKS_SENTINEL="18446744073709551615"
+if [[ -n "${bn1_last}" && "${bn1_last}" =~ ^[0-9]+$ && "${bn1_last}" != "${NO_BLOCKS_SENTINEL}" ]]; then
     log "BN1 lastAvailableBlock=${bn1_last} (historical backfill landed)"
 else
-    fail "Could not read a numeric lastAvailableBlock from BN1 (got '${bn1_last}'); historical push did not land"
+    fail "BN1 has no blocks yet (lastAvailableBlock='${bn1_last}'); historical push did not land"
 fi
 
 # Live / "continue to move over" check: at least one new successful push
