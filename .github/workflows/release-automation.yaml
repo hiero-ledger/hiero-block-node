@@ -4,9 +4,24 @@ name: Release Automation
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version (semver)"
+      release_type:
+        description: |
+          Release type.
+          rc    → bumps current rc (0.38.0-rc1 → 0.38.0-rc2) or starts rc1 from SNAPSHOT.
+          alpha → same logic for alpha pre-releases.
+          GA    → strips the pre-release suffix (0.38.0-rc2 → 0.38.0).
+          custom → uses the custom_version field below verbatim; all other inputs are ignored.
         required: true
+        default: "rc"
+        type: choice
+        options:
+          - rc
+          - alpha
+          - GA
+          - custom
+      custom_version:
+        description: "Full version string — only honoured when release_type is 'custom' (e.g. 0.38.0-hotfix.1)"
+        required: false
 
 permissions:
   contents: write
@@ -23,6 +38,10 @@ jobs:
     runs-on: hl-bn-lin-md
     env:
       RELEASE_NOTES_FILENAME: release_notes
+      # Bump this to pick up a new git-cliff release; verify the new SHA via:
+      #   gh release view v<VERSION> --repo orhun/git-cliff --json assets \
+      #     | jq '.assets[].name' | grep sha256
+      GIT_CLIFF_VERSION: "2.8.0"
     outputs:
       create_pr: ${{ env.CREATE_PR }}
       next_version_snapshot: ${{ env.NEXT_VERSION_SNAPSHOT }}
@@ -35,12 +54,63 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: Compute Release Version
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+          INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type }}
+          INPUT_CUSTOM_VERSION: ${{ github.event.inputs.custom_version }}
+        run: |
+          if [[ "$INPUT_RELEASE_TYPE" == "custom" ]]; then
+            if [[ -z "$INPUT_CUSTOM_VERSION" ]]; then
+              echo "::error::custom_version input is required when release_type is 'custom'"
+              exit 1
+            fi
+            COMPUTED_VERSION="$INPUT_CUSTOM_VERSION"
+          else
+            # Read version.txt from the dispatching branch — no checkout needed yet.
+            # Using github.ref_name (not 'main') so rc2/GA runs off release/* read
+            # the correct pre-release version rather than the SNAPSHOT on main.
+            CURRENT=$(gh api "repos/${{ github.repository }}/contents/version.txt?ref=${{ github.ref_name }}" \
+              --jq '.content' | base64 -d | tr -d '[:space:]')
+            echo "Current repo version: $CURRENT"
+
+            if [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc([0-9]+)$ ]]; then
+              BASE="${BASH_REMATCH[1]}" && RC_N="${BASH_REMATCH[2]}" && KIND="rc"
+            elif [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-alpha([0-9]+)$ ]]; then
+              BASE="${BASH_REMATCH[1]}" && ALPHA_N="${BASH_REMATCH[2]}" && KIND="alpha"
+            elif [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-SNAPSHOT)?$ ]]; then
+              BASE="${BASH_REMATCH[1]}" && KIND="snapshot"
+            else
+              echo "::error::Unrecognised version format '$CURRENT' in version.txt"
+              exit 1
+            fi
+
+            case "$INPUT_RELEASE_TYPE" in
+              rc)
+                [[ "$KIND" == "rc" ]] \
+                  && COMPUTED_VERSION="${BASE}-rc$((RC_N + 1))" \
+                  || COMPUTED_VERSION="${BASE}-rc1"
+                ;;
+              alpha)
+                [[ "$KIND" == "alpha" ]] \
+                  && COMPUTED_VERSION="${BASE}-alpha$((ALPHA_N + 1))" \
+                  || COMPUTED_VERSION="${BASE}-alpha1"
+                ;;
+              GA)
+                COMPUTED_VERSION="$BASE"
+                ;;
+            esac
+          fi
+
+          echo "Computed release version: $COMPUTED_VERSION"
+          echo "COMPUTED_VERSION=$COMPUTED_VERSION" >> "$GITHUB_ENV"
+
       - name: Parse Version
         id: version_parser
         uses: step-security/semver-utils@5bb182a08240146b23b61cc002cb74004377da4b # v5.0.0
         with:
           lenient: false
-          version: ${{ github.event.inputs.version }}
+          version: ${{ env.COMPUTED_VERSION }}
 
       - name: Set Release Environment Variables
         run: |
@@ -122,15 +192,38 @@ jobs:
           commit_user_email: ${{ steps.gpg_importer.outputs.email }}
           tagging_message: ${{ env.RELEASE_TAG }}
 
+      - name: Install git-cliff
+        run: |
+          TARBALL="git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          gh release download "v${GIT_CLIFF_VERSION}" \
+            --repo orhun/git-cliff \
+            --pattern "${TARBALL}" \
+            --pattern "${TARBALL}.sha256"
+          sha256sum --check "${TARBALL}.sha256"
+          tar xzf "${TARBALL}" \
+            --strip-components=1 \
+            "git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl/git-cliff"
+          sudo install -m755 git-cliff /usr/local/bin/git-cliff
+          rm "${TARBALL}" "${TARBALL}.sha256"
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+
+      - name: Generate Release Notes
+        run: |
+          git cliff \
+            --config cliff.toml \
+            --latest \
+            --output "${RELEASE_NOTES_FILENAME}.md"
+
       - name: Create Github Release
         uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
         with:
           allowUpdates: true
+          bodyFile: "${{ env.RELEASE_NOTES_FILENAME }}.md"
           commit: ${{ env.RELEASE_BRANCH }}
           draft: true
           generateReleaseNotes: false
           name: ${{ env.RELEASE_TAG }}
-          omitBody: ${{ steps.milestone.outputs.milestone_id == '' }}
           prerelease: ${{ steps.version_parser.outputs.prerelease != '' }}
           tag: ${{ env.RELEASE_TAG }}
           token: ${{ secrets.GH_ACCESS_TOKEN }}
