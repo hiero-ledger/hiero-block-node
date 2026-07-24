@@ -26,6 +26,7 @@ responds:
 - If the block number is the next expected block → streaming continues normally.
 - If the block number ≤ last verified block → BN responds with `DUPLICATE_BLOCK`.
 - If the block number > next expected → BN responds with `BehindPublisher`.
+- If the block number matches a block currently being streamed by another publisher → BN responds with `SKIP_BLOCK`.
 
 The CN is always the client (initiator). The BN never dials a CN.
 
@@ -37,28 +38,18 @@ The BN can send five response types during an active stream:
 
 |        Response        |                    When sent                    |                What the CN should do                |
 |------------------------|-------------------------------------------------|-----------------------------------------------------|
-| `BlockAcknowledgement` | After block proof received and verified         | Continue streaming the next block                   |
-| `SkipBlock`            | Another publisher already delivered this block  | Skip to the block indicated and continue            |
+| `BlockAcknowledgement` | After block proof received and verified            | Mark block secured and continue streaming the next block |
+| `SkipBlock`            | Another publisher is currently sending this block  | Skip the current block and continue with the next        |
 | `ResendBlock`          | BN needs the CN to resend from a specific block | Resend from the block number specified              |
 | `BehindPublisher`      | BN is behind — CN is too far ahead              | Start a new stream from the block number specified  |
 | `EndOfStream`          | Terminal — stream is closed                     | See the status code and take the appropriate action |
 
 ### What does `DUPLICATE_BLOCK` mean and what should the CN do?
 
-`DUPLICATE_BLOCK` (code 5 in `EndOfStream`) means the block header the CN sent
+`DUPLICATE_BLOCK` means the block header the CN sent
 corresponds to a block that is already stored and verified by the BN. The CN closes the
 stream and resumes streaming — to this BN or a different available Block Node — beginning
 with the block after the last persisted and verified block.
-
-### What does `TOO_FAR_BEHIND` mean and what should the CN do?
-
-`TOO_FAR_BEHIND` (code 4 in `EndOfStream`) means the BN is too far behind the CN to
-catch up by streaming alone. The CN should:
-
-1. Switch streaming to a different Block Node.
-2. Include `earliest_block` and `latest_block` in the `EndStream` message so the
-   falling-behind BN can attempt to backfill from a peer.
-3. Resume streaming to this BN later once it has caught up via backfill.
 
 ### What does `PERSISTENCE_FAILED` mean and is the block lost?
 
@@ -80,7 +71,7 @@ available Block Node — from before the failed block.
 `TIMEOUT` (code 4 in `EndOfStream`) is sent when the delay between stream items
 exceeds the BN's configured timeout — the CN did not deliver the next item within the
 allowed window. The CN closes the stream and resumes streaming — to this BN or a
-different available Block Node — from before the timed-out block.
+different available Block Node — from the timed-out block.
 
 ### Does the Block Node reconnect to the Consensus Node if the stream drops?
 
@@ -114,18 +105,23 @@ closes.
 
 |               Code               |                                                           Meaning                                                           |                              What to do                               |
 |----------------------------------|-----------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
-| `INVALID_START_BLOCK_NUMBER` (4) | `start_block_number` is structurally invalid — negative, below `first_available_block`, or beyond the future-request window | Fix the request parameters; do not retry with the same value          |
+| `INVALID_START_BLOCK_NUMBER` (4) | `start_block_number` is structurally invalid — below `first_available_block`, or beyond the future-request window | Fix the request parameters; do not retry with the same value          |
 | `NOT_AVAILABLE` (6)              | The block is not available on this BN at this time (e.g. pruned, or node is still backfilling)                              | Retry later with exponential backoff, or query a different Block Node |
 
 ### What should a subscriber do on `NOT_AVAILABLE`?
 
 The subscriber **may retry with exponential backoff** against the same BN, or
 **fall over to a lower-priority BN** that covers the requested block range. Check
-`serverStatus` on available BNs to find one whose range includes the needed block.
+`serverStatusDetail` on available BNs to find one whose `available_ranges` includes the needed block.
 
-Detect gaps client-side by comparing `end_of_block.block_number` against
-`(last_committed_block + 1)`. Do not rely on the BN to signal gaps — the BN feeds
-slow subscribers from history, not from the live stream, and does not produce gaps.
+Clients may avoid this result by checking for gaps client-side. Gaps are reported
+clearly when calling `serverStatusDetail`, which returns `available_ranges` covering
+all blocks available on that node. If the node has all blocks it will return a single
+range from `0` through the latest persisted block.
+
+The Subscribe API stream at the live edge, because it is live and unverified, _may_
+deliver blocks out of order, but _should_ deliver the out-of-order block within a
+reasonable time.
 
 > See [Mirror Node Integration](./mirror-node-integration.md) for more details.
 
@@ -153,8 +149,8 @@ its `BlockProof`.
 | `NOT_FOUND` (4)     | The block **should** be available on this BN (within its managed range) but was not found — may be a transient storage issue |
 | `NOT_AVAILABLE` (5) | The block is **outside** this BN's managed range — the BN has never held it or it has been pruned                            |
 
-For `NOT_AVAILABLE`, call `serverStatus` to determine the BN's `firstAvailableBlock`
-and `lastAvailableBlock`, then query a BN that covers the needed range.
+For `NOT_AVAILABLE`, call `serverStatusDetail` to determine the BN's `available_ranges`,
+then query a BN that covers the needed range.
 
 ### Is `stateSnapshot` implemented?
 
@@ -217,12 +213,12 @@ block data:
 
 |      Mode       |                                     Behaviour                                      |
 |-----------------|------------------------------------------------------------------------------------|
-| `FILE`          | Write to local disk only; Block Nodes receive nothing                              |
-| `FILE_AND_GRPC` | Write to local disk **and** stream to configured Block Nodes (recommended default) |
-| `GRPC`          | Stream to Block Nodes only; no local files written                                 |
+| `FILE`          | Write to local disk only; Block Nodes receive nothing                                        |
+| `FILE_AND_GRPC` | Write to local disk **and** stream to configured Block Nodes (recommended before "cutover") |
+| `GRPC`          | Stream to Block Nodes only; no local files written (required after "cutover")               |
 
-Use `GRPC` when the CN should not retain local block files and all history is owned by
-Block Nodes. Use `FILE_AND_GRPC` to keep a local backup while streaming.
+Use `GRPC` when the CN must stream to Block Nodes only and all history is owned by Block Nodes.
+Use `FILE_AND_GRPC` before "cutover" to send blocks while still directly uploading data to legacy cloud buckets.
 
 > See [Configure Consensus Node Streaming](./operations/consensus-node-to-block-node-configuration.md) for more details.
 
