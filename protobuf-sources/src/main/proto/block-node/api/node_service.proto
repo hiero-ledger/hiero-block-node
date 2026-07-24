@@ -104,6 +104,16 @@ message ServerStatusResponse {
      * in any `StateSnapshotRequest` sent to this Block-Node.
      */
     bool only_latest_state = 3;
+
+    /**
+     * The next block that this Block-Node expects to receive from a Publisher.
+     *
+     * This value MAY contain `uint64_max` to indicate this Block-Node will accept
+     * any block as the next block. This is most common when a block node is
+     * newly installed or reset and backfilling history while accepting new
+     * blocks.
+     */
+    uint64 next_expected_block = 4;
 }
 
 /**

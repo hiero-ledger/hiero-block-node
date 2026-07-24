@@ -5,8 +5,8 @@ import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.ParseException;
 import java.util.Map;
@@ -66,7 +66,9 @@ public class ServerStatusServicePluginTest
         assertNotNull(response);
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.firstAvailableBlock());
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.lastAvailableBlock());
-        assertFalse(response.onlyLatestState());
+        // No publisher has reported a next expected block, so the default (-1) is reported.
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.nextExpectedBlock());
+        assertTrue(response.onlyLatestState());
     }
 
     /**
@@ -89,18 +91,94 @@ public class ServerStatusServicePluginTest
         assertNotNull(response);
         assertEquals(0, response.firstAvailableBlock());
         assertEquals(blocks - 1, response.lastAvailableBlock());
-        assertFalse(response.onlyLatestState());
+        // Blocks were delivered via messaging, but no publisher manager updated the application
+        // state, so next expected block remains the default (-1).
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.nextExpectedBlock());
+        assertTrue(response.onlyLatestState());
     }
 
-    /// Tests that when `earliestManagedBlock` is configured higher than the last block currently
-    /// held by the node, the reported `lastAvailableBlock` is \`-1\` (unknown block), while
-    /// `firstAvailableBlock` is left untouched, so publishers know they can stream later blocks even
-    /// though the node only holds older ones.
+    /// Tests that when a publisher has reported a next expected block at or above
+    /// `earliestManagedBlock`, the value is reported verbatim in `nextExpectedBlock`.
     ///
     /// @throws ParseException if there is an error parsing the response
     @Test
-    @DisplayName("Should return -1 for lastAvailableBlock when < earliestManagedBlock and node holds only older blocks")
-    void shouldRaiseLastAvailableBlockToEarliestManagedBlock() throws ParseException {
+    @DisplayName("Should report the next expected block reported by the application state")
+    void shouldReportNextExpectedBlockWhenSet() throws ParseException {
+        final int blocks = 5;
+        sendBlocks(blocks);
+        // Simulate the publisher manager advancing the next expected block via the application state.
+        updateExpectedBlock(blocks);
+
+        final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
+        final ServerStatusResponse response = standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getLast());
+
+        assertEquals(0, response.firstAvailableBlock());
+        assertEquals(blocks - 1, response.lastAvailableBlock());
+        assertEquals(blocks, response.nextExpectedBlock());
+    }
+
+    /// Tests that a next expected block below the configured `earliestManagedBlock` is reported as
+    /// `-1` (unknown) so publishers know they may stream any block, while `lastAvailableBlock`
+    /// still reports the true highest block held.
+    ///
+    /// @throws ParseException if there is an error parsing the response
+    @Test
+    @DisplayName("Should report nextExpectedBlock = -1 when the reported value is below earliestManagedBlock")
+    void shouldReportUnknownNextExpectedBlockWhenBelowEarliestManagedBlock() throws ParseException {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(
+                localPlugin,
+                localPlugin.methods().getFirst(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("block.node.earliestManagedBlock", "100"));
+        sendBlocks(5);
+        // 50 is below the configured earliestManagedBlock (100) and must be reported as unknown.
+        updateExpectedBlock(50L);
+
+        final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
+        final ServerStatusResponse response = standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getLast());
+
+        // lastAvailableBlock reports the true max (bug #3203 fix now lives in nextExpectedBlock).
+        assertEquals(0, response.firstAvailableBlock());
+        assertEquals(4, response.lastAvailableBlock());
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.nextExpectedBlock());
+    }
+
+    /// Tests the boundary condition where the reported next expected block is exactly
+    /// `earliestManagedBlock`; it must be reported verbatim (not clamped to `-1`).
+    ///
+    /// @throws ParseException if there is an error parsing the response
+    @Test
+    @DisplayName("Should report nextExpectedBlock verbatim when it equals earliestManagedBlock")
+    void shouldReportNextExpectedBlockWhenEqualToEarliestManagedBlock() throws ParseException {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(
+                localPlugin,
+                localPlugin.methods().getFirst(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("block.node.earliestManagedBlock", "100"));
+        updateExpectedBlock(100L);
+
+        final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
+        final ServerStatusResponse response = standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getLast());
+
+        assertEquals(100L, response.nextExpectedBlock());
+    }
+
+    /// Tests that when `earliestManagedBlock` is configured higher than the last block currently
+    /// held by the node, `lastAvailableBlock` now reports the true highest block held (the
+    /// clamping removed by the next-expected-block change), while `nextExpectedBlock` carries the
+    /// `-1` "stream anything" signal because no publisher has reported a value at or above
+    /// `earliestManagedBlock`.
+    ///
+    /// @throws ParseException if there is an error parsing the response
+    @Test
+    @DisplayName(
+            "Should report raw lastAvailableBlock and nextExpectedBlock = -1 when node holds only blocks below earliestManagedBlock")
+    void shouldReportRawLastAvailableAndUnknownNextExpectedBelowEarliestManagedBlock() throws ParseException {
         final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
         start(
                 localPlugin,
@@ -114,12 +192,13 @@ public class ServerStatusServicePluginTest
         final ServerStatusResponse response = standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getLast());
 
         assertEquals(0, response.firstAvailableBlock());
-        assertEquals(-1, response.lastAvailableBlock());
+        assertEquals(4, response.lastAvailableBlock());
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.nextExpectedBlock());
     }
 
     /**
-     * Tests that {@code earliestManagedBlock} has no effect when the node already holds blocks at or
-     * beyond that configured value.
+     * Tests that {@code earliestManagedBlock} has no effect on {@code lastAvailableBlock} when the
+     * node already holds blocks at or beyond that configured value.
      *
      * @throws ParseException if there is an error parsing the response
      */
@@ -140,6 +219,8 @@ public class ServerStatusServicePluginTest
 
         assertEquals(0, response.firstAvailableBlock());
         assertEquals(4, response.lastAvailableBlock());
+        // No value reported by a publisher, so the default (-1) is still returned.
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.nextExpectedBlock());
     }
 
     /**
@@ -165,6 +246,7 @@ public class ServerStatusServicePluginTest
 
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.firstAvailableBlock());
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.lastAvailableBlock());
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.nextExpectedBlock());
     }
 
     /**

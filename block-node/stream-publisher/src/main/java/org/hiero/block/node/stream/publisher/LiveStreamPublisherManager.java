@@ -54,6 +54,7 @@ import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.config.node.NodeConfig;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -109,6 +110,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private long lastPenaltyResetNanos;
     /// Scheduled handle for the flow-control refresh task.
     private ScheduledFuture<?> flowControlRefreshFuture;
+    /// Reference to application state facility, used to update the next
+    /// expected block value.
+    private final ApplicationStateFacility applicationState;
 
     /// Future tracking the queue forwarder task.
     ///
@@ -144,6 +148,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             @NonNull final BlockNodeContext context, @NonNull final MetricsHolder metricsHolder) {
         resetIsActive = new AtomicBoolean(true);
         serverContext = Objects.requireNonNull(context);
+        applicationState = serverContext.applicationStateFacility();
         metrics = Objects.requireNonNull(metricsHolder);
         threadManager = serverContext.threadPoolManager();
         handlers = new ConcurrentSkipListMap<>();
@@ -494,6 +499,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 }
             }
         }
+    }
+
+    /// Made protected for testing purposes.
+    protected long getNextUnstreamed() {
+        return nextUnstreamedBlockNumber.get();
     }
 
     /// Method to reset internal tracking and close all active connections.
@@ -907,12 +917,29 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (lastPersisted >= nextUnstreamed) {
             // potentially increment the next unstreamed
             final long newValue = lastPersisted + 1L;
-            if (nextUnstreamedBlockNumber.compareAndSet(nextUnstreamed, newValue)) {
+            if (updateNextUnstreamedAndExpected(nextUnstreamed, newValue)) {
                 // if cas was successful, we can update the local value as well
                 nextUnstreamed = newValue;
             }
         }
         return nextUnstreamed;
+    }
+
+    /// Execute a compare-and-set for next unstreamed block number, and if
+    /// that is successful, also update the application state next expected
+    /// block vlaue.
+    ///
+    /// @param currentValue The expected current value.
+    /// @param newValue The new value to set if the CAS check succeeds.
+    /// @return true if, and only if, the CAS check succeeded.
+    private boolean updateNextUnstreamedAndExpected(final long currentValue, final long newValue) {
+        final boolean valueWasSet = nextUnstreamedBlockNumber.compareAndSet(currentValue, newValue);
+        if (valueWasSet) {
+            // if cas was successful, we can update the value in application
+            // state as well.
+            applicationState.updateExpectedBlock(newValue >= earliestManagedBlock ? newValue : -1);
+        }
+        return valueWasSet;
     }
 
     /// todo(1420) add documentation
@@ -954,7 +981,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // Handle an edge case where we need to accept a block before the earliest
                 // managed block right after the node (re)started.
                 && lastForwardedBlockNumber.get() == UNKNOWN_BLOCK_NUMBER
-                && nextUnstreamedBlockNumber.compareAndSet(earliestManagedBlock, blockNumber)) {
+                && updateNextUnstreamedAndExpected(earliestManagedBlock, blockNumber)) {
             metrics.lowestBlockNumber.set(blockNumber);
             return resolveActionForHeader(blockNumber);
         } else {
@@ -964,7 +991,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
     /// todo(1420) add documentation
     private BlockAction resolveActionForHeader(final long blockNumber) {
-        if (nextUnstreamedBlockNumber.compareAndSet(blockNumber, blockNumber + 1L)) {
+        if (updateNextUnstreamedAndExpected(blockNumber, blockNumber + 1L)) {
             updateHighestBlockMetric(blockNumber + 1);
             return BlockAction.ACCEPT;
         } else {

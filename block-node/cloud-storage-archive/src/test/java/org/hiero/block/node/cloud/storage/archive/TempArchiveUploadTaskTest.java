@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.bucky.S3Client;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -26,6 +27,7 @@ import java.util.Random;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.NetworkData;
+import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -512,12 +514,34 @@ class TempArchiveUploadTaskTest {
     private static final class TrackingApplicationStateFacility implements ApplicationStateFacility {
         final List<LongRange> addedRanges = new ArrayList<>();
 
+        private volatile long nextExpectedBlock = -1L;
+
+        @Override
+        public long nextExpectedBlock() {
+            return nextExpectedBlock;
+        }
+
+        @Override
+        public void updateExpectedBlock(final long updatedExpectedBlock) {
+            nextExpectedBlock = updatedExpectedBlock;
+        }
+
         @Override
         public void updateTssData(TssData tssData) {}
 
         @Override
+        public boolean updateAddressBookHistory(final RangedAddressBookHistory history) {
+            return false;
+        }
+
+        @Override
         public void addStoredBlockRange(LongRange blockRange) {
             addedRanges.add(blockRange);
+        }
+
+        @Override
+        public NodeAddressBook getAddressBookForBlock(final long blockNum) {
+            return null;
         }
 
         @Override
