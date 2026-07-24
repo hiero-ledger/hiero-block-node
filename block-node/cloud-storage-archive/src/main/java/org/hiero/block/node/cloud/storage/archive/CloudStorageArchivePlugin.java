@@ -535,10 +535,10 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
 
     /// Resumes each hanging temp archive upload found by [StartupRecoveryTask].  When two entries
     /// share a groupStart, only the one with the highest [TempArchiveResumeState#nextBlockNumber()]
-    /// becomes the active queue for that group; the others finalise immediately via `SEGMENT_END`,
-    /// uncapped since finalising is one-shot, not an ongoing slot. Active winners beyond
-    /// [CloudStorageArchiveConfig#maxConcurrentTempArchives()] (counted via [tempGroupActiveQueues],
-    /// which only winners occupy) are deferred to [pendingResumedArchives] and started later by
+    /// becomes the active queue for that group; the others finalise immediately via `SEGMENT_END`.
+    /// Active winners beyond [CloudStorageArchiveConfig#maxConcurrentTempArchives()] (counted via
+    /// [tempUploadFutures], the same gate used by [#drainPendingResumedArchives] and
+    /// [#drainOverflowStash]) are deferred to [pendingResumedArchives] and started later by
     /// [#drainPendingResumedArchives].
     private void resumeHangingTempArchives(List<TempArchiveResumeState> resumableTempArchives) {
         final Map<Long, TempArchiveResumeState> activeResumedByGroup = new HashMap<>();
@@ -564,7 +564,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                         resumed.firstBlock(),
                         virtualThreadExecutor.submit(newResumedTempArchiveUploadTask(
                                 resumed.s3Key(), resumed.firstBlock(), queue, resumed)));
-            } else if (tempGroupActiveQueues.size() >= config.maxConcurrentTempArchives()) {
+            } else if (tempUploadFutures.size() >= config.maxConcurrentTempArchives()) {
                 pendingResumedArchives.add(resumed);
                 LOGGER.log(
                         TRACE,
