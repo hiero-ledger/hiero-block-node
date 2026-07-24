@@ -84,7 +84,7 @@ class BlockFileHistoricPluginTest {
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
         // also we will not use compression, and we will use the jUnit temp dir
-        testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3);
+        testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, false);
         // build the plugin using the test environment
         toTest = new BlockFileHistoricPlugin();
         // initialize an in memory historical block facility to use for testing
@@ -104,7 +104,15 @@ class BlockFileHistoricPluginTest {
                 String.valueOf(testConfig.powersOfTenPerZipFileContents()));
         final Entry<String, String> blockRetentionThreshold = Map.entry(
                 "files.historic.blockRetentionThreshold", String.valueOf(testConfig.blockRetentionThreshold()));
-        return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
+        final Entry<String, String> stagedBlockNotificationsEnabled = Map.entry(
+                "files.historic.stagedBlockNotificationsEnabled",
+                String.valueOf(testConfig.stagedBlockNotificationsEnabled()));
+        return Map.ofEntries(
+                rootPath,
+                compression,
+                powersOfTenPerZipFileContents,
+                blockRetentionThreshold,
+                stagedBlockNotificationsEnabled);
     }
 
     /**
@@ -298,7 +306,15 @@ class BlockFileHistoricPluginTest {
                     String.valueOf(testConfig.powersOfTenPerZipFileContents()));
             final Entry<String, String> blockRetentionThreshold = Map.entry(
                     "files.historic.blockRetentionThreshold", String.valueOf(testConfig.blockRetentionThreshold()));
-            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
+            final Entry<String, String> stagedBlockNotificationsEnabled = Map.entry(
+                    "files.historic.stagedBlockNotificationsEnabled",
+                    String.valueOf(testConfig.stagedBlockNotificationsEnabled()));
+            return Map.ofEntries(
+                    rootPath,
+                    compression,
+                    powersOfTenPerZipFileContents,
+                    blockRetentionThreshold,
+                    stagedBlockNotificationsEnabled);
         }
 
         /**
@@ -872,12 +888,12 @@ class BlockFileHistoricPluginTest {
         }
 
         /**
-         * This test aims to verify that the plugin will proceed to send a
-         * {@link PersistedNotification} with the correct range of blocks
-         * after a successful archival.
+         * This test aims to verify that, with the default configuration, the plugin falls back to its
+         * legacy behavior of sending a single {@link PersistedNotification} per zip batch, using the last
+         * block number of the batch, once the archival completes.
          */
         @Test
-        @DisplayName("Test happy path zip successful notification sent")
+        @DisplayName("Test happy path zip successful notification sent per completed batch")
         void testZipRangeHappyPathNotificationSent() throws IOException {
             // generate first 10 blocks from numbers 0-9 and add them to the
             // test historical block facility
@@ -887,15 +903,15 @@ class BlockFileHistoricPluginTest {
                 blockMessaging.sendBlockVerification(new VerificationNotification(
                         true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
-            // assert that none of the first 10 blocks are zipped yet
+            // assert that none of the first 10 blocks are zipped yet, and no notification was sent yet
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
             }
+            assertThat(blockMessaging.getSentPersistedNotifications()).isEmpty();
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
-            // assert that a persistence notification was sent, we expect 2
-            // notifications total, one in the beginning of this test and one
-            // sent by the plugin itself
+            // assert that a single persistence notification was sent for the whole batch, using the last
+            // block number of the batch
             final List<PersistedNotification> sentPersistedNotifications =
                     blockMessaging.getSentPersistedNotifications();
             assertThat(sentPersistedNotifications)
@@ -903,7 +919,52 @@ class BlockFileHistoricPluginTest {
                     .hasSize(1)
                     .element(0)
                     .returns(true, PersistedNotification::succeeded)
+                    .returns(9L, PersistedNotification::blockNumber)
                     .returns(toTest.defaultPriority(), PersistedNotification::blockProviderPriority);
+        }
+
+        /**
+         * This test aims to verify that when {@code stagedBlockNotificationsEnabled} is enabled, the
+         * plugin sends a {@link PersistedNotification} for every block as soon as it is staged, rather than
+         * waiting for the whole batch to be zipped.
+         */
+        @Test
+        @DisplayName("Test happy path zip successful notification sent per staged block when enabled")
+        void testZipRangeHappyPathNotificationSentPerStagedBlock() throws IOException {
+            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, true);
+            start(toTest, testHistoricalBlockFacility, getConfigOverrides());
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockUnparsed block =
+                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+            }
+            // assert that none of the first 10 blocks are zipped yet, and thus not yet accessible, even
+            // though they will have already been notified as persisted (persisted != accessible)
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+                assertThat(toTest.block(i)).isNull();
+            }
+            // a persistence notification is expected for each staged block, before the batch is even zipped
+            final List<PersistedNotification> sentPersistedNotifications =
+                    blockMessaging.getSentPersistedNotifications();
+            assertThat(sentPersistedNotifications).hasSize(10);
+            for (int i = 0; i < 10; i++) {
+                assertThat(sentPersistedNotifications.get(i))
+                        .returns(true, PersistedNotification::succeeded)
+                        .returns((long) i, PersistedNotification::blockNumber)
+                        .returns(toTest.defaultPriority(), PersistedNotification::blockProviderPriority);
+            }
+            // execute serially to ensure all tasks are completed, no additional notification is sent for the
+            // completed zip batch, as each block was already notified individually when staged
+            pluginExecutor.executeSerially();
+            assertThat(blockMessaging.getSentPersistedNotifications()).hasSize(10);
+            // now that the batch has been zipped, the blocks become accessible
+            for (int i = 0; i < 10; i++) {
+                assertThat(toTest.block(i)).isNotNull();
+            }
         }
 
         /**
@@ -1136,8 +1197,11 @@ class BlockFileHistoricPluginTest {
         }
 
         /**
-         * This test aims to verify that the plugin will not send any
-         * {@link PersistedNotification} for a zip that failed exceptionally.
+         * This test aims to verify that, with the default configuration (staged block notifications
+         * disabled), the plugin will not send any {@link PersistedNotification} for a zip that failed
+         * exceptionally. Individual blocks are still staged successfully, so this assertion only holds when
+         * per-staged-block notifications are disabled; otherwise each block would receive its own success
+         * notification when it was staged, independent of the later zip failure.
          */
         @Test
         @DisplayName("Test exception during move no persistence notification sent")
@@ -1273,7 +1337,7 @@ class BlockFileHistoricPluginTest {
         @DisplayName("Test retention policy threshold disabled")
         void testRetentionPolicyThresholdDisabled() throws IOException {
             // change the retention policy to be disabled
-            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 0L, 3);
+            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 0L, 3, false);
             // override the config in the plugin
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
             // generate first 150 blocks from numbers 0-149 and add them to the
@@ -1426,7 +1490,7 @@ class BlockFileHistoricPluginTest {
             // Configure plugin with allowZippingMultipleTimes = true (last parameter).
             // This special configuration allows the same batch to be re-archived when
             // duplicate notifications arrive, unlike the default idempotent behavior.
-            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3);
+            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, false);
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
 
             // Send the first set of block verification notifications (blocks 0-9).
@@ -1585,14 +1649,22 @@ class BlockFileHistoricPluginTest {
                     String.valueOf(config.powersOfTenPerZipFileContents()));
             final Entry<String, String> blockRetentionThreshold = Map.entry(
                     "files.historic.blockRetentionThreshold", String.valueOf(config.blockRetentionThreshold()));
-            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
+            final Entry<String, String> stagedBlockNotificationsEnabled = Map.entry(
+                    "files.historic.stagedBlockNotificationsEnabled",
+                    String.valueOf(config.stagedBlockNotificationsEnabled()));
+            return Map.ofEntries(
+                    rootPath,
+                    compression,
+                    powersOfTenPerZipFileContents,
+                    blockRetentionThreshold,
+                    stagedBlockNotificationsEnabled);
         }
 
         @Test
         @DisplayName("init moves corrupted zip file without shutting down")
         void initMovesCorruptedZipWithoutShutdown() throws IOException {
             final Path corruptedRoot = dataRoot.resolve("corrupted-zip-root");
-            testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L, 3);
+            testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L, 3, false);
 
             final BlockPath corruptedZipLocation = BlockPath.computeBlockPath(testConfig, 0L);
             Files.createDirectories(corruptedZipLocation.dirPath());
@@ -1618,7 +1690,8 @@ class BlockFileHistoricPluginTest {
             final Path mismatchRoot = dataRoot.resolve("config-mismatch-root");
 
             // Phase 1: Start with powersOfTenPerZipFileContents = 1, which creates archives like "00.zip" (2 chars)
-            FilesHistoricConfig initialConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 1, 10L, 3);
+            FilesHistoricConfig initialConfig =
+                    new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 1, 10L, 3, false);
             final BlockFileHistoricPlugin firstPlugin = new BlockFileHistoricPlugin();
             start(firstPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(initialConfig));
 
@@ -1641,7 +1714,7 @@ class BlockFileHistoricPluginTest {
             // Phase 2: Restart the plugin with the same powersOfTenPerZipFileContents to make sure the
             // happy path works
 
-            testConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 1, 10L, 3);
+            testConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 1, 10L, 3, false);
             final BlockFileHistoricPlugin secondPlugin = new BlockFileHistoricPlugin();
             start(secondPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
 
@@ -1651,7 +1724,7 @@ class BlockFileHistoricPluginTest {
 
             // Phase 3: Create plugin with different powersOfTenPerZipFileContents = 3
             // This expects archives like "0000.zip" (4 chars) but will find "00.zip" (2 chars)
-            testConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 3, 10L, 3);
+            testConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 3, 10L, 3, false);
             final BlockFileHistoricPlugin thirdPlugin = new BlockFileHistoricPlugin();
             start(thirdPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
 
