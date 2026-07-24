@@ -1,2 +1,2 @@
 plugins:
-  names: "backfill,block-access-service,blocks-file-historic,blocks-file-recent,cloud-storage-archive,cloud-storage-expanded,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber,verification"
+  names: "backfill,block-access-service,block-verification,blocks-file-historic,blocks-file-recent,cloud-storage-archive,cloud-storage-expanded,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber"

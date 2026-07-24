@@ -7,27 +7,34 @@ import com.google.protobuf.ByteString;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
 import com.hedera.hapi.block.stream.protoc.TssSignedBlockProof;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import org.hiero.block.common.hasher.HashingUtilities;
+import org.hiero.block.signing.TssBlockSigner;
 
 /**
  * Handler for block proofs in the block stream.
- * Creates and manages block proof items containing cryptographic proof of block validity.
+ * Creates a real, verifiable TSS block signature over the block root hash using a {@link TssBlockSigner}.
  */
 public class BlockProofHandler extends AbstractBlockItemHandler {
     private final byte[] currentBlockHash;
     private final long currentBlockNumber;
+    private final TssBlockSigner signer;
 
     /**
      * Constructs a new BlockProofHandler.
      *
      * @param currentBlockHash Hash of the current block
      * @param currentBlockNumber Number of the current block
-     * @throws NullPointerException if previousBlockHash or currentBlockHash is null
+     * @param signer the TSS signer producing the block signature
+     * @throws NullPointerException if currentBlockHash or signer is null
      */
-    public BlockProofHandler(@NonNull final byte[] currentBlockHash, final long currentBlockNumber) {
+    public BlockProofHandler(
+            @NonNull final byte[] currentBlockHash,
+            final long currentBlockNumber,
+            @NonNull final TssBlockSigner signer) {
         this.currentBlockHash = requireNonNull(currentBlockHash);
         this.currentBlockNumber = currentBlockNumber;
+        this.signer = requireNonNull(signer);
     }
 
     @Override
@@ -46,6 +53,8 @@ public class BlockProofHandler extends AbstractBlockItemHandler {
     }
 
     private ByteString produceSignature() {
-        return ByteString.copyFrom(HashingUtilities.noThrowSha384HashOf(currentBlockHash));
+        final com.hedera.hapi.block.stream.BlockProof proof =
+                signer.signBlockProof(currentBlockNumber, Bytes.wrap(currentBlockHash));
+        return ByteString.copyFrom(proof.signedBlockProof().blockSignature().toByteArray());
     }
 }

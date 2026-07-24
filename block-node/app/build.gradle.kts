@@ -100,15 +100,14 @@ mainModuleInfo {
 // Authoritative list of block node plugins. When adding a new plugin, add it here
 // and in testModuleInfo below. See docs/block-node/architecture/plugins.md for details.
 
-val blockNodePlugins: Configuration by
-    configurations.creating {
-        // Other projects (e.g. suites) can depend on this configuration's artifacts
-        isCanBeConsumed = true
-        // This configuration can be resolved into actual jar files
-        isCanBeResolved = true
-        // Include transitive dependencies (e.g. gRPC, Helidon) alongside direct plugin jars
-        isTransitive = true
-    }
+val blockNodePlugins: Configuration by configurations.creating {
+    // Other projects (e.g. suites) can depend on this configuration's artifacts
+    isCanBeConsumed = true
+    // This configuration can be resolved into actual jar files
+    isCanBeResolved = true
+    // Include transitive dependencies (e.g. gRPC, Helidon) alongside direct plugin jars
+    isTransitive = true
+}
 
 // If you want to test locally with a new plugin or without some plugins, comment or add them here.
 dependencies {
@@ -126,7 +125,7 @@ dependencies {
     blockNodePlugins(project(":stream-subscriber"))
     blockNodePlugins(project(":roster-bootstrap-tss"))
     blockNodePlugins(project(":roster-bootstrap-rsa"))
-    blockNodePlugins(project(":verification"))
+    blockNodePlugins(project(":block-verification"))
 
     // Storage
     blockNodePlugins(project(":blocks-file-recent"))
@@ -201,6 +200,7 @@ testModuleInfo {
     runtimeOnly("org.hiero.block.node.access.service")
     runtimeOnly("org.hiero.block.node.archive.s3cloud")
     runtimeOnly("org.hiero.block.node.backfill")
+    runtimeOnly("org.hiero.block.node.block.verification")
     runtimeOnly("org.hiero.block.node.blocks.files.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.recent")
     runtimeOnly("org.hiero.block.node.cloud.storage.archive")
@@ -212,7 +212,6 @@ testModuleInfo {
     runtimeOnly("org.hiero.block.node.server.status")
     runtimeOnly("org.hiero.block.node.stream.publisher")
     runtimeOnly("org.hiero.block.node.stream.subscriber")
-    runtimeOnly("org.hiero.block.node.verification")
 
     // Plugins needed for integration tests (e.g., testMain which starts the full app)
     exportsTo("com.swirlds.config.impl")

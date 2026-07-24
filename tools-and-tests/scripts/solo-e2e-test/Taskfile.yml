@@ -20,6 +20,8 @@
 #   CN_VERSION    - Consensus Node version (default: latest)
 #   MN_VERSION    - Mirror Node version (default: latest)
 #   BN_VERSION    - Block Node version (default: latest)
+#   BN_CHART_DIR  - Local charts/ dir to install the Block Node chart from, instead of Solo's
+#                   published chart (optional, for testing unreleased chart changes)
 #   NLG_CONCURRENCY - NLG -c parameter (default: 5)
 #   NLG_ACCOUNTS    - NLG -a parameter (default: 10)
 #   NLG_DURATION    - NLG -t parameter in seconds (default: 300)
@@ -50,6 +52,7 @@ vars:
   CN_VERSION: '{{.CN_VERSION | default "latest"}}'
   MN_VERSION: '{{.MN_VERSION | default "latest"}}'
   BN_VERSION: '{{.BN_VERSION | default "latest"}}'
+  BN_CHART_DIR: '{{.BN_CHART_DIR | default ""}}'
   RELAY_VERSION: '{{.RELAY_VERSION | default "latest"}}'
   TCK_VERSION: '{{.TCK_VERSION | default "latest"}}'
   TSS_ENABLED: '{{.TSS_ENABLED | default "true"}}'
@@ -194,6 +197,7 @@ tasks:
           --cn-version "$CN_RESOLVED" \
           --mn-version "$MN_RESOLVED" \
           --bn-version "$BN_RESOLVED" \
+          {{if .BN_CHART_DIR}}--bn-chart-dir "{{.BN_CHART_DIR}}"{{end}} \
           --relay-version "$RELAY_RESOLVED" \
           --tss-enabled "{{.TSS_ENABLED}}" \
           {{if eq .ENABLE_LOCAL_METRICS "true"}}--enable-metrics{{end}}

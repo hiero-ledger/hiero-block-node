@@ -127,19 +127,20 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 
 #### Available Plugins
 
-|         Plugin         |                            Description                            |
-|------------------------|-------------------------------------------------------------------|
-| `facility-messaging`   | Core messaging facility for inter-plugin communication (required) |
-| `health`               | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)      |
-| `server-status`        | Server status API and metrics                                     |
-| `block-access-service` | gRPC API for block queries                                        |
-| `stream-publisher`     | Publishes blocks to downstream subscribers                        |
-| `stream-subscriber`    | Subscribes to upstream block streams                              |
-| `verification`         | Cryptographic verification of blocks                              |
-| `blocks-file-recent`   | Local storage for recent/live blocks                              |
-| `blocks-file-historic` | Local storage for historical blocks                               |
-| `backfill`             | Fetches missing historical blocks from other nodes                |
-| `s3-archive`           | Archives blocks to S3-compatible storage                          |
+|         Plugin         |                                      Description                                       |
+|------------------------|----------------------------------------------------------------------------------------|
+| `facility-messaging`   | Core messaging facility for inter-plugin communication (required)                      |
+| `health`               | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)                           |
+| `server-status`        | Server status API and metrics                                                          |
+| `block-access-service` | gRPC API for block queries                                                             |
+| `stream-publisher`     | Publishes blocks to downstream subscribers                                             |
+| `stream-subscriber`    | Subscribes to upstream block streams                                                   |
+| `verification`         | Cryptographic verification of blocks                                                   |
+| `block-verification`   | Cryptographic verification of blocks (rewrite, mutually exclusive with `verification`) |
+| `blocks-file-recent`   | Local storage for recent/live blocks                                                   |
+| `blocks-file-historic` | Local storage for historical blocks                                                    |
+| `backfill`             | Fetches missing historical blocks from other nodes                                     |
+| `s3-archive`           | Archives blocks to S3-compatible storage                                               |
 
 #### Pre-defined Profiles
 
@@ -158,7 +159,7 @@ Full functionality for development and testing.
 * `server-status`
 * `stream-publisher`
 * `stream-subscriber`
-* `verification`
+* `block-verification`
 * `blocks-file-historic`
 * `blocks-file-recent`
 * `backfill`
@@ -181,7 +182,7 @@ Local File History - stores all blocks on local persistent volumes (same as defa
 * `server-status`
 * `stream-publisher`
 * `stream-subscriber`
-* `verification`
+* `block-verification`
 * `blocks-file-historic`
 * `blocks-file-recent`
 * `backfill`
@@ -195,7 +196,7 @@ Remote File History - stores blocks in S3-compatible storage.
 * `server-status`
 * `stream-publisher`
 * `stream-subscriber`
-* `verification`
+* `block-verification`
 * `blocks-file-recent`
 * `backfill`
 * `s3-archive`

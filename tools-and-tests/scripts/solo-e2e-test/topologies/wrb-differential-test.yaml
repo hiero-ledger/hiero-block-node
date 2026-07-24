@@ -20,7 +20,7 @@ block_nodes:
     greedy: false
     config:
       plugins:
-        names: "facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent"
+        names: "facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,block-verification,blocks-file-historic,blocks-file-recent"
     grpc_tuning:
       max_frame_size: 8388608  # 8MB to match server.http2.maxFrameSize and handle larger blocks
 
