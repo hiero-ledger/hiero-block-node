@@ -69,7 +69,8 @@ different value based on their own retention and capacity policies.
 | **40840** (default) | gRPC — Publish, Subscribe, Status, Block Access APIs | Inbound from CNs, MNs, peer BNs; kubelet probes | Public (Tier 1: CNs + authorised subscribers; Tier 2: upstream BNs + subscribers)   |
 | **16007**           | Prometheus / OpenMetrics scrape                      | Inbound from monitoring                         | Internal cluster only                                                               |
 | **5005**            | JVM remote debug (JDWP)                              | Inbound from debugger                           | **Must be denied in production** — enabling JDWP significantly degrades performance |
-| Outbound **40840**  | Backfill — BN dials peer BN's Subscribe API          | Outbound to peer BNs                            | Required if backfill plugin is enabled                                              |
+| Outbound (dynamic)  | Backfill plugin dials peer Block Node subscribe API (destination port 40840) | Outbound to peer BNs | Required if backfill plugin is enabled |
+| Outbound (dynamic)  | RSA Bootstrap Plugin fetches RSA address book from Mirror Node               | Outbound to Mirror Node | Required if roster-bootstrap-rsa plugin is enabled |
 
 The Block Node does not terminate TLS in-process; TLS is handled upstream by a Kubernetes
 Ingress or load balancer.
@@ -87,10 +88,9 @@ Ingress or load balancer.
 **Inbound (port 16007):**
 - Prometheus / monitoring scrapes the OpenMetrics endpoint
 
-**Outbound (port 40840):**
+**Outbound (dynamically assigned port):**
 - Backfill plugin dials peer Block Nodes to fetch missing historical blocks
-
-The Block Node does not initiate any other outbound connections.
+- RSA Bootstrap Plugin dials a Mirror Node to fetch RSA address book data for WRB block proof verification
 
 > See [Network Ports and Protocols](./operations/network-ports-and-protocols.md) for full details.
 
@@ -135,7 +135,7 @@ plans to add any. Security is enforced at the network and transport layer.
 The Block Node has no authentication and there are no plans to add any. This is by
 design: **trust is in the data, not in the node.** Every block carries a
 [Block Proof](./glossary.md#block-proof) that cryptographically verifies the block's
-authenticity — subscribers verify the data itself rather than trusting the node
+authenticity — subscribers verify the data themselves rather than trusting the node
 delivering it.
 
 **TLS** is advisory for subscriber-facing ports only. Do **not** enable TLS on the
@@ -179,13 +179,14 @@ deployment environment requires it.
 
 Three paths are available:
 
-1. **Solo Provisioner (recommended for testnet/evaluation):** Single command handles VM
-   provisioning, Kubernetes setup, and Helm installation.
+1. **Solo Provisioner (recommended for mainnet Tier 1 and testnet/evaluation):** Single
+   command handles Kubernetes setup and Helm installation. Solo Provisioner also automates
+   networking and traffic shaping tasks based on dynamic values from the managed Block Node.
    See [Deploy with Solo Provisioner](./operations/solo-weaver-single-node-k8s-deployment.md).
 
-2. **Bare-metal Kubernetes (recommended for mainnet Tier 1):** Manual Helm install on a
-   pre-existing single-node cluster using the `task helm-release` Taskfile target.
-   See [Bare Metal Single Node Kubernetes Deployment](./operations/single-node-k8s-deployment.md).
+2. **Direct Single Node Kubernetes (an option for operators with an existing cluster):** Manual
+   Helm install on a pre-existing single-node cluster using the `task helm-release` Taskfile target.
+   See [Direct Single Node Kubernetes Deployment](./operations/single-node-k8s-deployment.md).
 
 3. **Existing Kubernetes cluster:** Apply the Block Node Helm chart directly with
    `-f charts/block-node-server/values-overrides/plugin-profile-lfh.yaml` (or your
@@ -200,7 +201,7 @@ Select a pre-built Helm values override from
 |--------------------------|------------------------------------------------|
 | `plugin-profile-lfh`     | Tier 1 — full history on local NVMe + HDD      |
 | `plugin-profile-rfh`     | Remote archival — cloud storage backend        |
-| `plugin-profile-all`     | Full history local + cloud backup              |
+| `plugin-profile-all`     | Full history local + cloud backup *(testing only — plugins may conflict and produce unexpected results)* |
 | `plugin-profile-minimal` | Development / testnet — health and status only |
 
 For **Tier 2**, start from `plugin-profile-lfh` and remove `stream-publisher` from
@@ -318,11 +319,11 @@ Both paths are configurable via `blockNode.health.liveness.endpoint` and
 |                        Metric                        |   Threshold   |
 |------------------------------------------------------|---------------|
 | `blocknode_app_state_status`                         | ≠ 1 (RUNNING) |
-| `blocknode_publisher_receive_latency_ns`             | > 20 seconds  |
-| `blocknode_verification_blocks_error`                | > 3 in 60 s   |
-| `blocknode_publisher_block_send_response_failed`     | > 3 in 60 s   |
-| `blocknode_publisher_stream_errors`                  | > 3 in 60 s   |
-| `blocknode_files_recent_persistence_time_latency_ns` | > 20 seconds  |
+| `blocknode_publisher_receive_latency_ns`             | > 10 seconds      |
+| `blocknode_verification_blocks_error`                | > 3 in 60 s       |
+| `blocknode_publisher_block_send_response_failed`     | > 5 in 60 s       |
+| `blocknode_publisher_stream_errors`                  | > 5 in 60 s       |
+| `blocknode_files_recent_persistence_time_latency_ns` | > 20 milliseconds |
 
 **Low severity — investigate next business day:**
 
@@ -453,7 +454,7 @@ Edit `plugins.names` in your Helm values (comma-separated plugin identifiers), t
 blockNode:
   config:
     # Example: Tier 2 — stream-publisher removed
-    PLUGINS_NAMES: "backfill,block-access-service,blocks-file-recent,blocks-file-historic,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-subscriber,verification"
+    PLUGINS_NAMES: "backfill,block-access-service,blocks-file-recent,blocks-file-historic,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-subscriber,block-verification"
 ```
 
 **Note:** Removing a plugin name skips loading on the next pod start but does not
@@ -527,7 +528,7 @@ file and billed for all ingress, egress, and compute.
 bandwidth and hardware costs. These rewards are not guaranteed to cover all costs —
 if the reward amount does not cover actual spend, the operator absorbs the difference.
 
-**Co-location is strongly recommended.** Placing a Block Node in the same data centre
+**Co-location is strongly recommended.** Placing a Block Node in the same data center
 or cloud region as the Consensus Node it streams from significantly reduces cross-region
 egress costs. This is one of the reasons the team advises operators to co-locate.
 
@@ -583,6 +584,8 @@ originate from the
 [hiero-ledger/hiero-consensus-node](https://github.com/hiero-ledger/hiero-consensus-node)
 repository and are fetched by `protobuf-sources/scripts/build-bn-proto.sh`.
 
+The Block Node also publishes a release artifact for every release containing the full set of `.proto` files supported by that release. See the [releases page](https://github.com/hiero-ledger/hiero-block-node/releases) for downloads.
+
 ### What tooling and scripts are provided in the repository?
 
 The `tools-and-tests/` directory contains:
@@ -606,7 +609,7 @@ Each plugin is identified by its `plugins.names` key (used in Helm configuration
 | `block-access-service`   | Single-block random-access retrieval (`getBlock` RPC)                                        | Tier 1 and Tier 2                     |
 | `server-status`          | `serverStatus` and `serverStatusDetail` RPCs — block range, version, plugin list             | All deployments                       |
 | `health`                 | Kubernetes liveness (`/healthz/livez`) and readiness (`/healthz/readyz`) probes              | All deployments                       |
-| `verification`           | Verifies block proofs before persistence (TSS and RSA/WRB)                                   | All deployments                       |
+| `block-verification`     | Verifies block proofs before persistence (TSS and RSA/WRB)                                   | All deployments                       |
 | `blocks-file-recent`     | Short-term block persistence on local NVMe with configurable retention policy                | LFH and RFH profiles                  |
 | `blocks-file-historic`   | Long-term block persistence on local HDD (archive tier)                                      | LFH profile                           |
 | `cloud-storage-archive`  | Archives blocks to S3-compatible cloud storage (group files)                                 | RFH and cloud-backup profiles         |

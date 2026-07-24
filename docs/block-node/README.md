@@ -36,4 +36,4 @@ Refer to the [Configuration](configuration.md) for configuration options.
 ## Operator FAQ
 
 For frequently asked questions about deployment, configuration, and operations, see the
-[Operator FAQ](operator-faq.md).
+[Operator FAQ](faq/operator-faq.md).
