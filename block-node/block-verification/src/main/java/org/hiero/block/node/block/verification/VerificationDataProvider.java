@@ -38,30 +38,46 @@ public final class VerificationDataProvider {
     /// Held as an atomic pair so no thread can observe the new book alongside the old key map.
     private final AtomicReference<CachedKeyMap> cachedKeyMap;
 
+    /// The cached pair of address book and its parsed key map.
+    /// @param book the address book the keys were parsed from
+    /// @param keys the parsed `node_id → PublicKey` map
     private record CachedKeyMap(NodeAddressBook book, Map<Long, PublicKey> keys) {}
 
+    /// Constructor.
+    ///
+    /// @param context the block node context, for access to the application state facility,
+    ///     must not be null
     public VerificationDataProvider(final BlockNodeContext context) {
         this.context = Objects.requireNonNull(context);
         this.currentTssData = new AtomicReference<>(null);
         this.cachedKeyMap = new AtomicReference<>(null);
     }
 
+    /// Returns the currently available [TssData], or `null` if none has been received yet.
+    ///
+    /// @return the current [TssData], may be `null`
     public TssData currentTssData() {
         return currentTssData.get();
     }
 
+    /// Returns `true` if TSS data is currently available.
+    ///
+    /// @return `true` when [#currentTssData()] would return a non-null value
     public boolean hasTssData() {
         return currentTssData.get() != null;
     }
 
-    /// Returns the RSA public key map for the address book era that covers {@code blockNumber},
-    /// resolved via {@link org.hiero.block.node.spi.ApplicationStateFacility#getAddressBookForBlock}.
-    /// Returns {@code empty map} when no era covers the block (the caller must fail the block with
-    /// {@link org.hiero.block.node.block.verification.session.SessionFailureType#MISSING_VERIFICATION_DATA}).
+    /// Returns the RSA public key map for the address book era that covers `blockNumber`,
+    /// resolved via [org.hiero.block.node.spi.ApplicationStateFacility#getAddressBookForBlock].
+    /// Returns an empty map when no era covers the block (the caller must fail the block with
+    /// [org.hiero.block.node.block.verification.session.SessionFailureType#MISSING_VERIFICATION_DATA]).
     ///
     /// The result is cached by address-book identity: consecutive blocks in the same era share the
     /// same [NodeAddressBook] instance from the history lookup, so key parsing only happens once per
     /// era transition rather than once per block.
+    ///
+    /// @param blockNumber the number of the block to resolve keys for
+    /// @return an unmodifiable `node_id → PublicKey` map, empty when no era covers the block
     public Map<Long, PublicKey> rsaPublicKeysForBlock(final long blockNumber) {
 
         final NodeAddressBook book = context.applicationStateFacility().getAddressBookForBlock(blockNumber);
@@ -79,7 +95,12 @@ public final class VerificationDataProvider {
         }
     }
 
-    /// Safely update the TSS data.
+    /// Safely update the TSS data. A `null` input and any runtime failure during
+    /// the update are logged and swallowed; this method never throws.
+    ///
+    /// @param tssData the new TSS data, may be `null` in which case nothing happens
+    /// @param sendUpdateToAppState if `true`, a successful update is also forwarded
+    ///     to the application state facility
     public void safeUpdateTssData(final TssData tssData, final boolean sendUpdateToAppState) {
         try {
             if (tssData == null) {
@@ -92,6 +113,13 @@ public final class VerificationDataProvider {
         }
     }
 
+    /// Update the TSS data if the given data is new and valid from a later block
+    /// than the current data. On a successful update, the TSS library address book
+    /// and the WRAPS verification key are set before the new data is published.
+    ///
+    /// @param updatedTssData the new TSS data, must not be null
+    /// @param sendUpdateToAppState if `true`, a successful update is also forwarded
+    ///     to the application state facility
     private void updateTssData(final TssData updatedTssData, final boolean sendUpdateToAppState) {
         final TssData localCurrentTss = currentTssData.get();
         // Only update if we see new TSS data
@@ -133,22 +161,23 @@ public final class VerificationDataProvider {
         }
     }
 
-    /// Utility for decoding RSA public keys from a `NodeAddressBook` into a
-    /// `node_id → PublicKey` map used by the RSA WRB verification path.
+    /// Builds an immutable `node_id → PublicKey` map from the given address book,
+    /// used by the RSA WRB verification path.
+    ///
     /// Keys are expected to be hex-encoded DER (X.509 `SubjectPublicKeyInfo`) or DER
-    /// certificate bytes, **without** a `0x` prefix.
+    /// certificate bytes, **without** a `0x` prefix. Entries where `rsaPubKey()` is
+    /// blank or whose key bytes cannot be decoded as an RSA X.509 public key are
+    /// skipped with a WARN log. This matches the fail-soft behaviour required by
+    /// the verification path: one bad key must not prevent the other nodes from
+    /// being counted.
+    ///
     /// This logic mirrors `SigFileUtils.decodePublicKey` in `tools-and-tests/tools`
     /// but is inlined here because that module cannot be imported from
-    /// `block-node/application-state`.
-    /// ---
-    /// Builds an immutable `node_id → PublicKey` map from the given address book.
-    /// Entries where `rsaPubKey()` is blank or whose key bytes cannot be decoded
-    /// as an RSA X.509 public key are silently skipped (with a WARN log). This
-    /// matches the fail-soft behaviour required by the verification path: one bad
-    /// key must not prevent the other nodes from being counted.
+    /// `block-node/block-verification`.
     ///
-    /// @param book the address book loaded by `RsaRosterBootstrapPlugin`
-    /// @return an unmodifiable map from node ID to `PublicKey`
+    /// @param book the address book covering the era of the block being verified
+    /// @return an unmodifiable map from node ID to [PublicKey]
+    /// @throws NoSuchAlgorithmException if the RSA key factory is unavailable
     private Map<Long, PublicKey> buildKeyMap(final NodeAddressBook book) throws NoSuchAlgorithmException {
         if (book == null || book.nodeAddress().isEmpty()) return Map.of();
 

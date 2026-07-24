@@ -45,26 +45,54 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 /// The hasher is responsible for receiving a block as items and to dynamically hash the items.
 /// Eventually, a [HashingResult] is produced.
 public final class BlockHasher implements Supplier<HashingResult> {
+    /// The time to park between polls of the block items deque when no data is available.
     private static final long DATA_BUSY_WAIT_TIME_NANOS = TimeUnit.MICROSECONDS.toNanos(200);
+    /// The number of the block being hashed.
     private final long blockNumber;
+    /// The source of the block, carried through to the result and failures.
     private final BlockSource blockSource;
+    /// Cancellation flag shared with the owning session.
     private final AtomicBoolean isCanceled;
+    /// Metrics recorded by the hashing stage.
     private final HashingMetrics hashingMetrics;
+    /// The deque through which the block's item batches are supplied to the hasher.
     private final ConcurrentLinkedDeque<BlockItems> blockItemsRecordsDeque;
+    /// All items of the block accumulated so far, used to build the complete block for the result.
     private final List<BlockItemUnparsed> accumulatedBlockItems;
+    /// All block proofs parsed so far.
     private final List<BlockProof> blockProofs;
+    /// The tree hasher for input item hashes.
     private final NaiveStreamingTreeHasher inputTreeHasher;
+    /// The tree hasher for output item hashes.
     private final NaiveStreamingTreeHasher outputTreeHasher;
+    /// The tree hasher for consensus header item hashes.
     private final NaiveStreamingTreeHasher consensusHeaderHasher;
+    /// The tree hasher for state changes item hashes.
     private final NaiveStreamingTreeHasher stateChangesHasher;
+    /// The tree hasher for trace data item hashes.
     private final NaiveStreamingTreeHasher traceDataHasher;
+    /// Provider of the verification data, used to publish TSS data found in block 0.
     private final VerificationDataProvider verificationDataProvider;
+    /// The parsed block header, set when the header item is seen.
     private BlockHeader blockHeader;
+    /// The parsed block footer, set when the footer item is seen.
     private BlockFooter blockFooter;
+    /// The HAPI proto version from the block header.
     private SemanticVersion hapiProtoVersion;
+    /// Raw serialized bytes of the outer `RecordFileItem` proto message, captured when a
+    /// `RECORD_FILE` item is seen. Field 2 of this proto holds the `record_file_contents`
+    /// bytes required to compute the V6 signed payload. Null until such an item is encountered.
     private Bytes rawRecordFileItemProtoBytes;
 
     /// Constructor.
+    ///
+    /// @param isCanceled cancellation flag shared with the owning session, must not be null
+    /// @param blockItemsDeque the deque through which the block's item batches are supplied,
+    ///     must not be null
+    /// @param hashingMetrics metrics recorded by the hashing stage, must not be null
+    /// @param blockNumber the number of the block to hash, must be non-negative
+    /// @param blockSource the source of the block, must not be null
+    /// @param verificationDataProvider provider of the verification data, must not be null
     public BlockHasher(
             final AtomicBoolean isCanceled,
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque,
@@ -323,30 +351,24 @@ public final class BlockHasher implements Supplier<HashingResult> {
     ///
     /// **Protobuf wire format:** every field on the wire is encoded as a tag varint followed
     /// by its value. The tag packs two things:
-    ///
-    ///     - `fieldNumber = tag >>> 3`
-    ///   - `wireType= tag & 0x7`
+    /// - `fieldNumber = tag >>> 3`
+    /// - `wireType = tag & 0x7`
     ///
     /// Wire type 2 (`LEN`) means the value is length-prefixed bytes, used for `bytes`,
     /// `string`, and embedded messages. It is encoded as:
     /// `[tag varint] [length varint] [raw bytes...]`.
     ///
     /// **Algorithm:**
-    /// <ol>
-    ///     - Read the next field tag varint and decode its field number and wire type.
-    ///     - If `fieldNumber == 2` and `wireType == LEN`: read the length prefix varint,
-    ///     read exactly that many bytes, and return them - these are the
-    ///     `record_file_contents`.
-    ///     - Otherwise skip the field using the wire type to know how many bytes to consume:
-    ///
-    ///   - VARINT (wire 0): read and discard one varint
-    ///       - I64 (wire 1): skip 8 bytes fixed
-    ///       - LEN (wire 2): read the length prefix, skip that many bytes
-    ///       - I32 (wire 5): skip 4 bytes fixed
-    ///
-    ///
-    ///     - Repeat until field 2 is found or input is exhausted.
-    /// </ol>
+    /// 1. Read the next field tag varint and decode its field number and wire type.
+    /// 2. If `fieldNumber == 2` and `wireType == LEN`: read the length prefix varint,
+    ///    read exactly that many bytes, and return them - these are the
+    ///    `record_file_contents`.
+    /// 3. Otherwise skip the field using the wire type to know how many bytes to consume:
+    ///    - VARINT (wire 0): read and discard one varint
+    ///    - I64 (wire 1): skip 8 bytes fixed
+    ///    - LEN (wire 2): read the length prefix, skip that many bytes
+    ///    - I32 (wire 5): skip 4 bytes fixed
+    /// 4. Repeat until field 2 is found or input is exhausted.
     ///
     /// @param recordFileItemBytes raw serialized bytes of a `RecordFileItem` proto message
     /// @return verbatim bytes of the `record_file_contents` field (proto field 2), or
@@ -392,7 +414,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
     ///
     /// This matches `SignatureDataExtractor.computeSignedHash(6, ...)` in
     /// `tools-and-tests/tools`. Inlined here because that module cannot be imported from
-    /// `block-node/application-state`.
+    /// `block-node/block-verification`.
     ///
     /// @param rawRecordStreamFileBytes raw bytes of the `record_file_contents` field
     /// @return 48-byte SHA-384 digest
