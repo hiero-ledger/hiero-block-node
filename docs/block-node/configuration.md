@@ -206,6 +206,10 @@ for the JSON schema.
 > **Retention arithmetic:** Effective blocks retained = `FILES_HISTORIC_BLOCK_RETENTION_THRESHOLD` × 10^`FILES_HISTORIC_POWERS_OF_TEN_PER_ZIP_FILE_CONTENTS`.
 > Example: `FILES_HISTORIC_BLOCK_RETENTION_THRESHOLD=5` with `FILES_HISTORIC_POWERS_OF_TEN_PER_ZIP_FILE_CONTENTS=4` retains 50,000 blocks.
 > A value of `0` for `FILES_HISTORIC_BLOCK_RETENTION_THRESHOLD` keeps blocks indefinitely.
+>
+> **Staged notifications caveat:** with `FILES_HISTORIC_STAGED_BLOCK_NOTIFICATIONS_ENABLED=true`, a block is not
+> retrievable from this plugin until its batch is zipped, so the Persisted Notification can arrive before the
+> block is actually accessible.
 
 ### Files Recent Plugin Configuration
 

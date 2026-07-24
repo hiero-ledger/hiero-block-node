@@ -941,9 +941,11 @@ class BlockFileHistoricPluginTest {
                 blockMessaging.sendBlockVerification(new VerificationNotification(
                         true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
-            // assert that none of the first 10 blocks are zipped yet
+            // assert that none of the first 10 blocks are zipped yet, and thus not yet accessible, even
+            // though they will have already been notified as persisted (persisted != accessible)
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+                assertThat(toTest.block(i)).isNull();
             }
             // a persistence notification is expected for each staged block, before the batch is even zipped
             final List<PersistedNotification> sentPersistedNotifications =
@@ -959,6 +961,10 @@ class BlockFileHistoricPluginTest {
             // completed zip batch, as each block was already notified individually when staged
             pluginExecutor.executeSerially();
             assertThat(blockMessaging.getSentPersistedNotifications()).hasSize(10);
+            // now that the batch has been zipped, the blocks become accessible
+            for (int i = 0; i < 10; i++) {
+                assertThat(toTest.block(i)).isNotNull();
+            }
         }
 
         /**

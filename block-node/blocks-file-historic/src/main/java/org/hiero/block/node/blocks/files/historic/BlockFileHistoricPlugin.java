@@ -372,6 +372,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             if (createDirectoryOrFail(verifiedBlockPath)) {
                 if (writeBlockOrFail(block, blockNumber, verifiedBlockPath)) {
                     if (config.stagedBlockNotificationsEnabled()) {
+                        // block is durably staged, but not yet accessible via block(long) until its
+                        // batch is zipped; see FilesHistoricConfig.stagedBlockNotificationsEnabled
                         sendBlockNotification(blockNumber, true, source);
                     }
                 } else {

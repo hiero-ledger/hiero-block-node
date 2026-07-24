@@ -27,7 +27,8 @@ import org.hiero.block.node.base.Loggable;
  * @param stagedBlockNotificationsEnabled whether a Persisted Notification is sent for every block as soon as it
  * is staged, rather than once per zip batch (using the last block number of the batch). Defaults to disabled, so
  * that by default only a single Persisted Notification is sent per successfully archived zip batch, matching the
- * plugin's legacy behavior.
+ * plugin's legacy behavior. Note: a staged block is not retrievable via {@code block(long)} until its batch is
+ * zipped.
  */
 @ConfigData("files.historic")
 public record FilesHistoricConfig(
