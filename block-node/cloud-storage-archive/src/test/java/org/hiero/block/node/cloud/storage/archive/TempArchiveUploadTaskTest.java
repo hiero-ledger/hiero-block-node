@@ -20,6 +20,7 @@ import io.minio.messages.Item;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -202,11 +203,13 @@ class TempArchiveUploadTaskTest {
     }
 
     /// Verifies that when [doCompleteMultipartUpload] throws, [call()] rethrows the exception,
-    /// neither the `.tmp` key (not yet committed) nor the `.meta` key is present in S3, and a
-    /// failed [PersistedNotification] is sent so downstream subscribers are not left dangling.
+    /// neither the `.tmp` key (not yet committed) nor the `.meta` key is present in S3, a failed
+    /// [PersistedNotification] is sent so downstream subscribers are not left dangling, and --
+    /// unlike before the abort-removal -- the multipart upload is left hanging on S3 (with its
+    /// already-flushed part intact) for [StartupRecoveryTask] to resume, instead of being aborted.
     @Test
-    @DisplayName("completeMultipartUpload failure: exception rethrown; no keys committed; failed notification sent")
-    void completeFailureThrowsAndLeavesNoKeys() throws Exception {
+    @DisplayName("completeMultipartUpload failure: exception rethrown; upload left hanging, not aborted")
+    void completeFailureThrowsAndLeavesUploadHanging() throws Exception {
         final String s3Key = TempArchiveKey.formatTar(0, "");
         final String metaKey = TempArchiveKey.formatMeta(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
@@ -224,6 +227,11 @@ class TempArchiveUploadTaskTest {
             // The multipart upload was never completed, so the .tmp object is not visible.
             assertThat(s3.listObjects(s3Key, 1)).doesNotContain(s3Key);
             assertThat(s3.listObjects(metaKey, 1)).doesNotContain(metaKey);
+            // The upload itself must still be hanging -- not aborted -- with its part intact.
+            final Map<String, List<String>> hangingUploads = s3.listMultipartUploads();
+            assertThat(hangingUploads).containsKey(s3Key);
+            assertThat(s3.listParts(s3Key, hangingUploads.get(s3Key).getFirst()))
+                    .isNotEmpty();
         }
         assertThat(asf.addedRanges).isEmpty();
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
@@ -267,11 +275,11 @@ class TempArchiveUploadTaskTest {
     }
 
     /// Verifies that interrupting the virtual thread while it is blocked on [BlockingQueue#take]
-    /// with no blocks accumulated causes [call()] to rethrow [InterruptedException] and abort the
-    /// in-progress multipart upload.
+    /// with no blocks accumulated causes [call()] to rethrow [InterruptedException] and leave the
+    /// in-progress multipart upload hanging on S3 (not aborted) for [StartupRecoveryTask].
     @Test
-    @DisplayName("Thread interruption with no blocks accumulated aborts upload and rethrows InterruptedException")
-    void interruptionWithNoBlocksAbortsUploadAndRethrows() throws Exception {
+    @DisplayName("Thread interruption with no blocks accumulated leaves upload hanging, rethrows InterruptedException")
+    void interruptionWithNoBlocksLeavesUploadHangingAndRethrows() throws Exception {
         final String s3Key = TempArchiveKey.formatTar(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
@@ -295,7 +303,7 @@ class TempArchiveUploadTaskTest {
 
         assertThat(caught[0]).isNotNull();
         try (S3Client s3 = openS3Client()) {
-            assertThat(s3.listMultipartUploads()).doesNotContainKey(s3Key);
+            assertThat(s3.listMultipartUploads()).containsKey(s3Key);
         }
     }
 
@@ -350,11 +358,11 @@ class TempArchiveUploadTaskTest {
     }
 
     /// Verifies that when [doUploadPart] throws during a mid-loop part flush, [call()] rethrows
-    /// the exception, aborts the multipart upload, and sends one failed [PersistedNotification]
-    /// for the first unseen block — consistent with the other two upload-failure paths in this
-    /// class, even though the aborted parts never became a retrievable object.
+    /// the exception, sends one failed [PersistedNotification] for the first unseen block --
+    /// consistent with the other two upload-failure paths in this class -- and leaves the
+    /// multipart upload hanging on S3 rather than aborting it.
     @Test
-    @DisplayName("Part upload failure during loop: failed notification sent, exception rethrown, upload aborted")
+    @DisplayName("Part upload failure during loop: failed notification sent, exception rethrown, upload left hanging")
     void partUploadFailureDuringLoopSendsFailedNotificationAndThrows() throws Exception {
         final String s3Key = TempArchiveKey.formatTar(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
@@ -379,16 +387,16 @@ class TempArchiveUploadTaskTest {
         assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
         assertThat(asf.addedRanges).isEmpty();
         try (S3Client s3 = openS3Client()) {
-            assertThat(s3.listMultipartUploads()).doesNotContainKey(s3Key);
+            assertThat(s3.listMultipartUploads()).containsKey(s3Key);
         }
     }
 
     /// Verifies that when [doUploadPart] throws while uploading the final partial buffer (after
-    /// SEGMENT_END), [call()] sends one failed [PersistedNotification] for the first unseen block
-    /// and rethrows the exception.
+    /// SEGMENT_END), [call()] sends one failed [PersistedNotification] for the first unseen block,
+    /// rethrows the exception, and leaves the multipart upload hanging on S3 rather than aborting it.
     @Test
-    @DisplayName("Part upload failure for final part: failed notification sent, exception rethrown")
-    void partUploadFailureForFinalPartSendsFailedNotificationAndThrows() throws Exception {
+    @DisplayName("Part upload failure for final part: failed notification sent, upload left hanging")
+    void partUploadFailureForFinalPartSendsFailedNotificationAndLeavesUploadHanging() throws Exception {
         final String s3Key = TempArchiveKey.formatTar(0, "");
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
@@ -412,7 +420,7 @@ class TempArchiveUploadTaskTest {
         assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
         assertThat(asf.addedRanges).isEmpty();
         try (S3Client s3 = openS3Client()) {
-            assertThat(s3.listMultipartUploads()).doesNotContainKey(s3Key);
+            assertThat(s3.listMultipartUploads()).containsKey(s3Key);
         }
     }
 
@@ -446,6 +454,144 @@ class TempArchiveUploadTaskTest {
         assertThat(notifications).hasSize(1);
         assertThat(notifications.getFirst().blockNumber()).isEqualTo(numBlocks - 1L);
         assertThat(notifications.getFirst().succeeded()).isTrue();
+    }
+
+    /// Verifies the resume constructor's key behaviors together: it reuses the given upload ID and
+    /// ETags instead of starting a new multipart upload, prepends
+    /// [TempArchiveResumeState#trailingBytes()] to the accumulation buffer, begins consuming the
+    /// queue at [TempArchiveResumeState#nextBlockNumber()] rather than [firstBlock], and the
+    /// returned [TempArchiveEntry#firstBlock()] still reflects the original segment identity
+    /// passed to the constructor, not the resume point.
+    @Test
+    @DisplayName("Resume constructor: reuses uploadId/etags, prepends trailingBytes, resumes from nextBlockNumber")
+    void resumeConstructorResumesFromRecoveredStateAndPreservesSegmentIdentity() throws Exception {
+        final String s3Key = TempArchiveKey.formatTar(0, "");
+        final long firstBlock = 0;
+
+        // Manually build and upload a first part large enough to satisfy S3's non-final-part
+        // minimum size, simulating parts already server-side-copied by StartupRecoveryTask.
+        final List<BlockWithSource> preBlocks = new ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            preBlocks.add(makeBlock(BLOCK_DATA_BYTES));
+        }
+        byte[] part1Bytes = new byte[0];
+        for (int i = 0; i < preBlocks.size(); i++) {
+            part1Bytes = S3UploadUtils.concat(
+                    part1Bytes, TarEntries.toTarEntry(preBlocks.get(i).block(), firstBlock + i));
+        }
+        assertThat(part1Bytes.length).isGreaterThanOrEqualTo(PART_SIZE_MB * 1024 * 1024);
+
+        final String uploadId;
+        final String etag1;
+        try (S3Client s3 = openS3Client()) {
+            uploadId = s3.createMultipartUpload(s3Key, config.storageClass().name(), S3UploadUtils.CONTENT_TYPE);
+            etag1 = s3.multipartUploadPart(s3Key, uploadId, 1, part1Bytes);
+        }
+
+        final long nextBlockNumber = preBlocks.size();
+        // Arbitrary carry-over bytes representing a boundary part's not-yet-full tail.
+        final byte[] trailingBytes = TarEntries.toTarEntry(makeBlock(50).block(), 999);
+        final TempArchiveResumeState resumeState =
+                new TempArchiveResumeState(s3Key, firstBlock, nextBlockNumber, uploadId, List.of(etag1), trailingBytes);
+
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
+        final BlockWithSource newBlock = makeBlock(100);
+        queue.put(newBlock);
+        queue.put(TempArchiveUploadTask.SEGMENT_END);
+
+        final TempArchiveUploadTask task = new TempArchiveUploadTask(
+                config, messaging, asf, createMetricsHolder(), s3Key, firstBlock, queue, resumeState);
+
+        final TempArchiveEntry entry = task.call();
+
+        // Original firstBlock identity preserved even though consumption started at nextBlockNumber.
+        assertThat(entry.firstBlock()).isZero();
+        // Consumption started at nextBlockNumber (9); the single new block became block 9.
+        assertThat(entry.lastBlock()).isEqualTo(nextBlockNumber);
+
+        try (S3Client s3 = openS3Client()) {
+            // Reused the existing upload -- it completed and is no longer hanging.
+            assertThat(s3.listMultipartUploads()).doesNotContainKey(s3Key);
+            final byte[] newEntryBytes = TarEntries.toTarEntry(newBlock.block(), nextBlockNumber);
+            final int expectedLength = part1Bytes.length + trailingBytes.length + newEntryBytes.length;
+            final byte[] finalTar = s3.downloadObjectRange(s3Key, 0, expectedLength - 1);
+            // The final tar begins with the manually-uploaded first part (proving the existing
+            // uploadId/etags were reused rather than a new upload started), followed by the
+            // prepended trailingBytes, followed by the new block's tar entry.
+            assertThat(Arrays.copyOfRange(finalTar, 0, part1Bytes.length)).isEqualTo(part1Bytes);
+            assertThat(Arrays.copyOfRange(finalTar, part1Bytes.length, part1Bytes.length + trailingBytes.length))
+                    .isEqualTo(trailingBytes);
+            assertThat(Arrays.copyOfRange(finalTar, part1Bytes.length + trailingBytes.length, expectedLength))
+                    .isEqualTo(newEntryBytes);
+        }
+    }
+
+    /// Verifies the loopStart fix for a resumed task: when a [TempArchiveUploadTask] resumes via
+    /// [TempArchiveResumeState] and is interrupted before consuming any NEW block, it must not
+    /// mistake the already-durable resumed part for data accumulated in this run and spuriously
+    /// complete the segment -- it must rethrow [InterruptedException] and leave the upload
+    /// hanging, exactly like a fresh task interrupted with zero blocks (mirrors
+    /// [StartupRecoveryTaskTest]'s round trip for the regular path, adapted to the resume path
+    /// since any real accumulated block always completes a temp archive on interrupt).
+    @Test
+    @DisplayName("Resumed task interrupted before any new block: upload stays hanging, not spuriously completed")
+    void resumedTaskInterruptedBeforeNewBlockLeavesUploadHanging() throws Exception {
+        final String s3Key = TempArchiveKey.formatTar(0, "");
+        final long firstBlock = 0;
+
+        // Manually build and upload a real first part, simulating parts a previous run already
+        // flushed and StartupRecoveryTask server-side-copied into a fresh upload before resuming.
+        final List<BlockWithSource> preBlocks = new ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            preBlocks.add(makeBlock(BLOCK_DATA_BYTES));
+        }
+        byte[] part1Bytes = new byte[0];
+        for (int i = 0; i < preBlocks.size(); i++) {
+            part1Bytes = S3UploadUtils.concat(
+                    part1Bytes, TarEntries.toTarEntry(preBlocks.get(i).block(), firstBlock + i));
+        }
+        final String uploadId;
+        final String etag1;
+        try (S3Client s3 = openS3Client()) {
+            uploadId = s3.createMultipartUpload(s3Key, config.storageClass().name(), S3UploadUtils.CONTENT_TYPE);
+            etag1 = s3.multipartUploadPart(s3Key, uploadId, 1, part1Bytes);
+        }
+        final long nextBlockNumber = preBlocks.size();
+        final TempArchiveResumeState resumeState =
+                new TempArchiveResumeState(s3Key, firstBlock, nextBlockNumber, uploadId, List.of(etag1), new byte[0]);
+
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
+        final TempArchiveUploadTask task = new TempArchiveUploadTask(
+                config, messaging, asf, createMetricsHolder(), s3Key, firstBlock, queue, resumeState);
+
+        final InterruptedException[] caught = {null};
+        final Thread thread = new Thread(() -> {
+            try {
+                task.call();
+            } catch (InterruptedException e) {
+                caught[0] = e;
+            } catch (Exception ignored) {
+            }
+        });
+        thread.start();
+        // Give the resumed task time to seed its state and block on the next take() -- no new
+        // block is ever offered.
+        Thread.sleep(200);
+        thread.interrupt();
+        thread.join(5_000);
+
+        assertThat(caught[0]).isNotNull();
+        assertThat(messaging.getSentPersistedNotifications()).isEmpty();
+        try (S3Client s3 = openS3Client()) {
+            final Map<String, List<String>> hangingUploads = s3.listMultipartUploads();
+            assertThat(hangingUploads).containsKey(s3Key);
+            assertThat(s3.listParts(s3Key, hangingUploads.get(s3Key).getFirst()))
+                    .hasSize(1);
+        }
     }
 
     /// [TempArchiveUploadTask] subclass that always throws from [doUploadPart].

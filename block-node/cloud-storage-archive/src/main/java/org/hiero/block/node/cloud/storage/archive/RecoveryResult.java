@@ -29,8 +29,9 @@ import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 ///                          by [BlockUploadTask] to seed its accumulation buffer so that the
 ///                          previously-started S3 part is completed correctly on resume;
 ///                          non-null when [uploadId] is non-null
-/// @param tempArchives      temporary archives found in S3 during startup; `null` on mid-run
-///                          recovery paths that skip the temporary-archive scan
+/// @param tempArchives      temporary archives found in S3 during startup; empty when none exist
+/// @param resumableTempArchives hanging temp archive uploads found resumable during startup;
+///                          several can coexist, unlike the regular path's single resume slot
 /// @param lastHandedOffBlock the last block number handed off to any upload task before the
 ///                           restart, or `-1` when nothing was archived yet (fresh start)
 /// @param completedRanges   the ranges of completed tar archives found during startup, so that
@@ -45,5 +46,6 @@ record RecoveryResult(
         long nextBlockNumber,
         byte[] trailingBytes,
         List<TempArchiveEntry> tempArchives,
+        List<TempArchiveResumeState> resumableTempArchives,
         long lastHandedOffBlock,
         ConcurrentLongRangeSet completedRanges) {}
