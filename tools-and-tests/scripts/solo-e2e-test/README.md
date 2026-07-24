@@ -219,7 +219,10 @@ cp .env.example .env
 | `CLUSTER_NAME`           | `solo-cluster`           | Kind cluster name                                                    |
 | `NAMESPACE`              | `solo-network`           | Kubernetes namespace                                                 |
 | `DEPLOYMENT`             | `deployment-solo`        | Solo deployment name                                                 |
-| `SOLO_VERSION`           | `latest`                 | Solo CLI version (CI pins to `0.63.0`)                               |
+| `SOLO_VERSION`           | `latest`                 | Solo CLI version (CI pins to `0.79.0`)                               |
+| `SOLO_SOURCE`            | `npm`                    | Solo install source: `npm` or `git` (see Custom Solo Build)          |
+| `SOLO_GIT_REPO`          | (empty)                  | Fork `owner/repo` when `SOLO_SOURCE=git` (must be approved)          |
+| `SOLO_GIT_REF`           | (empty)                  | Branch/tag/SHA when `SOLO_SOURCE=git`                                |
 | `CN_VERSION`             | `latest`                 | Consensus Node version                                               |
 | `MN_VERSION`             | `latest`                 | Mirror Node version                                                  |
 | `BN_VERSION`             | `latest`                 | Block Node version                                                   |
@@ -254,6 +257,36 @@ Variables can be overridden on the command line for one-off runs. Command-line v
 task up TOPOLOGY=paired-3 BN_VERSION=v0.24.0
 task load:up NLG_ARGS="-c 10 -a 20 -tt 600"
 ```
+
+## Custom Solo Build (fork/branch)
+
+By default Solo is installed from npm (`npm i @hashgraph/solo -g`). When a fix isn't released yet, you can build Solo from an **approved fork/branch** instead and install it globally.
+
+Set `SOLO_SOURCE=git` and point at the fork:
+
+|    Variable     |                      Purpose                      |
+|-----------------|---------------------------------------------------|
+| `SOLO_SOURCE`   | `git` to build from source (`npm` is the default) |
+| `SOLO_GIT_REPO` | `owner/repo` — must be in the approved allowlist  |
+| `SOLO_GIT_REF`  | Branch, tag, or commit SHA to build               |
+
+**Approved repositories** (allowlist enforced by `scripts/solo-install.sh`): `hiero-ledger/solo`, `hashgraph/solo`, `AlfredoG87/solo`. Any other repo is rejected with a hard failure.
+
+The build mirrors Solo's own `build:compile` (`npm ci` → `npx tsc` → `node resources/post-build-script.js`) then `npm i -g .` from the clone. A bare `npm i github:owner/repo#ref -g` does **not** work — Solo's `prepare` script is not a build, so `dist/` would be missing.
+
+**Local:**
+
+```bash
+# Install a custom build, then deploy as usual
+task solo:install SOLO_SOURCE=git SOLO_GIT_REPO=AlfredoG87/solo SOLO_GIT_REF=fix/bn-health-port-5283
+task up TOPOLOGY=single
+```
+
+The clone lands in `.solo-build/` (gitignored). The minimum-version check in the setup/deploy scripts is skipped for git builds, since a fork may be based on older code.
+
+**CI:** dispatch the `Solo E2E Test` workflow with `solo-source=git`, `solo-git-repo=<approved fork>`, `solo-git-ref=<ref>`.
+
+> ⚠️ CI executes the cloned code (`npm ci` runs lifecycle scripts). The allowlist is the security boundary — keep it short and trusted.
 
 ## Load Generation
 

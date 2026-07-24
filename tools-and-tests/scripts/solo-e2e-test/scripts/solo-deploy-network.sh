@@ -606,31 +606,36 @@ EOF
   fi
 }
 
-# WRAPS v1.0.0 proving keys: downloaded + extracted once into a local cache and handed to Solo via
-# --wraps-key-path on every deploy (no ~2 GB re-download). Pre-staging is required because CN-side
-# runtime download is dropped before genesis on CN v0.75.x — see project-patterns.md (WRAPS on
-# solo-e2e). Solo stages these under its cache dir named `wraps-v0.2.0` (default directoryName,
-# not overridable here), so that directory holds v1.0.0 contents on this setup.
+# WRAPS v1.0.0 proving keys: the tarball + its extracted .bin files are cached once and handed to
+# Solo via --wraps-key-path on every deploy (no ~2 GB re-download). Solo stages both into each CN
+# pod: the extracted .bin files (TSS_LIB_WRAPS_ARTIFACTS_PATH, used by CN v0.75.x) and the tarball
+# at data/keys/wraps.tar.gz (tss.wrapsProvingKeyPath, used by CN >= v0.76 at genesis). Keeping the
+# tarball is what lets CN >= v0.76 load the proving key at genesis instead of racing a runtime
+# download — see project-patterns.md (WRAPS on solo-e2e).
 WRAPS_DOWNLOAD_URL="https://builds.hedera.com/tss/hiero/wraps/v1.0/wraps-v1.0.0.tar.gz"
 WRAPS_KEYS_DIR="${HOME}/.solo/cache/wraps-v1.0.0-keys"
 WRAPS_KEY_FILES="decider_pp.bin decider_vp.bin nova_pp.bin nova_vp.bin"
 
-## Download and extract the WRAPS v1.0.0 proving keys into `keys_dir` once; later deploys reuse them.
+## Cache the WRAPS v1.0.0 proving key tarball and its extracted .bin files into `keys_dir` once;
+## later deploys reuse them. The tarball is kept (not deleted) so Solo can stage it into the CN pod.
 function ensure_wraps_keys_cached {
   local keys_dir="${1}"
+  local tarball="${keys_dir}/wraps-v1.0.0.tar.gz"
   local f=""
-  local need_download="false"
+  local need_extract="false"
   for f in ${WRAPS_KEY_FILES}; do
-    [[ -f "${keys_dir}/${f}" ]] || need_download="true"
+    [[ -f "${keys_dir}/${f}" ]] || need_extract="true"
   done
 
-  if [[ "${need_download}" == "true" ]]; then
-    log_line "Caching WRAPS v1.0.0 proving keys (one-time download + extract, ~2 GB)"
+  if [[ ! -f "${tarball}" ]]; then
+    log_line "Caching WRAPS v1.0.0 proving key tarball (one-time download, ~2 GB)"
     mkdir -p "${keys_dir}"
-    local tarball="${keys_dir}/wraps-v1.0.0.tar.gz"
     curl -fSL "${WRAPS_DOWNLOAD_URL}" -o "${tarball}" || fail "ERROR: Failed to download WRAPS v1.0.0" 1
+    need_extract="true"
+  fi
+
+  if [[ "${need_extract}" == "true" ]]; then
     tar -xzf "${tarball}" -C "${keys_dir}" || fail "ERROR: Failed to extract WRAPS v1.0.0 archive" 1
-    rm -f "${tarball}"
   fi
 
   for f in ${WRAPS_KEY_FILES}; do
@@ -919,10 +924,14 @@ function check_prerequisites {
     fail "ERROR: solo CLI not found. Install with: npm i @hashgraph/solo -g" 1
   fi
 
-  # Enforce minimum Solo version (required for TSS support)
+  # Enforce minimum Solo version (required for TSS support).
+  # A custom build (SOLO_SOURCE=git) may be based on older code; we trust the
+  # operator who explicitly selected a git source and skip the hard-fail.
   local solo_version
   solo_version=$(solo --version 2>&1 | grep 'Version' | sed 's/.*: *//' | tr -d '[:space:]')
-  if [[ -n "${solo_version}" ]]; then
+  if [[ "${SOLO_SOURCE:-npm}" == "git" ]]; then
+    log_line "  NOTE: Custom Solo build detected (SOLO_SOURCE=git), version %s - skipping minimum-version check" "${solo_version:-unknown}"
+  elif [[ -n "${solo_version}" ]]; then
     # Simple semver comparison: split into major.minor.patch and compare numerically
     IFS='.' read -r cur_major cur_minor cur_patch <<< "${solo_version}"
     IFS='.' read -r min_major min_minor min_patch <<< "${SOLO_MIN_VERSION}"
