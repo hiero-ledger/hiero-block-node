@@ -114,36 +114,29 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     volatile BlockNodeContext blockNodeContext;
     /// list of all loaded plugins. Package so accessible for testing.
     final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
-
     /// Create a ConcurrentLinkedQueue to hold TssData updates
     private final ConcurrentLinkedQueue<TssData> tssDataUpdates = new ConcurrentLinkedQueue<>();
-
     /// Pending address book history loaded at startup; consumed by the first checkForApplicationStateUpdates run.
     private final AtomicReference<RangedAddressBookHistory> pendingAddressBookHistory = new AtomicReference<>();
-
-    /** Cached O(log n) index built from the current address book history; rebuilt whenever history changes. */
+    /// Cached O(log n) index built from the current address book history; rebuilt whenever history changes.
     private volatile NavigableMap<Long, RangedNodeAddressBook> addressBookIndex = new TreeMap<>();
-
     /// Blocks reported as stored by plugins that do not serve them for retrieval
     final ConcurrentLongRangeSet storedBlocks = new ConcurrentLongRangeSet();
-
     /// Known inbound publishers loaded from configuration on startup; exposed for /statusz/inbound.
     private final AtomicReference<NetworkData> knownPublishers = new AtomicReference<>(NetworkData.DEFAULT);
-
     /// Designated inbound partners loaded from configuration on startup; exposed for /statusz/inbound.
     private final AtomicReference<NetworkData> inboundPartners = new AtomicReference<>(NetworkData.DEFAULT);
-
     /// Designated outbound partners loaded from configuration on startup; exposed for /statusz/outbound.
     private final AtomicReference<NetworkData> outboundPartners = new AtomicReference<>(NetworkData.DEFAULT);
-
     /// Backfill source connections reported by the backfill plugin; exposed for both /statusz endpoints.
     private final AtomicReference<NetworkData> backfillSources = new AtomicReference<>(NetworkData.DEFAULT);
-
     /// Block count at the time of the last scheduled persist; only read/written by the scanner thread
     private long lastPersistedBlockCount = 0;
-
     /// The ScheduledExecutorService used by the ApplicationStateFacility to check for TssData updates
     private ScheduledExecutorService applicationStateExecutor;
+    /// The next expected block for publishers, used by Server Status plugins
+    /// and set by Publisher plugins
+    private volatile long nextExpectedBlock = -1L;
 
     /// Constructor for the BlockNodeApp class.
     /// This constructor initializes the server configuration, loads the
@@ -425,8 +418,18 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     @Override
+    public long nextExpectedBlock() {
+        return nextExpectedBlock;
+    }
+
+    @Override
     public void updateBackfillSources(NetworkData sources) {
         backfillSources.set(sources != null ? sources : NetworkData.DEFAULT);
+    }
+
+    @Override
+    public void updateExpectedBlock(final long updatedExpectedBlock) {
+        nextExpectedBlock = updatedExpectedBlock;
     }
 
     /// Stages the supplied {@link RangedAddressBookHistory} for the next

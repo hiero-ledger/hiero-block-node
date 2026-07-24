@@ -15,6 +15,7 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.stream.publisher.LiveStreamPublisherManager.MetricsHolder;
@@ -311,7 +312,9 @@ class LiveStreamPublisherManagerFlowControlTest {
                 null,
                 messagingFacility,
                 historicalBlockFacility,
-                null,
+                // Non-null facility required: the manager publishes the next expected block on
+                // every successful next-unstreamed CAS and would otherwise NPE.
+                new TestApplicationStateFacility(),
                 null,
                 threadPoolManager,
                 null,

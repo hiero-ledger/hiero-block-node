@@ -25,6 +25,7 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
     private final Deque<TssData> tssDataUpdates;
     private final Deque<NodeAddressBook> nodeAddressBookUpdates;
     private RangedAddressBookHistory addressBookHistory = null;
+    private volatile long nextExpectedBlock = -1L;
 
     /** Non-empty sample network data used as the default for every connection set. */
     public static final NetworkData DEFAULT_NETWORK_DATA = NetworkData.newBuilder()
@@ -96,6 +97,11 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
     }
 
     @Override
+    public boolean updateAddressBookHistory(final RangedAddressBookHistory history) {
+        return false;
+    }
+
+    @Override
     public void addStoredBlockRange(final LongRange blockRange) {}
 
     @Override
@@ -119,7 +125,17 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
     }
 
     @Override
+    public long nextExpectedBlock() {
+        return nextExpectedBlock;
+    }
+
+    @Override
     public void updateBackfillSources(NetworkData sources) {
         this.backfillSources = sources;
+    }
+
+    @Override
+    public void updateExpectedBlock(final long updatedExpectedBlock) {
+        nextExpectedBlock = updatedExpectedBlock;
     }
 }

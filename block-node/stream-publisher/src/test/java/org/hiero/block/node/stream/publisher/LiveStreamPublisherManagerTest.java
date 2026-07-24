@@ -38,8 +38,8 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -74,6 +74,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 class LiveStreamPublisherManagerTest {
 
     private TestMetricsExporter metricsExporter;
+
+    /// The application state facility backing the most recently generated context. Retained so
+    /// tests can assert next-expected-block values published by successful next-unstreamed CAS
+    /// updates. Reassigned on every [#generateContext] call.
+    private TestApplicationStateFacility testApplicationState;
 
     /// Constructor tests for the [LiveStreamPublisherManager].
     @Nested
@@ -381,6 +386,72 @@ class LiveStreamPublisherManagerTest {
                 final BlockAction actual = toTest.getActionForBlock(0L, action, publisherHandlerId);
                 // Assert
                 assertThat(actual).isEqualTo(BlockAction.END_ERROR);
+            }
+        }
+
+        /// Tests that a successful next-unstreamed CAS publishes the next expected block to the
+        /// [org.hiero.block.node.spi.ApplicationStateFacility], and that non-advancing offers do
+        /// not. Exercises all three CAS sites and both branches of the
+        /// `newValue >= earliestManagedBlock ? newValue : -1` rule.
+        @Nested
+        @DisplayName("nextExpectedBlock propagation Tests")
+        class NextExpectedBlockPropagationTests {
+            /// Accepting a block header advances next-unstreamed and publishes `header + 1`, which
+            /// is at or above the (default `0`) earliestManagedBlock.
+            @Test
+            @DisplayName("Accepting a header publishes next expected block = header + 1")
+            void headerAcceptPublishesNextExpectedBlock() {
+                final BlockAction action = toTest.getActionForBlock(0L, null, publisherHandlerId);
+                assertThat(action).isEqualTo(BlockAction.ACCEPT);
+                assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(1L);
+            }
+
+            /// A successful persisted notification advances next-unstreamed past the persisted
+            /// block and publishes `persisted + 1`.
+            @Test
+            @DisplayName("Persisted notification publishes next expected block = persisted + 1")
+            void persistedNotificationPublishesNextExpectedBlock() {
+                toTest.handlePersisted(new PersistedNotification(10L, true, 0, BlockSource.PUBLISHER));
+                assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(11L);
+            }
+
+            /// An offer that does not advance next-unstreamed (no CAS is attempted) must leave the
+            /// previously published next expected block unchanged.
+            @Test
+            @DisplayName("A non-advancing offer does not change the published next expected block")
+            void nonAdvancingOfferLeavesNextExpectedBlockUnchanged() {
+                assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(1L);
+                // A future block yields SEND_BEHIND with no CAS, so the published value must not change.
+                assertThat(toTest.getActionForBlock(5L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.SEND_BEHIND);
+                assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(1L);
+            }
+
+            /// Accepting a block below `earliestManagedBlock` (the post-restart pre-EMB accept path
+            /// in `streamBeforeEmbOrElse`) publishes `-1` ("accept any block") rather than the block.
+            @Test
+            @DisplayName("Accepting a block below earliestManagedBlock publishes next expected block = -1")
+            void preEarliestManagedBlockAcceptPublishesUnknown() {
+                final Configuration embConfig = TestStreamPublisherManager.createTestConfiguration(
+                        Map.of("block.node.earliestManagedBlock", "100"));
+                final SimpleInMemoryHistoricalBlockFacility embHistorical = new SimpleInMemoryHistoricalBlockFacility();
+                final BlockNodeContext embContext =
+                        generateContext(embHistorical, threadPoolManager, messagingFacility, embConfig);
+                embHistorical.init(embContext, null);
+                final LiveStreamPublisherManager embManager =
+                        new LiveStreamPublisherManager(embContext, generateManagerMetrics());
+                final TestResponsePipeline<PublishStreamResponse> embPipeline = new TestResponsePipeline<>();
+                embManager.addHandler(embPipeline, sharedHandlerMetrics, null);
+                final long embHandlerId = 0L; // first handler registered on the fresh manager
+
+                // Block 50 is below earliestManagedBlock (100); right after (re)start it is accepted
+                // via the pre-EMB path, and the published next expected block must be -1.
+                assertThat(embManager.getActionForBlock(50L, null, embHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                assertThat(embManager.getNextUnstreamed()).isEqualTo(51L);
+                assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(-1L);
             }
         }
 
@@ -2820,14 +2891,16 @@ class LiveStreamPublisherManagerTest {
         final MetricRegistry metricRegistry = TestUtils.createMetrics();
         final HealthFacility serverHealth = null;
         final ServiceLoaderFunction serviceLoader = null;
-        final ApplicationStateFacility applicationStateFacility = null;
+        // A real (non-null) facility is required: the manager caches it and publishes the next
+        // expected block on every successful next-unstreamed CAS. Retain it so tests can assert.
+        testApplicationState = new TestApplicationStateFacility();
         return new BlockNodeContext(
                 configuration,
                 metricRegistry,
                 serverHealth,
                 blockMessagingFacility,
                 historicalBlockFacility,
-                applicationStateFacility,
+                testApplicationState,
                 serviceLoader,
                 threadPoolManager,
                 null,
