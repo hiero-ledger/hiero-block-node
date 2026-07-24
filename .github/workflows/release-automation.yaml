@@ -40,7 +40,7 @@ jobs:
       RELEASE_NOTES_FILENAME: release_notes
       # Bump this to pick up a new git-cliff release; verify the new SHA via:
       #   gh release view v<VERSION> --repo orhun/git-cliff --json assets \
-      #     | jq '.assets[].name' | grep sha256
+      #     | jq '.assets[].name' | grep sha512
       GIT_CLIFF_VERSION: "2.8.0"
     outputs:
       create_pr: ${{ env.CREATE_PR }}
@@ -198,13 +198,13 @@ jobs:
           gh release download "v${GIT_CLIFF_VERSION}" \
             --repo orhun/git-cliff \
             --pattern "${TARBALL}" \
-            --pattern "${TARBALL}.sha256"
-          sha256sum --check "${TARBALL}.sha256"
+            --pattern "${TARBALL}.sha512"
+          sha512sum --check "${TARBALL}.sha512"
           tar xzf "${TARBALL}" \
             --strip-components=1 \
             "git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl/git-cliff"
           sudo install -m755 git-cliff /usr/local/bin/git-cliff
-          rm "${TARBALL}" "${TARBALL}.sha256"
+          rm "${TARBALL}" "${TARBALL}.sha512"
         env:
           GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
