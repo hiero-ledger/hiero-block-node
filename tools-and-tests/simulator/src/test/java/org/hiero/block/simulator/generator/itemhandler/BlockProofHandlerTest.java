@@ -11,26 +11,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
+import org.hiero.block.signing.TssBlockSigner;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 class BlockProofHandlerTest {
 
+    private static TssBlockSigner signer;
+
     private final byte[] currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
     private final long blockNumber = 1L;
 
-    @Test
-    void testConstructorWithNullHash() {
-        assertThrows(NullPointerException.class, () -> new BlockProofHandler(null, blockNumber));
+    @BeforeAll
+    static void createSigner() {
+        signer = TssBlockSigner.create();
     }
 
     @Test
-    void testConstructorWithNullCurrentHash() {
-        assertThrows(NullPointerException.class, () -> new BlockProofHandler(null, blockNumber));
+    void testConstructorWithNullHash() {
+        assertThrows(NullPointerException.class, () -> new BlockProofHandler(null, blockNumber, signer));
+    }
+
+    @Test
+    void testConstructorWithNullSigner() {
+        assertThrows(NullPointerException.class, () -> new BlockProofHandler(currentBlockHash, blockNumber, null));
     }
 
     @Test
     void testGetItem() {
-        BlockProofHandler handler = new BlockProofHandler(currentBlockHash, blockNumber);
+        BlockProofHandler handler = new BlockProofHandler(currentBlockHash, blockNumber, signer);
         BlockItem item = handler.getItem();
 
         assertNotNull(item);
@@ -44,7 +53,7 @@ class BlockProofHandlerTest {
 
     @Test
     void testGetItemCaching() {
-        BlockProofHandler handler = new BlockProofHandler(currentBlockHash, blockNumber);
+        BlockProofHandler handler = new BlockProofHandler(currentBlockHash, blockNumber, signer);
         BlockItem item1 = handler.getItem();
         BlockItem item2 = handler.getItem();
 

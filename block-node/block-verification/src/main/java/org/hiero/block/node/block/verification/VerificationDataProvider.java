@@ -5,8 +5,6 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
-import com.hedera.cryptography.tss.TSS;
-import com.hedera.cryptography.wraps.WRAPSVerificationKey;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import java.security.KeyFactory;
@@ -112,8 +110,12 @@ public final class VerificationDataProvider {
                             nodeIds[i] = contribution.nodeId();
                             weights[i] = contribution.weight();
                         }
-                        TSS.setAddressBook(publicKeys, weights, nodeIds);
-                        WRAPSVerificationKey.setCurrentKey(
+                        // NativeVerificationLibrary serializes these native calls against verifies; the
+                        // address book and WRAPS key mutate the shared native state that verifyTSS reads.
+                        NativeVerificationLibrary.updateVerificationKeys(
+                                publicKeys,
+                                weights,
+                                nodeIds,
                                 updatedTssData.wrapsVerificationKey().toByteArray());
                         if (currentTssData.compareAndSet(localCurrentTss, updatedTssData)) {
                             if (sendUpdateToAppState) {

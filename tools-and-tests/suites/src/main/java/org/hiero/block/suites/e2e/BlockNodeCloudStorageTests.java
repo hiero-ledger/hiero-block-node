@@ -124,6 +124,7 @@ class BlockNodeCloudStorageTests {
                     .forEach(File::delete);
         }
 
+        BlockItemBuilderUtils.provisionTssBootstrap();
         app = new BlockNodeApp(new ServiceLoaderFunction(), false);
         app.start();
         final long startDeadline = System.currentTimeMillis() + 10_000L;

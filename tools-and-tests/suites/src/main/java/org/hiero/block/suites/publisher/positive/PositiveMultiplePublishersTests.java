@@ -498,6 +498,24 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     }
 
     @Test
+    @DisplayName("Verify Single Publisher Acknowledgements with settled WRAPS proofs")
+    public void testSettledWrapsAcknowledgements() throws IOException, InterruptedException {
+        // Stream blocks whose TSS signatures carry the settled 704-byte WRAPS proof (the post-genesis
+        // production path) instead of the genesis Schnorr aggregate. Blocks are acknowledged only when
+        // the node verifies them, so acknowledgements prove the WRAPS verification path works end-to-end.
+        final BlockStreamSimulatorApp simulator = createBlockSimulator(Map.of("generator.tssProofType", "WRAPS"));
+        startSimulatorInThread(simulator);
+        simulatorAppsRef.add(simulator);
+        Thread.sleep(5000);
+
+        final StreamStatus streamStatus = simulatorAppsRef.getFirst().getStreamStatus();
+        assertTrue(streamStatus.publishedBlocks() > 0);
+        streamStatus
+                .lastKnownPublisherClientStatuses()
+                .forEach(status -> assertTrue(status.toLowerCase().contains("acknowledgement")));
+    }
+
+    @Test
     @DisplayName("Verify Multi Publisher Acknowledgements")
     public void testMultiPublisherAcknowledgements() throws IOException, InterruptedException {
         final Map<String, String> firstSimulatorConfiguration = Map.of("blockStream.millisecondsPerBlock", "5000");

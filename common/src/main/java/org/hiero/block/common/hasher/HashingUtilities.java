@@ -107,6 +107,24 @@ public final class HashingUtilities {
     }
 
     /**
+     * Computes the version 6 record-file signed payload: {@code SHA-384(int32be(6) || recordFileContents)}.
+     * <p>
+     * This is the exact payload the consensus node signs (and the block node verifies) for a version 6
+     * record-file (WRB) block proof. The {@code int32be(6)} prefix is the four bytes
+     * {@code 0x00 0x00 0x00 0x06}. Keeping this in one place helps to ensure the test signer and the verifier
+     * agree byte-for-byte.
+     *
+     * @param recordFileContents the verbatim {@code record_file_contents} bytes
+     * @return the 48-byte SHA-384 digest
+     */
+    public static byte[] computeV6SignedPayload(@NonNull final Bytes recordFileContents) {
+        final MessageDigest digest = sha384DigestOrThrow();
+        digest.update(new byte[] {0, 0, 0, 6}); // int32(6) big-endian
+        recordFileContents.writeTo(digest);
+        return digest.digest();
+    }
+
+    /**
      * Hashes the given left and right hashes.
      * @param leftHash the left hash
      * @param rightHash the right hash

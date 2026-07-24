@@ -18,6 +18,10 @@ import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.platform.event.EventCore;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -25,6 +29,7 @@ import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.signing.TssBlockSigner;
 
 /**
  * A utility class to create sample BlockItem objects for testing purposes.
@@ -42,6 +47,35 @@ public final class BlockItemBuilderUtils {
 
     // Required to quiet warnings.
     private BlockItemBuilderUtils() {}
+
+    /// Initialization-on-demand holder for the shared signer. A single instance per JVM keeps the
+    /// hinTS native singleton state stable, and its roster is what [#provisionTssBootstrap] hands to
+    /// the block node. Class-initialization semantics make the lazy creation thread-safe without any
+    /// explicit locking.
+    private static final class SignerHolder {
+        private static final TssBlockSigner SIGNER = TssBlockSigner.create();
+
+        private SignerHolder() {}
+    }
+
+    /// Returns the shared [TssBlockSigner], creating it on first use.
+    public static TssBlockSigner blockSigner() {
+        return SignerHolder.SIGNER;
+    }
+
+    /// Writes the shared signer's TSS roster to a temp bootstrap file and points a to-be-constructed
+    /// in-process `BlockNodeApp` at it via the `app.state.tssBootstrapFilePath` system property, so the
+    /// verifier is provisioned with the roster that signs the blocks built here. Call before constructing
+    /// the app.
+    public static void provisionTssBootstrap() {
+        try {
+            final Path bootstrap = Files.createTempFile("tss-bootstrap-roster", ".json");
+            blockSigner().verificationMaterial().writeTssBootstrapFile(bootstrap);
+            System.setProperty("app.state.tssBootstrapFilePath", bootstrap.toString());
+        } catch (final IOException e) {
+            throw new UncheckedIOException("Failed to write TSS bootstrap roster", e);
+        }
+    }
 
     public static BlockHeader createBlockHeader(final long blockNumber) {
         return new BlockHeader(
@@ -359,8 +393,8 @@ public final class BlockItemBuilderUtils {
 
     /**
      * Creates a verifiable block with the given block number, assuming no previous block (genesis).
-     * The block will pass {@code ExtendedMerkleTreeSession} verification when
-     * {@code verification.allBlocksHasherEnabled=false} is configured.
+     * The proof is a real TSS signature from the shared {@link #blockSigner()}; provision the block
+     * node with that signer's roster via {@link #provisionTssBootstrap()}.
      */
     public static BlockItem[] createSimpleBlockWithNumber(final long blockNumber) {
         return createSimpleBlockWithNumber(blockNumber, null);
@@ -369,7 +403,7 @@ public final class BlockItemBuilderUtils {
     /**
      * Creates a verifiable block with the given block number and previous block hash.
      * Produces a block containing BLOCK_HEADER, ROUND_HEADER, BLOCK_FOOTER and BLOCK_PROOF,
-     * where the proof signature is {@code SHA384(computedBlockHash)}.
+     * where the proof carries a real TSS signature over the computed block root hash.
      *
      * @param blockNumber the block number
      * @param previousBlockHash the hash of the previous block, or null for genesis (uses zero hash)
@@ -410,7 +444,7 @@ public final class BlockItemBuilderUtils {
                 new Timestamp(123L, 456),
                 prevHashInput,
                 Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]), // allPrevBlocksRoot = zeros (hasher disabled)
-                Bytes.EMPTY, // startOfBlockStateRootHash = empty (treated as zeros)
+                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]), // startOfBlockStateRootHash = zeros (matches footer)
                 inputHasher,
                 outputHasher,
                 consensusHasher,
@@ -421,14 +455,21 @@ public final class BlockItemBuilderUtils {
     private static BlockItem sampleBlockFooter(final Bytes previousBlockHash) {
         final Bytes prevHash =
                 previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]);
-        final BlockFooter footer =
-                new BlockFooter(prevHash, Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]), Bytes.EMPTY);
+        // startOfBlockStateRootHash must be non-empty: the block-verification hasher rejects an empty
+        // value with MISSING_MANDATORY_FIELD. computeBlockHash below uses the same 48 zero bytes.
+        final BlockFooter footer = new BlockFooter(
+                prevHash,
+                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]),
+                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]));
         return new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, footer));
     }
 
     private static BlockItem createVerifiableBlockProof(final long blockNumber, final Bytes previousBlockHash) {
         final Bytes blockHash = computeBlockHash(blockNumber, previousBlockHash);
-        final Bytes blockSignature = HashingUtilities.noThrowSha384HashOf(blockHash);
+        final Bytes blockSignature = blockSigner()
+                .signBlockProof(blockNumber, blockHash)
+                .signedBlockProof()
+                .blockSignature();
         final TssSignedBlockProof tssSignedBlockProof =
                 TssSignedBlockProof.newBuilder().blockSignature(blockSignature).build();
         final BlockProof blockProof = BlockProof.newBuilder()

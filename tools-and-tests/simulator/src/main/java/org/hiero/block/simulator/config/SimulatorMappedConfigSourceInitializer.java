@@ -53,6 +53,7 @@ public final class SimulatorMappedConfigSourceInitializer {
             new ConfigMapping("generator.invalidBlockHash", "GENERATOR_INVALID_BLOCK_HASH"),
             new ConfigMapping("generator.shardNum", "GENERATOR_SHARD_NUM"),
             new ConfigMapping("generator.realmNum", "GENERATOR_REALM_NUM"),
+            new ConfigMapping("generator.tssProofType", "GENERATOR_TSS_PROOF_TYPE"),
 
             // Prometheus configuration
             new ConfigMapping("metrics.exporter.openmetrics.http.enabled", "PROMETHEUS_ENDPOINT_ENABLED"),
