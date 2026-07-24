@@ -11,6 +11,7 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -26,6 +27,7 @@ import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /// Unit tests for {@link SingleBlockStoreTask} that verify the {@link SingleBlockStoreTask.UploadStatus}
 /// enum value set in the {@link SingleBlockStoreTask.UploadResult} for each outcome.
@@ -40,6 +42,9 @@ class SingleBlockStoreTaskTest {
     /// One-day block duration passed to {@link TestBlockBuilder} — only the block number matters here.
     private static final Duration ONE_DAY = Duration.of(1, ChronoUnit.DAYS);
 
+    @TempDir
+    private Path tempDir;
+
     // ---- Helpers ------------------------------------------------------------
 
     /// Generates a single {@link TestBlock} for the given block number using a fixed start time
@@ -47,6 +52,27 @@ class SingleBlockStoreTaskTest {
     private TestBlock testBlock(final long blockNumber) {
         return TestBlockBuilder.generateBlocksInRange(blockNumber, blockNumber, START_TIME, ONE_DAY)
                 .getFirst();
+    }
+
+    /// Builds a {@link RetryStagingManager} backed by the per-test {@link #tempDir}, so `call()`
+    /// can exercise the real stage-on-failure path without touching the default `/opt/hiero` path.
+    private RetryStagingManager newStagingManager() {
+        return new RetryStagingManager(new ExpandedCloudStorageConfig(
+                "http://fake:9000",
+                "bucket",
+                "blocks",
+                ExpandedCloudStorageConfig.StorageClass.STANDARD,
+                "us-east-1",
+                "",
+                "",
+                60,
+                true,
+                tempDir,
+                30,
+                30,
+                900,
+                20,
+                6));
     }
 
     /// Returns an {@link S3UploadClient} whose {@code uploadFile} completes silently —
@@ -130,7 +156,8 @@ class SingleBlockStoreTaskTest {
                 successClient(),
                 "blocks/0000/0000/0000/0000/001.blk.zstd",
                 "STANDARD",
-                BlockSource.UNKNOWN);
+                BlockSource.UNKNOWN,
+                newStagingManager());
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 
@@ -144,7 +171,8 @@ class SingleBlockStoreTaskTest {
     }
 
     @Test
-    @DisplayName("UploadException sets UploadStatus.S3_ERROR and succeeded() returns false")
+    @DisplayName(
+            "UploadException sets UploadStatus.S3_ERROR, succeeded() returns false, and bytes are staged for retry")
     void uploadExceptionSetsS3ErrorStatus() {
         final SingleBlockStoreTask task = new SingleBlockStoreTask(
                 2L,
@@ -152,7 +180,8 @@ class SingleBlockStoreTaskTest {
                 throwingS3Client(),
                 "blocks/0000/0000/0000/0000/002.blk.zstd",
                 "STANDARD",
-                BlockSource.UNKNOWN);
+                BlockSource.UNKNOWN,
+                newStagingManager());
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 
@@ -162,10 +191,11 @@ class SingleBlockStoreTaskTest {
                 "UploadException must set status to S3_ERROR");
         assertFalse(result.succeeded(), "succeeded() must return false for S3_ERROR status");
         assertEquals(0L, result.bytesUploaded(), "bytesUploaded must be 0 on S3 failure");
+        assertTrue(result.stagedForRetry(), "compressed bytes must be staged for background retry on S3_ERROR");
     }
 
     @Test
-    @DisplayName("IOException sets UploadStatus.IO_ERROR and succeeded() returns false")
+    @DisplayName("IOException sets UploadStatus.IO_ERROR, succeeded() returns false, and bytes are staged for retry")
     void ioExceptionSetsIoErrorStatus() {
         final SingleBlockStoreTask task = new SingleBlockStoreTask(
                 3L,
@@ -173,7 +203,8 @@ class SingleBlockStoreTaskTest {
                 throwingIoClient(),
                 "blocks/0000/0000/0000/0000/003.blk.zstd",
                 "STANDARD",
-                BlockSource.UNKNOWN);
+                BlockSource.UNKNOWN,
+                newStagingManager());
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 
@@ -181,6 +212,7 @@ class SingleBlockStoreTaskTest {
                 SingleBlockStoreTask.UploadStatus.IO_ERROR, result.status(), "IOException must set status to IO_ERROR");
         assertFalse(result.succeeded(), "succeeded() must return false for IO_ERROR status");
         assertEquals(0L, result.bytesUploaded(), "bytesUploaded must be 0 on I/O failure");
+        assertTrue(result.stagedForRetry(), "compressed bytes must be staged for background retry on IO_ERROR");
     }
 
     @Test
@@ -192,7 +224,8 @@ class SingleBlockStoreTaskTest {
                 throwingUncheckedIoClient(),
                 "blocks/0000/0000/0000/0000/004.blk.zstd",
                 "STANDARD",
-                BlockSource.UNKNOWN);
+                BlockSource.UNKNOWN,
+                newStagingManager());
 
         final SingleBlockStoreTask.UploadResult result =
                 assertDoesNotThrow(task::call, "call() must never propagate an unchecked exception");
@@ -214,7 +247,8 @@ class SingleBlockStoreTaskTest {
                 throwingRuntimeExceptionClient(),
                 "blocks/0000/0000/0000/0000/005.blk.zstd",
                 "STANDARD",
-                BlockSource.UNKNOWN);
+                BlockSource.UNKNOWN,
+                newStagingManager());
 
         final SingleBlockStoreTask.UploadResult result =
                 assertDoesNotThrow(task::call, "call() must never propagate an unchecked exception");
@@ -231,13 +265,44 @@ class SingleBlockStoreTaskTest {
     void succeededConvenienceMethodMatchesSuccessStatus() {
         for (final SingleBlockStoreTask.UploadStatus status : SingleBlockStoreTask.UploadStatus.values()) {
             final SingleBlockStoreTask.UploadResult result =
-                    new SingleBlockStoreTask.UploadResult(0L, status, 0L, BlockSource.UNKNOWN, 0L);
+                    new SingleBlockStoreTask.UploadResult(0L, status, 0L, BlockSource.UNKNOWN, 0L, false);
             if (status == SingleBlockStoreTask.UploadStatus.SUCCESS) {
                 assertTrue(result.succeeded(), "succeeded() must be true for SUCCESS");
             } else {
                 assertFalse(result.succeeded(), "succeeded() must be false for " + status);
             }
         }
+    }
+
+    @Test
+    @DisplayName("Staged bytes for a retried block decompress back to the original block")
+    void stagedBytesRoundTripToOriginalBlock() throws Exception {
+        final RetryStagingManager stagingManager = newStagingManager();
+        final long blockNumber = 55L;
+        final SingleBlockStoreTask task = new SingleBlockStoreTask(
+                blockNumber,
+                testBlock(blockNumber).blockUnparsed(),
+                throwingS3Client(),
+                "blocks/0000/0000/0000/0000/055.blk.zstd",
+                "STANDARD",
+                BlockSource.UNKNOWN,
+                stagingManager);
+
+        final SingleBlockStoreTask.UploadResult result = task.call();
+        assertTrue(result.stagedForRetry(), "bytes must be staged for a later retry");
+
+        final RetryStagingManager.StagedEntry entry =
+                stagingManager.dueForRetry(Instant.now()).getFirst();
+        final byte[] staged = stagingManager.readBytes(entry);
+        final byte[] decompressed = CompressionType.ZSTD.decompress(staged);
+        final BlockUnparsed parsed = standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(decompressed));
+        assertEquals(
+                blockNumber,
+                standardParse(
+                                BlockHeader.PROTOBUF,
+                                parsed.blockItems().getFirst().blockHeaderOrThrow())
+                        .number(),
+                "Staged bytes must decompress back to the original block");
     }
 
     @Test
@@ -268,7 +333,8 @@ class SingleBlockStoreTaskTest {
                 capturingClient,
                 "blocks/0000/0000/0000/0000/042.blk.zstd",
                 "INTELLIGENT_TIERING",
-                BlockSource.UNKNOWN);
+                BlockSource.UNKNOWN,
+                newStagingManager());
         final SingleBlockStoreTask.UploadResult result = task.call();
 
         assertEquals(SingleBlockStoreTask.UploadStatus.SUCCESS, result.status());
@@ -313,7 +379,8 @@ class SingleBlockStoreTaskTest {
                         capturingClient,
                         "blocks/0000/0000/0000/0000/077.blk.zstd",
                         "STANDARD",
-                        BlockSource.UNKNOWN)
+                        BlockSource.UNKNOWN,
+                        newStagingManager())
                 .call();
 
         assertEquals(1, capturedPayload.size(), "Exactly one chunk expected from PayloadIterator");
@@ -335,7 +402,13 @@ class SingleBlockStoreTaskTest {
     @DisplayName("UploadResult carries the correct blockNumber and blockSource")
     void uploadResultCarriesBlockNumberAndSource() {
         final SingleBlockStoreTask task = new SingleBlockStoreTask(
-                99L, testBlock(99L).blockUnparsed(), successClient(), "blocks/key", "STANDARD", BlockSource.PUBLISHER);
+                99L,
+                testBlock(99L).blockUnparsed(),
+                successClient(),
+                "blocks/key",
+                "STANDARD",
+                BlockSource.PUBLISHER,
+                newStagingManager());
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 

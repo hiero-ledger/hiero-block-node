@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -25,6 +27,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
@@ -40,6 +43,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureT
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 
 /// Unit tests for {@link ExpandedCloudStoragePlugin}.
 ///
@@ -54,6 +58,9 @@ class ExpandedCloudStoragePluginTest
     private static final Instant START_TIME =
             ZonedDateTime.of(2025, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant();
     private static final Duration ONE_DAY = Duration.of(1, ChronoUnit.DAYS);
+
+    @TempDir
+    private Path tempDir;
 
     // ---- Capturing S3 client ------------------------------------------------
 
@@ -129,6 +136,20 @@ class ExpandedCloudStoragePluginTest
         }
     }
 
+    /// Polls until the `cloud_expanded_pending_retry_blocks` gauge reaches `expectedCount`, or the
+    /// 5-second timeout elapses. The gauge is only updated when {@link #awaitNotifications} would
+    /// otherwise find nothing to publish (a staged-for-retry result sends no notification), so tests
+    /// covering the deferred-notification path poll this instead.
+    private void awaitPendingRetryCount(final int expectedCount) throws InterruptedException {
+        final long deadline = System.currentTimeMillis() + 5_000L;
+        while (System.currentTimeMillis() < deadline) {
+            plugin.drainCompletedTasks();
+            if (getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS)
+                    >= expectedCount) return;
+            Thread.sleep(10);
+        }
+    }
+
     // ---- Tests --------------------------------------------------------------
 
     @Test
@@ -139,6 +160,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -157,6 +179,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1",
@@ -182,6 +205,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1",
@@ -213,6 +237,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1",
@@ -234,6 +259,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -268,6 +294,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(throwingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -304,6 +331,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(throwingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -328,7 +356,21 @@ class ExpandedCloudStoragePluginTest
         for (final ExpandedCloudStorageConfig.StorageClass sc : ExpandedCloudStorageConfig.StorageClass.values()) {
             assertDoesNotThrow(
                     () -> new ExpandedCloudStorageConfig(
-                            "http://fake:9000", "bucket", "blocks", sc, "us-east-1", "", "", 60),
+                            "http://fake:9000",
+                            "bucket",
+                            "blocks",
+                            sc,
+                            "us-east-1",
+                            "",
+                            "",
+                            60,
+                            true,
+                            tempDir,
+                            30,
+                            30,
+                            900,
+                            20,
+                            6),
                     "StorageClass " + sc + " must not throw");
         }
     }
@@ -347,7 +389,14 @@ class ExpandedCloudStoragePluginTest
                         "us-east-1",
                         "",
                         "",
-                        60),
+                        60,
+                        true,
+                        tempDir,
+                        30,
+                        30,
+                        900,
+                        20,
+                        6),
                 "blank bucketName must not throw");
         assertDoesNotThrow(
                 () -> new ExpandedCloudStorageConfig(
@@ -358,7 +407,14 @@ class ExpandedCloudStoragePluginTest
                         "us-east-1",
                         "",
                         "",
-                        60),
+                        60,
+                        true,
+                        tempDir,
+                        30,
+                        30,
+                        900,
+                        20,
+                        6),
                 "blank endpointUrl must not throw");
         assertDoesNotThrow(
                 () -> new ExpandedCloudStorageConfig(
@@ -369,7 +425,14 @@ class ExpandedCloudStoragePluginTest
                         "",
                         "",
                         "",
-                        60),
+                        60,
+                        true,
+                        tempDir,
+                        30,
+                        30,
+                        900,
+                        20,
+                        6),
                 "blank regionName must not throw");
     }
 
@@ -381,6 +444,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -419,6 +483,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(throwingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -455,6 +520,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(trackingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -474,6 +540,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1",
@@ -505,6 +572,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -549,6 +617,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(throwingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -581,6 +650,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -618,6 +688,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(throwingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -715,6 +786,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(barrierClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -772,6 +844,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(mixedClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1",
@@ -807,6 +880,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -861,6 +935,7 @@ class ExpandedCloudStoragePluginTest
                 new ExpandedCloudStoragePlugin(delayedClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
@@ -884,5 +959,412 @@ class ExpandedCloudStoragePluginTest
                 "PersistedNotification must be published before stop() completes");
         assertTrue(
                 closedAfterNotification.get(), "S3 client must be closed only after notifications have been published");
+    }
+
+    // ---- Retry tests ----------------------------------------------------------
+
+    @Test
+    @DisplayName("A failed upload with retry enabled is staged for retry and sends no PersistedNotification yet")
+    void failedUploadWithRetryEnabledDefersNotification() throws InterruptedException {
+        final S3UploadClient throwingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                throw new UploadException("Simulated S3 failure", null);
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(throwingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString()));
+
+        plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
+        awaitPendingRetryCount(1);
+
+        assertTrue(
+                blockMessaging.getSentPersistedNotifications().isEmpty(),
+                "PersistedNotification must be deferred while the block is staged for retry");
+        assertTrue(Files.exists(tempDir.resolve("1.blk.zstd")), "compressed bytes must be staged to disk");
+    }
+
+    @Test
+    @DisplayName("Driving the retry tick after a transient failure recovers the block and publishes succeeded=true")
+    void retryTickRecoversBlockAfterTransientFailure() throws InterruptedException {
+        final AtomicInteger attempt = new AtomicInteger();
+        final S3UploadClient flakyClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                if (attempt.getAndIncrement() == 0) {
+                    throw new UploadException("Simulated transient S3 failure", null);
+                }
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(flakyClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString()));
+
+        plugin.handleVerification(verifiedNotification(3L, testBlock(3L).blockUnparsed()));
+        awaitPendingRetryCount(1);
+        assertTrue(blockMessaging.getSentPersistedNotifications().isEmpty());
+
+        // Drive the retry tick manually instead of waiting for the real 30s scheduler interval.
+        plugin.retryStagedBlocks();
+        awaitNotifications(1);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size());
+        assertEquals(3L, notifications.getFirst().blockNumber());
+        assertTrue(
+                notifications.getFirst().succeeded(),
+                "block must be reported succeeded=true after recovering via retry");
+        assertEquals(0L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS));
+        assertEquals(1L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_RETRY_SUCCESS_TOTAL));
+        assertFalse(Files.exists(tempDir.resolve("3.blk.zstd")), "staged blob must be removed after recovery");
+    }
+
+    @Test
+    @DisplayName("Retry tick exhausts immediately when retryMaxAttempts=1 and publishes succeeded=false")
+    void retryTickExhaustsWhenMaxAttemptsIsOne() throws InterruptedException {
+        final S3UploadClient throwingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                throw new UploadException("Simulated persistent S3 failure", null);
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(throwingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString(),
+                        "cloud.storage.expanded.retryMaxAttempts", "1"));
+
+        plugin.handleVerification(verifiedNotification(9L, testBlock(9L).blockUnparsed()));
+        awaitPendingRetryCount(1);
+        assertTrue(blockMessaging.getSentPersistedNotifications().isEmpty());
+
+        plugin.retryStagedBlocks();
+        awaitNotifications(1);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size());
+        assertFalse(
+                notifications.getFirst().succeeded(),
+                "block must be reported succeeded=false once retries are exhausted");
+        assertEquals(
+                1L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_RETRY_EXHAUSTED_TOTAL));
+        assertEquals(0L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS));
+    }
+
+    @Test
+    @DisplayName("stop() does not delete staged retry files from disk")
+    void stopDoesNotDeleteStagedFiles() throws InterruptedException {
+        final S3UploadClient alwaysFailingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                throw new UploadException("Simulated S3 failure", null);
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(alwaysFailingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString()));
+
+        plugin.handleVerification(verifiedNotification(4L, testBlock(4L).blockUnparsed()));
+        awaitPendingRetryCount(1);
+        assertTrue(blockMessaging.getSentPersistedNotifications().isEmpty());
+
+        plugin.stop();
+
+        assertTrue(Files.exists(tempDir.resolve("4.blk.zstd")), "staged blob must survive stop()");
+        assertTrue(Files.exists(tempDir.resolve("4.meta.properties")), "staged sidecar must survive stop()");
+    }
+
+    @Test
+    @DisplayName("A restarted plugin instance recovers a staged block from disk and can still complete its retry")
+    void restartRecoversStagedBlockFromDisk() throws InterruptedException {
+        // First instance: uploads always fail, so the block gets staged to disk.
+        // Intentionally does not call plugin.stop() before the second start() below — the shared
+        // TestThreadPoolManager hands back the same scheduled executor on every start(), and stop()
+        // would shut that executor down for good, breaking the second instance's own retry scheduler.
+        // (This mirrors the double-start-without-stop pattern already used by other plugin tests in
+        // this codebase, e.g. VerificationServicePluginTest and BlockFileHistoricPluginTest.)
+        final S3UploadClient alwaysFailingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                throw new UploadException("Simulated S3 failure", null);
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(alwaysFailingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString()));
+
+        plugin.handleVerification(verifiedNotification(4L, testBlock(4L).blockUnparsed()));
+        awaitPendingRetryCount(1);
+        assertTrue(blockMessaging.getSentPersistedNotifications().isEmpty());
+        assertTrue(Files.exists(tempDir.resolve("4.blk.zstd")), "precondition: blob must be staged before restart");
+
+        // Second instance ("restart"): points at the same staging directory and now succeeds.
+        final S3UploadClient succeedingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType) {}
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(succeedingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString()));
+
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS),
+                "restarted instance must recover the previously staged block via loadExisting()");
+
+        plugin.retryStagedBlocks();
+        awaitNotifications(1);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size(), "the recovered block must eventually produce one PersistedNotification");
+        assertEquals(4L, notifications.getFirst().blockNumber());
+        assertTrue(notifications.getFirst().succeeded());
+    }
+
+    @Test
+    @DisplayName("A duplicate VerificationNotification that succeeds live clears a stale staged entry")
+    void duplicateLiveSuccessClearsStaleStagedEntry() throws InterruptedException {
+        final AtomicInteger attempt = new AtomicInteger();
+        final S3UploadClient flakyClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                if (attempt.getAndIncrement() == 0) {
+                    throw new UploadException("Simulated S3 failure", null);
+                }
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(flakyClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString()));
+
+        // First attempt fails and is staged for background retry.
+        plugin.handleVerification(verifiedNotification(6L, testBlock(6L).blockUnparsed()));
+        awaitPendingRetryCount(1);
+        assertTrue(Files.exists(tempDir.resolve("6.blk.zstd")), "precondition: block must be staged");
+
+        // A duplicate VerificationNotification for the same block succeeds via the live path
+        // before the retry scheduler ever picks up the staged entry.
+        plugin.handleVerification(verifiedNotification(6L, testBlock(6L).blockUnparsed()));
+        awaitNotifications(1);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size());
+        assertTrue(notifications.getFirst().succeeded());
+        assertFalse(Files.exists(tempDir.resolve("6.blk.zstd")), "stale staged blob must be cleared on live success");
+        assertFalse(
+                Files.exists(tempDir.resolve("6.meta.properties")),
+                "stale staged sidecar must be cleared on live success");
+        assertEquals(
+                0L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS),
+                "gauge must reflect the cleared staged entry, not just the disk state");
+
+        // The retry scheduler must find nothing left to retry for this block.
+        plugin.retryStagedBlocks();
+        plugin.drainCompletedTasks();
+        assertEquals(
+                1,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "no further notification should be produced for an already-delivered block");
+    }
+
+    @Test
+    @DisplayName("RejectedExecutionException from an already-stopped messaging facility is caught during a "
+            + "successful retry")
+    void rejectedExecutionExceptionDuringRetrySuccessIsCaught() throws InterruptedException {
+        final AtomicInteger attempt = new AtomicInteger();
+        final S3UploadClient flakyClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                if (attempt.getAndIncrement() == 0) {
+                    throw new UploadException("Simulated transient S3 failure", null);
+                }
+            }
+
+            @Override
+            public void close() {}
+        };
+        blockMessaging = new TestBlockMessagingFacility() {
+            @Override
+            public void sendBlockPersisted(final PersistedNotification notification) {
+                throw new RejectedExecutionException("Simulated: messaging facility already stopped");
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(flakyClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString()));
+
+        plugin.handleVerification(verifiedNotification(11L, testBlock(11L).blockUnparsed()));
+        awaitPendingRetryCount(1);
+
+        plugin.retryStagedBlocks();
+        final long deadline = System.currentTimeMillis() + 5_000L;
+        while (System.currentTimeMillis() < deadline
+                && getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS) > 0) {
+            Thread.sleep(10);
+        }
+
+        assertTrue(
+                blockMessaging.getSentPersistedNotifications().isEmpty(),
+                "notification delivery was rejected, so nothing should be recorded as sent");
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_RETRY_SUCCESS_TOTAL),
+                "retrySuccessTotal must still be incremented even though notification delivery failed");
+        assertFalse(Files.exists(tempDir.resolve("11.blk.zstd")), "staged blob must still be removed on success");
+    }
+
+    @Test
+    @DisplayName("RejectedExecutionException from an already-stopped messaging facility is caught when retries "
+            + "are exhausted")
+    void rejectedExecutionExceptionDuringRetryExhaustionIsCaught() throws InterruptedException {
+        final S3UploadClient throwingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                throw new UploadException("Simulated persistent S3 failure", null);
+            }
+
+            @Override
+            public void close() {}
+        };
+        blockMessaging = new TestBlockMessagingFacility() {
+            @Override
+            public void sendBlockPersisted(final PersistedNotification notification) {
+                throw new RejectedExecutionException("Simulated: messaging facility already stopped");
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(throwingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryStagingDirectoryPath", tempDir.toString(),
+                        "cloud.storage.expanded.retryMaxAttempts", "1"));
+
+        plugin.handleVerification(verifiedNotification(12L, testBlock(12L).blockUnparsed()));
+        awaitPendingRetryCount(1);
+
+        plugin.retryStagedBlocks();
+        final long deadline = System.currentTimeMillis() + 5_000L;
+        while (System.currentTimeMillis() < deadline
+                && getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS) > 0) {
+            Thread.sleep(10);
+        }
+
+        assertTrue(
+                blockMessaging.getSentPersistedNotifications().isEmpty(),
+                "notification delivery was rejected, so nothing should be recorded as sent");
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_RETRY_EXHAUSTED_TOTAL),
+                "retryExhaustedTotal must still be incremented even though notification delivery failed");
+        assertFalse(Files.exists(tempDir.resolve("12.blk.zstd")), "staged blob must still be removed once exhausted");
     }
 }

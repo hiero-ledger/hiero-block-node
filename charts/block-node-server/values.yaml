@@ -259,6 +259,19 @@ blockNode:
       # storageClass: "your-storage-class"
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
       # existingClaim: "my-plugins-pvc"
+    cloudStorageExpandedRetryStaging:
+      # Defaults to true to match the plugin's CLOUD_STORAGE_EXPANDED_RETRY_ENABLED default.
+      # Set to false if you don't use the cloud-storage-expanded plugin.
+      enabled: true
+      # name of the volume within the statefulset
+      volumeName: "cloud-storage-expanded-retry-staging"
+      # should match CLOUD_STORAGE_EXPANDED_RETRY_STAGING_DIRECTORY_PATH, leave as is for default.
+      mountPath: "/opt/hiero/block-node/cloud-storage-expanded/retry-staging"
+      size: 5Gi
+      # Optionally add a storage class name if needed
+      # storageClass: "your-storage-class"
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "my-cloud-storage-expanded-retry-staging-pvc"
   # For secrets, is recommended to use a secretRef to an existing secret on the cluster.
   # secretRef: secret-name-reference
   # not recommended to use this, but for testing purposes you can use the following collection for secrets auto-creation

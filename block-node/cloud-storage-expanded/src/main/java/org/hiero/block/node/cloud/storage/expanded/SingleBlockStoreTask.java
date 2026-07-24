@@ -9,8 +9,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
 import java.util.concurrent.Callable;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
@@ -65,8 +63,15 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     /// @param bytesUploaded   compressed bytes transferred; 0 on any failure
     /// @param blockSource     origin of the block (forwarded to {@code PersistedNotification})
     /// @param uploadDurationNs wall-clock time of the upload call in nanoseconds
+    /// @param stagedForRetry  `true` if a failed upload's compressed bytes were staged to disk for a
+    ///                        later background retry; always `false` on success
     public record UploadResult(
-            long blockNumber, UploadStatus status, long bytesUploaded, BlockSource blockSource, long uploadDurationNs) {
+            long blockNumber,
+            UploadStatus status,
+            long bytesUploaded,
+            BlockSource blockSource,
+            long uploadDurationNs,
+            boolean stagedForRetry) {
 
         /// Returns `true` if the upload completed successfully.
         public boolean succeeded() {
@@ -80,28 +85,33 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     private final String objectKey;
     private final String storageClass;
     private final BlockSource blockSource;
+    private final RetryStagingManager stagingManager;
 
     /// Constructs a new task.
     ///
-    /// @param blockNumber  the block number being uploaded
-    /// @param block        the verified block payload
-    /// @param s3Client     the upload client to use for the upload
-    /// @param objectKey    the fully-qualified S3 object key
-    /// @param storageClass the S3 storage class
-    /// @param blockSource  the source of the block (for the `PersistedNotification`)
+    /// @param blockNumber    the block number being uploaded
+    /// @param block          the verified block payload
+    /// @param s3Client       the upload client to use for the upload
+    /// @param objectKey      the fully-qualified S3 object key
+    /// @param storageClass   the S3 storage class
+    /// @param blockSource    the source of the block (for the `PersistedNotification`)
+    /// @param stagingManager staging area used to persist the compressed bytes for background retry
+    ///                       when the upload fails
     public SingleBlockStoreTask(
             final long blockNumber,
             @NonNull final BlockUnparsed block,
             @NonNull final S3UploadClient s3Client,
             @NonNull final String objectKey,
             @NonNull final String storageClass,
-            @NonNull final BlockSource blockSource) {
+            @NonNull final BlockSource blockSource,
+            @NonNull final RetryStagingManager stagingManager) {
         this.blockNumber = blockNumber;
         this.block = block;
         this.s3Client = s3Client;
         this.objectKey = objectKey;
         this.storageClass = storageClass;
         this.blockSource = blockSource;
+        this.stagingManager = stagingManager;
     }
 
     /// Compresses the block to ZSTD protobuf bytes and uploads it to S3.
@@ -116,12 +126,13 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     @Override
     public UploadResult call() {
         final long uploadStartNs = System.nanoTime();
+        byte[] compressed = null;
         try {
             final ByteArrayOutputStream baos = new ByteArrayOutputStream();
             try (final OutputStream zstdOut = CompressionType.ZSTD.wrapStream(baos)) {
                 BlockUnparsed.PROTOBUF.write(block, new WritableStreamingData(zstdOut));
             }
-            final byte[] compressed = baos.toByteArray();
+            compressed = baos.toByteArray();
 
             if (compressed.length == 0) {
                 LOGGER.log(WARNING, "Block {0}: compressed bytes are empty, skipping upload.", blockNumber);
@@ -130,7 +141,8 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
                         UploadStatus.COMPRESSION_ERROR,
                         0L,
                         blockSource,
-                        System.nanoTime() - uploadStartNs);
+                        System.nanoTime() - uploadStartNs,
+                        false);
             }
 
             s3Client.uploadFile(objectKey, storageClass, new PayloadIterator(compressed), CONTENT_TYPE);
@@ -140,47 +152,44 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
                     UploadStatus.SUCCESS,
                     compressed.length,
                     blockSource,
-                    System.nanoTime() - uploadStartNs);
+                    System.nanoTime() - uploadStartNs,
+                    false);
 
         } catch (final UploadException e) {
             final String msg = "Block " + blockNumber + ": S3 upload failed";
             LOGGER.log(WARNING, msg, e);
+            final boolean staged = stageForRetry(compressed);
             return new UploadResult(
-                    blockNumber, UploadStatus.S3_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
+                    blockNumber, UploadStatus.S3_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs, staged);
         } catch (final IOException e) {
             final String msg = "Block " + blockNumber + ": I/O error during upload";
             LOGGER.log(WARNING, msg, e);
+            final boolean staged = stageForRetry(compressed);
             return new UploadResult(
-                    blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
+                    blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs, staged);
         } catch (final RuntimeException e) {
             // Defensive: guards against any S3UploadClient implementation leaking an unchecked exception,
             // keeping this class's own "never throws, always returns a result" promise unconditionally true.
             final String msg = "Block " + blockNumber + ": unexpected exception during upload";
             LOGGER.log(WARNING, msg, e);
+            final boolean staged = stageForRetry(compressed);
             return new UploadResult(
-                    blockNumber, UploadStatus.UNEXPECTED_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
+                    blockNumber,
+                    UploadStatus.UNEXPECTED_ERROR,
+                    0L,
+                    blockSource,
+                    System.nanoTime() - uploadStartNs,
+                    staged);
         }
     }
 
-    /// Single-use iterator that delivers one byte array and then reports exhausted.
-    private static final class PayloadIterator implements Iterator<byte[]> {
-        private final byte[] payload;
-        private boolean delivered = false;
-
-        PayloadIterator(final byte[] payload) {
-            this.payload = payload;
-        }
-
-        @Override
-        public boolean hasNext() {
-            return !delivered;
-        }
-
-        @Override
-        public byte[] next() {
-            if (delivered) throw new NoSuchElementException();
-            delivered = true;
-            return payload;
-        }
+    /// Stages the compressed bytes for background retry if compression completed before the upload
+    /// failed. Returns `false` without staging when `compressed` is `null` or empty (the `IOException`
+    /// came from compression itself, not the upload) or when {@link RetryStagingManager#stage} rejects
+    /// the bytes.
+    private boolean stageForRetry(final byte[] compressed) {
+        return compressed != null
+                && compressed.length > 0
+                && stagingManager.stage(blockNumber, compressed, objectKey, storageClass, blockSource);
     }
 }
