@@ -264,11 +264,11 @@ By default Solo is installed from npm (`npm i @hashgraph/solo -g`). When a fix i
 
 Set `SOLO_SOURCE=git` and point at the fork:
 
-| Variable        | Purpose                                          |
-|-----------------|--------------------------------------------------|
+|    Variable     |                      Purpose                      |
+|-----------------|---------------------------------------------------|
 | `SOLO_SOURCE`   | `git` to build from source (`npm` is the default) |
-| `SOLO_GIT_REPO` | `owner/repo` — must be in the approved allowlist |
-| `SOLO_GIT_REF`  | Branch, tag, or commit SHA to build              |
+| `SOLO_GIT_REPO` | `owner/repo` — must be in the approved allowlist  |
+| `SOLO_GIT_REF`  | Branch, tag, or commit SHA to build               |
 
 **Approved repositories** (allowlist enforced by `scripts/solo-install.sh`): `hiero-ledger/solo`, `hashgraph/solo`, `AlfredoG87/solo`. Any other repo is rejected with a hard failure.
 
