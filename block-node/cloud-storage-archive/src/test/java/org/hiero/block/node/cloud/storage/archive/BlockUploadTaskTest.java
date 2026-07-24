@@ -32,6 +32,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.NetworkData;
+import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -707,9 +708,25 @@ class BlockUploadTaskTest {
     /// [ApplicationStateFacility] implementation that records every stored range.
     private static final class TrackingApplicationStateFacility implements ApplicationStateFacility {
         final List<LongRange> storedRanges = new ArrayList<>();
+        volatile long nextExpectedBlock = -1L;
+
+        @Override
+        public long nextExpectedBlock() {
+            return nextExpectedBlock;
+        }
+
+        @Override
+        public void updateExpectedBlock(final long updatedExpectedBlock) {
+            nextExpectedBlock = updatedExpectedBlock;
+        }
 
         @Override
         public void updateTssData(TssData tssData) {}
+
+        @Override
+        public boolean updateAddressBookHistory(final RangedAddressBookHistory history) {
+            return false;
+        }
 
         public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
             return true;
@@ -718,6 +735,11 @@ class BlockUploadTaskTest {
         @Override
         public void addStoredBlockRange(LongRange blockRange) {
             storedRanges.add(blockRange);
+        }
+
+        @Override
+        public NodeAddressBook getAddressBookForBlock(final long blockNum) {
+            return null;
         }
 
         @Override
