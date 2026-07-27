@@ -296,9 +296,11 @@ At configured checkpoint block numbers, snapshots the computed account state and
 
 - **HBAR balances** — per-account tinybar totals, tracked continuously from `StateChanges` (absolute) and `RecordFile` transfer lists (relative).
 - **Fungible token balances** — per-account, per-token unit counts, tracked continuously via HTS mint / burn / transfer events applied to `RunningAccountsState.applyFungibleTokenChange`.
-- **NFT ownership** — per-account, per-token owned serial number sets (tracked internally; checkpoint comparison currently focuses on HBAR + fungible balances, NFT ownership is retained for future checkpoint schemas).
+- **NFT ownership counts** — per-account, per-token *count* of NFT serial numbers held. `RunningAccountsState` tracks the specific serial numbers each account owns (via `applyNftTransfer`), and at checkpoint time the size of each account/token's serial set is compared against the checkpoint's per-token `balance` field. A lost or extra NFT for any account fails the checkpoint.
 
-Every checkpoint that fails records a per-account (and per-token, for fungible-token divergences) mismatch summary.
+Note that the *identity* of individual serial numbers is not part of the comparison — Hedera's `AllAccountBalances` snapshot schema (what `fetchBalanceCheckpoints` extracts) only carries per-token balance scalars per account, not per-serial ownership lists. If that schema is later extended, the per-serial data is already tracked in memory and the comparison can be wired in without changing the running-state model.
+
+Every checkpoint that fails records a per-account (and per-token, for fungible or NFT-count divergences) mismatch summary.
 
 ##### HashRegistryValidation
 
