@@ -51,7 +51,7 @@ is a property of the hashing step described there.
    same category, so existing blocks hash identically and nothing regresses.
 2. An item type that was unknown when the Block Node was built **must** still be
    placed in the correct category using only the numbering rule, as long as that
-   category already exists in the block's hash tree.
+   category has a defined subtree in the block's hash tree.
 3. Future item types that are explicitly defined as **not part of the block hash**
    must be safely ignored.
 4. The rule **must** be deterministic and identical on every Block Node, so two
@@ -84,8 +84,9 @@ known without any node side knowledge of the new type.</dd>
 <dt><code>Forward Compatibility</code></dt><dd>The ability of an existing Block
 Node to correctly process a block that contains item types introduced after that
 node was built.</dd>
-<dt><code>Extension Category</code></dt><dd>A category reserved for a future
-subtree that does not yet exist in the block's hash tree.</dd>
+<dt><code>Extension Category</code></dt><dd>One of eight additional categories
+(Extension 0 to Extension 7) whose subtrees are already defined in the block's
+hash tree and reserved for future item types.</dd>
 <dt><code>Not Hashed</code></dt><dd>An item that is intentionally left out of the
 block hash, for example the block footer and the block proof. It is read but
 contributes nothing to any subtree.</dd>
@@ -107,15 +108,17 @@ one into its category, and produces the block root hash. It is the only place
 that needs to know the category of an item, so it is also the only place that
 applies the forward compatibility rule.
 
-### The Five Categories and the Block Root Hash
+### The Category Subtrees and the Block Root Hash
 
-Five categories are hashed today: `consensus headers`, `inputs`, `outputs`,
-`state changes`, and `trace data`. Their subtree roots, together with a few block
-level values (the previous block's hash, the running root of all prior blocks,
-the start of block state root, and the block timestamp), are combined into the
-block root hash. The shape of this combination is **fixed**. There are exactly
-five category leaves, so a category that does not yet have a leaf cannot be folded
-into the hash without changing the tree.
+Five categories carry items today: `consensus headers`, `inputs`, `outputs`,
+`state changes`, and `trace data`. In addition, eight `extension subtrees`
+(Extension 0 to Extension 7) are already defined in the tree and reserved for
+future item types. The subtree roots, together with a few block level values
+(the previous block's hash, the running root of all prior blocks, the start of
+block state root, and the block timestamp), are combined into the block root
+hash. The set of category leaves is **fixed and cannot ever be extended**, which
+is why the truly reserved categories (16 to 18) cannot be folded into the hash
+without an upgrade that defines the correct subtree.
 
 ## Design
 
@@ -125,7 +128,7 @@ Each item in the block stream **SHALL** be self-contained and independent, with
 the following constraints applicable to the *unfiltered* stream:
 
 - A block **SHALL** start with a `header`.
-- A block **SHALL** end with a `state_proof`.
+- A block **SHALL** end with a `block_proof`.
 - A `block_header` **SHALL** be followed by an `event_header`.
 - An `event_header` **SHALL** be followed by one or more `event_transaction`
   items.
@@ -213,38 +216,42 @@ The resulting category number means:
 | Category (N mod 20) |                       Meaning                        | Forward compatible? |
 |---------------------|------------------------------------------------------|---------------------|
 | 0                   | Not hashed (not part of the block proof merkle tree) | Yes                 |
-| 1                   | Requires specific handling                           | No                  |
-| 2                   | Requires specific handling                           | No                  |
+| 1                   | Requires specific handling                           | Partially           |
+| 2                   | Requires specific handling                           | Partially           |
 | 3                   | `consensus headers`                                  | Yes                 |
 | 4                   | `inputs`                                             | Yes                 |
 | 5                   | `outputs`                                            | Yes                 |
 | 6                   | `state changes`                                      | Yes                 |
 | 7                   | `trace data`                                         | Yes                 |
-| 8                   | Extension 0                                          | Not yet             |
-| 9                   | Extension 1                                          | Not yet             |
-| 10                  | Extension 2                                          | Not yet             |
-| 11                  | Extension 3                                          | Not yet             |
-| 12                  | Extension 4                                          | Not yet             |
-| 13                  | Extension 5                                          | Not yet             |
-| 14                  | Extension 6                                          | Not yet             |
-| 15                  | Extension 7                                          | Not yet             |
+| 8                   | Extension 0                                          | Yes                 |
+| 9                   | Extension 1                                          | Yes                 |
+| 10                  | Extension 2                                          | Yes                 |
+| 11                  | Extension 3                                          | Yes                 |
+| 12                  | Extension 4                                          | Yes                 |
+| 13                  | Extension 5                                          | Yes                 |
+| 14                  | Extension 6                                          | Yes                 |
+| 15                  | Extension 7                                          | Yes                 |
 | 16 to 18            | Reserved for future use                              | No                  |
 | 19                  | Not hashed (not part of the block proof merkle tree) | Yes                 |
 
 Reading the table by kind:
 
 - **Categories 0 and 19** are not hashed. A future item here is read and ignored,
-  and it contributes nothing to the block hash. Also *fully forward compatible*.
-- **Categories 1 and 2** are for items that need specific handling that the rule
-  alone cannot express. These are *not forward compatible* and require an update.
-- **Categories 3 to 7** are the five subtrees that already exist. A future item
-  here is hashed into that subtree exactly like any other item, with no code
-  change. This is *full forward compatibility*.
-- **Categories 8 to 15** are `extension categories`, reserved for subtrees that do
-  not exist yet. The category is known, but there is nowhere to fold the item into
-  the block root hash. See
-  [Where forward compatibility ends](#where-forward-compatibility-ends).
-- **Categories 16 to 18** are reserved and carry no meaning yet.
+  and it contributes nothing to the block hash. *Fully forward compatible*.
+- **Categories 1 and 2** are for items that need specific handling beyond
+  category placement. These are *partially forward compatible*: the category
+  clearly expresses a field that is not compatible unless the field's schema is
+  separately known. There is never ambiguity here; the processing needed is
+  either known, or the block cannot be processed.
+- **Categories 3 to 7** are the five subtrees that carry items today. A future
+  item here is hashed into that subtree exactly like any other item, with no
+  code change. *Fully forward compatible*.
+- **Categories 8 to 15** are `extension categories`. Their subtrees are already
+  defined in the block's hash tree, with the names given here. A future item in
+  one of them is hashed into the matching extension subtree, with no code
+  change. *Fully forward compatible*.
+- **Categories 16 to 18** are reserved and carry no meaning yet. See
+  [Where Forward Compatibility Ends](#where-forward-compatibility-ends).
 
 ### Worked Examples
 
@@ -266,20 +273,26 @@ that already has a place in the hash tree (or is explicitly not hashed).
 
 ### Where Forward Compatibility Ends
 
-Forward compatibility is complete for categories 3 to 7 (the existing subtrees)
+Forward compatibility is complete for categories 3 to 15 (the defined subtrees)
 and for categories 0 and 19 (not hashed). It **cannot** be complete for
-`extension categories` (8 to 15). The block root hash is built from a fixed set of
-category leaves, so a subtree that has not been added yet has no leaf, and an item
-in an extension category cannot be added to the hash without an upgrade that adds
-the subtree and extends the tree. The same is true for the "requires specific
-handling" categories (1 and 2) and the reserved categories (16 to 18).
+`reserved categories` (16 to 18). The block root hash is built from a fixed set
+of category leaves that cannot ever be extended, so an item in a reserved
+category cannot be added to the hash without an upgrade that defines the correct
+subtree.
 
-When a Block Node meets an item in one of these categories, it has to **refuse the
-block** rather than drop the item or place it somewhere plausible. Either shortcut
-would let two nodes compute *different hashes for the same block*, which is the
-exact problem verification exists to prevent. Refusing the block is safe, and it
-also makes the situation obvious, because it shows that the block stream has moved
-ahead of this node and an upgrade is needed.
+The "requires specific handling" categories (1 and 2) have defined subtrees for
+each specific field, but may also require specific preprocessing or other
+handling, so while compatibility is version dependent, the exact processing
+needed is always either known or the block cannot be processed. There is never
+ambiguity for categories 1 and 2.
+
+When a Block Node meets an item it cannot process, meaning a reserved category or
+a specific handling item whose processing this version does not know, it has to
+**refuse the block** rather than drop the item or place it somewhere plausible.
+Either shortcut would let two nodes compute *different hashes for the same
+block*, which is the exact problem verification exists to prevent. Refusing the
+block is safe, and it also makes the situation obvious, because it shows that the
+block stream has moved ahead of this node and an upgrade is needed.
 
 ## Diagram
 
@@ -307,6 +320,7 @@ flowchart LR
         OUTT[Outputs subtree]
         SCT[State changes subtree]
         TDT[Trace data subtree]
+        EXT["Extension subtrees 0 to 7 (defined, reserved for future items)"]
     end
     EH --> CHT
     RH --> CHT
@@ -322,6 +336,7 @@ flowchart LR
     OUTT --> R
     SCT --> R
     TDT --> R
+    EXT --> R
     BF -. "not hashed, carries three root tree leaves" .-> R
     BP -. "not hashed, proves the root hash" .-> R
 ```
@@ -336,8 +351,9 @@ flowchart TD
     D --> E{Which category?}
     E -- "3 to 7: existing subtree" --> F["Hash into that subtree, fully forward compatible"]
     E -- "0 or 19: not hashed" --> G["Read and ignore, fully forward compatible"]
-    E -- "8 to 15: extension" --> H["Refuse the block, upgrade required"]
-    E -- "1, 2, or 16 to 18" --> I["Refuse the block, needs specific handling"]
+    E -- "8 to 15: extension" --> H["Include the item in the correct extension subtree"]
+    E -- "1 or 2: specific handling" --> I["Apply the known handling, or refuse the block if unknown"]
+    E -- "16 to 18: reserved" --> J["Refuse the block, upgrade required"]
 ```
 
 The worked examples, applied through the rule:
@@ -349,9 +365,10 @@ flowchart LR
     BR["BlockTrailer (field 39)"] --> BR1["39 mod 20 = 19"] --> BR2["not hashed"]
 ```
 
-The five category leaves are **fixed**. A future extension category has no leaf
-in the block root hash, which is why such items require an upgrade before they can
-be hashed.
+The set of category leaves is **fixed and cannot ever be extended**. The
+extension subtrees are part of that fixed set, so items landing in them need no
+upgrade; only the reserved categories (16 to 18) have no subtree, which is why
+such items require an upgrade before they can be hashed.
 
 ## Configuration
 
@@ -365,23 +382,25 @@ existing verification configuration is unchanged.
 No new metrics are required, but a few would make forward compatibility events
 visible to operators and give early warning of a needed upgrade:
 
-- a count of future item types placed into an existing category by the rule,
+- a count of future item types placed into a subtree by the rule, including the
+  extension subtrees,
 - a count of future items safely ignored as `not hashed`,
-- a count of blocks refused because an item fell into an `extension category`, a
-  "requires specific handling" category, or a reserved category that this node
-  cannot yet hash.
+- a count of blocks refused because an item fell into a reserved category
+  (16 to 18), or needed specific handling (1 or 2) that this version does not
+  know.
 
 ## Exceptions
 
 Hashing does not surface internal errors to callers. It reports a **verification
 failure** for the block instead.
 
-- A future item that maps to an existing category (3 to 7) or to `not hashed`
-  (0 or 19) is handled normally and is not a failure.
-- A future item that maps to an `extension category` (8 to 15), a "requires
-  specific handling" category (1 or 2), or a reserved category (16 to 18) causes
-  the block to be refused, with a clear failure showing that an upgrade is
-  required. It is never silently dropped or placed elsewhere.
+- A future item that maps to a defined subtree (3 to 15, including the extension
+  subtrees) or to `not hashed` (0 or 19) is handled normally and is not a
+  failure.
+- A future item that maps to a reserved category (16 to 18), or to a "requires
+  specific handling" category (1 or 2) whose processing this version does not
+  know, causes the block to be refused, with a clear failure showing that an
+  upgrade is required. It is never silently dropped or placed elsewhere.
 - A malformed or unexpected item that does not fit the rule at all is treated as a
   **parse failure**, as it is today.
 
@@ -389,15 +408,17 @@ failure** for the block instead.
 
 1. **No regression.** Every item type that exists today is placed in the same
    category and produces the same block root hash as before this change.
-2. **New item, existing category.** A block containing a simulated future item
-   whose `field number modulo 20` is 3 to 7 hashes to the same value a node would
-   produce if it had always known that item type.
+2. **New item, defined subtree.** A block containing a simulated future item
+   whose `field number modulo 20` is 3 to 15 (including the extension subtrees)
+   hashes to the same value a node would produce if it had always known that
+   item type.
 3. **New item, not hashed.** A block containing a simulated future item whose
    `field number modulo 20` is 0 or 19 verifies successfully, with the item left
    out of every category.
-4. **Extension category refused.** A block containing a simulated future item
-   whose `field number modulo 20` is 8 to 15 (or 1, 2, or 16 to 18) is refused
-   with the designated failure. It is never accepted and never silently dropped.
+4. **Reserved category refused.** A block containing a simulated future item
+   whose `field number modulo 20` is 16 to 18, or is 1 or 2 with processing this
+   version does not know, is refused with the designated failure. It is never
+   accepted and never silently dropped.
 5. **Two nodes agree.** For each case above, independent runs compute identical
    block root hashes for identical input.
 6. **Stays in step with the format.** A test ties the rule used for hashing to the
