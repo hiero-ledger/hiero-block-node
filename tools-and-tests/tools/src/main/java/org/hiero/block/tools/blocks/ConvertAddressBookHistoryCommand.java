@@ -11,6 +11,7 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -67,6 +68,15 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
 
     /** Sentinel value used by {@link RangedAddressBookHistory} for the open-ended (most-recent) era. */
     static final long OPEN_ENDED_END_BLOCK = -1L;
+
+    // JSON keys emitted by PBJ's RangedAddressBookHistory.JSON codec. Kept as constants so any
+    // schema rename lands in one place and is auto-suggestable at the call site.
+    private static final String KEY_ADDRESS_BOOKS = "addressBooks";
+    private static final String KEY_ADDRESS_BOOK = "addressBook";
+    private static final String KEY_NODE_ADDRESS = "nodeAddress";
+    private static final String KEY_NODE_ID = "nodeId";
+    private static final String KEY_START_BLOCK = "startBlock";
+    private static final String KEY_END_BLOCK = "endBlock";
 
     @Option(
             names = {"-i", "--input"},
@@ -141,21 +151,29 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         }
 
         if (!resolutionProblems.isEmpty()) {
-            System.err.println();
-            System.err.println("Error: consensus-time -> block-number resolution failed for "
-                    + resolutionProblems.size() + " era(s):");
+            final StringBuilder problemLines = new StringBuilder();
             for (String p : resolutionProblems) {
-                System.err.println("  * " + p);
+                problemLines.append("  * ").append(p).append(System.lineSeparator());
             }
-            System.err.println();
-            System.err.println("block_times.bin coverage (" + blockTimesFile.toAbsolutePath() + "):");
-            System.err.println("  first indexed block: 0 @ " + coverageStart);
-            System.err.println("  last indexed block:  " + coverageMaxBlock + " @ " + coverageEnd);
-            System.err.println();
-            System.err.println("Check that --network matches the network the block_times.bin was extracted for,");
-            System.err.println("and that the file covers your input's timestamp range. Regenerate via");
-            System.err.println("`mirror extractBlockTimes` (and `mirror addNewerBlockTimes` to top it up)");
-            System.err.println("if it's stale or short.");
+            System.err.print("""
+
+                    Error: consensus-time -> block-number resolution failed for %d era(s):
+                    %s
+                    block_times.bin coverage (%s):
+                      first indexed block: 0 @ %s
+                      last indexed block:  %d @ %s
+
+                    Check that --network matches the network the block_times.bin was extracted for,
+                    and that the file covers your input's timestamp range. Regenerate via
+                    `mirror extractBlockTimes` (and `mirror addNewerBlockTimes` to top it up)
+                    if it's stale or short.
+                    """.formatted(
+                            resolutionProblems.size(),
+                            problemLines,
+                            blockTimesFile.toAbsolutePath(),
+                            coverageStart,
+                            coverageMaxBlock,
+                            coverageEnd));
             return 1;
         }
 
@@ -172,6 +190,7 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
      */
     private static List<String> validateResolutions(
             List<DatedNodeAddressBook> sorted, long[] startBlocks, BlockTimeReader reader) {
+        requireSameLength(sorted, startBlocks);
         final long maxBlock = reader.getMaxBlockNumber();
         final List<String> problems = new ArrayList<>();
         for (int i = 0; i < sorted.size(); i++) {
@@ -191,6 +210,7 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
     }
 
     private int convertAndWrite(List<DatedNodeAddressBook> sorted, long[] startBlocks) throws IOException {
+        requireSameLength(sorted, startBlocks);
         final List<RangedNodeAddressBook> ranged = new ArrayList<>(sorted.size());
         for (int i = 0; i < sorted.size(); i++) {
             final NodeAddressBook book = slimAddressBook(sorted.get(i).addressBookOrThrow());
@@ -224,7 +244,7 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             // era). PBJ's parse side reconstructs the same values from either shape, so the
             // BN loader is unaffected.
             ensureExplicitPbjDefaults(tmp);
-            Files.move(tmp, outputFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            atomicMoveWithFallback(tmp, outputFile);
         } catch (IOException e) {
             Files.deleteIfExists(tmp);
             throw e;
@@ -232,6 +252,37 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
         System.out.println(Ansi.AUTO.string(
                 "@|green Wrote " + sorted.size() + " roster entries to " + outputFile.toAbsolutePath() + "|@"));
         return 0;
+    }
+
+    /**
+     * Precondition guard: enforce {@code startBlocks.length == sorted.size()} so an accidental
+     * caller-side mismatch fails fast at the entry to any loop indexing {@code startBlocks[i]}
+     * with {@code i} bounded by {@code sorted.size()}, instead of surfacing later as an
+     * {@link ArrayIndexOutOfBoundsException} at some inner statement.
+     */
+    private static void requireSameLength(List<DatedNodeAddressBook> sorted, long[] startBlocks) {
+        if (startBlocks.length != sorted.size()) {
+            throw new IllegalArgumentException(
+                    "startBlocks length (" + startBlocks.length + ") must match sorted eras (" + sorted.size() + ")");
+        }
+    }
+
+    /**
+     * Rename {@code src} to {@code dest} atomically when the filesystem supports it, otherwise
+     * fall back to a non-atomic replace with a warning. Some filesystems (tmpfs on Docker,
+     * certain NFS mounts, jimfs in tests) do not implement {@code ATOMIC_MOVE} and raise
+     * {@link AtomicMoveNotSupportedException}; the destination is still overwritten, just not
+     * atomically. Mirrors the pattern used in {@code BlockNodeApp.persistNodeAddressBookHistory}.
+     */
+    private static void atomicMoveWithFallback(Path src, Path dest) throws IOException {
+        try {
+            Files.move(src, dest, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException e) {
+            System.err.println("Warning: filesystem at " + dest.toAbsolutePath()
+                    + " does not support atomic move; falling back to non-atomic replace. "
+                    + "A crash mid-rename could leave the destination in a partial state.");
+            Files.move(src, dest, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     /**
@@ -270,7 +321,7 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
     private static void ensureExplicitPbjDefaults(Path file) throws IOException {
         final ObjectMapper mapper = new ObjectMapper();
         final ObjectNode root = (ObjectNode) mapper.readTree(file.toFile());
-        final JsonNode addressBooksNode = root.get("addressBooks");
+        final JsonNode addressBooksNode = root.get(KEY_ADDRESS_BOOKS);
         if (addressBooksNode == null || !addressBooksNode.isArray()) {
             return; // nothing to patch — an empty roster history is legal
         }
@@ -280,20 +331,20 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             }
             // Match PBJ's convention: uint64 fields serialize as JSON strings so JS
             // consumers don't hit the 2^53 precision cliff.
-            if (!entryObj.has("startBlock")) {
-                entryObj.put("startBlock", Long.toString(0L));
+            if (!entryObj.has(KEY_START_BLOCK)) {
+                entryObj.put(KEY_START_BLOCK, Long.toString(0L));
             }
-            if (!entryObj.has("endBlock")) {
-                entryObj.put("endBlock", Long.toString(OPEN_ENDED_END_BLOCK));
+            if (!entryObj.has(KEY_END_BLOCK)) {
+                entryObj.put(KEY_END_BLOCK, Long.toString(OPEN_ENDED_END_BLOCK));
             }
             // Restore any nodeAddress[].nodeId that PBJ elided as the uint64 default (0).
-            final JsonNode addressBookNode = entryObj.get("addressBook");
+            final JsonNode addressBookNode = entryObj.get(KEY_ADDRESS_BOOK);
             if (addressBookNode instanceof ObjectNode addressBookObj) {
-                final JsonNode nodeAddressNode = addressBookObj.get("nodeAddress");
+                final JsonNode nodeAddressNode = addressBookObj.get(KEY_NODE_ADDRESS);
                 if (nodeAddressNode != null && nodeAddressNode.isArray()) {
                     for (final JsonNode addr : nodeAddressNode) {
-                        if (addr instanceof ObjectNode addrObj && !addrObj.has("nodeId")) {
-                            addrObj.put("nodeId", Long.toString(0L));
+                        if (addr instanceof ObjectNode addrObj && !addrObj.has(KEY_NODE_ID)) {
+                            addrObj.put(KEY_NODE_ID, Long.toString(0L));
                         }
                     }
                 }
