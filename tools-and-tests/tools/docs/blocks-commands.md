@@ -83,7 +83,7 @@ At a high level:
 - **Signature validation** — stake-weighted RSA (or TSS when applicable) signature threshold met.
 - **Sidecar integrity** — every sidecar file embedded in a block hashes to a SHA-384 that appears in the record file's signed `sidecars[]` manifest, and every signed hash has a matching sidecar file. Catches orphan (`TAMPERED_OR_EXTRA`) and missing (`MISSING`) sidecars in wrapped block records.
 - **50 billion HBAR supply** — tracks account balances across all blocks (from `StateChanges` and `RecordFile` transfer lists) and verifies the total equals exactly 50 billion HBAR after each block (only when starting from block 0).
-- **Balance checkpoints** — validates computed account balances against pre-fetched balance checkpoints at configurable intervals.
+- **Balance checkpoints** — validates computed HBAR and fungible-token account balances against pre-fetched balance checkpoints at configurable intervals.
 - **State file integrity** — end-of-run comparison of the block-hash registry, streaming merkle tree, and jumpstart state files against freshly-computed values.
 
 For a complete catalog of the individual validations that fire under the hood (what each one checks, whether it runs per block or at end, and how to skip it), see [Validations in detail](#validations-in-detail) below.
@@ -157,7 +157,7 @@ The `validate` command orchestrates a set of individual validation classes under
 | [BlockChainValidation](#blockchainvalidation)                   | Sequential | No            | Always on                          | `previous_block_hash` in footer matches hash of prior block                                                                           |
 | [HistoricalBlockTreeValidation](#historicalblocktreevalidation) | Sequential | Yes           | Always on (auto-skipped otherwise) | `root_hash_of_block_hashes_merkle_tree` in footer matches streaming merkle tree                                                       |
 | [HbarSupplyValidation](#hbarsupplyvalidation)                   | Sequential | Yes           | `--skip-supply`                    | Total HBAR supply = 50 billion after every block                                                                                      |
-| [BalanceCheckpointValidation](#balancecheckpointvalidation)     | Sequential | Yes           | `--no-validate-balances`           | Computed balances match pre-fetched checkpoint snapshots at configurable intervals                                                    |
+| [BalanceCheckpointValidation](#balancecheckpointvalidation)     | Sequential | Yes           | `--no-validate-balances`           | Computed HBAR and fungible-token balances match pre-fetched checkpoint snapshots at configurable intervals                            |
 | [HashRegistryValidation](#hashregistryvalidation)               | Sequential | No            | Auto-skipped if no registry file   | Per-block hash matches the `blockStreamBlockHashes.bin` registry                                                                      |
 | [StreamingMerkleTreeValidation](#streamingmerkletreevalidation) | End-of-run | Yes           | Auto-skipped when not from genesis | `streamingMerkleTree.bin` matches freshly-computed streaming hasher                                                                   |
 | [JumpstartValidation](#jumpstartvalidation)                     | End-of-run | Yes           | Auto-skipped when not from genesis | `jumpstart.bin` matches freshly-computed streaming hasher + block hashes                                                              |
@@ -292,7 +292,13 @@ After every block, the sum of all account balances must equal exactly 50,000,000
 
 At configured checkpoint block numbers, snapshots the computed account state and compares each account's balance to a pre-fetched balance file (from a saved state or the compiled checkpoints file). See the [Balance Validation](#balance-validation) section above for how the checkpoint file, interval, and sources are configured.
 
-Every checkpoint that fails records a per-account mismatch summary.
+**What's compared:**
+
+- **HBAR balances** — per-account tinybar totals, tracked continuously from `StateChanges` (absolute) and `RecordFile` transfer lists (relative).
+- **Fungible token balances** — per-account, per-token unit counts, tracked continuously via HTS mint / burn / transfer events applied to `RunningAccountsState.applyFungibleTokenChange`.
+- **NFT ownership** — per-account, per-token owned serial number sets (tracked internally; checkpoint comparison currently focuses on HBAR + fungible balances, NFT ownership is retained for future checkpoint schemas).
+
+Every checkpoint that fails records a per-account (and per-token, for fungible-token divergences) mismatch summary.
 
 ##### HashRegistryValidation
 
