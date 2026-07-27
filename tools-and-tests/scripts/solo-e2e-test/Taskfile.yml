@@ -57,6 +57,12 @@ vars:
   TCK_VERSION: '{{.TCK_VERSION | default "latest"}}'
   TSS_ENABLED: '{{.TSS_ENABLED | default "true"}}'
 
+  # Solo install source: 'npm' (default) or 'git' (build an approved fork/branch)
+  SOLO_SOURCE: '{{.SOLO_SOURCE | default "npm"}}'
+  SOLO_VERSION: '{{.SOLO_VERSION | default "latest"}}'
+  SOLO_GIT_REPO: '{{.SOLO_GIT_REPO | default ""}}'
+  SOLO_GIT_REF: '{{.SOLO_GIT_REF | default ""}}'
+
   # NLG load generation parameters
   NLG_TEST_TYPE: '{{.NLG_TEST_TYPE | default "CryptoTransferLoadTest"}}'
   NLG_ARGS: '{{.NLG_ARGS | default "-c 5 -a 10 -tt 300"}}'
@@ -82,7 +88,7 @@ tasks:
         command -v kubectl >/dev/null 2>&1 || { echo "ERROR: kubectl not found"; exit 1; }
         command -v helm >/dev/null 2>&1 || { echo "ERROR: helm not found"; exit 1; }
         command -v kind >/dev/null 2>&1 || { echo "ERROR: kind not found"; exit 1; }
-        command -v solo >/dev/null 2>&1 || { echo "ERROR: solo not found. Install with: npm i @hashgraph/solo -g"; exit 1; }
+        command -v solo >/dev/null 2>&1 || { echo "ERROR: solo not found. Install with: npm i @hashgraph/solo -g (or 'task solo:install' for a custom fork/branch build)"; exit 1; }
         command -v yq >/dev/null 2>&1 || { echo "ERROR: yq not found. Install from: https://github.com/mikefarah/yq"; exit 1; }
         echo "All prerequisites found!"
         echo ""
@@ -95,6 +101,16 @@ tasks:
         echo "  yq: $(yq --version)"
         command -v pnpm >/dev/null 2>&1 && echo "  pnpm: $(pnpm --version)" || echo "  pnpm: not installed (needed for TCK tests)"
     silent: true
+
+  solo:install:
+    desc: Install Solo CLI (npm by default, or an approved fork/branch via SOLO_SOURCE=git)
+    cmds:
+      - |
+        SOLO_SOURCE="{{.SOLO_SOURCE}}" \
+        SOLO_VERSION="{{.SOLO_VERSION}}" \
+        SOLO_GIT_REPO="{{.SOLO_GIT_REPO}}" \
+        SOLO_GIT_REF="{{.SOLO_GIT_REF}}" \
+          "{{.SCRIPTS_DIR}}/solo-install.sh"
 
   # ============================================================================
   # Cluster Lifecycle

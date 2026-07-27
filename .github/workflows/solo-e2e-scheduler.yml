@@ -191,16 +191,12 @@ jobs:
           MATRIX_COUNT=$(echo "${MATRIX_JSON}" | jq '. | length')
           echo "matrix_count=${MATRIX_COUNT}" >> "$GITHUB_OUTPUT"
 
-          # MN pinned: v0.157.0+ (HIP-1137) broke Solo CLI's block node env var injection.
-          # Track https://github.com/hiero-ledger/solo/issues/4863 to unpin MN_PINNED.
-          MN_PINNED="v0.156.0"
-
           # Configure versions based on run type and trigger
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "tag" ]]; then
             # TAG release: use the tag for BN, latest GA for CN/MN
             BN_VERSION="${{ github.ref_name }}"
             CN_VERSION="latest"
-            MN_VERSION="${MN_PINNED}"
+            MN_VERSION="latest"
           elif [[ "${RUN_TYPE}" == "rc" ]]; then
             # RC run: use SNAPSHOT BN against RC versions of CN/MN
             BN_VERSION="${{ inputs.block-node-version }}"
@@ -208,7 +204,7 @@ jobs:
             CN_VERSION="${{ inputs.consensus-node-version }}"
             CN_VERSION="${CN_VERSION:-rc}"
             MN_VERSION="${{ inputs.mirror-node-version }}"
-            MN_VERSION="${MN_VERSION:-${MN_PINNED}}"
+            MN_VERSION="${MN_VERSION:-latest}"
           elif [[ -n "${{ inputs.block-node-version }}" ]]; then
             # Manual override with explicit versions
             BN_VERSION="${{ inputs.block-node-version }}"
@@ -220,14 +216,14 @@ jobs:
             # Scheduled runs (daily/weekend): use SNAPSHOT BN against GA stable CN/MN
             BN_VERSION="main"
             CN_VERSION="latest"
-            MN_VERSION="${MN_PINNED}"
+            MN_VERSION="latest"
           fi
 
           # Solo CLI version: use input if provided, otherwise default to latest stable
           if [[ -n "${{ inputs.solo-version }}" ]]; then
             SOLO_VERSION="${{ inputs.solo-version }}"
           else
-            SOLO_VERSION="0.79.0"
+            SOLO_VERSION="0.83.0"
           fi
 
           # Relay version: use input if provided, otherwise default to latest

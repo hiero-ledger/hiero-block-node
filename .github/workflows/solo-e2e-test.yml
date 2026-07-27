@@ -12,17 +12,15 @@ on:
       block-node-version:
         description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.21.2')"
         type: string
-        default: "latest"
+        default: "main"
       consensus-node-version:
         description: "Consensus Node version ('latest', 'rc', or tag like 'v0.68.6')"
         type: string
-        default: "latest"
+        default: "rc"
       mirror-node-version:
-        # Pinned: MN v0.157.0+ (HIP-1137) broke Solo CLI's block node env var injection.
-        # Track https://github.com/hiero-ledger/solo/issues/4863 to unpin.
         description: "Mirror Node version ('latest', 'rc', or tag like 'v0.146.0')"
         type: string
-        default: "v0.156.0"
+        default: "latest"
       relay-version:
         description: "Relay version ('latest' or tag like 'v0.75.0')"
         type: string
@@ -38,7 +36,19 @@ on:
       solo-version:
         description: "Solo CLI Version"
         type: string
-        default: "0.79.0"
+        default: "0.83.0"
+      solo-source:
+        description: "Solo install source: 'npm' or 'git' (build an approved fork/branch)"
+        type: string
+        default: "npm"
+      solo-git-repo:
+        description: "Solo fork (owner/repo) when solo-source=git; must be an approved repo"
+        type: string
+        default: ""
+      solo-git-ref:
+        description: "Solo branch/tag/SHA to build when solo-source=git"
+        type: string
+        default: ""
       tss-enabled:
         description: "Enable TSS/WRAPS on consensus nodes"
         type: boolean
@@ -109,17 +119,15 @@ on:
       block-node-version:
         description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.29.0')"
         required: false
-        default: "latest"
+        default: "main"
       consensus-node-version:
         description: "Consensus Node version ('latest', 'rc' or tag like 'v0.73.0-rc3')"
         required: false
-        default: "latest"
+        default: "rc"
       mirror-node-version:
-        # Pinned: MN v0.157.0+ (HIP-1137) broke Solo CLI's block node env var injection.
-        # Track https://github.com/hiero-ledger/solo/issues/4863 to unpin.
         description: "Mirror Node version ('latest', 'rc' or tag like 'v0.150.0')"
         required: false
-        default: "v0.156.0"
+        default: "latest"
       relay-version:
         description: "Relay version ('latest' or tag like 'v0.75.0')"
         required: false
@@ -135,7 +143,23 @@ on:
       solo-version:
         description: "Solo CLI Version"
         required: false
-        default: "0.79.0"
+        default: "0.83.0"
+      solo-source:
+        description: "Solo install source"
+        required: false
+        default: "npm"
+        type: choice
+        options:
+          - npm
+          - git
+      solo-git-repo:
+        description: "Solo fork (owner/repo) when solo-source=git; must be an approved repo (hiero-ledger/solo, hashgraph/solo, AlfredoG87/solo)"
+        required: false
+        default: ""
+      solo-git-ref:
+        description: "Solo branch/tag/SHA to build when solo-source=git"
+        required: false
+        default: ""
       tss-enabled:
         description: "Enable TSS (Threshold Signature Scheme) on consensus nodes"
         required: false
@@ -203,6 +227,9 @@ env:
   CLUSTER_REFERENCE: "kind-solo-cluster"
   # Solo CLI environment variables (these are read directly by Solo from the process env)
   MIRROR_NODE_PINGER_TPS: ${{ inputs.mirror-node-pinger-tps }}
+  # Read by solo-setup-cluster.sh / solo-deploy-network.sh to skip the minimum-version
+  # check when a custom fork/branch build is in use.
+  SOLO_SOURCE: ${{ inputs.solo-source }}
 
 jobs:
   solo-test-deploy:
@@ -281,11 +308,16 @@ jobs:
           RELAY_RESOLVED=$(echo "$OUTPUT" | grep "^relay_version=" | cut -d= -f2)
           echo "RELAY_VERSION=${RELAY_RESOLVED}" >> "${GITHUB_ENV}"
 
-      # Install Solo CLI
-      - name: Install Solo CLI via npm
+      # Install Solo CLI (npm by default, or build an approved fork/branch when solo-source=git)
+      - name: Install Solo CLI
         id: solo
+        env:
+          SOLO_SOURCE: ${{ inputs.solo-source }}
+          SOLO_VERSION: ${{ inputs.solo-version }}
+          SOLO_GIT_REPO: ${{ inputs.solo-git-repo }}
+          SOLO_GIT_REF: ${{ inputs.solo-git-ref }}
         run: |
-          npm i @hashgraph/solo@${{ inputs.solo-version }} -g
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-install.sh
           # Extract version number from solo output (handles various output formats)
           SOLO_INSTALLED=$(solo --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
           echo "Solo version: ${SOLO_INSTALLED}"
@@ -379,7 +411,7 @@ jobs:
             echo "| Mirror Node | \`${{ inputs.mirror-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.mn_version }}\` |"
             echo "| Block Node | \`${{ inputs.block-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.bn_version }}\` |"
             echo "| Relay | \`${{ inputs.relay-version || 'latest' }}\` | \`${{ steps.versions.outputs.relay_version }}\` |"
-            echo "| Solo CLI | \`${{ inputs.solo-version || 'latest' }}\` | \`${{ steps.solo.outputs.solo_version }}\` |"
+            echo "| Solo CLI | \`${{ inputs.solo-source == 'git' && format('git:{0}@{1}', inputs.solo-git-repo, inputs.solo-git-ref) || (inputs.solo-version || 'latest') }}\` | \`${{ steps.solo.outputs.solo_version }}\` |"
             echo "| JS-SDK | \`${{ inputs.js-sdk-version || 'v2.83.0' }}\` | |"
             echo "| TSS Enabled | | \`${{ inputs.tss-enabled }}\` |"
             echo ""

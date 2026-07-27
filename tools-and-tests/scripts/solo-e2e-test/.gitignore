@@ -1,5 +1,6 @@
 .tmp/
 out/
+.solo-build/
 overnight-test-results.log
 overnight-test-output.log
 
