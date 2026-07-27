@@ -9,6 +9,7 @@ open module org.hiero.block.node.suites {
     requires org.hiero.block.node.base;
     requires org.hiero.block.node.spi;
     requires org.hiero.block.protobuf.protoc;
+    requires org.hiero.block.signing;
     requires org.hiero.block.simulator;
     requires com.github.dockerjava.api;
     requires io.grpc.stub;

@@ -116,6 +116,9 @@ public class BlockNodeAPITests {
                     .forEach(java.io.File::delete);
         }
 
+        // Provision the verifier with the roster that signs blocks built by BlockItemBuilderUtils.
+        BlockItemBuilderUtils.provisionTssBootstrap();
+
         // Use the real service loader so all real implementations are loaded
         app = new BlockNodeApp(new ServiceLoaderFunction(), false);
         try {

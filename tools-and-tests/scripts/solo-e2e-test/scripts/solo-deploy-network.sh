@@ -16,6 +16,8 @@
 #   --cn-version VERSION       Consensus Node version
 #   --mn-version VERSION       Mirror Node version
 #   --bn-version VERSION       Block Node version (used for Helm chart version)
+#   --bn-chart-dir DIR         Local charts/ directory to install the Block Node chart from,
+#                              instead of Solo's published chart (for testing unreleased chart changes)
 #   --relay-version VERSION    Relay version (default: Solo's built-in default)
 #   --tss-enabled true|false   Enable TSS on consensus nodes (default: true)
 #   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
@@ -77,6 +79,8 @@ Options:
   --cn-version VERSION       Consensus Node version
   --mn-version VERSION       Mirror Node version
   --bn-version VERSION       Block Node version (used for Helm chart version)
+  --bn-chart-dir DIR         Local charts/ directory to install the Block Node chart from,
+                             instead of Solo's published chart (for testing unreleased chart changes)
   --relay-version VERSION    Relay version (default: Solo's built-in default)
   --tss-enabled true|false   Enable TSS on consensus nodes (default: true)
   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
@@ -111,6 +115,7 @@ TOPOLOGIES_DIR="${SCRIPT_DIR}/topologies"
 CN_VERSION=""
 MN_VERSION=""
 BN_VERSION=""
+BN_CHART_DIR=""
 RELAY_VERSION=""
 TSS_ENABLED="true"
 ENABLE_METRICS="false"
@@ -130,7 +135,7 @@ WRB_RSA="false"
 
 # Full Block Node plugin list with roster-bootstrap-rsa appended (rsa-wrb mode only).
 # Mirrors charts/block-node-server/values.yaml plugins.names plus roster-bootstrap-rsa.
-readonly WRB_RSA_PLUGIN_NAMES="facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill,roster-bootstrap-rsa"
+readonly WRB_RSA_PLUGIN_NAMES="facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,block-verification,blocks-file-historic,blocks-file-recent,backfill,roster-bootstrap-rsa"
 
 # Generated overlay directory (set by deploy_block_nodes, used by deploy_mirror_node)
 OVERLAY_DIR=""
@@ -168,6 +173,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --bn-version)
       BN_VERSION="$2"
+      shift 2
+      ;;
+    --bn-chart-dir)
+      BN_CHART_DIR="$2"
       shift 2
       ;;
     --relay-version)
@@ -436,8 +445,21 @@ function deploy_block_nodes {
   if [[ -n "${BN_VERSION}" ]]; then
     bn_args="--chart-version ${BN_VERSION}"
   fi
+  if [[ -n "${BN_CHART_DIR}" ]]; then
+    bn_args="${bn_args} --block-node-chart-dir ${BN_CHART_DIR}"
+  fi
   if [[ -n "${CN_VERSION}" ]]; then
     bn_args="${bn_args} --release-tag ${CN_VERSION}"
+  fi
+
+  # A local chart source directory doesn't vendor its subchart dependencies
+  # (kube-prometheus-stack, loki, promtail) the way a packaged chart does;
+  # fetch them once so `solo block node add` doesn't fail on install.
+  if [[ -n "${BN_CHART_DIR}" ]]; then
+    start_task "Fetching local Block Node chart dependencies"
+    (cd "${BN_CHART_DIR}/block-node-server" && helm dependency build > /dev/null 2>&1) \
+      || fail "ERROR: helm dependency build failed for ${BN_CHART_DIR}/block-node-server" 1
+    end_task
   fi
 
   local overlay_dir="${OVERLAY_DIR}"
@@ -872,6 +894,9 @@ function print_summary {
   log_line "  CN Version:      %s" "${CN_VERSION:-default}"
   log_line "  MN Version:      %s" "${MN_VERSION:-default}"
   log_line "  BN Version:      %s" "${BN_VERSION:-default}"
+  if [[ -n "${BN_CHART_DIR}" ]]; then
+    log_line "  BN Chart Dir:    %s" "${BN_CHART_DIR}"
+  fi
 
   # Output key=value pairs to stdout for capture by caller
   echo ""

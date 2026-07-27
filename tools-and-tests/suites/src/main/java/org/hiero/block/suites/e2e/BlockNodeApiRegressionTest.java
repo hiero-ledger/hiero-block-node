@@ -86,6 +86,7 @@ public class BlockNodeApiRegressionTest {
                     .map(Path::toFile)
                     .forEach(java.io.File::delete);
         }
+        BlockItemBuilderUtils.provisionTssBootstrap();
         app = new BlockNodeApp(new ServiceLoaderFunction(), false);
         try {
             assertNotNull(app, "BlockNodeApp should be constructed");

@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.simulator.config.logging.Loggable;
 import org.hiero.block.simulator.config.types.GenerationMode;
+import org.hiero.block.simulator.config.types.TssProofType;
 
 /**
  * Defines the configuration for the BlockStreamManager (Generator) of blocks in the Hedera Block Simulator.
@@ -25,6 +26,7 @@ import org.hiero.block.simulator.config.types.GenerationMode;
  * @param endBlockNumber the optional end block number for the BlockAsFileLargeDataSets manager
  * @param invalidBlockHash if set to true, will send invalid block root hash
  */
+// spotless:off
 @ConfigData("generator")
 public record BlockGeneratorConfig(
         @Loggable @ConfigProperty(defaultValue = "CRAFT") GenerationMode generationMode,
@@ -40,7 +42,9 @@ public record BlockGeneratorConfig(
         @Loggable @ConfigProperty(defaultValue = "-1") int endBlockNumber,
         @Loggable @ConfigProperty(defaultValue = "false") boolean invalidBlockHash,
         @Loggable @ConfigProperty(defaultValue = "0") int shardNum,
-        @Loggable @ConfigProperty(defaultValue = "0") int realmNum) {
+        @Loggable @ConfigProperty(defaultValue = "0") int realmNum,
+        @Loggable @ConfigProperty(defaultValue = "SCHNORR") TssProofType tssProofType) {
+// spotless:on
 
     /**
      * Constructs a new {@code BlockGeneratorConfig} instance with validation.
@@ -101,6 +105,7 @@ public record BlockGeneratorConfig(
         private boolean invalidBlockHash = false;
         private int shardNum = 0;
         private int realmNum = 0;
+        private TssProofType tssProofType = TssProofType.SCHNORR;
 
         /**
          * Creates a new instance of the {@code Builder} class with default configuration values.
@@ -243,6 +248,17 @@ public record BlockGeneratorConfig(
         }
 
         /**
+         * Sets which TSS address-book proof the crafted block signatures carry.
+         *
+         * @param tssProofType the {@link TssProofType} to use
+         * @return this {@code Builder} instance
+         */
+        public Builder tssProofType(TssProofType tssProofType) {
+            this.tssProofType = tssProofType;
+            return this;
+        }
+
+        /**
          * Builds a new {@link BlockGeneratorConfig} instance with the configured values.
          *
          * @return a new {@code BlockGeneratorConfig}
@@ -261,7 +277,8 @@ public record BlockGeneratorConfig(
                     endBlockNumber,
                     invalidBlockHash,
                     shardNum,
-                    realmNum);
+                    realmNum,
+                    tssProofType);
         }
     }
 }
