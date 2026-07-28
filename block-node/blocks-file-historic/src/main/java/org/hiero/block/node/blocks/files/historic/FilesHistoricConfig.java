@@ -24,6 +24,11 @@ import org.hiero.block.node.base.Loggable;
  * {@link #powersOfTenPerZipFileContents} is set to 3, then this means that 5 zips will be retained and these zips
  * contain 10^3 blocks, i.e. 5_000 blocks effectively retained. If set to 0 (zero), blocks will be retained
  * indefinitely.
+ * @param stagedBlockNotificationsEnabled whether a Persisted Notification is sent for every block as soon as it
+ * is staged, rather than once per zip batch (using the last block number of the batch). Defaults to disabled, so
+ * that by default only a single Persisted Notification is sent per successfully archived zip batch, matching the
+ * plugin's legacy behavior. Note: a staged block is not retrievable via {@code block(long)} until its batch is
+ * zipped.
  */
 @ConfigData("files.historic")
 public record FilesHistoricConfig(
@@ -32,6 +37,7 @@ public record FilesHistoricConfig(
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents,
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long blockRetentionThreshold,
-        @Loggable @ConfigProperty(defaultValue = "3") @Min(1) int maxFilesPerDir) {
+        @Loggable @ConfigProperty(defaultValue = "3") @Min(1) int maxFilesPerDir,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean stagedBlockNotificationsEnabled) {
         // spotless:on
 }
