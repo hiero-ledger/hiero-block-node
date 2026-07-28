@@ -42,110 +42,6 @@ env:
   BUILDKIT_VERSION: "v0.32.1"
 
 jobs:
-  package-protobuf-source:
-    timeout-minutes: 5
-    runs-on: hl-bn-lin-md
-
-    steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
-        with:
-          egress-policy: audit
-
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
-      - name: Extract version
-        id: extract_version
-        run: |
-          VERSION=$(cat version.txt)
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: "temurin"
-          java-version: "25.0.2"
-
-      - name: Produce artifact
-        run: ${GRADLE_EXEC} :protobuf-sources:generateBlockNodeProtoArtifact
-
-      - name: Upload artifact
-        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: block-node-protobuf-${{ env.VERSION }}.tgz
-          path: ./protobuf-sources/block-node-protobuf-${{ env.VERSION }}.tgz
-          if-no-files-found: error
-
-      # skip if non-draft release already exists
-      - name: Attach artifact to GitHub Release
-        uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
-        with:
-          tag: v${{ env.VERSION }}
-          allowUpdates: true
-          draft: true
-          skipIfReleaseExists: true
-          artifacts: |
-            ./protobuf-sources/block-node-protobuf-${{ env.VERSION }}.tgz
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-  package-block-stream-tools:
-    timeout-minutes: 10
-    runs-on: hl-bn-lin-md
-
-    steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
-        with:
-          egress-policy: audit
-
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
-      - name: Extract version
-        id: extract_version
-        run: |
-          VERSION=$(cat version.txt)
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: "temurin"
-          java-version: "25.0.2"
-
-      - name: Produce artifact
-        run: ${GRADLE_EXEC} :tools:shadowJar
-
-      - name: Rename artifact
-        run: |
-          cp ./tools-and-tests/tools/build/libs/tools-${{ env.VERSION }}-all.jar \
-             ./tools-and-tests/tools/build/libs/block-stream-tools-${{ env.VERSION }}.jar
-
-      - name: Upload artifact
-        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: block-stream-tools-${{ env.VERSION }}.jar
-          path: ./tools-and-tests/tools/build/libs/block-stream-tools-${{ env.VERSION }}.jar
-          if-no-files-found: error
-
-      - name: Attach artifact to GitHub Release
-        uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
-        with:
-          tag: v${{ env.VERSION }}
-          allowUpdates: true
-          draft: true
-          skipIfReleaseExists: true
-          artifacts: |
-            ./tools-and-tests/tools/build/libs/block-stream-tools-${{ env.VERSION }}.jar
-          token: ${{ secrets.GITHUB_TOKEN }}
-
   publish-app:
     timeout-minutes: 30
     runs-on: hl-bn-lin-md
@@ -164,7 +60,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
@@ -239,7 +135,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
@@ -300,7 +196,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
@@ -370,7 +266,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
@@ -410,7 +306,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
