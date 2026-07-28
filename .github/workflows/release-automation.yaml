@@ -85,6 +85,17 @@ jobs:
               exit 1
             fi
 
+            # For a GA release, CURRENT is the last rc/alpha tagged by a previous
+            # run of this workflow (e.g. v0.38.0-rc2). GA must be built from that
+            # exact tag, not from whatever the release branch currently points
+            # to, so a stray commit landing on the branch after the last rc
+            # can't sneak into the GA release untested. If no rc/alpha ever
+            # existed for this version (KIND=snapshot), SOURCE_TAG stays unset
+            # and GA falls back to building from the release branch tip.
+            if [[ "$KIND" == "rc" || "$KIND" == "alpha" ]]; then
+              echo "SOURCE_TAG=v$CURRENT" >> "$GITHUB_ENV"
+            fi
+
             case "$INPUT_RELEASE_TYPE" in
               rc)
                 [[ "$KIND" == "rc" ]] \
@@ -157,6 +168,8 @@ jobs:
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
       - name: Create and Switch to Release Branch
+        env:
+          INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type }}
         run: |
           git fetch origin
           if ! git ls-remote --exit-code --heads --quiet origin refs/heads/${RELEASE_BRANCH}; then
@@ -166,6 +179,11 @@ jobs:
             # create a PR to bump main branch to the next snapshot version
             echo "CREATE_PR=true" >> $GITHUB_ENV
             echo "PR_TITLE=chore(release): Bump versions for v$NEXT_VERSION_SNAPSHOT" >> $GITHUB_ENV
+          elif [[ "$INPUT_RELEASE_TYPE" == "GA" && -n "$SOURCE_TAG" ]]; then
+            # Build GA from the exact commit tagged as the last rc/alpha,
+            # ignoring any drift on the release branch since then.
+            git fetch origin "refs/tags/${SOURCE_TAG}:refs/tags/${SOURCE_TAG}"
+            git checkout --detach "refs/tags/${SOURCE_TAG}"
           else
             git checkout ${RELEASE_BRANCH}
           fi
@@ -183,6 +201,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
       - name: Commit and Tag
+        if: ${{ github.event.inputs.release_type != 'GA' }}
         uses: step-security/git-auto-commit-action@749bc1cc775376092cc4227ba537137f445ca7c3 # v7.1.1
         with:
           commit_author: ${{ steps.gpg_importer.outputs.name }} <${{ steps.gpg_importer.outputs.email }}>
@@ -191,6 +210,22 @@ jobs:
           commit_user_name: ${{ steps.gpg_importer.outputs.name }}
           commit_user_email: ${{ steps.gpg_importer.outputs.email }}
           tagging_message: ${{ env.RELEASE_TAG }}
+
+      - name: Commit and Tag (GA)
+        if: ${{ github.event.inputs.release_type == 'GA' }}
+        env:
+          GIT_AUTHOR_NAME: ${{ steps.gpg_importer.outputs.name }}
+          GIT_AUTHOR_EMAIL: ${{ steps.gpg_importer.outputs.email }}
+          GIT_COMMITTER_NAME: ${{ steps.gpg_importer.outputs.name }}
+          GIT_COMMITTER_EMAIL: ${{ steps.gpg_importer.outputs.email }}
+        run: |
+          # GA is built on a detached HEAD (see "Create and Switch to Release
+          # Branch") so, unlike the rc/alpha path above, only the tag is
+          # pushed here — the release branch ref is intentionally left alone.
+          git add -A
+          git commit --no-verify --signoff -m "Bump versions for ${RELEASE_TAG}"
+          git tag -a "${RELEASE_TAG}" -m "${RELEASE_TAG}"
+          git push origin "refs/tags/${RELEASE_TAG}"
 
       - name: Install git-cliff
         run: |
