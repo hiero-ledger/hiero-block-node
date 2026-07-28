@@ -145,7 +145,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             } catch (RuntimeException e) {
                 final String failedToGetStatusMsg = "Failed to get status from node [%s:%d]: %s"
                         .formatted(node.address(), node.port(), e.getMessage());
-                LOGGER.log(INFO, failedToGetStatusMsg, e);
+                LOGGER.log(DEBUG, failedToGetStatusMsg, e);
                 markFailure(node);
             }
         }

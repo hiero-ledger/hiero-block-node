@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
-import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 
@@ -175,7 +174,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
         } catch (final RuntimeException | IOException e) {
             final String message = "Failed to delete accessor link for block: %d, path: %s"
                     .formatted(blockNumber, absolutePathToBlock);
-            LOGGER.log(INFO, message, e);
+            LOGGER.log(WARNING, message, e);
         }
     }
 

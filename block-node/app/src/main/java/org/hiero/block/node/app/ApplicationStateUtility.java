@@ -2,7 +2,6 @@
 package org.hiero.block.node.app;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 
@@ -122,7 +121,7 @@ final class ApplicationStateUtility {
                     NetworkData.JSON, Bytes.wrap(Files.readAllBytes(path)), MAX_APP_STATE_MESSAGE_SIZE_BYTES);
             return data;
         } catch (ParseException | IOException e) {
-            LOGGER.log(INFO, "Failed to read network data file %s.".formatted(path), e);
+            LOGGER.log(WARNING, "Failed to read network data file %s.".formatted(path), e);
             return NetworkData.DEFAULT;
         }
     }
@@ -164,7 +163,7 @@ final class ApplicationStateUtility {
                 kf.generatePublic(new X509EncodedKeySpec(keyBytes));
                 usable++;
             } catch (InvalidKeySpecException | IllegalArgumentException e) {
-                LOGGER.log(INFO, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e);
+                LOGGER.log(WARNING, "Malformed RSA_PubKey for node %s — skipped".formatted(addr.nodeId()), e);
             }
         }
         if (usable == 0) {

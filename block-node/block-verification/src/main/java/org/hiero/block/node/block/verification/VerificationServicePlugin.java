@@ -209,7 +209,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 LOGGER.log(INFO, "Received null block items on live items ring buffer");
             }
         } catch (final RuntimeException e) {
-            LOGGER.log(INFO, "Failed to handle live block items in verification ", e);
+            LOGGER.log(WARNING, "Failed to handle live block items in verification ", e);
             final long blockNumber = blockItems != null ? blockItems.blockNumber() : -1L;
             safeSendNotification(blockNumber, source, SessionFailureType.UNKNOWN_ERROR);
         }
@@ -246,7 +246,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);
             }
         } catch (final RuntimeException e) {
-            LOGGER.log(INFO, "Failed to handle backfill notification in verification ", e);
+            LOGGER.log(WARNING, "Failed to handle backfill notification in verification ", e);
             final long blockNumber = notification != null ? notification.blockNumber() : -1L;
             safeSendNotification(blockNumber, source, SessionFailureType.UNKNOWN_ERROR);
         }

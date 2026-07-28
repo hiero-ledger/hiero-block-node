@@ -2,8 +2,8 @@
 package org.hiero.block.node.cloud.storage.archive;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
 import com.hedera.bucky.S3Client;
@@ -76,7 +76,7 @@ class ConsolidationTask implements Callable<UploadResult> {
                 }
                 doCompleteMultipartUpload(s3, finalKey, uploadId, etags);
             } catch (S3ResponseException | IOException e) {
-                LOGGER.log(INFO, "Consolidation failed for key {0}", finalKey, e);
+                LOGGER.log(WARNING, "Consolidation failed for key %s".formatted(finalKey), e);
                 S3UploadUtils.abortQuietly(s3, finalKey, uploadId);
                 throw e;
             }

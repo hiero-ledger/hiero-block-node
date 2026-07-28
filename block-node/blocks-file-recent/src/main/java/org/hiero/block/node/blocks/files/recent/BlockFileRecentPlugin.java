@@ -185,7 +185,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                     totalBytesStored.addAndGet(Files.size(blockFilePath));
                 }
             } catch (IOException e) {
-                LOGGER.log(INFO, "Failed to get size of block file for block " + blockNumber, e);
+                LOGGER.log(WARNING, "Failed to get size of block file for block %s".formatted(blockNumber), e);
             }
         });
     }
@@ -279,7 +279,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                     blocksReadCounter.increment();
                     return accessor;
                 } catch (final IOException e) {
-                    LOGGER.log(INFO, "Failed to create accessor for block %d".formatted(blockNumber), e);
+                    LOGGER.log(WARNING, "Failed to create accessor for block %d".formatted(blockNumber), e);
                 }
             } else {
                 LOGGER.log(WARNING, "Failed to find verified block for number={0}", blockNumber);
@@ -395,7 +395,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
         try {
             return standardParse(BlockHeader.PROTOBUF, headerBytes);
         } catch (final ParseException e) {
-            LOGGER.log(INFO, "Failed to parse block header", e);
+            LOGGER.log(WARNING, "Failed to parse block header", e);
             return null;
         }
     }
@@ -462,7 +462,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             }
         } catch (final IOException e) {
             final String messageFormat = "Failed to remove parent directory `%s`";
-            LOGGER.log(INFO, messageFormat.formatted(parentDir), e);
+            LOGGER.log(WARNING, messageFormat.formatted(parentDir), e);
         }
         return null;
     }
@@ -484,7 +484,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             blocksDeletedCounter.increment();
             totalBytesStored.addAndGet(-fileSize);
         } catch (final IOException e) {
-            LOGGER.log(INFO, DELETE_MESSAGE.formatted("Failure", blockFilePath), e);
+            LOGGER.log(WARNING, DELETE_MESSAGE.formatted("Failure", blockFilePath), e);
             blocksDeletedFailedCounter.increment();
         }
     }

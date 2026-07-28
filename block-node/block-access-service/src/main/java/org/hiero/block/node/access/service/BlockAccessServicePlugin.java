@@ -3,7 +3,6 @@ package org.hiero.block.node.access.service;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
-import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -104,7 +103,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 LOGGER.log(
                         DEBUG, "Received 'retrieveLatest' BlockRequest, retrieving block={0}", blockNumberToRetrieve);
             } else {
-                LOGGER.log(INFO, "Invalid request, 'retrieve_latest' or a valid 'block number' is required.");
+                LOGGER.log(DEBUG, "Invalid request, 'retrieve_latest' or a valid 'block number' is required.");
                 return new BlockResponseUnparsed(Code.INVALID_REQUEST, null);
             }
             // Check if block is within the available range

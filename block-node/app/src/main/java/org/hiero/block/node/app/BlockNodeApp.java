@@ -168,7 +168,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                     LOGGER.log(INFO, "No logging configuration found");
                 }
             } catch (IOException e) {
-                LOGGER.log(INFO, "Failed to load logging configuration", e);
+                LOGGER.log(WARNING, "Failed to load logging configuration", e);
             }
             CleanColorfulFormatter.makeLoggingColorful();
             LOGGER.log(DEBUG, "Using default logging configuration");
