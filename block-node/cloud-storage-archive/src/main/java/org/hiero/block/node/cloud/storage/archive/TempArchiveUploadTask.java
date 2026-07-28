@@ -164,6 +164,7 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
                     throw e;
                 } catch (S3ResponseException | IOException e) {
                     LOGGER.log(INFO, "Failed to accumulate block {0} for temp archive {1}", currentBlock, s3Key, e);
+                    S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
                     blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlock, false, 1_000, lastSource));
                     throw e;
                 }
@@ -192,6 +193,7 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
                 doUploadPart(buffer, s3, uploadId, etags);
                 totalBytes += buffer.length;
             } catch (S3ResponseException | IOException e) {
+                S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
                 blockMessaging.sendBlockPersisted(new PersistedNotification(
                         firstBlock,
                         false,
@@ -205,6 +207,7 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
         try {
             doCompleteMultipartUpload(s3, s3Key, uploadId, etags);
         } catch (S3ResponseException | IOException e) {
+            S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
             blockMessaging.sendBlockPersisted(new PersistedNotification(
                     firstBlock,
                     false,

@@ -15,7 +15,7 @@ downstream applications to access block and state information.
 - **PBJ** and **PBJ-Helidon**: protocol buffer compiler and Helidon server extension.
 - **Gradle**: Build and dependency management.
 - **LMAX Disruptor**: For high performance inter-thread messaging.
-- **System.Logger**: For logging.
+- **System.Logger**: For logging (JUL backend). See the [Logging Reference](./logging.md), [Logging Architecture](../design/architecture/Logging-Architecture.md), and [Logging Guidelines](../logging-guidelines.md).
 - **Zstd**, **Zip** and **tar**: For file compression at rest and archival.
 
 ## Quickstart

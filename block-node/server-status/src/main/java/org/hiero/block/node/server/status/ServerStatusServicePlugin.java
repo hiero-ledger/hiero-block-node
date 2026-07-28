@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.server.status;
 
+import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.util.Objects.requireNonNull;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
@@ -46,6 +51,8 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     private LongCounter.Measurement requestStatusCounter;
     /** Counter for the number of detail requests */
     private LongCounter.Measurement requestDetailCounter;
+    /** Scheduler for the periodic status heartbeat; null when the heartbeat is disabled. */
+    private ScheduledExecutorService heartbeatExecutor;
 
     /**
      * Handle a request for server status
@@ -182,6 +189,63 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         final Integer port =
                 context.configuration().getConfigData(ServerStatusConfig.class).port();
         serviceBuilder.registerGrpcService(port, this);
+    }
+
+    @Override
+    public void start() {
+        final int periodSeconds = blockNodeContext
+                .configuration()
+                .getConfigData(ServerStatusConfig.class)
+                .heartbeatPeriodSeconds();
+        if (periodSeconds <= 0) {
+            LOGGER.log(DEBUG, "Server status heartbeat disabled (heartbeatPeriodSeconds={0})", periodSeconds);
+            return;
+        }
+        heartbeatExecutor = blockNodeContext
+                .threadPoolManager()
+                .createSingleThreadScheduledExecutor("server-status-heartbeat", this::onHeartbeatThreadException);
+        heartbeatExecutor.scheduleAtFixedRate(this::runHeartbeat, periodSeconds, periodSeconds, TimeUnit.SECONDS);
+        LOGGER.log(DEBUG, "Server status heartbeat scheduled every {0}s", periodSeconds);
+    }
+
+    @Override
+    public void stop() {
+        if (heartbeatExecutor != null) {
+            heartbeatExecutor.shutdownNow();
+        }
+    }
+
+    /// Runs one heartbeat, guarding against exceptions so a single failure does not cancel the
+    /// fixed-rate schedule.
+    private void runHeartbeat() {
+        try {
+            logStatusHeartbeat();
+        } catch (final RuntimeException e) {
+            LOGGER.log(DEBUG, "Failed to emit server status heartbeat", e);
+        }
+    }
+
+    /// Emits the single periodic `INFO` status line: the available block range and next expected
+    /// block. This is the one progression signal available to operators at `INFO` without
+    /// enabling `DEBUG`; per-block progress is intentionally left to metrics.
+    void logStatusHeartbeat() {
+        if (!LOGGER.isLoggable(INFO)) {
+            return;
+        }
+        final BlockRangeSet availableBlocks = blockProvider.availableBlocks();
+        final long nextExpectedBlock =
+                blockNodeContext.applicationStateFacility().nextExpectedBlock();
+        LOGGER.log(
+                INFO,
+                "Status heartbeat: oldestBlock={0} newestBlock={1} nextExpected={2}",
+                availableBlocks.min(),
+                availableBlocks.max(),
+                nextExpectedBlock);
+    }
+
+    /// Logs an uncaught exception escaping the heartbeat thread at `ERROR`.
+    private void onHeartbeatThreadException(final Thread thread, final Throwable throwable) {
+        LOGGER.log(ERROR, "Uncaught exception in server-status heartbeat thread", throwable);
     }
 
     /**

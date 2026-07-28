@@ -2,8 +2,8 @@
 package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.concurrent.ConcurrentHashMap;
@@ -161,7 +161,7 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
                 LOGGER.log(TRACE, receivedConfirmationMsg, blockNumber);
             } else {
                 final String persistenceFailedMsg = "Block [{0}] persistence failed";
-                LOGGER.log(INFO, persistenceFailedMsg, blockNumber);
+                LOGGER.log(WARNING, persistenceFailedMsg, blockNumber);
             }
             pending.complete(notification.succeeded());
         }
@@ -187,8 +187,9 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
             long blockNumber = notification.blockNumber();
             Pending pending = pendingBlocks.get(blockNumber);
             if (pending != null) {
+                // Echo of a failure already logged at its origin; keep at DEBUG to avoid a duplicate signal.
                 final String verificationFailedMsg = "Block [{0}] verification failed, marking block as not persisted";
-                LOGGER.log(INFO, verificationFailedMsg, blockNumber);
+                LOGGER.log(DEBUG, verificationFailedMsg, blockNumber);
                 pending.complete(false);
             }
         }

@@ -72,4 +72,6 @@ k6-out/
 # LLM agent files
 .agent/**
 agent/**
+.claude/
+.agents.local/
 

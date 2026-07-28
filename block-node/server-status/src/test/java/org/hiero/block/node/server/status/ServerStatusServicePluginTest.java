@@ -12,12 +12,14 @@ import com.hedera.pbj.runtime.ParseException;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.logging.Logger;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
+import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.junit.jupiter.api.BeforeEach;
@@ -247,6 +249,23 @@ public class ServerStatusServicePluginTest
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.firstAvailableBlock());
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.lastAvailableBlock());
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.nextExpectedBlock());
+    }
+
+    /// Tests that the periodic status heartbeat emits a single INFO line reporting the available
+    /// block range, so operators can follow block progression from INFO logs alone.
+    @Test
+    @DisplayName("Status heartbeat logs the available block range at INFO")
+    void shouldLogStatusHeartbeat() {
+        sendBlocks(5);
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger julLogger = Logger.getLogger(ServerStatusServicePlugin.class.getName());
+        julLogger.addHandler(logHandler);
+        try {
+            plugin.logStatusHeartbeat();
+        } finally {
+            julLogger.removeHandler(logHandler);
+        }
+        assertEquals(1, logHandler.countContaining("Status heartbeat"));
     }
 
     /**

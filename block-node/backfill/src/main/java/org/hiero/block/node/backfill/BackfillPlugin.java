@@ -2,6 +2,7 @@
 package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
@@ -220,7 +221,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // Create platform thread executors via threadPoolManager.
         // Platform threads required because Helidon WebClient HTTP/2 has issues with virtual threads in containers.
         Thread.UncaughtExceptionHandler handler =
-                (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
+                (thread, e) -> LOGGER.log(ERROR, "Uncaught exception in thread: " + thread.getName(), e);
 
         autonomousExecutor =
                 context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillPluginRunner", handler);
@@ -278,7 +279,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return new BackfillTaskScheduler(executor, gapProcessor, queueCapacity, fetcher, persistenceAwaiter);
         } catch (RuntimeException e) {
             final String createSchedulerFailedMsg = "Failed to create scheduler: [%s]".formatted(e.getMessage());
-            LOGGER.log(INFO, createSchedulerFailedMsg, e);
+            LOGGER.log(ERROR, createSchedulerFailedMsg, e);
             return null;
         }
     }
@@ -296,14 +297,14 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             try {
                 historicalScheduler.close();
             } catch (RuntimeException e) {
-                LOGGER.log(INFO, "Error closing historicalScheduler: " + e.getMessage(), e);
+                LOGGER.log(WARNING, "Error closing historicalScheduler", e);
             }
         }
         if (liveTailScheduler != null) {
             try {
                 liveTailScheduler.close();
             } catch (RuntimeException e) {
-                LOGGER.log(INFO, "Error closing liveTailScheduler: " + e.getMessage(), e);
+                LOGGER.log(WARNING, "Error closing liveTailScheduler", e);
             }
         }
         if (autonomousFetcher != null) {
@@ -548,7 +549,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                                 new LongRange(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL))) {
                     final String backfillPersistFailedMsg =
                             "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
-                    LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
+                    LOGGER.log(WARNING, backfillPersistFailedMsg, blockNumber);
                 } else {
                     // The live-tail scheduler is unavailable (plugin not yet started) or its queue is full -
                     // most likely because a mass failure (e.g. MISSING_VERIFICATION_DATA while the node is
@@ -580,7 +581,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             LOGGER.log(TRACE, verificationNotificationMsg, notification.blockNumber());
             if (!notification.success()) {
                 final String blockVerificationFailedMsg = "Block verification failed, block=[{0}]";
-                LOGGER.log(INFO, blockVerificationFailedMsg, notification.blockNumber());
+                LOGGER.log(WARNING, blockVerificationFailedMsg, notification.blockNumber());
                 metricsHolder.backfillFetchErrors().increment();
                 pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
                 // If a block verification fails, we will backfill it again later on the next gap detection run.
@@ -640,7 +641,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             } catch (ParseException | InterruptedException e) {
                 Thread.currentThread().interrupt();
                 final String errorExecutingGapMsg = "Error executing gap=[%s]".formatted(gap);
-                LOGGER.log(INFO, errorExecutingGapMsg, e);
+                LOGGER.log(WARNING, errorExecutingGapMsg, e);
             }
         }
     }

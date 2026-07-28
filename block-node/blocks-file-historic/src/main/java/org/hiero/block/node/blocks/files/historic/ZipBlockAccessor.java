@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
-import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 
@@ -165,7 +164,7 @@ final class ZipBlockAccessor implements BlockAccessor {
         } catch (final RuntimeException | IOException e) {
             final String message = FAILED_TO_DELETE_LINK_MESSAGE.formatted(
                     blockNumber, absoluteZipFilePath, blockPathData.blockFileName());
-            LOGGER.log(INFO, message, e);
+            LOGGER.log(WARNING, message, e);
         }
     }
 
