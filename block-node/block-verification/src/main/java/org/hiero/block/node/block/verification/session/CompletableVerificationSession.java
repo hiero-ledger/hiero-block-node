@@ -30,6 +30,10 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     private final BlockSource blockSource;
     private final ExecutorService executor;
     private final AtomicBoolean isCancelled;
+    /// Set when the session is canceled because a new session for the same
+    /// block supersedes it. Shared with the [SessionResultHandler] so a
+    /// superseded session does not report a verification verdict.
+    private final AtomicBoolean isSuperseded;
     private final BlockNodeContext context;
     private final AtomicLong lastVerifiedBlock;
     private final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
@@ -67,6 +71,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         this.blockSource = Objects.requireNonNull(blockSource);
         this.executor = Objects.requireNonNull(executor);
         this.isCancelled = new AtomicBoolean(false);
+        this.isSuperseded = new AtomicBoolean(false);
         this.blockItemsDeque = new ConcurrentLinkedDeque<>();
         this.verificationConfig = Objects.requireNonNull(verificationConfig);
         this.finishedSessions = Objects.requireNonNull(finishedSessions);
@@ -117,7 +122,8 @@ public final class CompletableVerificationSession implements BlockVerificationSe
                 blockNumber,
                 blockSource,
                 finishedSessions,
-                sessionKey);
+                sessionKey,
+                isSuperseded);
         final CompletableFuture<BlockVerificationResult> completionChain = CompletableFuture.supplyAsync(
                         hasher, executor)
                 .thenApply(verifier)
@@ -142,6 +148,14 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         } finally {
             isCancelled.set(true);
         }
+    }
+
+    @Override
+    public void cancelSuperseded() {
+        // The order matters: the flag must be visible before the cancellation
+        // propagates to the session result handler.
+        isSuperseded.set(true);
+        cancel();
     }
 
     @Override

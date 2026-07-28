@@ -1349,20 +1349,24 @@ class VerificationServicePluginTest {
         /// This test aims to assert that when we receive the start of a new block via the Live RB (Publisher Source),
         /// but we have not yet received the last item for the current live publisher session, the current live
         /// publisher session will be canceled and the newly received block will start a new session.
-        /// The block proof type is irrelevant for this test. Also, it is irrelevant which block will be started
-        /// in the middle of current session.
+        /// The block proof type is irrelevant for this test. The new block must be a different block: a new
+        /// session for the same block supersedes the current one silently instead (see the Session
+        /// Supersession Tests).
         @Test
         @DisplayName(
                 "Live RB Ingestion - Cancel Current Live Session When New Block Received While Not Finished Current One")
         void testLiveRBIngestionCancelLiveSessionWhenNewBlockReceivedAndCurrentNotComplete()
                 throws IOException, ParseException {
             final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
+            final ResourceTestBlock block1 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_1);
             // We push an item to start a session
             final BlockItems headerAsBlockItems =
                     new BlockItems(List.of(block0.getHeaderUnparsed()), block0.number(), true, false);
             plugin.handleBlockItemsReceived(headerAsBlockItems);
-            // Now we push that same item again, which starts a new session
-            plugin.handleBlockItemsReceived(headerAsBlockItems);
+            // Now we push the header of the next block, which starts a new session
+            final BlockItems nextHeaderAsBlockItems =
+                    new BlockItems(List.of(block1.getHeaderUnparsed()), block1.number(), true, false);
+            plugin.handleBlockItemsReceived(nextHeaderAsBlockItems);
             // Now, we expect the cancellation
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             // Assert cancellation received
@@ -1424,5 +1428,76 @@ class VerificationServicePluginTest {
                 .returns(true, multiProof -> proofToAppend
                         .blockProof()
                         .equals(multiProof.proofs().getLast()));
+    }
+
+    /// Tests for the supersession behavior of verification sessions: an active
+    /// session that is replaced by a new session must report a verdict only when
+    /// the block would otherwise be lost downstream.
+    @Nested
+    @DisplayName("Session Supersession Tests")
+    class SessionSupersessionTests
+            extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        SessionSupersessionTests() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility());
+        }
+
+        /// This test aims to assert that a session superseded by a new session for
+        /// the same block reports no verdict. A partial block (header only, as when a
+        /// publisher severs its connection mid-block) is followed by the same block
+        /// resent in full. The stale session must stay silent and the only
+        /// notification for the block is the success of the superseding session.
+        /// Reporting a CANCELLED failure instead would be treated downstream as a
+        /// real verification failure for a block that is still being processed,
+        /// which can suppress acknowledgements or disconnect the resending publisher.
+        @Test
+        @DisplayName("Superseded session for the same block reports no verdict")
+        void testSupersededSameBlockSessionReportsNoVerdict() throws IOException, ParseException {
+            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
+            // The publisher supplies only the header of block 0 and severs mid-block.
+            final BlockItemUnparsed header = block0.blockUnparsed().blockItems().getFirst();
+            plugin.handleBlockItemsReceived(new BlockItems(List.of(header), block0.number(), true, false));
+            // Another publisher resends block 0 in full, superseding the stale session.
+            plugin.handleBlockItemsReceived(block0.asBlockItems());
+            // The first notification must be the success of the superseding session;
+            // the superseded session must not have reported a CANCELLED failure.
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(true, VerificationNotification::success)
+                    .returns(null, VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(block0.blockRootHash(), VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that a session canceled because the stream moved
+        /// on to a different block still reports a CANCELLED failure, so the
+        /// abandoned block is scheduled for resend and is not lost downstream.
+        @Test
+        @DisplayName("Canceled session for a different block still reports CANCELLED")
+        void testCanceledSessionForDifferentBlockReportsCancelled() throws IOException, ParseException {
+            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
+            final ResourceTestBlock block1 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_1);
+            // The publisher supplies only the header of block 1 and severs mid-block.
+            final BlockItemUnparsed header = block1.blockUnparsed().blockItems().getFirst();
+            plugin.handleBlockItemsReceived(new BlockItems(List.of(header), block1.number(), true, false));
+            // The stream moves on to a different block, block 1 is abandoned.
+            plugin.handleBlockItemsReceived(block0.asBlockItems());
+            // Two notifications must arrive: a CANCELLED failure for block 1, which
+            // schedules the resend downstream, and a success for block 0.
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(2);
+            assertThat(notifications).hasSize(2);
+            assertThat(notifications).anySatisfy(notification -> assertThat(notification)
+                    .returns(false, VerificationNotification::success)
+                    .returns(block1.number(), VerificationNotification::blockNumber)
+                    .extracting(VerificationNotification::failureInfo)
+                    .returns(FailureType.CANCELLED, FailureInfo::failureType));
+            assertThat(notifications).anySatisfy(notification -> assertThat(notification)
+                    .returns(true, VerificationNotification::success)
+                    .returns(block0.number(), VerificationNotification::blockNumber));
+        }
     }
 }

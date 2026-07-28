@@ -106,7 +106,17 @@ public final class BlockSessionHandler {
         BlockVerificationSession local = activePublisherSession.get();
         if (blockItems.isStartOfNewBlock()) {
             if (local != null) {
-                local.cancel();
+                if (local.sessionKey().blockNumber() == blockItems.blockNumber()) {
+                    // The new session supersedes the active one for the same block
+                    // (e.g. a publisher severed mid-block and another publisher resends
+                    // the block in full). The stale session must not report a verdict,
+                    // the superseding session reports for the block.
+                    local.cancelSuperseded();
+                } else {
+                    // The stream moved on to a different block, the canceled block is
+                    // lost downstream and the failure report schedules its resend.
+                    local.cancel();
+                }
             }
             local = startNewSession(blockItems, BlockSource.PUBLISHER);
             activePublisherSession.set(local);

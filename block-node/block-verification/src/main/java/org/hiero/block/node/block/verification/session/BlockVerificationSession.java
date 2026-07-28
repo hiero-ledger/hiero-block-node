@@ -35,6 +35,22 @@ public interface BlockVerificationSession {
     /// Cancel and stop the session.
     void cancel();
 
+    /// Cancel and stop the session because a new session for the same block
+    /// supersedes it.
+    ///
+    /// A session canceled this way MUST NOT report a verification verdict to
+    /// messaging. The superseding session owns the fate of the block: it will
+    /// report success or failure itself, and if its stream dies mid-block, the
+    /// publisher plugin schedules a resend. Reporting a CANCELLED failure here
+    /// would race with the superseding session and be treated downstream as a
+    /// real verification failure for a block that is still being processed.
+    ///
+    /// This method MUST only be used for same-block supersession. A session
+    /// canceled for any other reason (a different block started, session
+    /// buffer eviction, shutdown) must use [#cancel()], so the block is
+    /// scheduled for resend and is not lost downstream.
+    void cancelSuperseded();
+
     /// Get the block items deque.
     /// Through this deque, we are able to offer the next block items of the block.
     ConcurrentLinkedDeque<BlockItems> getBlockItemsDeque();

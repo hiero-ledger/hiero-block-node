@@ -10,6 +10,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -38,6 +39,10 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
     private final ConcurrentSkipListSet<SessionKey> finishedSessions;
     private final SessionKey sessionKey;
+    /// Set by the session when it is canceled because a new session for the
+    /// same block supersedes it. A superseded session must not report a
+    /// verification verdict, the superseding session owns the fate of the block.
+    private final AtomicBoolean isSuperseded;
 
     /// Constructor.
     public SessionResultHandler(
@@ -50,7 +55,8 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
             final long blockNumber,
             final BlockSource blockSource,
             final ConcurrentSkipListSet<SessionKey> finishedSessions,
-            final SessionKey sessionKey) {
+            final SessionKey sessionKey,
+            final AtomicBoolean isSuperseded) {
         this.context = Objects.requireNonNull(context);
         this.verificationConfig = Objects.requireNonNull(verificationConfig);
         this.sessionResultMetrics = Objects.requireNonNull(sessionResultMetrics);
@@ -60,6 +66,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
         this.finishedSessions = Objects.requireNonNull(finishedSessions);
         this.sessionKey = Objects.requireNonNull(sessionKey);
+        this.isSuperseded = Objects.requireNonNull(isSuperseded);
         if (blockNumber < 0) {
             throw new IllegalArgumentException("Block number must be non-negative");
         } else {
@@ -142,38 +149,51 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         }
         VerificationNotification notification = null;
         try {
-            notification = switch (throwable) {
-                case CancellationException ignored ->
-                    new VerificationNotification(
-                            false,
-                            getFailureInfo(blockNumber, SessionFailureType.CANCELLED),
-                            blockNumber,
-                            null,
-                            null,
-                            blockSource);
-                case CompletionException ce -> {
-                    LOGGER.log(Level.WARNING, message, ce.getCause() != null ? ce.getCause() : ce);
-                    yield processCompletionException(ce);
-                }
-                default -> {
-                    LOGGER.log(Level.WARNING, message, throwable);
-                    yield new VerificationNotification(
-                            false,
-                            getFailureInfo(blockNumber, SessionFailureType.UNKNOWN_ERROR),
-                            blockNumber,
-                            null,
-                            null,
-                            blockSource);
-                }
-            };
-            safeSendNotification(notification);
-            sessionResultMetrics.verificationBlocksFailed().increment();
+            final VerificationNotification resolved =
+                    switch (throwable) {
+                        case CancellationException ignored ->
+                            new VerificationNotification(
+                                    false,
+                                    getFailureInfo(blockNumber, SessionFailureType.CANCELLED),
+                                    blockNumber,
+                                    null,
+                                    null,
+                                    blockSource);
+                        case CompletionException ce -> {
+                            LOGGER.log(Level.WARNING, message, ce.getCause() != null ? ce.getCause() : ce);
+                            yield processCompletionException(ce);
+                        }
+                        default -> {
+                            LOGGER.log(Level.WARNING, message, throwable);
+                            yield new VerificationNotification(
+                                    false,
+                                    getFailureInfo(blockNumber, SessionFailureType.UNKNOWN_ERROR),
+                                    blockNumber,
+                                    null,
+                                    null,
+                                    blockSource);
+                        }
+                    };
+            if (isSuperseded.get() && resolved.failureInfo().failureType() == FailureType.CANCELLED) {
+                // A session canceled because a new session for the same block superseded it
+                // reports no verdict: the block is still being processed and the superseding
+                // session reports for it. Reporting CANCELLED here would be treated downstream
+                // as a real verification failure for the block.
+                final String supersededMessage =
+                        "Session with id %d for block %d with source %s was superseded, no verdict is reported"
+                                .formatted(sessionKey.uniqueId(), blockNumber, blockSource);
+                LOGGER.log(Level.DEBUG, supersededMessage);
+            } else {
+                notification = resolved;
+                safeSendNotification(notification);
+                sessionResultMetrics.verificationBlocksFailed().increment();
+            }
         } finally {
             if (notification != null) {
                 badBlockDumper.attemptDump(notification, hapiVersion, blockItems);
             }
         }
-        return notification.failureInfo().failureType() == FailureType.UNKNOWN_ERROR;
+        return notification != null && notification.failureInfo().failureType() == FailureType.UNKNOWN_ERROR;
     }
 
     /// Process a completion exception case.
