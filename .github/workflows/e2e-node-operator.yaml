@@ -197,12 +197,25 @@ jobs:
           if [[ -n "${{ inputs.base-version }}" ]]; then
             BASE="${{ inputs.base-version }}"
           else
-            # Latest published GA/RC tag — must be older than the snapshot (version.txt) and 0.37+ (the
-            # chart's application-state volume, so no state-volume-rename handling on upgrade). Both hold
-            # as long as version.txt stays above the latest RC.
-            BASE=$(gh release list --repo hiero-ledger/hiero-block-node --exclude-drafts --limit 20 \
-              --json tagName \
-              --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-rc[0-9.]+)?$"))] | first | .tagName | ltrimstr("v")')
+            # Prefer the latest stable GA tag, whether its GitHub Release is published or still
+            # draft. A draft GA means the release-automation tag push already fired
+            # release-push-image.yaml, so the GHCR image exists even before the release manager
+            # clicks "Publish". Without this, --exclude-drafts returns the last published RC when
+            # the GA draft hasn't been published yet, causing a plugin-name mismatch: the RC image
+            # ships the old plugin name while the workflow profile expects the renamed GA plugin.
+            STABLE=$(gh release list --repo hiero-ledger/hiero-block-node --limit 20 \
+              --json tagName,isDraft \
+              --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] |
+                    (map(select(.isDraft == false)) | first) // first |
+                    .tagName | ltrimstr("v")')
+            if [[ -n "${STABLE}" ]]; then
+              BASE="${STABLE}"
+            else
+              # No stable GA tag at all yet; fall back to the latest published RC.
+              BASE=$(gh release list --repo hiero-ledger/hiero-block-node --exclude-drafts --limit 20 \
+                --json tagName \
+                --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-(rc|alpha)[0-9]+$"))] | first | .tagName | ltrimstr("v")')
+            fi
           fi
           if [[ -n "${{ inputs.snapshot-version }}" ]]; then
             SNAP="${{ inputs.snapshot-version }}"
