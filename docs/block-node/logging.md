@@ -100,7 +100,7 @@ Drop the class name to target a whole package subtree:
 # DEBUG for everything under the verification module
 org.hiero.block.node.block.verification.level = FINE
 
-# DEBUG for all Block Node code (this is the shipped default for org.hiero.block)
+# DEBUG for all Block Node code (the whole org.hiero.block package tree)
 org.hiero.block.level = FINE
 ```
 
