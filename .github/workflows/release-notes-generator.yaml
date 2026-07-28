@@ -106,7 +106,11 @@ jobs:
               | grep -vE '\-(rc|alpha)' \
               | sed -n '2p')
             echo "GA range: ${PREV_STABLE_TAG}..${LATEST_TAG}"
-            git cliff --config cliff.toml --output release_notes.md -- "${PREV_STABLE_TAG}..${LATEST_TAG}"
+            # --ignore-tags collapses rc/alpha boundaries so the entire range
+            # renders as one section set instead of one set per intermediate tag.
+            git cliff --config cliff.toml \
+              --ignore-tags ".*-(rc|alpha).*" \
+              --output release_notes.md -- "${PREV_STABLE_TAG}..${LATEST_TAG}"
           else
             # RC: incremental notes since the previous pre-release tag.
             git cliff --config cliff.toml --latest --output release_notes.md
