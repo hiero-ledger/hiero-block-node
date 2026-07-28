@@ -40,9 +40,12 @@ The release process is automated using a GitHub Actions workflow (`release-autom
 1. **Create or Update Release Branch**:
    - Create a new release branch `release/0.n` if it doesn't exist.
    - If the release branch was created, means it's a new release, create a PR on the main branch to increase the snapshot version to the next version.
-   - Bump the version to the input provided in the release branch.
+   - For `rc`, `alpha`, and `custom` releases, bump the version to the input provided directly on the release branch.
+   - For `GA` releases, build from the exact commit tagged as the last rc/alpha instead of the release branch tip, so any drift on the branch since the last rc can't sneak into GA untested. If no rc/alpha was ever released for this version, GA falls back to building from the release branch tip.
 2. **Tagging**:
-   - After bumping the version on the release branch, tag the version as `vX.n.p` (where `X.n.p` is the input).
+   - After bumping the version, tag the version as `vX.n.p` (where `X.n.p` is the input).
+   - For `rc`, `alpha`, and `custom` releases, the version bump commit and tag are both pushed to the release branch.
+   - For `GA` releases, only the tag is pushed — the release branch ref itself is left untouched.
    - Push the tag, triggering the `Publish Release Workflow`.
 3. **Release Notes and Milestone**:
    - Create release notes for the new Tag.
@@ -101,6 +104,7 @@ The meta process typically follows these steps:
    - Perform integration and performance testing on this version.
 2. **General Availability (GA)**:
    - Once testing is successful, trigger the Release Automation Workflow again for the same version but as a GA version (e.g., `x.n.0`).
+   - The GA release is built from the exact commit tagged as the last rc, not from whatever the release branch currently points to, so any commit that landed on the branch after the last rc is excluded from GA.
 3. **Patch Versions**:
    - For any patch versions, changes will be merged (cherry-picked from main) into the release branch.
    - Start a new release automation process for the patch version (e.g., `x.n.p`).
