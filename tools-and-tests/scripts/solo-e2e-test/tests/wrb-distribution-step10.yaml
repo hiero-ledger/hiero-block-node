@@ -121,6 +121,15 @@ events:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-mn-consuming-from-bn.sh mirror-2"
 
   # Slice 5 — BN-to-BN backfill reconfiguration (step 10).
+  #
+  # The 10s deltas between reconfigure-bn2-backfill/reconfigure-bn3-backfill/
+  # assert-bn-backfill-source look too tight for a StatefulSet rolling
+  # restart, but `delay` is only a floor ("don't start before T elapsed"),
+  # not a fixed offset — solo-test-runner.sh executes events sequentially and
+  # blocks on each script's exit. reconfigure-bn-backfill.sh itself blocks on
+  # `kubectl rollout status --timeout=300s` before returning, so the next
+  # event can't start until that BN's rollout has actually finished (or the
+  # step has already failed loudly).
 
   - id: reconfigure-bn2-backfill
     type: command

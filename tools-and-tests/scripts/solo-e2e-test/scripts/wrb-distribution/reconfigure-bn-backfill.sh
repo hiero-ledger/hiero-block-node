@@ -41,6 +41,9 @@
 #   SOURCE_BN_INDEX    (default 1 — BN1 is the backfill source per the issue)
 #   BACKFILL_GREEDY    (default "false")
 #   READY_TIMEOUT      (default 300)
+#
+# The source BN's gRPC port is read from its own "-config" ConfigMap
+# (SERVER_PORT), falling back to 40840 only if that key is absent.
 
 set -euo pipefail
 
@@ -58,11 +61,19 @@ fail() { echo "[wrb-dist-bn-backfill] ERROR: $*" >&2; exit 1; }
 target_bn="block-node-${target_index}"
 source_bn="block-node-${SOURCE_BN_INDEX}"
 source_dns="${source_bn}.${NAMESPACE}.svc.cluster.local"
-source_port=40840
 backfill_path="/opt/hiero/block-node/backfill"
 backfill_filename="block-node-sources.json"
 sources_configmap="${target_bn}-block-node-sources"
 config_configmap="${target_bn}-config"
+
+# Read the source BN's actual listening port from its own "-config" ConfigMap
+# (SERVER_PORT, rendered from blockNode.config.SERVER_PORT — see
+# charts/block-node-server/values.yaml) rather than assuming the chart
+# default, so this doesn't silently produce a wrong sources file for
+# custom-port topologies.
+source_port=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+    get configmap "${source_bn}-config" -o jsonpath='{.data.SERVER_PORT}' 2>/dev/null || echo "")
+: "${source_port:=40840}"
 
 log "Reconfiguring ${target_bn} to backfill from ${source_bn} (${source_dns}:${source_port})..."
 
@@ -101,7 +112,18 @@ log "  ${config_configmap} patched (BACKFILL_BLOCK_NODE_SOURCES_PATH, BACKFILL_G
 # 3) Patch the StatefulSet's pod template to add the volume + volumeMount.
 #    volumes[] and containers[].volumeMounts[] are both merged on their
 #    `name` key by a strategic merge patch, so this appends rather than
-#    clobbering the chart's existing volumes/mounts.
+#    clobbering the chart's existing volumes/mounts. This depends on the
+#    container actually being named "block-node-server" (per
+#    charts/block-node-server/templates/statefulset.yaml) — if that ever
+#    changes, the volumeMount patch would silently no-op while the volume
+#    itself still gets added, so check it explicitly rather than fail later
+#    with a mount-less volume and no error.
+actual_container=$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+    get statefulset "${target_bn}" \
+    -o jsonpath='{.spec.template.spec.containers[0].name}')
+[[ "${actual_container}" == "block-node-server" ]] \
+    || fail "expected container named 'block-node-server' in ${target_bn}, got '${actual_container}'"
+
 statefulset_patch="${TMPDIR:-/tmp}/wrb-dist-${target_bn}-sts-patch.yaml"
 cat > "${statefulset_patch}" <<EOF
 spec:
