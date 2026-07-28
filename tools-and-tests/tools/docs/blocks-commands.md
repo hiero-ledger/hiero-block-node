@@ -380,3 +380,80 @@ blocks fetchBalanceCheckpoints --skip-signatures -o balance_checkpoints.zstd
 - Signature verification ensures checkpoint integrity but requires an address book history file.
 - The compiled output file can be used with `validate --balance-checkpoints` for offline validation.
 - The `--interval-days` value determines the granularity of validation possible. For example, monthly checkpoints (`--interval-days 30`) only allow monthly validation, not weekly. Choose the fetch interval based on your validation needs.
+
+---
+
+## Debug utilities
+
+Standalone helper scripts that live under [`tools-and-tests/tools/scripts/`](../scripts/) and complement the main CLI subcommands above. Not part of the shaded jar; run directly.
+
+### `extractJumpstartData.py` — inspect `jumpstart.bin` contents
+
+Pretty-prints the binary `jumpstart.bin` that `blocks wrap` writes at the end of each run, so an operator can eyeball what `wrap` recorded, cross-check a `jumpstart.bin` handed to the Consensus Node's WRB catch-up path, or diff two runs of `wrap` against the same source archive.
+
+**Location:** [`tools-and-tests/tools/scripts/extractJumpstartData.py`](../scripts/extractJumpstartData.py)
+
+#### Usage
+
+The script has a shebang and is executable — run it directly:
+
+```bash
+# Show help
+./tools-and-tests/tools/scripts/extractJumpstartData.py --help
+
+# Point at any jumpstart.bin (path can be relative or absolute)
+./tools-and-tests/tools/scripts/extractJumpstartData.py /path/to/wrappedBlocks/jumpstart.bin
+```
+
+Only dependency is a standard Python 3.
+
+#### What it prints
+
+`jumpstart.bin` is the binary snapshot `blocks wrap` writes at the end of each run and the Consensus Node consumes for WRB catch-up integrity checks. All fields are big-endian:
+
+|           Field           |         Size         |                                What it is                                 |
+|---------------------------|----------------------|---------------------------------------------------------------------------|
+| `blockNumber`             | 8 bytes (long)       | Highest wrapped block                                                     |
+| `blockHash`               | 48 bytes             | SHA-384 chain hash of that block                                          |
+| `consensusTimestampHash`  | 48 bytes             | SHA-384 leaf hash of the block's first consensus timestamp                |
+| `outputItemsTreeRootHash` | 48 bytes             | Streaming merkle root of all output items                                 |
+| `leafCount`               | 8 bytes (long)       | Number of leaves in the streaming hasher                                  |
+| `hashCount`               | 4 bytes (int)        | Number of 48-byte hashes that follow (streaming hasher's open-root state) |
+| `hashes[]`                | 48 × hashCount bytes | Streaming hasher's internal node hashes                                   |
+
+#### Sample output
+
+Healthy dump from a completed full-mainnet wrap run:
+
+```
+$ ./tools-and-tests/tools/scripts/extractJumpstartData.py wrappedBlocks/jumpstart.bin
+blockNumber: 98236963
+blockHash: 952f122a53d9dafafc6247c3dac7096a8e1943020dbe29862f14ca9130f3af310ca483b45289ca8ffc5b4cabf0a02200
+consensusTimestampHash: 04082995241115f9b7e81c29b68fe6f09da9acfd32855bd4ff3a760728382fc3564b27ef4cde26a4c24a76f89aa39f02
+outputItemsTreeRootHash: 43ffaec8c07e038f7127c15e8931b7b55baaee8d491491545fda76c90e7539d7cac3e0a51c565395e0baa468394f6518
+leafCount: 98236964
+hashCount: 15
+  hash[0]:  03af2fb881bbadddcf592a9daaecceb32f2e8a687acb9cddeb8f188e0950e6ae221c322be6448f8371350f04dc785da8
+  ...
+  hash[14]: ddefc67134cc0f7cf807474b8fd82b964cd87595320c3ee21e89b672fecb4228913197fd4c931fb2055512f27e6f2f9a
+```
+
+#### What to sanity-check in the output
+
+- **`leafCount == blockNumber + 1`** — blocks are 0-indexed, so a run that finished at block N shows `leafCount = N + 1`. If they don't line up, the wrap watermark and the streaming hasher are out of sync.
+- **`hashCount == popcount(leafCount)`** — the streaming merkle tree keeps one open root per set bit in `leafCount`. In the sample above, `leafCount=98236964` has 15 set bits in binary, so `hashCount=15`. A mismatch indicates streaming-hasher state corruption.
+- **`blockHash` matches the last entry in `blockStreamBlockHashes.bin`** — if not, either `jumpstart.bin` was written from a different wrap run than the block registry, or one of the two files was manually edited. Cross-check with `blocks validate`'s [`HashRegistryValidation`](#hashregistryvalidation).
+- **All hashes are non-zero** — 48 all-zero bytes anywhere in the output means the writer never populated that field, which shouldn't happen for a completed wrap.
+
+#### When to reach for it
+
+- **Debug a wrap run**: compare `jumpstart.bin` between a completed run and an interrupted run to see whether the wrap watermark and streaming hasher are consistent with the last block committed to zip.
+- **Verify a jumpstart file handed to CN**: before uploading a `jumpstart.bin` to the Consensus Node for WRB catch-up, dump it and confirm the block number + block hash match what you expect for that mainnet slice.
+- **Cross-check re-wraps**: run `wrap` twice on the same source archive with the same fix branch — the resulting `jumpstart.bin` files should be byte-identical. Diffing the pretty-printed outputs is easier than diffing binary.
+- **Investigate a validation failure**: if [`JumpstartValidation`](#jumpstartvalidation) (part of `blocks validate`) reports a mismatch, dump the on-disk `jumpstart.bin` to see which field diverged from the freshly-computed values.
+
+#### Related
+
+- Produced by `blocks wrap` (see [The `wrap` Subcommand](#the-wrap-subcommand))
+- Consumed by [`JumpstartValidation`](#jumpstartvalidation) as an end-of-run check inside `blocks validate`
+- Consumed by Consensus Node for WRB catch-up integrity checks
