@@ -36,17 +36,13 @@ jobs:
     timeout-minutes: 15
     name: Release
     runs-on: hl-bn-lin-md
-    env:
-      RELEASE_NOTES_FILENAME: release_notes
-      # Bump this to pick up a new git-cliff release; verify the new SHA via:
-      #   gh release view v<VERSION> --repo orhun/git-cliff --json assets \
-      #     | jq '.assets[].name' | grep sha256
-      GIT_CLIFF_VERSION: "2.8.0"
     outputs:
       create_pr: ${{ env.CREATE_PR }}
+      is_prerelease: ${{ env.IS_PRERELEASE }}
       next_version_snapshot: ${{ env.NEXT_VERSION_SNAPSHOT }}
       pr_title: ${{ env.PR_TITLE }}
       release_branch: ${{ env.RELEASE_BRANCH }}
+      release_tag: ${{ env.RELEASE_TAG }}
 
     steps:
       - name: Harden Runner
@@ -127,10 +123,11 @@ jobs:
           RELEASE_BRANCH=$RELEASE_BRANCH
           RELEASE_TAG=$RELEASE_TAG
           VERSION=$VERSION
+          IS_PRERELEASE=$([[ -n "${{ steps.version_parser.outputs.prerelease }}" ]] && echo "true" || echo "false")
           EOF
 
       - name: Checkout Repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           ref: main
@@ -148,7 +145,7 @@ jobs:
           passphrase: ${{ secrets.GPG_KEY_PASSPHRASE }}
 
       - name: Install JDK
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
         with:
           distribution: "temurin"
           java-version: "25.0.2"
@@ -192,28 +189,65 @@ jobs:
           commit_user_email: ${{ steps.gpg_importer.outputs.email }}
           tagging_message: ${{ env.RELEASE_TAG }}
 
-      - name: Install git-cliff
+      - name: Generate Protobuf Artifact
+        run: ./gradlew :protobuf-sources:generateBlockNodeProtoArtifact
+
+      - name: Upload Protobuf Artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: block-node-protobuf-${{ env.RELEASE_TAG }}
+          path: ./protobuf-sources/block-node-protobuf-*.tgz
+          if-no-files-found: error
+
+  generate_notes:
+    name: Generate Release Notes
+    needs: release
+    uses: ./.github/workflows/release-notes-generator.yaml
+    with:
+      release_branch: ${{ needs.release.outputs.release_branch }}
+      is_prerelease: ${{ needs.release.outputs.is_prerelease }}
+    secrets: inherit
+
+  create_release:
+    timeout-minutes: 10
+    name: Create GitHub Release
+    runs-on: hl-bn-lin-md
+    needs: [release, generate_notes]
+    continue-on-error: true
+    if: ${{ always() && needs.release.result == 'success' }}
+    env:
+      RELEASE_BRANCH: ${{ needs.release.outputs.release_branch }}
+      RELEASE_TAG: ${{ needs.release.outputs.release_tag }}
+      RELEASE_NOTES_FILENAME: release_notes
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Download Release Notes Artifact
+        id: download_notes
+        continue-on-error: true
         run: |
-          TARBALL="git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl.tar.gz"
-          gh release download "v${GIT_CLIFF_VERSION}" \
-            --repo orhun/git-cliff \
-            --pattern "${TARBALL}" \
-            --pattern "${TARBALL}.sha256"
-          sha256sum --check "${TARBALL}.sha256"
-          tar xzf "${TARBALL}" \
-            --strip-components=1 \
-            "git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl/git-cliff"
-          sudo install -m755 git-cliff /usr/local/bin/git-cliff
-          rm "${TARBALL}" "${TARBALL}.sha256"
+          gh run download "${{ github.run_id }}" \
+            --name "release-notes-${RELEASE_TAG}" \
+            --dir .
         env:
           GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
-      - name: Generate Release Notes
+      - name: Ensure Release Notes File Exists
+        run: touch "${RELEASE_NOTES_FILENAME}.md"
+
+      - name: Download Protobuf Artifact
+        id: download_protobuf
+        continue-on-error: true
         run: |
-          git cliff \
-            --config cliff.toml \
-            --latest \
-            --output "${RELEASE_NOTES_FILENAME}.md"
+          gh run download "${{ github.run_id }}" \
+            --name "block-node-protobuf-${RELEASE_TAG}" \
+            --dir ./protobuf-dl
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
       - name: Create Github Release
         uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
@@ -224,7 +258,17 @@ jobs:
           draft: true
           generateReleaseNotes: false
           name: ${{ env.RELEASE_TAG }}
-          prerelease: ${{ steps.version_parser.outputs.prerelease != '' }}
+          prerelease: ${{ needs.release.outputs.is_prerelease == 'true' }}
+          tag: ${{ env.RELEASE_TAG }}
+          token: ${{ secrets.GH_ACCESS_TOKEN }}
+
+      - name: Attach Protobuf Artifact to Release
+        if: ${{ steps.download_protobuf.outcome == 'success' }}
+        uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
+        with:
+          allowUpdates: true
+          artifacts: ./protobuf-dl/block-node-protobuf-*.tgz
+          draft: true
           tag: ${{ env.RELEASE_TAG }}
           token: ${{ secrets.GH_ACCESS_TOKEN }}
 
@@ -245,7 +289,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout Repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           ref: main
@@ -262,7 +306,7 @@ jobs:
           passphrase: ${{ secrets.GPG_KEY_PASSPHRASE }}
 
       - name: Install JDK
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
         with:
           distribution: "temurin"
           java-version: "25.0.2"
