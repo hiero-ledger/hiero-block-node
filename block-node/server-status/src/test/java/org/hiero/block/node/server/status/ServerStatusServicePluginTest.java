@@ -268,6 +268,54 @@ public class ServerStatusServicePluginTest
         assertEquals(1, logHandler.countContaining("Status heartbeat"));
     }
 
+    /// Tests that the heartbeat task scheduled by `start()` runs and logs at INFO when the
+    /// executor fires it, exercising the `start()` scheduling path and `runHeartbeat()`.
+    @Test
+    @DisplayName("Scheduled heartbeat task runs and logs at INFO")
+    void shouldRunScheduledHeartbeat() {
+        sendBlocks(5);
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger julLogger = Logger.getLogger(ServerStatusServicePlugin.class.getName());
+        julLogger.addHandler(logHandler);
+        try {
+            // start() (run during setup) scheduled the heartbeat on the test executor; fire it now.
+            ((ScheduledBlockingExecutor) testThreadPoolManager.scheduledExecutor()).executeSerially();
+        } finally {
+            julLogger.removeHandler(logHandler);
+        }
+        assertTrue(logHandler.countContaining("Status heartbeat") >= 1);
+    }
+
+    /// Tests that `stop()` shuts down the heartbeat scheduler.
+    @Test
+    @DisplayName("stop() shuts down the heartbeat scheduler")
+    void shouldStopHeartbeatScheduler() {
+        plugin.stop();
+        assertTrue(testThreadPoolManager.scheduledExecutor().isShutdown());
+    }
+
+    /// Tests that a heartbeat period of `0` disables the heartbeat: `start()` logs the disabled
+    /// message and schedules nothing, and `stop()` is a safe no-op.
+    @Test
+    @DisplayName("Heartbeat disabled when heartbeatPeriodSeconds <= 0")
+    void shouldDisableHeartbeatWhenPeriodNotPositive() {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger julLogger = Logger.getLogger(ServerStatusServicePlugin.class.getName());
+        julLogger.addHandler(logHandler);
+        try {
+            start(
+                    localPlugin,
+                    localPlugin.methods().getFirst(),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    Map.of("server.status.heartbeatPeriodSeconds", "0"));
+            localPlugin.stop();
+        } finally {
+            julLogger.removeHandler(logHandler);
+        }
+        assertEquals(1, logHandler.countContaining("Server status heartbeat disabled"));
+    }
+
     /**
      * Helper method to send a specified number of test blocks to the block messaging system.
      *
