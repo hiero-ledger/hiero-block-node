@@ -2,6 +2,7 @@
 package org.hiero.block.tools.blocks;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
@@ -86,6 +87,24 @@ class PushWrappedBlocksCommandTest {
         try (final BlockStreamBlockHashRegistry registry =
                 new BlockStreamBlockHashRegistry(tempDir.resolve("blockStreamBlockHashes.bin"))) {
             assertEquals(0L, registry.highestBlockNumberStored());
+        }
+    }
+
+    @Nested
+    @DisplayName("Unreachable BN with pushable content")
+    class UnreachableBnWithContent {
+
+        @Test
+        @DisplayName("present block + unreachable BN returns non-zero")
+        @Timeout(150)
+        void presentBlockUnreachableBnReturnsNonZero(@TempDir final Path tempDir) throws Exception {
+            // Unlike emptyDirectoryReturns0Fast, this run has something to push, so it must actually
+            // try to contact the BN. LiveBlockPushClient.shutdown() blocks on its own internal 2-minute
+            // deadline waiting for ACKs that never arrive against an unreachable BN before giving up, so
+            // this test runs close to that bound rather than failing fast - it exists to prove the
+            // ack-shortfall check (this command's non-zero return) actually fires, not to be quick.
+            writeWrappedBlock(tempDir, 0L);
+            assertNotEquals(0, runCommand(tempDir));
         }
     }
 }

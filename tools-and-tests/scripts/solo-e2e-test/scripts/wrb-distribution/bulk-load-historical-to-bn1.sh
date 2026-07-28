@@ -60,6 +60,23 @@ READY_TIMEOUT="${READY_TIMEOUT:-300}"
 log() { echo "[wrb-dist-bulk-load-bn1] $*"; }
 fail() { echo "[wrb-dist-bulk-load-bn1] ERROR: $*" >&2; exit 1; }
 
+# Poll until a local port actually accepts connections, instead of a fixed sleep that's a
+# plausible CI flake under runner load if kubectl takes longer than expected to bind it.
+# Uses nc rather than bash's /dev/tcp: /dev/tcp requires bash built with net redirections, which
+# e.g. macOS's stock bash 3.2 lacks, whereas nc is reliably preinstalled on both macOS and the
+# Linux CI runners this suite targets.
+command -v nc >/dev/null 2>&1 || fail "nc not on PATH; needed to confirm the re-established port-forwards are up"
+wait_for_port() {
+    local port="$1" label="$2"
+    for _ in $(seq 1 30); do
+        if nc -z localhost "${port}" 2>/dev/null; then
+            return 0
+        fi
+        sleep 1
+    done
+    fail "Port-forward for ${label} (localhost:${port}) never came up after 30s"
+}
+
 wrapped_dir="${WRB_DIST_WORK_DIR}/wrappedBlocks"
 staging_dir="${WRB_DIST_WORK_DIR}/bn1-bulk-load-staging"
 [[ -d "${wrapped_dir}" ]] || fail "Wrapped dir missing: ${wrapped_dir}"
@@ -115,7 +132,8 @@ nohup setsid kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
 nohup setsid kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
     port-forward svc/block-node-1 "${BN1_METRICS_PORT}:16007" \
     >"${pf_log_dir}/block-node-1-metrics.log" 2>&1 </dev/null &
-sleep 2
+wait_for_port "${BN1_GRPC_PORT}" "block-node-1 grpc"
+wait_for_port "${BN1_METRICS_PORT}" "block-node-1 metrics"
 
 rm -rf "${staging_dir}"
 log "Historical backfill complete: block-node-1 restarted with the bulk-loaded WRBs."

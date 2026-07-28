@@ -72,7 +72,6 @@ public class PushWrappedBlocksCommand implements Callable<Integer> {
 
         try (final LiveBlockPushClient pushClient = new LiveBlockPushClient(
                 bnHost, bnPort, pushQueueCapacity, LiveBlockPushClient.loadDefaultWebConfig())) {
-            pushClient.start();
             final long bnLastAvailable = pushClient.queryLastAvailableBlock();
             if (bnLastAvailable < 0) {
                 // -1 is also returned when the query itself failed (BN unreachable, RPC error), not just
@@ -92,6 +91,7 @@ public class PushWrappedBlocksCommand implements Callable<Integer> {
             final long startBlock = bnLastAvailable + 1;
             System.out.println(
                     "[push] Pushing blocks " + startBlock + ".." + localHighest + " to " + bnHost + ":" + bnPort);
+            pushClient.start();
             long pushedCount = 0;
             long highestPushed = bnLastAvailable;
             for (long blockNumber = startBlock; blockNumber <= localHighest; blockNumber++) {
@@ -114,11 +114,15 @@ public class PushWrappedBlocksCommand implements Callable<Integer> {
             }
 
             if (pushedCount == 0) {
-                pushClient.shutdown();
+                // No explicit shutdown() needed here: nothing was queued, and try-with-resources'
+                // close() drains/shuts down pushClient on the way out regardless.
                 System.out.println("[push] Block " + startBlock + " not readable yet; nothing pushed this run.");
                 return 0;
             }
 
+            // Unlike the try-with-resources close() above, this call is deliberate and load-bearing:
+            // it drains the queue and waits for outstanding ACKs before lastAcked() below is read, so
+            // the < highestPushed check reflects the final state rather than a mid-flight snapshot.
             pushClient.shutdown();
             final long lastAcked = pushClient.lastAcked();
             System.out.println("[push] Pushed " + pushedCount + " block(s); BN acked through block " + lastAcked

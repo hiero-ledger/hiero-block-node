@@ -76,7 +76,11 @@ fi
 wrapped_dir="${WRB_DIST_WORK_DIR}/wrappedBlocks"
 [[ -d "${wrapped_dir}" ]] || { echo "Missing prerequisite: ${wrapped_dir}" >&2; exit 1; }
 
-printf 'initial_push_ok_count=0\n' > "${STATE_FILE}"
+# Snapshot whatever "push OK" count is already in the log rather than assuming 0, so this
+# stays correct even if LOG_FILE isn't fresh (e.g. re-run in a debug session against a log the
+# short-circuit above left in place).
+initial_push_ok_count=$( grep -cE '\] push OK' "${LOG_FILE}" 2>/dev/null || echo 0 )
+printf 'initial_push_ok_count=%s\n' "${initial_push_ok_count}" > "${STATE_FILE}"
 
 # Fork the worker into the background and write its PID. Using nohup+setsid so
 # the loop survives if the CI shell that started the event goes away.
