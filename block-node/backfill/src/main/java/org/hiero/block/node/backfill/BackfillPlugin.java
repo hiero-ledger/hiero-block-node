@@ -158,7 +158,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // Validate block node sources configuration
         final String sourcesPath = backfillConfiguration.blockNodeSourcesPath();
         if (sourcesPath == null || sourcesPath.isBlank()) {
-            LOGGER.log(DEBUG, "No block node sources path configured, backfill will not run");
+            LOGGER.log(INFO, "No block node sources path configured, backfill will not run");
             return;
         }
 
