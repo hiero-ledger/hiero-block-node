@@ -505,22 +505,25 @@ public class BlockNodeApiRegressionTest {
 
     /// Reproduces the regression where `ServerStatusServicePlugin` returned the configured
     /// EarliestManagedBlock (EMB) value as `lastAvailableBlock` when all stored blocks were
-    /// below EMB. Consensus Nodes / publishers interpreted `lastAvailableBlock = EMB` as "the
-    /// node is already ahead of me" and went silent — a hang with no error signal.
+    /// below EMB. Consensus Nodes computed `wantedBlock = lastAvailableBlock + 1` and treated
+    /// the node reporting a future block as "already ahead of me", so they went silent, a hang
+    /// with no error signal (bug #3203).
     ///
-    /// ## Root cause
+    /// ## History
     ///
-    /// When the node held blocks 0–N and EMB > N, `ServerStatusServicePlugin#serverStatus`
-    /// bumped `lastAvailableBlock` up to EMB. Publishers saw the node reporting a block number
-    /// far ahead of their head block and stopped streaming.
+    /// The original fix (#3212) clamped `lastAvailableBlock` to `UNKNOWN_BLOCK_NUMBER` (-1)
+    /// when all stored blocks were below EMB. The next expected block change (#3269) moved
+    /// that signal to the new `nextExpectedBlock` field: `lastAvailableBlock` now always
+    /// reports the true highest stored block, and `nextExpectedBlock` reports -1 ("stream
+    /// anything") until a publisher has reported a block at or above EMB.
     ///
-    /// ## Fix
+    /// ## Guarded behavior
     ///
-    /// When EMB > highestAvailableBlock (and stored blocks do exist), `lastAvailableBlock` must
-    /// be reported as `UNKNOWN_BLOCK_NUMBER` (-1). This tells publishers the node has no blocks
-    /// in the range they care about so they can reconnect and stream from the correct point.
+    /// With EMB above every stored block, `nextExpectedBlock` must be -1 and the node must
+    /// never report a future block number in `lastAvailableBlock`: the true stored maximum
+    /// keeps the node in range for publishers, which stream from the next block.
     @Test
-    @DisplayName("serverStatus returns -1 for lastAvailableBlock when EMB exceeds all stored blocks")
+    @DisplayName("serverStatus reports unknown nextExpectedBlock when EMB exceeds all stored blocks")
     void serverStatusReturnsUnknownWhenEarliestManagedBlockExceedsStoredBlocks()
             throws IOException, InterruptedException {
         app.shutdown("embRegressionTest", "restart with EMB above stored blocks");
@@ -552,18 +555,23 @@ public class BlockNodeApiRegressionTest {
                 awaitLatch(ackLatch, "ACK for block " + blockNum);
             }
 
-            // serverStatus must report lastAvailableBlock=-1 because no stored block meets or
-            // exceeds EMB=100. Returning 100 instead caused publishers to go silent (regression).
+            // serverStatus must report nextExpectedBlock=-1 because no publisher has reported a
+            // block at or above EMB=100, and lastAvailableBlock must report the true stored
+            // maximum. Reporting EMB as lastAvailableBlock instead caused publishers to go
+            // silent (regression, bug #3203).
             final PbjGrpcClient statusGrpcClient = createGrpcClient();
             final BlockNodeServiceInterface.BlockNodeServiceClient statusClient =
                     new BlockNodeServiceInterface.BlockNodeServiceClient(statusGrpcClient, OPTIONS);
             final ServerStatusResponse status =
                     statusClient.serverStatus(ServerStatusRequest.newBuilder().build());
 
-            assertThat(status.lastAvailableBlock())
-                    .as("lastAvailableBlock must be -1 when all stored blocks are below EMB; "
-                            + "returning EMB caused publishers to go silent (regression)")
+            assertThat(status.nextExpectedBlock())
+                    .as("nextExpectedBlock must be -1 while no publisher has reported a block at or above EMB")
                     .isEqualTo(-1L);
+            assertThat(status.lastAvailableBlock())
+                    .as("lastAvailableBlock must report the true highest stored block; "
+                            + "reporting a future block (EMB) caused publishers to go silent (regression)")
+                    .isEqualTo(2L);
 
             publisherClient.close();
             statusClient.close();
