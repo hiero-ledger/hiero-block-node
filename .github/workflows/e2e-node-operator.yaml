@@ -506,11 +506,20 @@ jobs:
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
           assert_server_status 18446744073709551615 18446744073709551615 18446744073709551615
 
-      - name: Re-push full set 0-4 and verify
+      - name: Re-push block 0 (TSS re-bootstrap after reset)
+        run: |
+          # Block 0 must be pushed in its own session so roster-bootstrap-tss can write
+          # tss-bootstrap-roster.json and fire VerificationDataProvider.updateTssData()
+          # before blocks 1-4 arrive. Sending all 5 together races the async TSS write.
+          SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
+            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk" \
+            java -jar tools-and-tests/suites/build/libs/block-pusher.jar
+
+      - name: Re-push blocks 1-4 and verify
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
-            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk,${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk,${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
+            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk,${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
           assert_server_status 0 4 5
           # Confirm subscribe works against the freshly re-populated store over the raw gRPC endpoint.
