@@ -569,7 +569,7 @@ function chaos_slug {
 function chaos_resource_name {
     local scenario_name="$1"
     local n="$(chaos_slug "${TEST_NAME}")--$(chaos_slug "${scenario_name}")"
-    echo "${n:0:63}"
+    echo "${n:0:63}" | sed 's/-*$//'
 }
 
 function execute_inject_latency {
@@ -583,7 +583,7 @@ function execute_inject_latency {
     latency=$(echo "$args" | yq '.latency // "0ms"')
     jitter=$(echo "$args" | yq '.jitter // "0ms"')
     correlation=$(echo "$args" | yq '.correlation // "0"')
-    bidirectional=$(echo "$args" | yq '.bidirectional // true')
+    bidirectional=$(echo "$args" | yq 'if has("bidirectional") then .bidirectional else true end')
     loss=$(echo "$args" | yq '.loss // ""')
     loss="${loss//%/}"  # Chaos Mesh expects plain numeric string, not "50%"
 
