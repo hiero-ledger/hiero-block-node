@@ -12,7 +12,6 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
  * is passed to all block node plugins in the BlockNodeContext.
  * */
 public interface ApplicationStateFacility {
-
     /**
      * Used by plugins to update the TssData for this application. i.e. `TssBootstrapPlugin`, and `VerificationPlugin`
      * The update will be forwarded to all plugins using the BlockNodePlugin.onContextUpdate() of the plugins
