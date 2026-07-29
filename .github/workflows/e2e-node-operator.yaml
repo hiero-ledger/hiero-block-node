@@ -360,7 +360,7 @@ jobs:
       - name: Verify after install (blocks 0-2)
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          assert_server_status 0 2 ""
+          assert_server_status 0 2 3
           assert_get_block 0
           assert_get_block 2
           # Confirm a subscriber can attach and drain the bounded range over the raw gRPC endpoint.
@@ -430,7 +430,7 @@ jobs:
       - name: Verify blocks survived upgrade (0-2)
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          assert_server_status 0 2 ""
+          assert_server_status 0 2 18446744073709551615
 
       - name: Push blocks 3-4 (post-upgrade ingestion)
         run: |
@@ -441,7 +441,7 @@ jobs:
       - name: Verify ingestion after upgrade (0-4)
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          assert_server_status 0 4 ""
+          assert_server_status 0 4 5
           assert_get_block 3
           assert_get_block 4
           # Confirm subscribe still works on the upgraded (snapshot) node across the full range.
@@ -452,8 +452,10 @@ jobs:
       # are inside the Docker node container — not on the runner — so block files survive in
       # the live/archive hostPath PVCs. We must clear block storage from inside the cluster
       # (via kubectl exec) before reset so the re-push of blocks 0-4 isn't rejected with
-      # SKIP_BLOCK. We also clear block-ranges.json so the BN starts with no stale range cache.
-      # tss-bootstrap-roster.json is intentionally retained (needed to verify re-pushed block 0).
+      # SKIP_BLOCK. tss-bootstrap-roster.json must also be cleared: if it already exists when
+      # block 0 is re-pushed, roster-bootstrap-tss skips processing it and never fires the
+      # VerificationDataProvider.updateTssData() notification, causing block verification to
+      # hang indefinitely. Clearing it lets block 0 flow exactly like the initial install.
       - name: Clear block storage before reset
         run: |
           POD="${RELEASE}-block-node-server-0"
@@ -461,7 +463,8 @@ jobs:
             sh -c 'rm -rf /opt/hiero/block-node/data/live/* \
                           /opt/hiero/block-node/data/historic/* \
                           /opt/hiero/block-node/application-state/block-ranges.json \
-                   && echo "Block storage and block-ranges.json cleared"' || true
+                          /opt/hiero/block-node/application-state/tss-bootstrap-roster.json \
+                   && echo "Block storage, block-ranges.json and tss-bootstrap-roster.json cleared"' || true
 
       - name: Reset via solo-provisioner
         run: |
@@ -478,7 +481,7 @@ jobs:
         run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
       # Diagnostic only (never fails the job): confirm the node is empty after reset — no block
-      # files and serverStatus uint64 -1. tss-bootstrap-roster.json is intentionally retained.
+      # files and all serverStatus fields == uint64-max. tss-bootstrap-roster.json is absent.
       - name: Inspect storage after reset
         run: |
           POD="${RELEASE}-block-node-server-0"
@@ -501,7 +504,7 @@ jobs:
       - name: Assert empty state after reset
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          assert_server_status "" "" 18446744073709551615
+          assert_server_status 18446744073709551615 18446744073709551615 18446744073709551615
 
       - name: Re-push full set 0-4 and verify
         run: |
@@ -509,7 +512,7 @@ jobs:
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
             BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk,${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk,${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
-          assert_server_status 0 4 ""
+          assert_server_status 0 4 5
           # Confirm subscribe works against the freshly re-populated store over the raw gRPC endpoint.
           assert_subscribe 0 4
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=SUBSCRIBE BN_E2E_START_BLOCK=0 BN_E2E_EXPECT_COUNT=5 \
