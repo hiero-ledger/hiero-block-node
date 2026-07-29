@@ -197,12 +197,9 @@ jobs:
           if [[ -n "${{ inputs.base-version }}" ]]; then
             BASE="${{ inputs.base-version }}"
           else
-            # Prefer the latest stable GA tag, whether its GitHub Release is published or still
-            # draft. A draft GA means the release-automation tag push already fired
-            # release-push-image.yaml, so the GHCR image exists even before the release manager
-            # clicks "Publish". Without this, --exclude-drafts returns the last published RC when
-            # the GA draft hasn't been published yet, causing a plugin-name mismatch: the RC image
-            # ships the old plugin name while the workflow profile expects the renamed GA plugin.
+            # Prefer GA (draft or published) over RC: the tag push triggers image publication
+            # before the release manager clicks "Publish", so the GHCR image exists regardless
+            # of draft status. Using --exclude-drafts would return the last RC instead.
             STABLE=$(gh release list --repo hiero-ledger/hiero-block-node --limit 20 \
               --json tagName,isDraft \
               --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] |
@@ -403,16 +400,14 @@ jobs:
       - name: Wait for BN ready + port-forward (post-upgrade)
         run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
-      # Confirm the upgraded pod seeded only the snapshot's plugins (no stale base-version verification jar),
+      # Confirm the upgraded pod seeded only the snapshot's plugins (no stale base-version jars),
       # reads /application-state, and loaded the base-persisted tss-parameters.bin so new TSS blocks verify.
       - name: Inspect plugins + TSS state after upgrade
         run: |
           POD="${RELEASE}-block-node-server-0"
-          echo "::group::Seeded plugins on the upgraded pod (expect exactly one verification-*.jar)"
-          # Anchor '^verification-': don't count the separate block-verification plugin — just the one
-          # 'verification' jar.
+          echo "::group::Seeded plugins on the upgraded pod"
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
-            sh -c 'ls -1 /opt/hiero/block-node/app-*/plugins | grep -E "^verification-.*\.jar$" || true'
+            sh -c 'ls -1 /opt/hiero/block-node/app-*/plugins | grep -E "^block-verification-.*\.jar$" || true'
           echo "::endgroup::"
           echo "::group::State mount + TSS path/load on the upgraded 0.37 pod"
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
@@ -455,11 +450,8 @@ jobs:
             --load-balancer-enabled=false \
             --config=tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml
 
-      # WORKAROUND (v0.21.0 reset doesn't purge storage on the local profile): wipe block data and restart
-      # the pod so it rescans empty storage and serverStatus reports uint64 -1. tss-parameters.bin is left in
-      # place so the re-push of 0-4 verifies without re-bootstrapping TSS. Remove once we can move to a
-      # provisioner version whose reset clears storage AND installs without the tc-egress systemd step
-      # (hashgraph/solo-weaver#915).
+      # WORKAROUND: v0.21.0 reset doesn't purge storage on the local profile (hashgraph/solo-weaver#915).
+      # Wipe block data and restart the pod; tss-parameters.bin is intentionally retained.
       - name: Manually clear BN block stores (workaround — reset does not purge on local profile)
         run: |
           POD="${RELEASE}-block-node-server-0"

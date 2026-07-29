@@ -26,7 +26,6 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.stream.publisher")
     runtimeOnly("org.hiero.block.node.stream.subscriber")
     runtimeOnly("org.hiero.block.node.tss.boostrap")
-    runtimeOnly("org.hiero.block.node.verification")
     runtimeOnly("org.hiero.block.protobuf.pbj")
     runtimeOnly("io.helidon.common.media.type")
     runtimeOnly("io.helidon.common.tls")
