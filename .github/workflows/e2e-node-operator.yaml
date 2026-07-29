@@ -32,11 +32,9 @@ on:
           - all
         required: false
       solo-provisioner-version:
-        description: "solo-provisioner (solo-weaver) release tag to install (e.g. v0.21.0). Bump as needed."
+        description: "solo-provisioner (solo-weaver) release tag to install (e.g. v0.26.0). Bump as needed."
         required: false
-        # Pinned to v0.21.0: v0.22.0+ install unconditionally installs a tc-egress systemd service that
-        # fails on the systemd-less CI runner (hashgraph/solo-weaver#915). Re-bump once an opt-out lands.
-        default: "v0.21.0"
+        default: "v0.26.0"
   schedule:
     # Nightly Mon-Fri 04:00 UTC (offset from the solo-e2e scheduler at 06:00).
     - cron: "0 4 * * 1-5"
@@ -83,7 +81,7 @@ jobs:
       CHART_REGISTRY: localhost:5001
       # Pinned solo-provisioner (solo-weaver) release for reproducible runs. workflow_dispatch can override
       # via the solo-provisioner-version input; schedule/pull_request fall back to this default.
-      SOLO_PROVISIONER_VERSION: ${{ inputs.solo-provisioner-version || 'v0.21.0' }}
+      SOLO_PROVISIONER_VERSION: ${{ inputs.solo-provisioner-version || 'v0.26.0' }}
     steps:
       # ── PHASE 0: Setup ─────────────────────────────────────────────────────
       - name: Harden Runner
@@ -440,9 +438,7 @@ jobs:
       - name: Reset via solo-provisioner
         run: |
           # --namespace/--release-name: solo-provisioner's state ReleaseInfo is empty, so it can't resolve
-          # the deployed release without them. On v0.21.0 reset does NOT clear storage on the local profile
-          # (block files survive on the retained PVCs), so the manual-clear step below brings the node to the
-          # empty state reset is meant to produce.
+          # the deployed release without them.
           # --load-balancer-enabled=false: the local profile otherwise defaults it true, which hangs
           # helm --wait in kind (no external IP).
           sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node reset \
@@ -450,21 +446,10 @@ jobs:
             --load-balancer-enabled=false \
             --config=tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml
 
-      # WORKAROUND: v0.21.0 reset doesn't purge storage on the local profile (hashgraph/solo-weaver#915).
-      # Wipe block data and restart the pod; tss-parameters.bin is intentionally retained.
-      - name: Manually clear BN block stores (workaround — reset does not purge on local profile)
-        run: |
-          POD="${RELEASE}-block-node-server-0"
-          kubectl wait pod -n "${NAMESPACE}" "${POD}" --for=condition=Ready --timeout=120s
-          kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
-            sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/* 2>/dev/null || true; \
-                   echo "block files remaining: $(find /opt/hiero/block-node/data/live /opt/hiero/block-node/data/historic -type f 2>/dev/null | wc -l)"'
-          kubectl delete pod -n "${NAMESPACE}" "${POD}" --wait=true
-
       - name: Wait for BN ready + port-forward (post-reset)
         run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
-      # Diagnostic only (never fails the job): confirm the node is empty after the manual clear — no block
+      # Diagnostic only (never fails the job): confirm the node is empty after reset — no block
       # files and serverStatus uint64 -1. tss-parameters.bin is intentionally retained.
       - name: Inspect storage after reset
         run: |
