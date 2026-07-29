@@ -22,8 +22,7 @@
 # Reads:
 #   NAMESPACE         (default "solo-network")
 #   CLUSTER_REFERENCE (default "kind-solo-cluster")
-#   MN_VERSION        (used for the importer image tag; falls back to mirror-1's
-#                     live image if unset)
+#   MN_VERSION        (used for the importer image tag; default "latest")
 #   BN_HOST_2         (default block-node-2.${NAMESPACE}.svc.cluster.local)
 #   BN_HOST_3         (default block-node-3.${NAMESPACE}.svc.cluster.local)
 #   BN2_GRPC_PORT     (default 40841 — matches add-bn.sh's convention:
@@ -51,7 +50,7 @@ fail() { echo "[wrb-dist-add-mn2] ERROR: $*" >&2; exit 1; }
 #    ghcr.io/hiero-ledger/hiero-mirror-node/importer image is GraalVM-native
 #    and can't reflect into List<BlockNodeProperties> for BN-source binding —
 #    see the same override in network-topology-tool/generate-chart-values-config-overlays.sh.
-mn_tag="${MN_VERSION:-v0.157.1}"
+mn_tag="${MN_VERSION:-latest}"
 mn_tag="${mn_tag#v}"
 importer_image="gcr.io/mirrornode/hedera-mirror-importer:${mn_tag}"
 log "  Using JVM importer image: ${importer_image}"
