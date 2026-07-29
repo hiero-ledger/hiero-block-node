@@ -684,11 +684,17 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
             final Bytes json = BlockRangesState.JSON.toBytes(toBlockRangesState());
             Files.write(tmp, json.toByteArray());
-            Files.deleteIfExists(filePath);
-            Files.createLink(filePath, tmp);
-            Files.deleteIfExists(tmp);
+            try {
+                Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                LOGGER.log(
+                        INFO,
+                        "Atomic move not supported on this filesystem for {0}; falling back to non-atomic replace",
+                        filePath);
+                Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to persist block ranges to %s".formatted(filePath), e);
+            LOGGER.log(WARNING, "Failed to persist block ranges to {0}: {1}", filePath, e.getMessage());
         }
     }
 
