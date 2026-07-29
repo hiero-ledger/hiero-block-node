@@ -141,8 +141,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Timeout(120)
     @DisplayName("Autonomous backfill should fill the gaps")
     public void testAutonomousBackfill() throws IOException, InterruptedException {
-        launchBlockNodes(
-                List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json", new HashMap<>())));
+        launchBlockNodes(List.of(new BlockNodeContainerConfig(
+                8082, 9989, "/resources/block-nodes.json", Map.of("BACKFILL_SCAN_INTERVAL", "2000"))));
         final Map<String, String> firstSimulatorConfiguration = Map.of(
                 "blockStream.streamingMode",
                 "MILLIS_PER_BLOCK",

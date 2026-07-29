@@ -43,6 +43,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
@@ -76,6 +77,13 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
+
+// @todo(3321) This class uses runtime exceptions (such as
+//     illegal state exception) as flow control in many methods. We need to
+//     rework the logic flow to remove all of those cases and move exception
+//     handling up to where it can be resolved rather than just logging
+//     warnings and continuing as though nothing failed or using the exception
+//     to choose logic branches or replace return values.
 
 /// Main class for the block node server
 public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
@@ -338,34 +346,30 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// {@inheritDoc}
     @Override
     public void shutdown(String className, String reason) {
-        state.set(State.SHUTTING_DOWN);
-        LOGGER.log(INFO, "Shutting down, reason={0} class={1}", reason, className);
-        // stop the application state facility
-        stopApplicationStateFacility();
+        try {
+            state.set(State.SHUTTING_DOWN);
+            LOGGER.log(INFO, "Shutting down, reason={0} class={1}", reason, className);
+            // stop the application state facility
+            stopApplicationStateFacility();
 
-        // wait for the shutdown delay
-        try {
-            Thread.sleep(serverConfig.shutdownDelayMillis());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOGGER.log(INFO, "Shutdown interrupted");
-        }
-        serviceBuilder.stopAll();
-        // Stop all the facilities &  plugins
-        for (BlockNodePlugin plugin : loadedPlugins) {
-            LOGGER.log(INFO, "    {0}", plugin.name());
-            plugin.stop();
-        }
-        // Stop metrics
-        try {
+            // wait for the shutdown delay
+            LockSupport.parkNanos(serverConfig.shutdownDelayMillis() * 1_000_000L);
+            serviceBuilder.stopAll();
+            // Stop all the facilities &  plugins
+            for (BlockNodePlugin plugin : loadedPlugins) {
+                LOGGER.log(INFO, "\t{0}", plugin.name());
+                plugin.stop();
+            }
+            // Stop metrics
             blockNodeContext.metricRegistry().close();
             LOGGER.log(DEBUG, "Metric registry successfully closed.");
+            // finally exit
+            LOGGER.log(INFO, "System Exiting");
+            if (shouldExitJvmOnShutdown) System.exit(0);
         } catch (IOException e) {
-            LOGGER.log(DEBUG, "Could not properly close metric registry.", e);
+            LOGGER.log(INFO, "Could not properly shut down due to IO failure.", e);
+            if (shouldExitJvmOnShutdown) System.exit(0);
         }
-        // finally exit
-        LOGGER.log(INFO, "System Exiting");
-        if (shouldExitJvmOnShutdown) System.exit(0);
     }
 
     /// Main entrypoint for the block node server
@@ -710,6 +714,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// Loads all ApplicationState from file paths specified in the ApplicationStateConfig class.
     /// Must be called after the BlockNodeContext is created and all plugins have been init'd.
     ///
+    /// Note: This method currently uses _exceptions_ for flow control, with try/catch
+    /// almost every sub block of code and calling methods that throw instead
+    /// of returning errors. This needs to be fixed.
+    ///
     /// @param configuration the current configuration
     private void loadApplicationState(final Configuration configuration) {
         // Load TssData (JSON format) — queued for processing on the next scanner tick.
@@ -719,6 +727,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 TssData tssData = standardParse(TssData.JSON, Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
                 updateTssData(tssData);
             } catch (ParseException | IOException e) {
+                // @todo(3321) this is using an exception to decide to log, but
+                //      doesn't resolve the problem, so the code still fails
+                //      later in the same method. This catch should be method level,
+                //      or should be in the singular caller.
                 LOGGER.log(WARNING, "Failed to read TssData file: " + tssDataJsonPath, e);
             }
         } else {
@@ -727,6 +739,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             try {
                 Files.createDirectories(parent);
             } catch (IOException e) {
+                // @todo(3321) this is using an exception to decide to log, but
+                //      doesn't resolve the problem, so the code still fails
+                //      later in the same method. This catch should be method level,
+                //      or should be in the singular caller.
                 LOGGER.log(WARNING, "Failed to create TssData directory: " + parent, e);
             }
         }
@@ -744,21 +760,28 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                     // Try the old bootstrap file format, standard parse swallows it and returns an empty history
                     final NodeAddressBook book =
                             standardParse(NodeAddressBook.JSON, Bytes.wrap(Files.readAllBytes(historyFilePath)));
-                    validateAddressBook(book, historyFilePath.toString());
-                    final RangedAddressBookHistory wrapped = RangedAddressBookHistory.newBuilder()
-                            .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
-                                    .addressBook(book)
-                                    .startBlock(0L)
-                                    .endBlock(-1L)
-                                    .build()))
-                            .build();
-                    pendingAddressBookHistory.set(wrapped);
+                    if (validateAddressBook(book, historyFilePath.toString())) {
+                        final RangedAddressBookHistory wrapped = RangedAddressBookHistory.newBuilder()
+                                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                                        .addressBook(book)
+                                        .startBlock(0L)
+                                        .endBlock(-1L)
+                                        .build()))
+                                .build();
+                        pendingAddressBookHistory.set(wrapped);
+                    } else {
+                        // @todo(3321) This is bad design. This entire method uses
+                        //     exceptions as flow control, and we need to fix that.
+                        throw new IllegalStateException("Address book is not valid");
+                    }
                 } else {
                     pendingAddressBookHistory.set(history);
                 }
             } catch (IOException e) {
                 throw new IllegalStateException("Failed to read RSA address book history file: " + historyFilePath, e);
             } catch (ParseException e) {
+                // @todo(3321) This is bad design. This entire method uses
+                //     exceptions as flow control, and we need to fix that.
                 final String message =
                         "Corrupt RSA bootstrap file at %s — delete and restart to re-fetch from Mirror Node"
                                 .formatted(historyFilePath);
@@ -770,6 +793,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             try {
                 Files.createDirectories(parent);
             } catch (IOException e) {
+                // @todo(3321) this is using an exception to decide to log, but
+                //      doesn't resolve the problem, so the code still fails
+                //      later in the same method. This catch should be method level,
+                //      or should be in the singular caller.
                 LOGGER.log(WARNING, "Failed to create RSA address book history directory: " + parent, e);
             }
         }
@@ -783,6 +810,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
                 LOGGER.log(INFO, "Loaded block ranges from file: {0}", blockRangesPath);
             } catch (ParseException | IOException | IllegalArgumentException e) {
+                // @todo(3321) this is using an exception to decide to log, but
+                //      doesn't resolve the problem, so the code still fails
+                //      later in the same method. This catch should be method level,
+                //      or should be in the singular caller.
                 LOGGER.log(WARNING, "Failed to read block ranges file: " + blockRangesPath, e);
             }
         } else {
@@ -790,6 +821,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             try {
                 Files.createDirectories(parent);
             } catch (IOException e) {
+                // @todo(3321) this is using an exception to decide to log, but
+                //      doesn't resolve the problem, so the code still fails
+                //      later in the same method. This catch should be method level,
+                //      or should be in the singular caller.
                 LOGGER.log(WARNING, "Failed to create block ranges directory: " + parent, e);
             }
         }

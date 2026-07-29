@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
@@ -18,10 +16,10 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.stream.Stream;
@@ -117,78 +115,99 @@ class ApplicationStateUtilityTest {
                     .activeEndpoints()
                     .isEmpty());
         }
+
+        @Test
+        @DisplayName("A path that is a directory, not a regular file, yields an empty NetworkData")
+        void directoryPathReturnsEmpty(@TempDir final Path dir) {
+            // The temp dir itself exists but is not a regular file — the isRegularFile guard must reject it.
+            assertTrue(ApplicationStateUtility.loadNetworkData(dir)
+                    .activeEndpoints()
+                    .isEmpty());
+        }
     }
 
     @Nested
     @DisplayName("validateAddressBook")
     class ValidateAddressBook {
-        @Test
-        @DisplayName("rejects empty book and all-blank RSA keys")
-        void rejectsInvalidBooks() {
-            assertThrows(
-                    IllegalStateException.class,
-                    () -> ApplicationStateUtility.validateAddressBook(
-                            NodeAddressBook.newBuilder().build(), "test-empty"),
-                    "Empty address book must throw");
+        /// A real, DER-encoded RSA public key, hex-encoded — the only form
+        /// [ApplicationStateUtility#validateAddressBook] counts as usable. Generated once and reused.
+        private static final String VALID_RSA_HEX = generateValidRsaHex();
 
-            final NodeAddressBook allBlank = NodeAddressBook.newBuilder()
-                    .nodeAddress(
-                            NodeAddress.newBuilder().nodeId(0).rsaPubKey("").build())
-                    .build();
-            assertThrows(
-                    IllegalStateException.class,
-                    () -> ApplicationStateUtility.validateAddressBook(allBlank, "test-all-blank"),
-                    "Book with only blank RSA keys must throw");
+        private static String generateValidRsaHex() {
+            try {
+                final KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+                generator.initialize(2048);
+                return HexFormat.of()
+                        .formatHex(generator.generateKeyPair().getPublic().getEncoded());
+            } catch (final NoSuchAlgorithmException cause) {
+                throw new IllegalStateException("RSA must be available to build test fixtures", cause);
+            }
         }
 
-        @Test
-        @DisplayName("accepts book with at least one non-blank RSA key")
-        void acceptsValidBook() throws NoSuchAlgorithmException {
-            final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-            kpg.initialize(2048);
-            final KeyPair kp = kpg.generateKeyPair();
-            final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
-            final NodeAddressBook valid = NodeAddressBook.newBuilder()
-                    .nodeAddress(
-                            NodeAddress.newBuilder().nodeId(0).rsaPubKey(hexKey).build())
+        /// A node address with the given id and RSA public-key hex. `rsaPubKeyHex` is passed straight to
+        /// the builder — including `null` — so the null-`rsaPubKey` guard can be exercised at the input.
+        private static NodeAddress address(final long nodeId, final String rsaPubKeyHex) {
+            return NodeAddress.newBuilder()
+                    .nodeId(nodeId)
+                    .rsaPubKey(rsaPubKeyHex)
                     .build();
-            assertDoesNotThrow(() -> ApplicationStateUtility.validateAddressBook(valid, "test-valid"));
         }
 
-        @Test
-        @DisplayName("rejects book where every non-blank RSA key is syntactically malformed")
-        void rejectsAllMalformedRsaKeys() {
-            final NodeAddressBook malformed = NodeAddressBook.newBuilder()
-                    .nodeAddress(NodeAddress.newBuilder()
-                            .nodeId(0)
-                            .rsaPubKey("not-valid-hex!")
-                            .build())
-                    .build();
-            assertThrows(
-                    IllegalStateException.class,
-                    () -> ApplicationStateUtility.validateAddressBook(malformed, "test-malformed"),
-                    "Book with only malformed RSA keys must throw");
+        /// A book from the varargs builder overload; that overload rejects a `null` *entry*.
+        private static NodeAddressBook bookOf(final NodeAddress... addresses) {
+            return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
         }
 
-        @Test
-        @DisplayName("accepts book where at least one RSA key is valid even if others are malformed")
-        void acceptsBookWithMixedValidAndMalformedKeys() throws NoSuchAlgorithmException {
-            final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-            kpg.initialize(2048);
-            final String goodKey =
-                    HexFormat.of().formatHex(kpg.generateKeyPair().getPublic().getEncoded());
-            final NodeAddressBook mixed = NodeAddressBook.newBuilder()
-                    .nodeAddress(
-                            NodeAddress.newBuilder()
-                                    .nodeId(0)
-                                    .rsaPubKey("not-valid-hex!")
+        /// A book from the `List` builder overload, which (unlike the varargs overload) preserves a
+        /// `null` *entry*, so the null-entry guard can be exercised at the input.
+        private static NodeAddressBook bookOfEntries(final NodeAddress... addresses) {
+            return NodeAddressBook.newBuilder()
+                    .nodeAddress(Arrays.asList(addresses))
+                    .build();
+        }
+
+        /// Cases spanning the full boolean contract. The null-safety cases are kept even where the
+        /// current PBJ builders coerce the null away: the asserted result holds regardless, and the
+        /// case still pins the intended behavior of the null guards should PBJ stop coercing.
+        static Stream<Arguments> validationCases() {
+            return Stream.of(
+                    arguments("single valid key", bookOf(address(1, VALID_RSA_HEX)), true),
+                    arguments(
+                            "valid key alongside a malformed key",
+                            bookOf(address(1, "not-valid-hex!"), address(2, VALID_RSA_HEX)),
+                            true),
+                    arguments(
+                            "empty book with no entries",
+                            NodeAddressBook.newBuilder().build(),
+                            false),
+                    arguments("only a blank RSA key", bookOf(address(1, "")), false),
+                    arguments("only a malformed RSA key", bookOf(address(1, "not-valid-hex!")), false),
+                    // --- null-safety branches: keep all; expected result is invariant to PBJ null coercion ---
+                    arguments("null book", null, false),
+                    arguments(
+                            "null node-address list",
+                            NodeAddressBook.newBuilder()
+                                    .nodeAddress((List<NodeAddress>) null)
                                     .build(),
-                            NodeAddress.newBuilder()
-                                    .nodeId(1)
-                                    .rsaPubKey(goodKey)
-                                    .build())
-                    .build();
-            assertDoesNotThrow(() -> ApplicationStateUtility.validateAddressBook(mixed, "test-mixed"));
+                            false),
+                    arguments(
+                            "valid key alongside a null list entry",
+                            bookOfEntries(address(1, VALID_RSA_HEX), null),
+                            true),
+                    arguments("only a null list entry", bookOfEntries((NodeAddress) null), false),
+                    arguments(
+                            "valid key alongside a null rsa_pubkey entry",
+                            bookOf(address(1, VALID_RSA_HEX), address(2, null)),
+                            true),
+                    arguments("only a null rsa_pubkey entry", bookOf(address(1, null)), false));
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @DisplayName("returns true iff at least one entry has a usable RSA public key")
+        @MethodSource("validationCases")
+        void validatesAddressBook(final String description, final NodeAddressBook book, final boolean expected) {
+            assertEquals(
+                    expected, ApplicationStateUtility.validateAddressBook(book, "test-" + description), description);
         }
     }
 

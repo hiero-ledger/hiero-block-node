@@ -18,7 +18,7 @@ import org.hiero.block.node.base.Loggable;
  * @param startBlock The first block that this BN deploy wants to have available
  * @param endBlock For some historical-purpose–specific BNs, there could be a maximum number of blocks, -1 means no limit.
  * @param blockNodeSourcesPath File path for a yaml configuration for the BN sources.
- * @param scanInterval Interval in minutes to scan for missing gaps (skips if the previous task is running)
+ * @param scanInterval Interval in milliseconds to scan for missing gaps (skips if the previous task is running)
  * @param maxRetries Maximum number of retries to fetch a missing block (with exponential back-off)
  * @param initialRetryDelay Initial cooldown time between retries in milliseconds, will be multiplied by number of retry on each attempt
  * @param fetchBatchSize Number of blocks to fetch in a single gRPC call
