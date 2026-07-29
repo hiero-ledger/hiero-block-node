@@ -3,6 +3,7 @@ package org.hiero.block.node.app;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -123,7 +124,8 @@ class BlockNodeAppTest {
                 "build/tmp/data/block/node/tss-bootstrap-roster.json",
                 "build/resources/test/data/config/rsa-bootstrap-roster.json",
                 "build/tmp/data/block/node/rsa-address-book-history.json",
-                "build/tmp/data/block/node/block-ranges.json")) {
+                "build/tmp/data/block/node/block-ranges.json",
+                "build/tmp/data/block/node/block-ranges.json.tmp")) {
             try {
                 Files.deleteIfExists(Path.of(file));
             } catch (Exception e) {
@@ -972,6 +974,9 @@ class BlockNodeAppTest {
 
     /**
      * Block ranges persisted on stop are reloaded by a fresh BlockNodeApp.
+     * Also asserts that the atomic write leaves no .tmp file behind (regression guard for
+     * Files.createLink which threw UnsupportedOperationException on overlay filesystems and left
+     * the .tmp orphaned without writing block-ranges.json).
      */
     @Test
     @DisplayName("block ranges are persisted and reloaded on next startup")
@@ -984,6 +989,15 @@ class BlockNodeAppTest {
         app.addStoredBlockRange(new LongRange(1000, 1049));
         app.addStoredBlockRange(new LongRange(1050, 1099));
         app.stopApplicationStateFacility();
+
+        final Path rangesFile = app.blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .blockRangesFilePath();
+        assertTrue(Files.exists(rangesFile), "block-ranges.json must exist after stop");
+        assertFalse(
+                Files.exists(rangesFile.resolveSibling(rangesFile.getFileName() + ".tmp")),
+                "no block-ranges.json.tmp should be left behind after a successful persist");
 
         final BlockNodeApp app2 = new BlockNodeApp(serviceLoaderFunction, false);
         app2.startApplicationStateFacility();
