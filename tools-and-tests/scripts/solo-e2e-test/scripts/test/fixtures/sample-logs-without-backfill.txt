@@ -1,0 +1,4 @@
+2026-05-11T20:01:00Z INFO  org.hiero.block.node.NetworkApp - Block Node started successfully
+2026-05-11T20:01:05Z INFO  org.hiero.block.node.publisher.PublisherHandler - New publisher connection from network-node1
+2026-05-11T20:01:10Z INFO  org.hiero.block.node.publisher.PublisherHandler - Block 412 received
+2026-05-11T20:01:11Z INFO  org.hiero.block.node.publisher.PublisherHandler - Block 413 received

@@ -1,0 +1,107 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# CN ↔ CN Latency Test
+#
+# Injects 100 ms ± 20 ms bidirectional latency between all Consensus Nodes
+# while NLG load is running. Verifies that consensus rounds still produce
+# blocks, that all Block Nodes continue receiving them, and (with TSS on, the
+# default) that block signatures transition Schnorr -> WRAPS under latency.
+#
+# Selectors:
+#   source: solo.hedera.com/type=network-node
+#   target: solo.hedera.com/type=network-node
+#
+# Pre-req:
+#   task up TOPOLOGY=paired-3            # TSS is on by default (now supported)
+#   CHAOS_ENABLED=true task chaos:install
+#
+# Note: TSS is on by default. CN_VERSION=latest is min-enforced to a TSS-capable
+# tag that clears the --wraps floor; set TSS_ENABLED=false only if pinning an older CN.
+#
+# Usage:
+#   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-cn-to-cn.yaml
+
+name: latency-cn-to-cn
+description: "100ms ± 20ms bidirectional latency between Consensus Nodes during load"
+
+events:
+  - id: load-start
+    type: load-start
+    description: "Start NLG load"
+    delay: 0
+    args:
+      concurrency: 5
+      accounts: 10
+      duration: 420
+
+  - id: inject
+    type: inject-latency
+    description: "Inject CN↔CN 100ms latency"
+    delay: 30
+    args:
+      name: cn-to-cn-100ms
+      source: { kind: network-node }
+      target: { kind: network-node }
+      latency: 100ms
+      jitter: 20ms
+      correlation: '0'
+      bidirectional: true
+
+  - id: clear
+    type: clear-latency
+    description: "Clear CN↔CN latency"
+    delay: 330
+    args:
+      name: cn-to-cn-100ms
+
+  - id: load-stop
+    type: load-stop
+    description: "Stop NLG load"
+    delay: 360
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All BNs healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All BNs have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: blocks-increasing
+    type: blocks-increasing
+    description: "Blocks still increasing across CN↔CN chaos window"
+    target: all
+    args:
+      wait_seconds: 30
+      max_attempts: 3
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Post-chaos block rate ≥ 0.3 blk/s (consensus recovered)"
+    target: all
+    args:
+      min_rate_per_sec: 0.3
+      window_seconds: 30
+
+  - id: no-stream-errors
+    type: metric-threshold
+    description: "No stream errors observed across run"
+    target: all
+    args:
+      metric: blocknode_publisher_stream_errors_total
+      comparator: "=="
+      value: 0
+
+  # Proves TSS is active end-to-end under latency: block signatures transition
+  # Schnorr -> WRAPS (proof size 2920 -> 3432). Auto-skips when TSS is disabled.
+  - id: tss-signature-transition
+    type: signature-transition
+    description: "TSS signatures transition Schnorr -> WRAPS during the run"
+    target: block-node-1
+    args:
+      max_block: 1000
