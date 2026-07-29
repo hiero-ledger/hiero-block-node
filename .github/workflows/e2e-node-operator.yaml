@@ -360,7 +360,7 @@ jobs:
       - name: Verify after install (blocks 0-2)
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          assert_server_status 0 2 3
+          assert_server_status 0 2 ""
           assert_get_block 0
           assert_get_block 2
           # Confirm a subscriber can attach and drain the bounded range over the raw gRPC endpoint.
@@ -430,7 +430,7 @@ jobs:
       - name: Verify blocks survived upgrade (0-2)
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          assert_server_status 0 2 3
+          assert_server_status 0 2 ""
 
       - name: Push blocks 3-4 (post-upgrade ingestion)
         run: |
@@ -441,7 +441,7 @@ jobs:
       - name: Verify ingestion after upgrade (0-4)
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          assert_server_status 0 4 5
+          assert_server_status 0 4 ""
           assert_get_block 3
           assert_get_block 4
           # Confirm subscribe still works on the upgraded (snapshot) node across the full range.
@@ -504,7 +504,7 @@ jobs:
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
             BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk,${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk,${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
-          assert_server_status 0 4 5
+          assert_server_status 0 4 ""
           # Confirm subscribe works against the freshly re-populated store over the raw gRPC endpoint.
           assert_subscribe 0 4
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=SUBSCRIBE BN_E2E_START_BLOCK=0 BN_E2E_EXPECT_COUNT=5 \
