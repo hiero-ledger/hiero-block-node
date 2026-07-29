@@ -85,6 +85,12 @@ public abstract class BaseSuite {
     /** Must match {@code ApplicationStateConfig}'s default application-state directory. */
     private static final String APPLICATION_STATE_CONTAINER_PATH = "/opt/hiero/block-node/application-state";
 
+    /** Must match {@code FilesRecentConfig}'s default {@code liveRootPath}. */
+    private static final String LIVE_DATA_CONTAINER_PATH = "/opt/hiero/block-node/data/live";
+
+    /** Must match {@code FilesHistoricConfig}'s default {@code rootPath}. */
+    private static final String ARCHIVE_DATA_CONTAINER_PATH = "/opt/hiero/block-node/data/historic";
+
     private static Network network;
 
     /**
@@ -283,7 +289,9 @@ public abstract class BaseSuite {
                 .withEnv("HEALTH_PORT", String.valueOf(blockNodeHealthPort))
                 .withEnv("JAVA_TOOL_OPTIONS", "-Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0")
                 .withFileSystemBind(getPluginsDir(), pluginsContainerPath)
-                .withFileSystemBind(createApplicationStateDir(), APPLICATION_STATE_CONTAINER_PATH)
+                .withFileSystemBind(createHostBindDir("bn-application-state"), APPLICATION_STATE_CONTAINER_PATH)
+                .withFileSystemBind(createHostBindDir("bn-live-data"), LIVE_DATA_CONTAINER_PATH)
+                .withFileSystemBind(createHostBindDir("bn-archive-data"), ARCHIVE_DATA_CONTAINER_PATH)
                 // Replacing docker-specific HEALTHCHECK command with runtime-agnostic equivalent:
                 // the image HEALTHCHECK is not honored by all container runtimes (Podman builds OCI
                 // images, which drop HEALTHCHECK), so wait on the health endpoint over HTTP instead.
@@ -320,7 +328,9 @@ public abstract class BaseSuite {
                         "JAVA_TOOL_OPTIONS",
                         "'-Djava.util.logging.config.file=/resources/logging.properties' -Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0")
                 .withFileSystemBind(getPluginsDir(), pluginsContainerPath)
-                .withFileSystemBind(createApplicationStateDir(), APPLICATION_STATE_CONTAINER_PATH)
+                .withFileSystemBind(createHostBindDir("bn-application-state"), APPLICATION_STATE_CONTAINER_PATH)
+                .withFileSystemBind(createHostBindDir("bn-live-data"), LIVE_DATA_CONTAINER_PATH)
+                .withFileSystemBind(createHostBindDir("bn-archive-data"), ARCHIVE_DATA_CONTAINER_PATH)
                 .withFileSystemBind(
                         Paths.get("src/main/resources/block-nodes.json")
                                 .toAbsolutePath()
@@ -407,19 +417,23 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Creates a fresh host directory to bind-mount as the container's application-state directory.
+     * Creates a fresh host directory to bind-mount into the container in place of one of its
+     * data directories (application-state, live, or historic/archive).
      *
-     * <p>Without an explicit bind mount, application-state is written inside the container's own
+     * <p>Without an explicit bind mount, these directories are written inside the container's own
      * copy-on-write layer. Under some container runtimes/storage drivers that layer does not support
-     * hard links, which {@code BlockNodeApp} relies on to persist block ranges; binding a real host
-     * directory avoids that restriction. The directory is made world-writable because the container
-     * runs as a non-root user whose UID may not match the host user creating this directory.
+     * hard links, which {@code BlockNodeApp}, {@code BlockFileBlockAccessor}, {@code ZipBlockAccessor},
+     * and {@code BlockFileHistoricPlugin} all rely on (to persist block ranges, and to link/promote
+     * live and historic block files); binding a real host directory avoids that restriction. The
+     * directory is made world-writable because the container runs as a non-root user whose UID may
+     * not match the host user creating this directory.
      *
+     * @param prefix a short, distinguishing prefix for the temp directory name (for debugging only)
      * @return the absolute path to a new, empty, world-writable host directory
      */
-    private static String createApplicationStateDir() {
+    private static String createHostBindDir(String prefix) {
         try {
-            Path dir = Files.createTempDirectory("bn-application-state");
+            Path dir = Files.createTempDirectory(prefix);
             Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwxrwxrwx"));
             return dir.toString();
         } catch (IOException e) {
