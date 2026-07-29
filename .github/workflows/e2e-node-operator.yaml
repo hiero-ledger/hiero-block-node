@@ -360,7 +360,7 @@ jobs:
       - name: Verify after install (blocks 0-2)
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          assert_range 0 2
+          assert_server_status 0 2 3
           assert_get_block 0
           assert_get_block 2
           # Confirm a subscriber can attach and drain the bounded range over the raw gRPC endpoint.
@@ -430,7 +430,7 @@ jobs:
       - name: Verify blocks survived upgrade (0-2)
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          assert_range 0 2
+          assert_server_status 0 2 3
 
       - name: Push blocks 3-4 (post-upgrade ingestion)
         run: |
@@ -441,13 +441,23 @@ jobs:
       - name: Verify ingestion after upgrade (0-4)
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          assert_range 0 4
+          assert_server_status 0 4 5
           assert_get_block 3
           assert_get_block 4
           # Confirm subscribe still works on the upgraded (snapshot) node across the full range.
           assert_subscribe 0 4
 
       # ── PHASE 5: Reset -> re-push full set 0-4 ─────────────────────────────
+      # Clear block-ranges.json from the application-state PVC before reset so the BN restarts
+      # without stale range data. solo-provisioner purges block storage but retains the PVC;
+      # block-ranges.json would otherwise survive and make firstAvailableBlock/lastAvailableBlock
+      # non-zero even though no blocks exist, breaking the post-reset empty-state check.
+      - name: Clear block-ranges.json before reset
+        run: |
+          POD="${RELEASE}-block-node-server-0"
+          kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
+            sh -c 'rm -f /opt/hiero/block-node/application-state/block-ranges.json && echo "block-ranges.json cleared"' || true
+
       - name: Reset via solo-provisioner
         run: |
           # --namespace/--release-name: solo-provisioner's state ReleaseInfo is empty, so it can't resolve
@@ -486,8 +496,9 @@ jobs:
       - name: Assert empty state after reset
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          # A fresh BN reports uint64 -1 (18446744073709551615) for both range fields.
-          assert_range 18446744073709551615 18446744073709551615
+          # A fresh BN with no publisher reports nextExpectedBlock = uint64-max (18446744073709551615).
+          # firstAvailableBlock/lastAvailableBlock are unreliable for empty-state detection since 0.39+.
+          assert_server_status "" "" 18446744073709551615
 
       - name: Re-push full set 0-4 and verify
         run: |
@@ -495,7 +506,7 @@ jobs:
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
             BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk,${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk,${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
-          assert_range 0 4
+          assert_server_status 0 4 5
           # Confirm subscribe works against the freshly re-populated store over the raw gRPC endpoint.
           assert_subscribe 0 4
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=SUBSCRIBE BN_E2E_START_BLOCK=0 BN_E2E_EXPECT_COUNT=5 \

@@ -1,9 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # grpcurl-based assertion helpers for the E2E node-operator workflow. Source this file, then call:
-#   assert_range <expectedFirst> <expectedLast>   — assert serverStatus first/lastAvailableBlock
-#   assert_get_block <blockNumber>                — assert getBlock(n) returns that block
-#   assert_subscribe <first> <last>               — subscribe the bounded range, assert it streams then ends OK
+#   assert_server_status [first] [last] [nextExpected]  — assert serverStatus fields; "" skips that field
+#   assert_get_block <blockNumber>                       — assert getBlock(n) returns that block
+#   assert_subscribe <first> <last>                     — subscribe the bounded range, assert it streams then ends OK
+#
+# assert_server_status checks firstAvailableBlock, lastAvailableBlock, and nextExpectedBlock.
+# Pass "" for any argument to skip that field's check. Examples:
+#   assert_server_status 0 2 3                          — blocks 0-2 stored, next expected = 3
+#   assert_server_status "" "" 18446744073709551615     — empty state (no publisher, uint64-max)
 #
 # Reads env: SERVER_PORT (default 40840), PROTO_PATH (default protobuf-sources/proto).
 # Service names are org.hiero.block.api.* (NOT com.hedera.hapi.block.*).
@@ -11,21 +16,37 @@
 : "${SERVER_PORT:=40840}"
 : "${PROTO_PATH:=protobuf-sources/proto}"
 
-assert_range() {
-  local expected_first="$1" expected_last="$2"
-  local status first last
+assert_server_status() {
+  local expected_first="$1" expected_last="$2" expected_next="$3"
+  local status first last next failed=0
   status=$(grpcurl -plaintext -emit-defaults \
     -import-path "${PROTO_PATH}" -proto block-node/api/node_service.proto \
     -d '{}' "localhost:${SERVER_PORT}" \
     org.hiero.block.api.BlockNodeService/serverStatus)
   echo "${status}"
-  first=$(echo "${status}" | jq -r '.firstAvailableBlock')
-  last=$(echo "${status}" | jq -r '.lastAvailableBlock')
-  if [[ "${first}" != "${expected_first}" || "${last}" != "${expected_last}" ]]; then
-    echo "::error::serverStatus range ${first}..${last} != expected ${expected_first}..${expected_last}"
-    return 1
+  if [[ -n "${expected_first}" ]]; then
+    first=$(echo "${status}" | jq -r '.firstAvailableBlock')
+    if [[ "${first}" != "${expected_first}" ]]; then
+      echo "::error::serverStatus firstAvailableBlock '${first}' != expected '${expected_first}'"
+      failed=1
+    fi
   fi
-  echo "OK: serverStatus range == ${expected_first}..${expected_last}"
+  if [[ -n "${expected_last}" ]]; then
+    last=$(echo "${status}" | jq -r '.lastAvailableBlock')
+    if [[ "${last}" != "${expected_last}" ]]; then
+      echo "::error::serverStatus lastAvailableBlock '${last}' != expected '${expected_last}'"
+      failed=1
+    fi
+  fi
+  if [[ -n "${expected_next}" ]]; then
+    next=$(echo "${status}" | jq -r '.nextExpectedBlock')
+    if [[ "${next}" != "${expected_next}" ]]; then
+      echo "::error::serverStatus nextExpectedBlock '${next}' != expected '${expected_next}'"
+      failed=1
+    fi
+  fi
+  [[ "${failed}" == 0 ]] || return 1
+  echo "OK: serverStatus first=${expected_first:-<skip>} last=${expected_last:-<skip>} next=${expected_next:-<skip>}"
 }
 
 assert_get_block() {
