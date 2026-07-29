@@ -496,9 +496,7 @@ jobs:
       - name: Assert empty state after reset
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          # A fresh BN with no publisher reports nextExpectedBlock = uint64-max (18446744073709551615).
-          # firstAvailableBlock/lastAvailableBlock are unreliable for empty-state detection since 0.39+.
-          assert_server_status "" "" 18446744073709551615
+          assert_server_status 18446744073709551615 18446744073709551615 18446744073709551615
 
       - name: Re-push full set 0-4 and verify
         run: |
