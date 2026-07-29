@@ -338,12 +338,9 @@ jobs:
         run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
       # ── PHASE 2: Push bootstrap blocks 0-2 ─────────────────────────────────
-      # Block 0 is pushed separately first: its SIGNED_TRANSACTION items contain the
-      # LedgerIdPublicationTransactionBody from which the verification plugin extracts TSS data
-      # (ledger ID + Schnorr keys + WRAPS VK). The extraction is async inside the block hasher, so
-      # blocks 1-2 must not arrive until block 0's hasher has completed and set currentTssData — otherwise
-      # TSSVerifier.verify() sees null and fails with MISSING_VERIFICATION_DATA. The JVM restart between
-      # steps provides enough natural delay (>>390ms) for block 0's hasher to finish.
+      # Block 0 carries TSS data (ledger ID + Schnorr keys + WRAPS VK) that the verification plugin
+      # extracts asynchronously. Blocks 1-2 must not arrive until extraction completes and
+      # currentTssData is set; pushing block 0 in its own step (separate JVM invocation) ensures this.
       - name: Push block 0 (TSS bootstrap)
         run: |
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
@@ -448,14 +445,11 @@ jobs:
           assert_subscribe 0 4
 
       # ── PHASE 5: Reset -> re-push full set 0-4 ─────────────────────────────
-      # solo-provisioner's reset clears /tmp/bn/* on the runner host, but in kind those paths
-      # are inside the Docker node container — not on the runner — so block files survive in
-      # the live/archive hostPath PVCs. We must clear block storage from inside the cluster
-      # (via kubectl exec) before reset so the re-push of blocks 0-4 isn't rejected with
-      # SKIP_BLOCK. tss-bootstrap-roster.json must also be cleared: if it already exists when
-      # block 0 is re-pushed, roster-bootstrap-tss skips processing it and never fires the
-      # VerificationDataProvider.updateTssData() notification, causing block verification to
-      # hang indefinitely. Clearing it lets block 0 flow exactly like the initial install.
+      # solo-provisioner's reset clears /tmp/bn/* on the runner host — a no-op in kind because
+      # hostPath PVC data lives inside Docker node containers. Pre-clear block files and
+      # tss-bootstrap-roster.json via kubectl exec before reset: block files to avoid SKIP_BLOCK
+      # on re-push; tss-bootstrap-roster.json so block 0 re-triggers TSS bootstrap on arrival
+      # (tracked: hashgraph/solo-weaver#935).
       - name: Clear block storage before reset
         run: |
           POD="${RELEASE}-block-node-server-0"
@@ -508,9 +502,8 @@ jobs:
 
       - name: Re-push block 0 (TSS re-bootstrap after reset)
         run: |
-          # Block 0 must be pushed in its own session so roster-bootstrap-tss can write
-          # tss-bootstrap-roster.json and fire VerificationDataProvider.updateTssData()
-          # before blocks 1-4 arrive. Sending all 5 together races the async TSS write.
+          # Same TSS sequencing as install (Phase 2): block 0's extraction is async; blocks 1-4
+          # must not arrive until it completes.
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
             BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
@@ -600,7 +593,7 @@ jobs:
       - name: Cleanup (always)
         if: always()
         run: |
-          sudo solo-provisioner block node uninstall --profile=local --namespace="${NAMESPACE}" \
+          sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node uninstall --profile=local --namespace="${NAMESPACE}" \
             --release-name="${RELEASE}" --non-interactive --purge-storage 2>/dev/null || true
           kind delete cluster --name "${CLUSTER_NAME}" || true
           docker rm -f kind-registry || true
