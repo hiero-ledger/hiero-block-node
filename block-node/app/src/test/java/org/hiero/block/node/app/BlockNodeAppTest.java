@@ -8,8 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -56,6 +58,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.MockitoAnnotations;
 
 /**
@@ -973,10 +976,9 @@ class BlockNodeAppTest {
     }
 
     /**
-     * Block ranges persisted on stop are reloaded by a fresh BlockNodeApp.
-     * Also asserts that the atomic write leaves no .tmp file behind (regression guard for
-     * Files.createLink which threw UnsupportedOperationException on overlay filesystems and left
-     * the .tmp orphaned without writing block-ranges.json).
+     * Block ranges persisted on stop are reloaded by a fresh BlockNodeApp. Also asserts no .tmp file
+     * is left behind (regression guard for #3315: a failed hard link used to leave the .tmp orphaned
+     * without writing block-ranges.json).
      */
     @Test
     @DisplayName("block ranges are persisted and reloaded on next startup")
@@ -1007,6 +1009,26 @@ class BlockNodeAppTest {
         assertEquals(new LongRange(0, 1099), storedRanges.getFirst());
 
         app2.stopApplicationStateFacility();
+    }
+
+    /**
+     * Regression guard for #3315: a hard-link failure (e.g. on filesystems without hard-link
+     * support) must be caught and logged, not propagate out of {@code stopApplicationStateFacility}.
+     */
+    @Test
+    @DisplayName("persistBlockRanges does not throw when hard links are unsupported")
+    void persistBlockRangesHandlesUnsupportedHardLinks() throws IOException {
+        final BlockNodeApp app = new BlockNodeApp(new ServiceLoaderFunction(), false);
+        app.startApplicationStateFacility();
+        app.addStoredBlockRange(new LongRange(0, 9));
+
+        try (MockedStatic<Files> filesMock = mockStatic(Files.class, CALLS_REAL_METHODS)) {
+            filesMock
+                    .when(() -> Files.createLink(any(Path.class), any(Path.class)))
+                    .thenThrow(new UnsupportedOperationException("simulated: hard links not supported"));
+
+            assertDoesNotThrow(app::stopApplicationStateFacility);
+        }
     }
 
     /**
