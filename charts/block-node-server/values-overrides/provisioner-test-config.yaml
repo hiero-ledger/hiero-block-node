@@ -1,0 +1,18 @@
+profile: testnet
+log:
+    level: info
+blockNode:
+    namespace: block-node
+    release: block-node
+    chart: oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server
+    storage:
+        archivePath: /mnt/fast-storage/block-node/archive
+        archiveSize: 1Ti
+        livePath: /mnt/fast-storage/block-node/live
+        liveSize: 20Gi
+        logPath: /mnt/fast-storage/block-node/logs
+        logSize: 10Gi
+        applicationStatePath: /mnt/fast-storage/block-node/application-state
+        applicationStateSize: 5Gi
+        pluginsPath: /mnt/fast-storage/block-node/plugins
+        pluginsSize: 5Gi
