@@ -60,21 +60,18 @@ READY_TIMEOUT="${READY_TIMEOUT:-300}"
 log() { echo "[wrb-dist-bulk-load-bn1] $*"; }
 fail() { echo "[wrb-dist-bulk-load-bn1] ERROR: $*" >&2; exit 1; }
 
-# Poll until a local port actually accepts connections, instead of a fixed sleep that's a
-# plausible CI flake under runner load if kubectl takes longer than expected to bind it.
-# Uses nc rather than bash's /dev/tcp: /dev/tcp requires bash built with net redirections, which
-# e.g. macOS's stock bash 3.2 lacks, whereas nc is reliably preinstalled on both macOS and the
-# Linux CI runners this suite targets.
-command -v nc >/dev/null 2>&1 || fail "nc not on PATH; needed to confirm the re-established port-forwards are up"
-wait_for_port() {
-    local port="$1" label="$2"
+# Poll kubectl's own port-forward log for its readiness line, instead of a fixed sleep that's a
+# plausible CI flake under runner load if kubectl takes longer than expected to bind it. Avoids
+# depending on an external probing tool (nc, bash's /dev/tcp) whose availability/behavior varies
+# across the environments this script runs in - kubectl always prints this line itself once the
+# tunnel is actually up.
+wait_for_port_forward() {
+    local log_file="$1" label="$2"
     for _ in $(seq 1 30); do
-        if nc -z localhost "${port}" 2>/dev/null; then
-            return 0
-        fi
+        grep -q "Forwarding from" "${log_file}" 2>/dev/null && return 0
         sleep 1
     done
-    fail "Port-forward for ${label} (localhost:${port}) never came up after 30s"
+    fail "Port-forward for ${label} never came up after 30s (see ${log_file})"
 }
 
 wrapped_dir="${WRB_DIST_WORK_DIR}/wrappedBlocks"
@@ -132,8 +129,8 @@ nohup setsid kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
 nohup setsid kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
     port-forward svc/block-node-1 "${BN1_METRICS_PORT}:16007" \
     >"${pf_log_dir}/block-node-1-metrics.log" 2>&1 </dev/null &
-wait_for_port "${BN1_GRPC_PORT}" "block-node-1 grpc"
-wait_for_port "${BN1_METRICS_PORT}" "block-node-1 metrics"
+wait_for_port_forward "${pf_log_dir}/block-node-1-grpc.log" "block-node-1 grpc"
+wait_for_port_forward "${pf_log_dir}/block-node-1-metrics.log" "block-node-1 metrics"
 
 rm -rf "${staging_dir}"
 log "Historical backfill complete: block-node-1 restarted with the bulk-loaded WRBs."
