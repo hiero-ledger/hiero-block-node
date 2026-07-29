@@ -31,8 +31,8 @@ blockNode:
     archiveSize: 1Gi
     logPath: /tmp/bn/logs
     logSize: 500Mi
-    verificationPath: /tmp/bn/verification
-    verificationSize: 500Mi
+    applicationStatePath: /tmp/bn/application-state
+    applicationStateSize: 500Mi
     # solo-provisioner always provisions + mounts a plugins PVC (read-only) over
     # /opt/hiero/block-node/app-<ver>/plugins, even if omitted here. With the solo-dev image that empty PVC
     # would hide the baked-in plugins, so the seed-plugins init container in solo-ci-values.yaml copies the

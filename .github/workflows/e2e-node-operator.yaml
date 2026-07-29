@@ -338,10 +338,22 @@ jobs:
         run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
       # ── PHASE 2: Push bootstrap blocks 0-2 ─────────────────────────────────
-      - name: Push blocks 0-2
+      # Block 0 is pushed separately first: its SIGNED_TRANSACTION items contain the
+      # LedgerIdPublicationTransactionBody from which the verification plugin extracts TSS data
+      # (ledger ID + Schnorr keys + WRAPS VK). The extraction is async inside the block hasher, so
+      # blocks 1-2 must not arrive until block 0's hasher has completed and set currentTssData — otherwise
+      # TSSVerifier.verify() sees null and fails with MISSING_VERIFICATION_DATA. The JVM restart between
+      # steps provides enough natural delay (>>390ms) for block 0's hasher to finish.
+      - name: Push block 0 (TSS bootstrap)
         run: |
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
-            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk,${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk" \
+            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk" \
+            java -jar tools-and-tests/suites/build/libs/block-pusher.jar
+
+      - name: Push blocks 1-2
+        run: |
+          SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
+            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
 
       # ── PHASE 3: Verify (post-install) ─────────────────────────────────────
@@ -357,25 +369,26 @@ jobs:
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
           bash tools-and-tests/scripts/node-operations/bn-endpoint-checker.sh "localhost:${SERVER_PORT}" || true
 
-      # Confirm the base BN persisted tss-parameters.bin to the state PVC after verifying block 0 — the
-      # verification plugin reloads it on init(), so it must survive on the retained PVC for the upgrade.
+      # Confirm the base BN persisted tss-bootstrap-roster.json to the state PVC after verifying block 0.
+      # BlockNodeApp.persistTssData() writes it; it is read on the next startup via loadApplicationState(),
+      # so it must survive on the retained PVC for the upgrade phase to verify TSS blocks without re-pushing block 0.
       - name: Inspect TSS parameter persistence after install
         run: |
           POD="${RELEASE}-block-node-server-0"
           echo "::group::State mount contents on the running base pod"
-          # 0.37+ mounts the state PVC at /opt/hiero/block-node/application-state; tss-parameters.bin lives here.
+          # application-state/ holds tss-bootstrap-roster.json (TSS data), rsa-bootstrap-roster.json (RSA address book), etc.
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
             sh -c 'ls -la /opt/hiero/block-node/application-state 2>&1 || true'
           echo "::endgroup::"
-          echo "::group::Verification persist/load + block-0 log lines (base install pod)"
+          echo "::group::TSS extraction + block-0 verification log lines (base install pod)"
           kubectl logs -n "${NAMESPACE}" "${POD}" -c block-node-server 2>/dev/null \
-            | grep -iE "Persisted TSS|Loaded TSS|tssParametersFilePath|block=0|Verification (failed|succe)" || echo "(no matching log lines)"
+            | grep -iE "Updating TSS data|Successfully updated TSS|Failed.*TssData|block=0|Verification (failed|succe)" || echo "(no matching log lines)"
           echo "::endgroup::"
 
       # ── PHASE 4: Upgrade (base -> snapshot) + continued ingestion ──────────
       # Base and snapshot are both 0.37+, so the state volume (application-state) is stable and this is a
-      # plain `helm upgrade` — no StatefulSet surgery. Block + state data (incl. tss-parameters.bin) carry
-      # across via solo-provisioner's provisioner-owned hostPath existingClaims (outlive the StatefulSet).
+      # plain `helm upgrade` — no StatefulSet surgery. Block + state data (incl. tss-bootstrap-roster.json)
+      # carry across via solo-provisioner's provisioner-owned hostPath existingClaims (outlive the StatefulSet).
       - name: Upgrade to snapshot version
         run: |
           # Point the chart ref at the local OCI registry (snapshot pushed above). --no-reuse-values
@@ -399,7 +412,7 @@ jobs:
         run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
       # Confirm the upgraded pod seeded only the snapshot's plugins (no stale base-version jars),
-      # reads /application-state, and loaded the base-persisted tss-parameters.bin so new TSS blocks verify.
+      # reads /application-state, and loaded the base-persisted tss-bootstrap-roster.json so new TSS blocks verify.
       - name: Inspect plugins + TSS state after upgrade
         run: |
           POD="${RELEASE}-block-node-server-0"
@@ -407,11 +420,11 @@ jobs:
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
             sh -c 'ls -1 /opt/hiero/block-node/app-*/plugins | grep -E "^block-verification-.*\.jar$" || true'
           echo "::endgroup::"
-          echo "::group::State mount + TSS path/load on the upgraded 0.37 pod"
+          echo "::group::State mount + TSS load on the upgraded pod"
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
             sh -c 'ls -la /opt/hiero/block-node/application-state 2>&1 || true'
           kubectl logs -n "${NAMESPACE}" "${POD}" -c block-node-server 2>/dev/null \
-            | grep -iE "verification.tssParametersFilePath|Loaded TSS|Persisted TSS" || echo "(no matching log lines)"
+            | grep -iE "Updating TSS data|Successfully updated TSS|Failed.*TssData" || echo "(no matching log lines)"
           echo "::endgroup::"
 
       - name: Verify blocks survived upgrade (0-2)
@@ -450,7 +463,7 @@ jobs:
         run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
       # Diagnostic only (never fails the job): confirm the node is empty after reset — no block
-      # files and serverStatus uint64 -1. tss-parameters.bin is intentionally retained.
+      # files and serverStatus uint64 -1. tss-bootstrap-roster.json is intentionally retained.
       - name: Inspect storage after reset
         run: |
           POD="${RELEASE}-block-node-server-0"
@@ -463,7 +476,7 @@ jobs:
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
             sh -c 'ls -la /opt/hiero/block-node/application-state 2>&1; \
                    echo "== block-ranges.json =="; cat /opt/hiero/block-node/application-state/block-ranges.json 2>&1 || true; \
-                   echo "== tss-parameters.bin present? =="; ls -la /opt/hiero/block-node/application-state/tss-parameters.bin 2>&1 || true' || true
+                   echo "== tss-bootstrap-roster.json present? =="; ls -la /opt/hiero/block-node/application-state/tss-bootstrap-roster.json 2>&1 || true' || true
           echo "::endgroup::"
           echo "::group::serverStatus as reported now"
           grpcurl -plaintext -import-path "${PROTO_PATH}" -proto block-node/api/node_service.proto \
