@@ -85,12 +85,15 @@ public final class StateProofVerifier implements ProofVerifier {
     /// The proof is rejected when the structure is malformed: fewer than three
     /// paths, a non-leaf first path, an out-of-range next index, a leaf pointing
     /// to another leaf, a duplicate checkpoint, unvisited paths, or leftover
-    /// checkpoints after the walk.
+    /// checkpoints after the walk. Note that the non-leaf first path check may be
+    /// relaxed in the future: a state proof creator might order the paths
+    /// slightly differently and still produce a valid state proof.
     ///
-    /// Once reconstructed, the signed block root is verified with a [TSSVerifier]
-    /// against the signature carried by the proof. The success or failure state
-    /// proof series of the proof verification metrics is incremented accordingly
-    /// before returning.
+    /// Once reconstructed, the signed block root is verified against the
+    /// signature carried by the proof. A signature verifier is required for this
+    /// step; which verifier depends on the signature scheme in use. The success
+    /// or failure state proof series of the proof verification metrics is
+    /// incremented accordingly before returning.
     ///
     /// @return `null` if the proof verifies, [SessionFailureType#CANCELLED] when
     ///     the session was cancelled mid-walk, or

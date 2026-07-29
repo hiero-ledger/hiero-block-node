@@ -40,7 +40,9 @@ public final class TSSVerifier implements ProofVerifier {
     /// {@inheritDoc}
     /// ---
     /// Verifies the TSS signature against the hash to verify, using the ledger id
-    /// from the currently available [TssData].
+    /// from the currently available [TssData]. The WRAPS verification key is also
+    /// required for verification, but it is set once on startup and is not
+    /// supplied on every call or initialized on block 0 if not present on startup.
     ///
     /// `TSS.verifyTSS()` handles both the genesis (Schnorr aggregate) and
     /// post-genesis (WRAPS) paths. Signatures without a recognized proof suffix
