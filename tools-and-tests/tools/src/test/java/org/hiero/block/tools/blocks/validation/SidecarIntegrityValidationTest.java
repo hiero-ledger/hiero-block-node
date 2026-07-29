@@ -4,23 +4,35 @@ package org.hiero.block.tools.blocks.validation;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.utils.Sha384.hashSha384;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.RecordFileItem;
+import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.hapi.node.transaction.TransactionRecord;
 import com.hedera.hapi.streams.HashAlgorithm;
 import com.hedera.hapi.streams.HashObject;
 import com.hedera.hapi.streams.RecordStreamFile;
+import com.hedera.hapi.streams.RecordStreamItem;
 import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.hapi.streams.SidecarMetadata;
+import com.hedera.hapi.streams.TransactionSidecarRecord;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.tools.blocks.validation.SidecarIntegrityValidation.TimestampMismatch;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Tests for {@link SidecarIntegrityValidation}. */
 class SidecarIntegrityValidationTest {
@@ -229,5 +241,217 @@ class SidecarIntegrityValidationTest {
         assertTrue(ex.getMessage().contains("MISSING"));
         assertTrue(ex.getMessage().contains("sidecars in block:    1"));
         assertTrue(ex.getMessage().contains("signed hash entries:  2"));
+    }
+
+    // ── Sidecar record consensus_timestamp cross-check (warn-only, issue #3319) ─────────────
+
+    private static Timestamp ts(final long seconds, final int nanos) {
+        return new Timestamp(seconds, nanos);
+    }
+
+    /** Build a RecordStreamFile whose recordStreamItems carry transactions with the given consensus timestamps. */
+    private static RecordStreamFile recordStreamFileWithTxTimestamps(final Timestamp... txTimestamps) {
+        final List<RecordStreamItem> items = new ArrayList<>(txTimestamps.length);
+        for (final Timestamp t : txTimestamps) {
+            items.add(RecordStreamItem.newBuilder()
+                    .record(TransactionRecord.newBuilder().consensusTimestamp(t).build())
+                    .build());
+        }
+        return RecordStreamFile.newBuilder().recordStreamItems(items).build();
+    }
+
+    /** Build a SidecarFile containing one TransactionSidecarRecord per supplied timestamp. */
+    private static SidecarFile sidecarWithRecordTimestamps(final Timestamp... recordTimestamps) {
+        final List<TransactionSidecarRecord> records = new ArrayList<>(recordTimestamps.length);
+        for (final Timestamp t : recordTimestamps) {
+            records.add(
+                    TransactionSidecarRecord.newBuilder().consensusTimestamp(t).build());
+        }
+        return SidecarFile.newBuilder().sidecarRecords(records).build();
+    }
+
+    @Test
+    @DisplayName("Timestamp check: all sidecar timestamps match tx timestamps -> no mismatches recorded")
+    void timestampCheck_allMatch_noMismatches() {
+        final Timestamp t1 = ts(100, 1);
+        final Timestamp t2 = ts(100, 2);
+        final SidecarFile sidecar = sidecarWithRecordTimestamps(t1, t2);
+        final RecordStreamFile rsf = recordStreamFileWithTxTimestamps(t1, t2);
+        final List<TimestampMismatch> collected = new ArrayList<>();
+
+        SidecarIntegrityValidation.checkSidecarTimestamps(List.of(sidecar), rsf, 42, collected::add);
+
+        assertEquals(0, collected.size(), "no warnings when every sidecar timestamp has a tx");
+    }
+
+    @Test
+    @DisplayName("Timestamp check: one sidecar timestamp not in tx set -> single warning recorded")
+    void timestampCheck_oneMismatch_singleWarning() {
+        final Timestamp inRecord = ts(100, 1);
+        final Timestamp orphan = ts(999, 999);
+        final SidecarFile sidecar = sidecarWithRecordTimestamps(inRecord, orphan);
+        final RecordStreamFile rsf = recordStreamFileWithTxTimestamps(inRecord);
+        final List<TimestampMismatch> collected = new ArrayList<>();
+
+        SidecarIntegrityValidation.checkSidecarTimestamps(List.of(sidecar), rsf, 42, collected::add);
+
+        assertEquals(1, collected.size(), "one mismatch tuple recorded");
+        final TimestampMismatch m = collected.get(0);
+        assertEquals(42L, m.blockNumber());
+        assertEquals(0, m.sidecarIndex());
+        assertEquals(1, m.recordIndex(), "the orphan record is at position 1");
+        assertEquals(999L, m.timestampSeconds());
+        assertEquals(999, m.timestampNanos());
+    }
+
+    @Test
+    @DisplayName("Timestamp check: sidecar with empty sidecar_records passes trivially")
+    void timestampCheck_emptySidecarRecords_passes() {
+        final SidecarFile empty = sidecarWithRecordTimestamps();
+        final RecordStreamFile rsf = recordStreamFileWithTxTimestamps(ts(1, 0));
+        final List<TimestampMismatch> collected = new ArrayList<>();
+
+        SidecarIntegrityValidation.checkSidecarTimestamps(List.of(empty), rsf, 42, collected::add);
+
+        assertEquals(0, collected.size());
+    }
+
+    @Test
+    @DisplayName("Timestamp check: block with no sidecar files passes trivially")
+    void timestampCheck_noSidecars_passes() {
+        final RecordStreamFile rsf = recordStreamFileWithTxTimestamps(ts(1, 0));
+        final List<TimestampMismatch> collected = new ArrayList<>();
+
+        SidecarIntegrityValidation.checkSidecarTimestamps(List.of(), rsf, 42, collected::add);
+
+        assertEquals(0, collected.size());
+    }
+
+    @Test
+    @DisplayName("Timestamp check: empty recordStreamItems + non-empty sidecar -> warn for every record")
+    void timestampCheck_emptyRecordStreamItems_warnsForEveryRecord() {
+        final SidecarFile sidecar = sidecarWithRecordTimestamps(ts(1, 0), ts(2, 0), ts(3, 0));
+        final RecordStreamFile rsf = RecordStreamFile.newBuilder().build(); // no items
+        final List<TimestampMismatch> collected = new ArrayList<>();
+
+        SidecarIntegrityValidation.checkSidecarTimestamps(List.of(sidecar), rsf, 42, collected::add);
+
+        assertEquals(3, collected.size(), "every record has no matching tx -> every record warns");
+    }
+
+    @Test
+    @DisplayName("Instance validate: timestamp mismatches accumulate across blocks (warn-only, no throw)")
+    void instanceValidate_accumulatesTimestampMismatches() {
+        final Timestamp inRecord = ts(100, 1);
+        final Timestamp orphan = ts(999, 999);
+        final SidecarFile sidecar = sidecarWithRecordTimestamps(orphan);
+        final SidecarMetadata metadata = metadataFor(sidecar);
+        final RecordStreamFile rsf = RecordStreamFile.newBuilder()
+                .recordStreamItems(RecordStreamItem.newBuilder()
+                        .record(TransactionRecord.newBuilder()
+                                .consensusTimestamp(inRecord)
+                                .build())
+                        .build())
+                .sidecars(List.of(metadata))
+                .build();
+        final RecordFileItem recordFileItem = RecordFileItem.newBuilder()
+                .recordFileContents(rsf)
+                .sidecarFileContents(List.of(sidecar))
+                .build();
+        final BlockItem recordFileBlockItem =
+                BlockItem.newBuilder().recordFile(recordFileItem).build();
+        final Block block = new Block(List.of(recordFileBlockItem));
+
+        final SidecarIntegrityValidation v = new SidecarIntegrityValidation();
+
+        // Hash check passes (sidecar hash matches metadata). Timestamp check fails but is warn-only.
+        assertDoesNotThrow(() -> v.validate(toUnparsed(block), 42));
+
+        assertEquals(1, v.recordedMismatches().size(), "the orphan timestamp is recorded in the accumulator");
+        assertEquals(42L, v.recordedMismatches().get(0).blockNumber());
+    }
+
+    @Test
+    @DisplayName("Composition: hash mismatch still throws even when timestamp mismatch is present")
+    void composition_hashMismatchStillThrows_timestampAlsoRecorded() {
+        final Timestamp orphan = ts(999, 999);
+        final SidecarFile sidecar = sidecarWithRecordTimestamps(orphan);
+        // Give the block a metadata entry whose hash does NOT match the sidecar.
+        final byte[] bogus = new byte[48];
+        for (int i = 0; i < bogus.length; i++) {
+            bogus[i] = (byte) 0xBB;
+        }
+        final SidecarMetadata bogusMeta = SidecarMetadata.newBuilder()
+                .hash(HashObject.newBuilder()
+                        .algorithm(HashAlgorithm.SHA_384)
+                        .length(bogus.length)
+                        .hash(Bytes.wrap(bogus))
+                        .build())
+                .build();
+        final RecordStreamFile rsf = RecordStreamFile.newBuilder()
+                .recordStreamItems(RecordStreamItem.newBuilder()
+                        .record(TransactionRecord.newBuilder()
+                                .consensusTimestamp(ts(100, 1))
+                                .build())
+                        .build())
+                .sidecars(List.of(bogusMeta))
+                .build();
+        final RecordFileItem recordFileItem = RecordFileItem.newBuilder()
+                .recordFileContents(rsf)
+                .sidecarFileContents(List.of(sidecar))
+                .build();
+        final BlockItem recordFileBlockItem =
+                BlockItem.newBuilder().recordFile(recordFileItem).build();
+        final Block block = new Block(List.of(recordFileBlockItem));
+
+        final SidecarIntegrityValidation v = new SidecarIntegrityValidation();
+
+        // Hash-mismatch still throws (existing behaviour preserved).
+        final ValidationException ex = assertThrows(ValidationException.class, () -> v.validate(toUnparsed(block), 42));
+        assertTrue(ex.getMessage().contains("TAMPERED or EXTRA"), "hash-mismatch classification preserved");
+
+        // Timestamp WARN also fires before the throw, so the accumulator still has an entry.
+        assertEquals(1, v.recordedMismatches().size(), "timestamp mismatch is recorded even when hash check throws");
+    }
+
+    @Test
+    @DisplayName("save(): no file written when no timestamp mismatches were recorded")
+    void save_emptyAccumulator_noFile(@TempDir final Path tempDir) throws IOException {
+        final SidecarIntegrityValidation v = new SidecarIntegrityValidation();
+
+        v.save(tempDir);
+
+        final Path expected = tempDir.resolve(SidecarIntegrityValidation.MISMATCH_REPORT_FILE_NAME);
+        assertFalse(Files.exists(expected), "empty accumulator must NOT create a report file");
+    }
+
+    @Test
+    @DisplayName("save(): report file lists all tuples sorted by block, then sidecar, then record")
+    void save_multipleMismatches_fileHasSortedTuples(@TempDir final Path tempDir) throws IOException {
+        final SidecarIntegrityValidation v = new SidecarIntegrityValidation();
+        // Insert out-of-order to prove the file writer sorts.
+        v.record(new TimestampMismatch(99L, 0, 2, 500L, 5));
+        v.record(new TimestampMismatch(42L, 1, 0, 100L, 1));
+        v.record(new TimestampMismatch(42L, 0, 3, 200L, 2));
+        v.record(new TimestampMismatch(42L, 0, 1, 150L, 3));
+
+        v.save(tempDir);
+
+        final Path outFile = tempDir.resolve(SidecarIntegrityValidation.MISMATCH_REPORT_FILE_NAME);
+        assertTrue(Files.exists(outFile));
+        final List<String> lines = Files.readAllLines(outFile);
+        assertEquals(4, lines.size());
+        // Expected sort: (42, 0, 1), (42, 0, 3), (42, 1, 0), (99, 0, 2)
+        assertEquals("42\t0\t1\t150.000000003", lines.get(0));
+        assertEquals("42\t0\t3\t200.000000002", lines.get(1));
+        assertEquals("42\t1\t0\t100.000000001", lines.get(2));
+        assertEquals("99\t0\t2\t500.000000005", lines.get(3));
+    }
+
+    @Test
+    @DisplayName("finalize(): no-op with an empty accumulator (no throw)")
+    void finalize_emptyAccumulator_noOp() {
+        final SidecarIntegrityValidation v = new SidecarIntegrityValidation();
+        assertDoesNotThrow(() -> v.finalize(0L, 0L));
     }
 }
