@@ -308,6 +308,14 @@ jobs:
           # Export RELAY_VERSION so Solo CLI reads the resolved semver (not 'latest')
           RELAY_RESOLVED=$(echo "$OUTPUT" | grep "^relay_version=" | cut -d= -f2)
           echo "RELAY_VERSION=${RELAY_RESOLVED}" >> "${GITHUB_ENV}"
+          # Export MN_VERSION so the wrb-distribution scripts' JVM importer swap
+          # (reconfigure-mn1-to-bn-sources.sh / add-mn2.sh) always matches
+          # whatever version MN1 was actually installed with — Flyway rejects
+          # rolling the importer back to an older migration set than what's
+          # already applied to MN1's Postgres, so this must never drift from
+          # the resolved mn_version below.
+          MN_RESOLVED=$(echo "$OUTPUT" | grep "^mn_version=" | cut -d= -f2)
+          echo "MN_VERSION=${MN_RESOLVED}" >> "${GITHUB_ENV}"
 
       # Install Solo CLI (npm by default, or build an approved fork/branch when solo-source=git)
       - name: Install Solo CLI

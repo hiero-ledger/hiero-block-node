@@ -27,7 +27,10 @@
 #   BN_HOST_2         (default block-node-2.${NAMESPACE}.svc.cluster.local)
 #   BN_HOST_3         (default block-node-3.${NAMESPACE}.svc.cluster.local)
 #   MN_INSTANCE       (default "mirror-1")
-#   MN_VERSION        (default v0.157.1)
+#   MN_VERSION        (default "latest" — must be >= whatever version Solo
+#                     actually installed MN1 with, since Flyway rejects
+#                     rolling the importer back to an older migration set
+#                     than what's already applied to MN1's Postgres)
 #   READY_TIMEOUT     (default 300)
 
 set -euo pipefail
@@ -37,7 +40,7 @@ set -euo pipefail
 : "${BN_HOST_2:=block-node-2.${NAMESPACE}.svc.cluster.local}"
 : "${BN_HOST_3:=block-node-3.${NAMESPACE}.svc.cluster.local}"
 : "${MN_INSTANCE:=mirror-1}"
-: "${MN_VERSION:=v0.157.1}"
+: "${MN_VERSION:=latest}"
 READY_TIMEOUT="${READY_TIMEOUT:-300}"
 
 log() { echo "[wrb-dist-mn1-reconfig] $*"; }
@@ -68,10 +71,10 @@ spec:
       - name: importer
         image: ${jvm_image}
         # Match wrb-sequential-comparison.sh's memory shape. The Solo-installed
-        # default is too tight for MN v0.157.1's Flyway-migration + BN-source
-        # bootstrap over MN1's already-populated Postgres, which OOM-kills the
-        # importer container between "Successfully connected to database" and
-        # first block subscription.
+        # default is too tight for the Flyway-migration + BN-source bootstrap
+        # over MN1's already-populated Postgres, which OOM-kills the importer
+        # container between "Successfully connected to database" and first
+        # block subscription.
         resources:
           requests:
             cpu: 500m
