@@ -15,29 +15,43 @@ The `blocks` command contains utilities for working with Block Stream files (.bl
 
 ---
 
-## Bootstrap ordering: `wrap` → `validate` → `live-sequential`
+## Bootstrap ordering: `wrap` → `validate` (recommended) → `live-sequential`
 
-The three CLI operations must run **in this order** on a fresh workspace. It's not obvious from the individual command help pages, but skipping either of the first two leaves `live-sequential` without state it depends on, and the failure mode is opaque (typically a Java `NoSuchFileException` or a silent divergence hours later).
+`wrap` must run before `live-sequential` — `live-sequential` continues from the wrap watermark and needs the WRB archive on disk. Running `validate` between them is **strongly recommended but not strictly required**; the trade-off is documented below.
 
 ### The pipeline
 
-| Order |                       Command                        |                                                                             What it produces (consumed by later steps)                                                                             |
-|-------|------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 1     | `blocks wrap -i <compressedDays> -o <wrappedBlocks>` | `wrappedBlocks/*.zip` (WRB batches), `addressBookHistory.json`, `nodeStakeHistory.json`, `blockStreamBlockHashes.bin`, `streamingMerkleTree.bin`, `wrap-commit.bin`, `jumpstart.bin`               |
-| 2     | `blocks validate <wrappedBlocks>`                    | Confirms the chain is intact end-to-end; updates checkpoint state under `<wrappedBlocks>/validateCheckpoint/` (address book, node stakes, TSS enablement, running balances, jumpstart consistency) |
-| 3     | `days live-sequential …`                             | Picks up from the wrap watermark; continues downloading, wrapping, and validating live blocks from the CN in real time (see [days-commands.md](days-commands.md))                                  |
+| Order |                          Command                           |                                                                                             What it produces (consumed by later steps)                                                                                              |
+|-------|------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1     | `blocks wrap -i <compressedDays> -o <wrappedBlocks>`       | `wrappedBlocks/*.zip` (WRB batches), `addressBookHistory.json`, `nodeStakeHistory.json`, `blockStreamBlockHashes.bin`, `streamingMerkleTree.bin`, `wrap-commit.bin`, `jumpstart.bin`                                                |
+| 2     | `blocks validate <wrappedBlocks>` *(recommended)*          | Confirms the chain is intact end-to-end; writes checkpoint state under `<wrappedBlocks>/validateCheckpoint/` (address book, node stakes, TSS enablement, running HBAR balances, jumpstart consistency) that step 3 loads on startup |
+| 3     | `days live-sequential --wrap-output-dir <wrappedBlocks> …` | Picks up from the wrap watermark; continues downloading, wrapping, and validating live blocks from the CN in real time (see [days-commands.md](days-commands.md))                                                                   |
 
 ### Why the order matters
 
 - **`wrap` before `validate`**: `validate` operates on the wrapped block archive. Without step 1 there's nothing to validate.
-- **`validate` before `live-sequential`**: `live-sequential` reuses the address book registry, node stake registry, TSS enablement state, streaming merkle tree, and `jumpstart.bin` that `validate` writes/refreshes to `<wrappedBlocks>/validateCheckpoint/`. Running `live-sequential` on an unvalidated archive starts with stale or missing state, and the first live block that touches address-book, stake, or TSS logic fails with a hard-to-diagnose exception (typical symptom: `java.nio.file.NoSuchFileException: .../addressBookHistory.json` or a chain-hash mismatch at the first newly-wrapped block).
+- **`wrap` before `live-sequential`**: `live-sequential` continues from the wrap watermark. `wrap` produces the state files (`addressBookHistory.json`, `nodeStakeHistory.json`, `streamingMerkleTree.bin`, `jumpstart.bin`, `blockStreamBlockHashes.bin`) that `live-sequential` reads on startup.
+- **`validate` before `live-sequential` — recommended**: on startup `live-sequential` checks `<wrappedBlocks>/validateCheckpoint/validateProgress.json`. If present, it loads validation state (HBAR running balances, streaming merkle tree, jumpstart, hash registry, etc.) and continues those checks live. If absent, `live-sequential` **silently drops** every validation that requires starting from block 0 — you keep hash-chain, signatures, and sidecar integrity in the live stream, but lose HBAR supply, historical block tree, jumpstart, and streaming merkle tree checks until a full-history `validate` is run.
 - **`validate` also fails fast on wrap defects**: if `wrap` produced a bad WRB (e.g. sidecar integrity, hash chain divergence), `validate` catches it before `live-sequential` bakes the bad state into the live chain.
+
+### What live-sequential loses without a preceding validate
+
+|                             Live check                              |     With `validate` first     |                       Without `validate`                       |
+|---------------------------------------------------------------------|-------------------------------|----------------------------------------------------------------|
+| Hash chain continuity (`BlockChainValidation`)                      | on                            | on                                                             |
+| Signature threshold (`SignatureValidation`)                         | on                            | on                                                             |
+| Sidecar integrity (`SidecarIntegrityValidation`)                    | on                            | on                                                             |
+| Required items / block structure                                    | on                            | on                                                             |
+| Address book / node stake / TSS auto-discovery                      | picks up from validated state | rebuilt live from block content (slower to reach steady state) |
+| 50-billion HBAR supply (`HbarSupplyValidation`)                     | on                            | **dropped** (genesis-only)                                     |
+| Historical block hash tree                                          | on                            | **dropped** (genesis-only)                                     |
+| Jumpstart / hash registry / streaming merkle tree end-of-run checks | on                            | **dropped** (genesis-only)                                     |
 
 ### Common pitfalls
 
-- **Reusing an old `wrappedBlocks/` from a different workspace without re-running `validate`**: every state file inside must be regenerated by `validate` against the current archive. Copying artifacts across workspaces silently mixes state and produces subtle downstream failures.
-- **Running only `wrap` and jumping straight to `live-sequential`**: `wrap` produces `jumpstart.bin` but does not verify it against the block-hash registry or address book. `validate`'s [`JumpstartValidation`](#jumpstartvalidation) and [`HashRegistryValidation`](#hashregistryvalidation) are what confirm the file matches the actual chain state.
+- **Reusing an old `wrappedBlocks/` from a different workspace without re-running `validate`**: every checkpoint state file must correspond to the current archive. Copying `validateCheckpoint/` across workspaces silently mixes state and produces subtle downstream failures.
 - **File permissions**: the account running `validate` and `live-sequential` must have write access to `<wrappedBlocks>/validateCheckpoint/`. On shared boxes with a mix of operators, `chmod g+w` that directory (with a shared POSIX group) — otherwise every checkpoint save fails with `AccessDeniedException` (non-fatal, but blocks resume).
+- **Checkpoint ahead of wrap watermark**: if `<wrappedBlocks>/validateCheckpoint/validateProgress.json` records a block number newer than `wrap-commit.bin`, `live-sequential` skips the checkpoint load and re-initializes the chain validation from the wrap watermark alone. Delete the checkpoint dir and re-run `validate` if this happens after a workspace rewind.
 
 ### Minimum viable sequence
 
@@ -49,16 +63,14 @@ java -jar tools-<VERSION>-all.jar blocks wrap \
   -b /path/to/metadata/block_times.bin \
   -d /path/to/metadata/day_blocks.json
 
-# 2. Validate the resulting archive end-to-end
+# 2. (Recommended) Validate the resulting archive end-to-end -- see the trade-off table above for what step 3 loses if you skip this
 java -jar tools-<VERSION>-all.jar blocks validate /path/to/wrappedBlocks
 
 # 3. Start live-sequential from the wrap watermark
 java -jar tools-<VERSION>-all.jar days live-sequential \
-  --wrapped-blocks-dir /path/to/wrappedBlocks
+  --wrap-output-dir /path/to/wrappedBlocks
   # (plus network / mirror node config as required)
 ```
-
-Any deviation from this ordering has produced a broken deployment at least once — the requirement is not documented in the individual command help pages, so treat this as a mandatory bootstrap runbook.
 
 ---
 
