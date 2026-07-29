@@ -104,6 +104,7 @@ tasks:
         command -v kind >/dev/null 2>&1 || { echo "ERROR: kind not found"; exit 1; }
         command -v solo >/dev/null 2>&1 || { echo "ERROR: solo not found. Install with: npm i @hashgraph/solo -g (or 'task solo:install' for a custom fork/branch build)"; exit 1; }
         command -v yq >/dev/null 2>&1 || { echo "ERROR: yq not found. Install from: https://github.com/mikefarah/yq"; exit 1; }
+        command -v envsubst >/dev/null 2>&1 || { echo "ERROR: envsubst not found. Install gettext: brew install gettext (macOS) or apt-get install gettext (Linux)"; exit 1; }
         echo "All prerequisites found!"
         echo ""
         echo "Versions:"
@@ -544,6 +545,11 @@ tasks:
         ls -la "{{.ROOT_DIR}}/tests/"*.yaml 2>/dev/null || echo "No test files found in tests/"
         echo ""
         echo "Run a test with: task test:run TEST_FILE=tests/<name>.yaml"
+
+  test:scripts:
+    desc: Run bash unit tests for chaos/assertion scripts (no cluster needed)
+    cmds:
+      - 'bash "{{.SCRIPTS_DIR}}/test/test-chaos-assertions.sh"'
 
   # ============================================================================
   # TCK-SDK Tests (matches consensus-node approach: uses latest tags)
