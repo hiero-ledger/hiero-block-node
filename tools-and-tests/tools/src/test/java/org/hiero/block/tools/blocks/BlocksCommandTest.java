@@ -35,6 +35,7 @@ class BlocksCommandTest {
         StringWriter out = new StringWriter();
         CommandLine cmd = new CommandLine(new BlocksCommand());
         cmd.setOut(new PrintWriter(out));
+        cmd.setErr(new PrintWriter(new StringWriter()));
 
         int exitCode = cmd.execute("--help");
 
