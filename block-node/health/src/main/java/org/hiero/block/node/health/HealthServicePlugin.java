@@ -43,8 +43,8 @@ public class HealthServicePlugin implements BlockNodePlugin {
     protected static final String LIVEZ_PATH = "/livez";
     protected static final String READYZ_PATH = "/readyz";
     protected static final String STATUSZ_PATH = "/statusz";
-    protected static final String INBOUND_PATH = STATUSZ_PATH + "/inbound";
-    protected static final String OUTBOUND_PATH = STATUSZ_PATH + "/outbound";
+    protected static final String INBOUND_PATH = "/inbound";
+    protected static final String OUTBOUND_PATH = "/outbound";
 
     /// Counter for health-check HTTP requests, labeled by [#LABEL_ENDPOINT] and [#LABEL_RESULT].
     /// Kubernetes probes flatlining this counter while the pod stays up is an early signal that the
