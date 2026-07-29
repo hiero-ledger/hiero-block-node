@@ -688,9 +688,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             Files.createLink(filePath, tmp);
             Files.deleteIfExists(tmp);
         } catch (IOException | UnsupportedOperationException e) {
-            // UnsupportedOperationException is thrown by Files.createLink() on filesystems that don't
-            // support hard links; it is not a subtype of IOException, so it must be caught explicitly
-            // or it silently escapes this method, leaving the .tmp file orphaned on disk.
+            // UnsupportedOperationException (hard links unsupported) is not an IOException subtype,
+            // so it must be caught here or it silently escapes, leaving the .tmp file orphaned.
             LOGGER.log(WARNING, "Failed to persist block ranges to {0}: {1}", filePath, e.getMessage());
         }
     }

@@ -417,18 +417,11 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Creates a fresh host directory to bind-mount into the container in place of one of its
-     * data directories (application-state, live, or historic/archive).
+     * Creates a fresh host directory to bind-mount in place of a container data directory
+     * (application-state, live, or archive), so it isn't written into the container's own
+     * copy-on-write layer. World-writable since the container runs as a non-root user.
      *
-     * <p>Without an explicit bind mount, these directories are written inside the container's own
-     * copy-on-write layer. Under some container runtimes/storage drivers that layer does not support
-     * hard links, which {@code BlockNodeApp}, {@code BlockFileBlockAccessor}, {@code ZipBlockAccessor},
-     * and {@code BlockFileHistoricPlugin} all rely on (to persist block ranges, and to link/promote
-     * live and historic block files); binding a real host directory avoids that restriction. The
-     * directory is made world-writable because the container runs as a non-root user whose UID may
-     * not match the host user creating this directory.
-     *
-     * @param prefix a short, distinguishing prefix for the temp directory name (for debugging only)
+     * @param prefix a short prefix for the temp directory name, for debugging only
      * @return the absolute path to a new, empty, world-writable host directory
      */
     private static String createHostBindDir(String prefix) {
