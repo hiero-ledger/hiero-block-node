@@ -33,9 +33,6 @@ blockNode:
     # block 0 with the embedded TSS bootstrap. JAVA_OPTS sized for the kind envelope; SERVER_PORT
     # inherits the chart default.
     JAVA_OPTS: "-Xms1G -Xmx2G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/dump.hprof"
-  logs:
-    loggingProperties:
-      org.hiero.block.level: "FINEST"
   # Relax liveness so a cold BN boot in kind isn't killed before it binds :40840.
   health:
     liveness:
