@@ -448,19 +448,20 @@ jobs:
           assert_subscribe 0 4
 
       # ── PHASE 5: Reset -> re-push full set 0-4 ─────────────────────────────
-      # Clear block-ranges.json before reset as housekeeping — it is written on graceful
-      # shutdown and would otherwise survive on the retained application-state PVC.
-      # Note: in kind, solo-provisioner's reset clears paths on the runner host (/tmp/bn/*)
-      # which are not the kind-node hostPath PVC locations, so block files survive in the
-      # live/archive PVCs. HistoricalBlockFacilityImpl reports firstAvailableBlock/
-      # lastAvailableBlock by scanning actual block files on disk, not from block-ranges.json,
-      # so those fields remain non-zero after a kind reset. The post-reset assertion therefore
-      # only checks nextExpectedBlock == uint64-max, which signals no active publisher session.
-      - name: Clear block-ranges.json before reset
+      # solo-provisioner's reset clears /tmp/bn/* on the runner host, but in kind those paths
+      # are inside the Docker node container — not on the runner — so block files survive in
+      # the live/archive hostPath PVCs. We must clear block storage from inside the cluster
+      # (via kubectl exec) before reset so the re-push of blocks 0-4 isn't rejected with
+      # SKIP_BLOCK. We also clear block-ranges.json so the BN starts with no stale range cache.
+      # tss-bootstrap-roster.json is intentionally retained (needed to verify re-pushed block 0).
+      - name: Clear block storage before reset
         run: |
           POD="${RELEASE}-block-node-server-0"
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
-            sh -c 'rm -f /opt/hiero/block-node/application-state/block-ranges.json && echo "block-ranges.json cleared"' || true
+            sh -c 'rm -rf /opt/hiero/block-node/data/live/* \
+                          /opt/hiero/block-node/data/historic/* \
+                          /opt/hiero/block-node/application-state/block-ranges.json \
+                   && echo "Block storage and block-ranges.json cleared"' || true
 
       - name: Reset via solo-provisioner
         run: |
