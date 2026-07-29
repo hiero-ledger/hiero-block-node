@@ -4,7 +4,11 @@ package org.hiero.block.suites;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -77,6 +81,9 @@ public abstract class BaseSuite {
     protected Map<Integer, BlockNodeServiceGrpc.BlockNodeServiceBlockingStub> blockServiceStubs = new LinkedHashMap<>();
 
     private static final String PORT_BINDING_FORMAT = "%d:%d";
+
+    /** Must match {@code ApplicationStateConfig}'s default application-state directory. */
+    private static final String APPLICATION_STATE_CONTAINER_PATH = "/opt/hiero/block-node/application-state";
 
     private static Network network;
 
@@ -276,6 +283,7 @@ public abstract class BaseSuite {
                 .withEnv("HEALTH_PORT", String.valueOf(blockNodeHealthPort))
                 .withEnv("JAVA_TOOL_OPTIONS", "-Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0")
                 .withFileSystemBind(getPluginsDir(), pluginsContainerPath)
+                .withFileSystemBind(createApplicationStateDir(), APPLICATION_STATE_CONTAINER_PATH)
                 // Replacing docker-specific HEALTHCHECK command with runtime-agnostic equivalent:
                 // the image HEALTHCHECK is not honored by all container runtimes (Podman builds OCI
                 // images, which drop HEALTHCHECK), so wait on the health endpoint over HTTP instead.
@@ -312,6 +320,7 @@ public abstract class BaseSuite {
                         "JAVA_TOOL_OPTIONS",
                         "'-Djava.util.logging.config.file=/resources/logging.properties' -Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0")
                 .withFileSystemBind(getPluginsDir(), pluginsContainerPath)
+                .withFileSystemBind(createApplicationStateDir(), APPLICATION_STATE_CONTAINER_PATH)
                 .withFileSystemBind(
                         Paths.get("src/main/resources/block-nodes.json")
                                 .toAbsolutePath()
@@ -395,5 +404,26 @@ public abstract class BaseSuite {
                     + "(e.g., ./gradlew :suites:runSuites) which sets this automatically.");
         }
         return pluginsDir;
+    }
+
+    /**
+     * Creates a fresh host directory to bind-mount as the container's application-state directory.
+     *
+     * <p>Without an explicit bind mount, application-state is written inside the container's own
+     * copy-on-write layer. Under some container runtimes/storage drivers that layer does not support
+     * hard links, which {@code BlockNodeApp} relies on to persist block ranges; binding a real host
+     * directory avoids that restriction. The directory is made world-writable because the container
+     * runs as a non-root user whose UID may not match the host user creating this directory.
+     *
+     * @return the absolute path to a new, empty, world-writable host directory
+     */
+    private static String createApplicationStateDir() {
+        try {
+            Path dir = Files.createTempDirectory("bn-application-state");
+            Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwxrwxrwx"));
+            return dir.toString();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 }
