@@ -99,6 +99,58 @@ val prepareTestPlugins by tasks.registering {
     }
 }
 
+// =============================================================================
+// Block Pusher fat-jar
+// =============================================================================
+// Produces a self-contained, classpath-runnable jar (block-pusher.jar) bundling BlockNodeE2EClient
+// and its
+// runtime dependencies. Although the suites module is JPMS, a flattened fat-jar is launched from
+// the
+// classpath (java -jar), not the module path; BlockNodeE2EClient only uses APIs (PBJ gRPC client,
+// Helidon
+// WebClient, generated PBJ types) that work fine from the classpath.
+// Resolve the runtime dependencies as PLAIN jars (javaModule=false) via an artifactView. The suites
+// module is built on the module path, so `runtimeClasspath` carries the `javaModule=true` attribute
+// and
+// the gradlex ExtraJavaModuleInfoTransform tries to module-ify every artifact — including local
+// project
+// jars that are not yet built — which fails at configuration time with "File does not exist".
+// Requesting javaModule=false skips that transform; `incoming.artifactView(...).files` is a lazy
+// FileCollection that
+// also wires the producing jar tasks as build dependencies. The flattened jar is launched from the
+// classpath (`java -jar`), so module metadata is irrelevant at runtime.
+val blockPusherRuntimeJars: FileCollection =
+    configurations.runtimeClasspath
+        .get()
+        .incoming
+        .artifactView {
+            attributes {
+                attribute(Attribute.of("javaModule", Boolean::class.javaObjectType), false)
+            }
+        }
+        .files
+
+tasks.register<Jar>("blockPusherJar") {
+    description =
+        "Builds a self-contained fat-jar that runs BlockNodeE2EClient against an external Block Node"
+    group = "suites"
+
+    dependsOn(tasks.named("compileJava"))
+
+    archiveFileName.set("block-pusher.jar")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    manifest { attributes("Main-Class" to "org.hiero.block.suites.e2e.BlockNodeE2EClient") }
+
+    // The compiled classes of this module plus the full runtime classpath, flattened.
+    from(sourceSets["main"].output)
+    inputs.files(blockPusherRuntimeJars)
+    from({ blockPusherRuntimeJars.filter { it.name.endsWith(".jar") }.map { zipTree(it) } })
+
+    // Drop signature files from signed dependency jars so the flattened jar remains valid.
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/*.EC")
+}
+
 tasks.register<Test>("runSuites") {
     description = "Runs E2E Test Suites"
     group = "suites"

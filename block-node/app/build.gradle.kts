@@ -290,6 +290,10 @@ val prepareDockerPlugins =
         }
     }
 
+// The solo-dev image stage bakes plugins (Dockerfile `COPY ./plugins`); prepare them before the
+// image build so it isn't shipped with an empty plugins dir. Only affects the solo-dev stage.
+createDockerImage.configure { dependsOn(prepareDockerPlugins) }
+
 tasks.register<Exec>("startDockerContainer") {
     description = "Starts the docker container of the Block Node Server for the current version"
     group = "docker"
