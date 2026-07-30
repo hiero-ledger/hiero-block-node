@@ -13,9 +13,10 @@
    2. [General Availability](#general-availability)
    3. [Patch / Hotfix](#patch--hotfix)
 5. [Artifact Reference](#artifact-reference)
-6. [Release Flow Diagram](#release-flow-diagram)
-7. [Release Meta Process](#release-meta-process)
-8. [Troubleshooting](#troubleshooting)
+6. [Mutability Reference](#mutability-reference)
+7. [Release Flow Diagram](#release-flow-diagram)
+8. [Release Meta Process](#release-meta-process)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -182,6 +183,28 @@ workflows run concurrently after the tag push.
 | Docker images (server, solo-dev, simulator) | `release-push-image.yaml`                 | GHCR (not attached to the GitHub release page)                                          |
 | `block-node-server` Helm chart              | `release-push-image.yaml`                 | OCI registry on GHCR                                                                    |
 | JARs                                        | `release-push-image.yaml`                 | Maven Central (release) / Maven Central Snapshots (SNAPSHOT)                            |
+
+---
+
+## Mutability Reference
+
+Some of the above (plus a few things that aren't "artifacts" in the strict sense — tags, the
+release object itself, the milestone) behave very differently once published, and mixing up
+which is which has caused confusion. This table is the source of truth.
+
+|                              Asset                               |                Mutable?                 |                                                              Notes / transition point                                                              |
+|--------------------------------------------------------------------|--------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Git tag `vX.Y.Z`                                                    | **Immutable**                               | Created once by the `Commit + tag` step. This pipeline never force-moves a tag; treat any that needs to move as a mistake to fix by hand, not automate around. |
+| GitHub Release — **draft**                                          | Mutable                                     | Notes, narrative, and attachments can all be freely edited while in draft.                                                                              |
+| GitHub Release — **published**                                     | Mutable in theory, treated as immutable in practice | GitHub still technically allows editing a published release's title/body/assets, but once published it should be treated as the permanent record. Transition point: the manual **"Publish release"** click in the GA/patch flow. |
+| `block-node-protobuf-X.Y.Z.tgz` / `block-stream-tools-X.Y.Z.jar`    | **Immutable** once attached                 | Re-running `create_release` uses `allowUpdates: true`, so a re-run *can* overwrite these — only re-run if the original attachment is known-bad.        |
+| Docker images tagged `X.Y.Z` / `-solo-dev:X.Y.Z`                    | **Immutable**                               | A version tag should always resolve to the same image content.                                                                                          |
+| Docker image tagged `main`                                          | **Mutable**                                 | Rolling tag — overwritten on every push to `main`, unrelated to any release. Never promote this tag as if it were a release artifact.                    |
+| Helm chart (OCI, versioned)                                         | **Immutable**                               | Pushed once per exact chart version by `release-push-image.yaml`.                                                                                        |
+| JARs — release version                                              | **Immutable**                               | Maven Central rejects re-uploads to the same GAV coordinate outright.                                                                                    |
+| JARs — `-SNAPSHOT` version                                          | **Mutable**                                 | Maven Central Snapshots is designed to be overwritten; every `main` push with a `-SNAPSHOT` version republishes over the same coordinate.                |
+| GitHub Milestone                                                    | Mutable → **closed**                        | Open throughout development; transition point is the **`Close the Milestone`** step, GA runs only. Still-open issues/PRs aren't moved forward before closing — see [Troubleshooting](#troubleshooting) and hiero-ledger/hiero-block-node#3331. |
+| `release_notes.md` (workflow artifact)                              | Mutable, then discarded                     | Intermediate hand-off from `release-notes-generator.yaml` to `create_release`; superseded by the GitHub Release body once created. Retained 30 days, then expires. |
 
 ---
 
