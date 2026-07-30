@@ -39,6 +39,12 @@ OUTPUT_MODE="console"
 VALIDATE_ONLY=false
 DEPLOYMENT="${DEPLOYMENT:-deployment-solo}"
 
+# Exported (not just shell-local) so "command"-type events -- which exec a
+# separate script process via `eval "$script"` -- inherit these regardless of
+# whether the outer caller (Taskfile / CI workflow) happened to export them.
+# Reassignment during CLI arg parsing below keeps the export flag.
+export NAMESPACE CONTEXT DEPLOYMENT PROTO_PATH
+
 # Slack added on top of monitor-block-proofs.sh's own max_block*2 deadline when
 # assert_signature_transition wraps it in `timeout`. monitor-block-proofs.sh
 # checks its own deadline before every gRPC call, so the worst-case overshoot
