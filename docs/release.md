@@ -7,7 +7,8 @@
 3. [Workflow Reference](#workflow-reference)
    1. [release-automation.yaml](#release-automationyaml)
    2. [release-notes-generator.yaml](#release-notes-generatoryaml)
-   3. [release-push-image.yaml](#release-push-imageyaml)
+   3. [milestone-rollover.yaml](#milestone-rolloveryaml)
+   4. [release-push-image.yaml](#release-push-imageyaml)
 4. [End-to-End Release Steps](#end-to-end-release-steps)
    1. [Release Candidate](#release-candidate)
    2. [General Availability](#general-availability)
@@ -33,8 +34,9 @@ images, JARs, and Helm charts are published by a separate workflow that fires on
 
 Before triggering any workflow:
 
-1. **Milestone and label check** — Ensure all PRs and issues in the target milestone are closed
-   or moved to the next milestone. A CI check enforces labels and milestones on every PR.
+1. **Milestone and label check** — A CI check enforces labels and milestones on every PR.
+   Moving any still-open issues/PRs out of the target milestone before closing it is now handled
+   automatically by the `milestone-rollover.yaml` workflow (GA runs only) — no manual step needed.
 2. **Cherry-picks** — Confirm all required fixes have been cherry-picked from `main` to
    `release/X.Y` (for RC2+, GA, and patch runs).
 3. **Branch selection** — First RC for a new minor: dispatch from `main`. All subsequent runs
@@ -62,12 +64,12 @@ Before triggering any workflow:
 | Compute version | Derives the next semver from `version.txt` on the dispatching branch and `release_type`. `rc` increments the RC counter (or starts at `rc1` from SNAPSHOT). `GA` strips the pre-release suffix. |
 | Create / switch release branch | Creates `release/X.Y` from `main` if it doesn't exist, or checks it out. **GA only, if a prior rc/alpha exists:** checks out that exact tag as a detached HEAD instead, so drift on the branch since the last rc can't sneak into GA untested. |
 | Bump version | Runs `./gradlew versionAsSpecified` to write the new version into `version.txt`, chart files, etc. |
-| Close milestone | GA runs only: closes the GitHub milestone matching the release version. |
 | Commit + tag | GPG-signs the bump commit and pushes the `vX.Y.Z` tag. The tag push simultaneously triggers `release-push-image.yaml`. **GA only:** the commit and signed tag are pushed as just the tag (no branch push, since HEAD may be detached) — the release branch is then separately fast-forwarded/merged up to the tag in a follow-up step, never force-pushed. |
 | Build protobuf artifact | Runs `:protobuf-sources:generateBlockNodeProtoArtifact` on the already-checked-out repo. |
 | Build block-stream-tools artifact | Runs `:tools:shadowJar` and renames to `block-stream-tools-X.Y.Z.jar`. |
 | Upload artifacts | Both artifacts are uploaded as workflow artifacts within the same run so `create_release` can retrieve them without a separate racing job. |
 | Generate release notes | Calls the reusable `release-notes-generator.yaml` (see below). |
+| Roll over milestone | GA runs only: calls the reusable `milestone-rollover.yaml` (see below) — moves any still-open issues/PRs in the target milestone to the next one, then closes it. |
 | Create draft release | Creates (or updates) a **draft** GitHub release with notes and artifacts attached. The release stays draft until the release manager manually publishes it. |
 | Bump main snapshot | When `release/X.Y` is newly created, opens a PR on `main` to advance `version.txt` to `X.(Y+1).0-SNAPSHOT`. |
 
@@ -97,6 +99,35 @@ The generated notes include a placeholder header asking the release manager to a
 narrative summary before publishing.
 
 **Result:** Workflow artifact `release-notes-<tag>` containing `release_notes.md`.
+
+---
+
+### `milestone-rollover.yaml`
+
+**Trigger:** Called automatically by `release-automation.yaml` (`workflow_call`, GA runs only),
+or manually via `workflow_dispatch` to preview or re-run a rollover.
+
+**What it does:** Given a milestone title (the released version, e.g. `0.40.0`):
+
+1. Finds the milestone. If none exists (patch/custom releases don't get their own milestone), or
+   it's already closed, logs and exits — not an error.
+2. Resolves the next open milestone by version. If none exists, **creates one** (`X.(Y+1).0`, due
+   14 days after the current milestone's due date).
+3. Moves every still-open issue/PR in the current milestone to the next one, then closes it.
+4. Sweeps any *other* open milestone whose version is `<=` the released one (a straggler from a
+   prior release whose rollover was missed) the same way.
+5. Writes a job summary listing every milestone closed and every issue/PR moved and where.
+
+**Inputs:**
+
+|      Input       |    Values     |                              Description                              |
+|------------------|---------------|------------------------------------------------------------------------|
+| `release_version` | e.g. `0.40.0` | Milestone title to roll over and close.                              |
+| `dry_run`         | `true`/`false` | Preview only — logs what would happen, makes no changes. Defaults to `true` for manual dispatch (safe by default), `false` when called from `release-automation.yaml`. |
+
+**Result:** Milestone(s) closed and issues/PRs reassigned (unless `dry_run: true`), plus a
+formatted summary on the workflow run's Summary tab. See hiero-ledger/hiero-block-node#3331 for
+the gap this replaced.
 
 ---
 
@@ -151,7 +182,7 @@ workflows run concurrently after the tag push.
    - Builds from the exact commit tagged as the last rc (a detached HEAD), not the release
      branch tip — any commit that landed on the branch after that rc is excluded. Falls back to
      the branch tip if no rc was ever cut for this version.
-   - Closes the milestone.
+   - Rolls the milestone over: moves any still-open issues/PRs to the next milestone, then closes it.
    - Creates the GA tag and a new draft release with full-cycle notes and artifacts.
    - Syncs `release/X.Y` back up to the GA tag via a merge (never a force-push), so the branch
      doesn't silently fall behind its own latest tag.
@@ -203,7 +234,7 @@ which is which has caused confusion. This table is the source of truth.
 | Helm chart (OCI, versioned)                                         | **Immutable**                               | Pushed once per exact chart version by `release-push-image.yaml`.                                                                                        |
 | JARs — release version                                              | **Immutable**                               | Maven Central rejects re-uploads to the same GAV coordinate outright.                                                                                    |
 | JARs — `-SNAPSHOT` version                                          | **Mutable**                                 | Maven Central Snapshots is designed to be overwritten; every `main` push with a `-SNAPSHOT` version republishes over the same coordinate.                |
-| GitHub Milestone                                                    | Mutable → **closed**                        | Open throughout development; transition point is the **`Close the Milestone`** step, GA runs only. Still-open issues/PRs aren't moved forward before closing — see [Troubleshooting](#troubleshooting) and hiero-ledger/hiero-block-node#3331. |
+| GitHub Milestone                                                    | Mutable → **closed**                        | Open throughout development; transition point is the `milestone-rollover.yaml` workflow, GA runs only. Still-open issues/PRs are moved to the next milestone before it's closed — see [Troubleshooting](#troubleshooting). (Previously closed unconditionally, leaving open items behind — hiero-ledger/hiero-block-node#3331.) |
 | `release_notes.md` (workflow artifact)                              | Mutable, then discarded                     | Intermediate hand-off from `release-notes-generator.yaml` to `create_release`; superseded by the GitHub Release body once created. Retained 30 days, then expires. |
 
 ---
@@ -213,10 +244,7 @@ which is which has caused confusion. This table is the source of truth.
 ```mermaid
 graph TD
     subgraph Manual
-    A[Start Release] --> B{Milestone & labels ready?}
-    B -->|No| C[Close / move open issues]
-    C --> B
-    B -->|Yes| D[Trigger release-automation.yaml]
+    A[Start Release] --> D[Trigger release-automation.yaml]
     end
 
     subgraph release-automation.yaml
@@ -229,6 +257,7 @@ graph TD
     I --> J[Commit + push vX.Y.Z tag]
     J --> K[Build protobuf + block-stream-tools artifacts]
     K --> L[Generate release notes]
+    K --> L2[Roll over milestone - GA only]
     L --> M[Create draft GitHub release with artifacts]
     end
 
@@ -292,8 +321,10 @@ Trigger `release-notes-generator.yaml` manually with the correct `release_branch
 `is_prerelease` inputs. Download the `release-notes-<tag>` artifact and paste the content into
 the draft release body on GitHub.
 
-**Milestone close failed on a GA run.**
-Close the milestone manually from **GitHub → Issues → Milestones**. The rest of the release is unaffected.
+**Milestone rollover failed on a GA run.**
+Re-run `milestone-rollover.yaml` manually (`workflow_dispatch`) with `release_version` set to the
+released version and `dry_run: false`. Run it once with `dry_run: true` first if you want to
+preview what it will do before committing to it. The rest of the release is unaffected.
 
 **"Sync Release Branch with GA Tag" failed on a GA run.**
 The GA tag itself already succeeded by this point — only the release branch's catch-up merge
