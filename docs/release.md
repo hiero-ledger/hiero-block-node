@@ -88,6 +88,10 @@ git-cliff, generates the changelog, and uploads it as a workflow artifact.
 | RC (`is_prerelease: true`)  | Incremental — commits since the previous tag (`--latest`).            |
 | GA (`is_prerelease: false`) | Full cycle — all commits from the previous stable GA tag to this one. |
 
+Notes are grouped by conventional-commit type (`feat`, `fix`, `docs`, …) rather than GitHub label,
+and each entry includes `by @author in <PR link>` plus a Full Changelog compare link — release
+managers shouldn't need to fall back to GitHub's manual "Generate release notes" button anymore.
+
 The generated notes include a placeholder header asking the release manager to add a 2–4 sentence
 narrative summary before publishing.
 
