@@ -10,11 +10,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
 import org.hiero.block.api.protoc.BlockNodeServiceGrpc;
 import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
@@ -85,11 +87,8 @@ public abstract class BaseSuite {
     /** Must match {@code ApplicationStateConfig}'s default application-state directory. */
     private static final String APPLICATION_STATE_CONTAINER_PATH = "/opt/hiero/block-node/application-state";
 
-    /** Must match {@code FilesRecentConfig}'s default {@code liveRootPath}. */
-    private static final String LIVE_DATA_CONTAINER_PATH = "/opt/hiero/block-node/data/live";
-
-    /** Must match {@code FilesHistoricConfig}'s default {@code rootPath}. */
-    private static final String ARCHIVE_DATA_CONTAINER_PATH = "/opt/hiero/block-node/data/historic";
+    /** Host dirs created by {@link #createHostBindDir}, deleted in teardown. */
+    private static final List<Path> boundHostDirs = new ArrayList<>();
 
     private static Network network;
 
@@ -136,6 +135,7 @@ public abstract class BaseSuite {
         if (channel != null) {
             channel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
         }
+        deleteBoundHostDirs();
     }
 
     /**
@@ -154,6 +154,7 @@ public abstract class BaseSuite {
         channels.clear();
         blockAccessStubs.clear();
         blockServiceStubs.clear();
+        deleteBoundHostDirs();
     }
 
     /**
@@ -290,8 +291,6 @@ public abstract class BaseSuite {
                 .withEnv("JAVA_TOOL_OPTIONS", "-Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0")
                 .withFileSystemBind(getPluginsDir(), pluginsContainerPath)
                 .withFileSystemBind(createHostBindDir("bn-application-state"), APPLICATION_STATE_CONTAINER_PATH)
-                .withFileSystemBind(createHostBindDir("bn-live-data"), LIVE_DATA_CONTAINER_PATH)
-                .withFileSystemBind(createHostBindDir("bn-archive-data"), ARCHIVE_DATA_CONTAINER_PATH)
                 // Replacing docker-specific HEALTHCHECK command with runtime-agnostic equivalent:
                 // the image HEALTHCHECK is not honored by all container runtimes (Podman builds OCI
                 // images, which drop HEALTHCHECK), so wait on the health endpoint over HTTP instead.
@@ -329,8 +328,6 @@ public abstract class BaseSuite {
                         "'-Djava.util.logging.config.file=/resources/logging.properties' -Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0")
                 .withFileSystemBind(getPluginsDir(), pluginsContainerPath)
                 .withFileSystemBind(createHostBindDir("bn-application-state"), APPLICATION_STATE_CONTAINER_PATH)
-                .withFileSystemBind(createHostBindDir("bn-live-data"), LIVE_DATA_CONTAINER_PATH)
-                .withFileSystemBind(createHostBindDir("bn-archive-data"), ARCHIVE_DATA_CONTAINER_PATH)
                 .withFileSystemBind(
                         Paths.get("src/main/resources/block-nodes.json")
                                 .toAbsolutePath()
@@ -417,9 +414,9 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Creates a fresh host directory to bind-mount in place of a container data directory
-     * (application-state, live, or archive), so it isn't written into the container's own
-     * copy-on-write layer. World-writable since the container runs as a non-root user.
+     * Creates a fresh host directory to bind-mount in place of a container data directory, so it
+     * isn't written into the container's own copy-on-write layer. World-writable since the
+     * container runs as a non-root user.
      *
      * @param prefix a short prefix for the temp directory name, for debugging only
      * @return the absolute path to a new, empty, world-writable host directory
@@ -428,9 +425,28 @@ public abstract class BaseSuite {
         try {
             Path dir = Files.createTempDirectory(prefix);
             Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwxrwxrwx"));
+            boundHostDirs.add(dir);
             return dir.toString();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /** Best-effort recursive delete of dirs created by {@link #createHostBindDir}. */
+    private static void deleteBoundHostDirs() {
+        for (Path dir : boundHostDirs) {
+            try (Stream<Path> paths = Files.walk(dir)) {
+                paths.sorted(Comparator.reverseOrder()).forEach(p -> {
+                    try {
+                        Files.deleteIfExists(p);
+                    } catch (IOException ignored) {
+                        // best-effort cleanup
+                    }
+                });
+            } catch (IOException ignored) {
+                // best-effort cleanup
+            }
+        }
+        boundHostDirs.clear();
     }
 }
