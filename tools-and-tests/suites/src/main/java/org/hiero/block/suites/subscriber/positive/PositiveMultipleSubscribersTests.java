@@ -79,13 +79,9 @@ public class PositiveMultipleSubscribersTests extends BaseSuite {
 
         boolean areConsumingBlocks = false;
 
-        long lastConsumedBlockForConsumer1 =
-                publisherSimulator.getStreamStatus().publishedBlocks();
-        long lastConsumedBlockForConsumer2 =
-                publisherSimulator.getStreamStatus().publishedBlocks();
-        int retries = 3;
-        // We assign lastConsumedBlock as the last published, so that we can track it later.
-        // This will help us determine whether we are actually consuming blocks.
+        long lastConsumedBlockForConsumer1 = 0;
+        long lastConsumedBlockForConsumer2 = 0;
+        int retries = 10;
         while (retries > 0) {
             if (consumerSimulator1.getStreamStatus().consumedBlocks() > lastConsumedBlockForConsumer1
                     && consumerSimulator2.getStreamStatus().consumedBlocks() > lastConsumedBlockForConsumer2) {

@@ -167,6 +167,11 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         startSimulatorInstanceWithErrorResponse(secondSimulator);
         Thread.sleep(3000);
         deleteBlocks(0, 3);
+        // Remove block-ranges.json so the node re-discovers its stored range from the filesystem
+        // on restart. Without this, the node would read the stale "stored: 0-6" entry and the
+        // backfill scanner would see no gap — never fetching the deleted blocks.
+        execInContainerWithRetry(
+                blockNodeContainers.get(0), "rm", "-f", "/opt/hiero/block-node/application-state/block-ranges.json");
         BlockResponse block0Deleted = getBlock(blockAccessStubs.get(8082), 0);
         BlockResponse block1Deleted = getBlock(blockAccessStubs.get(8082), 1);
         BlockResponse block2Deleted = getBlock(blockAccessStubs.get(8082), 2);
@@ -175,11 +180,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         assertEquals(NOT_FOUND, block2Deleted.getStatus());
 
         restartBlockNode(0);
-        Thread.sleep(9000);
-
-        // pre-define response variables for simplicity.
-        BlockResponse expectedBlock = null;
-        long blockNumber = -1;
+        Thread.sleep(15000);
 
         getAndAssertSingleBlock(blockAccessStubs, 0);
         getAndAssertSingleBlock(blockAccessStubs, 1);
