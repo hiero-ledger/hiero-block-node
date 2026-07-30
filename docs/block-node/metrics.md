@@ -1,26 +1,5 @@
 # Hiero Block Node Metrics
 
-## Table of Contents
-
-1. [Summary](#summary)
-2. [Purpose](#purpose)
-3. [Configuration](#configuration)
-4. [How to Access Metrics](#how-to-access-metrics)
-5. [Metrics](#metrics-by-plugin)
-   1. [app](#app)
-   2. [Block Access](#block-access)
-   3. [Block Messaging](#block-messaging)
-   4. [Publisher](#publisher)
-   5. [Subscriber](#subscriber)
-   6. [Verification](#verification)
-   7. [files.recent](#filesrecent)
-   8. [files.historic](#fileshistoric)
-   9. [cloud-storage-archive](#cloud-storage-archive)
-   10. [Server Status API](#server-status-api)
-   11. [Backfill](#backfill)
-   12. [roster-bootstrap-rsa](#roster-bootstrap-rsa)
-   13. [roster-bootstrap-tss](#roster-bootstrap-tss)
-
 ## Summary
 
 This document describes the metrics that are available in the system, its purpose, and how to use them.

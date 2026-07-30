@@ -4,19 +4,21 @@ This document defines the network ports, traffic directions, and TLS posture of 
 
 ## Key terms
 
-<dl>
-<dt>Initiator</dt>
-<dd>The component that opens the TCP connection. For every gRPC flow in this document the initiator is the gRPC client; the Block Node accepts the connection on a listening port.</dd>
+**Initiator**
 
-<dt>Direction</dt>
-<dd>Relative to the Block Node. Inbound traffic terminates on a Block Node port; outbound traffic originates from the Block Node and terminates on a port elsewhere.</dd>
+The component that opens the TCP connection. For every gRPC flow in this document the initiator is the gRPC client; the Block Node accepts the connection on a listening port.
 
-<dt>TLS-in-process</dt>
-<dd>Whether the Block Node binary itself terminates TLS. The Block Node does not terminate TLS in-process for any port; TLS is terminated upstream by a Kubernetes Ingress, load balancer, or similar.</dd>
+**Direction**
 
-<dt>Production exposure</dt>
-<dd>Whether the port is intended to be reachable from outside the Kubernetes cluster in a production deployment. Internal-cluster ports are still subject to <code>NetworkPolicy</code> within the cluster.</dd>
-</dl>
+Relative to the Block Node. Inbound traffic terminates on a Block Node port; outbound traffic originates from the Block Node and terminates on a port elsewhere.
+
+**TLS-in-process**
+
+Whether the Block Node binary itself terminates TLS. The Block Node does not terminate TLS in-process for any port; TLS is terminated upstream by a Kubernetes Ingress, load balancer, or similar.
+
+**Production exposure**
+
+Whether the port is intended to be reachable from outside the Kubernetes cluster in a production deployment. Internal-cluster ports are still subject to `NetworkPolicy` within the cluster.
 
 ---
 
