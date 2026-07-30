@@ -2,10 +2,9 @@
 #
 # WRB Distribution E2E (#3125) — slice 6 (steps 11+12), builds on slices 1-5.
 #
-# Combines the full cumulative flow from wrb-distribution-step89 (steps 1-9)
-# and wrb-distribution-step10 (step 10) — which forked independently from the
-# step67 baseline and don't include each other's changes — into one timeline,
-# then layers the TSS cutover and its validation on top:
+# Combines the same cumulative steps-1-through-10 flow as
+# wrb-distribution-step10 (which now also includes steps 8-9) into one
+# timeline, then layers the TSS cutover and its validation on top:
 #
 #   1-2.  Solo brings up CN+MN, wrb-cli baseline wrap, live-wrap loop forked.
 #   3-5.  Add BN1/BN2/BN3, EMB=0/0/100_000_000, assert per-BN EMB.
