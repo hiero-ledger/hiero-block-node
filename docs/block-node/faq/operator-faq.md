@@ -64,13 +64,13 @@ different value based on their own retention and capacity policies.
 
 ### What ports does the Block Node use, and which need to be open?
 
-|        Port         |                       Purpose                        |                    Direction                    |                                 Production exposure                                 |
-|---------------------|------------------------------------------------------|-------------------------------------------------|-------------------------------------------------------------------------------------|
-| **40840** (default) | gRPC — Publish, Subscribe, Status, Block Access APIs | Inbound from CNs, MNs, peer BNs; kubelet probes | Public (Tier 1: CNs + authorised subscribers; Tier 2: upstream BNs + subscribers)   |
-| **16007**           | Prometheus / OpenMetrics scrape                      | Inbound from monitoring                         | Internal cluster only                                                               |
-| **5005**            | JVM remote debug (JDWP)                              | Inbound from debugger                           | **Must be denied in production** — enabling JDWP significantly degrades performance |
-| Outbound (dynamic)  | Backfill plugin dials peer Block Node subscribe API (destination port 40840) | Outbound to peer BNs | Required if backfill plugin is enabled |
-| Outbound (dynamic)  | RSA Bootstrap Plugin fetches RSA address book from Mirror Node               | Outbound to Mirror Node | Required if roster-bootstrap-rsa plugin is enabled |
+|        Port         |                                   Purpose                                    |                    Direction                    |                                 Production exposure                                 |
+|---------------------|------------------------------------------------------------------------------|-------------------------------------------------|-------------------------------------------------------------------------------------|
+| **40840** (default) | gRPC — Publish, Subscribe, Status, Block Access APIs                         | Inbound from CNs, MNs, peer BNs; kubelet probes | Public (Tier 1: CNs + authorised subscribers; Tier 2: upstream BNs + subscribers)   |
+| **16007**           | Prometheus / OpenMetrics scrape                                              | Inbound from monitoring                         | Internal cluster only                                                               |
+| **5005**            | JVM remote debug (JDWP)                                                      | Inbound from debugger                           | **Must be denied in production** — enabling JDWP significantly degrades performance |
+| Outbound (dynamic)  | Backfill plugin dials peer Block Node subscribe API (destination port 40840) | Outbound to peer BNs                            | Required if backfill plugin is enabled                                              |
+| Outbound (dynamic)  | RSA Bootstrap Plugin fetches RSA address book from Mirror Node               | Outbound to Mirror Node                         | Required if roster-bootstrap-rsa plugin is enabled                                  |
 
 The Block Node does not terminate TLS in-process; TLS is handled upstream by a Kubernetes
 Ingress or load balancer.
@@ -197,12 +197,12 @@ Three paths are available:
 Select a pre-built Helm values override from
 [`charts/block-node-server/values-overrides/`](https://github.com/hiero-ledger/hiero-block-node/tree/main/charts/block-node-server/values-overrides):
 
-|         Profile          |                      Use                       |
-|--------------------------|------------------------------------------------|
-| `plugin-profile-lfh`     | Tier 1 — full history on local NVMe + HDD      |
-| `plugin-profile-rfh`     | Remote archival — cloud storage backend        |
+|         Profile          |                                                   Use                                                    |
+|--------------------------|----------------------------------------------------------------------------------------------------------|
+| `plugin-profile-lfh`     | Tier 1 — full history on local NVMe + HDD                                                                |
+| `plugin-profile-rfh`     | Remote archival — cloud storage backend                                                                  |
 | `plugin-profile-all`     | Full history local + cloud backup *(testing only — plugins may conflict and produce unexpected results)* |
-| `plugin-profile-minimal` | Development / testnet — health and status only |
+| `plugin-profile-minimal` | Development / testnet — health and status only                                                           |
 
 For **Tier 2**, start from `plugin-profile-lfh` and remove `stream-publisher` from
 `plugins.names`. The presence of `stream-publisher` is the key difference between
@@ -316,9 +316,9 @@ Both paths are configurable via `blockNode.health.liveness.endpoint` and
 
 **Medium severity — page on call:**
 
-|                        Metric                        |   Threshold   |
-|------------------------------------------------------|---------------|
-| `blocknode_app_state_status`                         | ≠ 1 (RUNNING) |
+|                        Metric                        |     Threshold     |
+|------------------------------------------------------|-------------------|
+| `blocknode_app_state_status`                         | ≠ 1 (RUNNING)     |
 | `blocknode_publisher_receive_latency_ns`             | > 10 seconds      |
 | `blocknode_verification_blocks_error`                | > 3 in 60 s       |
 | `blocknode_publisher_block_send_response_failed`     | > 5 in 60 s       |
