@@ -1,6 +1,8 @@
 # cliff.toml — git-cliff changelog configuration
 # Reads squash-merge commit messages (which are PR titles following Conventional Commits)
 # and groups them into labelled sections for GitHub release notes.
+# Format matches GitHub's native "generate release notes" output (see .github/release.yaml)
+# so notes look the same whether produced by this pipeline or regenerated manually.
 # See: https://git-cliff.org/docs/configuration
 
 [changelog]
@@ -13,13 +15,19 @@ header = """
 
 """
 body = """
-{% for group, commits in commits | group_by(attribute="group") -%}
-### {{ group }}
-
-{% for commit in commits -%}
-- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}
+{% set repo_url = "https://github.com/hiero-ledger/hiero-block-node" -%}
+{% set group_order = ["⭐ New Features", "🐛 Bug Fixes", "🔨 Tests", "📝 Documentation", "⚡ Performance", "♻️ Refactoring", "🔧 Build & Maintenance", "⬆️ Dependency Upgrades"] -%}
+## What's Changed
+{% for group_name in group_order -%}
+{% set group_commits = commits | filter(attribute="group", value=group_name) -%}
+{% if group_commits | length > 0 %}
+### {{ group_name }}
+{% for commit in group_commits -%}
+- {% if commit.remote.pr_title %}{{ commit.remote.pr_title }}{% else %}{% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}{% endif %}{% if commit.remote.username %} by @{{ commit.remote.username }}{% endif %}{% if commit.remote.pr_number %} in {{ repo_url }}/pull/{{ commit.remote.pr_number }}{% endif %}
+{% endfor -%}
+{% endif -%}
 {% endfor %}
-{% endfor %}
+**Full Changelog**: {{ repo_url }}/compare/{{ previous.version }}...{{ version }}
 """
 trim = true
 
@@ -31,16 +39,18 @@ conventional_commits = true
 filter_unconventional = true
 split_commits = false
 commit_parsers = [
-  { message = "^feat",     group = "✨ Features" },
-  { message = "^fix",      group = "🐛 Bug Fixes" },
-  { message = "^docs",     group = "📚 Documentation" },
-  { message = "^perf",     group = "⚡ Performance" },
-  { message = "^refactor", group = "♻️ Refactoring" },
-  { message = "^test",     group = "🧪 Tests" },
-  { message = "^build",    group = "🔧 Build & Maintenance" },
-  { message = "^chore",    group = "🔧 Build & Maintenance" },
+  { message = "^feat",          group = "⭐ New Features" },
+  { message = "^fix",           group = "🐛 Bug Fixes" },
+  { message = "^test",          group = "🔨 Tests" },
+  { message = "^docs",          group = "📝 Documentation" },
+  { message = "^perf",          group = "⚡ Performance" },
+  { message = "^refactor",      group = "♻️ Refactoring" },
+  # build(deps): ... commits (dependabot) are broken out from other build/chore noise.
+  { message = "^build\\(deps",  group = "⬆️ Dependency Upgrades" },
+  { message = "^build",         group = "🔧 Build & Maintenance" },
+  { message = "^chore",         group = "🔧 Build & Maintenance" },
   # ci: commits are infra-only noise; skip them entirely.
-  { message = "^ci",       skip = true },
+  { message = "^ci",            skip = true },
 ]
 filter_commits = true
 # Match all release tags (stable and rc alike).
@@ -48,3 +58,7 @@ tag_pattern = "v[0-9].*"
 # Newest commits appear first within each section, avoiding the case-sensitivity
 # quirk of alphabetical sort (uppercase ASCII < lowercase ASCII).
 sort_commits = "newest"
+
+[remote.github]
+owner = "hiero-ledger"
+repo = "hiero-block-node"

@@ -42,7 +42,7 @@ jobs:
     env:
       # Single source of truth — bump to pick up a new git-cliff release.
       # Verify tarball structure: tar tzf git-cliff-<V>-x86_64-unknown-linux-musl.tar.gz | head
-      GIT_CLIFF_VERSION: "2.8.0"
+      GIT_CLIFF_VERSION: "2.13.1"
 
     steps:
       - name: Harden Runner
@@ -96,6 +96,7 @@ jobs:
         continue-on-error: true
         env:
           IS_PRERELEASE: ${{ inputs.is_prerelease || 'true' }}
+          GITHUB_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
         run: |
           if [[ "${IS_PRERELEASE}" == "false" ]]; then
             # GA: full cycle changelog from previous stable tag to this one.
@@ -108,6 +109,8 @@ jobs:
             echo "GA range: ${PREV_STABLE_TAG}..${LATEST_TAG}"
             # --ignore-tags collapses rc/alpha boundaries so the entire range
             # renders as one section set instead of one set per intermediate tag.
+            # GITHUB_TOKEN (env, picked up automatically by git-cliff) authenticates
+            # the per-commit PR lookups that power @username/PR-link attribution.
             git cliff --config cliff.toml \
               --ignore-tags ".*-(rc|alpha).*" \
               --output release_notes.md -- "${PREV_STABLE_TAG}..${LATEST_TAG}"

@@ -1,4 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
+#
+# Config for GitHub's native "automatically generated release notes" feature
+# (https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes).
+# Only `changelog.exclude` and `changelog.categories` are part of that feature's schema and
+# take effect. The automated release pipeline (release-automation.yaml) sets
+# generateReleaseNotes: false and uses cliff.toml's output instead, so this file only matters
+# if someone manually clicks "Generate release notes" in the GitHub UI, or runs
+# `gh release create --generate-notes` / `gh release edit --generate-notes` by hand.
 changelog:
   exclude:
     labels: ["wontfix", "question", "duplicate", "invalid"]
@@ -21,47 +29,3 @@ changelog:
       labels: ["Breaking Change"]
     - title: "⬆️ Dependency Upgrades"
       labels: ["dependencies"]
-  sort: "desc"
-  transformers:
-    - pattern: "^feat: (.*)$"
-      target: "Feature: $1"
-    - pattern: "^fix: (.*)$"
-      target: "Fix: $1"
-    - pattern: "^docs: (.*)$"
-      target: "Docs: $1"
-    - pattern: "^style: (.*)$"
-      target: "Style: $1"
-    - pattern: "^refactor: (.*)$"
-      target: "Refactor: $1"
-    - pattern: "^perf: (.*)$"
-      target: "Performance: $1"
-    - pattern: "^test: (.*)$"
-      target: "Test: $1"
-    - pattern: "^chore: (.*)$"
-      target: "Chore: $1"
-    - pattern: "^revert: (.*)$"
-      target: "Revert: $1"
-    - pattern: "^security: (.*)$"
-      target: "Security: $1"
-    - pattern: "^build: (.*)$"
-      target: "Build: $1"
-    - pattern: "^ci: (.*)$"
-      target: "CI: $1"
-  template: |
-    # $RELEASE_TITLE
-
-    **Release Date:** $RELEASE_DATE
-
-    ## Changes
-
-    $CHANGES
-
-    ## ❤️ Contributors
-
-    $CONTRIBUTORS
-
-    ---
-
-    ## 📜 Full Changelog
-
-    [View the full changelog]($COMPARE_URL)
