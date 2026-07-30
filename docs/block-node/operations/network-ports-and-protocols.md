@@ -98,6 +98,7 @@ The Block Node exposes OpenMetrics-format counters and gauges via Helidon's metr
 
 - The metrics endpoint is typically reachable only from within the cluster. Most deployments scrape it via a sidecar or a `ServiceMonitor`; exposing it externally is rarely needed and increases attack surface.
 - The Prometheus convention of suffixing counter names with `_total` is applied at scrape time; the underlying metric name in the Block Node is registered without the suffix.
+- Port `16007` is dedicated exclusively to metrics and is independent of all Block Node gRPC services and web servers. It does not share a port with any other service in any deployment profile — including base-chart deployments where all gRPC services share `service.port`.
 
 ### 5005 - JVM remote debug (dev/test only)
 
@@ -141,23 +142,23 @@ When the `backfill` plugin is enabled, the Block Node acts as a gRPC client to a
 
 ### Health and readiness probes
 
-Kubernetes probes query the Block Node's dedicated health HTTP server with HTTP/1.1 GET requests. In the LFH profile this runs on its own port; the base chart defaults to the same shared port as the gRPC services.
+Kubernetes probes query the Block Node's dedicated health HTTP server with HTTP/1.1 GET requests. This service always runs on a separate dedicated port.
 
-|     Field      |                                                             Value                                                              |
-|----------------|--------------------------------------------------------------------------------------------------------------------------------|
-| Port           | `40983` (`blockNode.ports.health`; set to `40983` in both base `values.yaml` and LFH profile — health always has its own port) |
-| Helm value     | `blockNode.ports.health`                                                                                                       |
-| Env var        | `HEALTH_PORT`                                                                                                                  |
-| Liveness path  | `/healthz/livez` (default; `blockNode.health.liveness.endpoint`)                                                               |
-| Readiness path | `/healthz/readyz` (default; `blockNode.health.readiness.endpoint`)                                                             |
-| Protocol       | HTTP/1.1 GET                                                                                                                   |
-| Direction      | Inbound                                                                                                                        |
-| Initiator      | Kubelet                                                                                                                        |
+|     Field      |                               Value                                |
+|----------------|--------------------------------------------------------------------|
+| Port           | `40983`                                                            |
+| Helm value     | `blockNode.ports.health`                                           |
+| Env var        | `HEALTH_PORT`                                                      |
+| Liveness path  | `/healthz/livez` (default; `blockNode.health.liveness.endpoint`)   |
+| Readiness path | `/healthz/readyz` (default; `blockNode.health.readiness.endpoint`) |
+| Protocol       | HTTP/1.1 GET                                                       |
+| Direction      | Inbound                                                            |
+| Initiator      | Kubelet                                                            |
 
 #### Notes
 
 - Probe traffic is intra-cluster only - kubelet to pod IP. Cluster-external firewalls do not need a rule for it.
-- A `NetworkPolicy` that restricts ingress to specific ports must explicitly allow the kubelet to reach the health port (`40983` in LFH), or the probes will fail and Kubernetes will restart the pod.
+- A `NetworkPolicy` that restricts ingress to specific ports must explicitly allow the kubelet to reach the health port (`40983` default), or the probes will fail and Kubernetes will restart the pod.
 
 ---
 
@@ -189,15 +190,15 @@ A Tier 1 Block Node typically declares the `PUBLISH`, `SUBSCRIBE_STREAM`, and `S
 
 Receives the block stream **from another Block Node** - typically a Tier 1, but a Tier 2 may also pull from another Tier 2. The publish path is replaced by a subscribe-from-upstream path; otherwise the network surface matches Tier 1.
 
-|                 Flow                 |  Direction   |           Port            |                                                                                                                                     Notes                                                                                                                                      |
-|--------------------------------------|--------------|---------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Pull from upstream Block Node        | **Outbound** | `40980` to peer (typical) | Mechanism is operator-dependent: per [Block Node Types](../../Block-Node-Types.md), Tier 2 may receive its stream via direct gRPC subscribe, gossip, file transfer, or another mechanism. A typical deployment uses the Subscribe API port (`40980` in LFH) against the upstream. |
-| Subscribe (Mirror / downstream → BN) | Inbound      | `40980` gRPC              | Same shape as Tier 1                                                                                                                                                                                                                                                           |
-| Status (clients → BN)                | Inbound      | `40982` gRPC              | Subscribers and other clients query the Status API for available blocks, available services, and response latency                                                                                                                                                              |
-| Block Access (clients → BN)          | Inbound      | `40981` gRPC/HTTP         | Block retrieval API                                                                                                                                                                                                                                                            |
-| Metrics scrape                       | Inbound      | `16007` HTTP              | Intra-cluster                                                                                                                                                                                                                                                                  |
-| Probes                               | Inbound      | `40983` HTTP/1.1          | Intra-cluster from kubelet                                                                                                                                                                                                                                                     |
-| Backfill (optional)                  | Outbound     | `40980` to peer           | Only if `backfill` plugin present and enabled; targets the peer's Subscribe API port                                                                                                                                                                                           |
+|                 Flow                 |  Direction   |           Port            |                                                       Notes                                                       |
+|--------------------------------------|--------------|---------------------------|-------------------------------------------------------------------------------------------------------------------|
+| Pull from upstream Block Node        | **Outbound** | `40980` to peer (typical) | Mechanism is operator-dependent.                                                                                  |
+| Subscribe (Mirror / downstream → BN) | Inbound      | `40980` gRPC              | Same shape as Tier 1                                                                                              |
+| Status (clients → BN)                | Inbound      | `40982` gRPC              | Subscribers and other clients query the Status API for available blocks, available services, and response latency |
+| Block Access (clients → BN)          | Inbound      | `40981` gRPC/HTTP         | Block retrieval API                                                                                               |
+| Metrics scrape                       | Inbound      | `16007` HTTP              | Intra-cluster                                                                                                     |
+| Probes                               | Inbound      | `40983` HTTP/1.1          | Intra-cluster from kubelet                                                                                        |
+| Backfill (optional)                  | Outbound     | `40980` to peer           | Only if `backfill` plugin present and enabled; targets the peer's Subscribe API port                              |
 
 A Tier 2 Block Node typically declares `SUBSCRIBE_STREAM` and `STATUS` on its registered endpoint, and may add `STATE_PROOF` if it serves proofs to clients.
 
@@ -243,7 +244,9 @@ The Block Node Helm chart does not ship a `NetworkPolicy` template or any other 
 - **Inbound TCP `16007`** from the monitoring system that scrapes Prometheus metrics. Typically intra-cluster; rarely needs external exposure.
 - **Outbound TCP `40980`** to each peer Block Node listed in `BACKFILL_BLOCK_NODE_SOURCES_PATH`, if the `backfill` plugin has been configured with a non-empty sources file. A Block Node without a backfill sources file makes no such outbound connections.
 
-> **Base-chart default (non-LFH deployments).** When per-service ports are not set, replace the per-port rules above with a single **Inbound TCP `40840`** rule covering all services, and **Outbound TCP `40840`** for backfill egress. The kubelet health probe still uses **Inbound TCP `40983`** in this configuration — `health` is the one port that is set explicitly in the base `values.yaml` regardless of whether the LFH profile is active.
+> **Additional outbound connections.** The backfill egress rule above covers the most common explicitly-configured outbound flow. Depending on profile and enabled plugins, a Block Node may also make outbound connections for Mirror Node integration, RSA and TSS bootstrap, and (for the Remote Full History profile) S3-compatible object storage. Solo Provisioner will manage inbound and outbound firewall rules automatically in a future release when traffic shaping support is enabled.
+>
+> **Base-chart default (non-LFH deployments).** When per-service ports are not set, replace the per-port rules above with a single **Inbound TCP `40840`** rule covering all services, and **Outbound TCP `40840`** for backfill egress. The kubelet health probe still uses **Inbound TCP `40983`** and Prometheus metrics still uses **Inbound TCP `16007`** — both ports are set explicitly in the base `values.yaml` regardless of whether the LFH profile is active.
 
 ### Must deny
 
