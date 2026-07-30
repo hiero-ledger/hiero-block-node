@@ -138,6 +138,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     }
 
     @Test
+    @Timeout(120)
     @DisplayName("Autonomous backfill should fill the gaps")
     public void testAutonomousBackfill() throws IOException, InterruptedException {
         launchBlockNodes(
