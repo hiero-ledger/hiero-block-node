@@ -36,13 +36,13 @@ The CN is always the client (initiator). The BN never dials a CN.
 
 The BN can send five response types during an active stream:
 
-|        Response        |                    When sent                    |                What the CN should do                |
-|------------------------|-------------------------------------------------|-----------------------------------------------------|
-| `BlockAcknowledgement` | After block proof received and verified            | Mark block secured and continue streaming the next block |
-| `SkipBlock`            | Another publisher is currently sending this block  | Skip the current block and continue with the next        |
-| `ResendBlock`          | BN needs the CN to resend from a specific block | Resend from the block number specified              |
-| `BehindPublisher`      | BN is behind — CN is too far ahead              | Start a new stream from the block number specified  |
-| `EndOfStream`          | Terminal — stream is closed                     | See the status code and take the appropriate action |
+|        Response        |                     When sent                     |                  What the CN should do                   |
+|------------------------|---------------------------------------------------|----------------------------------------------------------|
+| `BlockAcknowledgement` | After block proof received and verified           | Mark block secured and continue streaming the next block |
+| `SkipBlock`            | Another publisher is currently sending this block | Skip the current block and continue with the next        |
+| `ResendBlock`          | BN needs the CN to resend from a specific block   | Resend from the block number specified                   |
+| `BehindPublisher`      | BN is behind — CN is too far ahead                | Start a new stream from the block number specified       |
+| `EndOfStream`          | Terminal — stream is closed                       | See the status code and take the appropriate action      |
 
 ### What does `DUPLICATE_BLOCK` mean and what should the CN do?
 
@@ -103,10 +103,10 @@ closes.
 
 ### What is the difference between `INVALID_START_BLOCK_NUMBER` and `NOT_AVAILABLE`?
 
-|               Code               |                                                           Meaning                                                           |                              What to do                               |
-|----------------------------------|-----------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
+|               Code               |                                                      Meaning                                                      |                              What to do                               |
+|----------------------------------|-------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
 | `INVALID_START_BLOCK_NUMBER` (4) | `start_block_number` is structurally invalid — below `first_available_block`, or beyond the future-request window | Fix the request parameters; do not retry with the same value          |
-| `NOT_AVAILABLE` (6)              | The block is not available on this BN at this time (e.g. pruned, or node is still backfilling)                              | Retry later with exponential backoff, or query a different Block Node |
+| `NOT_AVAILABLE` (6)              | The block is not available on this BN at this time (e.g. pruned, or node is still backfilling)                    | Retry later with exponential backoff, or query a different Block Node |
 
 ### What should a subscriber do on `NOT_AVAILABLE`?
 
@@ -211,9 +211,9 @@ which Block Node(s) to stream to. Location:
 `blockStream.writerMode` in CN `application.properties` controls where the CN writes
 block data:
 
-|      Mode       |                                     Behaviour                                      |
-|-----------------|------------------------------------------------------------------------------------|
-| `FILE`          | Write to local disk only; Block Nodes receive nothing                                        |
+|      Mode       |                                          Behaviour                                          |
+|-----------------|---------------------------------------------------------------------------------------------|
+| `FILE`          | Write to local disk only; Block Nodes receive nothing                                       |
 | `FILE_AND_GRPC` | Write to local disk **and** stream to configured Block Nodes (recommended before "cutover") |
 | `GRPC`          | Stream to Block Nodes only; no local files written (required after "cutover")               |
 
