@@ -1,0 +1,320 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# WRB Distribution E2E (#3125) — slice 6 (steps 11+12), builds on slices 1-5.
+#
+# Combines the full cumulative flow from wrb-distribution-step89 (steps 1-9)
+# and wrb-distribution-step10 (step 10) — which forked independently from the
+# step67 baseline and don't include each other's changes — into one timeline,
+# then layers the TSS cutover and its validation on top:
+#
+#   1-2.  Solo brings up CN+MN, wrb-cli baseline wrap, live-wrap loop forked.
+#   3-5.  Add BN1/BN2/BN3, EMB=0/0/100_000_000, assert per-BN EMB.
+#   6.    Reconfigure MN1's importer env to also pull live blocks from
+#         BN2/BN3 (bucket source remains as records backup).
+#   7.    Install MN2 v0.157.1 pointing at BN2/BN3 with no bucket reference
+#         and startBlockNumber=0 (pulls from genesis via BN backfill chain).
+#   8.    Reconfigure the 3 CNs to publish blocks to BN3.
+#   9.    Move blocks from the wrb-cli to BN1 (EMB=0): historical bulk-load,
+#         then a live-push loop for everything wrapped afterward.
+#   10.   Reconfigure BN2 and BN3 to set BN1 as a backfill source.
+#   11.   Upgrade the 3 CNs to a TSS/WRAPS-native version (v0.76) via a real
+#         FREEZE_UPGRADE (cn-upgrade-tss.sh) and validate that BN1's
+#         serverStatusDetail reports populated TSS data (ledger id, WRAPS
+#         verification key, non-empty roster) first, then BN2 and BN3
+#         "eventually" (assert-bn-tss-data.sh, longer poll window since they
+#         only see new TSS-bearing blocks via backfill/the BN3 stream).
+#   12.   Stop CN record-file production (stop-cn-record-production.sh,
+#         blockStream.writerMode -> GRPC, simulating the real cutover) and
+#         validate all 3 BNs and both MNs converge on the same
+#         last-available block (assert-cutover-sync.sh).
+#
+# The live-wrap/live-push background workers are stopped BEFORE step 12:
+# once record-file production stops there is nothing new left for wrb-cli to
+# wrap, so the "did the pipeline stay healthy" checks
+# (assert-live-wrap-produced-new-blocks / assert-live-push-produced-new-blocks)
+# run in the pre-cutover observation window instead, proving the CLI-based
+# path was still live right up to the moment of cutover.
+#
+# Usage (locally):
+#   task test:run TEST_FILE=tests/wrb-distribution-steps1-12.yaml \
+#                 TOPOLOGY=wrb-distribution-steps1-12
+
+name: wrb-distribution-steps1-12
+description: "WRB distribution E2E (#3125) — steps 1-12: full BN/MN distribution chain + TSS cutover to v0.76 + CN cutover validation"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Confirm 3 CNs and MN1 are running (no BN yet)"
+    delay: 5
+
+  - id: block-production-wait
+    type: sleep
+    description: "Wait for CNs to produce enough record files"
+    delay: 10
+    args:
+      seconds: 180
+
+  - id: install-and-run-wrb-cli
+    type: command
+    description: "Install wrb-cli, pull records from MinIO, run blocks wrap, assert nested dir"
+    delay: 195
+    timeout: 1200
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/install-and-run-wrb-cli.sh"
+
+  - id: start-live-wrap
+    type: command
+    description: "Fork the live-wrap background worker (polling MinIO + re-wrapping)"
+    delay: 200
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/start-live-wrap.sh"
+
+  # Steps 3-5 — bring BN1/BN2/BN3 online while the live wrap loop continues.
+
+  - id: add-bn1
+    type: command
+    description: "Add BN1 (Tier-0, EMB=0) via solo block node add and wait for Ready"
+    delay: 210
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/add-bn.sh 1"
+
+  - id: add-bn2
+    type: command
+    description: "Add BN2 (Tier-1, EMB=0) via solo block node add and wait for Ready"
+    delay: 220
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/add-bn.sh 2"
+
+  - id: add-bn3
+    type: command
+    description: "Add BN3 (Tier-1, EMB=100_000_000) via solo block node add and wait for Ready"
+    delay: 230
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/add-bn.sh 3"
+
+  - id: assert-bn-emb
+    type: command
+    description: "Assert each BN's earliestManagedBlock matches its topology overlay"
+    delay: 240
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-emb.sh"
+
+  # Steps 6-7 — MN reconfiguration and MN2 install.
+
+  - id: reconfigure-mn1-to-bn-sources
+    type: command
+    description: "Step 6: patch MN1 importer env to pull live blocks from BN2 and BN3"
+    delay: 260
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-mn1-to-bn-sources.sh"
+
+  - id: assert-mn1-consuming-from-bn
+    type: command
+    description: "Assert MN1 is now consuming blocks from a BN source"
+    delay: 320
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-mn-consuming-from-bn.sh mirror-1"
+
+  - id: add-mn2
+    type: command
+    description: "Step 7: install MN2 v0.157.1 pointing at BN2/BN3 with startBlockNumber=0"
+    delay: 340
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/add-mn2.sh"
+
+  - id: assert-mn2-consuming-from-bn
+    type: command
+    description: "Assert MN2 has come up and is consuming blocks from a BN source"
+    delay: 400
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-mn-consuming-from-bn.sh mirror-2"
+
+  # Steps 8-9 — CN publisher reconfigure and wrb-cli push to BN1.
+
+  - id: reconfigure-cn-to-push-bn3
+    type: command
+    description: "Step 8: write block-nodes.json onto each network-node pod pointing at BN3"
+    delay: 420
+    timeout: 180
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-cn-to-push-bn3.sh"
+
+  - id: assert-cn-publishing-to-bn3
+    type: command
+    description: "Assert each CN pod's block-nodes.json references BN3 (address + streamingPort)"
+    delay: 425
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-cn-publishing-to-bn3.sh"
+
+  - id: bulk-load-historical-to-bn1
+    type: command
+    description: "Step 9a: copy wrapped blocks into BN1's historic storage and restart it"
+    delay: 430
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/bulk-load-historical-to-bn1.sh"
+
+  - id: assert-bn1-historical-backfill-landed
+    type: command
+    description: "Assert BN1 reports firstAvailableBlock=0 and a real lastAvailableBlock after bulk-load"
+    delay: 435
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn1-historical-backfill-landed.sh"
+
+  - id: start-live-push
+    type: command
+    description: "Step 9b: fork the live-push background worker (blocks push, wrappedBlocks -> BN1)"
+    delay: 440
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/start-live-push.sh"
+
+  # Step 10 — BN-to-BN backfill reconfiguration.
+
+  - id: reconfigure-bn2-backfill
+    type: command
+    description: "Step 10: reconfigure BN2 to set BN1 as a backfill source"
+    delay: 460
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-backfill.sh 2"
+
+  - id: reconfigure-bn3-backfill
+    type: command
+    description: "Step 10: reconfigure BN3 to set BN1 as a backfill source"
+    delay: 470
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-backfill.sh 3"
+
+  - id: assert-bn-backfill-source
+    type: command
+    description: "Assert BN2 and BN3 are both configured to backfill from BN1"
+    delay: 480
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-backfill-source.sh 2 3"
+
+  # Pre-cutover observation window — prove the wrb-cli live-wrap/live-push
+  # pipeline is still healthy right up to the moment of cutover, then tear
+  # the workers down (nothing left for them to do once step 12 stops CN
+  # record-file production).
+
+  - id: pre-cutover-observation-window
+    type: sleep
+    description: "Let the live wrap/push loops pick up records produced during steps 8-10"
+    delay: 500
+    args:
+      seconds: 180
+
+  - id: assert-live-wrap-produced-new-blocks
+    type: command
+    description: "Assert live-wrap kept running through steps 8-10"
+    delay: 685
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-live-wrap-produced-new-blocks.sh"
+
+  - id: assert-live-push-produced-new-blocks
+    type: command
+    description: "Assert the live-push loop kept running through steps 8-10"
+    delay: 690
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-live-push-produced-new-blocks.sh"
+
+  - id: stop-live-push
+    type: command
+    description: "Tear down the live-push background worker"
+    delay: 695
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/stop-live-push.sh"
+
+  - id: stop-live-wrap
+    type: command
+    description: "Tear down the live-wrap background worker"
+    delay: 700
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
+
+  # Step 11 — TSS cutover: upgrade the CN to a TSS/WRAPS-native version and
+  # validate BN1 (primary), then BN2/BN3 ("eventually"), reflect TSS data.
+
+  - id: cn-upgrade-tss
+    type: command
+    description: "Step 11: upgrade the 3 CNs to v0.76 (TSS/WRAPS-native) via a FREEZE_UPGRADE"
+    delay: 720
+    # Generous: prepares an upgrade zip, sends+waits on a real FREEZE_UPGRADE
+    # transaction, then restarts and re-Readies 3 CN pods.
+    timeout: 900
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/cn-upgrade-tss.sh v0.76.0"
+
+  - id: assert-bn1-tss-data
+    type: command
+    description: "Step 11: assert BN1's serverStatusDetail reports populated TSS data"
+    delay: 1630
+    timeout: 200
+    args:
+      script: "POLL_TIMEOUT=180 ${SCRIPT_DIR}/wrb-distribution/assert-bn-tss-data.sh 1"
+
+  - id: assert-bn2-bn3-tss-data
+    type: command
+    description: "Step 11: assert BN2 and BN3 'eventually' report populated TSS data"
+    delay: 1840
+    timeout: 450
+    args:
+      script: "POLL_TIMEOUT=420 ${SCRIPT_DIR}/wrb-distribution/assert-bn-tss-data.sh 2 3"
+
+  # Step 12 — CN cutover: stop record-file production and validate every BN
+  # and MN converges on the same last-available block.
+
+  - id: stop-cn-record-production
+    type: command
+    description: "Step 12: set blockStream.writerMode=GRPC on all 3 CNs and restart (simulate cutover)"
+    delay: 2300
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/stop-cn-record-production.sh"
+
+  - id: assert-cutover-sync
+    type: command
+    description: "Step 12: assert BN1/BN2/BN3 and MN1/MN2 converge on the same last-available block"
+    delay: 2910
+    timeout: 350
+    args:
+      script: "POLL_TIMEOUT=300 ${SCRIPT_DIR}/wrb-distribution/assert-cutover-sync.sh"
+
+  - id: final-status
+    type: network-status
+    description: "Post-test network status (should show BN1/BN2/BN3, MN1 + MN2 up, CNs on v0.76)"
+    delay: 3270
+
+# BN + MN health is asserted implicitly by:
+#   * add-bn.sh's / add-mn2.sh's kubectl wait --for=condition=Ready
+#   * assert-bn-emb.sh / assert-mn-consuming-from-bn.sh / assert-bn-backfill-source.sh
+#     exec/curl into pods
+#   * cn-upgrade-tss.sh / stop-cn-record-production.sh each wait for CN pods
+#     Ready after their respective restarts
+# Explicit target-block-node assertions here would fail the runner's
+# topology-target validation (block-node-N / mirror-2 aren't in the
+# deploy-time topology).
+assertions:
+  - id: no-errors
+    type: no-errors
+    description: "No errors in Block Node logs"
+    target: all
