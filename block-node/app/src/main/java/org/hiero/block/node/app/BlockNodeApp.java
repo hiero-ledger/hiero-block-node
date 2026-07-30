@@ -687,8 +687,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             Files.deleteIfExists(filePath);
             Files.createLink(filePath, tmp);
             Files.deleteIfExists(tmp);
-        } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to persist block ranges to %s".formatted(filePath), e);
+        } catch (IOException | UnsupportedOperationException e) {
+            // UnsupportedOperationException (hard links unsupported) is not an IOException subtype,
+            // so it must be caught here or it silently escapes, leaving the .tmp file orphaned.
+            LOGGER.log(WARNING, "Failed to persist block ranges to {0}: {1}", filePath, e.getMessage());
         }
     }
 

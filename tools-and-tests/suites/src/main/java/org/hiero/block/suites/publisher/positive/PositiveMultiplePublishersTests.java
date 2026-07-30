@@ -138,6 +138,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     }
 
     @Test
+    @Timeout(120)
     @DisplayName("Autonomous backfill should fill the gaps")
     public void testAutonomousBackfill() throws IOException, InterruptedException {
         launchBlockNodes(
@@ -167,6 +168,11 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         startSimulatorInstanceWithErrorResponse(secondSimulator);
         Thread.sleep(3000);
         deleteBlocks(0, 3);
+        // Remove block-ranges.json so the node re-discovers its stored range from the filesystem
+        // on restart. Without this, the node would read the stale "stored: 0-6" entry and the
+        // backfill scanner would see no gap — never fetching the deleted blocks.
+        execInContainerWithRetry(
+                blockNodeContainers.get(0), "rm", "-f", "/opt/hiero/block-node/application-state/block-ranges.json");
         BlockResponse block0Deleted = getBlock(blockAccessStubs.get(8082), 0);
         BlockResponse block1Deleted = getBlock(blockAccessStubs.get(8082), 1);
         BlockResponse block2Deleted = getBlock(blockAccessStubs.get(8082), 2);
@@ -175,17 +181,38 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         assertEquals(NOT_FOUND, block2Deleted.getStatus());
 
         restartBlockNode(0);
-        Thread.sleep(9000);
-
-        // pre-define response variables for simplicity.
-        BlockResponse expectedBlock = null;
-        long blockNumber = -1;
+        awaitBackfilledBlocks(blockAccessStubs.get(8082), 0, 1, 2);
 
         getAndAssertSingleBlock(blockAccessStubs, 0);
         getAndAssertSingleBlock(blockAccessStubs, 1);
         getAndAssertSingleBlock(blockAccessStubs, 2);
 
         teardownBlockNodes();
+    }
+
+    /**
+     * Polls until every requested block number returns {@code SUCCESS} from the given stub, or
+     * throws {@link AssertionError} if the deadline (60 s) is exceeded. This replaces a fixed
+     * sleep so the test finishes as soon as backfill completes rather than always waiting the
+     * maximum.
+     */
+    private static void awaitBackfilledBlocks(final BlockAccessServiceBlockingStub stub, final long... blockNumbers)
+            throws InterruptedException {
+        final long deadlineMs = System.currentTimeMillis() + 60_000;
+        while (true) {
+            boolean allPresent = true;
+            for (long blockNumber : blockNumbers) {
+                if (getBlock(stub, blockNumber).getStatus() != SUCCESS) {
+                    allPresent = false;
+                    break;
+                }
+            }
+            if (allPresent) return;
+            if (System.currentTimeMillis() >= deadlineMs) {
+                throw new AssertionError("Backfill did not complete within 60 s; blocks still missing from node");
+            }
+            Thread.sleep(1_000);
+        }
     }
 
     private static void getAndAssertSingleBlock(

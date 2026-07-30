@@ -4,13 +4,19 @@ package org.hiero.block.suites;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
 import org.hiero.block.api.protoc.BlockNodeServiceGrpc;
 import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
@@ -78,6 +84,12 @@ public abstract class BaseSuite {
 
     private static final String PORT_BINDING_FORMAT = "%d:%d";
 
+    /** Must match {@code ApplicationStateConfig}'s default application-state directory. */
+    private static final String APPLICATION_STATE_CONTAINER_PATH = "/opt/hiero/block-node/application-state";
+
+    /** Host dirs created by {@link #createHostBindDir}, deleted in teardown. */
+    private static final List<Path> boundHostDirs = new ArrayList<>();
+
     private static Network network;
 
     /**
@@ -123,6 +135,7 @@ public abstract class BaseSuite {
         if (channel != null) {
             channel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
         }
+        deleteBoundHostDirs();
     }
 
     /**
@@ -141,6 +154,7 @@ public abstract class BaseSuite {
         channels.clear();
         blockAccessStubs.clear();
         blockServiceStubs.clear();
+        deleteBoundHostDirs();
     }
 
     /**
@@ -276,6 +290,7 @@ public abstract class BaseSuite {
                 .withEnv("HEALTH_PORT", String.valueOf(blockNodeHealthPort))
                 .withEnv("JAVA_TOOL_OPTIONS", "-Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0")
                 .withFileSystemBind(getPluginsDir(), pluginsContainerPath)
+                .withFileSystemBind(createHostBindDir("bn-application-state"), APPLICATION_STATE_CONTAINER_PATH)
                 // Replacing docker-specific HEALTHCHECK command with runtime-agnostic equivalent:
                 // the image HEALTHCHECK is not honored by all container runtimes (Podman builds OCI
                 // images, which drop HEALTHCHECK), so wait on the health endpoint over HTTP instead.
@@ -312,6 +327,7 @@ public abstract class BaseSuite {
                         "JAVA_TOOL_OPTIONS",
                         "'-Djava.util.logging.config.file=/resources/logging.properties' -Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0")
                 .withFileSystemBind(getPluginsDir(), pluginsContainerPath)
+                .withFileSystemBind(createHostBindDir("bn-application-state"), APPLICATION_STATE_CONTAINER_PATH)
                 .withFileSystemBind(
                         Paths.get("src/main/resources/block-nodes.json")
                                 .toAbsolutePath()
@@ -395,5 +411,42 @@ public abstract class BaseSuite {
                     + "(e.g., ./gradlew :suites:runSuites) which sets this automatically.");
         }
         return pluginsDir;
+    }
+
+    /**
+     * Creates a fresh host directory to bind-mount in place of a container data directory, so it
+     * isn't written into the container's own copy-on-write layer. World-writable since the
+     * container runs as a non-root user.
+     *
+     * @param prefix a short prefix for the temp directory name, for debugging only
+     * @return the absolute path to a new, empty, world-writable host directory
+     */
+    private static String createHostBindDir(String prefix) {
+        try {
+            Path dir = Files.createTempDirectory(prefix);
+            Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwxrwxrwx"));
+            boundHostDirs.add(dir);
+            return dir.toString();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Best-effort recursive delete of dirs created by {@link #createHostBindDir}. */
+    private static void deleteBoundHostDirs() {
+        for (Path dir : boundHostDirs) {
+            try (Stream<Path> paths = Files.walk(dir)) {
+                paths.sorted(Comparator.reverseOrder()).forEach(p -> {
+                    try {
+                        Files.deleteIfExists(p);
+                    } catch (IOException ignored) {
+                        // best-effort cleanup
+                    }
+                });
+            } catch (IOException ignored) {
+                // best-effort cleanup
+            }
+        }
+        boundHostDirs.clear();
     }
 }
