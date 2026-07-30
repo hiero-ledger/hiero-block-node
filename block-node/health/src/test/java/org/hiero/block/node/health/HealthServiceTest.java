@@ -270,8 +270,11 @@ class HealthServiceTest {
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
         healthServicePlugin.init(context, serviceBuilder);
 
+        // Helidon strips the /statusz mount prefix before handleStatusz sees the path (it was
+        // registered as a wildcard route under that mount), so the real request path here is
+        // "/inbound", not "/statusz/inbound" - see HealthServicePlugin#INBOUND_PATH.
         TestServerResponse response = new TestServerResponse();
-        healthServicePlugin.handleStatusz(new TestServerRequest("/statusz/inbound"), response);
+        healthServicePlugin.handleStatusz(new TestServerRequest("/inbound"), response);
 
         assertEquals(200, response.sentStatus());
         assertEquals("application/json", response.contentType());
@@ -291,7 +294,7 @@ class HealthServiceTest {
         healthServicePlugin.init(context, serviceBuilder);
 
         TestServerResponse response = new TestServerResponse();
-        healthServicePlugin.handleStatusz(new TestServerRequest("/statusz/outbound"), response);
+        healthServicePlugin.handleStatusz(new TestServerRequest("/outbound"), response);
 
         assertEquals(200, response.sentStatus());
         assertEquals("application/json", response.contentType());
@@ -311,7 +314,7 @@ class HealthServiceTest {
         healthServicePlugin.init(context, serviceBuilder);
 
         TestServerResponse response = new TestServerResponse();
-        healthServicePlugin.handleStatusz(new TestServerRequest("/statusz/bogus"), response);
+        healthServicePlugin.handleStatusz(new TestServerRequest("/bogus"), response);
 
         assertEquals(404, response.sentStatus());
         assertTrue(response.hasHeader(CONNECTION_CLOSE));
@@ -382,7 +385,7 @@ class HealthServiceTest {
         healthServicePlugin.handleLivez(serverRequest, serverResponse);
 
         // when
-        healthServicePlugin.handleStatusz(new TestServerRequest("/statusz/bogus"), new TestServerResponse());
+        healthServicePlugin.handleStatusz(new TestServerRequest("/bogus"), new TestServerResponse());
 
         // then: statusz serves statistics, not health checks, so it leaves the counter unchanged
         assertEquals(1, metricsExporter.getMetricValue(METRIC_HEALTH_REQUESTS.name()));

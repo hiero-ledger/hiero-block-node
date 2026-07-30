@@ -110,10 +110,13 @@ class HealthConnectionCloseTest
     @Test
     @DisplayName("statusz responses also send Connection: close on the wire")
     void statuszSendsConnectionClose() throws IOException {
-        // The statusz handler sets Connection: close on every branch (JSON 200 and the 404/500
-        // fallbacks); JSON 200 dispatch is covered by HealthServiceTest. Here we only assert the
-        // header contract survives to a real socket through the statusz handler.
+        // Real routing matters here: HealthServiceTest exercises handleStatusz directly with a
+        // stubbed ServerRequest, so it never proves Helidon actually delivers this path to the
+        // handler. This test goes through the real WebServer, so it also asserts the status code
+        // (regression: /statusz/inbound previously 404'd because the mount prefix Helidon strips
+        // before the wildcard handler runs was still baked into the path comparison).
         final HttpResponse response = fetch("/statusz/inbound");
+        assertEquals(200, response.statusCode(), response::head);
         assertConnectionClose(response);
     }
 
