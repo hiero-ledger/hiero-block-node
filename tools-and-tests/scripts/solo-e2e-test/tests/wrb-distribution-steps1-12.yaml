@@ -16,12 +16,26 @@
 #   9.    Move blocks from the wrb-cli to BN1 (EMB=0): historical bulk-load,
 #         then a live-push loop for everything wrapped afterward.
 #   10.   Reconfigure BN2 and BN3 to set BN1 as a backfill source.
-#   11.   Upgrade the 3 CNs to a TSS/WRAPS-native version (v0.76) via a real
-#         FREEZE_UPGRADE (cn-upgrade-tss.sh) and validate that BN1's
-#         serverStatusDetail reports populated TSS data (ledger id, WRAPS
-#         verification key, non-empty roster) first, then BN2 and BN3
-#         "eventually" (assert-bn-tss-data.sh, longer poll window since they
-#         only see new TSS-bearing blocks via backfill/the BN3 stream).
+#   11.   Upgrade the 3 CNs to a TSS/WRAPS-native version (>= v0.76, resolved
+#         to the latest published rc — see cn-upgrade-tss.sh; v0.76.0 GA
+#         itself isn't published yet) via a real FREEZE_UPGRADE
+#         (cn-upgrade-tss.sh), then assert BN2 and BN3's serverStatusDetail
+#         report populated TSS data (assert-bn-tss-data.sh). BN1 is NOT
+#         checked here: TssData is extracted only while verifying block 0
+#         (block-verification's BlockHasher, gated on blockNumber == 0), and
+#         BN1's copy of block 0 arrived via bulk-load-historical-to-bn1.sh's
+#         direct-to-storage copy (BlockFileHistoricPlugin's startup scan),
+#         which never runs the verification pipeline. BN2 and BN3 instead
+#         backfill block 0 from BN1 (step 10) — backfilled blocks DO go
+#         through the same BlockHasher/VerificationServicePlugin pipeline as
+#         live-published ones (confirmed via VerificationServicePluginTest /
+#         BlockHasherTest, which parametrize over BlockSource.PUBLISHER and
+#         BlockSource.BACKFILL identically), so each independently extracts
+#         its own TssData from BN1's block 0 regardless of BN1's own state.
+#         BN3's EMB=100_000_000 does not exempt it from this: the backfill
+#         scan floor is the separate `backfill.startBlock` config (default 0,
+#         never overridden by reconfigure-bn-backfill.sh), not EMB, so BN3
+#         backfills all the way down to block 0 too.
 #   12.   Stop CN record-file production (stop-cn-record-production.sh,
 #         blockStream.writerMode -> GRPC, simulating the real cutover) and
 #         validate all 3 BNs and both MNs converge on the same
@@ -39,7 +53,7 @@
 #                 TOPOLOGY=wrb-distribution-steps1-12
 
 name: wrb-distribution-steps1-12
-description: "WRB distribution E2E (#3125) — steps 1-12: full BN/MN distribution chain + TSS cutover to v0.76 + CN cutover validation"
+description: "WRB distribution E2E (#3125) — steps 1-12: full BN/MN distribution chain + TSS cutover to a WRAPS-native CN rc + CN cutover validation"
 
 events:
   - id: initial-status
@@ -206,6 +220,23 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-backfill-source.sh 2 3"
 
+  # reconfigure-bn-backfill.sh patches BN2's and BN3's StatefulSet pod
+  # template (to add the backfill-sources volume/mount), which the
+  # StatefulSet controller responds to with its own automatic rolling
+  # restart of those pods (see that script's own header comment). A
+  # `kubectl port-forward svc/<name>` targets a specific backing pod at
+  # connection time, so add-bn.sh's BN2/BN3 forwards (established long before
+  # this rollout) silently die once their pods are replaced — unlike
+  # bulk-load-historical-to-bn1.sh, which explicitly re-forwards after its
+  # own BN1 restart, nothing re-establishes BN2/BN3's. Steps 11-12 are the
+  # first things in this suite to grpcurl BN2/BN3 through those ports (all
+  # earlier post-backfill checks used kubectl exec, which doesn't care),
+  # so refresh every port-forward here before relying on any of them.
+  - id: refresh-port-forwards-after-backfill-rollout
+    type: port-forward
+    description: "Re-forward all BN/MN ports after BN2/BN3's backfill-triggered pod rollout"
+    delay: 485
+
   # Pre-cutover observation window — prove the wrb-cli live-wrap/live-push
   # pipeline is still healthy right up to the moment of cutover, then tear
   # the workers down (nothing left for them to do once step 12 stops CN
@@ -250,31 +281,25 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
 
-  # Step 11 — TSS cutover: upgrade the CN to a TSS/WRAPS-native version and
-  # validate BN1 (primary), then BN2/BN3 ("eventually"), reflect TSS data.
+  # Step 11 — TSS cutover: upgrade the CN to a TSS/WRAPS-native version, then
+  # assert BN2 and BN3 report populated TSS data (see the header comment for
+  # why BN1 is not checked — its blocks arrive via a path that bypasses the
+  # verification pipeline TssData extraction depends on).
 
   - id: cn-upgrade-tss
     type: command
-    description: "Step 11: upgrade the 3 CNs to v0.76 (TSS/WRAPS-native) via a FREEZE_UPGRADE"
+    description: "Step 11: upgrade the 3 CNs to the latest rc (TSS/WRAPS-native, >= v0.76) via a FREEZE_UPGRADE"
     delay: 720
     # Generous: prepares an upgrade zip, sends+waits on a real FREEZE_UPGRADE
     # transaction, then restarts and re-Readies 3 CN pods.
     timeout: 900
     args:
-      script: "${SCRIPT_DIR}/wrb-distribution/cn-upgrade-tss.sh v0.76.0"
-
-  - id: assert-bn1-tss-data
-    type: command
-    description: "Step 11: assert BN1's serverStatusDetail reports populated TSS data"
-    delay: 1630
-    timeout: 200
-    args:
-      script: "POLL_TIMEOUT=180 ${SCRIPT_DIR}/wrb-distribution/assert-bn-tss-data.sh 1"
+      script: "${SCRIPT_DIR}/wrb-distribution/cn-upgrade-tss.sh rc"
 
   - id: assert-bn2-bn3-tss-data
     type: command
-    description: "Step 11: assert BN2 and BN3 'eventually' report populated TSS data"
-    delay: 1840
+    description: "Step 11: assert BN2 and BN3 report populated TSS data (independently extracted via backfill of block 0 from BN1)"
+    delay: 1630
     timeout: 450
     args:
       script: "POLL_TIMEOUT=420 ${SCRIPT_DIR}/wrb-distribution/assert-bn-tss-data.sh 2 3"
@@ -300,7 +325,7 @@ events:
 
   - id: final-status
     type: network-status
-    description: "Post-test network status (should show BN1/BN2/BN3, MN1 + MN2 up, CNs on v0.76)"
+    description: "Post-test network status (should show BN1/BN2/BN3, MN1 + MN2 up, CNs on the upgraded rc)"
     delay: 3270
 
 # BN + MN health is asserted implicitly by:
