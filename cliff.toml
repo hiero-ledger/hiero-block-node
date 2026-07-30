@@ -14,6 +14,11 @@ header = """
 > ✏️ _Add a 2–4 sentence summary of the key changes in this release, then delete this line._
 
 """
+# Renders GitHub's native "## What's Changed" format:
+# - group_order fixes section order (Tera's group_by alone doesn't guarantee one)
+# - each commit: "<title> by @user in <PR link>", falling back to the parsed message
+#   when a PR/author can't be resolved via [remote.github]
+# - ends with a Full Changelog compare link
 body = """
 {% set repo_url = "https://github.com/hiero-ledger/hiero-block-node" -%}
 {% set group_order = ["⭐ New Features", "🐛 Bug Fixes", "🔨 Tests", "📝 Documentation", "⚡ Performance", "♻️ Refactoring", "🔧 Build & Maintenance", "⬆️ Dependency Upgrades"] -%}
