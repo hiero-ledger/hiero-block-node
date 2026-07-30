@@ -10,10 +10,13 @@
 # in solo-deploy-network.sh passes --tss true plus the WRAPS v1.0.0 proving
 # keys via --wraps-key-path, needed by CN v0.75.x's TSS_LIB_WRAPS_ARTIFACTS_PATH
 # loading path — see that script's comment on WRAPS_DOWNLOAD_URL). This step
-# upgrades the running network to CN_UPGRADE_VERSION (default v0.76.0), the
-# first release where the WRAPS proving key loads natively at genesis via
-# tss.wrapsProvingKeyPath instead of the v0.75.x workaround — i.e. this is the
-# real "TSS cutover" issue #3125 step 11 describes, not a fresh TSS enablement.
+# upgrades the running network to CN_UPGRADE_VERSION (default "rc", resolved
+# to the latest published release-candidate tag — currently v0.77.0-rc.3, but
+# this drifts forward as new rc's ship). v0.76 was the first release where the
+# WRAPS proving key loads natively at genesis via tss.wrapsProvingKeyPath
+# instead of the v0.75.x workaround — i.e. any CN_UPGRADE_VERSION >= v0.76 is
+# the real "TSS cutover" issue #3125 step 11 describes, not a fresh TSS
+# enablement.
 #
 # `solo consensus network upgrade` handles the whole sequence itself (prepares
 # an upgrade zip, sends the FREEZE_UPGRADE transaction, waits for the freeze,
@@ -22,14 +25,15 @@
 #
 # Usage:
 #     cn-upgrade-tss.sh [<upgrade-version>]
-#     cn-upgrade-tss.sh v0.76.0
+#     cn-upgrade-tss.sh rc
+#     cn-upgrade-tss.sh v0.76.0-rc.6
 #
 # Reads:
 #   NAMESPACE           (default "solo-network")
 #   CLUSTER_REFERENCE   (default "kind-solo-cluster")
 #   DEPLOYMENT          (default "deployment-solo")
 #   NODE_ALIASES        (default "node1,node2,node3")
-#   CN_UPGRADE_VERSION  (default "v0.76.0"; overridden by $1 if given)
+#   CN_UPGRADE_VERSION  (default "rc"; overridden by $1 if given)
 #   READY_TIMEOUT       (default 300)
 
 set -euo pipefail
@@ -38,11 +42,32 @@ set -euo pipefail
 : "${CLUSTER_REFERENCE:=kind-solo-cluster}"
 : "${DEPLOYMENT:=deployment-solo}"
 : "${NODE_ALIASES:=node1,node2,node3}"
-CN_UPGRADE_VERSION="${1:-${CN_UPGRADE_VERSION:-v0.76.0}}"
+# Default "rc": as of writing, v0.76.0 GA has not been published to
+# builds.hedera.com (Solo's actual artifact source for `network upgrade` —
+# only v0.76.0-rc.1..rc.6 exist there, confirmed via `solo consensus network
+# upgrade --upgrade-version v0.76.0` failing with SOLO-5068 "Upgrade version
+# v0.76.0 does not exist"). A hardcoded rc tag would go stale the moment a
+# newer rc ships or v0.76.0 GA is finally cut, so this resolves the same way
+# resolve-versions.sh resolves the initial CN deploy version, below.
+CN_UPGRADE_VERSION="${1:-${CN_UPGRADE_VERSION:-rc}}"
 READY_TIMEOUT="${READY_TIMEOUT:-300}"
 
 log() { echo "[wrb-dist-cn-upgrade] $*"; }
 fail() { echo "[wrb-dist-cn-upgrade] ERROR: $*" >&2; exit 1; }
+
+# Resolve 'rc'/'latest' keywords to an actual published tag by reusing
+# resolve-versions.sh's CN resolution (get_latest_rc_release / get_latest_release)
+# instead of duplicating that logic. The dummy v0.1.0 values for mn/bn/relay/tck
+# take the "already a valid tag" fast path in resolve_version (no network call),
+# so this only costs the one GitHub API lookup this script actually needs.
+if [[ "${CN_UPGRADE_VERSION}" == "rc" || "${CN_UPGRADE_VERSION}" == "latest" ]]; then
+    RESOLVE_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/resolve-versions.sh"
+    [[ -x "${RESOLVE_SCRIPT}" ]] || fail "resolve-versions.sh not found at ${RESOLVE_SCRIPT}"
+    resolved=$("${RESOLVE_SCRIPT}" "${CN_UPGRADE_VERSION}" v0.1.0 v0.1.0 v0.1.0 v0.1.0 2>/dev/null | grep '^cn_version=' | cut -d= -f2)
+    [[ -n "${resolved}" ]] || fail "Could not resolve CN_UPGRADE_VERSION keyword '${CN_UPGRADE_VERSION}'"
+    log "Resolved CN_UPGRADE_VERSION '${CN_UPGRADE_VERSION}' -> ${resolved}"
+    CN_UPGRADE_VERSION="${resolved}"
+fi
 
 # Same WRAPS v1.0.0 cache location/contents as solo-deploy-network.sh's
 # ensure_wraps_keys_cached, duplicated here since this script runs standalone
