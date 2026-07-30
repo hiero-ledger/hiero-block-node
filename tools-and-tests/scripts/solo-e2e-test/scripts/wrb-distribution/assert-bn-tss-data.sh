@@ -10,21 +10,26 @@
 # BlockHasher while processing block number 0 (see BlockHasher.java's
 # blockNumber == 0 check) — it is not a general "TSS is active" signal, and it
 # is never populated for a block that arrives through a path that skips
-# verification. In this suite that rules out BN1: BN1's copy of block 0 was
-# written directly into historic storage by bulk-load-historical-to-bn1.sh
-# (picked up by BlockFileHistoricPlugin's startup scan), which never runs the
-# verification pipeline. BN2 and BN3 instead backfill block 0 from BN1
-# (reconfigure-bn-backfill.sh, step 10); backfilled blocks DO go through the
-# same BlockHasher/VerificationServicePlugin pipeline as live-published ones
-# (confirmed via VerificationServicePluginTest / BlockHasherTest, which
-# parametrize identically over BlockSource.PUBLISHER and BlockSource.BACKFILL),
-# so each independently extracts its own TssData from that block regardless of
-# BN1's own (unpopulated) state. Callers should pass BN2/BN3, not BN1 — see
-# wrb-distribution-steps1-12.yaml's step-11 comment for the full reasoning.
+# verification. In this suite BN1's copy of block 0 was written directly into
+# historic storage by bulk-load-historical-to-bn1.sh (picked up by
+# BlockFileHistoricPlugin's startup scan), which never runs the verification
+# pipeline, so BN1 can't extract TssData itself this way. BN2 and BN3 instead
+# backfill block 0 from BN1 (reconfigure-bn-backfill.sh, step 10); backfilled
+# blocks DO go through the same BlockHasher/VerificationServicePlugin
+# pipeline as live-published ones (confirmed via VerificationServicePluginTest
+# / BlockHasherTest, which parametrize identically over BlockSource.PUBLISHER
+# and BlockSource.BACKFILL), so each independently extracts its own TssData
+# from that block regardless of BN1's own state. BN1 is instead configured
+# (reconfigure-bn-roster-bootstrap-tss.sh, also step 10) to pull TssData from
+# BN2/BN3 via the roster-bootstrap-tss plugin's periodic peer-gossip poll, so
+# it does eventually populate too — just strictly after BN2/BN3 do. Callers
+# should check BN2/BN3 before BN1 — see wrb-distribution-steps1-12.yaml's
+# step-11 comment for the full reasoning.
 #
 # Usage:
 #     assert-bn-tss-data.sh <bn-index> [<bn-index> ...]
 #     assert-bn-tss-data.sh 2 3
+#     assert-bn-tss-data.sh 1
 #
 # Reads:
 #   PROTO_PATH     (required — path to extracted protobuf-sources; see
@@ -32,7 +37,8 @@
 #   POLL_INTERVAL  (default 15 seconds between retries)
 #   POLL_TIMEOUT   (default 120 seconds total per target BN; bump this via env
 #                   since backfill needs time to walk all the way back to
-#                   block 0 before either BN can extract TssData)
+#                   block 0 before BN2/BN3 can extract TssData, and BN1 in
+#                   turn needs a roster-bootstrap-tss poll cycle after that)
 
 set -euo pipefail
 
