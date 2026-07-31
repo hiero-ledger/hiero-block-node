@@ -321,6 +321,7 @@ public abstract class BaseSuite {
                 .withEnv("VERSION", blockNodeVersion)
                 .withEnv("BACKFILL_BLOCK_NODE_SOURCES_PATH", config.backfillSourcePath())
                 .withEnv("BACKFILL_INITIAL_DELAY", "5000") // 5 seconds
+                .withEnv("BACKFILL_SCAN_INTERVAL", "10000") // 10 seconds — shorter than the default 60s
                 .withEnv("SERVER_PORT", String.valueOf(blockNodePort))
                 .withEnv(config.envOverrides())
                 .withEnv(

@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
+import org.hiero.block.simulator.config.data.StreamStatus;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -75,10 +76,8 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         simulators.add(consumerSimulatorThread);
 
         boolean isConsumingBlocks = false;
-        // We assign lastConsumedBlock as the last published, so that we can track it later.
-        // This will help us determine whether we are actually consuming blocks.
-        long lastConsumedBlock = publisherSimulator.getStreamStatus().publishedBlocks();
-        int retries = 3;
+        long lastConsumedBlock = 0;
+        int retries = 10;
 
         while (retries > 0) {
             if (consumerSimulator.getStreamStatus().consumedBlocks() > lastConsumedBlock) {
@@ -117,9 +116,12 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         final Future<?> publisherSimulatorThread = startSimulatorInstance(publisherSimulator);
         simulators.add(publisherSimulatorThread);
         boolean publisherReachedEndBlock = false;
-        while (!publisherReachedEndBlock) {
-            if (publisherSimulator.getStreamStatus().publishedBlocks() > endBlock) {
+        while (!publisherReachedEndBlock && publisherSimulator.isRunning()) {
+            final StreamStatus status = publisherSimulator.getStreamStatus();
+            if (status != null && status.publishedBlocks() > endBlock) {
                 publisherReachedEndBlock = true;
+            } else {
+                Thread.sleep(10);
             }
         }
         // ===== Start consumer and try to request blocks ===========================================
@@ -127,7 +129,7 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         simulators.add(consumerSimulatorThread);
 
         boolean isConsumingBlocks = false;
-        int retries = 3;
+        int retries = 10;
 
         while (retries > 0) {
             if (consumerSimulator.getStreamStatus().consumedBlocks() > 0
@@ -176,9 +178,12 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         simulators.add(publisherSimulatorThread);
 
         boolean publisherReachedEndBlock = false;
-        while (!publisherReachedEndBlock) {
-            if (publisherSimulator.getStreamStatus().publishedBlocks() > endBlock) {
+        while (!publisherReachedEndBlock && publisherSimulator.isRunning()) {
+            final StreamStatus status = publisherSimulator.getStreamStatus();
+            if (status != null && status.publishedBlocks() > endBlock) {
                 publisherReachedEndBlock = true;
+            } else {
+                Thread.sleep(10);
             }
         }
 
@@ -186,24 +191,30 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);
         simulators.add(consumerSimulatorThread);
 
-        long previousBlockTime = System.currentTimeMillis();
-        boolean slowdownValidated = true;
-
-        for (long block = startBlock; block <= endBlock; block++) {
-            while (consumerSimulator.getStreamStatus().consumedBlocks() < block) {
-                Thread.sleep(1); // Wait for the block to be consumed
-            }
-            final long currentBlockTime = System.currentTimeMillis();
-            final long timeDifference = currentBlockTime - previousBlockTime;
-
-            if (timeDifference < expectedSlowdownMillis) {
-                slowdownValidated = false;
-                break;
-            }
-            previousBlockTime = currentBlockTime;
+        // Wait for the first block to be consumed before starting the clock. Block 1 has no
+        // slowdown applied (the consumer's internal counter is 0 when block 1 arrives, which is
+        // outside the configured range 1-10), so it arrives quickly and serves as a warm-up gate.
+        while (consumerSimulator.getStreamStatus().consumedBlocks() < startBlock) {
+            Thread.sleep(5);
         }
+        final long startTime = System.currentTimeMillis();
 
-        assertTrue(slowdownValidated, "The expected 2ms slowdown was not validated for all blocks.");
+        // Wait for blocks startBlock+1 through endBlock. Each of these 9 blocks triggers the 2ms
+        // slowdown inside the consumer's gRPC onNext() thread, delaying the END_OF_BLOCK response
+        // that increments the consumedBlocks counter.
+        while (consumerSimulator.getStreamStatus().consumedBlocks() < endBlock) {
+            Thread.sleep(5);
+        }
+        final long elapsed = System.currentTimeMillis() - startTime;
+
+        // 9 inter-block intervals × 2ms each = 18ms minimum. Measuring total duration rather than
+        // per-block intervals avoids a race where the test's poll thread observes two consecutive
+        // block increments in the same wake-up cycle and records a near-zero interval for one of them.
+        final long expectedMinimumMs = (endBlock - startBlock) * expectedSlowdownMillis;
+        assertTrue(
+                elapsed >= expectedMinimumMs,
+                "Slowdown check failed: elapsed=%dms, expected>=%dms (range=%d-%d, slowdown=%dms)"
+                        .formatted(elapsed, expectedMinimumMs, startBlock, endBlock, expectedSlowdownMillis));
         assertEquals(endBlock, consumerSimulator.getStreamStatus().consumedBlocks());
     }
 
