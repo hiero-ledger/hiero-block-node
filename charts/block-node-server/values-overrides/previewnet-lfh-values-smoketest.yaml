@@ -83,15 +83,12 @@ blockNode:
 # Match the main previewnet-lfh-values.yaml's LB shape so this smoke-test
 # variant differs from the main file ONLY in JVM heap + storage sizing.
 #
-# includePluginPorts: true is REQUIRED under the split-port setup below --
-# see the same comment in previewnet-lfh-values.yaml for the full rationale
-# (short version: 40840 alone answers plain HTTP, not gRPC; the split-port
-# setup routes gRPC to per-plugin ports 40980-40984 that this flag exposes
-# on the external Service).
+# Same chart-0.37.1 limitation as the main file: LB only publishes 40840
+# (plain HTTP under the split-port setup). External gRPC probing requires
+# kubectl port-forward against the ClusterIP Service on the plugin port.
 loadBalancer:
     enabled: true
     port: "40840"
-    includePluginPorts: true
     annotations:
         metallb.io/address-pool: public-address-pool
 
