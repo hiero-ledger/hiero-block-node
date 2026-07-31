@@ -37,6 +37,39 @@ fail() { echo "[wrb-dist-stop-cn-records] ERROR: $*" >&2; exit 1; }
 
 CONFIG_PATH="/opt/hgcapp/services-hedera/HapiApp2.0/data/config/application.properties"
 
+# Same WRAPS v1.0.0 cache as cn-upgrade-tss.sh / solo-deploy-network.sh's
+# ensure_wraps_keys_cached. `solo consensus node start` on a TSS-enabled,
+# post-v0.76-upgrade network needs --wraps-key-path on every start (not just
+# at genesis) — omitting it here caused CN logs to show "WrapsProvingKeyVerification
+# - Failed to extract WRAPS proving key archive data/keys/wraps.tar.gz"
+# immediately after this script's restart in CI.
+WRAPS_DOWNLOAD_URL="https://builds.hedera.com/tss/hiero/wraps/v1.0/wraps-v1.0.0.tar.gz"
+WRAPS_KEYS_DIR="${HOME}/.solo/cache/wraps-v1.0.0-keys"
+WRAPS_KEY_FILES="decider_pp.bin decider_vp.bin nova_pp.bin nova_vp.bin"
+
+ensure_wraps_keys_cached() {
+    local tarball="${WRAPS_KEYS_DIR}/wraps-v1.0.0.tar.gz"
+    local f need_extract="false"
+    for f in ${WRAPS_KEY_FILES}; do
+        [[ -f "${WRAPS_KEYS_DIR}/${f}" ]] || need_extract="true"
+    done
+
+    if [[ ! -f "${tarball}" ]]; then
+        log "Caching WRAPS v1.0.0 proving key tarball (one-time download, ~2 GB)..."
+        mkdir -p "${WRAPS_KEYS_DIR}"
+        curl -fSL "${WRAPS_DOWNLOAD_URL}" -o "${tarball}" || fail "Failed to download WRAPS v1.0.0"
+        need_extract="true"
+    fi
+    if [[ "${need_extract}" == "true" ]]; then
+        tar -xzf "${tarball}" -C "${WRAPS_KEYS_DIR}" || fail "Failed to extract WRAPS v1.0.0 archive"
+    fi
+    for f in ${WRAPS_KEY_FILES}; do
+        [[ -f "${WRAPS_KEYS_DIR}/${f}" ]] || fail "WRAPS v1.0.0 key ${f} missing after extract"
+    done
+}
+
+ensure_wraps_keys_cached
+
 IFS=',' read -ra aliases <<< "${NODE_ALIASES}"
 
 log "Stopping consensus nodes (${NODE_ALIASES}) to edit writerMode..."
@@ -59,6 +92,7 @@ log "Starting consensus nodes back up..."
 solo consensus node start \
     --deployment "${DEPLOYMENT}" \
     --node-aliases "${NODE_ALIASES}" \
+    --wraps-key-path "${WRAPS_KEYS_DIR}" \
     -q \
     || fail "solo consensus node start failed"
 
