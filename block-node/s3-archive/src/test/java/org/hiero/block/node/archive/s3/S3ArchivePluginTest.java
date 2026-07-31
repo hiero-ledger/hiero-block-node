@@ -32,10 +32,12 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -110,12 +112,13 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
     }
 
     @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
     @DisplayName("ArchivePlugin should upload a tar file for single batch of blocks")
     void startWithSingleBatch(@TempDir Path tempDir) throws IOException, InterruptedException {
         // create 10 sample blocks, this should trigger the plugin to archive them
         sendBlocks(START_TIME, 0, 9);
-        // await archive task to complete
-        parkNanos(TASK_AWAIT_NANOS);
+        // await all archive uploads to complete (deterministic; no fixed sleep)
+        awaitArchiveUploadsComplete();
         // send another persisted notification to trigger the executor service
         // cleanup and ensure the task ran
         plugin.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.UNKNOWN));
@@ -175,12 +178,13 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
     }
 
     @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
     @DisplayName("ArchivePlugin should upload multiple tar files for multiple batches of blocks")
     void doTenBatches() {
         // create 100 sample blocks, this should trigger the plugin to archive them
         sendBlocks(START_TIME, 0, 99);
-        // await archive task to complete
-        parkNanos(TASK_AWAIT_NANOS * 3);
+        // await all archive uploads to complete (deterministic; no fixed sleep)
+        awaitArchiveUploadsComplete();
         // send another persisted notification to trigger the executor service
         // cleanup and ensure the task ran
         plugin.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.UNKNOWN));
@@ -326,6 +330,27 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
                     .build());
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    /// Blocks until every archive `UploadTask` submitted so far has finished.
+    ///
+    /// The plugin runs uploads on the single, test-owned executor (`testThreadPoolManager.executor()`)
+    /// in FIFO order, and all batch uploads for the blocks just sent are submitted synchronously while
+    /// those blocks are delivered. A no-op barrier task on that same executor therefore runs only after
+    /// every prior upload — including the final "latest archived block" write to the bucket — has
+    /// completed. Deterministic; replaces a fixed sleep that flaked when uploads were slower than the
+    /// guessed wait.
+    private void awaitArchiveUploadsComplete() {
+        try (ExecutorService executor = testThreadPoolManager.executor()) {
+            executor.submit(() -> {}).get(20, TimeUnit.SECONDS);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while awaiting archive uploads", e);
+        } catch (final TimeoutException e) {
+            throw new RuntimeException("Archive uploads did not complete in time", e);
+        } catch (final ExecutionException e) {
+            throw new RuntimeException("Archive uploads did not complete due to exception", e);
         }
     }
 
