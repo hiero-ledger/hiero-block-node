@@ -15,10 +15,14 @@
 #   8.    Reconfigure the 3 CNs to publish blocks to BN3.
 #   9.    Move blocks from the wrb-cli to BN1 (EMB=0): historical bulk-load,
 #         then a live-push loop for everything wrapped afterward.
-#   10.   Reconfigure BN2 and BN3 to set BN1 as a backfill source. Also
-#         reconfigure BN1 to pull TssData from BN2/BN3 via the
+#   10.   Reconfigure BN2 and BN3 to set BN1 as a backfill source. BN1 is
+#         also reconfigured to pull TssData from BN2/BN3 via the
 #         roster-bootstrap-tss plugin (reconfigure-bn-roster-bootstrap-tss.sh)
-#         — see the note below on why BN1 needs this.
+#         — see the note below on why BN1 needs this — but that happens
+#         much earlier in the timeline (right after all 3 BNs exist, before
+#         step 9's bulk-load-historical-to-bn1.sh restart) to keep BN1's
+#         restarts spaced apart rather than stacked back-to-back; see that
+#         event's own comment for why.
 #   11.   Upgrade the 3 CNs to a TSS/WRAPS-native version (>= v0.76, resolved
 #         to the latest published rc — see cn-upgrade-tss.sh; v0.76.0 GA
 #         itself isn't published yet) via a real FREEZE_UPGRADE
@@ -127,6 +131,58 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-emb.sh"
 
+  # BN1 can never extract TssData itself (its blocks arrive via a path that
+  # bypasses verification — see assert-bn-tss-data.sh's header comment), but
+  # BN2 and BN3 will once they backfill from BN1 (step 10, further below).
+  # Point BN1 at both via the roster-bootstrap-tss plugin (already in every
+  # BN's default plugins.names, just inactive until configured) so it
+  # eventually picks up the same TssData by peer gossip instead.
+  #
+  # Done here — right after all 3 BNs exist and before BN1's later
+  # bulk-load-historical-to-bn1.sh restart (step 9a, ~190s further on) —
+  # rather than right before step 10's BN2/BN3 backfill reconfiguration
+  # (where it originally lived). BN1 already has a documented history of
+  # OOM under memory pressure (see overrides/bn-memory.yaml's own comment on
+  # heap exhaustion around block ~428 of sustained streaming); by the time
+  # step 10 runs, BN1 has just finished loading however many blocks the CN
+  # produced during the whole test so far via bulk-load, and immediately
+  # patching+rolling it again minutes (or, worse, mere seconds) after that
+  # restart settles is unnecessary added churn on a node already carrying
+  # the most load of the three. Reconfiguring now instead means this
+  # rollout and the later bulk-load rollout are minutes apart, each with
+  # room to settle, rather than stacked back-to-back.
+
+  - id: reconfigure-bn1-roster-bootstrap-tss
+    type: command
+    description: "Configure BN1 to pull TssData from BN2/BN3 via roster-bootstrap-tss"
+    delay: 245
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-roster-bootstrap-tss.sh 1 2 3"
+
+  - id: assert-bn1-roster-bootstrap-tss-source
+    type: command
+    description: "Assert BN1 is configured to pull TssData from BN2 and BN3"
+    delay: 250
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-roster-bootstrap-tss-source.sh 1 2 3"
+
+  # reconfigure-bn-roster-bootstrap-tss.sh patches BN1's StatefulSet pod
+  # template (to add the sources-file volume/mount), which the StatefulSet
+  # controller responds to with its own automatic rolling restart of that
+  # pod (see that script's own header comment). A `kubectl port-forward
+  # svc/<name>` targets a specific backing pod at connection time, so
+  # add-bn.sh's BN1 forward (established long before this rollout) silently
+  # dies once its pod is replaced. bulk-load-historical-to-bn1.sh's own
+  # later restart (step 9a) re-establishes BN1's forward itself once IT
+  # rolls the pod again, so this refresh only needs to cover the gap
+  # between now and then.
+  - id: refresh-port-forwards-after-bn1-roster-tss-rollout
+    type: port-forward
+    description: "Re-forward all BN/MN ports after BN1's roster-bootstrap-tss-triggered pod rollout"
+    delay: 255
+
   # Steps 6-7 — MN reconfiguration and MN2 install.
 
   - id: reconfigure-mn1-to-bn-sources
@@ -229,45 +285,20 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-backfill-source.sh 2 3"
 
-  # BN1 can never extract TssData itself (its blocks arrive via a path that
-  # bypasses verification — see assert-bn-tss-data.sh's header comment), but
-  # BN2 and BN3 will once their backfill above reaches block 0. Point BN1 at
-  # both via the roster-bootstrap-tss plugin (already in every BN's default
-  # plugins.names, just inactive until configured) so it eventually picks up
-  # the same TssData by peer gossip instead.
-
-  - id: reconfigure-bn1-roster-bootstrap-tss
-    type: command
-    description: "Configure BN1 to pull TssData from BN2/BN3 via roster-bootstrap-tss"
-    delay: 485
-    timeout: 300
-    args:
-      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-roster-bootstrap-tss.sh 1 2 3"
-
-  - id: assert-bn1-roster-bootstrap-tss-source
-    type: command
-    description: "Assert BN1 is configured to pull TssData from BN2 and BN3"
-    delay: 490
-    timeout: 120
-    args:
-      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-roster-bootstrap-tss-source.sh 1 2 3"
-
-  # reconfigure-bn-backfill.sh (BN2/BN3) and reconfigure-bn-roster-bootstrap-tss.sh
-  # (BN1) each patch their target's StatefulSet pod template (to add a
-  # sources-file volume/mount), which the StatefulSet controller responds to
-  # with its own automatic rolling restart of that pod (see those scripts'
-  # own header comments). A `kubectl port-forward svc/<name>` targets a
-  # specific backing pod at connection time, so add-bn.sh's forwards
-  # (established long before these rollouts) silently die once their pods are
-  # replaced — unlike bulk-load-historical-to-bn1.sh, which explicitly
-  # re-forwards after its own BN1 restart, nothing re-establishes these.
-  # Steps 11-12 are the first things in this suite to grpcurl any BN through
+  # reconfigure-bn-backfill.sh patches BN2's and BN3's StatefulSet pod
+  # template (to add the backfill-sources volume/mount), which the
+  # StatefulSet controller responds to with its own automatic rolling
+  # restart of those pods (see that script's own header comment). A
+  # `kubectl port-forward svc/<name>` targets a specific backing pod at
+  # connection time, so add-bn.sh's BN2/BN3 forwards (established long
+  # before this rollout) silently die once their pods are replaced. Steps
+  # 11-12 are the first things in this suite to grpcurl BN2/BN3 through
   # those ports (all earlier post-backfill checks used kubectl exec, which
   # doesn't care), so refresh every port-forward here before relying on any
   # of them.
   - id: refresh-port-forwards-after-backfill-rollout
     type: port-forward
-    description: "Re-forward all BN/MN ports after BN1/BN2/BN3's config-triggered pod rollouts"
+    description: "Re-forward all BN/MN ports after BN2/BN3's backfill-triggered pod rollout"
     delay: 495
 
   # Pre-cutover observation window — prove the wrb-cli live-wrap/live-push
