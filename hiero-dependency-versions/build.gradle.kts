@@ -5,7 +5,7 @@ dependencies {
 }
 
 dependencies.constraints {
-    val daggerVersion = "2.60"
+    val daggerVersion = "2.60.1"
     val grpcIoVersion = "1.82.2"
     val hederaCryptographyVersion = "3.11.2"
     val helidonVersion = "4.5.0"
