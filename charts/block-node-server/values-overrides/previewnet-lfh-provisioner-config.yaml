@@ -9,7 +9,17 @@
 #   sudo solo-provisioner block node install \
 #     -p previewnet \
 #     --config /path/to/previewnet-lfh-provisioner-config.yaml \
-#     --values /path/to/previewnet-lfh-values.yaml
+#     --values /path/to/previewnet-lfh-values.yaml \
+#     --non-interactive
+#
+# LoadBalancer: enabled by default (Solo Provisioner installs MetalLB during
+# a fresh install; the values file sets loadBalancer.enabled: true so the
+# chart renders a LoadBalancer Service with the metallb.io/address-pool
+# annotation set to public-address-pool). This gives external subscribers a
+# stable ingress at the VM's external IP without needing kubectl port-forward.
+# If deploying to a cluster where MetalLB is NOT present, flip the values
+# file's loadBalancer.enabled to false AND pass --load-balancer-enabled=false
+# to the CLI to skip Solo Provisioner's post-install reachability probe.
 #
 # Storage sizes below are sized for previewnet's per-day block volume (much
 # smaller than mainnet's). Adjust if the archive grows past what these caps
@@ -18,6 +28,19 @@
 # Chart version: pin to a specific release rather than accepting whatever the
 # Solo Provisioner release ships bundled by default. Confirm against
 # https://github.com/hiero-ledger/hiero-block-node/releases and bump on cutovers.
+#
+# Preflight gotchas we hit on the previewnet smoke-test box (2026-07-31):
+#   * hedera user/group must be at UID/GID 2000. If the target VM was
+#     previously used for anything, an existing `hedera` user at another
+#     UID (we saw 1005) will fail preflight with:
+#       "hedera owner user \"hedera\" has incorrect UID: expected 2000, got 1005"
+#     Fix: `sudo usermod -u 2000 hedera && sudo groupmod -g 2000 hedera`,
+#     then re-chown anything that was owned by the old UID/GID.
+#   * Profile `previewnet` requires >=3 TB total disk at preflight. On a
+#     smaller box, use `--skip-hardware-checks` together with the
+#     `-smoketest` variant configs alongside this file. See
+#     `previewnet-lfh-provisioner-config-smoketest.yaml` for the shrunk
+#     shape (~700 GiB combined) and don't ship it to a durable Tier 1.
 
 profile: previewnet
 
