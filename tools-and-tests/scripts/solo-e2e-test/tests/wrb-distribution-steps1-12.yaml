@@ -345,6 +345,21 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
 
+  # Diagnostic-only: dump BN2/BN3's live block-node-server logs + pod
+  # restart status directly into this step's own CI output. This is a
+  # baseline checkpoint — roughly 7 minutes after reconfigure-bn2-backfill /
+  # reconfigure-bn3-backfill (step 10) — to see whether backfill has made
+  # any progress at all by this point, for comparison against the
+  # later dump-bn-logs-before-tss-check checkpoint right before the
+  # assertion that has failed on every run so far.
+  - id: dump-bn-logs-baseline
+    type: command
+    description: "Diagnostic: dump BN2/BN3 logs + restart status (~7min after backfill reconfig)"
+    delay: 705
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/dump-bn-logs.sh 2 3"
+
   # Step 11 — TSS cutover: upgrade the CN to a TSS/WRAPS-native version, then
   # assert BN2 and BN3 report populated TSS data (independently extracted via
   # backfill of block 0 from BN1), and finally BN1 too (picked up from BN2/BN3
@@ -364,6 +379,20 @@ events:
       # trying the version issue #3125 step 11 actually calls out, to see
       # whether that changes the TSS-data outcome versus the newer rc.
       script: "${SCRIPT_DIR}/wrb-distribution/cn-upgrade-tss.sh v0.76.0-rc.7"
+
+  # Diagnostic-only: dump BN2/BN3's live logs + restart status again right
+  # before the assertion that has failed on every run so far (~27min in,
+  # roughly 20 minutes after the dump-bn-logs-baseline checkpoint above).
+  # Compare the two: if backfill made real progress between them, look for
+  # what stalled after that; if both look identical, the problem is likely
+  # present from the very start of backfill's first scan.
+  - id: dump-bn-logs-before-tss-check
+    type: command
+    description: "Diagnostic: dump BN2/BN3 logs + restart status (right before the TSS-data check)"
+    delay: 1625
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/dump-bn-logs.sh 2 3"
 
   - id: assert-bn2-bn3-tss-data
     type: command
