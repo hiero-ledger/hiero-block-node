@@ -13,6 +13,7 @@
    1. [Release Candidate](#release-candidate)
    2. [General Availability](#general-availability)
    3. [Patch / Hotfix](#patch--hotfix)
+   4. [Alpha (Preview Build)](#alpha-preview-build)
 5. [Artifact Reference](#artifact-reference)
 6. [Mutability Reference](#mutability-reference)
 7. [Release Flow Diagram](#release-flow-diagram)
@@ -41,6 +42,10 @@ Before triggering any workflow:
    `release/X.Y` (for RC2+, GA, and patch runs).
 3. **Branch selection** — First RC for a new minor: dispatch from `main`. All subsequent runs
    (RC2+, GA, patch): dispatch from `release/X.Y`.
+4. **Alpha/custom exception** — `alpha` and `custom` ignore the branch-selection guidance above:
+   `alpha` always tags off `main` regardless of which branch you dispatch from, and `custom` tags
+   off whichever branch you actually dispatch from. Neither ever creates a release branch or
+   commits a version bump anywhere — only the resulting tag is pushed.
 
 ---
 
@@ -52,26 +57,35 @@ Before triggering any workflow:
 
 **Inputs:**
 
-|      Input       |            Values             |                          Description                           |
-|------------------|-------------------------------|----------------------------------------------------------------|
-| `release_type`   | `rc`, `alpha`, `GA`, `custom` | Determines how the next version is derived from `version.txt`. |
-| `custom_version` | free text                     | Required only when `release_type` is `custom` (e.g. `0.39.1`). |
+|      Input       |            Values             |                                                       Description                                                       |
+|------------------|-------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| `release_type`   | `rc`, `alpha`, `GA`, `custom` | No default — must be picked explicitly every run. The four types behave too differently to have a safe implicit choice. |
+| `custom_version` | free text                     | Required only when `release_type` is `custom` (e.g. `0.39.1`). Ignored for all other types.                             |
+
+`release_type` semantics:
+
+|   Type   |                          Version source                          |                  Branch behavior                  |                   version.txt / branch mutation                   |
+|----------|------------------------------------------------------------------|---------------------------------------------------|-------------------------------------------------------------------|
+| `rc`     | `version.txt` on dispatching branch, RC counter incremented      | Uses/creates `release/X.Y`                        | Commits the bump to `release/X.Y`; opens SNAPSHOT PR on first cut |
+| `GA`     | `version.txt` on dispatching branch, pre-release suffix stripped | Uses/creates `release/X.Y`                        | Commits the bump to `release/X.Y`                                 |
+| `alpha`  | Highest existing `vX.Y.Z-alphaN` tag + 1, always off `main`      | **Never** — always tags off `main`                | **Never** — bump commit is local only; only the tag is pushed     |
+| `custom` | `custom_version` input, verbatim                                 | **Never** — tags off the dispatching branch as-is | **Never** — bump commit is local only; only the tag is pushed     |
 
 **What it does, in order:**
 
-| Step | Effect |
-|------|--------|
-| Compute version | Derives the next semver from `version.txt` on the dispatching branch and `release_type`. `rc` increments the RC counter (or starts at `rc1` from SNAPSHOT). `GA` strips the pre-release suffix. |
-| Create / switch release branch | Creates `release/X.Y` from `main` if it doesn't exist, or checks it out. **GA only, if a prior rc/alpha exists:** checks out that exact tag as a detached HEAD instead, so drift on the branch since the last rc can't sneak into GA untested. |
-| Bump version | Runs `./gradlew versionAsSpecified` to write the new version into `version.txt`, chart files, etc. |
-| Commit + tag | GPG-signs the bump commit and pushes the `vX.Y.Z` tag. The tag push simultaneously triggers `release-push-image.yaml`. **GA only:** the commit and signed tag are pushed as just the tag (no branch push, since HEAD may be detached) — the release branch is then separately fast-forwarded/merged up to the tag in a follow-up step, never force-pushed. |
-| Build protobuf artifact | Runs `:protobuf-sources:generateBlockNodeProtoArtifact` on the already-checked-out repo. |
-| Build block-stream-tools artifact | Runs `:tools:shadowJar` and renames to `block-stream-tools-X.Y.Z.jar`. |
-| Upload artifacts | Both artifacts are uploaded as workflow artifacts within the same run so `create_release` can retrieve them without a separate racing job. |
-| Generate release notes | Calls the reusable `release-notes-generator.yaml` (see below). |
-| Roll over milestone | GA runs only: calls the reusable `milestone-rollover.yaml` (see below) — moves any still-open issues/PRs in the target milestone to the next one, then closes it. |
-| Create draft release | Creates (or updates) a **draft** GitHub release with notes and artifacts attached. The release stays draft until the release manager manually publishes it. |
-| Bump main snapshot | When `release/X.Y` is newly created, opens a PR on `main` to advance `version.txt` to `X.(Y+1).0-SNAPSHOT`. |
+|               Step                |                                                                                                                                                                                                                                   Effect                                                                                                                                                                                                                                    |
+|-----------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Compute version                   | Derives the next semver. `rc` increments the RC counter (or starts at `rc1` from SNAPSHOT) from `version.txt` on the dispatching branch. `GA` strips the pre-release suffix, same source. `alpha` instead reads `version.txt` on `main` for the base version and scans existing `vX.Y.Z-alphaN` tags for the next counter. `custom` uses `custom_version` verbatim.                                                                                                         |
+| Create / switch release branch    | `rc`/`GA` only: creates `release/X.Y` from `main` if it doesn't exist, or checks it out. **Skipped entirely for `alpha`/`custom`** — see the semantics table above. **GA only, if a prior rc exists:** checks out that exact tag as a detached HEAD instead of the branch, so drift on the branch since the last rc can't sneak into GA untested.                                                                                                                           |
+| Bump version                      | Runs `./gradlew versionAsSpecified` to write the new version into `version.txt`, chart files, etc.                                                                                                                                                                                                                                                                                                                                                                          |
+| Commit + tag                      | GPG-signs the bump commit and pushes the `vX.Y.Z` tag, triggering `release-push-image.yaml` — except for `alpha`/`custom`, where the commit is created locally but never pushed (`skip_push`); only the tag is pushed, so no branch is ever mutated. **GA only:** the commit and signed tag are likewise pushed as just the tag (HEAD may be detached) — the release branch is then separately fast-forwarded/merged up to the tag in a follow-up step, never force-pushed. |
+| Build protobuf artifact           | Runs `:protobuf-sources:generateBlockNodeProtoArtifact` on the already-checked-out repo.                                                                                                                                                                                                                                                                                                                                                                                    |
+| Build block-stream-tools artifact | Runs `:tools:shadowJar` and renames to `block-stream-tools-X.Y.Z.jar`.                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Upload artifacts                  | Both artifacts are uploaded as workflow artifacts within the same run so `create_release` can retrieve them without a separate racing job.                                                                                                                                                                                                                                                                                                                                  |
+| Generate release notes            | Calls the reusable `release-notes-generator.yaml` (see below).                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Roll over milestone               | GA runs only: calls the reusable `milestone-rollover.yaml` (see below) — moves any still-open issues/PRs in the target milestone to the next one, then closes it.                                                                                                                                                                                                                                                                                                           |
+| Create draft release              | Creates (or updates) a **draft** GitHub release with notes and artifacts attached. The release stays draft until the release manager manually publishes it.                                                                                                                                                                                                                                                                                                                 |
+| Bump main snapshot                | When `release/X.Y` is newly created, opens a PR on `main` to advance `version.txt` to `X.(Y+1).0-SNAPSHOT`.                                                                                                                                                                                                                                                                                                                                                                 |
 
 **Result:** GPG-signed tag, draft GitHub release with notes and artifacts, and (on first cut of
 a minor) an open PR bumping `main` to the next snapshot.
@@ -203,6 +217,33 @@ workflows run concurrently after the tag push.
 4. Enter the exact version string in `custom_version` (e.g. `0.39.1`).
 5. Follow steps 6–9 from the GA flow above.
 
+> `custom` isn't limited to `release/X.Y` — it tags off whichever branch you dispatch it from
+> (`main`, a release branch, or anything else), and never creates a branch or commits a version
+> bump anywhere; only the resulting tag is pushed. The steps above cover the most common case (a
+> patch off `release/X.Y`); the branch you select in step 2/3 is simply whatever the tag should
+> point at.
+
+### Alpha (Preview Build)
+
+1. Go to **Actions → Release Automation → Run workflow**.
+2. Branch selection doesn't matter — `alpha` always tags off `main` internally regardless of
+   which branch is picked in the dispatch UI.
+3. Set `release_type` to `alpha`. Leave `custom_version` empty.
+4. Click **Run workflow** and wait (~10–15 min). The workflow:
+   - Reads `version.txt` on `main` for the base version, then scans existing `vX.Y.Z-alphaN` tags
+     to pick the next counter (e.g. `0.40.0-alpha3` → `0.40.0-alpha4`).
+   - Bumps the version and commits **locally only** — the commit is never pushed, so `main`'s
+     real history is untouched. Only the resulting `vX.Y.Z-alphaN` tag is pushed.
+   - Builds artifacts and creates a draft release exactly like an RC.
+5. `release-push-image.yaml` fires on the tag push and publishes Docker images and JARs tagged
+   with the alpha version.
+6. Open the draft release, add narrative if useful, and publish (or leave as draft for
+   internal-only sharing).
+
+Use this for ad-hoc preview builds off the tip of `main` between RC cuts. No release branch, no
+`main` history changes, no milestone interaction — `alpha` is always `is_prerelease: true`, so
+`milestone-rollover.yaml` never runs for it.
+
 ---
 
 ## Artifact Reference
@@ -274,6 +315,11 @@ graph TD
     end
 ```
 
+**Note:** `alpha` and `custom` skip the entire `E`/`F`/`H` branch-creation-or-switch logic above —
+they tag directly off whatever ref is already checked out (`main` for `alpha`, the dispatching
+branch for `custom`) and never commit a version bump to any branch. Only the resulting tag is
+pushed; `release-push-image.yaml` still fires from it the same way.
+
 ---
 
 ## Release Meta Process
@@ -288,6 +334,8 @@ The typical lifecycle for a minor version:
    was ever released for this version, GA falls back to building from the release branch tip.
 3. **Patch Versions** — Cherry-pick fixes from `main` to `release/X.Y` and trigger `custom`
    with the patch version string.
+4. **Alpha builds** — Orthogonal to the lifecycle above: trigger `alpha` at any time for an
+   ad-hoc preview tag off the tip of `main`. Never touches `release/X.Y` or the milestone.
 
 ```mermaid
 graph TD

@@ -7,12 +7,16 @@ on:
       release_type:
         description: |
           Release type.
-          rc    → bumps current rc (0.38.0-rc1 → 0.38.0-rc2) or starts rc1 from SNAPSHOT.
-          alpha → same logic for alpha pre-releases.
-          GA    → strips the pre-release suffix (0.38.0-rc2 → 0.38.0).
-          custom → uses the custom_version field below verbatim; all other inputs are ignored.
+          rc     → bumps current rc (0.38.0-rc1 → 0.38.0-rc2) or starts rc1 from SNAPSHOT.
+                   Uses/creates a release/X.Y branch, like GA.
+          alpha  → always tags off main directly (counter derived from existing
+                   vX.Y.Z-alphaN tags, not version.txt). No release branch, no version.txt
+                   commit anywhere - only the tag is pushed.
+          GA     → strips the pre-release suffix (0.38.0-rc2 → 0.38.0).
+          custom → uses the custom_version field below verbatim. Tags off whatever branch
+                   you dispatch from (main, release/X.Y, or anything else) - no release
+                   branch, no version.txt commit anywhere - only the tag is pushed.
         required: true
-        default: "rc"
         type: choice
         options:
           - rc
@@ -63,6 +67,24 @@ jobs:
               exit 1
             fi
             COMPUTED_VERSION="$INPUT_CUSTOM_VERSION"
+          elif [[ "$INPUT_RELEASE_TYPE" == "alpha" ]]; then
+            # Alpha always tags off main directly - no release branch, no version.txt
+            # commit. So the counter can't live in version.txt (nothing ever persists
+            # it); derive it from the highest existing vX.Y.Z-alphaN tag instead.
+            MAIN_VERSION=$(gh api "repos/${{ github.repository }}/contents/version.txt?ref=main" \
+              --jq '.content' | base64 -d | tr -d '[:space:]')
+            if [[ "$MAIN_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-SNAPSHOT)?$ ]]; then
+              BASE="${BASH_REMATCH[1]}"
+            else
+              echo "::error::Unrecognised version format '$MAIN_VERSION' in version.txt on main"
+              exit 1
+            fi
+
+            HIGHEST_ALPHA=$(gh api "repos/${{ github.repository }}/tags" --paginate --jq '.[].name' \
+              | grep -E "^v${BASE}-alpha[0-9]+$" \
+              | sed -E "s/^v${BASE}-alpha//" \
+              | sort -n | tail -1)
+            COMPUTED_VERSION="${BASE}-alpha$(( ${HIGHEST_ALPHA:-0} + 1 ))"
           else
             # Read version.txt from the dispatching branch — no checkout needed yet.
             # Using github.ref_name (not 'main') so rc2/GA runs off release/* read
@@ -73,8 +95,6 @@ jobs:
 
             if [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc([0-9]+)$ ]]; then
               BASE="${BASH_REMATCH[1]}" && RC_N="${BASH_REMATCH[2]}" && KIND="rc"
-            elif [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-alpha([0-9]+)$ ]]; then
-              BASE="${BASH_REMATCH[1]}" && ALPHA_N="${BASH_REMATCH[2]}" && KIND="alpha"
             elif [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-SNAPSHOT)?$ ]]; then
               BASE="${BASH_REMATCH[1]}" && KIND="snapshot"
             else
@@ -82,14 +102,15 @@ jobs:
               exit 1
             fi
 
-            # For a GA release, CURRENT is the last rc/alpha tagged by a previous
-            # run of this workflow (e.g. v0.38.0-rc2). GA must be built from that
-            # exact tag, not from whatever the release branch currently points
-            # to, so a stray commit landing on the branch after the last rc
-            # can't sneak into the GA release untested. If no rc/alpha ever
-            # existed for this version (KIND=snapshot), SOURCE_TAG stays unset
-            # and GA falls back to building from the release branch tip.
-            if [[ "$KIND" == "rc" || "$KIND" == "alpha" ]]; then
+            # For a GA release, CURRENT is the last rc tagged by a previous run of
+            # this workflow (e.g. v0.38.0-rc2). GA must be built from that exact
+            # tag, not from whatever the release branch currently points to, so a
+            # stray commit landing on the branch after the last rc can't sneak
+            # into the GA release untested. If no rc ever existed for this version
+            # (KIND=snapshot), SOURCE_TAG stays unset and GA falls back to
+            # building from the release branch tip. (alpha is excluded here since
+            # it never lands on a release branch - it's always tag-only off main.)
+            if [[ "$KIND" == "rc" ]]; then
               echo "SOURCE_TAG=v$CURRENT" >> "$GITHUB_ENV"
             fi
 
@@ -98,11 +119,6 @@ jobs:
                 [[ "$KIND" == "rc" ]] \
                   && COMPUTED_VERSION="${BASE}-rc$((RC_N + 1))" \
                   || COMPUTED_VERSION="${BASE}-rc1"
-                ;;
-              alpha)
-                [[ "$KIND" == "alpha" ]] \
-                  && COMPUTED_VERSION="${BASE}-alpha$((ALPHA_N + 1))" \
-                  || COMPUTED_VERSION="${BASE}-alpha1"
                 ;;
               GA)
                 COMPUTED_VERSION="$BASE"
@@ -121,10 +137,20 @@ jobs:
           version: ${{ env.COMPUTED_VERSION }}
 
       - name: Set Release Environment Variables
+        env:
+          INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type }}
         run: |
           PREMINOR_VERSION=${{ steps.version_parser.outputs.inc-preminor }}
           NEXT_VERSION_SNAPSHOT=${PREMINOR_VERSION//-0/-SNAPSHOT}
-          RELEASE_BRANCH="release/${{ steps.version_parser.outputs.major }}.${{ steps.version_parser.outputs.minor }}"
+
+          # alpha always tags off main; custom tags off whatever branch it was
+          # dispatched from — neither creates or uses a release/X.Y branch.
+          case "$INPUT_RELEASE_TYPE" in
+            alpha)  RELEASE_BRANCH="main" ;;
+            custom) RELEASE_BRANCH="${{ github.ref_name }}" ;;
+            *)      RELEASE_BRANCH="release/${{ steps.version_parser.outputs.major }}.${{ steps.version_parser.outputs.minor }}" ;;
+          esac
+
           [[ -z "${{ steps.version_parser.outputs.prerelease }}" ]] && \
             VERSION=${{ steps.version_parser.outputs.release }} || \
             VERSION="${{ steps.version_parser.outputs.release }}-${{ steps.version_parser.outputs.prerelease }}"
@@ -142,7 +168,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.event.inputs.release_type == 'custom' && github.ref_name || 'main' }}
           token: ${{ secrets.GH_ACCESS_TOKEN }}
           persist-credentials: "true"
 
@@ -166,6 +192,9 @@ jobs:
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
       - name: Create and Switch to Release Branch
+        # alpha and custom never use a release/X.Y branch - they tag directly off
+        # whatever's already checked out (main for alpha, the dispatching branch for custom).
+        if: ${{ github.event.inputs.release_type != 'alpha' && github.event.inputs.release_type != 'custom' }}
         env:
           INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type }}
         run: |
@@ -199,6 +228,13 @@ jobs:
           commit_user_name: ${{ steps.gpg_importer.outputs.name }}
           commit_user_email: ${{ steps.gpg_importer.outputs.email }}
           tagging_message: ${{ env.RELEASE_TAG }}
+          # alpha/custom: commit + tag locally only. Neither ever mutates main or the
+          # dispatching branch — only the tag itself gets pushed, in the next step.
+          skip_push: ${{ github.event.inputs.release_type == 'alpha' || github.event.inputs.release_type == 'custom' }}
+
+      - name: Push Tag Only
+        if: ${{ github.event.inputs.release_type == 'alpha' || github.event.inputs.release_type == 'custom' }}
+        run: git push origin ${{ env.RELEASE_TAG }}
 
       - name: Commit and Tag (GA)
         if: ${{ github.event.inputs.release_type == 'GA' }}
