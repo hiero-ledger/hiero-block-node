@@ -84,23 +84,22 @@ blockNode:
 
 # LoadBalancer enabled: Solo Provisioner installs MetalLB during a fresh
 # install and the previewnet VM has a public IP, so we let external
-# subscribers hit the BN at <VM-external-IP>:<port> directly (no
+# subscribers hit the BN at <VM-external-IP>:40840 directly (no
 # kubectl port-forward needed). The metallb.io/address-pool annotation on
 # service.annotations pairs this Service with MetalLB's public pool.
 #
-# includePluginPorts: true is REQUIRED under the split-port setup below,
-# which puts each API family on its own dedicated port (server-status on
-# 40982, publisher on 40984, subscriber on 40980, block-access on 40981,
-# health on 40983). The chart's default LB Service only exposes the
-# legacy 40840 port, which serves plain HTTP, not gRPC -- calls to
-# serverStatus on 40840 fail with "malformed header: missing HTTP
-# content-type" because the port is answering with HTTP framing on a
-# gRPC client. Enabling includePluginPorts appends all the plugin ports
-# so external gRPC clients can reach the right endpoint.
+# Known limitation on chart 0.37.1 (pinned in the paired provisioner-config
+# file): the LB Service only publishes port 40840, which under the split-
+# port setup below serves plain HTTP rather than gRPC. gRPC endpoints
+# (server-status on 40982, publisher on 40984, subscriber on 40980,
+# block-access on 40981) are reachable only via the in-cluster
+# ClusterIP Service today, i.e. kubectl port-forward for external
+# probing. Chart 0.38.0+ adds `loadBalancer.includePluginPorts: true`
+# which appends the plugin ports to the LB Service; revisit this file
+# once we bump the chart version pin.
 loadBalancer:
     enabled: true
     port: "40840"
-    includePluginPorts: true
     annotations:
         metallb.io/address-pool: public-address-pool
 
