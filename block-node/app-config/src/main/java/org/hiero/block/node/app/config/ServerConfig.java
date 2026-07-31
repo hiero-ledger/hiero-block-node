@@ -22,8 +22,9 @@ import org.hiero.block.node.base.Loggable;
  * @param maxTcpConnections the maximum number of TCP connections
  * @param idleConnectionPeriodMinutes how often (minutes) the idle-connection reaper runs
  * @param idleConnectionTimeoutMinutes how long (minutes) a connection may sit idle before it is
- *     closed; kept short so idle sockets are reclaimed well before they accumulate to
- *     {@code maxTcpConnections} and the server starts refusing new connections
+ *     closed; set to 1440 (24 h) by default so that long-lived gRPC server-streaming connections
+ *     (e.g. {@code subscribeBlockStream}) are not torn down by the Helidon idle-connection reaper
+ *     while they are still actively receiving outbound DATA frames
  * @param tcpNoDelay whether to use TCP no delay
  * @param backlogSize the maximum length of the queue of incoming connections on the server socket.
  * @param writeQueueLength the number of buffers queued for write operations
@@ -38,7 +39,7 @@ public record ServerConfig(
         @Loggable @ConfigProperty(defaultValue = "500") int shutdownDelayMillis,
         @Loggable @ConfigProperty(defaultValue = "1000") int maxTcpConnections,
         @Loggable @ConfigProperty(defaultValue = "5") @Min(1) @Max(60) int idleConnectionPeriodMinutes,
-        @Loggable @ConfigProperty(defaultValue = "30") @Min(1) @Max(1_440) int idleConnectionTimeoutMinutes,
+        @Loggable @ConfigProperty(defaultValue = "1440") @Min(1) @Max(1_440) int idleConnectionTimeoutMinutes,
         @Loggable @ConfigProperty(defaultValue = "true") boolean tcpNoDelay,
         @Loggable @ConfigProperty(defaultValue = "8_192") int backlogSize,
         @Loggable @ConfigProperty(defaultValue = "8_192") int writeQueueLength) {}
