@@ -151,7 +151,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 updateLastVerifiedBlock(updatedContext.storedBlocks());
             }
         } catch (final RuntimeException e) {
-            LOGGER.log(WARNING, "onContextUpdate failed", e);
+            LOGGER.log(INFO, "onContextUpdate failed", e);
         }
     }
 
@@ -164,11 +164,15 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
             final BlockRange lastRange = storedBlocks.getLast();
             final long highestStoredBlock = lastRange.rangeEnd();
             long localLastVerified = lastVerifiedBlock.get();
+            boolean updateHappened = false;
             while (highestStoredBlock > localLastVerified) {
-                lastVerifiedBlock.compareAndSet(localLastVerified, highestStoredBlock);
+                updateHappened = lastVerifiedBlock.compareAndSet(localLastVerified, highestStoredBlock);
                 localLastVerified = lastVerifiedBlock.get();
             }
-            LOGGER.log(INFO, "onContextUpdate received, updated last verified block to {0}", lastVerifiedBlock.get());
+            if (updateHappened) {
+                final String message = "onContextUpdate received, updated last verified block to {0}";
+                LOGGER.log(INFO, message, lastVerifiedBlock.get());
+            }
         }
     }
 
@@ -269,7 +273,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 recentlyVerifiedBlocks.remove(notification.blockNumber());
             }
         } catch (final RuntimeException e) {
-            LOGGER.log(WARNING, "Failed to handle persisted notification in verification ", e);
+            LOGGER.log(INFO, "Failed to handle persisted notification in verification ", e);
         }
     }
 
