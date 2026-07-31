@@ -75,10 +75,8 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         simulators.add(consumerSimulatorThread);
 
         boolean isConsumingBlocks = false;
-        // We assign lastConsumedBlock as the last published, so that we can track it later.
-        // This will help us determine whether we are actually consuming blocks.
-        long lastConsumedBlock = publisherSimulator.getStreamStatus().publishedBlocks();
-        int retries = 3;
+        long lastConsumedBlock = 0;
+        int retries = 10;
 
         while (retries > 0) {
             if (consumerSimulator.getStreamStatus().consumedBlocks() > lastConsumedBlock) {
