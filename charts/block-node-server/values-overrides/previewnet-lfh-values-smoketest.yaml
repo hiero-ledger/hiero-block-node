@@ -1,27 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Helm values override for a previewnet Tier 1 Local-Full-History Block Node
-# deployed on a single GCP e2-standard-16 VM (16 vCPUs, ≥32 GB RAM).
+# Smoke-test-scoped Helm values override for a previewnet Tier 1 LFH Block
+# Node running on a bigger-than-guide VM (32 cores / 256 GB RAM observed on
+# the previewnet smoke-test box) but with limited local disk (~1 TB total).
 #
-# Derived from `lfh-values.yaml` (mainnet-shaped), right-sized down for
-# previewnet's per-day block volume and the single-VM shape. See
-# `previewnet-lfh-provisioner-config.yaml` for the paired Solo Provisioner
-# config. Recipe: https://docs.hiero.org/block-node-overview/block-node-hardware-specifications/solo-weaver-single-node-k8s-deployment
+# Pair with `previewnet-lfh-provisioner-config-smoketest.yaml`. Use only with
+# `--skip-hardware-checks`; see that file's header for the full command.
 #
-# Key sizing decisions vs the mainnet reference (lfh-values.yaml):
-#   * JVM heap 16 GB (mainnet uses 192 GB). e2-standard-16 has ~32 GB RAM;
-#     leaving ~16 GB for the OS + other pods + PVC page cache.
-#   * Resources 8 CPU / 20 Gi (mainnet uses 24 CPU / 212 Gi).
-#   * loadBalancer enabled + MetalLB address-pool wired to `public-address-pool`
-#     so external subscribers reach the BN at <VM-external-IP>:40840 directly.
-#     Solo Provisioner installs MetalLB during a fresh install; this Service
-#     annotation picks up the pool it configures.
+# JVM / resources scaled up compared to the e2-standard-16 assumption in
+# previewnet-lfh-values.yaml, because the smoke-test box actually has 256 GB
+# RAM available -- leaving that unused would starve the JVM for no reason.
 
 blockNode:
     config:
         BACKFILL_GREEDY: "true"
         BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
-        JAVA_OPTS: "-Xms16G -Xmx16G -XX:+ZGenerational"
+        # Bigger heap than the e2-standard-16-tuned values.yaml because this
+        # host has 256 GB RAM; leaving room for OS + Kubernetes + page cache.
+        JAVA_OPTS: "-Xms96G -Xmx96G -XX:+ZGenerational"
         PROMETHEUS_ENDPOINT_ENABLED: true
         PROMETHEUS_ENDPOINT_PORT_NUMBER: "16007"
         ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL: "https://previewnet.mirrornode.hedera.com"
@@ -82,11 +78,10 @@ blockNode:
         health: 40983       # HEALTH_PORT       — HTTP, /healthz endpoints
         serverStatus: 40982 # SERVER_STATUS_PORT — HTTP, server-status endpoint
 
-# LoadBalancer enabled: Solo Provisioner installs MetalLB during a fresh
-# install and the previewnet VM has a public IP, so we let external
-# subscribers hit the BN at <VM-external-IP>:40840 directly (no
-# kubectl port-forward needed). The metallb.io/address-pool annotation on
-# service.annotations pairs this Service with MetalLB's public pool.
+# LoadBalancer enabled (team decision, 2026-07-30): the smoke-test box has a
+# public IP too, and Solo Provisioner installs MetalLB during a fresh install.
+# Match the main previewnet-lfh-values.yaml's LB shape so this smoke-test
+# variant differs from the main file ONLY in JVM heap + storage sizing.
 loadBalancer:
     enabled: true
     port: "40840"
@@ -95,11 +90,11 @@ loadBalancer:
 
 resources:
     requests:
-        cpu: "8"
-        memory: "20Gi"
+        cpu: "16"
+        memory: "128Gi"
     limits:
-        cpu: "8"
-        memory: "20Gi"
+        cpu: "16"
+        memory: "128Gi"
 
 service:
     type: ClusterIP
