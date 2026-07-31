@@ -21,6 +21,7 @@ import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
 import org.hiero.block.api.protoc.BlockNodeServiceGrpc;
 import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
+import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.Container;
@@ -61,8 +62,12 @@ public abstract class BaseSuite {
     /** Executor service for managing threads */
     protected static ErrorLoggingExecutor executorService;
 
-    /** gRPC channel for connecting to Block Node */
-    protected static ManagedChannel channel;
+    /**
+     * Every gRPC channel opened for the base Block Node during {@link #setup()}. Tracked so that all
+     * of them are shut down in {@link #teardown()} — previously only the last-created channel was
+     * closed, leaking the other two on every test in the suite's shared JVM.
+     */
+    private static final List<ManagedChannel> baseChannels = new ArrayList<>();
 
     /** Map from port to gRPC channel */
     protected Map<Integer, ManagedChannel> channels = new LinkedHashMap<>();
@@ -126,35 +131,74 @@ public abstract class BaseSuite {
     @AfterEach
     public void teardown() throws InterruptedException {
         if (blockNodeContainer != null) {
-            blockNodeContainer.stop();
-            blockNodeContainer.close();
+            try {
+                blockNodeContainer.stop();
+                blockNodeContainer.close();
+            } catch (final RuntimeException e) {
+                // No loggers in tests, just print to stderr
+                System.err.printf("Runtime exception %s shutting down base suite.", e);
+                // best-effort: keep tearing the rest down so nothing leaks
+            }
         }
         if (executorService != null) {
             executorService.shutdownNow();
         }
-        if (channel != null) {
-            channel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
-        }
-        deleteBoundHostDirs();
+        shutdownBaseChannels();
+        // Guarantee any launched multi-node containers/channels are torn down even when a test failed
+        // before reaching its in-body teardownBlockNodes() call. A leaked container keeps its fixed
+        // host port bound and would otherwise cascade bind failures into every later test in the suite.
+        // teardownBlockNodes() is idempotent, so this is a no-op when the test already tore them down.
+        teardownBlockNodes();
     }
 
     /**
      * Teardown all Block Node containers and channels.
      */
     protected void teardownBlockNodes() throws InterruptedException {
-        for (GenericContainer<?> container : blockNodeContainers) {
-            container.stop();
-            container.close();
+        for (final GenericContainer<?> container : blockNodeContainers) {
+            try {
+                container.stop();
+                container.close();
+            } catch (final RuntimeException e) {
+                // No loggers in tests, just print to stderr
+                System.err.printf("Runtime exception %s shutting down base suite.", e);
+                // best-effort: keep going so no other container leaks its fixed host port
+            }
         }
         blockNodeContainers.clear();
 
-        for (ManagedChannel ch : channels.values()) {
-            ch.shutdown().awaitTermination(5, TimeUnit.SECONDS);
+        for (final ManagedChannel ch : channels.values()) {
+            shutdownChannelQuietly(ch);
         }
         channels.clear();
         blockAccessStubs.clear();
         blockServiceStubs.clear();
         deleteBoundHostDirs();
+    }
+
+    /** Shuts down every base gRPC channel opened in {@link #setup()} and clears the tracking list. */
+    private static void shutdownBaseChannels() {
+        for (final ManagedChannel ch : baseChannels) {
+            shutdownChannelQuietly(ch);
+        }
+        baseChannels.clear();
+    }
+
+    /**
+     * Shuts down a gRPC channel, waiting briefly for termination, without propagating interruption —
+     * so one channel's shutdown can never skip the teardown of the remaining channels or containers.
+     *
+     * @param channelToClose the channel to shut down; ignored if {@code null}
+     */
+    private static void shutdownChannelQuietly(final ManagedChannel channelToClose) {
+        try {
+            if (channelToClose == null) {
+                return;
+            }
+            channelToClose.shutdown().awaitTermination(5, TimeUnit.SECONDS);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
@@ -342,32 +386,30 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Initializes the gRPC client for connecting to the Block Node with BlockAccessStub for requesting single blocks.
+     * Opens a new plaintext gRPC channel to the base Block Node and records it in {@link #baseChannels}
+     * so {@link #teardown()} can shut it down. For testing only.
+     *
+     * @return a freshly opened, tracked channel to the base Block Node
      */
-    protected static BlockAccessServiceGrpc.BlockAccessServiceBlockingStub initializeBlockAccessGrpcClient() {
-        String host = blockNodeContainer.getHost();
-        int port = blockNodePort;
-
-        channel = ManagedChannelBuilder.forAddress(host, port)
+    private static ManagedChannel newBaseChannel() {
+        final ManagedChannel newChannel = ManagedChannelBuilder.forAddress(blockNodeContainer.getHost(), blockNodePort)
                 .usePlaintext() // For testing only
                 .build();
+        baseChannels.add(newChannel);
+        return newChannel;
+    }
 
-        return BlockAccessServiceGrpc.newBlockingStub(channel);
+    protected static BlockAccessServiceGrpc.BlockAccessServiceBlockingStub initializeBlockAccessGrpcClient() {
+        return BlockAccessServiceGrpc.newBlockingStub(newBaseChannel());
     }
 
     protected static BlockNodeServiceGrpc.BlockNodeServiceBlockingStub initializeBlockNodeServiceGrpcClient() {
-        final String host = blockNodeContainer.getHost();
-        final int port = blockNodePort;
-        channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
-        return BlockNodeServiceGrpc.newBlockingStub(channel);
+        return BlockNodeServiceGrpc.newBlockingStub(newBaseChannel());
     }
 
     protected static BlockStreamPublishServiceGrpc.BlockStreamPublishServiceStub
             initializeBlockStreamPublishServiceGrpcClient() {
-        final String host = blockNodeContainer.getHost();
-        final int port = blockNodePort;
-        channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
-        return BlockStreamPublishServiceGrpc.newStub(channel);
+        return BlockStreamPublishServiceGrpc.newStub(newBaseChannel());
     }
 
     /**
@@ -380,7 +422,7 @@ public abstract class BaseSuite {
         return executorService.submit(() -> {
             try {
                 blockStreamSimulatorAppInstance.start();
-            } catch (Exception e) {
+            } catch (InterruptedException | BlockSimulatorParsingException | IOException e) {
                 throw new RuntimeException(e);
             }
         });
