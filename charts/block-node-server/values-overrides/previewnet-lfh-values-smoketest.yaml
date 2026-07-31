@@ -54,22 +54,24 @@ blockNode:
                   - name: logging-storage
                     mountPath: /logging-pvc
 
+        # PVCs chart-provisioned from the default StorageClass; see the same
+        # comment in previewnet-lfh-values.yaml for the rationale. Without
+        # this, mounts silently degrade to ephemeral rootfs -- confirmed on
+        # this smoke-test box: 173 GB of tar-streamed historic blocks were
+        # wiped by the post-backfill pod restart.
         persistence:
             live:
-                create: false
-                existingClaim: live-storage-pvc
+                create: true
                 subPath: ""
             archive:
-                create: false
-                existingClaim: archive-storage-pvc
+                create: true
                 subPath: ""
             logging:
-                create: false
-                existingClaim: logging-storage-pvc
+                create: true
                 subPath: ""
             applicationState:
-                create: false
-                existingClaim: application-state-storage-pvc
+                create: true
+                subPath: ""
 
     ports:
         publisher: 40984    # PRODUCER_PORT     — gRPC, block producers

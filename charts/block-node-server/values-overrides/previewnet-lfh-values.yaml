@@ -58,22 +58,28 @@ blockNode:
                   - name: logging-storage
                     mountPath: /logging-pvc
 
+        # PVCs: chart-provisioned from the cluster's default StorageClass.
+        # The mainnet reference (lfh-values.yaml) uses `create: false` +
+        # `existingClaim: <name>-pvc` because production Tier 1 hosts have
+        # pre-provisioned static PVs backing dedicated disks. For a
+        # Solo-Provisioner single-VM deployment we have no such prep step,
+        # so `create: true` is required -- without it the mounts silently
+        # degrade to the pod's ephemeral rootfs, and any tar-streamed
+        # historic blocks get wiped on the next pod restart (which
+        # BlockFileHistoricPlugin's re-scan triggers).
         persistence:
             live:
-                create: false
-                existingClaim: live-storage-pvc
+                create: true
                 subPath: ""
             archive:
-                create: false
-                existingClaim: archive-storage-pvc
+                create: true
                 subPath: ""
             logging:
-                create: false
-                existingClaim: logging-storage-pvc
+                create: true
                 subPath: ""
             applicationState:
-                create: false
-                existingClaim: application-state-storage-pvc
+                create: true
+                subPath: ""
 
     ports:
         publisher: 40984    # PRODUCER_PORT     — gRPC, block producers
