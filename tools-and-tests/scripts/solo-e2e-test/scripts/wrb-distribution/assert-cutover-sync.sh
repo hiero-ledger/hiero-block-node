@@ -34,17 +34,21 @@ command -v jq >/dev/null 2>&1 || fail "jq not found"
 
 bn_last_block() {
     local port="$1"
-    grpcurl -plaintext -emit-defaults \
+    local resp
+    if ! resp=$(grpcurl -plaintext -emit-defaults \
         -import-path "${PROTO_PATH}" \
         -proto block-node/api/node_service.proto \
         -d '{}' "localhost:${port}" \
-        org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null \
-        | jq -r '.lastAvailableBlock // empty' 2>/dev/null || true
+        org.hiero.block.api.BlockNodeService/serverStatus 2>/tmp/wrb-dist-cutover.err); then
+        echo ""
+        return
+    fi
+    echo "${resp}" | jq -r '.lastAvailableBlock // empty' 2>/dev/null || true
 }
 
 mn_last_block() {
     local port="$1"
-    curl -s --max-time 10 "http://127.0.0.1:${port}/api/v1/blocks?limit=1&order=desc" 2>/dev/null \
+    curl -s --max-time 10 "http://127.0.0.1:${port}/api/v1/blocks?limit=1&order=desc" 2>/tmp/wrb-dist-cutover.err \
         | jq -r '.blocks[0].number // empty' 2>/dev/null || true
 }
 
@@ -53,9 +57,11 @@ ports=(40840 40841 40842 5551 5552)
 kinds=(bn bn bn mn mn)
 
 elapsed=0
+attempt=0
 while (( elapsed < POLL_TIMEOUT )); do
+    attempt=$(( attempt + 1 ))
     values=()
-    all_present="true"
+    missing=()
     for i in "${!names[@]}"; do
         if [[ "${kinds[$i]}" == "bn" ]]; then
             v=$(bn_last_block "${ports[$i]}")
@@ -63,34 +69,42 @@ while (( elapsed < POLL_TIMEOUT )); do
             v=$(mn_last_block "${ports[$i]}")
         fi
         if [[ -z "${v}" || "${v}" == "null" ]]; then
-            all_present="false"
-            break
+            missing+=("${names[$i]}")
+            values+=("")
+        else
+            values+=("${v}")
         fi
-        values+=("${v}")
     done
 
-    if [[ "${all_present}" == "true" ]]; then
-        summary=""
+    # Log every attempt (not just on final failure) so a long poll window
+    # shows visible progress instead of minutes of silence that read as a
+    # hang, and names exactly which node(s) are the problem rather than a
+    # generic "not all nodes reported".
+    reported=""
+    for i in "${!names[@]}"; do
+        [[ -n "${values[$i]}" ]] && reported="${reported}${names[$i]}=${values[$i]} "
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        log "attempt ${attempt} (elapsed ${elapsed}s): missing=[${missing[*]}] reported=[${reported}]"
+    else
         min="${values[0]}"
         max="${values[0]}"
-        for i in "${!names[@]}"; do
-            summary="${summary}${names[$i]}=${values[$i]} "
-            (( values[i] < min )) && min="${values[i]}"
-            (( values[i] > max )) && max="${values[i]}"
+        for v in "${values[@]}"; do
+            (( v < min )) && min="${v}"
+            (( v > max )) && max="${v}"
         done
-        log "Last available block per node: ${summary}"
+        log "attempt ${attempt} (elapsed ${elapsed}s): ${reported}(spread=$(( max - min )))"
 
         if (( max - min <= CONVERGE_WINDOW )); then
             log "All BNs and MNs converged within ${CONVERGE_WINDOW} block(s) (min=${min}, max=${max}). Cutover sync confirmed."
+            rm -f /tmp/wrb-dist-cutover.err
             exit 0
         fi
-        log "Spread is $(( max - min )) block(s) (> ${CONVERGE_WINDOW}); retrying in ${POLL_INTERVAL}s..."
-    else
-        log "Not all nodes reported a last-available-block yet; retrying in ${POLL_INTERVAL}s..."
     fi
 
     sleep "${POLL_INTERVAL}"
     elapsed=$(( elapsed + POLL_INTERVAL ))
 done
 
-fail "BNs/MNs did not converge within ${POLL_TIMEOUT}s (last window > ${CONVERGE_WINDOW} block(s) apart, or a node never reported)"
+rm -f /tmp/wrb-dist-cutover.err
+fail "BNs/MNs did not converge within ${POLL_TIMEOUT}s (see per-attempt log above for which node(s) never reported or stayed out of range)"
