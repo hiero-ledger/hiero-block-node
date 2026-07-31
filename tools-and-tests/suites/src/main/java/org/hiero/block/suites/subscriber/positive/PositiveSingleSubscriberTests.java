@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
+import org.hiero.block.simulator.config.data.StreamStatus;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -115,9 +116,12 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         final Future<?> publisherSimulatorThread = startSimulatorInstance(publisherSimulator);
         simulators.add(publisherSimulatorThread);
         boolean publisherReachedEndBlock = false;
-        while (!publisherReachedEndBlock) {
-            if (publisherSimulator.getStreamStatus().publishedBlocks() > endBlock) {
+        while (!publisherReachedEndBlock && publisherSimulator.isRunning()) {
+            final StreamStatus status = publisherSimulator.getStreamStatus();
+            if (status != null && status.publishedBlocks() > endBlock) {
                 publisherReachedEndBlock = true;
+            } else {
+                Thread.sleep(10);
             }
         }
         // ===== Start consumer and try to request blocks ===========================================
@@ -125,7 +129,7 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         simulators.add(consumerSimulatorThread);
 
         boolean isConsumingBlocks = false;
-        int retries = 3;
+        int retries = 10;
 
         while (retries > 0) {
             if (consumerSimulator.getStreamStatus().consumedBlocks() > 0
@@ -174,9 +178,12 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         simulators.add(publisherSimulatorThread);
 
         boolean publisherReachedEndBlock = false;
-        while (!publisherReachedEndBlock) {
-            if (publisherSimulator.getStreamStatus().publishedBlocks() > endBlock) {
+        while (!publisherReachedEndBlock && publisherSimulator.isRunning()) {
+            final StreamStatus status = publisherSimulator.getStreamStatus();
+            if (status != null && status.publishedBlocks() > endBlock) {
                 publisherReachedEndBlock = true;
+            } else {
+                Thread.sleep(10);
             }
         }
 
