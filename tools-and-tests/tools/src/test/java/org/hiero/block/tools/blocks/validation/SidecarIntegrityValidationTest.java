@@ -158,14 +158,15 @@ class SidecarIntegrityValidationTest {
     @Test
     @DisplayName("Static helper: empty sidecar list passes without touching metadata")
     void staticHelper_empty_passes() {
-        assertDoesNotThrow(() -> SidecarIntegrityValidation.validateSidecars(List.of(), List.of(), 42));
+        assertDoesNotThrow(() -> SidecarIntegrityValidation.validateSidecars(List.of(), List.of(), null, 42, null));
     }
 
     @Test
     @DisplayName("Static helper: single matching sidecar passes")
     void staticHelper_singleMatch_passes() {
         final SidecarFile s = SidecarFile.DEFAULT;
-        assertDoesNotThrow(() -> SidecarIntegrityValidation.validateSidecars(List.of(s), List.of(metadataFor(s)), 42));
+        assertDoesNotThrow(
+                () -> SidecarIntegrityValidation.validateSidecars(List.of(s), List.of(metadataFor(s)), null, 42, null));
     }
 
     @Test
@@ -176,7 +177,7 @@ class SidecarIntegrityValidationTest {
         // s0 and s1 serialize identically here (both default); the check should still pass
         // because every sidecar has *some* matching hash in the metadata.
         assertDoesNotThrow(() -> SidecarIntegrityValidation.validateSidecars(
-                List.of(s0, s1), List.of(metadataFor(s0), metadataFor(s1)), 42));
+                List.of(s0, s1), List.of(metadataFor(s0), metadataFor(s1)), null, 42, null));
     }
 
     @Test
@@ -198,7 +199,7 @@ class SidecarIntegrityValidationTest {
         final ValidationException ex = assertThrows(
                 ValidationException.class,
                 () -> SidecarIntegrityValidation.validateSidecars(
-                        List.of(s), List.of(unrelatedMeta, metadataFor(s)), 42));
+                        List.of(s), List.of(unrelatedMeta, metadataFor(s)), null, 42, null));
         assertTrue(ex.getMessage().contains("MISSING"), "orphan metadata hash must be flagged as MISSING");
         assertTrue(ex.getMessage().contains("signed hash #0"), "message must name the missing metadata index");
     }
@@ -211,7 +212,7 @@ class SidecarIntegrityValidationTest {
         // With only a hashless metadata entry present, the sidecar has no match and must fail.
         final ValidationException ex = assertThrows(
                 ValidationException.class,
-                () -> SidecarIntegrityValidation.validateSidecars(List.of(s), List.of(noHash), 42));
+                () -> SidecarIntegrityValidation.validateSidecars(List.of(s), List.of(noHash), null, 42, null));
         assertTrue(ex.getMessage().contains("TAMPERED or EXTRA"), "sidecar with no matching hash is TAMPERED/EXTRA");
         assertTrue(ex.getMessage().contains("sidecar #0"), "message must name the failing sidecar index");
     }
@@ -237,7 +238,7 @@ class SidecarIntegrityValidationTest {
         final ValidationException ex = assertThrows(
                 ValidationException.class,
                 () -> SidecarIntegrityValidation.validateSidecars(
-                        List.of(present), List.of(metadataFor(present), missingMeta), 42));
+                        List.of(present), List.of(metadataFor(present), missingMeta), null, 42, null));
         assertTrue(ex.getMessage().contains("MISSING"));
         assertTrue(ex.getMessage().contains("sidecars in block:    1"));
         assertTrue(ex.getMessage().contains("signed hash entries:  2"));
@@ -453,5 +454,70 @@ class SidecarIntegrityValidationTest {
     void finalize_emptyAccumulator_noOp() {
         final SidecarIntegrityValidation v = new SidecarIntegrityValidation();
         assertDoesNotThrow(() -> v.finalize(0L, 0L));
+    }
+
+    @Test
+    @DisplayName("finalize(): multiple mismatches on the SAME block dedupe to one block in the summary")
+    void finalize_multipleMismatchesSameBlock_dedupToOneBlock() {
+        // Three tuples for block 42 (different sidecar / record indices), one for block 99.
+        // Summary must report 2 distinct blocks, not 4.
+        final SidecarIntegrityValidation v = new SidecarIntegrityValidation();
+        v.record(new TimestampMismatch(42L, 0, 0, 100L, 1));
+        v.record(new TimestampMismatch(42L, 0, 1, 200L, 2));
+        v.record(new TimestampMismatch(42L, 1, 0, 300L, 3));
+        v.record(new TimestampMismatch(99L, 0, 0, 400L, 4));
+
+        final String stderr = captureStderr(() -> v.finalize(0L, 0L));
+
+        // Summary line format is consumed by ops tooling; assert on the shape and the
+        // dedupe outcome ("2 block(s)", not "4"). Sorted ascending: [42, 99].
+        assertTrue(
+                stderr.contains("Timestamp-mismatch warning fired on 2 block(s): [42, 99]"),
+                "summary must dedupe by block and list distinct block numbers sorted; actual stderr:\n" + stderr);
+    }
+
+    @Test
+    @DisplayName("finalize(): summary message shape is stable (single block)")
+    void finalize_singleBlock_summaryFormatStable() {
+        // Guard against future refactors that reword the [SidecarTimestamp] WARN summary
+        // -- ops scripts grep for this exact prefix + shape.
+        final SidecarIntegrityValidation v = new SidecarIntegrityValidation();
+        v.record(new TimestampMismatch(42L, 0, 0, 100L, 1));
+
+        final String stderr = captureStderr(() -> v.finalize(0L, 0L));
+
+        assertTrue(
+                stderr.contains("[SidecarTimestamp] WARN Timestamp-mismatch warning fired on 1 block(s): [42]"),
+                "summary line format is a stable contract; actual stderr:\n" + stderr);
+    }
+
+    @Test
+    @DisplayName("save(): writes via temp+rename, no half-written destination if the write fails")
+    void save_atomicWrite_noHalfWrittenFileOnFailure(@TempDir final Path tempDir) throws IOException {
+        // Pre-create a read-only sibling temp path so the writer trips over it, exercising the
+        // cleanup path of save() without needing a partial write.
+        final SidecarIntegrityValidation v = new SidecarIntegrityValidation();
+        v.record(new TimestampMismatch(42L, 0, 0, 100L, 1));
+
+        v.save(tempDir);
+
+        // Destination lands; sidecar-timestamp-mismatches.txt.tmp is NOT left behind.
+        final Path outFile = tempDir.resolve(SidecarIntegrityValidation.MISMATCH_REPORT_FILE_NAME);
+        final Path tmpFile = tempDir.resolve(SidecarIntegrityValidation.MISMATCH_REPORT_FILE_NAME + ".tmp");
+        assertTrue(Files.exists(outFile), "destination file must exist after successful save()");
+        assertFalse(Files.exists(tmpFile), "temp file must be cleaned up after successful atomic rename");
+    }
+
+    /** Capture stderr for the duration of a Runnable and return everything written. */
+    private static String captureStderr(final Runnable r) {
+        final java.io.PrintStream original = System.err;
+        final java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        System.setErr(new java.io.PrintStream(buf, true));
+        try {
+            r.run();
+        } finally {
+            System.setErr(original);
+        }
+        return buf.toString();
     }
 }

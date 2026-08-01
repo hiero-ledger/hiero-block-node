@@ -16,8 +16,10 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -137,17 +139,6 @@ public final class SidecarIntegrityValidation implements BlockValidation {
     /** Package-private accumulator hook used by {@link #validate} and tests. */
     void record(final TimestampMismatch mismatch) {
         timestampMismatches.offer(mismatch);
-    }
-
-    /**
-     * Legacy no-record-stream-file overload retained for wrap-time callers that already pass
-     * only the manifest list. Runs only the hash check; the timestamp cross-check is skipped
-     * because we have no {@code RecordStreamFile} to draw transaction timestamps from.
-     */
-    public static void validateSidecars(
-            final List<SidecarFile> sidecarFiles, final List<SidecarMetadata> sidecarMetadatas, final long blockNumber)
-            throws ValidationException {
-        validateSidecars(sidecarFiles, sidecarMetadatas, null, blockNumber, null);
     }
 
     /**
@@ -315,11 +306,26 @@ public final class SidecarIntegrityValidation implements BlockValidation {
         sorted.sort(Comparator.comparingLong(TimestampMismatch::blockNumber)
                 .thenComparingInt(TimestampMismatch::sidecarIndex)
                 .thenComparingInt(TimestampMismatch::recordIndex));
-        try (BufferedWriter w = Files.newBufferedWriter(outFile)) {
-            for (final TimestampMismatch m : sorted) {
-                w.write(m.blockNumber() + "\t" + m.sidecarIndex() + "\t" + m.recordIndex() + "\t" + m.timestampSeconds()
-                        + "." + String.format("%09d", m.timestampNanos()) + "\n");
+        // Write-to-temp + atomic rename so a JVM crash mid-write cannot leave the
+        // destination file half-written for downstream ops tooling to parse.
+        final Path tmp = outFile.resolveSibling(outFile.getFileName() + ".tmp");
+        try {
+            try (BufferedWriter w = Files.newBufferedWriter(tmp)) {
+                for (final TimestampMismatch m : sorted) {
+                    w.write(m.blockNumber() + "\t" + m.sidecarIndex() + "\t" + m.recordIndex() + "\t"
+                            + m.timestampSeconds() + "." + String.format("%09d", m.timestampNanos()) + "\n");
+                }
             }
+            try {
+                Files.move(tmp, outFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (final AtomicMoveNotSupportedException e) {
+                // Fallback for filesystems without ATOMIC_MOVE (tmpfs, some NFS, jimfs in tests).
+                // Destination is still overwritten, just not atomically.
+                Files.move(tmp, outFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (final IOException e) {
+            Files.deleteIfExists(tmp);
+            throw e;
         }
     }
 
