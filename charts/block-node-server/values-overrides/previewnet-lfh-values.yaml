@@ -58,28 +58,34 @@ blockNode:
                   - name: logging-storage
                     mountPath: /logging-pvc
 
-        # PVCs: chart-provisioned from the cluster's default StorageClass.
-        # The mainnet reference (lfh-values.yaml) uses `create: false` +
-        # `existingClaim: <name>-pvc` because production Tier 1 hosts have
-        # pre-provisioned static PVs backing dedicated disks. For a
-        # Solo-Provisioner single-VM deployment we have no such prep step,
-        # so `create: true` is required -- without it the mounts silently
-        # degrade to the pod's ephemeral rootfs, and any tar-streamed
-        # historic blocks get wiped on the next pod restart (which
-        # BlockFileHistoricPlugin's re-scan triggers).
+        # PVCs are statically pre-provisioned by Solo Provisioner during
+        # `sudo solo-provisioner block node install` (5 PVs / 5 PVCs at
+        # fixed names, backed by hostPath directories on the VM's disk).
+        # This shape lets us seed the archive directly on the host
+        # filesystem before starting the BN -- see
+        # `tools-and-tests/tools/scripts/backfill-wrb-to-bn.sh --pre-install`
+        # for the seed workflow, which copies (or hard-links, when
+        # source and PV are on the same filesystem) a wrappedBlocks
+        # archive into the archive-storage-pv's host path prior to
+        # first pod start. On BN startup, BlockFileHistoricPlugin
+        # scans that pre-seeded archive and picks up the blocks with
+        # no pod restart or tar-stream overhead.
         persistence:
             live:
-                create: true
+                create: false
+                existingClaim: live-storage-pvc
                 subPath: ""
             archive:
-                create: true
+                create: false
+                existingClaim: archive-storage-pvc
                 subPath: ""
             logging:
-                create: true
+                create: false
+                existingClaim: logging-storage-pvc
                 subPath: ""
             applicationState:
-                create: true
-                subPath: ""
+                create: false
+                existingClaim: application-state-storage-pvc
 
     ports:
         publisher: 40984    # PRODUCER_PORT     — gRPC, block producers
