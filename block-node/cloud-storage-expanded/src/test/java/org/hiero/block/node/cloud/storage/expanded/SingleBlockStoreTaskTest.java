@@ -11,7 +11,6 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -27,7 +26,6 @@ import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /// Unit tests for {@link SingleBlockStoreTask} that verify the {@link SingleBlockStoreTask.UploadStatus}
 /// enum value set in the {@link SingleBlockStoreTask.UploadResult} for each outcome.
@@ -42,9 +40,6 @@ class SingleBlockStoreTaskTest {
     /// One-day block duration passed to {@link TestBlockBuilder} — only the block number matters here.
     private static final Duration ONE_DAY = Duration.of(1, ChronoUnit.DAYS);
 
-    @TempDir
-    private Path tempDir;
-
     // ---- Helpers ------------------------------------------------------------
 
     /// Generates a single {@link TestBlock} for the given block number using a fixed start time
@@ -54,10 +49,9 @@ class SingleBlockStoreTaskTest {
                 .getFirst();
     }
 
-    /// Builds a {@link RetryStagingManager} backed by the per-test {@link #tempDir}, so `call()`
-    /// can exercise the real stage-on-failure path without touching the default `/opt/hiero` path.
-    private RetryStagingManager newStagingManager() {
-        return new RetryStagingManager(new ExpandedCloudStorageConfig(
+    /// Builds a {@link RetryBuffer} so `call()` can exercise the real buffer-on-failure path.
+    private RetryBuffer newRetryBuffer() {
+        return new RetryBuffer(new ExpandedCloudStorageConfig(
                 "http://fake:9000",
                 "bucket",
                 "blocks",
@@ -67,12 +61,9 @@ class SingleBlockStoreTaskTest {
                 "",
                 60,
                 true,
-                tempDir,
                 30,
-                30,
-                900,
-                20,
-                6));
+                3_600,
+                200));
     }
 
     /// Returns an {@link S3UploadClient} whose {@code uploadFile} completes silently —
@@ -157,7 +148,7 @@ class SingleBlockStoreTaskTest {
                 "blocks/0000/0000/0000/0000/001.blk.zstd",
                 "STANDARD",
                 BlockSource.UNKNOWN,
-                newStagingManager());
+                newRetryBuffer());
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 
@@ -181,7 +172,7 @@ class SingleBlockStoreTaskTest {
                 "blocks/0000/0000/0000/0000/002.blk.zstd",
                 "STANDARD",
                 BlockSource.UNKNOWN,
-                newStagingManager());
+                newRetryBuffer());
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 
@@ -204,7 +195,7 @@ class SingleBlockStoreTaskTest {
                 "blocks/0000/0000/0000/0000/003.blk.zstd",
                 "STANDARD",
                 BlockSource.UNKNOWN,
-                newStagingManager());
+                newRetryBuffer());
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 
@@ -225,7 +216,7 @@ class SingleBlockStoreTaskTest {
                 "blocks/0000/0000/0000/0000/004.blk.zstd",
                 "STANDARD",
                 BlockSource.UNKNOWN,
-                newStagingManager());
+                newRetryBuffer());
 
         final SingleBlockStoreTask.UploadResult result =
                 assertDoesNotThrow(task::call, "call() must never propagate an unchecked exception");
@@ -248,7 +239,7 @@ class SingleBlockStoreTaskTest {
                 "blocks/0000/0000/0000/0000/005.blk.zstd",
                 "STANDARD",
                 BlockSource.UNKNOWN,
-                newStagingManager());
+                newRetryBuffer());
 
         final SingleBlockStoreTask.UploadResult result =
                 assertDoesNotThrow(task::call, "call() must never propagate an unchecked exception");
@@ -275,9 +266,9 @@ class SingleBlockStoreTaskTest {
     }
 
     @Test
-    @DisplayName("Staged bytes for a retried block decompress back to the original block")
+    @DisplayName("Buffered bytes for a retried block decompress back to the original block")
     void stagedBytesRoundTripToOriginalBlock() throws Exception {
-        final RetryStagingManager stagingManager = newStagingManager();
+        final RetryBuffer retryBuffer = newRetryBuffer();
         final long blockNumber = 55L;
         final SingleBlockStoreTask task = new SingleBlockStoreTask(
                 blockNumber,
@@ -286,15 +277,14 @@ class SingleBlockStoreTaskTest {
                 "blocks/0000/0000/0000/0000/055.blk.zstd",
                 "STANDARD",
                 BlockSource.UNKNOWN,
-                stagingManager);
+                retryBuffer);
 
         final SingleBlockStoreTask.UploadResult result = task.call();
-        assertTrue(result.stagedForRetry(), "bytes must be staged for a later retry");
+        assertTrue(result.stagedForRetry(), "bytes must be buffered for a later retry");
 
-        final RetryStagingManager.StagedEntry entry =
-                stagingManager.dueForRetry(Instant.now()).getFirst();
-        final byte[] staged = stagingManager.readBytes(entry);
-        final byte[] decompressed = CompressionType.ZSTD.decompress(staged);
+        final RetryBuffer.BufferedEntry entry =
+                retryBuffer.dueForRetry(Instant.now()).getFirst();
+        final byte[] decompressed = CompressionType.ZSTD.decompress(entry.compressedBytes());
         final BlockUnparsed parsed = standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(decompressed));
         assertEquals(
                 blockNumber,
@@ -334,7 +324,7 @@ class SingleBlockStoreTaskTest {
                 "blocks/0000/0000/0000/0000/042.blk.zstd",
                 "INTELLIGENT_TIERING",
                 BlockSource.UNKNOWN,
-                newStagingManager());
+                newRetryBuffer());
         final SingleBlockStoreTask.UploadResult result = task.call();
 
         assertEquals(SingleBlockStoreTask.UploadStatus.SUCCESS, result.status());
@@ -380,7 +370,7 @@ class SingleBlockStoreTaskTest {
                         "blocks/0000/0000/0000/0000/077.blk.zstd",
                         "STANDARD",
                         BlockSource.UNKNOWN,
-                        newStagingManager())
+                        newRetryBuffer())
                 .call();
 
         assertEquals(1, capturedPayload.size(), "Exactly one chunk expected from PayloadIterator");
@@ -408,7 +398,7 @@ class SingleBlockStoreTaskTest {
                 "blocks/key",
                 "STANDARD",
                 BlockSource.PUBLISHER,
-                newStagingManager());
+                newRetryBuffer());
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 

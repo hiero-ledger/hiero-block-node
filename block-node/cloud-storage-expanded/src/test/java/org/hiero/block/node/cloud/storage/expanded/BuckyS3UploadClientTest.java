@@ -8,7 +8,6 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Iterator;
 import org.hiero.block.node.cloud.storage.expanded.ExpandedCloudStorageConfig.StorageClass;
@@ -44,12 +43,9 @@ class BuckyS3UploadClientTest {
                 "secret",
                 60,
                 false,
-                Path.of("unused"),
                 30,
-                30,
-                900,
-                20,
-                6);
+                3_600,
+                200);
     }
 
     /// Opens and immediately closes a local socket to obtain a port number that nothing is

@@ -85,18 +85,18 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     private final String objectKey;
     private final String storageClass;
     private final BlockSource blockSource;
-    private final RetryStagingManager stagingManager;
+    private final RetryBuffer retryBuffer;
 
     /// Constructs a new task.
     ///
-    /// @param blockNumber    the block number being uploaded
-    /// @param block          the verified block payload
-    /// @param s3Client       the upload client to use for the upload
-    /// @param objectKey      the fully-qualified S3 object key
-    /// @param storageClass   the S3 storage class
-    /// @param blockSource    the source of the block (for the `PersistedNotification`)
-    /// @param stagingManager staging area used to persist the compressed bytes for background retry
-    ///                       when the upload fails
+    /// @param blockNumber  the block number being uploaded
+    /// @param block        the verified block payload
+    /// @param s3Client     the upload client to use for the upload
+    /// @param objectKey    the fully-qualified S3 object key
+    /// @param storageClass the S3 storage class
+    /// @param blockSource  the source of the block (for the `PersistedNotification`)
+    /// @param retryBuffer  in-memory buffer used to hold the compressed bytes for background retry
+    ///                     when the upload fails
     public SingleBlockStoreTask(
             final long blockNumber,
             @NonNull final BlockUnparsed block,
@@ -104,14 +104,14 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
             @NonNull final String objectKey,
             @NonNull final String storageClass,
             @NonNull final BlockSource blockSource,
-            @NonNull final RetryStagingManager stagingManager) {
+            @NonNull final RetryBuffer retryBuffer) {
         this.blockNumber = blockNumber;
         this.block = block;
         this.s3Client = s3Client;
         this.objectKey = objectKey;
         this.storageClass = storageClass;
         this.blockSource = blockSource;
-        this.stagingManager = stagingManager;
+        this.retryBuffer = retryBuffer;
     }
 
     /// Compresses the block to ZSTD protobuf bytes and uploads it to S3.
@@ -183,13 +183,12 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
         }
     }
 
-    /// Stages the compressed bytes for background retry if compression completed before the upload
-    /// failed. Returns `false` without staging when `compressed` is `null` or empty (the `IOException`
-    /// came from compression itself, not the upload) or when {@link RetryStagingManager#stage} rejects
-    /// the bytes.
+    /// Buffers the compressed bytes for background retry if compression completed before the upload
+    /// failed. Returns `false` without buffering when `compressed` is `null` or empty (the `IOException`
+    /// came from compression itself, not the upload) or when {@link RetryBuffer#stage} rejects the bytes.
     private boolean stageForRetry(final byte[] compressed) {
         return compressed != null
                 && compressed.length > 0
-                && stagingManager.stage(blockNumber, compressed, objectKey, storageClass, blockSource);
+                && retryBuffer.stage(blockNumber, compressed, objectKey, storageClass, blockSource);
     }
 }
