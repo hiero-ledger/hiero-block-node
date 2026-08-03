@@ -2,7 +2,7 @@
 
 ## Configuration
 
-Refer to the [Configuration](../configuration.md) for configuration options.
+Refer to the [Configuration](../configuration-overview.md) for configuration options.
 
 ## Running locally
 
