@@ -181,10 +181,11 @@ java -cp "${CLI_LIB}/*" \
     || { tail -40 /tmp/wrb-dist-post-upgrade-wrap.log; fail "wrb-cli wrap failed on post-upgrade subset"; }
 
 # Diagnostic visibility even on success: this is a brand-new code path (never
-# exercised against a mid-life-upgrade record subset before), so print wrap's
-# own account of what it processed rather than only surfacing it on failure.
-log "wrap summary (from ${new_count} input record file(s)):"
-grep -E "Starting (from|at)|Processing day files|blocks written|Wrote " /tmp/wrb-dist-post-upgrade-wrap.log | sed 's/^/    /' || true
+# exercised against a mid-life-upgrade record subset before), and a prior run
+# proved wrap silently wrote only 1 of 699 expected blocks — a filtered grep
+# of a few keywords wasn't enough to see why, so dump the whole log this time.
+log "wrap log (from ${new_count} input record file(s)):"
+sed 's/^/    /' /tmp/wrb-dist-post-upgrade-wrap.log || true
 
 # wrap organizes output into a nested directory tree (e.g.
 # 000/000/000/000/00/00000s.zip, see install-and-run-wrb-cli.sh's own
