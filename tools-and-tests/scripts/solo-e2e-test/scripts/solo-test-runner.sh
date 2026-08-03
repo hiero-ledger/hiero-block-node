@@ -543,10 +543,12 @@ function chaos_resource_name {
 
 function execute_inject_latency {
     local args="$1"
-    local name source_kind target_kind latency jitter correlation bidirectional loss
+    local name source_kind source_name target_kind target_name latency jitter correlation bidirectional loss
     name=$(echo "$args" | yq '.name // ""')
     source_kind=$(echo "$args" | yq '.source.kind // ""')
+    source_name=$(echo "$args" | yq '.source.name // ""')
     target_kind=$(echo "$args" | yq '.target.kind // ""')
+    target_name=$(echo "$args" | yq '.target.name // ""')
     latency=$(echo "$args" | yq '.latency // "0ms"')
     jitter=$(echo "$args" | yq '.jitter // "0ms"')
     correlation=$(echo "$args" | yq '.correlation // "0"')
@@ -579,13 +581,24 @@ function execute_inject_latency {
     target_selector=$(chaos_label_selector "$target_kind") || return 1
     local source_key="${source_selector%%=*}" source_val="${source_selector#*=}"
     local target_key="${target_selector%%=*}" target_val="${target_selector#*=}"
+    local source_name_filter="" target_name_filter=""
+    local source_dryrun_selector="${source_selector}"
+    local target_dryrun_selector="${target_selector}"
+    if [[ -n "${source_name}" && "${source_name}" != "null" ]]; then
+        source_dryrun_selector="${source_selector},app.kubernetes.io/instance=${source_name}"
+        source_name_filter="      app.kubernetes.io/instance: ${source_name}"
+    fi
+    if [[ -n "${target_name}" && "${target_name}" != "null" ]]; then
+        target_dryrun_selector="${target_selector},app.kubernetes.io/instance=${target_name}"
+        target_name_filter="        app.kubernetes.io/instance: ${target_name}"
+    fi
 
     if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
-            --selector "${source_selector}" --label "source(${source_kind})"; then
+            --selector "${source_dryrun_selector}" --label "source(${source_kind})"; then
         return 1
     fi
     if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
-            --selector "${target_selector}" --label "target(${target_kind})"; then
+            --selector "${target_dryrun_selector}" --label "target(${target_kind})"; then
         return 1
     fi
 
@@ -612,8 +625,10 @@ function execute_inject_latency {
     export TARGET_NAMESPACE="${NAMESPACE}"
     export SOURCE_LABEL_KEY="${source_key}"
     export SOURCE_LABEL_VALUE="${source_val}"
+    export SOURCE_NAME_FILTER="${source_name_filter}"
     export TARGET_LABEL_KEY="${target_key}"
     export TARGET_LABEL_VALUE="${target_val}"
+    export TARGET_NAME_FILTER="${target_name_filter}"
     export LATENCY="${latency}"
     export JITTER="${jitter}"
     export CORRELATION="${correlation}"
@@ -622,7 +637,7 @@ function execute_inject_latency {
     envsubst < "${CHAOS_TEMPLATE_DIR}/network-latency.yaml.tmpl" > "${manifest}"
 
     echo "Applying NetworkChaos '${chaos_name}'"
-    echo "  selector: ${source_key}=${source_val}  ->  target: ${target_key}=${target_val}"
+    echo "  selector: ${source_key}=${source_val}${source_name:+,instance=${source_name}}  ->  target: ${target_key}=${target_val}${target_name:+,instance=${target_name}}"
     echo "  delay: ${latency} +/- ${jitter} (correlation: ${correlation}, direction: ${direction})"
     [[ -n "${loss_block}" ]] && echo "  loss: ${loss}"
 
