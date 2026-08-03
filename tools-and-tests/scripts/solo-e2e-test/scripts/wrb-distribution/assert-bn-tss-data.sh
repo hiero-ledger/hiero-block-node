@@ -6,39 +6,31 @@
 # key, and a non-empty TSS roster) after cn-upgrade-tss.sh cuts the network
 # over to a TSS/WRAPS-native CN version.
 #
-# TssData is only ever extracted by the block-verification plugin's
-# BlockHasher while processing block number 0 (see BlockHasher.java's
-# blockNumber == 0 check) — it is not a general "TSS is active" signal, and it
-# is never populated for a block that arrives through a path that skips
-# verification. In this suite BN1's copy of block 0 was written directly into
-# historic storage by bulk-load-historical-to-bn1.sh (picked up by
-# BlockFileHistoricPlugin's startup scan), which never runs the verification
-# pipeline, so BN1 can't extract TssData itself this way. BN2 and BN3 instead
-# backfill block 0 from BN1 (reconfigure-bn-backfill.sh, step 10); backfilled
-# blocks DO go through the same BlockHasher/VerificationServicePlugin
-# pipeline as live-published ones (confirmed via VerificationServicePluginTest
-# / BlockHasherTest, which parametrize identically over BlockSource.PUBLISHER
-# and BlockSource.BACKFILL), so each independently extracts its own TssData
-# from that block regardless of BN1's own state. BN1 is instead configured
-# (reconfigure-bn-roster-bootstrap-tss.sh, also step 10) to pull TssData from
-# BN2/BN3 via the roster-bootstrap-tss plugin's periodic peer-gossip poll, so
-# it does eventually populate too — just strictly after BN2/BN3 do. Callers
-# should check BN2/BN3 before BN1 — see wrb-distribution-steps1-12.yaml's
-# step-11 comment for the full reasoning.
+# BN1 (Tier-0) gets TssData directly: detect-tss-enablement.sh detects the
+# CN's post-upgrade LedgerIdPublication transaction and writes
+# tss-bootstrap-roster.json, and stage-tss-data-on-bn1.sh stages that file
+# onto BN1 and restarts it so BlockNodeApp.loadApplicationState() loads it —
+# so BN1 should be checked FIRST, right after that restart.
+#
+# BN2 and BN3 have no such direct path. They instead pick up the same
+# TssData "eventually" via the roster-bootstrap-tss plugin's periodic
+# peer-gossip poll of BN1 (reconfigure-bn-roster-bootstrap-tss.sh, step 10),
+# so they should be checked SECOND, after BN1 already has it — matching
+# issue #3125 step 11's literal wording (BN1 first, then eventually BN2/BN3).
 #
 # Usage:
 #     assert-bn-tss-data.sh <bn-index> [<bn-index> ...]
-#     assert-bn-tss-data.sh 2 3
 #     assert-bn-tss-data.sh 1
+#     assert-bn-tss-data.sh 2 3
 #
 # Reads:
 #   PROTO_PATH     (required — path to extracted protobuf-sources; see
 #                   solo-test-runner.sh --proto-path / Taskfile proto:extract)
 #   POLL_INTERVAL  (default 15 seconds between retries)
 #   POLL_TIMEOUT   (default 120 seconds total per target BN; bump this via env
-#                   since backfill needs time to walk all the way back to
-#                   block 0 before BN2/BN3 can extract TssData, and BN1 in
-#                   turn needs a roster-bootstrap-tss poll cycle after that)
+#                   — BN2/BN3 need a roster-bootstrap-tss poll cycle
+#                   (ROSTER_BOOTSTRAP_TSS_QUERY_PEER_INTERVAL default 60s)
+#                   after BN1 already has the data)
 
 set -euo pipefail
 
