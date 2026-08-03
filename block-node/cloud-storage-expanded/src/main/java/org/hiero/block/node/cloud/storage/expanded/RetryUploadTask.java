@@ -12,14 +12,14 @@ import org.hiero.block.node.cloud.storage.expanded.SingleBlockStoreTask.UploadRe
 import org.hiero.block.node.cloud.storage.expanded.SingleBlockStoreTask.UploadStatus;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
-/// Callable task that re-uploads a block's already-compressed bytes read back from
-/// {@link RetryStagingManager}. Unlike {@link SingleBlockStoreTask}, no compression step is
-/// needed — the bytes were compressed once when the block was originally staged.
+/// Callable task that re-uploads a block's already-compressed bytes held in the in-memory
+/// {@link RetryBuffer}. Unlike {@link SingleBlockStoreTask}, no compression step is
+/// needed — the bytes were compressed once when the block was originally buffered.
 ///
 /// `stagedForRetry` is always `false` on the returned {@link UploadResult}: the retry pipeline in
-/// `ExpandedCloudStoragePlugin` handles staging bookkeeping itself via
-/// {@link RetryStagingManager#unstage} / {@link RetryStagingManager#recordFailure} rather
-/// than re-staging an already-staged block on repeated failure.
+/// `ExpandedCloudStoragePlugin` handles buffer bookkeeping itself via
+/// {@link RetryBuffer#unstage} / {@link RetryBuffer#recordFailure} rather
+/// than re-buffering an already-buffered block on repeated failure.
 class RetryUploadTask implements Callable<UploadResult> {
 
     private static final String CONTENT_TYPE = "application/octet-stream";
@@ -35,7 +35,7 @@ class RetryUploadTask implements Callable<UploadResult> {
     /// Constructs a new retry task.
     ///
     /// @param blockNumber    the block number being retried
-    /// @param compressedBytes the previously-compressed block bytes, read back from disk
+    /// @param compressedBytes the previously-compressed block bytes, held in the in-memory retry buffer
     /// @param s3Client       the upload client to use for the upload
     /// @param objectKey      the fully-qualified S3 object key
     /// @param storageClass   the S3 storage class

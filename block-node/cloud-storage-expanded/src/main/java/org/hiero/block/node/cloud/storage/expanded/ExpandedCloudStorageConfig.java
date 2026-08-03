@@ -4,7 +4,6 @@ package org.hiero.block.node.cloud.storage.expanded;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Min;
-import java.nio.file.Path;
 import org.hiero.block.node.base.Loggable;
 
 /// Configuration for the expanded cloud storage plugin.
@@ -49,19 +48,18 @@ import org.hiero.block.node.base.Loggable;
 ///                             variables or IAM instance role.
 /// @param uploadTimeoutSeconds maximum seconds to wait for in-flight uploads during
 ///                             `stop()` before treating them as failed. Default: 60.
-/// @param retryEnabled         whether failed uploads are staged to disk and retried in the
+/// @param retryEnabled         whether failed uploads are held in memory and retried in the
 ///                             background instead of being reported as failed immediately.
-///                             Default: `true`.
-/// @param retryStagingDirectoryPath directory where compressed bytes of failed uploads are
-///                             staged for background retry.
-/// @param retryIntervalSeconds how often the background retry tick scans for staged blocks
-///                             that are due for another attempt.
-/// @param retryBaseBackoffSeconds initial backoff delay before the first retry attempt.
-/// @param retryMaxBackoffSeconds upper bound on the exponential backoff delay between retries.
-/// @param retryMaxAttempts     maximum number of retry attempts before a staged block is
-///                             dropped and reported as a terminal failure.
-/// @param retryMaxAgeHours     maximum time a block may remain staged for retry, regardless of
-///                             `retryMaxAttempts`, before it is dropped as a terminal failure.
+///                             Blocks are never written to local disk; a process restart loses
+///                             any not-yet-recovered retry. Default: `true`.
+/// @param retryIntervalSeconds fixed interval, in seconds, at which the background retry tick
+///                             re-attempts every currently-buffered block that isn't already
+///                             in flight.
+/// @param retryMaxAgeSeconds   maximum time, in seconds, a block may remain buffered for retry
+///                             before it is dropped and reported as a terminal failure.
+/// @param retryMaxPendingBlocks maximum number of blocks held in the in-memory retry buffer at
+///                             once; a failure that would exceed this cap is reported as a
+///                             terminal failure immediately instead of being buffered.
 // spotless:off - long annotations on record components must stay on one line
 @ConfigData("cloud.storage.expanded")
 public record ExpandedCloudStorageConfig(
@@ -74,13 +72,9 @@ public record ExpandedCloudStorageConfig(
         @ConfigProperty(defaultValue = "") String secretKey,
         @Loggable @ConfigProperty(defaultValue = "60") @Min(1) int uploadTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "true") boolean retryEnabled,
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/cloud-storage-expanded/retry-staging")
-                Path retryStagingDirectoryPath,
-        @Loggable @ConfigProperty(defaultValue = "30") @Min(1) int retryIntervalSeconds,
-        @Loggable @ConfigProperty(defaultValue = "30") @Min(1) int retryBaseBackoffSeconds,
-        @Loggable @ConfigProperty(defaultValue = "900") @Min(1) int retryMaxBackoffSeconds,
-        @Loggable @ConfigProperty(defaultValue = "20") @Min(1) int retryMaxAttempts,
-        @Loggable @ConfigProperty(defaultValue = "6") @Min(1) int retryMaxAgeHours) {
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) int retryIntervalSeconds,
+        @Loggable @ConfigProperty(defaultValue = "60") @Min(1) int retryMaxAgeSeconds,
+        @Loggable @ConfigProperty(defaultValue = "200") @Min(1) int retryMaxPendingBlocks) {
 
     /// S3 storage class values accepted by this plugin.
     public enum StorageClass {
