@@ -87,13 +87,17 @@ public class TarZstdDayReaderUsingExec {
             @Override
             public boolean tryAdvance(Consumer<? super UnparsedRecordBlock> action) {
                 if (action == null) throw new NullPointerException();
-                if (finished) return false;
 
-                // If we already have ready blocks, emit one
+                // Check ready blocks before finished: end-of-input processing (below) can flush
+                // many blocks into `ready` in one tryAdvance call while also setting `finished`,
+                // e.g. for a flat (single-directory) archive where the directory-boundary branch
+                // never fires and everything is buffered until the iterator is exhausted. Checking
+                // `finished` first would silently drop every ready block but the one just returned.
                 if (!ready.isEmpty()) {
                     action.accept(ready.removeFirst());
                     return true;
                 }
+                if (finished) return false;
 
                 while (it.hasNext()) {
                     InMemoryFile f = it.next();
