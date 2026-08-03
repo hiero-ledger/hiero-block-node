@@ -2,26 +2,29 @@
 #
 # Severe ("breaking-point") CN↔BN Latency — Geo-Asymmetric Gradient Test
 #
-# Three-tier per-BN latency across all BNs:
+# Three-tier per-BN latency gradient:
 #
 #   BN1  — "very far"  : CN↔BN1 800 ms ± 200 ms + 25% loss (corr 75%), BN1→BN 1000 ms (direction=to)
 #   BN2  — "mid-range" : CN↔BN2 400 ms ± 100 ms + 15% loss (corr 75%), BN2→BN  500 ms (direction=to)
-#   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest)
+#   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest; greedy backfill source for BN1/BN2)
 #   CNs  — global      : CN↔CN 600 ms ± 150 ms, corr 75%  (bidirectional)
+#
+# TCP absorbs packet loss via retransmit so gRPC streams stay alive. The latency
+# gradient means BN3 is always 1-3 blocks ahead of BN1 (and 0-2 ahead of BN2) at
+# any BackfillPlugin scan boundary. With greedy backfill enabled (backfill.greedy=true,
+# set in paired-3 topology), each BN's periodic scan queries peers for their max
+# available block. BN1/BN2's lag behind BN3 is classified as a LIVE_TAIL gap:
+# BackfillPlugin fetches those blocks and logs "Starting backfillGap type=[LIVE_TAIL]..."
+# at INFO every scan cycle, triggering the assertion.
 #
 # BN→BN rules use direction=to (unidirectional) so the per-BN rules for BN1
 # and BN2 do not additively stack on the BN1↔BN2 path.
 #
-# Intent: exercises the full asymmetric degradation profile — BN3 is fastest,
-# BN2 is degraded, BN1 is most degraded. Validates that all three BNs stay
-# healthy and continue receiving blocks despite severe asymmetric latency.
+# Intent: exercises the full three-tier asymmetric degradation profile and verifies
+# that greedy BackfillPlugin proactively closes live-tail lag from faster peers.
 #
-# NOTE: TCP on kind cluster loopback absorbs packet loss via retransmit; the
-# gRPC stream from CN never breaks, so no block-sequence gap forms in persistent
-# storage. BackfillPlugin gap-fill testing requires explicit storage gap injection
-# (see the dedicated backfill-recovery test, tracked in #3349).
-#
-# Requires topology with ≥ 3 BNs (e.g. paired-3, 7cn-3bn-distributed).
+# Requires topology with ≥ 3 BNs and greedy backfill enabled
+# (e.g. paired-3, 7cn-3bn-distributed). The dryrun check will fail on 3cn-1bn.
 #
 # Pre-req:
 #   task up TOPOLOGY=paired-3
@@ -31,7 +34,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-severe.yaml
 
 name: latency-severe
-description: "Per-BN CN↔BN latency gradient (severe/mid/none) — asymmetric degradation resilience"
+description: "Per-BN CN↔BN latency gradient (severe/mid/none) — asymmetric degradation & greedy backfill"
 
 events:
   - id: load-start
@@ -157,6 +160,14 @@ assertions:
     target: all
     args:
       min_block: 0
+
+  - id: backfill-triggered
+    type: backfill-triggered
+    description: "BN1 greedy-backfill closed its live-tail lag from BN3 during the chaos window"
+    target: block-node-1
+    args:
+      grep: "backfillGap"
+      since_seconds: 600
 
   - id: blocks-increasing
     type: blocks-increasing

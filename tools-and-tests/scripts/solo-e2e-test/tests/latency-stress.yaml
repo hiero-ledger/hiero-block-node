@@ -10,18 +10,22 @@
 #   BN3  — "normal"      : no chaos
 #   CNs  — global light  : CN↔CN 100 ms ± 20 ms  (simulates geographic spread)
 #
+# TCP absorbs packet loss via retransmit so the gRPC stream stays alive — BN1
+# never misses a block, it just receives them slightly later than BN3. With
+# greedy backfill enabled (backfill.greedy=true, set in paired-3 topology), the
+# BackfillPlugin's periodic scan queries peers for their max available block.
+# BN3's lead over BN1 (~1-2 blocks at any scan boundary) is classified as a
+# LIVE_TAIL gap: BackfillPlugin fetches those blocks from BN3 and logs
+# "Starting backfillGap type=[LIVE_TAIL]..." at INFO, triggering the assertion.
+#
 # BN→BN uses direction=to (unidirectional) to avoid double-stacking latency when
 # both BN1→BN2 and BN2→BN1 rules would otherwise stack on the same path.
 #
-# Intent: validates that a single degraded BN does not break the cluster — all
-# BNs continue to receive blocks and recover to healthy state after chaos clears.
+# Intent: validates that (a) a single degraded BN does not break the cluster and
+# (b) greedy BackfillPlugin proactively closes the live-tail lag from healthy peers.
 #
-# NOTE: TCP on kind cluster loopback absorbs packet loss via retransmit; the
-# gRPC stream from CN never breaks, so no block-sequence gap forms in persistent
-# storage. BackfillPlugin gap-fill testing requires explicit storage gap injection
-# (see the dedicated backfill-recovery test, tracked in #3349).
-#
-# Requires topology with ≥ 3 BNs (e.g. paired-3, 7cn-3bn-distributed).
+# Requires topology with ≥ 3 BNs and greedy backfill enabled
+# (e.g. paired-3, 7cn-3bn-distributed). The dryrun check will fail on 3cn-1bn.
 #
 # Pre-req:
 #   task up TOPOLOGY=paired-3
@@ -31,7 +35,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-stress.yaml
 
 name: latency-stress
-description: "CN↔BN severe latency on 1/3 of BNs (BN1) — single-node degradation resilience"
+description: "CN↔BN severe latency on 1/3 of BNs (BN1) — single-node degradation & greedy backfill"
 
 events:
   - id: load-start
@@ -57,7 +61,7 @@ events:
 
   - id: inject-cn-bn1
     type: inject-latency
-    description: "Inject CN↔BN1 800ms ± 200ms (corr 75%) — BN1 severe tier"
+    description: "Inject CN↔BN1 800ms ± 200ms + 75% loss (corr 75%) — BN1 severe tier"
     delay: 35
     args:
       name: cn-to-bn1
@@ -67,6 +71,7 @@ events:
       jitter: 200ms
       correlation: "75"
       bidirectional: true
+      loss: "75%"
 
   - id: inject-bn1-bn
     type: inject-latency
@@ -116,6 +121,14 @@ assertions:
     target: all
     args:
       min_block: 0
+
+  - id: backfill-triggered
+    type: backfill-triggered
+    description: "BN1 greedy-backfill closed its live-tail lag from BN3 during the chaos window"
+    target: block-node-1
+    args:
+      grep: "backfillGap"
+      since_seconds: 480
 
   - id: blocks-increasing
     type: blocks-increasing
