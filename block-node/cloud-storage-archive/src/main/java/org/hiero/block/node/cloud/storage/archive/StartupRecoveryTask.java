@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -138,18 +139,29 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
             long maxGroupStart = -1;
             for (final String key : allTarKeys) {
                 final long groupStart = ArchiveKey.parse(key, config.groupingLevel(), config.objectKeyPrefix());
-                completedRanges.add(groupStart, groupStart + groupSize - 1);
-                if (groupStart > maxGroupStart) {
-                    maxGroupStart = groupStart;
+                if (groupStart == ArchiveKey.UNPARSEABLE) {
+                    // A foreign object sharing the bucket, not one of our archives; skip it.
+                    LOGGER.log(DEBUG, "Skipping foreign object {0} in archive bucket", key);
+                } else {
+                    completedRanges.add(groupStart, groupStart + groupSize - 1);
+                    if (groupStart > maxGroupStart) {
+                        maxGroupStart = groupStart;
+                    }
                 }
             }
-            LOGGER.log(
-                    TRACE,
-                    "Last completed tar group starts at {0}, resuming from {1}",
-                    maxGroupStart,
-                    maxGroupStart + groupSize);
-            recoveryResult =
-                    new RecoveryResult(maxGroupStart + groupSize, null, null, 0, null, null, -1, completedRanges);
+            if (maxGroupStart == -1) {
+                // Every listed key was a foreign object; there is no prior archive state.
+                LOGGER.log(TRACE, "No valid archive objects found in S3 bucket, starting fresh");
+                recoveryResult = new RecoveryResult(-1, null, null, 0, null, null, -1, new ConcurrentLongRangeSet());
+            } else {
+                LOGGER.log(
+                        TRACE,
+                        "Last completed tar group starts at {0}, resuming from {1}",
+                        maxGroupStart,
+                        maxGroupStart + groupSize);
+                recoveryResult =
+                        new RecoveryResult(maxGroupStart + groupSize, null, null, 0, null, null, -1, completedRanges);
+            }
         }
         return recoveryResult;
     }
@@ -216,44 +228,51 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
     private RecoveryResult recoverFromSingleHangingUpload(S3Client s3, String key, String uploadId)
             throws S3ResponseException, IOException {
         LOGGER.log(TRACE, "Found hanging multipart upload for key {0}, starting recovery", key);
-        final List<PartInfo> parts = s3.listParts(key, uploadId);
+        final long groupStart = ArchiveKey.parse(key, config.groupingLevel(), config.objectKeyPrefix());
         final RecoveryResult result;
-        if (!parts.isEmpty()) {
-            s3.completeMultipartUpload(
-                    key, uploadId, parts.stream().map(PartInfo::etag).toList());
-            LOGGER.log(TRACE, "Completed hanging upload to create temporary S3 object at key {0}", key);
-            final String newUploadId =
-                    s3.createMultipartUpload(key, config.storageClass().name(), S3UploadUtils.CONTENT_TYPE);
-            final List<String> newEtags = new ArrayList<>();
+        if (groupStart == ArchiveKey.UNPARSEABLE) {
+            // The hanging upload's key could not be parsed, aborting the upload and starting from completed objects
+            LOGGER.log(DEBUG, "Hanging upload key {0} is not a valid archive key, ignoring it", key);
+            result = recoverFromMultipleHangingUploads(
+                    s3, Collections.singletonMap(key, Collections.singletonList(uploadId)));
+        } else {
+            final List<PartInfo> parts = s3.listParts(key, uploadId);
+            if (!parts.isEmpty()) {
+                s3.completeMultipartUpload(
+                        key, uploadId, parts.stream().map(PartInfo::etag).toList());
+                LOGGER.log(TRACE, "Completed hanging upload to create temporary S3 object at key {0}", key);
+                final String newUploadId =
+                        s3.createMultipartUpload(key, config.storageClass().name(), S3UploadUtils.CONTENT_TYPE);
+                final List<String> newEtags = new ArrayList<>();
 
-            final PartScanResult scanResult = rebuildUpload(s3, key, newUploadId, newEtags, parts);
-            if (scanResult.trailingBytes().length > 0) {
-                final long groupStart = ArchiveKey.parse(key, config.groupingLevel(), config.objectKeyPrefix());
-                LOGGER.log(
-                        TRACE,
-                        "Recovery prepared upload {0} for key {1}; resuming from block {2}",
-                        newUploadId,
-                        key,
-                        scanResult.blockNumber());
-                result = new RecoveryResult(
-                        groupStart,
-                        newUploadId,
-                        newEtags,
-                        scanResult.blockNumber(),
-                        scanResult.trailingBytes(),
-                        null,
-                        -1,
-                        null);
+                final PartScanResult scanResult = rebuildUpload(s3, key, groupStart, newUploadId, newEtags, parts);
+                if (scanResult.trailingBytes().length > 0) {
+                    LOGGER.log(
+                            TRACE,
+                            "Recovery prepared upload {0} for key {1}; resuming from block {2}",
+                            newUploadId,
+                            key,
+                            scanResult.blockNumber());
+                    result = new RecoveryResult(
+                            groupStart,
+                            newUploadId,
+                            newEtags,
+                            scanResult.blockNumber(),
+                            scanResult.trailingBytes(),
+                            null,
+                            -1,
+                            null);
+                } else {
+                    LOGGER.log(DEBUG, "No block start found in any part for key {0}; aborting", key);
+                    s3.abortMultipartUpload(key, newUploadId);
+                    s3.deleteObject(key);
+                    result = recoverFromCompletedObjects(s3);
+                }
             } else {
-                LOGGER.log(DEBUG, "No block start found in any part for key {0}; aborting", key);
-                s3.abortMultipartUpload(key, newUploadId);
-                s3.deleteObject(key);
+                s3.abortMultipartUpload(key, uploadId);
+                LOGGER.log(TRACE, "Hanging upload had no parts, aborted");
                 result = recoverFromCompletedObjects(s3);
             }
-        } else {
-            s3.abortMultipartUpload(key, uploadId);
-            LOGGER.log(TRACE, "Hanging upload had no parts, aborted");
-            result = recoverFromCompletedObjects(s3);
         }
 
         return result;
@@ -272,9 +291,9 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
     ///         part preceding the last block-start marker, or empty [PartScanResult#trailingBytes]
     ///         if no valid header is found
     private PartScanResult rebuildUpload(
-            S3Client s3, String key, String newUploadId, List<String> newEtags, List<PartInfo> parts)
+            S3Client s3, String key, long groupStart, String newUploadId, List<String> newEtags, List<PartInfo> parts)
             throws S3ResponseException, IOException {
-        long blockNumber = ArchiveKey.parse(key, config.groupingLevel(), config.objectKeyPrefix());
+        long blockNumber = groupStart;
         byte[] trailingBytes = new byte[0];
 
         // Absolute byte offsets within the S3 object, required for range-download and server-side-copy calls.
@@ -376,15 +395,17 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
             if (!TempArchiveKey.isTempMetaKey(key, objectKeyPrefix)) {
                 continue;
             }
-            final long firstBlock = TempArchiveKey.parseFirstBlockFromMeta(key, objectKeyPrefix);
-            final String tarKey = TempArchiveKey.formatTar(firstBlock, objectKeyPrefix);
             try {
+                final long firstBlock = TempArchiveKey.parseFirstBlockFromMeta(key, objectKeyPrefix);
+                final String tarKey = TempArchiveKey.formatTar(firstBlock, objectKeyPrefix);
                 final String metaContent = s3.downloadTextFile(key);
                 final long lastBlock = Long.parseLong(metaContent.trim());
                 completedEntries.add(new TempArchiveEntry(tarKey, firstBlock, lastBlock, null));
                 LOGGER.log(TRACE, "Recovered temp archive [{0}, {1}] from meta key {2}", firstBlock, lastBlock, key);
             } catch (S3ResponseException | IOException | NumberFormatException e) {
-                LOGGER.log(DEBUG, "Could not read temp archive meta {0}, skipping", key, e);
+                if (LOGGER.isLoggable(DEBUG)) {
+                    LOGGER.log(DEBUG, "Could not read temp archive meta %s, skipping".formatted(key), e);
+                }
             }
         }
 
@@ -393,7 +414,17 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
             if (!TempArchiveKey.isTempTarKey(key, objectKeyPrefix)) {
                 continue;
             }
-            final long firstBlock = TempArchiveKey.parseFirstBlockFromTar(key, objectKeyPrefix);
+            final long firstBlock;
+            try {
+                firstBlock = TempArchiveKey.parseFirstBlockFromTar(key, objectKeyPrefix);
+            } catch (final NumberFormatException e) {
+                // A foreign object under the tmp prefix; not one of our temp archives, leave it.
+                if (LOGGER.isLoggable(DEBUG)) {
+                    LOGGER.log(
+                            DEBUG, "Temp archive key %s is not a valid temp archive key, skipping".formatted(key), e);
+                }
+                continue;
+            }
             final String metaKey = TempArchiveKey.formatMeta(firstBlock, objectKeyPrefix);
             final boolean hasValidMeta = completedEntries.stream().anyMatch(e -> e.firstBlock() == firstBlock);
             if (!hasValidMeta) {
