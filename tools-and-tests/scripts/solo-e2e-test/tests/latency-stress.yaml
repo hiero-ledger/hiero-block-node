@@ -6,7 +6,7 @@
 # two BNs run at normal latency. This creates a binary divergence: BN1 falls
 # behind BN2/BN3, which can then serve as backfill sources once chaos clears.
 #
-#   BN1  — "far region"  : CN↔BN1 800 ms ± 200 ms + 25% loss (corr 75%), BN1→BN 1000 ms (direction=to)
+#   BN1  — "far region"  : CN↔BN1 800 ms ± 200 ms + 75% loss (corr 75%), BN1→BN 1000 ms (direction=to)
 #   BN2  — "normal"      : no chaos
 #   BN3  — "normal"      : no chaos
 #   CNs  — global light  : CN↔CN 100 ms ± 20 ms  (simulates geographic spread)
@@ -58,7 +58,7 @@ events:
 
   - id: inject-cn-bn1
     type: inject-latency
-    description: "Inject CN↔BN1 800ms ± 200ms + 25% loss (corr 75%) — BN1 severe tier"
+    description: "Inject CN↔BN1 800ms ± 200ms + 75% loss (corr 75%) — BN1 severe tier"
     delay: 35
     args:
       name: cn-to-bn1
@@ -68,7 +68,7 @@ events:
       jitter: 200ms
       correlation: "75"
       bidirectional: true
-      loss: "25%"
+      loss: "75%"
 
   - id: inject-bn1-bn
     type: inject-latency
