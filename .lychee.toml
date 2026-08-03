@@ -1,0 +1,26 @@
+# Lychee link checker configuration — scoped to docs/
+# https://lychee.cli.rs/usage/config/
+
+# Patterns excluded from all link checks (matched against the target URL/path)
+exclude = [
+  "^#",             # Anchor-only links — heading targets can't be verified without HTML rendering
+  "^mailto:",       # Email addresses
+  "localhost",      # Local development URLs
+  "127\\.0\\.0\\.1",
+  "broken-reference", # GitBook placeholder for unresolved cross-references
+]
+
+# Docs that contain deliberate links to source-code files (*.kts, *.proto, *.java)
+# that live outside the docs/ tree and cannot be validated by an offline link check.
+exclude_path = [
+  "docs/block-node/architecture/plugins.md",
+  "docs/design",
+  "docs/test-plan",
+]
+
+# HTTP status codes accepted as valid (handles rate-limiting gracefully)
+accept = ["200", "206", "429", "999"]
+
+# Retry settings for external link checks
+max_retries = 3
+retry_wait_time = 5
