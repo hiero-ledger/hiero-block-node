@@ -98,7 +98,7 @@ removed=0
 for f in "${POST_UPGRADE_DIR}"/*.rcd; do
     [[ -f "${f}" ]] || continue
     name=$(basename "${f}")
-    if [[ "${name}" < "${last_pre_upgrade_file}" ]]; then
+    if [[ "${name}" < "${last_pre_upgrade_file}" || "${name}" == "${last_pre_upgrade_file}" ]]; then
         rm -f "${f}" "${f%.rcd}.rcd_sig"
         removed=$(( removed + 1 ))
     fi
@@ -186,7 +186,21 @@ java -cp "${CLI_LIB}/*" \
 log "wrap summary (from ${new_count} input record file(s)):"
 grep -E "Starting (from|at)|Processing day files|blocks written|Wrote " /tmp/wrb-dist-post-upgrade-wrap.log | sed 's/^/    /' || true
 
-wrapped_block_count=$(find "${POST_UPGRADE_WRAPPED_DIR}" -maxdepth 1 -name "*.zip" -exec sh -c 'unzip -l "$1" | grep -cE "\.blk(\.[a-z0-9]+)*$"' _ {} \; | awk '{sum+=$1} END {print sum+0}')
+# wrap organizes output into a nested directory tree (e.g.
+# 000/000/000/000/00/00000s.zip, see install-and-run-wrb-cli.sh's own
+# structure check), so this must search recursively rather than maxdepth 1.
+# Uses python3's zipfile module (always available; `unzip` may not be
+# installed on the runner) to count actual .blk* entries across every zip
+# found, giving a ground-truth count independent of validate's own reporting.
+wrapped_block_count=$(python3 -c "
+import sys, zipfile
+from pathlib import Path
+total = 0
+for zip_path in Path(sys.argv[1]).rglob('*.zip'):
+    with zipfile.ZipFile(zip_path) as zf:
+        total += sum(1 for n in zf.namelist() if '.blk' in n)
+print(total)
+" "${POST_UPGRADE_WRAPPED_DIR}")
 log "Wrapped output contains ${wrapped_block_count} block entry/entries (expected ~${new_count})"
 if [[ "${wrapped_block_count}" -lt "${new_count}" ]]; then
     log "WARNING: wrap produced fewer blocks than input record files — see /tmp/wrb-dist-post-upgrade-wrap.log for the full wrap log"
