@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -210,8 +211,19 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
     @Override
     public void stop() {
-        if (heartbeatExecutor != null) {
+        if (heartbeatExecutor == null) {
+            return;
+        }
+        // Stop scheduling new runs and let an in-flight heartbeat finish before forcing termination,
+        // so we do not interrupt logStatusHeartbeat() mid-emit.
+        heartbeatExecutor.shutdown();
+        try {
+            if (!heartbeatExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                heartbeatExecutor.shutdownNow();
+            }
+        } catch (final InterruptedException e) {
             heartbeatExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -221,7 +233,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         try {
             logStatusHeartbeat();
         } catch (final RuntimeException e) {
-            LOGGER.log(DEBUG, "Failed to emit server status heartbeat", e);
+            LOGGER.log(WARNING, "Failed to emit server status heartbeat", e);
         }
     }
 

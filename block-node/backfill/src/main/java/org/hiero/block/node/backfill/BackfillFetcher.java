@@ -124,6 +124,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      */
     public List<LongRange> getNewAvailableRanges(long latestStoredBlockNumber) {
         final List<LongRange> peerRanges = new ArrayList<>();
+        final int totalNodes = blockNodeSource.nodes().size();
+        int reachedNodeCount = 0;
 
         for (BlockNodeSourceConfig node : blockNodeSource.nodes()) {
             if (isInBackoff(node)) {
@@ -144,12 +146,21 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                         peerRanges.add(new LongRange(start, range.end()));
                     }
                 }
+                reachedNodeCount++;
             } catch (RuntimeException e) {
                 final String failedToGetStatusMsg = "Failed to get status from node [%s:%d]: %s"
                         .formatted(node.address(), node.port(), e.getMessage());
                 LOGGER.log(DEBUG, failedToGetStatusMsg, e);
                 markFailure(node);
             }
+        }
+
+        // Individual unreachable/failed nodes are DEBUG, but no reachable source at all means backfill
+        // cannot progress: surface that aggregate condition once at WARNING for on-call visibility.
+        if (totalNodes > 0 && reachedNodeCount == 0) {
+            final String allSourcesUnreachableMsg =
+                    "All [{0}] backfill source(s) are unreachable; cannot discover peer ranges";
+            LOGGER.log(WARNING, allSourcesUnreachableMsg, totalNodes);
         }
 
         final List<LongRange> mergedRanges = LongRange.mergeContiguousRanges(peerRanges);
