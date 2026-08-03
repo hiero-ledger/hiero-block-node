@@ -302,6 +302,7 @@ jobs:
     uses: ./.github/workflows/release-notes-generator.yaml
     with:
       release_branch: ${{ needs.release.outputs.release_branch }}
+      release_tag: ${{ needs.release.outputs.release_tag }}
       is_prerelease: ${{ needs.release.outputs.is_prerelease }}
     secrets: inherit
 

@@ -11,6 +11,10 @@ on:
         description: "Branch to generate notes from (default: dispatched branch)"
         required: false
         default: ""
+      release_tag:
+        description: "Exact tag to generate notes for (default: auto-resolve the latest semver tag reachable from release_branch)"
+        required: false
+        default: ""
       is_prerelease:
         description: "true = incremental RC notes; false = full cycle GA notes"
         required: false
@@ -21,6 +25,11 @@ on:
         description: "Release branch to generate notes from"
         type: string
         required: true
+      release_tag:
+        description: "Exact tag to generate notes for — skips branch-based auto-discovery, which can't see a tag that was never merged into release_branch (e.g. alpha/custom, which are tag-only and never push a branch commit)"
+        type: string
+        required: false
+        default: ""
       is_prerelease:
         description: "true = incremental RC notes; false = full cycle GA notes"
         type: string
@@ -57,6 +66,7 @@ jobs:
           ref: ${{ inputs.release_branch || github.ref_name }}
 
       - name: Resolve Latest Tag on Branch
+        if: ${{ inputs.release_tag == '' }}
         env:
           IS_PRERELEASE: ${{ inputs.is_prerelease || 'true' }}
         run: |
@@ -74,6 +84,14 @@ jobs:
           fi
           [[ -z "${LATEST_TAG}" ]] && { echo "::error::No semver tags found on ${GITHUB_REF_NAME}"; exit 1; }
           echo "LATEST_TAG=${LATEST_TAG}" >> "${GITHUB_ENV}"
+
+      - name: Use Provided Release Tag
+        if: ${{ inputs.release_tag != '' }}
+        run: |
+          # Bypasses branch-based discovery entirely — needed for alpha/custom,
+          # whose tag is never merged into any branch so --merged HEAD above
+          # would never find it (and would exit 1 with no tags found at all).
+          echo "LATEST_TAG=${{ inputs.release_tag }}" >> "${GITHUB_ENV}"
 
       - name: Install git-cliff
         id: install_cliff

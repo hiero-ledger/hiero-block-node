@@ -97,8 +97,13 @@ a minor) an open PR bumping `main` to the next snapshot.
 **Trigger:** Called automatically by `release-automation.yaml` (`workflow_call`), or manually
 via `workflow_dispatch` to regenerate or preview notes.
 
-**What it does:** Checks out the release branch, resolves the latest semver tag on it, installs
-git-cliff, generates the changelog, and uploads it as a workflow artifact.
+**What it does:** Checks out the release branch, resolves the tag to generate notes for, installs
+git-cliff, generates the changelog, and uploads it as a workflow artifact. `release-automation.yaml`
+always passes the exact tag it just created (`release_tag`); a manual `workflow_dispatch` preview
+without one falls back to auto-resolving the latest semver tag reachable from `release_branch` —
+which only works for branches that actually contain that tag as a real commit. This matters for
+`alpha`/`custom`: their tag is never merged into any branch, so `release_tag` is required for them
+in practice, not just an optimization.
 
 |        Release type         |                            Changelog range                            |
 |-----------------------------|-----------------------------------------------------------------------|
@@ -365,9 +370,10 @@ steps succeeded, then re-run the `create_release` job individually from the Acti
 Re-run the failed jobs from the Actions UI. Docker publish and JAR publish are idempotent; re-running is safe.
 
 **Release notes are missing or incorrect.**
-Trigger `release-notes-generator.yaml` manually with the correct `release_branch` and
-`is_prerelease` inputs. Download the `release-notes-<tag>` artifact and paste the content into
-the draft release body on GitHub.
+Trigger `release-notes-generator.yaml` manually with the correct `release_branch`, `release_tag`,
+and `is_prerelease` inputs. For an `alpha`/`custom` release, `release_tag` is required — its tag
+was never merged into any branch, so auto-discovery without it will fail outright. Download the
+`release-notes-<tag>` artifact and paste the content into the draft release body on GitHub.
 
 **Milestone rollover failed on a GA run.**
 Re-run `milestone-rollover.yaml` manually (`workflow_dispatch`) with `release_version` set to the
