@@ -276,7 +276,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return new BackfillTaskScheduler(executor, gapProcessor, queueCapacity, fetcher, persistenceAwaiter);
         } catch (RuntimeException e) {
             final String createSchedulerFailedMsg = "Failed to create scheduler: [%s]".formatted(e.getMessage());
-            LOGGER.log(ERROR, createSchedulerFailedMsg, e);
+            LOGGER.log(WARNING, createSchedulerFailedMsg, e);
             return null;
         }
     }
@@ -294,14 +294,14 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             try {
                 historicalScheduler.close();
             } catch (RuntimeException e) {
-                LOGGER.log(WARNING, "Error closing historicalScheduler", e);
+                LOGGER.log(DEBUG, "Error closing historicalScheduler", e);
             }
         }
         if (liveTailScheduler != null) {
             try {
                 liveTailScheduler.close();
             } catch (RuntimeException e) {
-                LOGGER.log(WARNING, "Error closing liveTailScheduler", e);
+                LOGGER.log(DEBUG, "Error closing liveTailScheduler", e);
             }
         }
 

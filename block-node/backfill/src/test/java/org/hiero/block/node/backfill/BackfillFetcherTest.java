@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Logger;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
@@ -29,6 +30,7 @@ import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
+import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.base.client.BlockNodeClient;
 import org.hiero.block.node.base.client.BlockStreamSubscribeUnparsedClient;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
@@ -267,6 +269,27 @@ class BackfillFetcherTest {
             BlockNodeClient reachable = mockReachableClientWithStatus(0L, 100L);
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), reachable);
             assertTrue(fetcher.getNewAvailableRanges(100L).isEmpty());
+        }
+
+        @Test
+        @DisplayName("logs WARNING when all sources are unreachable")
+        void warnsWhenAllSourcesUnreachable() throws Exception {
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+
+            BlockNodeClient unreachable = mock(BlockNodeClient.class);
+            when(unreachable.isNodeReachable()).thenReturn(false);
+            BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), unreachable);
+
+            final TestLogHandler logHandler = new TestLogHandler();
+            final Logger julLogger = Logger.getLogger(BackfillFetcher.class.getName());
+            julLogger.addHandler(logHandler);
+            try {
+                assertTrue(fetcher.getNewAvailableRanges(0L).isEmpty());
+            } finally {
+                julLogger.removeHandler(logHandler);
+            }
+
+            assertEquals(1, logHandler.countContaining("backfill source(s) are unreachable"));
         }
 
         private BlockNodeClient mockReachableClientWithStatus(long first, long last) {
