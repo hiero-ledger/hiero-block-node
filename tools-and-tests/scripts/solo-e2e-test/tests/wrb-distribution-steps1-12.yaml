@@ -15,40 +15,39 @@
 #   8.    Reconfigure the 3 CNs to publish blocks to BN3.
 #   9.    Move blocks from the wrb-cli to BN1 (EMB=0): historical bulk-load,
 #         then a live-push loop for everything wrapped afterward.
-#   10.   Reconfigure BN2 and BN3 to set BN1 as a backfill source. BN1 is
-#         also reconfigured to pull TssData from BN2/BN3 via the
+#   10.   Reconfigure BN2 and BN3 to set BN1 as a backfill source. BN2 and
+#         BN3 are also reconfigured to pull TssData from BN1 via the
 #         roster-bootstrap-tss plugin (reconfigure-bn-roster-bootstrap-tss.sh)
-#         — see the note below on why BN1 needs this — but that happens
-#         much earlier in the timeline (right after all 3 BNs exist, before
-#         step 9's bulk-load-historical-to-bn1.sh restart) to keep BN1's
-#         restarts spaced apart rather than stacked back-to-back; see that
-#         event's own comment for why.
-#   11.   Upgrade the 3 CNs to v0.76.0-rc.7 (TSS/WRAPS-native; v0.76.0 GA
-#         itself isn't published yet — see cn-upgrade-tss.sh) via a real
-#         FREEZE_UPGRADE
-#         (cn-upgrade-tss.sh), then assert BN2 and BN3's serverStatusDetail
-#         report populated TSS data, and finally BN1's too
-#         (assert-bn-tss-data.sh). TssData is extracted only while verifying
-#         block 0 (block-verification's BlockHasher, gated on
-#         blockNumber == 0). BN1's copy of block 0 arrived via
-#         bulk-load-historical-to-bn1.sh's direct-to-storage copy
-#         (BlockFileHistoricPlugin's startup scan), which never runs the
-#         verification pipeline, so BN1 can't extract TssData itself. BN2 and
-#         BN3 instead backfill block 0 from BN1 (step 10) — backfilled blocks
-#         DO go through the same BlockHasher/VerificationServicePlugin
-#         pipeline as live-published ones (confirmed via
-#         VerificationServicePluginTest / BlockHasherTest, which parametrize
-#         over BlockSource.PUBLISHER and BlockSource.BACKFILL identically),
-#         so each independently extracts its own TssData from BN1's block 0
-#         regardless of BN1's own state. BN3's EMB=100_000_000 does not
-#         exempt it from this: the backfill scan floor is the separate
-#         `backfill.startBlock` config (default 0, never overridden by
-#         reconfigure-bn-backfill.sh), not EMB, so BN3 backfills all the way
-#         down to block 0 too. BN1 then picks up that same TssData from BN2
-#         or BN3 via roster-bootstrap-tss peer gossip (step 10's
-#         reconfiguration), so it must be checked AFTER BN2/BN3 have it, not
-#         before — the opposite order from issue #3125's literal wording,
-#         which assumed BN1 would get TssData directly.
+#         — see the note below on why this direction (not BN1 -> BN2/BN3).
+#   11.   TSS cutover, per the canonical operator flow:
+#         11.1 Upgrade the 3 CNs to v0.76.0-rc.7 (TSS/WRAPS-native; v0.76.0 GA
+#              itself isn't published yet — see cn-upgrade-tss.sh) via a real
+#              FREEZE_UPGRADE. This is what makes the CN emit a
+#              LedgerIdPublication transaction into the record stream.
+#         11.2 wrb-cli downloads the post-upgrade record file(s), wraps them,
+#              and runs `blocks validate` — which now has TssEnablementValidation
+#              wired in (ValidateBlocksCommand.java) — to extract the TSS
+#              details into tss-bootstrap-roster.json
+#              (detect-tss-enablement.sh).
+#         11.3 That file is staged directly onto BN1 (Tier-0) at its
+#              APP_STATE_TSS_BOOTSTRAP_FILE_PATH and BN1 is restarted so
+#              BlockNodeApp.loadApplicationState() loads it
+#              (stage-tss-data-on-bn1.sh).
+#         11.4 BN1's serverStatusDetail now reports the staged TssData
+#              directly — checked first. BN2 and BN3 have no such direct
+#              path, so they pick it up "eventually" via the
+#              roster-bootstrap-tss reconfiguration from step 10 (peer
+#              gossip from BN1) — checked second (assert-bn-tss-data.sh).
+#
+#         This whole approach replaced an earlier, incorrect design that
+#         relied on BN2/BN3 auto-extracting TssData by backfilling block 0
+#         from BN1: TssData extraction (block-verification's BlockHasher) is
+#         gated on blockNumber == 0, which only works for a network that
+#         already has TSS active AT GENESIS. This network's TSS activation
+#         happens mid-life, via the v0.76 upgrade, so the LedgerIdPublication
+#         transaction lands in whatever block the CN produces after the
+#         upgrade — never block 0 — meaning that mechanism could never have
+#         worked here regardless of whether backfill itself succeeded.
 #   12.   Stop CN record-file production (stop-cn-record-production.sh,
 #         blockStream.writerMode -> GRPC, simulating the real cutover) and
 #         validate all 3 BNs and both MNs converge on the same
@@ -130,58 +129,6 @@ events:
     timeout: 120
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-emb.sh"
-
-  # BN1 can never extract TssData itself (its blocks arrive via a path that
-  # bypasses verification — see assert-bn-tss-data.sh's header comment), but
-  # BN2 and BN3 will once they backfill from BN1 (step 10, further below).
-  # Point BN1 at both via the roster-bootstrap-tss plugin (already in every
-  # BN's default plugins.names, just inactive until configured) so it
-  # eventually picks up the same TssData by peer gossip instead.
-  #
-  # Done here — right after all 3 BNs exist and before BN1's later
-  # bulk-load-historical-to-bn1.sh restart (step 9a, ~190s further on) —
-  # rather than right before step 10's BN2/BN3 backfill reconfiguration
-  # (where it originally lived). BN1 already has a documented history of
-  # OOM under memory pressure (see overrides/bn-memory.yaml's own comment on
-  # heap exhaustion around block ~428 of sustained streaming); by the time
-  # step 10 runs, BN1 has just finished loading however many blocks the CN
-  # produced during the whole test so far via bulk-load, and immediately
-  # patching+rolling it again minutes (or, worse, mere seconds) after that
-  # restart settles is unnecessary added churn on a node already carrying
-  # the most load of the three. Reconfiguring now instead means this
-  # rollout and the later bulk-load rollout are minutes apart, each with
-  # room to settle, rather than stacked back-to-back.
-
-  - id: reconfigure-bn1-roster-bootstrap-tss
-    type: command
-    description: "Configure BN1 to pull TssData from BN2/BN3 via roster-bootstrap-tss"
-    delay: 245
-    timeout: 300
-    args:
-      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-roster-bootstrap-tss.sh 1 2 3"
-
-  - id: assert-bn1-roster-bootstrap-tss-source
-    type: command
-    description: "Assert BN1 is configured to pull TssData from BN2 and BN3"
-    delay: 250
-    timeout: 120
-    args:
-      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-roster-bootstrap-tss-source.sh 1 2 3"
-
-  # reconfigure-bn-roster-bootstrap-tss.sh patches BN1's StatefulSet pod
-  # template (to add the sources-file volume/mount), which the StatefulSet
-  # controller responds to with its own automatic rolling restart of that
-  # pod (see that script's own header comment). A `kubectl port-forward
-  # svc/<name>` targets a specific backing pod at connection time, so
-  # add-bn.sh's BN1 forward (established long before this rollout) silently
-  # dies once its pod is replaced. bulk-load-historical-to-bn1.sh's own
-  # later restart (step 9a) re-establishes BN1's forward itself once IT
-  # rolls the pod again, so this refresh only needs to cover the gap
-  # between now and then.
-  - id: refresh-port-forwards-after-bn1-roster-tss-rollout
-    type: port-forward
-    description: "Re-forward all BN/MN ports after BN1's roster-bootstrap-tss-triggered pod rollout"
-    delay: 255
 
   # Steps 6-7 — MN reconfiguration and MN2 install.
 
@@ -285,21 +232,54 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-backfill-source.sh 2 3"
 
-  # reconfigure-bn-backfill.sh patches BN2's and BN3's StatefulSet pod
-  # template (to add the backfill-sources volume/mount), which the
-  # StatefulSet controller responds to with its own automatic rolling
-  # restart of those pods (see that script's own header comment). A
-  # `kubectl port-forward svc/<name>` targets a specific backing pod at
-  # connection time, so add-bn.sh's BN2/BN3 forwards (established long
-  # before this rollout) silently die once their pods are replaced. Steps
-  # 11-12 are the first things in this suite to grpcurl BN2/BN3 through
-  # those ports (all earlier post-backfill checks used kubectl exec, which
-  # doesn't care), so refresh every port-forward here before relying on any
-  # of them.
+  # BN1 is where TssData actually lands (step 11 stages a CLI-generated
+  # tss-bootstrap-roster.json directly onto it — see detect-tss-enablement.sh
+  # / stage-tss-data-on-bn1.sh). BN2 and BN3 have no such direct path, so
+  # point them at BN1 via the roster-bootstrap-tss plugin (already in every
+  # BN's default plugins.names, just inactive until configured) so they
+  # eventually pick up the same TssData by peer gossip. Configured here,
+  # alongside their backfill reconfiguration, so both StatefulSet patches
+  # land well before step 11 needs the result — not squeezed in later.
+
+  - id: reconfigure-bn2-roster-bootstrap-tss
+    type: command
+    description: "Configure BN2 to pull TssData from BN1 via roster-bootstrap-tss"
+    delay: 485
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-roster-bootstrap-tss.sh 2 1"
+
+  - id: reconfigure-bn3-roster-bootstrap-tss
+    type: command
+    description: "Configure BN3 to pull TssData from BN1 via roster-bootstrap-tss"
+    delay: 490
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-roster-bootstrap-tss.sh 3 1"
+
+  - id: assert-bn2-bn3-roster-bootstrap-tss-source
+    type: command
+    description: "Assert BN2 and BN3 are both configured to pull TssData from BN1"
+    delay: 495
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-roster-bootstrap-tss-source.sh 2 1 && ${SCRIPT_DIR}/wrb-distribution/assert-bn-roster-bootstrap-tss-source.sh 3 1"
+
+  # reconfigure-bn-backfill.sh and reconfigure-bn-roster-bootstrap-tss.sh each
+  # patch BN2's/BN3's StatefulSet pod template (to add a sources-file
+  # volume/mount), which the StatefulSet controller responds to with its own
+  # automatic rolling restart of those pods (see those scripts' own header
+  # comments) — two rollouts each, back to back. A `kubectl port-forward
+  # svc/<name>` targets a specific backing pod at connection time, so
+  # add-bn.sh's BN2/BN3 forwards (established long before these rollouts)
+  # silently die once their pods are replaced. Steps 11-12 are the first
+  # things in this suite to grpcurl BN2/BN3 through those ports (all earlier
+  # post-backfill checks used kubectl exec, which doesn't care), so refresh
+  # every port-forward here before relying on any of them.
   - id: refresh-port-forwards-after-backfill-rollout
     type: port-forward
-    description: "Re-forward all BN/MN ports after BN2/BN3's backfill-triggered pod rollout"
-    delay: 495
+    description: "Re-forward all BN/MN ports after BN2/BN3's backfill + roster-bootstrap-tss rollouts"
+    delay: 500
 
   # Pre-cutover observation window — prove the wrb-cli live-wrap/live-push
   # pipeline is still healthy right up to the moment of cutover, then tear
@@ -309,7 +289,7 @@ events:
   - id: pre-cutover-observation-window
     type: sleep
     description: "Let the live wrap/push loops pick up records produced during steps 8-10"
-    delay: 500
+    delay: 505
     args:
       seconds: 180
 
@@ -360,15 +340,34 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/dump-bn-logs.sh 2 3"
 
-  # Step 11 — TSS cutover: upgrade the CN to a TSS/WRAPS-native version, then
-  # assert BN2 and BN3 report populated TSS data (independently extracted via
-  # backfill of block 0 from BN1), and finally BN1 too (picked up from BN2/BN3
-  # via the roster-bootstrap-tss reconfiguration done back in step 10 — see
-  # the header comment for why the order is BN2/BN3 first, BN1 last).
+  # Step 11 — TSS cutover. Canonical flow (per issue #3125 step 11 and the
+  # node-operator runbook), implemented across four scripts:
+  #   1. cn-upgrade-tss.sh: upgrade the 3 CNs to a TSS/WRAPS-native version
+  #      via a real FREEZE_UPGRADE. This is what makes the CN emit a
+  #      LedgerIdPublication transaction into the record stream — NOT an
+  #      automatic BN-side effect. (Block-verification's BlockHasher only
+  #      extracts TssData while processing block number 0, which is designed
+  #      for a network with TSS already active at genesis, not one upgraded
+  #      mid-life like this one — the LedgerIdPublication here lands in
+  #      whatever block the CN produces after the upgrade, not block 0. This
+  #      is why the previous design, which relied on BN2/BN3 backfilling
+  #      block 0 from BN1, could never have worked: block 0 never contained
+  #      the transaction to begin with.)
+  #   2. detect-tss-enablement.sh: wrb-cli downloads the new post-upgrade
+  #      record file(s), wraps them, and runs `blocks validate` — which now
+  #      has TssEnablementValidation wired in (see ValidateBlocksCommand.java)
+  #      — to extract the TSS details into tss-bootstrap-roster.json.
+  #   3. stage-tss-data-on-bn1.sh: kubectl cp's that file onto BN1 (Tier-0) at
+  #      its APP_STATE_TSS_BOOTSTRAP_FILE_PATH and restarts it, so
+  #      BlockNodeApp.loadApplicationState() loads it on startup.
+  #   4. BN1's serverStatusDetail now reports the staged TssData directly —
+  #      checked first, below. BN2 and BN3 have no such direct path, so they
+  #      pick it up "eventually" via the roster-bootstrap-tss reconfiguration
+  #      done back in step 10 (peer-gossip from BN1) — checked second.
 
   - id: cn-upgrade-tss
     type: command
-    description: "Step 11: upgrade the 3 CNs to v0.76.0-rc.7 (TSS/WRAPS-native) via a FREEZE_UPGRADE"
+    description: "Step 11.1: upgrade the 3 CNs to v0.76.0-rc.7 (TSS/WRAPS-native) via a FREEZE_UPGRADE"
     delay: 720
     # Generous: prepares an upgrade zip, sends+waits on a real FREEZE_UPGRADE
     # transaction, then restarts and re-Readies 3 CN pods.
@@ -376,43 +375,57 @@ events:
     args:
       # Pinned to a specific v0.76.0 rc rather than the dynamic "rc" keyword
       # (which currently resolves to v0.77.0-rc.3, the newest overall rc) —
-      # trying the version issue #3125 step 11 actually calls out, to see
-      # whether that changes the TSS-data outcome versus the newer rc.
+      # trying the version issue #3125 step 11 actually calls out.
       script: "${SCRIPT_DIR}/wrb-distribution/cn-upgrade-tss.sh v0.76.0-rc.7"
 
-  # Diagnostic-only: dump BN2/BN3's live logs + restart status again right
-  # before the assertion that has failed on every run so far (~27min in,
-  # roughly 20 minutes after the dump-bn-logs-baseline checkpoint above).
-  # Compare the two: if backfill made real progress between them, look for
-  # what stalled after that; if both look identical, the problem is likely
-  # present from the very start of backfill's first scan.
+  # Diagnostic-only: dump BN2/BN3's live logs + restart status right after
+  # the upgrade, before the detect/stage/assert sequence below.
   - id: dump-bn-logs-before-tss-check
     type: command
-    description: "Diagnostic: dump BN2/BN3 logs + restart status (right before the TSS-data check)"
+    description: "Diagnostic: dump BN2/BN3 logs + restart status (right before TSS detection/staging)"
     delay: 1625
     timeout: 60
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/dump-bn-logs.sh 2 3"
 
-  - id: assert-bn2-bn3-tss-data
+  - id: detect-tss-enablement
     type: command
-    description: "Step 11: assert BN2 and BN3 report populated TSS data (independently extracted via backfill of block 0 from BN1)"
+    description: "Step 11.2: download post-upgrade records, wrap + validate to detect the LedgerIdPublication and write tss-bootstrap-roster.json"
     delay: 1630
-    timeout: 450
+    # Generous: download_record_files_from_minio has its own internal 120s
+    # wait for the CN to produce+upload post-upgrade record files, plus
+    # potentially several hundred individual `mc cat` downloads (one kubectl
+    # exec each), plus wrap + validate over that subset.
+    timeout: 900
     args:
-      script: "POLL_TIMEOUT=420 ${SCRIPT_DIR}/wrb-distribution/assert-bn-tss-data.sh 2 3"
+      script: "${SCRIPT_DIR}/wrb-distribution/detect-tss-enablement.sh"
+
+  - id: stage-tss-data-on-bn1
+    type: command
+    description: "Step 11.3: stage tss-bootstrap-roster.json onto BN1 and restart it"
+    delay: 2530
+    timeout: 360
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/stage-tss-data-on-bn1.sh"
 
   - id: assert-bn1-tss-data
     type: command
-    description: "Step 11: assert BN1 eventually reports populated TSS data (picked up from BN2/BN3 via roster-bootstrap-tss)"
-    delay: 2100
-    # Generous: BN1 only picks this up on its own roster-bootstrap-tss poll
-    # cycle (ROSTER_BOOTSTRAP_TSS_QUERY_PEER_INTERVAL default 60s) after BN2
-    # and BN3 already have it, so this necessarily starts after the BN2/BN3
-    # check above rather than in parallel with it.
+    description: "Step 11.4: assert BN1's serverStatusDetail reports the staged TSS data"
+    delay: 2890
+    timeout: 150
+    args:
+      script: "POLL_TIMEOUT=120 ${SCRIPT_DIR}/wrb-distribution/assert-bn-tss-data.sh 1"
+
+  - id: assert-bn2-bn3-tss-data
+    type: command
+    description: "Step 11.4: assert BN2 and BN3 'eventually' report the same TSS data (via roster-bootstrap-tss peer gossip from BN1)"
+    delay: 3040
+    # Generous: BN2/BN3 only pick this up on their own roster-bootstrap-tss
+    # poll cycle (ROSTER_BOOTSTRAP_TSS_QUERY_PEER_INTERVAL default 60s) after
+    # BN1 already has it, so this necessarily starts after BN1's check above.
     timeout: 350
     args:
-      script: "POLL_TIMEOUT=300 ${SCRIPT_DIR}/wrb-distribution/assert-bn-tss-data.sh 1"
+      script: "POLL_TIMEOUT=300 ${SCRIPT_DIR}/wrb-distribution/assert-bn-tss-data.sh 2 3"
 
   # Step 12 — CN cutover: stop record-file production and validate every BN
   # and MN converges on the same last-available block.
@@ -420,7 +433,7 @@ events:
   - id: stop-cn-record-production
     type: command
     description: "Step 12: set blockStream.writerMode=GRPC on all 3 CNs and restart (simulate cutover)"
-    delay: 2500
+    delay: 3400
     timeout: 600
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stop-cn-record-production.sh"
@@ -428,7 +441,7 @@ events:
   - id: assert-cutover-sync
     type: command
     description: "Step 12: assert BN1/BN2/BN3 and MN1/MN2 converge on the same last-available block"
-    delay: 3110
+    delay: 4010
     timeout: 350
     args:
       script: "POLL_TIMEOUT=300 ${SCRIPT_DIR}/wrb-distribution/assert-cutover-sync.sh"
@@ -436,7 +449,7 @@ events:
   - id: final-status
     type: network-status
     description: "Post-test network status (should show BN1/BN2/BN3, MN1 + MN2 up, CNs on the upgraded rc)"
-    delay: 3470
+    delay: 4370
 
 # BN + MN health is asserted implicitly by:
 #   * add-bn.sh's / add-mn2.sh's kubectl wait --for=condition=Ready
