@@ -121,7 +121,11 @@ done
 log "Generating block_times.bin and day_blocks.json for the post-upgrade subset..."
 block_times_file="${WRB_DIST_WORK_DIR}/post-upgrade-block_times.bin"
 day_blocks_file="${WRB_DIST_WORK_DIR}/post-upgrade-day_blocks.json"
-first_rcd_ts=$( find "${POST_UPGRADE_DIR}" -name "*.rcd" -exec basename {} \; | sort | head -1 | cut -d'.' -f1 )
+# `head -1` closes its end of the pipe as soon as it has a line, and with
+# ~700 filenames sort's full output can exceed one pipe buffer's worth —
+# sort then gets SIGPIPE mid-write and, under pipefail, kills the script.
+# Draining the rest of sort's output through `cat >/dev/null` avoids that.
+first_rcd_ts=$( find "${POST_UPGRADE_DIR}" -name "*.rcd" -exec basename {} \; | sort | { head -1; cat >/dev/null; } | cut -d'.' -f1 )
 first_dt=$( echo "${first_rcd_ts}" | sed 's/_/:/g' )
 if date --version >/dev/null 2>&1; then
     first_seconds=$( date -u -d "${first_dt}Z" +%s 2>/dev/null || echo "0" )
@@ -134,7 +138,7 @@ python3 "${PYTHON_DIR}/generate_metadata.py" \
     || fail "Failed to generate metadata for post-upgrade subset"
 
 # ---- Network config (mirrors install-and-run-wrb-cli.sh, scoped to this subset) ----
-first_record_file=$( find "${POST_UPGRADE_DIR}" -maxdepth 1 -name "*.rcd" | sort | head -1 )
+first_record_file=$( find "${POST_UPGRADE_DIR}" -maxdepth 1 -name "*.rcd" | sort | { head -1; cat >/dev/null; } )
 genesis_timestamp=$(basename "${first_record_file}" | sed 's/\(.*\)\.rcd.*/\1/')
 genesis_date=$( echo "${genesis_timestamp}" | cut -d'T' -f1 )
 
