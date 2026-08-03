@@ -121,26 +121,34 @@ done
 log "Generating block_times.bin and day_blocks.json for the post-upgrade subset..."
 block_times_file="${WRB_DIST_WORK_DIR}/post-upgrade-block_times.bin"
 day_blocks_file="${WRB_DIST_WORK_DIR}/post-upgrade-day_blocks.json"
+
+# ---- Network config (mirrors install-and-run-wrb-cli.sh, scoped to this subset) ----
 # `head -1` closes its end of the pipe as soon as it has a line, and with
 # ~700 filenames sort's full output can exceed one pipe buffer's worth —
 # sort then gets SIGPIPE mid-write and, under pipefail, kills the script.
 # Draining the rest of sort's output through `cat >/dev/null` avoids that.
-first_rcd_ts=$( find "${POST_UPGRADE_DIR}" -name "*.rcd" -exec basename {} \; | sort | { head -1; cat >/dev/null; } | cut -d'.' -f1 )
-first_dt=$( echo "${first_rcd_ts}" | sed 's/_/:/g' )
-if date --version >/dev/null 2>&1; then
-    first_seconds=$( date -u -d "${first_dt}Z" +%s 2>/dev/null || echo "0" )
-else
-    first_seconds=$( date -u -j -f "%Y-%m-%dT%H:%M:%S" "${first_dt}" +%s 2>/dev/null || echo "0" )
-fi
-genesis_epoch_nanos=$(( first_seconds * 1000000000 ))
-python3 "${PYTHON_DIR}/generate_metadata.py" \
-    "${POST_UPGRADE_DIR}" "${block_times_file}" "${day_blocks_file}" "${genesis_epoch_nanos}" \
-    || fail "Failed to generate metadata for post-upgrade subset"
-
-# ---- Network config (mirrors install-and-run-wrb-cli.sh, scoped to this subset) ----
 first_record_file=$( find "${POST_UPGRADE_DIR}" -maxdepth 1 -name "*.rcd" | sort | { head -1; cat >/dev/null; } )
 genesis_timestamp=$(basename "${first_record_file}" | sed 's/\(.*\)\.rcd.*/\1/')
 genesis_date=$( echo "${genesis_timestamp}" | cut -d'T' -f1 )
+
+# genesis_epoch_nanos must be derived from the exact same full-precision
+# genesis_timestamp used in network-other.json below (not a re-truncated,
+# whole-second-only parse of it) — otherwise ToWrappedBlocksCommand's
+# NetworkConfig-derived genesis instant and generate_metadata.py's
+# relative_nanos baseline disagree by up to a second, corrupting every
+# block's recorded time in block_times.bin.
+first_dt=$( echo "${genesis_timestamp}" | sed 's/_/:/g' | sed 's/Z$//' )
+first_seconds_part=$( echo "${first_dt}" | cut -d'.' -f1 )
+first_nanos_part=$( echo "${first_dt}" | cut -d'.' -f2 )
+if date --version >/dev/null 2>&1; then
+    first_seconds=$( date -u -d "${first_seconds_part}Z" +%s 2>/dev/null || echo "0" )
+else
+    first_seconds=$( date -u -j -f "%Y-%m-%dT%H:%M:%S" "${first_seconds_part}" +%s 2>/dev/null || echo "0" )
+fi
+genesis_epoch_nanos=$(( first_seconds * 1000000000 + 10#${first_nanos_part} ))
+python3 "${PYTHON_DIR}/generate_metadata.py" \
+    "${POST_UPGRADE_DIR}" "${block_times_file}" "${day_blocks_file}" "${genesis_epoch_nanos}" \
+    || fail "Failed to generate metadata for post-upgrade subset"
 
 network_config_file="${WRB_DIST_WORK_DIR}/post-upgrade-network-other.json"
 cat > "${network_config_file}" <<EOF
@@ -171,6 +179,18 @@ java -cp "${CLI_LIB}/*" \
         --skip-block-number-validation \
     > /tmp/wrb-dist-post-upgrade-wrap.log 2>&1 \
     || { tail -40 /tmp/wrb-dist-post-upgrade-wrap.log; fail "wrb-cli wrap failed on post-upgrade subset"; }
+
+# Diagnostic visibility even on success: this is a brand-new code path (never
+# exercised against a mid-life-upgrade record subset before), so print wrap's
+# own account of what it processed rather than only surfacing it on failure.
+log "wrap summary (from ${new_count} input record file(s)):"
+grep -E "Starting (from|at)|Processing day files|blocks written|Wrote " /tmp/wrb-dist-post-upgrade-wrap.log | sed 's/^/    /' || true
+
+wrapped_block_count=$(find "${POST_UPGRADE_WRAPPED_DIR}" -maxdepth 1 -name "*.zip" -exec sh -c 'unzip -l "$1" | grep -cE "\.blk(\.[a-z0-9]+)*$"' _ {} \; | awk '{sum+=$1} END {print sum+0}')
+log "Wrapped output contains ${wrapped_block_count} block entry/entries (expected ~${new_count})"
+if [[ "${wrapped_block_count}" -lt "${new_count}" ]]; then
+    log "WARNING: wrap produced fewer blocks than input record files — see /tmp/wrb-dist-post-upgrade-wrap.log for the full wrap log"
+fi
 
 log "Running blocks validate to trigger TSS enablement detection..."
 java -cp "${CLI_LIB}/*" \
