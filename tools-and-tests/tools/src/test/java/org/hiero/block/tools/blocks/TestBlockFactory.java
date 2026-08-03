@@ -22,9 +22,13 @@ import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.base.TransferList;
 import com.hedera.hapi.node.state.token.Account;
+import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.node.transaction.TransactionRecord;
+import com.hedera.hapi.node.tss.LedgerIdNodeContribution;
+import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.hapi.streams.HashAlgorithm;
 import com.hedera.hapi.streams.HashObject;
 import com.hedera.hapi.streams.RecordStreamFile;
@@ -435,6 +439,52 @@ public final class TestBlockFactory {
                         .transferList(tl)
                         .build();
                 rsis.add(RecordStreamItem.newBuilder().record(tr).build());
+                RecordStreamFile newRsf = RecordStreamFile.newBuilder()
+                        .hapiProtoVersion(rsf.hapiProtoVersion())
+                        .startObjectRunningHash(rsf.startObjectRunningHash())
+                        .endObjectRunningHash(rsf.endObjectRunningHash())
+                        .recordStreamItems(rsis)
+                        .blockNumber(rsf.blockNumber())
+                        .build();
+                items.add(BlockItem.newBuilder()
+                        .recordFile(RecordFileItem.newBuilder()
+                                .creationTime(rfi.creationTime())
+                                .recordFileContents(newRsf)
+                                .build())
+                        .build());
+            } else {
+                items.add(item);
+            }
+        }
+        return new Block(items);
+    }
+
+    /** Returns a copy with a LedgerIdPublication transaction added, for TssEnablementValidation tests. */
+    public static Block withLedgerIdPublication(Block block, Bytes ledgerId, Bytes wrapsVerificationKey) {
+        List<BlockItem> items = new ArrayList<>();
+        for (BlockItem item : block.items()) {
+            if (item.hasRecordFile()) {
+                RecordFileItem rfi = item.recordFileOrThrow();
+                RecordStreamFile rsf = rfi.recordFileContentsOrThrow();
+                List<RecordStreamItem> rsis = new ArrayList<>(rsf.recordStreamItems());
+                LedgerIdPublicationTransactionBody pubBody = LedgerIdPublicationTransactionBody.newBuilder()
+                        .ledgerId(ledgerId)
+                        .historyProofVerificationKey(wrapsVerificationKey)
+                        .nodeContributions(List.of(LedgerIdNodeContribution.newBuilder()
+                                .nodeId(0)
+                                .weight(1000)
+                                .historyProofKey(Bytes.wrap(new byte[] {0xA}))
+                                .build()))
+                        .build();
+                TransactionBody txBody = TransactionBody.newBuilder()
+                        .ledgerIdPublication(pubBody)
+                        .build();
+                Transaction tx = Transaction.newBuilder().body(txBody).build();
+                TransactionRecord tr = TransactionRecord.newBuilder()
+                        .consensusTimestamp(rfi.creationTime())
+                        .build();
+                rsis.add(
+                        RecordStreamItem.newBuilder().transaction(tx).record(tr).build());
                 RecordStreamFile newRsf = RecordStreamFile.newBuilder()
                         .hapiProtoVersion(rsf.hapiProtoVersion())
                         .startObjectRunningHash(rsf.startObjectRunningHash())
