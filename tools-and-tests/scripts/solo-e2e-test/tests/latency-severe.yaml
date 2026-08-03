@@ -5,10 +5,14 @@
 # Three-tier per-BN latency that forces real divergence between BNs so that
 # backfill fires reliably:
 #
-#   BN1  — "very far"  : CN↔BN1 800 ms ± 200 ms, BN1→BN 1000 ms (direction=to)
-#   BN2  — "mid-range" : CN↔BN2 400 ms ± 100 ms, BN2→BN  500 ms (direction=to)
+#   BN1  — "very far"  : CN↔BN1 800 ms ± 200 ms + 25% loss (corr 75%), BN1→BN 1000 ms (direction=to)
+#   BN2  — "mid-range" : CN↔BN2 400 ms ± 100 ms + 15% loss (corr 75%), BN2→BN  500 ms (direction=to)
 #   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest; BN1/2 backfill from it)
 #   CNs  — global      : CN↔CN 600 ms ± 150 ms, corr 75%  (bidirectional)
+#
+# Packet loss on CN↔BN1/2 causes bursty correlated drops that break gRPC
+# streams, forcing reconnects during which BN1 (and BN2) miss blocks →
+# BackfillPlugin detects sequence gaps and fetches missing blocks from BN3.
 #
 # BN→BN rules use direction=to (unidirectional) so the two per-BN rules do not
 # additively stack on the BN1↔BN2 path.
@@ -55,7 +59,7 @@ events:
 
   - id: inject-cn-bn1
     type: inject-latency
-    description: "Inject CN↔BN1 800ms ± 200ms (corr 75%) — BN1 very-far tier"
+    description: "Inject CN↔BN1 800ms ± 200ms + 25% loss (corr 75%) — BN1 very-far tier"
     delay: 35
     args:
       name: cn-to-bn1
@@ -65,10 +69,11 @@ events:
       jitter: 200ms
       correlation: "75"
       bidirectional: true
+      loss: "25%"
 
   - id: inject-cn-bn2
     type: inject-latency
-    description: "Inject CN↔BN2 400ms ± 100ms (corr 75%) — BN2 mid-range tier"
+    description: "Inject CN↔BN2 400ms ± 100ms + 15% loss (corr 75%) — BN2 mid-range tier"
     delay: 40
     args:
       name: cn-to-bn2
@@ -78,6 +83,7 @@ events:
       jitter: 100ms
       correlation: "75"
       bidirectional: true
+      loss: "15%"
 
   - id: inject-bn1-bn
     type: inject-latency
