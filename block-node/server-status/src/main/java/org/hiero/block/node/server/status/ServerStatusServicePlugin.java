@@ -5,10 +5,7 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.util.Objects.requireNonNull;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.ArrayList;
-import java.util.List;
 import org.hiero.block.api.BlockNodeServiceInterface;
-import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
@@ -17,8 +14,8 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -60,8 +57,10 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
         final ApplicationStateFacility stateFacility = blockNodeContext.applicationStateFacility();
         final ServerStatusResponse.Builder serverStatusResponseBuilder = ServerStatusResponse.newBuilder();
-        final long firstAvailableBlock = blockProvider.availableBlocks().min();
-        long highestAvailableBlock = blockProvider.availableBlocks().max();
+        // Read min and max from a single reference so both come from a consistent snapshot
+        final BlockRangeSet availableBlocks = blockProvider.availableBlocks();
+        final long firstAvailableBlock = availableBlocks.min();
+        final long highestAvailableBlock = availableBlocks.max();
         long nextExpectedBlock = stateFacility.nextExpectedBlock();
         if (nextExpectedBlock < earliestManagedBlock) {
             nextExpectedBlock = UNKNOWN_BLOCK_NUMBER;
@@ -101,32 +100,15 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         requestDetailCounter.increment();
 
         // blockNodeContext is volatile, assign to local variable so reference stays consistent
-        BlockNodeContext context = blockNodeContext;
+        final BlockNodeContext context = blockNodeContext;
 
-        ServerStatusDetailResponse.Builder detailsBuilder = ServerStatusDetailResponse.newBuilder();
-
-        // add in version information
-        detailsBuilder.versionInformation(context.blockNodeVersions());
-
-        BlockRange.Builder blockRangeBuilder = BlockRange.newBuilder();
-
-        List<BlockRange> blockRanges = new ArrayList<>();
-
-        for (LongRange longRange : context.historicalBlockProvider()
-                .availableBlocks()
-                .streamRanges()
-                .toList()) {
-            blockRanges.add(blockRangeBuilder
-                    .rangeStart(longRange.start())
-                    .rangeEnd(longRange.end())
-                    .build());
-        }
-
-        // return detailed block node status information.
-        return detailsBuilder
-                .availableRanges(blockRanges)
-                // @todo(3004) change to use context.availableBlocks() when that becomes the source of truth
-                // .availableRanges(context.availableBlocks())
+        // Return detailed block node status information. Every field is read from the
+        // periodically-refreshed context snapshot: this keeps the response internally consistent
+        // and avoids recomputing the merged available ranges on every request (the context already
+        // holds the merged List<BlockRange> maintained by the application state facility).
+        return ServerStatusDetailResponse.newBuilder()
+                .versionInformation(context.blockNodeVersions())
+                .availableRanges(context.availableBlocks())
                 .storedRanges(context.storedBlocks())
                 .tssData(context.tssData())
                 .nodeAddressBook(context.nodeAddressBook())
