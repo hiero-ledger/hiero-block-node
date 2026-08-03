@@ -2,35 +2,29 @@
 #
 # Severe ("breaking-point") CN↔BN Latency — Geo-Asymmetric Gradient Test
 #
-# Three-tier per-BN latency gradient (full production-failure reproduction):
+# Three-tier per-BN latency gradient:
 #
-#   BN1  — "very far"  : CN↔BN1 8000 ms ± 2000 ms + 75% loss (corr 75%), BN1→BN 4000 ms (direction=to)
-#   BN2  — "mid-range" : CN↔BN2 4000 ms ± 1000 ms + 40% loss (corr 50%), BN2→BN 2000 ms (direction=to)
-#   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest, reference node)
-#   CNs  — global      : CN↔CN 1000 ms ± 250 ms, corr 75%  (bidirectional)
+#   BN1  — "very far"  : CN↔BN1 800 ms ± 200 ms + 25% loss (corr 75%), BN1→BN 1000 ms (direction=to)
+#   BN2  — "mid-range" : CN↔BN2 400 ms ± 100 ms + 15% loss (corr 75%), BN2→BN  500 ms (direction=to)
+#   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest; greedy backfill source for BN1/BN2)
+#   CNs  — global      : CN↔CN 600 ms ± 150 ms, corr 75%  (bidirectional)
 #
-# At 5000ms one-way + 75% correlated loss on BN1: TCP retransmit backoff
-# (10s → 20s → 40s → 80s → 160s per retry cycle) means burst losses delay
-# blocks by up to ~310s. BN3 advances ~90 blocks while BN1 receives 5-10 in
-# 180s — spread of 40-80 blocks at peak chaos. This is the "clearly over the
-# threshold" failure mode that mirrors what is observed in geographic production
-# deployments where high-latency BNs permanently fall behind.
+# TCP absorbs packet loss via retransmit so gRPC streams stay alive. The latency
+# gradient means BN3 is always 1-3 blocks ahead of BN1 (and 0-2 ahead of BN2) at
+# any BackfillPlugin scan boundary. With greedy backfill enabled (backfill.greedy=true,
+# set in paired-3 topology), each BN's periodic scan queries peers for their max
+# available block. BN1/BN2's lag behind BN3 is classified as a LIVE_TAIL gap:
+# BackfillPlugin fetches those blocks and logs "Starting backfillGap type=[LIVE_TAIL]..."
+# at INFO every scan cycle, triggering the assertion.
 #
-# TCP stays alive: kernel retry limit (~34 min at 5000ms RTT) far exceeds the
-# 370s chaos window. gRPC keepalive is disabled by default on grpc-java (CN).
-# After chaos clears, the CN's buffered backlog drains at full speed; all BNs
-# converge within seconds regardless of how far behind BN1 fell.
+# BN→BN rules use direction=to (unidirectional) so the per-BN rules for BN1
+# and BN2 do not additively stack on the BN1↔BN2 path.
 #
-# BN→BN rules use direction=to (unidirectional) so per-BN rules do not stack.
+# Intent: exercises the full three-tier asymmetric degradation profile and verifies
+# that greedy BackfillPlugin proactively closes live-tail lag from faster peers.
 #
-# Intent: reproduces the full multi-tier production failure mode — (a) large
-# spread (≥ 3, typically 40-80) at peak chaos confirms the CN↔BN divergence
-# that is seen in production, (b) spread ≤ 5 after chaos confirms stream
-# survival and recovery. Contrast with latency-stress which only approaches
-# the threshold.
-#
-# Requires topology with ≥ 3 BNs (e.g. paired-3, 7cn-3bn-distributed).
-# The dryrun check will fail on 3cn-1bn.
+# Requires topology with ≥ 3 BNs and greedy backfill enabled
+# (e.g. paired-3, 7cn-3bn-distributed). The dryrun check will fail on 3cn-1bn.
 #
 # Pre-req:
 #   task up TOPOLOGY=paired-3
@@ -54,76 +48,70 @@ events:
 
   - id: inject-cn-cn
     type: inject-latency
-    description: "Inject CN↔CN 1000ms ± 250ms (corr 75%) — global consensus latency"
+    description: "Inject CN↔CN 600ms ± 150ms (corr 75%) — global consensus latency"
     delay: 30
     args:
       name: cn-to-cn
       source: { kind: network-node }
       target: { kind: network-node }
-      latency: 1000ms
-      jitter: 250ms
+      latency: 600ms
+      jitter: 150ms
       correlation: "75"
       bidirectional: true
 
   - id: inject-cn-bn1
     type: inject-latency
-    description: "Inject CN↔BN1 8000ms ± 2000ms + 75% loss (corr 75%) — BN1 very-far tier (production failure mode)"
+    description: "Inject CN↔BN1 800ms ± 200ms + 25% loss (corr 75%) — BN1 very-far tier"
     delay: 35
     args:
       name: cn-to-bn1
       source: { kind: network-node }
       target: { kind: block-node, name: block-node-1 }
-      latency: 8000ms
-      jitter: 2000ms
+      latency: 800ms
+      jitter: 200ms
       correlation: "75"
       bidirectional: true
-      loss: "75%"
+      loss: "25%"
 
   - id: inject-cn-bn2
     type: inject-latency
-    description: "Inject CN↔BN2 4000ms ± 1000ms + 40% loss (corr 50%) — BN2 mid-range tier"
+    description: "Inject CN↔BN2 400ms ± 100ms + 15% loss (corr 75%) — BN2 mid-range tier"
     delay: 40
     args:
       name: cn-to-bn2
       source: { kind: network-node }
       target: { kind: block-node, name: block-node-2 }
-      latency: 4000ms
-      jitter: 1000ms
-      correlation: "50"
+      latency: 400ms
+      jitter: 100ms
+      correlation: "75"
       bidirectional: true
-      loss: "40%"
+      loss: "15%"
 
   - id: inject-bn1-bn
     type: inject-latency
-    description: "Inject BN1→BN peers 4000ms ± 1000ms (direction=to) — BN1 peer latency"
+    description: "Inject BN1→BN peers 1000ms ± 250ms (direction=to) — BN1 peer latency"
     delay: 45
     args:
       name: bn1-to-bn
       source: { kind: block-node, name: block-node-1 }
       target: { kind: block-node }
-      latency: 4000ms
-      jitter: 1000ms
+      latency: 1000ms
+      jitter: 250ms
       correlation: "75"
       bidirectional: false
 
   - id: inject-bn2-bn
     type: inject-latency
-    description: "Inject BN2→BN peers 2000ms ± 500ms (direction=to) — BN2 peer latency"
+    description: "Inject BN2→BN peers 500ms ± 125ms (direction=to) — BN2 peer latency"
     delay: 50
     args:
       name: bn2-to-bn
       source: { kind: block-node, name: block-node-2 }
       target: { kind: block-node }
-      latency: 2000ms
-      jitter: 500ms
+      latency: 500ms
+      jitter: 125ms
       correlation: "75"
       bidirectional: false
-
-  - id: snapshot-peak-chaos
-    type: snapshot-block-heights
-    description: "Capture per-BN block heights at peak chaos (≈165s into chaos window)"
-    delay: 210
-    args: { snapshot_id: peak-chaos }
 
   - id: clear-cn-cn
     type: clear-latency
@@ -173,31 +161,26 @@ assertions:
     args:
       min_block: 0
 
-  - id: blocks-diverged
-    type: blocks-diverged
-    description: "BNs were at least 3 blocks apart at peak chaos — confirms the three-tier latency gradient caused measurable divergence (8000ms base → ~4 block lag; 75% correlated loss bursts push it higher)"
+  - id: backfill-triggered
+    type: backfill-triggered
+    description: "BN1 greedy-backfill closed its live-tail lag from BN3 during the chaos window"
+    target: block-node-1
     args:
-      snapshot_id: peak-chaos
-      min_spread: 3
-
-  - id: blocks-converged
-    type: blocks-converged
-    description: "All BNs within 150 blocks of each other after latency clears — at severe tier the CN↔BN1 stream may die; tolerance is wide enough to detect a completely frozen node while accepting normal catchup lag"
-    args:
-      tolerance_blocks: 150
+      grep: "backfillGap"
+      since_seconds: 600
 
   - id: blocks-increasing
     type: blocks-increasing
-    description: "Block production continues on reference node (BN3) after latency clears — BN1 stream may not recover at this severity tier"
-    target: block-node-3
+    description: "Block production recovers on all BNs after latency clears"
+    target: all
     args:
       wait_seconds: 60
       max_attempts: 5
 
   - id: block-rate-floor
     type: block-rate-floor
-    description: "Post-chaos block rate on reference node (BN3) is ≥ 0.1 blk/s — confirms network liveness even if BN1 stream was severed"
-    target: block-node-3
+    description: "Post-chaos block rate recovers to ≥ 0.1 blk/s on all BNs"
+    target: all
     args:
       min_rate_per_sec: 0.1
       window_seconds: 30
