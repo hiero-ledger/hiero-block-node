@@ -20,7 +20,7 @@ public record HashingMetrics(Measurement hashingBlockTimeNs) {
     /// @return a new [HashingMetrics] instance fully initialized
     public static HashingMetrics create(final MetricRegistry metricRegistry) {
         final Measurement hashingBlockTimeNs = metricRegistry
-                .register(LongCounter.builder(METRIC_HASHING_BLOCK_TIME).setDescription("Hashing time per block (ms)"))
+                .register(LongCounter.builder(METRIC_HASHING_BLOCK_TIME).setDescription("Hashing time per block (ns)"))
                 .getOrCreateNotLabeled();
         return new HashingMetrics(hashingBlockTimeNs);
     }

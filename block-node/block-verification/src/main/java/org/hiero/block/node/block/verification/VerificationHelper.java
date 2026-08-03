@@ -12,13 +12,20 @@ import org.hiero.block.api.TssData.Builder;
 import org.hiero.block.api.TssRoster;
 
 /// Verification helper.
+/// A utility class with static helpers used across the verification module.
 public final class VerificationHelper {
     /// [SemanticVersion] for `0.73.0`.
     public static final SemanticVersion V_0_73_0 = semanticVersion(0, 73, 0);
 
+    /// Private constructor to prevent instantiation.
     private VerificationHelper() {}
 
-    /// Helper to build a SemanticVersion constant.
+    /// Helper to build a [SemanticVersion] constant.
+    ///
+    /// @param major the major version
+    /// @param minor the minor version
+    /// @param patch the patch version
+    /// @return a new [SemanticVersion] built from the given parts
     private static SemanticVersion semanticVersion(final int major, final int minor, final int patch) {
         return SemanticVersion.newBuilder()
                 .major(major)
@@ -27,8 +34,12 @@ public final class VerificationHelper {
                 .build();
     }
 
-    /// Helper to check if a [SemanticVersion] is greater than or equal to another.
-    /// ```toCompare >= base ? (lexicographic by major, minor, patch).```
+    /// Helper to check if a [SemanticVersion] is greater than or equal to another,
+    /// comparing lexicographically by major, minor, patch.
+    ///
+    /// @param toCompare the version to compare
+    /// @param base the version to compare against
+    /// @return `true` if `toCompare >= base`
     public static boolean isVersionGreaterOrEqualTo(final SemanticVersion toCompare, final SemanticVersion base) {
         if (toCompare.major() != base.major()) return toCompare.major() > base.major();
         if (toCompare.minor() != base.minor()) return toCompare.minor() > base.minor();
@@ -36,7 +47,11 @@ public final class VerificationHelper {
     }
 
     /// Helper to extract, map, and build [TssData] from [LedgerIdPublicationTransactionBody].
-    /// @throws NullPointerException if `publication` is `null`.
+    ///
+    /// @param publication the publication body to extract from, must not be null
+    /// @param blockNumber the block number the extracted data is valid from
+    /// @return a new [TssData] built from the publication
+    /// @throws NullPointerException if `publication` is `null`
     public static TssData extractTssData(final LedgerIdPublicationTransactionBody publication, final long blockNumber) {
         final Builder builder = TssData.newBuilder();
         builder.ledgerId(publication.ledgerId());
@@ -47,7 +62,10 @@ public final class VerificationHelper {
     }
 
     /// Helper to extract, map, and build [TssRoster] from a list of [LedgerIdNodeContribution].
-    /// @throws NullPointerException if `contributions` is `null`.
+    ///
+    /// @param contributions the node contributions to map into roster entries, must not be null
+    /// @return a new [TssRoster] built from the contributions
+    /// @throws NullPointerException if `contributions` is `null`
     public static TssRoster extractContributions(final List<LedgerIdNodeContribution> contributions) {
         final TssRoster.Builder builder = TssRoster.newBuilder();
         final List<RosterEntry> rosterEntries = new ArrayList<>();

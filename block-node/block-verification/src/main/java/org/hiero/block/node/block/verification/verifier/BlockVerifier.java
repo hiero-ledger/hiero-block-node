@@ -23,13 +23,23 @@ import org.hiero.block.node.block.verification.session.VerificationSessionFailed
 /// This is the second stage of a [org.hiero.block.node.block.verification.session.CompletableVerificationSession].
 /// If the block has passed the hashing stage, we can now verify the block proofs.
 public final class BlockVerifier implements Function<HashingResult, BlockVerificationResult> {
+    /// Logger for the verifier.
     private static final System.Logger LOGGER = System.getLogger(BlockVerifier.class.getName());
+    /// Cancellation flag shared with the owning session, forwarded to the proof verifiers.
     private final AtomicBoolean isCanceled;
+    /// Metrics for proof verification results.
     private final ProofVerificationMetrics proofVerificationMetrics;
+    /// The nano time at which the session started, used to record the verification time metric.
     private final long sessionStartTime;
+    /// Provider of the verification data (TSS data and RSA public keys).
     private final VerificationDataProvider verificationDataProvider;
 
     /// Constructor.
+    ///
+    /// @param isCanceled cancellation flag shared with the owning session, must not be null
+    /// @param proofVerificationMetrics metrics for proof verification results, must not be null
+    /// @param sessionStartTime the nano time at which the session started
+    /// @param verificationDataProvider provider of the verification data, must not be null
     public BlockVerifier(
             final AtomicBoolean isCanceled,
             final ProofVerificationMetrics proofVerificationMetrics,

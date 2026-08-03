@@ -20,7 +20,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 /// @param blockFooter the parsed footer of the block, cannot be null
 /// @param blockProofs all block proofs of the block, parsed, cannot be null
 /// @param hapiProtoVersion the semantic HAPI version of the block, cannot be null
-/// @param signedWRBPayload the raw record file item proto bytes if the block is WRB, null if not WRB
+/// @param signedWRBPayload the computed V6 signed payload,
+///     `SHA-384(int32(6) || record_file_contents)`, if the block is WRB, null if not WRB
 public record HashingResult(
         long blockNumber,
         BlockSource blockSource,

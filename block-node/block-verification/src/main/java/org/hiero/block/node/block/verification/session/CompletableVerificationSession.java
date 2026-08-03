@@ -23,24 +23,53 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
 /// An implementation of the [BlockVerificationSession] interface.
 public final class CompletableVerificationSession implements BlockVerificationSession {
+    /// Logger for the session.
     private static final System.Logger LOGGER = System.getLogger(CompletableVerificationSession.class.getName());
+    /// The composite key of this session (block number and unique id).
     private final SessionKey sessionKey;
+    /// The holder for all verification metrics, distributed to the stages.
     private final MetricsHolder metricsHolder;
+    /// The number of the block this session verifies.
     private final long blockNumber;
+    /// The source of the block.
     private final BlockSource blockSource;
+    /// The executor the stage chain runs on.
     private final ExecutorService executor;
+    /// Cancellation flag shared with all stages of the session.
     private final AtomicBoolean isCancelled;
+    /// The block node context, for access to core facilities.
     private final BlockNodeContext context;
+    /// The last successfully verified block, shared across sessions.
     private final AtomicLong lastVerifiedBlock;
+    /// The set of recently verified blocks, shared across sessions.
     private final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
+    /// Provider of the verification data (TSS data and RSA public keys).
     private final VerificationDataProvider verificationDataProvider;
+    /// The deque through which the block's item batches are supplied to the hashing stage.
     private final ConcurrentLinkedDeque<BlockItems> blockItemsDeque;
+    /// The set this session adds its key to once its result has been handled.
     private final ConcurrentSkipListSet<SessionKey> finishedSessions;
+    /// The configuration for verification.
     private final VerificationConfig verificationConfig;
+    /// Dumps failing block bytes to disk for diagnostics.
     private final BadBlockDumper badBlockDumper;
+    /// The stage chain, saved just before the terminating stage so it can be cancelled.
     private volatile CompletableFuture<BlockVerificationResult> sessionCompletionChain;
 
     /// Constructor.
+    ///
+    /// @param uniqueId the unique id for this session
+    /// @param blockNumber the number of the block to verify, must be non-negative
+    /// @param metricsHolder the holder for all verification metrics, must not be null
+    /// @param blockSource the source of the block, must not be null
+    /// @param verificationDataProvider provider of the verification data, must not be null
+    /// @param lastVerifiedBlock the last successfully verified block, must not be null
+    /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
+    /// @param executor the executor the stage chain runs on, must not be null
+    /// @param context the block node context, must not be null
+    /// @param verificationConfig the configuration for verification, must not be null
+    /// @param finishedSessions the set to add this session's key to when finished, must not be null
+    /// @param badBlockDumper the bad block dumper for diagnostics, must not be null
     public CompletableVerificationSession(
             final long uniqueId,
             final long blockNumber,
@@ -73,6 +102,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         this.badBlockDumper = Objects.requireNonNull(badBlockDumper);
     }
 
+    /// {@inheritDoc}
     @Override
     public SessionKey sessionKey() {
         return sessionKey;
@@ -128,6 +158,12 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         sessionCompletionChain = completionChain;
     }
 
+    /// {@inheritDoc}
+    /// ---
+    /// Cancels the stage chain and raises the shared cancellation flag so that any
+    /// stage currently running can observe it and stop.
+    ///
+    /// @throws IllegalStateException if the session was never started
     @Override
     public void cancel() {
         final CompletableFuture<BlockVerificationResult> localChain = sessionCompletionChain;
@@ -144,11 +180,13 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         }
     }
 
+    /// {@inheritDoc}
     @Override
     public ConcurrentLinkedDeque<BlockItems> getBlockItemsDeque() {
         return blockItemsDeque;
     }
 
+    /// {@inheritDoc}
     @Override
     public boolean complete() {
         final boolean result;

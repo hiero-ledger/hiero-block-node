@@ -27,19 +27,41 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureT
 /// The final stage of a [CompletableVerificationSession].
 /// This stage handles the result of the verification process of a block.
 public final class SessionResultHandler implements BiConsumer<BlockVerificationResult, Throwable> {
+    /// Logger for the handler.
     private static final Logger LOGGER = System.getLogger(SessionResultHandler.class.getName());
+    /// The block node context, for access to messaging.
     private final BlockNodeContext context;
+    /// The configuration for verification, source of the buffer sizes.
     private final VerificationConfig verificationConfig;
+    /// Metrics recorded by this stage.
     private final SessionResultMetrics sessionResultMetrics;
+    /// Dumps failing block bytes to disk for diagnostics.
     private final BadBlockDumper badBlockDumper;
+    /// The last successfully verified block, shared across sessions.
     final AtomicLong lastVerifiedBlock;
+    /// The number of the block this session verified.
     final long blockNumber;
+    /// The source of the block.
     final BlockSource blockSource;
+    /// The set of recently verified blocks, used for the informational failure check.
     final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
+    /// The set this handler adds the session's key to once the result has been handled.
     private final ConcurrentSkipListSet<SessionKey> finishedSessions;
+    /// The composite key of the owning session.
     private final SessionKey sessionKey;
 
     /// Constructor.
+    ///
+    /// @param context the block node context, must not be null
+    /// @param verificationConfig the configuration for verification, must not be null
+    /// @param sessionResultMetrics metrics recorded by this stage, must not be null
+    /// @param badBlockDumper the bad block dumper for diagnostics, must not be null
+    /// @param lastVerifiedBlock the last successfully verified block, must not be null
+    /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
+    /// @param blockNumber the number of the block the session verified, must be non-negative
+    /// @param blockSource the source of the block, must not be null
+    /// @param finishedSessions the set to add the session's key to when handled, must not be null
+    /// @param sessionKey the composite key of the owning session, must not be null
     public SessionResultHandler(
             final BlockNodeContext context,
             final VerificationConfig verificationConfig,
@@ -95,7 +117,10 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         }
     }
 
-    /// Send a notification to messaging.
+    /// Send a notification to messaging. Any failure to send is logged and
+    /// swallowed; this method never throws.
+    ///
+    /// @param notification the notification to send
     private void safeSendNotification(final VerificationNotification notification) {
         try {
             context.blockMessaging().sendBlockVerification(notification);
@@ -107,7 +132,11 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         }
     }
 
-    /// Handle the result of the session.
+    /// Handle the result of the session, routing to the success or failure path.
+    ///
+    /// @param verificationResult the successful result, may be null when a failure occurred
+    /// @param throwable the failure, may be null when verification succeeded
+    /// @return `true` if an unknown error occurred and the error metric must be incremented
     private boolean handle(final BlockVerificationResult verificationResult, final Throwable throwable) {
         final boolean hasUnknownErrorOccurred;
         if (throwable != null) {
@@ -126,7 +155,12 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         return hasUnknownErrorOccurred;
     }
 
-    /// Handle a failed result.
+    /// Handle a failed result. A failure notification carrying the appropriate
+    /// failure type is sent, the failed metric is incremented, and a bad block
+    /// dump is attempted when block items were captured at the failure site.
+    ///
+    /// @param throwable the failure to handle
+    /// @return `true` if the reported failure type was [FailureType#UNKNOWN_ERROR]
     private boolean handleThrowable(final Throwable throwable) {
         final String message =
                 "Session for block %d with source %s completed exceptionally".formatted(blockNumber, blockSource);
@@ -177,6 +211,10 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     }
 
     /// Process a completion exception case.
+    ///
+    /// @param ce the completion exception wrapping the actual cause
+    /// @return a failure notification carrying the failure type of the cause, or
+    ///     [SessionFailureType#UNKNOWN_ERROR] when the cause is not a known failure
     private VerificationNotification processCompletionException(final CompletionException ce) {
         final Throwable cause = ce.getCause();
         if (cause instanceof VerificationSessionFailedException vfe) {
@@ -199,7 +237,12 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         }
     }
 
-    /// Handle a successful verification result.
+    /// Handle a successful verification result. A success notification is sent,
+    /// the block is marked as recently verified, the last verified block is
+    /// advanced, and the verified metric is incremented.
+    ///
+    /// @param verificationResult the successful result to handle
+    /// @return always `false`, no unknown error can occur on the success path
     private boolean handleResult(final BlockVerificationResult verificationResult) {
         final long verifiedBlockNumber = verificationResult.blockNumber();
         final VerificationNotification notification = new VerificationNotification(
