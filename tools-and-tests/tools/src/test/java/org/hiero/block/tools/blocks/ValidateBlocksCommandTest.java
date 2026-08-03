@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +10,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -16,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import org.hiero.block.api.TssData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Execution;
@@ -527,5 +530,59 @@ class ValidateBlocksCommandTest {
         assertTrue(output.contains("Blocks validated: 5"), "Should validate all 5 blocks. Output:\n" + output);
         assertFalse(
                 output.contains("Resuming from checkpoint"), "Should NOT resume from checkpoint. Output:\n" + output);
+    }
+
+    // ── TSS enablement detection ──
+
+    @Test
+    void ledgerIdPublication_writesTssBootstrapFile() throws Exception {
+        Bytes ledgerId = Bytes.wrap(new byte[] {1, 2, 3, 4});
+        Bytes wrapsVerificationKey = Bytes.wrap(new byte[] {10, 20, 30});
+
+        // Modify the LAST block in the chain: any content change invalidates that block's own
+        // signature (like withExtraHbar), and modifying a non-last block would also break the
+        // NEXT block's previousBlockHash chain link. Modifying the last block avoids both, so
+        // only --skip-signatures is needed to get a clean VALIDATION PASSED alongside detection.
+        List<Block> blocks = TestBlockFactory.createValidChain(5);
+        int lastIndex = blocks.size() - 1;
+        blocks.set(
+                lastIndex,
+                TestBlockFactory.withLedgerIdPublication(blocks.get(lastIndex), ledgerId, wrapsVerificationKey));
+        writeBlocks(blocks);
+        writeAddressBook();
+
+        Object[] result = runValidate("--no-resume", "--skip-signatures");
+        int exitCode = (int) result[0];
+        String output = (String) result[1];
+
+        assertEquals(0, exitCode, "Should pass validation. Output:\n" + output);
+        assertTrue(output.contains("VALIDATION PASSED"), "Should report PASSED. Output:\n" + output);
+
+        Path binPath = tempDir.resolve("tss-enablement.bin");
+        Path jsonPath = tempDir.resolve("tss-bootstrap-roster.json");
+        assertTrue(Files.exists(binPath), "tss-enablement.bin should be written");
+        assertTrue(Files.exists(jsonPath), "tss-bootstrap-roster.json should be written");
+
+        TssData parsed = standardParse(TssData.PROTOBUF, Bytes.wrap(Files.readAllBytes(binPath)));
+        assertEquals(ledgerId, parsed.ledgerId());
+        assertEquals(wrapsVerificationKey, parsed.wrapsVerificationKey());
+    }
+
+    @Test
+    void noLedgerIdPublication_doesNotWriteTssBootstrapFile() throws Exception {
+        List<Block> blocks = TestBlockFactory.createValidChain(5);
+        writeBlocks(blocks);
+        writeAddressBook();
+
+        Object[] result = runValidate("--no-resume");
+        String output = (String) result[1];
+
+        assertTrue(output.contains("VALIDATION PASSED"), "Should pass. Output:\n" + output);
+        assertFalse(
+                Files.exists(tempDir.resolve("tss-enablement.bin")),
+                "tss-enablement.bin should not be written without a LedgerIdPublication transaction");
+        assertFalse(
+                Files.exists(tempDir.resolve("tss-bootstrap-roster.json")),
+                "tss-bootstrap-roster.json should not be written without a LedgerIdPublication transaction");
     }
 }
