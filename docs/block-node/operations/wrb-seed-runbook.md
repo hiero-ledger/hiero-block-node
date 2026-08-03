@@ -1,10 +1,10 @@
-# Previewnet Tier 1 LFH — Deployment + Historic Seed Runbook
+# WRB Seeding Runbook
 
 ## Overview
 
-This runbook covers deploying a Local-Full-History (LFH) Block Node to previewnet via Solo Provisioner and seeding it with a historical [Wrapped Record Block](../glossary.md#wrb-wrapped-record-block) (WRB) archive. Ties together the config from PR #3333 (previewnet Tier 1 values files) with the operational tooling from `backfill-wrb-to-bn.sh`.
+This runbook covers deploying a Local-Full-History (LFH) Block Node via Solo Provisioner and seeding it with a historical [Wrapped Record Block](../glossary.md#wrb-wrapped-record-block) (WRB) archive. The procedure applies to any environment (previewnet, testnet, mainnet) that uses the single-node Solo-Provisioner deployment shape; examples below use previewnet paths and values files, but substituting the equivalent `<env>-lfh-*.yaml` files and `<env>` profile targets the same steps at testnet or mainnet.
 
-**Audience**: Operators standing up a previewnet Tier 1 Block Node for the first time, or seeding an existing empty install with historical blocks.
+**Audience**: Operators standing up a Tier 1 Block Node for the first time, or seeding an existing empty install with historical blocks.
 
 **Scope**: Covers the T1 backfill portion of the WRB distribution operator runbook (part of #2961). Does not cover T2 live-push, T3 address-book conversion, or T4 roster/TSS configuration.
 
