@@ -2,27 +2,26 @@
 #
 # Severe ("breaking-point") CN↔BN Latency — Geo-Asymmetric Gradient Test
 #
-# Three-tier per-BN latency that forces real divergence between BNs so that
-# backfill fires reliably:
+# Three-tier per-BN latency across all BNs:
 #
 #   BN1  — "very far"  : CN↔BN1 800 ms ± 200 ms + 25% loss (corr 75%), BN1→BN 1000 ms (direction=to)
 #   BN2  — "mid-range" : CN↔BN2 400 ms ± 100 ms + 15% loss (corr 75%), BN2→BN  500 ms (direction=to)
-#   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest; BN1/2 backfill from it)
+#   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest)
 #   CNs  — global      : CN↔CN 600 ms ± 150 ms, corr 75%  (bidirectional)
 #
-# Packet loss on CN↔BN1/2 causes bursty correlated drops that break gRPC
-# streams, forcing reconnects during which BN1 (and BN2) miss blocks →
-# BackfillPlugin detects sequence gaps and fetches missing blocks from BN3.
+# BN→BN rules use direction=to (unidirectional) so the per-BN rules for BN1
+# and BN2 do not additively stack on the BN1↔BN2 path.
 #
-# BN→BN rules use direction=to (unidirectional) so the two per-BN rules do not
-# additively stack on the BN1↔BN2 path.
+# Intent: exercises the full asymmetric degradation profile — BN3 is fastest,
+# BN2 is degraded, BN1 is most degraded. Validates that all three BNs stay
+# healthy and continue receiving blocks despite severe asymmetric latency.
 #
-# Intent: BN3 accumulates blocks fastest; BN2 falls behind; BN1 falls furthest
-# behind. After chaos clears, BN1 (and possibly BN2) must backfill missing
-# blocks from BN3, exercising the BackfillPlugin gap-fill path.
+# NOTE: TCP on kind cluster loopback absorbs packet loss via retransmit; the
+# gRPC stream from CN never breaks, so no block-sequence gap forms in persistent
+# storage. BackfillPlugin gap-fill testing requires explicit storage gap injection
+# (see the dedicated backfill-recovery test, tracked in #3349).
 #
-# Requires topology with ≥ 3 BNs that have backfill peers configured
-# (e.g. paired-3, 7cn-3bn-distributed). The dryrun check will fail on 3cn-1bn.
+# Requires topology with ≥ 3 BNs (e.g. paired-3, 7cn-3bn-distributed).
 #
 # Pre-req:
 #   task up TOPOLOGY=paired-3
@@ -32,7 +31,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-severe.yaml
 
 name: latency-severe
-description: "Per-BN CN↔BN latency gradient (severe/mid/none) — asymmetric divergence & backfill recovery probe"
+description: "Per-BN CN↔BN latency gradient (severe/mid/none) — asymmetric degradation resilience"
 
 events:
   - id: load-start
@@ -158,14 +157,6 @@ assertions:
     target: all
     args:
       min_block: 0
-
-  - id: backfill-triggered
-    type: backfill-triggered
-    description: "BN1 fell furthest behind and caught up via backfill after chaos cleared"
-    target: block-node-1
-    args:
-      grep: "backfill"
-      since_seconds: 600
 
   - id: blocks-increasing
     type: blocks-increasing
