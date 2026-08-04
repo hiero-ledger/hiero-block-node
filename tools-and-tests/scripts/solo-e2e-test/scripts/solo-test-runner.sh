@@ -1156,6 +1156,49 @@ function assert_blocks_increasing {
     fi
 }
 
+# Assert that all block nodes have converged to within tolerance_blocks of each other.
+# Queries serverStatus on all nodes and checks max(lastAvailableBlock) - min(lastAvailableBlock)
+# <= tolerance_blocks. Confirms both that CN↔BN streams survived (nodes have current-ish
+# blocks) and that any latency-induced lag has closed (spread is small).
+function assert_blocks_converged {
+    local tolerance="${1:-5}"
+
+    local min_last max_last spread
+    min_last=999999999
+    max_last=0
+    local results=""
+    local failed=0
+
+    for bn in $(get_all_block_nodes); do
+        local port
+        port=$(get_bn_grpc_port "$bn")
+        local import_args="-import-path ${PROTO_PATH}"
+        local status_json last_block
+        # shellcheck disable=SC2086
+        status_json=$(grpcurl -plaintext -emit-defaults \
+            ${import_args} \
+            -proto block-node/api/node_service.proto \
+            -d '{}' "localhost:${port}" \
+            org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
+        last_block=$(echo "$status_json" | jq -r '.lastAvailableBlock // "0"' 2>/dev/null)
+        last_block=${last_block:-0}
+        results="${results}${bn}: lastBlock=${last_block}\n"
+        [[ "${last_block}" -lt "${min_last}" ]] && min_last="${last_block}"
+        [[ "${last_block}" -gt "${max_last}" ]] && max_last="${last_block}"
+    done
+
+    spread=$(( max_last - min_last ))
+    echo -e "${results%\\n}"
+    if [[ "${spread}" -gt "${tolerance}" ]]; then
+        echo "FAIL: Block spread ${spread} exceeds tolerance ${tolerance} (min=${min_last}, max=${max_last})"
+        failed=1
+    else
+        echo "PASS: Block spread ${spread} ≤ ${tolerance} (min=${min_last}, max=${max_last})"
+    fi
+
+    return $failed
+}
+
 # Assert that block signatures transition from Schnorr to WRAPS.
 # Delegates to monitor-block-proofs.sh and captures its output.
 function assert_signature_transition {
@@ -1232,6 +1275,11 @@ function run_assertion {
             wait_seconds=$(echo "$args" | yq '.wait_seconds // 60')
             max_attempts=$(echo "$args" | yq '.max_attempts // 3')
             assert_blocks_increasing "$target" "$wait_seconds" "$max_attempts"
+            ;;
+        blocks-converged)
+            local bc_tolerance
+            bc_tolerance=$(echo "$args" | yq '.tolerance_blocks // 5')
+            assert_blocks_converged "$bc_tolerance"
             ;;
         signature-transition)
             if [[ "${TSS_ENABLED:-true}" != "true" ]]; then
