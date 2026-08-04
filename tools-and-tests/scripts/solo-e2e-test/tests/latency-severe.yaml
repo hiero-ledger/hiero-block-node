@@ -109,6 +109,12 @@ events:
       correlation: "75"
       bidirectional: false
 
+  - id: snapshot-peak-chaos
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights at peak chaos (≈165s into chaos window)"
+    delay: 210
+    args: { snapshot_id: peak-chaos }
+
   - id: clear-cn-cn
     type: clear-latency
     description: "Clear CN↔CN"
@@ -156,6 +162,13 @@ assertions:
     target: all
     args:
       min_block: 0
+
+  - id: blocks-diverged
+    type: blocks-diverged
+    description: "BNs were at least 3 blocks apart at peak chaos — confirms the three-tier latency gradient caused measurable divergence"
+    args:
+      snapshot_id: peak-chaos
+      min_spread: 3
 
   - id: blocks-converged
     type: blocks-converged
