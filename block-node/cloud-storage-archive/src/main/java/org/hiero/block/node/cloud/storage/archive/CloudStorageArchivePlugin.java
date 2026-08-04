@@ -211,8 +211,6 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                     "Cloud storage archive plugin is not active because of empty values for the following configurations: {0}",
                     String.join(", ", violations));
         } else {
-            // register to listen to block notifications if config is valid
-            context.blockMessaging().registerBlockNotificationHandler(this, false, "Cloud Storage Archive");
             configValid = true;
         }
         groupSize = Math.powExact(10, config.groupingLevel());
@@ -222,10 +220,10 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     @Override
     public void start() {
         virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
-        // Skip recovery when config is invalid: the handler is not registered, so the result
-        // would never be consumed and the task would fail immediately with a bad-config S3 error.
         if (configValid) {
             recoveryFuture = virtualThreadExecutor.submit(new StartupRecoveryTask(config));
+            // register to listen to block notifications if config is valid
+            context.blockMessaging().registerBlockNotificationHandler(this, false, "Cloud Storage Archive");
         }
         LOGGER.log(TRACE, "Cloud storage archive plugin started");
     }

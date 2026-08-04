@@ -44,6 +44,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
@@ -292,17 +293,16 @@ class CloudStorageArchivePluginTest {
             assertThatNoException().isThrownBy(() -> plugin.init(testContext, null));
         }
 
-        /// Verifies that the plugin does NOT register as a block notification handler when a
-        /// required configuration field is blank or empty.  Each case omits exactly one field, or
-        /// sets it to whitespace only, so that [CloudStorageArchiveConfig#validate] returns a
-        /// non-empty violation list.
-        @ParameterizedTest(name = "plugin not registered when {0} is blank or empty")
-        @MethodSource("blankOrEmptyFieldConfigs")
-        @DisplayName("Plugin not registered when a required config field is blank or empty")
-        void testPluginNotRegisteredForMissingField(String fieldName, Map<String, String> configValues) {
+        /// Verifies that [CloudStorageArchivePlugin#stop] does not throw and does not attempt to
+        /// unregister a notification handler that was never registered (because `configValid` is
+        /// `false` when a required configuration field is absent).
+        @Test
+        @DisplayName("stop() with invalid config does not throw and does not unregister handler")
+        void testStopWithInvalidConfigDoesNotUnregister() {
             final ConfigurationBuilder builder =
                     ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
-            configValues.forEach(builder::withValue);
+            // endpointUrl present but other required fields absent — configValid stays false.
+            builder.withValue("cloud.storage.archive.endpointUrl", "http://localhost:9000");
             final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
             final BlockNodeContext testContext = new BlockNodeContext(
                     builder.build(),
@@ -318,8 +318,82 @@ class CloudStorageArchivePluginTest {
                     null,
                     new ArrayList<>(),
                     new ArrayList<>());
-            new CloudStorageArchivePlugin().init(testContext, null);
+            final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
+            plugin.init(testContext, null);
             assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
+            assertThatNoException().isThrownBy(plugin::stop);
+            assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
+        }
+    }
+
+    /// Integration tests that drive the plugin via [PluginTestBase].
+    @Nested
+    @DisplayName("Plugin Tests")
+    final class PluginTests
+            extends PluginTestBase<CloudStorageArchivePlugin, BlockingExecutor, ScheduledBlockingExecutor> {
+
+        private static final int GROUPING_LEVEL = 1; // groupSize = 10^1 = 10 blocks per tar
+        private final BlockingExecutor pluginExecutor;
+
+        PluginTests() {
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(new CloudStorageArchivePlugin(), new SimpleInMemoryHistoricalBlockFacility(), pluginConfig());
+            pluginExecutor = testThreadPoolManager.executor();
+        }
+
+        /// Drains the startup recovery task after [clearBucket] has cleaned S3.
+        ///
+        /// The constructor runs before `@BeforeEach`, so recovery must be deferred here to avoid
+        /// seeing stale S3 objects left by a previous test.
+        @BeforeEach
+        void drainRecovery() {
+            pluginExecutor.executeSerially();
+        }
+
+        /// Verifies that the plugin registers as a block notification handler once started with a
+        /// valid configuration (registration happens in [CloudStorageArchivePlugin#start], after the
+        /// startup recovery task has been submitted).
+        @Test
+        @DisplayName("Plugin registers as notification handler once started with a valid configuration")
+        void testPluginRegisteredOnStart() {
+            assertThat(blockMessaging.getBlockNotificationHandlerCount()).isOne();
+        }
+
+        /// Verifies that [CloudStorageArchivePlugin#start] does not register or submit a startup
+        /// recovery task when a required config field is blank or empty. Uses its own plugin and
+        /// context, since the class-level ones already belong to a plugin started with valid config.
+        @ParameterizedTest(name = "plugin not registered when {0} is blank or empty")
+        @MethodSource("blankOrEmptyFieldConfigs")
+        @DisplayName("start() does not register as notification handler when a required config field is blank or empty")
+        void testStartDoesNotRegisterForMissingField(String fieldName, Map<String, String> configValues) {
+            final ConfigurationBuilder builder =
+                    ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+            configValues.forEach(builder::withValue);
+            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+            final BlockingExecutor executor = new BlockingExecutor(new LinkedBlockingQueue<>());
+            final TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> invalidConfigThreadPoolManager =
+                    new TestThreadPoolManager<>(executor, new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            final BlockNodeContext testContext = new BlockNodeContext(
+                    builder.build(),
+                    MetricRegistry.builder().build(),
+                    new TestHealthFacility(),
+                    messaging,
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    null,
+                    null,
+                    invalidConfigThreadPoolManager,
+                    null,
+                    null,
+                    null,
+                    new ArrayList<>(),
+                    new ArrayList<>());
+            final CloudStorageArchivePlugin invalidConfigPlugin = new CloudStorageArchivePlugin();
+            invalidConfigPlugin.init(testContext, null);
+            invalidConfigPlugin.start();
+            assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
+            assertThat(executor.wasAnyTaskSubmitted()).isFalse();
         }
 
         static Stream<Arguments> blankOrEmptyFieldConfigs() {
@@ -352,97 +426,6 @@ class CloudStorageArchivePluginTest {
             final Map<String, String> copy = new HashMap<>(source);
             copy.put(key, value);
             return copy;
-        }
-
-        /// Verifies that [CloudStorageArchivePlugin#stop] does not throw and does not attempt to
-        /// unregister a notification handler that was never registered (because `configValid` is
-        /// `false` when a required configuration field is absent).
-        @Test
-        @DisplayName("stop() with invalid config does not throw and does not unregister handler")
-        void testStopWithInvalidConfigDoesNotUnregister() {
-            final ConfigurationBuilder builder =
-                    ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
-            // endpointUrl present but other required fields absent — configValid stays false.
-            builder.withValue("cloud.storage.archive.endpointUrl", "http://localhost:9000");
-            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
-            final BlockNodeContext testContext = new BlockNodeContext(
-                    builder.build(),
-                    MetricRegistry.builder().build(),
-                    new TestHealthFacility(),
-                    messaging,
-                    new SimpleInMemoryHistoricalBlockFacility(),
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    new ArrayList<>(),
-                    new ArrayList<>());
-            final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
-            plugin.init(testContext, null);
-            assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
-            assertThatNoException().isThrownBy(plugin::stop);
-            assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
-        }
-
-        /// Verifies that the plugin DOES register as a block notification handler when all
-        /// required configuration fields are present.
-        @Test
-        @DisplayName("Plugin registers as notification handler when all required config fields are present")
-        void testPluginRegisteredWhenAllConfigFieldsPresent() {
-            final Configuration configuration = ConfigurationBuilder.create()
-                    .withConfigDataType(CloudStorageArchiveConfig.class)
-                    .withValue("cloud.storage.archive.endpointUrl", "http://localhost:9000")
-                    .withValue("cloud.storage.archive.regionName", "us-east-1")
-                    .withValue("cloud.storage.archive.accessKey", "minioadmin")
-                    .withValue("cloud.storage.archive.secretKey", "minioadmin")
-                    .withValue("cloud.storage.archive.bucketName", "test-bucket")
-                    .build();
-            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
-            final BlockNodeContext testContext = new BlockNodeContext(
-                    configuration,
-                    MetricRegistry.builder().build(),
-                    new TestHealthFacility(),
-                    messaging,
-                    new SimpleInMemoryHistoricalBlockFacility(),
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    new ArrayList<>(),
-                    new ArrayList<>());
-            new CloudStorageArchivePlugin().init(testContext, null);
-            assertThat(messaging.getBlockNotificationHandlerCount()).isOne();
-        }
-    }
-
-    /// Integration tests that drive the plugin via [PluginTestBase].
-    @Nested
-    @DisplayName("Plugin Tests")
-    final class PluginTests
-            extends PluginTestBase<CloudStorageArchivePlugin, BlockingExecutor, ScheduledBlockingExecutor> {
-
-        private static final int GROUPING_LEVEL = 1; // groupSize = 10^1 = 10 blocks per tar
-        private final BlockingExecutor pluginExecutor;
-
-        PluginTests() {
-            super(
-                    new BlockingExecutor(new LinkedBlockingQueue<>()),
-                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
-            start(new CloudStorageArchivePlugin(), new SimpleInMemoryHistoricalBlockFacility(), pluginConfig());
-            pluginExecutor = testThreadPoolManager.executor();
-        }
-
-        /// Drains the startup recovery task after [clearBucket] has cleaned S3.
-        ///
-        /// The constructor runs before `@BeforeEach`, so recovery must be deferred here to avoid
-        /// seeing stale S3 objects left by a previous test.
-        @BeforeEach
-        void drainRecovery() {
-            pluginExecutor.executeSerially();
         }
 
         @Test
