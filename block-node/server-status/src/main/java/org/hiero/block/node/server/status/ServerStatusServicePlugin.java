@@ -5,7 +5,9 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.util.Objects.requireNonNull;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.List;
 import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
@@ -102,18 +104,38 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // blockNodeContext is volatile, assign to local variable so reference stays consistent
         final BlockNodeContext context = blockNodeContext;
 
+        // serverStatus has the latest max available block. serverStatusDetail has an up to .5s old
+        // snapshot. This will align the lastBlock range end with what serverStatus would report without
+        // having to rebuild the entire available Blocks list.
+        List<BlockRange> fixedAvailable = !context.availableBlocks().isEmpty()
+                        && context.availableBlocks().getLast().rangeEnd()
+                                != blockProvider.availableBlocks().max()
+                ? fixAvailable(context.availableBlocks())
+                : context.availableBlocks();
+
         // Return detailed block node status information. Every field is read from the
         // periodically-refreshed context snapshot: this keeps the response internally consistent
         // and avoids recomputing the merged available ranges on every request (the context already
         // holds the merged List<BlockRange> maintained by the application state facility).
         return ServerStatusDetailResponse.newBuilder()
                 .versionInformation(context.blockNodeVersions())
-                .availableRanges(context.availableBlocks())
+                .availableRanges(fixedAvailable)
                 .storedRanges(context.storedBlocks())
                 .tssData(context.tssData())
                 .nodeAddressBook(context.nodeAddressBook())
                 .rangedAddressBookHistory(context.rangedAddressBookHistory())
                 .build();
+    }
+
+    List<BlockRange> fixAvailable(List<BlockRange> availableBlocks) {
+        BlockRange lastBlockRange = availableBlocks.getLast();
+        BlockRange newLastBlockRange = BlockRange.newBuilder()
+                .rangeStart(lastBlockRange.rangeStart())
+                .rangeEnd(blockProvider.availableBlocks().max())
+                .build();
+
+        availableBlocks.set(availableBlocks.size() - 1, newLastBlockRange);
+        return availableBlocks;
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
