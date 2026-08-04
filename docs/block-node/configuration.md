@@ -354,7 +354,7 @@ default** — setting `CLOUD_EXPANDED_ENDPOINT_URL` to a non-empty value activat
 | CLOUD_STORAGE_EXPANDED_RETRY_ENABLED            | Hold failed uploads in memory and retry them in the background instead of failing immediately. Never disk-backed. |     true |
 | CLOUD_STORAGE_EXPANDED_RETRY_INTERVAL_SECONDS   | Fixed interval at which the background retry tick re-attempts every buffered block.                               |       10 |
 | CLOUD_STORAGE_EXPANDED_RETRY_MAX_AGE_SECONDS    | Maximum time a block may remain buffered for retry before it is dropped as a terminal failure.                    |       60 |
-| CLOUD_STORAGE_EXPANDED_RETRY_MAX_PENDING_BLOCKS | Maximum number of blocks held in the in-memory retry buffer at once.                                              |      200 |
+| CLOUD_STORAGE_EXPANDED_RETRY_MAX_PENDING_BLOCKS | Maximum number of blocks held in the in-memory retry buffer at once.                                              |       30 |
 
 Object keys follow the format `{prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`, where the
 19-digit zero-padded block number is split into a 4/4/4/4/3 folder hierarchy:

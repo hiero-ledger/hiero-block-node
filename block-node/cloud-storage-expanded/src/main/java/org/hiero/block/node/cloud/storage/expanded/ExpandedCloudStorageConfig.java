@@ -74,7 +74,7 @@ public record ExpandedCloudStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "true") boolean retryEnabled,
         @Loggable @ConfigProperty(defaultValue = "10") @Min(1) int retryIntervalSeconds,
         @Loggable @ConfigProperty(defaultValue = "60") @Min(1) int retryMaxAgeSeconds,
-        @Loggable @ConfigProperty(defaultValue = "200") @Min(1) int retryMaxPendingBlocks) {
+        @Loggable @ConfigProperty(defaultValue = "30") @Min(1) int retryMaxPendingBlocks) {
 
     /// S3 storage class values accepted by this plugin.
     public enum StorageClass {

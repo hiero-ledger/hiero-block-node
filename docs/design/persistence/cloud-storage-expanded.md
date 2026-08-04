@@ -483,7 +483,7 @@ All properties are under the `cloud.storage.expanded` namespace.
 | `cloud.storage.expanded.retryEnabled`          | `true`     | Whether failed uploads are held in memory and retried in the background instead of failing immediately. Never disk-backed. |
 | `cloud.storage.expanded.retryIntervalSeconds`  | `10`       | Fixed interval at which the background retry tick re-attempts every buffered block. Min value: 1.                          |
 | `cloud.storage.expanded.retryMaxAgeSeconds`    | `60`       | Maximum time a block may remain buffered for retry before it is dropped and reported as a terminal failure. Min value: 1.  |
-| `cloud.storage.expanded.retryMaxPendingBlocks` | `200`      | Maximum number of blocks held in the in-memory retry buffer at once. Min value: 1.                                         |
+| `cloud.storage.expanded.retryMaxPendingBlocks` | `30`       | Maximum number of blocks held in the in-memory retry buffer at once. Min value: 1.                                         |
 
 **Why the retry window is short:** the buffer is purely in memory, so it must stay small
 enough to bound memory usage — there is no disk backstop. `retryMaxAgeSeconds` and
