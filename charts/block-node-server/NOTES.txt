@@ -21,19 +21,19 @@ Then connect gRPC clients to localhost:{{ .Values.service.port }}.
 The following plugins have been assigned dedicated ports:
 {{- with .Values.blockNode.ports }}
 {{- if .publisher }}
-  publisher    (PRODUCER_PORT)     -> {{ .publisher }}
+  publisher    (PORTS_PUBLISHER)     -> {{ .publisher }}
 {{- end }}
 {{- if .subscriber }}
-  subscriber   (SUBSCRIBER_PORT)   -> {{ .subscriber }}
+  subscriber   (PORTS_SUBSCRIBER)   -> {{ .subscriber }}
 {{- end }}
 {{- if .blockAccess }}
-  blockAccess  (BLOCK_ACCESS_PORT) -> {{ .blockAccess }}
+  blockAccess  (PORTS_BLOCK_ACCESS) -> {{ .blockAccess }}
 {{- end }}
 {{- if .health }}
   health       (HEALTH_PORT)       -> {{ .health }}
 {{- end }}
 {{- if .serverStatus }}
-  serverStatus (SERVER_STATUS_PORT)-> {{ .serverStatus }}
+  serverStatus (PORTS_SERVER_STATUS)-> {{ .serverStatus }}
 {{- end }}
 {{- end }}
 

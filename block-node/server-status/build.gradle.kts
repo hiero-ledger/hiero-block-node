@@ -8,14 +8,13 @@ description = "Hiero Block Node - Block Node Server Status API Module"
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 mainModuleInfo {
+    runtimeOnly("com.hedera.pbj.grpc.helidon.config")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
-    runtimeOnly("com.hedera.pbj.grpc.helidon.config")
 }
 
 testModuleInfo {
-    // com.swirlds.config.api now comes transitively from the main module's requires-transitive
-    // directive
-    requires("org.junit.jupiter.api")
     requires("org.hiero.block.node.app.test.fixtures")
+    requires("org.hiero.block.node.base")
+    requires("org.junit.jupiter.api")
 }

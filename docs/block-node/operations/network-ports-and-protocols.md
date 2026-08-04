@@ -66,12 +66,12 @@ The Block Node exposes gRPC APIs that form its primary network surface. In the L
 
 Health probes run on their own dedicated HTTP port (see [Health and readiness probes](#health-and-readiness-probes)).
 
-|      API      | LFH default port | Helm value (`blockNode.ports.*`) |       Env var        | Allowed range  |        Protocol        | Direction |
-|---------------|------------------|----------------------------------|----------------------|----------------|------------------------|-----------|
-| Publish API   | `40984`          | `publisher`                      | `PRODUCER_PORT`      | `1024`–`65535` | gRPC over HTTP/2 (h2c) | Inbound   |
-| Subscribe API | `40980`          | `subscriber`                     | `SUBSCRIBER_PORT`    | `1024`–`65535` | gRPC over HTTP/2 (h2c) | Inbound   |
-| Status API    | `40982`          | `serverStatus`                   | `SERVER_STATUS_PORT` | `1024`–`65535` | gRPC over HTTP/2 (h2c) | Inbound   |
-| Block Access  | `40981`          | `blockAccess`                    | `BLOCK_ACCESS_PORT`  | `1024`–`65535` | gRPC/HTTP over HTTP/2  | Inbound   |
+|      API      | LFH default port | Helm value (`blockNode.ports.*`) |        Env var        | Allowed range  |        Protocol        | Direction |
+|---------------|------------------|----------------------------------|-----------------------|----------------|------------------------|-----------|
+| Publish API   | `40984`          | `publisher`                      | `PORTS_PUBLISHER`     | `1024`–`65535` | gRPC over HTTP/2 (h2c) | Inbound   |
+| Subscribe API | `40980`          | `subscriber`                     | `PORTS_SUBSCRIBER`    | `1024`–`65535` | gRPC over HTTP/2 (h2c) | Inbound   |
+| Status API    | `40982`          | `serverStatus`                   | `PORTS_SERVER_STATUS` | `1024`–`65535` | gRPC over HTTP/2 (h2c) | Inbound   |
+| Block Access  | `40981`          | `blockAccess`                    | `PORTS_BLOCK_ACCESS`  | `1024`–`65535` | gRPC/HTTP over HTTP/2  | Inbound   |
 
 > **Base chart defaults.** When `blockNode.ports.*` entries are `null` (base `values.yaml` defaults for `publisher`, `subscriber`, `blockAccess`, `serverStatus`), all services share `service.port` (default `40840`). The LFH profile (`lfh-values.yaml`) sets all per-service ports explicitly. Non-LFH deployments (development, testing) typically use the shared `40840` port.
 

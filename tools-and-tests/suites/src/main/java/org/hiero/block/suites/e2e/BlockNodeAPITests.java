@@ -794,11 +794,11 @@ public class BlockNodeAPITests {
     }
 
     /**
-     * Verifies the per-service port wiring (PR #2880): each plugin reads a nullable {@code port} from
-     * its own config and registers its service on that dedicated port. The default-port app from
-     * {@link #beforeEach()} is shut down and a fresh app is booted with a unique port configured for
-     * each of the five API plugins. Every API must answer on its own port and must NOT answer on the
-     * default {@code server.port}, which has no API routes once all services are moved off it.
+     * Verifies the per-service port wiring (PR #2880): each plugin reads a nullable port from the shared
+     * {@code PortsConfig} and registers its service on that dedicated port. The default-port app from
+     * {@link #beforeEach()} is shut down and a fresh app is booted with a unique port configured for each
+     * of the five API plugins. Every API must answer on its own port and must NOT answer on the default
+     * {@code server.port}, which has no API routes once all services are moved off it.
      */
     @Test
     void servicesBindToConfiguredUniquePortsOnly() throws Exception {
@@ -817,11 +817,11 @@ public class BlockNodeAPITests {
         app.shutdown("BlockNodeAPITests", "rebind with per-service ports");
         awaitState(app, false);
 
-        System.setProperty("block.access.port", Integer.toString(blockAccessPort));
+        System.setProperty("ports.blockAccess", Integer.toString(blockAccessPort));
         System.setProperty("health.port", Integer.toString(healthPort));
-        System.setProperty("server.status.port", Integer.toString(serverStatusPort));
-        System.setProperty("producer.port", Integer.toString(publisherPort));
-        System.setProperty("subscriber.port", Integer.toString(subscriberPort));
+        System.setProperty("ports.serverStatus", Integer.toString(serverStatusPort));
+        System.setProperty("ports.publisher", Integer.toString(publisherPort));
+        System.setProperty("ports.subscriber", Integer.toString(subscriberPort));
         try {
             app = new BlockNodeApp(new ServiceLoaderFunction(), false);
             app.start();
@@ -847,11 +847,11 @@ public class BlockNodeAPITests {
             assertPublisherNotRoutedOnDefaultPort(defaultPort);
             assertSubscriberNotRoutedOnDefaultPort(defaultPort);
         } finally {
-            System.clearProperty("block.access.port");
+            System.clearProperty("ports.blockAccess");
             System.clearProperty("health.port");
-            System.clearProperty("server.status.port");
-            System.clearProperty("producer.port");
-            System.clearProperty("subscriber.port");
+            System.clearProperty("ports.serverStatus");
+            System.clearProperty("ports.publisher");
+            System.clearProperty("ports.subscriber");
         }
     }
 

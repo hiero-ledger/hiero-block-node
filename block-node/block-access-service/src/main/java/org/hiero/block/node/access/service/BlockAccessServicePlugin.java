@@ -16,6 +16,7 @@ import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
 import org.hiero.block.internal.BlockResponseUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.config.PortsConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -185,7 +186,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         this.blockProvider = context.historicalBlockProvider();
         // Register this service; a null port (the default) shares server.port
         final Integer port =
-                context.configuration().getConfigData(BlockAccessConfig.class).port();
+                context.configuration().getConfigData(PortsConfig.class).blockAccess();
         serviceBuilder.registerGrpcService(port, this);
     }
 }

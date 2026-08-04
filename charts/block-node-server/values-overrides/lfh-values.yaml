@@ -63,11 +63,11 @@ blockNode:
                 create: false
                 existingClaim: application-state-storage-pvc
     ports:
-        publisher: 40984    # PRODUCER_PORT    — gRPC, block producers
-        subscriber: 40980   # SUBSCRIBER_PORT  — gRPC, block subscribers
-        blockAccess: 40981  # BLOCK_ACCESS_PORT — gRPC/HTTP, block query API
+        publisher: 40984    # PORTS_PUBLISHER    — gRPC, block producers
+        subscriber: 40980   # PORTS_SUBSCRIBER  — gRPC, block subscribers
+        blockAccess: 40981  # PORTS_BLOCK_ACCESS — gRPC/HTTP, block query API
         health: 40983        # HEALTH_PORT      — HTTP, /healthz endpoints
-        serverStatus: 40982 # SERVER_STATUS_PORT — HTTP, server-status endpoint
+        serverStatus: 40982 # PORTS_SERVER_STATUS — HTTP, server-status endpoint
 
 loadBalancer:
     enabled: true

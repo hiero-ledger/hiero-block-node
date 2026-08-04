@@ -12,6 +12,7 @@ import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
+import org.hiero.block.node.app.config.PortsConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -164,7 +165,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
         // Register this service; a null port (the default) shares server.port
         final Integer port =
-                context.configuration().getConfigData(ServerStatusConfig.class).port();
+                context.configuration().getConfigData(PortsConfig.class).serverStatus();
         serviceBuilder.registerGrpcService(port, this);
     }
 

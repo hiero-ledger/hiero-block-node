@@ -228,16 +228,16 @@ By default all plugins share a single port (`service.port`, default `40840`). Us
 ```yaml
 blockNode:
   ports:
-    # gRPC port for block producers (env: PRODUCER_PORT). hostPorts key: publisher
+    # gRPC port for block producers (env: PORTS_PUBLISHER). hostPorts key: publisher
     publisher: 40984
-    # gRPC port for block subscribers (env: SUBSCRIBER_PORT). hostPorts key: subscriber
+    # gRPC port for block subscribers (env: PORTS_SUBSCRIBER). hostPorts key: subscriber
     subscriber: 40980
-    # gRPC/HTTP port for block access/query API (env: BLOCK_ACCESS_PORT). hostPorts key: block-access
+    # gRPC/HTTP port for block access/query API (env: PORTS_BLOCK_ACCESS). hostPorts key: block-access
     blockAccess: 40981
     # HTTP port for /healthz endpoints (env: HEALTH_PORT). hostPorts key: health
     # When set, liveness and readiness probes automatically redirect to this port.
     health: 40983
-    # HTTP port for server-status endpoint (env: SERVER_STATUS_PORT). hostPorts key: server-status
+    # HTTP port for server-status endpoint (env: PORTS_SERVER_STATUS). hostPorts key: server-status
     serverStatus: 40982
 ```
 
@@ -246,7 +246,7 @@ Setting a port here automatically:
 - Adds it to the ClusterIP Service
 - Injects the corresponding environment variable into the pod
 
-> **Do not** also set `PRODUCER_PORT`, `SUBSCRIBER_PORT`, etc. in `blockNode.config` when using `blockNode.ports`. Use `blockNode.ports` as the single source of truth for per-plugin ports to avoid duplicate or conflicting env var values.
+> **Do not** also set `PORTS_PUBLISHER`, `PORTS_SUBSCRIBER`, etc. in `blockNode.config` when using `blockNode.ports`. Use `blockNode.ports` as the single source of truth for per-plugin ports to avoid duplicate or conflicting env var values.
 >
 > **Health probe note:** If you set `blockNode.ports.health`, the liveness and readiness probes are automatically redirected to that port. If you set `HEALTH_PORT` in `blockNode.config` instead, the probes will still target the default `service.port` and **will fail** if the two values differ. Prefer `blockNode.ports.health`.
 

@@ -13,6 +13,7 @@ import org.hiero.block.api.BlockStreamPublishServiceInterface;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
+import org.hiero.block.node.app.config.PortsConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -160,7 +161,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         // the init method, otherwise the server will be started and we will not
         // have registered at all. A null port (the default) shares server.port.
         final Integer port =
-                context.configuration().getConfigData(PublisherConfig.class).port();
+                context.configuration().getConfigData(PortsConfig.class).publisher();
         serviceBuilder.registerGrpcService(port, this);
     }
 

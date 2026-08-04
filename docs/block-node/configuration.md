@@ -186,12 +186,6 @@ A more robust pattern for fully operator-managed plugins is to mount a pre-popul
 See [Backfill Plugin Design](../design/backfill-plugin.md#blocknode-sources-configuration-file-structure)
 for the JSON schema.
 
-### Block Access Plugin Configuration
-
-| ENV Variable      | Description                                                                                     | Default |
-|:------------------|:------------------------------------------------------------------------------------------------|--------:|
-| BLOCK_ACCESS_PORT | Dedicated port for the block-access gRPC service. When unset, the service shares `SERVER_PORT`. | (unset) |
-
 ### Files Historic Plugin Configuration
 
 | ENV Variable                                       | Description                                                                                                     |                             Default |
@@ -246,11 +240,23 @@ for the JSON schema.
 | ARCHIVE_ACCESS_KEY      | Access key for the archive service.                                         |                 "" |
 | ARCHIVE_SECRET_KEY      | Secret key for the archive service.                                         |                 "" |
 
-### Server Status Plugin Configuration
+### Ports Configuration
 
-| ENV Variable       | Description                                                                                      | Default |
-|:-------------------|:-------------------------------------------------------------------------------------------------|--------:|
-| SERVER_STATUS_PORT | Dedicated port for the server-status gRPC service. When unset, the service shares `SERVER_PORT`. | (unset) |
+A single `@ConfigData` record consolidates the dedicated, optional port for every plugin that shares
+the general web server (see [Server Configuration](#server-configuration) above). When a port below is
+unset, that plugin shares `SERVER_PORT` instead of binding to its own port. The [Health Plugin](#health-plugin-configuration)
+runs its own dedicated web server and keeps its own separate `HEALTH_PORT`, not part of this record.
+
+| ENV Variable        | Description                                                                                      | Default |
+|:--------------------|:-------------------------------------------------------------------------------------------------|--------:|
+| PORTS_PUBLISHER     | Dedicated port for the publisher gRPC service. When unset, the service shares `SERVER_PORT`.     | (unset) |
+| PORTS_SUBSCRIBER    | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.    | (unset) |
+| PORTS_BLOCK_ACCESS  | Dedicated port for the block-access gRPC service. When unset, the service shares `SERVER_PORT`.  | (unset) |
+| PORTS_SERVER_STATUS | Dedicated port for the server-status gRPC service. When unset, the service shares `SERVER_PORT`. | (unset) |
+
+For backward compatibility, the pre-consolidation env var names (`PRODUCER_PORT`, `SUBSCRIBER_PORT`,
+`BLOCK_ACCESS_PORT`, `SERVER_STATUS_PORT`) are still honored and feed the same properties above. If both
+the old and new name are set for a plugin, the new `PORTS_*` name wins.
 
 ### Publisher Plugin Configuration
 
@@ -261,7 +267,6 @@ for the JSON schema.
 | PRODUCER_STALE_RESEND_PRUNE_BUFFER           | Number of blocks behind `lastPersistedBlockNumber` that a `blocksToResend` entry may sit before `handlePersisted` prunes it. Entries within the buffer are still considered fillable by a publisher; entries older than the buffer are dropped (the gap is owned by [backfill](./glossary.md#backfill) at that point). Set to ~CN block-history depth. Must be 0 ≤ value ≤ 200. |                       100 |
 | PRODUCER_FLOW_CONTROL_REFRESH_INTERVAL_NANOS | Duration (ns) between flow-control refresh cycles. The manager resets per-handler message budgets and checks aggregate consumption at this cadence. Must be 100,000 ≤ value ≤ 100,000,000.                                                                                                                                                                                      |                10,000,000 |
 | PRODUCER_DUPLICATE_BLOCK_SKIP_WINDOW         | Number of blocks behind `lastPersistedBlockNumber` for which a duplicate block header is answered with `SkipBlock` instead of `EndOfStream(DUPLICATE_BLOCK)`. A publisher only slightly behind can fast-forward without reconnecting; duplicates further behind than the window still close the stream so the publisher reconnects. Must be 1 ≤ value ≤ 10.                     |                         5 |
-| PRODUCER_PORT                                | Dedicated port for the publisher gRPC service. When unset, the service shares `SERVER_PORT`.                                                                                                                                                                                                                                                                                    |                   (unset) |
 
 ### RSA Bootstrap Plugin Configuration
 
@@ -288,7 +293,6 @@ for the JSON schema.
 | SUBSCRIBER_MAXIMUM_FUTURE_REQUEST          | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                         |      4000 |
 | SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY     | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.   |       400 |
 | SUBSCRIBER_MAX_PROTOBUF_MESSAGE_SIZE_BYTES | Max protobuf message size (bytes) accepted when parsing a block to stream to a subscriber.             | 131072000 |
-| SUBSCRIBER_PORT                            | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.          |   (unset) |
 
 ### TSS Bootstrap Plugin Configuration
 

@@ -103,16 +103,16 @@ Usage: include "hiero-block-node.pluginPortEnvVars" .
   HEALTH_PORT: {{ .health | quote }}
 {{- end -}}
 {{- if .publisher }}
-  PRODUCER_PORT: {{ .publisher | quote }}
+  PORTS_PUBLISHER: {{ .publisher | quote }}
 {{- end -}}
 {{- if .subscriber }}
-  SUBSCRIBER_PORT: {{ .subscriber | quote }}
+  PORTS_SUBSCRIBER: {{ .subscriber | quote }}
 {{- end -}}
 {{- if .blockAccess }}
-  BLOCK_ACCESS_PORT: {{ .blockAccess | quote }}
+  PORTS_BLOCK_ACCESS: {{ .blockAccess | quote }}
 {{- end -}}
 {{- if .serverStatus }}
-  SERVER_STATUS_PORT: {{ .serverStatus | quote }}
+  PORTS_SERVER_STATUS: {{ .serverStatus | quote }}
 {{- end -}}
 {{- end -}}
 {{- end -}}

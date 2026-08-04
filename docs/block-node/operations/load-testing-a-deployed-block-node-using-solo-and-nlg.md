@@ -19,7 +19,7 @@ Before you begin, ensure you have:
   - [Bare Metal Single Node Kubernetes Deployment](./single-node-k8s-deployment.md)
   - [Virtual Machine Single Node Kubernetes Deployment](./solo-weaver-single-node-k8s-deployment.md)
 - The Block Node's external IP address or hostname and publish port. In the LFH production
-  profile the publish port is `40984` (`PRODUCER_PORT`); in a base-chart deployment it is `40840`
+  profile the publish port is `40984` (`PORTS_PUBLISHER`); in a base-chart deployment it is `40840`
   (see `server.port` in [configuration.md](../configuration.md)).
   Retrieve the external IP from your cluster:
 

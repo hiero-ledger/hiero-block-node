@@ -21,6 +21,7 @@ module org.hiero.block.node.app.config {
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
     requires com.swirlds.base;
+    requires com.swirlds.config.extensions;
     requires org.hiero.block.node.base;
     requires java.logging;
     requires static transitive com.github.spotbugs.annotations;

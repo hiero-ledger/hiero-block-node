@@ -220,11 +220,11 @@ environment variable.
 ```yaml
 blockNode:
   ports:
-    publisher: 40840     # PRODUCER_PORT
-    subscriber: 40841    # SUBSCRIBER_PORT
-    blockAccess: 40842   # BLOCK_ACCESS_PORT
+    publisher: 40840     # PORTS_PUBLISHER
+    subscriber: 40841    # PORTS_SUBSCRIBER
+    blockAccess: 40842   # PORTS_BLOCK_ACCESS
     health: 40843        # HEALTH_PORT
-    serverStatus: 40844  # SERVER_STATUS_PORT
+    serverStatus: 40844  # PORTS_SERVER_STATUS
 ```
 
 When set in Helm, do not also set these in `blockNode.config` — they are injected

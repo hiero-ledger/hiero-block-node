@@ -55,6 +55,7 @@ import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
+import org.hiero.block.node.app.config.LegacyPortsEnvironmentConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.app.config.state.ApplicationStateConfig;
@@ -214,6 +215,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // another extension's callback, or the nested ServiceLoader lookup deadlocks against the one in progress.
         configurationBuilder
                 .withSource(new AutomaticEnvironmentVariableConfigSource(serviceLoader, System::getenv))
+                .withSource(LegacyPortsEnvironmentConfigSource.create())
                 .withSource(SystemPropertiesConfigSource.getInstance())
                 .withSources(new ClasspathFileConfigSource(Path.of(appProperties)));
         // Build the configuration
