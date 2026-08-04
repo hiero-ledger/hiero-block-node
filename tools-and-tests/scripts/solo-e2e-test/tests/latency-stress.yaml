@@ -10,22 +10,18 @@
 #   BN3  — "normal"      : no chaos
 #   CNs  — global light  : CN↔CN 100 ms ± 20 ms  (simulates geographic spread)
 #
-# TCP absorbs packet loss via retransmit so the gRPC stream stays alive — BN1
-# never misses a block, it just receives them slightly later than BN3. With
-# greedy backfill enabled (backfill.greedy=true, set in paired-3 topology), the
-# BackfillPlugin's periodic scan queries peers for their max available block.
-# BN3's lead over BN1 (~1-2 blocks at any scan boundary) is classified as a
-# LIVE_TAIL gap: BackfillPlugin fetches those blocks from BN3 and logs
-# "Starting backfillGap type=[LIVE_TAIL]..." at INFO, triggering the assertion.
+# TCP absorbs packet loss via retransmit so gRPC streams stay alive. BN1 receives
+# every block despite the loss — it just receives them slightly later than BN3.
 #
 # BN→BN uses direction=to (unidirectional) to avoid double-stacking latency when
 # both BN1→BN2 and BN2→BN1 rules would otherwise stack on the same path.
 #
-# Intent: validates that (a) a single degraded BN does not break the cluster and
-# (b) greedy BackfillPlugin proactively closes the live-tail lag from healthy peers.
+# Intent: validates that (a) a single degraded BN does not break the cluster,
+# (b) CN↔BN streams survive severe latency + loss, and (c) all BNs converge to
+# the same block height after latency clears (spread ≤ 5 blocks).
 #
-# Requires topology with ≥ 3 BNs and greedy backfill enabled
-# (e.g. paired-3, 7cn-3bn-distributed). The dryrun check will fail on 3cn-1bn.
+# Requires topology with ≥ 3 BNs (e.g. paired-3, 7cn-3bn-distributed).
+# The dryrun check will fail on 3cn-1bn.
 #
 # Pre-req:
 #   task up TOPOLOGY=paired-3
@@ -122,13 +118,11 @@ assertions:
     args:
       min_block: 0
 
-  - id: backfill-triggered
-    type: backfill-triggered
-    description: "BN1 greedy-backfill closed its live-tail lag from BN3 during the chaos window"
-    target: block-node-1
+  - id: blocks-converged
+    type: blocks-converged
+    description: "All BNs converge to within 5 blocks of each other after latency clears — proves CN↔BN streams survived and BN1 caught up"
     args:
-      grep: "backfillGap"
-      since_seconds: 480
+      tolerance_blocks: 5
 
   - id: blocks-increasing
     type: blocks-increasing
