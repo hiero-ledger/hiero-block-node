@@ -6,25 +6,21 @@
 #
 #   BN1  — "very far"  : CN↔BN1 800 ms ± 200 ms + 25% loss (corr 75%), BN1→BN 1000 ms (direction=to)
 #   BN2  — "mid-range" : CN↔BN2 400 ms ± 100 ms + 15% loss (corr 75%), BN2→BN  500 ms (direction=to)
-#   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest; greedy backfill source for BN1/BN2)
+#   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest)
 #   CNs  — global      : CN↔CN 600 ms ± 150 ms, corr 75%  (bidirectional)
 #
-# TCP absorbs packet loss via retransmit so gRPC streams stay alive. The latency
-# gradient means BN3 is always 1-3 blocks ahead of BN1 (and 0-2 ahead of BN2) at
-# any BackfillPlugin scan boundary. With greedy backfill enabled (backfill.greedy=true,
-# set in paired-3 topology), each BN's periodic scan queries peers for their max
-# available block. BN1/BN2's lag behind BN3 is classified as a LIVE_TAIL gap:
-# BackfillPlugin fetches those blocks and logs "Starting backfillGap type=[LIVE_TAIL]..."
-# at INFO every scan cycle, triggering the assertion.
+# TCP absorbs packet loss via retransmit so gRPC streams stay alive. BN1 and BN2
+# receive every block despite the loss — they just receive them later than BN3.
 #
 # BN→BN rules use direction=to (unidirectional) so the per-BN rules for BN1
 # and BN2 do not additively stack on the BN1↔BN2 path.
 #
 # Intent: exercises the full three-tier asymmetric degradation profile and verifies
-# that greedy BackfillPlugin proactively closes live-tail lag from faster peers.
+# that (a) all CN↔BN streams survive across the entire gradient, and (b) all BNs
+# converge to the same block height after latency clears (spread ≤ 5 blocks).
 #
-# Requires topology with ≥ 3 BNs and greedy backfill enabled
-# (e.g. paired-3, 7cn-3bn-distributed). The dryrun check will fail on 3cn-1bn.
+# Requires topology with ≥ 3 BNs (e.g. paired-3, 7cn-3bn-distributed).
+# The dryrun check will fail on 3cn-1bn.
 #
 # Pre-req:
 #   task up TOPOLOGY=paired-3
@@ -161,13 +157,11 @@ assertions:
     args:
       min_block: 0
 
-  - id: backfill-triggered
-    type: backfill-triggered
-    description: "BN1 greedy-backfill closed its live-tail lag from BN3 during the chaos window"
-    target: block-node-1
+  - id: blocks-converged
+    type: blocks-converged
+    description: "All BNs converge to within 5 blocks of each other after latency clears — proves CN↔BN streams survived across the full gradient and all nodes caught up"
     args:
-      grep: "backfillGap"
-      since_seconds: 600
+      tolerance_blocks: 5
 
   - id: blocks-increasing
     type: blocks-increasing
