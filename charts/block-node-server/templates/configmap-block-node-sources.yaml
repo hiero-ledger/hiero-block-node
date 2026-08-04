@@ -9,7 +9,7 @@ data:
       "nodes": [
         {{- range $index, $node := .Values.blockNode.backfill.sources }}
         {{- if $index }},{{ end }}
-        { "address": "{{ $node.address }}", "port": {{ $node.port }}, "priority": {{ $node.priority }} }
+        { "address": "{{ $node.address }}", "port": {{ $node.port }}, "priority": {{ $node.priority }}{{ if $node.statusPort }}, "status_port": {{ $node.statusPort }}{{ end }} }
         {{- end }}
       ]
     }

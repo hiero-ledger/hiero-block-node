@@ -111,7 +111,11 @@ public class BlockNodeClient implements AutoCloseable {
             new Options(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
 
     private final PbjGrpcClientConfig grpcConfig;
-    private final WebClient webClient;
+    /** Channel for the subscribe RPC, dialing the source's `port`. Package-private for testing. */
+    final WebClient webClient;
+    /** Dedicated channel for the server status RPC, dialing `status_port` (or `port` when unset). Package-private for testing. */
+    final WebClient statusWebClient;
+
     private final int globalTimeoutMs;
     private BlockStreamSubscribeUnparsedClient blockStreamSubscribeUnparsedClient;
     private BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
@@ -153,15 +157,33 @@ public class BlockNodeClient implements AutoCloseable {
                 maxProtobufMessageSizeBytes,
                 maxIncomingBufferSize);
 
-        webClient = WebClient.builder()
-                .baseUri(protocol + blockNodeConfig.address() + ":" + blockNodeConfig.port())
+        // The subscribe RPC dials the source's main port, while the server status RPC may live
+        // on a dedicated port. Fall back to the main port when no status port is configured (statusPort == 0).
+        final int subscribePort = blockNodeConfig.port();
+        final int statusPort = blockNodeConfig.statusPort() != 0 ? blockNodeConfig.statusPort() : subscribePort;
+
+        // Each service gets its own channel; only the port value falls back to `port` when unset.
+        webClient = buildWebClient(
+                protocol + blockNodeConfig.address() + ":" + subscribePort, tls, tuning, pollWaitMs, connectTimeoutMs);
+        statusWebClient = buildWebClient(
+                protocol + blockNodeConfig.address() + ":" + statusPort, tls, tuning, pollWaitMs, connectTimeoutMs);
+
+        initializeClient();
+    }
+
+    private WebClient buildWebClient(
+            @NonNull String baseUri,
+            @NonNull Tls tls,
+            @Nullable GrpcWebClientTuning tuning,
+            int pollWaitMs,
+            int connectTimeoutMs) {
+        return WebClient.builder()
+                .baseUri(baseUri)
                 .tls(tls)
                 .protocolConfigs(List.of(buildHttp2Config(tuning), buildGrpcConfig(pollWaitMs, tuning)))
                 .connectTimeout(Duration.ofMillis(connectTimeoutMs))
                 .keepAlive(true)
                 .build();
-
-        initializeClient();
     }
 
     private Http2ClientProtocolConfig buildHttp2Config(@Nullable GrpcWebClientTuning tuning) {
@@ -201,9 +223,11 @@ public class BlockNodeClient implements AutoCloseable {
 
     public void initializeClient() {
         try {
-            PbjGrpcClient pbjGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
-            blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(pbjGrpcClient, OPTIONS);
-            blockStreamSubscribeUnparsedClient = new BlockStreamSubscribeUnparsedClient(pbjGrpcClient, globalTimeoutMs);
+            PbjGrpcClient subscribeGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
+            PbjGrpcClient statusGrpcClient = new PbjGrpcClient(statusWebClient, grpcConfig);
+            blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(statusGrpcClient, OPTIONS);
+            blockStreamSubscribeUnparsedClient =
+                    new BlockStreamSubscribeUnparsedClient(subscribeGrpcClient, globalTimeoutMs);
             nodeReachable = true;
         } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException ex) {
             LOGGER.log(Level.WARNING, "Failed to initialize gRPC client: %s".formatted(ex.getMessage()), ex);
