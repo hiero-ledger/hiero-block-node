@@ -734,16 +734,20 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
 
                         // Sidecar integrity: verify each sidecar's SHA-384 matches an entry in the
                         // record file's signed sidecar hash list before we bake either into the
-                        // wrapped Block. See issue #3196.
+                        // wrapped Block (issue #3196). Also fires a warn-only cross-check that
+                        // each sidecar record's consensus_timestamp ties back to a transaction in
+                        // the parent RecordStreamFile (issue #3319) -- mismatch emits a WARN line
+                        // but does NOT abort the wrap; no accumulator sink is passed here because
+                        // wrap-time paths log-and-forget rather than compile an end-of-run report.
                         try {
+                            final var recordStreamFile =
+                                    effectiveBlock.recordBlock().recordFile().recordStreamFile();
                             SidecarIntegrityValidation.validateSidecars(
                                     effectiveBlock.recordBlock().sidecarFiles(),
-                                    effectiveBlock
-                                            .recordBlock()
-                                            .recordFile()
-                                            .recordStreamFile()
-                                            .sidecars(),
-                                    blockNum);
+                                    recordStreamFile.sidecars(),
+                                    recordStreamFile,
+                                    blockNum,
+                                    null);
                         } catch (final ValidationException sve) {
                             PrettyPrint.clearProgress();
                             System.err.println("[sidecar-integrity] " + sve.getMessage());
