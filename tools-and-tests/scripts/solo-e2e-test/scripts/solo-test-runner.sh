@@ -260,6 +260,37 @@ function execute_network_status {
         --output console || echo "Network status unavailable"
 }
 
+# Record lastAvailableBlock for every BN to a named snapshot file.
+# The file is written to /tmp/chaos-snapshot-<id>.txt as "node=block" lines.
+# Used together with the blocks-diverged assertion to confirm BNs diverged
+# during chaos and later converged after it cleared.
+function execute_snapshot_block_heights {
+    local snapshot_id="${1:-default}"
+    local snapshot_file="/tmp/chaos-snapshot-${snapshot_id}.txt"
+
+    echo "Capturing block height snapshot '${snapshot_id}'"
+    : > "${snapshot_file}"
+
+    for bn in $(get_all_block_nodes); do
+        local port
+        port=$(get_bn_grpc_port "$bn")
+        local import_args="-import-path ${PROTO_PATH}"
+        local status_json last_block
+        # shellcheck disable=SC2086
+        status_json=$(grpcurl -plaintext -emit-defaults \
+            ${import_args} \
+            -proto block-node/api/node_service.proto \
+            -d '{}' "localhost:${port}" \
+            org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
+        last_block=$(echo "$status_json" | jq -r '.lastAvailableBlock // "0"' 2>/dev/null)
+        last_block=${last_block:-0}
+        echo "${bn}=${last_block}" >> "${snapshot_file}"
+        echo "  ${bn}: lastBlock=${last_block}"
+    done
+
+    echo "Snapshot written: ${snapshot_file}"
+}
+
 function execute_restart {
     local target="$1"
     echo "Restarting $target..."
@@ -695,6 +726,11 @@ function execute_event {
             ;;
         network-status)
             execute_network_status
+            ;;
+        snapshot-block-heights)
+            local snap_id
+            snap_id=$(echo "$args" | yq '.snapshot_id // "default"')
+            execute_snapshot_block_heights "${snap_id}"
             ;;
         restart)
             [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // ""')
@@ -1199,6 +1235,41 @@ function assert_blocks_converged {
     return $failed
 }
 
+# Assert that a named snapshot captured during chaos shows a block spread
+# >= min_spread. Confirms BNs actually diverged while the fault was active.
+# Snapshot must have been written by a preceding snapshot-block-heights event.
+function assert_blocks_diverged {
+    local snapshot_id="${1:-default}"
+    local min_spread="${2:-3}"
+    local snapshot_file="/tmp/chaos-snapshot-${snapshot_id}.txt"
+
+    if [[ ! -f "${snapshot_file}" ]]; then
+        echo "FAIL: Snapshot '${snapshot_id}' not found at ${snapshot_file} — was the snapshot-block-heights event executed?"
+        return 1
+    fi
+
+    local min_last max_last spread
+    min_last=999999999
+    max_last=0
+    local results=""
+
+    while IFS='=' read -r bn last_block; do
+        [[ -z "$bn" ]] && continue
+        results="${results}${bn}: lastBlock=${last_block}\n"
+        [[ "${last_block}" -lt "${min_last}" ]] && min_last="${last_block}"
+        [[ "${last_block}" -gt "${max_last}" ]] && max_last="${last_block}"
+    done < "${snapshot_file}"
+
+    spread=$(( max_last - min_last ))
+    echo -e "${results%\\n}"
+    if [[ "${spread}" -lt "${min_spread}" ]]; then
+        echo "FAIL: Block spread ${spread} at snapshot '${snapshot_id}' is below minimum ${min_spread} (min=${min_last}, max=${max_last}) — chaos produced no detectable divergence"
+        return 1
+    else
+        echo "PASS: Block spread ${spread} ≥ ${min_spread} at snapshot '${snapshot_id}' (min=${min_last}, max=${max_last})"
+    fi
+}
+
 # Assert that block signatures transition from Schnorr to WRAPS.
 # Delegates to monitor-block-proofs.sh and captures its output.
 function assert_signature_transition {
@@ -1280,6 +1351,12 @@ function run_assertion {
             local bc_tolerance
             bc_tolerance=$(echo "$args" | yq '.tolerance_blocks // 5')
             assert_blocks_converged "$bc_tolerance"
+            ;;
+        blocks-diverged)
+            local bd_snapshot_id bd_min_spread
+            bd_snapshot_id=$(echo "$args" | yq '.snapshot_id // "default"')
+            bd_min_spread=$(echo "$args" | yq '.min_spread // 3')
+            assert_blocks_diverged "${bd_snapshot_id}" "${bd_min_spread}"
             ;;
         signature-transition)
             if [[ "${TSS_ENABLED:-true}" != "true" ]]; then
