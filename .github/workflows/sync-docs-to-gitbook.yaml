@@ -40,7 +40,6 @@ jobs:
 
       - name: Copy docs
         run: |
-          rm -rf hiero-docs/block-node
           mkdir -p hiero-docs/block-node
           cp -r block-node/docs/. hiero-docs/block-node/
 
