@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.archive;
 
+import static java.lang.System.Logger.Level.DEBUG;
+
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,6 +14,13 @@ import java.util.List;
 /// The last segment has its leading zeros stripped (standard integer formatting), so the
 /// round-trip `parse(format(groupStart, level), level) == groupStart` always holds.
 final class ArchiveKey {
+
+    private static final System.Logger LOGGER = System.getLogger(ArchiveKey.class.getName());
+
+    /// Sentinel returned by [#parse] for keys that do not conform to the archive key format
+    /// produced by [#format]. The bucket may legitimately contain foreign objects created by
+    /// other tools; their keys must not fail archiving, they are logged at debug and skipped.
+    static final long UNPARSEABLE = -1L;
 
     /// Width, in characters, of each `/`-delimited path segment produced by [format] and consumed
     /// by [parse] (and, for the segment count alone, by [StartupRecoveryTask#directoryDepth]).
@@ -54,6 +63,12 @@ final class ArchiveKey {
     /// the group-level trailing zeros are restored.  When `objectKeyPrefix` is non-empty, the
     /// prefix and its trailing `/` separator are removed before parsing.
     ///
+    /// A key that does not conform to the format produced by [format] (for example an object
+    /// created in the bucket by another tool, such as
+    /// `2026-05-01_21-32-38_0000000000000116700-0000000000000116799`, or a key outside the
+    /// configured prefix) is not an error: it is logged at debug level and [#UNPARSEABLE] is
+    /// returned so the caller can skip the key. This method never throws.
+    ///
     /// **Width of the last segment** for each grouping level:
     /// | level | last-segment width |
     /// |---|---|
@@ -63,23 +78,90 @@ final class ArchiveKey {
     /// | 4 | 3 |
     /// | 5 | 2 |
     /// | 6 | 1 |
+    ///
+    /// @return the first block number of the group, or [#UNPARSEABLE] when the key does not
+    ///     conform to the archive key format
     static long parse(@NonNull String key, int groupingLevel, @NonNull String objectKeyPrefix) {
-        if (!objectKeyPrefix.isEmpty() && !key.startsWith(objectKeyPrefix + "/")) {
-            throw new IllegalArgumentException(
-                    "key '%s' does not start with configured prefix '%s/'".formatted(key, objectKeyPrefix));
+        long result;
+        try {
+            result = parseStrict(key, groupingLevel, objectKeyPrefix);
+        } catch (final RuntimeException e) {
+            // Safety net only: parseStrict reports every condition it can detect by returning
+            // UNPARSEABLE, so this catch handles genuinely unexpected exceptions from underlying
+            // library calls (e.g. number parsing). Archiving must never fail on a foreign key.
+            if (LOGGER.isLoggable(DEBUG)) {
+                LOGGER.log(DEBUG, "Key %s is not a valid archive key".formatted(key), e);
+            }
+            result = UNPARSEABLE;
         }
-        final String unprefixed = objectKeyPrefix.isEmpty() ? key : key.substring(objectKeyPrefix.length() + 1);
-        final String withoutSuffix =
-                unprefixed.endsWith(".tar") ? unprefixed.substring(0, unprefixed.length() - 4) : unprefixed;
-        final String[] segments = withoutSuffix.split("/");
+        return result;
+    }
 
-        // Restore leading zeros stripped by format().
-        final int lastSegmentWidth = lastSegmentWidth(groupingLevel);
-        segments[segments.length - 1] =
-                String.format("%0" + lastSegmentWidth + "d", Long.parseLong(segments[segments.length - 1]));
+    /// The parsing logic behind [parse]: parses a well formed archive key and returns
+    /// [#UNPARSEABLE] for any key that detectably does not conform to the format produced by
+    /// [format]. Exceptions are not used for flow control here; the only exceptions that can
+    /// escape are unexpected ones from underlying library calls, which [parse] catches.
+    private static long parseStrict(@NonNull String key, int groupingLevel, @NonNull String objectKeyPrefix) {
+        final long result;
+        if (!objectKeyPrefix.isEmpty() && !key.startsWith(objectKeyPrefix + "/")) {
+            // Not under the configured prefix: not one of this node's archive keys.
+            LOGGER.log(DEBUG, "Key {0} does not start with configured prefix {1}/", key, objectKeyPrefix);
+            result = UNPARSEABLE;
+        } else {
+            final String unprefixed = objectKeyPrefix.isEmpty() ? key : key.substring(objectKeyPrefix.length() + 1);
+            final String withoutSuffix =
+                    unprefixed.endsWith(".tar") ? unprefixed.substring(0, unprefixed.length() - 4) : unprefixed;
+            final String[] segments = withoutSuffix.split("/");
+            if (!allSegmentsNumeric(segments)) {
+                // format() only ever emits decimal digit segments; this is a foreign object
+                // sharing the bucket.
+                LOGGER.log(DEBUG, "Key {0} is not a valid archive key", key);
+                result = UNPARSEABLE;
+            } else {
+                // Restore leading zeros stripped by format().
+                final int lastSegmentWidth = lastSegmentWidth(groupingLevel);
+                segments[segments.length - 1] =
+                        String.format("%0" + lastSegmentWidth + "d", Long.parseLong(segments[segments.length - 1]));
 
-        // Append groupingLevel zeros: the dropped digits are always zero (they define the group boundary).
-        return Long.parseLong(String.join("", segments)) * Math.powExact(10, groupingLevel);
+                final String joined = String.join("", segments);
+                if (joined.length() != MAX_LONG_DIGITS - groupingLevel) {
+                    // format() always emits exactly this many digits for the grouping level; a
+                    // different length means the key has the wrong number of segments or widths.
+                    LOGGER.log(DEBUG, "Key {0} does not have the expected digit count", key);
+                    result = UNPARSEABLE;
+                } else {
+                    // Append groupingLevel zeros: the dropped digits are always zero (they define
+                    // the group boundary).
+                    final long parsed = Long.parseLong(joined) * Math.powExact(10, groupingLevel);
+                    if (parsed < 0) {
+                        // The multiplication overflowed: the digits encode a block number beyond
+                        // the long range, which format() can never produce.
+                        LOGGER.log(DEBUG, "Key {0} does not encode a valid block number", key);
+                        result = UNPARSEABLE;
+                    } else {
+                        result = parsed;
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    /// Returns true when every segment is non-empty, consists only of decimal digits, and the
+    /// total digit count is small enough that no later [Long#parseLong] call can overflow. A
+    /// valid archive key joins to at most [#MAX_LONG_DIGITS] minus one digits, because the
+    /// grouping level is at least one.
+    private static boolean allSegmentsNumeric(@NonNull final String[] segments) {
+        boolean result = true;
+        int totalLength = 0;
+        for (final String segment : segments) {
+            totalLength += segment.length();
+            if (segment.isEmpty() || !segment.chars().allMatch(Character::isDigit)) {
+                result = false;
+                break;
+            }
+        }
+        return result && totalLength < MAX_LONG_DIGITS;
     }
 
     /// Returns the width (number of characters) of the last path segment for a given grouping level.

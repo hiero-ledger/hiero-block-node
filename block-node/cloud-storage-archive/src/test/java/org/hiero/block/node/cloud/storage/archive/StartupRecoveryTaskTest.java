@@ -710,7 +710,7 @@ class StartupRecoveryTaskTest {
 
         assertThat(result.tempArchives()).isEmpty();
         try (S3Client s3 = openS3Client()) {
-            assertThat(s3.listMultipartUploads()).doesNotContainKey(tarKey);
+            assertThat(s3.listMultipartUploads()).isEmpty();
         }
     }
 
@@ -828,7 +828,7 @@ class StartupRecoveryTaskTest {
         assertThat(entry.lastBlock()).isEqualTo(2L);
         assertThat(entry.uploadId()).isNull();
         try (S3Client s3 = openS3Client()) {
-            assertThat(s3.listMultipartUploads()).doesNotContainKey(s3Key);
+            assertThat(s3.listMultipartUploads()).isEmpty();
         }
     }
 
@@ -878,6 +878,93 @@ class StartupRecoveryTaskTest {
 
         assertThat(result.uploadId()).isNotNull();
         assertThat(result.completedRanges()).isNull();
+    }
+
+    /// Verifies that a foreign object sharing the bucket (a key not produced by
+    /// [ArchiveKey#format], for example an export created by another tool) is skipped during
+    /// completed-objects recovery instead of failing it with a NumberFormatException (issue #3282).
+    @Test
+    @DisplayName("Foreign object in the bucket is skipped during recovery")
+    void foreignObjectIsSkippedDuringRecovery() throws Exception {
+        final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+        final String validKey = ArchiveKey.format(0, GROUPING_LEVEL, "");
+        // A foreign object in the same leaf directory as the valid tar, named like another
+        // tool's export. Without lenient parsing, recovery fails with NumberFormatException.
+        final String foreignKey = validKey.substring(0, validKey.lastIndexOf('/') + 1)
+                + "2026-05-01_21-32-38_0000000000000116700-0000000000000116799.tar";
+        final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
+        try (S3Client s3 = openS3Client()) {
+            final String uploadId =
+                    s3.createMultipartUpload(validKey, config.storageClass().name(), CONTENT_TYPE);
+            final String etag = s3.multipartUploadPart(validKey, uploadId, 1, buildTarBytes(blocks));
+            s3.completeMultipartUpload(validKey, uploadId, List.of(etag));
+
+            final String foreignUploadId =
+                    s3.createMultipartUpload(foreignKey, config.storageClass().name(), CONTENT_TYPE);
+            final String foreignEtag =
+                    s3.multipartUploadPart(foreignKey, foreignUploadId, 1, "foreign content".getBytes());
+            s3.completeMultipartUpload(foreignKey, foreignUploadId, List.of(foreignEtag));
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.currentGroupStart()).isEqualTo(groupSize);
+        assertThat(result.uploadId()).isNull();
+        assertThat(result.completedRanges()).isNotNull();
+        assertThat(result.completedRanges().streamRanges()).containsExactly(new LongRange(0, groupSize - 1));
+    }
+
+    /// Verifies that a bucket containing only foreign objects (no valid archive keys) yields a
+    /// fresh start instead of a bogus resume point (issue #3282).
+    @Test
+    @DisplayName("Bucket with only foreign objects yields a fresh start")
+    void onlyForeignObjectsYieldFreshStart() throws Exception {
+        final String validKey = ArchiveKey.format(0, GROUPING_LEVEL, "");
+        final String foreignKey = validKey.substring(0, validKey.lastIndexOf('/') + 1)
+                + "2026-05-01_21-32-38_0000000000000116700-0000000000000116799.tar";
+        try (S3Client s3 = openS3Client()) {
+            final String foreignUploadId =
+                    s3.createMultipartUpload(foreignKey, config.storageClass().name(), CONTENT_TYPE);
+            final String foreignEtag =
+                    s3.multipartUploadPart(foreignKey, foreignUploadId, 1, "foreign content".getBytes());
+            s3.completeMultipartUpload(foreignKey, foreignUploadId, List.of(foreignEtag));
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.currentGroupStart()).isEqualTo(-1);
+        assertThat(result.uploadId()).isNull();
+        assertThat(result.lastHandedOffBlock()).isEqualTo(-1L);
+    }
+
+    /// Verifies that a hanging multipart upload with a foreign key (issue #3282, an upload not
+    /// created by this plugin) is aborted: recovery falls back to the completed archives and the
+    /// foreign upload no longer exists.
+    @Test
+    @DisplayName("Foreign hanging upload is aborted and recovery falls back to completed archives")
+    void foreignHangingUploadIsAborted() throws Exception {
+        final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+        final String validKey = ArchiveKey.format(0, GROUPING_LEVEL, "");
+        final String foreignKey = "2026-05-01_21-32-38_0000000000000116700-0000000000000116799";
+        final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
+        try (S3Client s3 = openS3Client()) {
+            final String uploadId =
+                    s3.createMultipartUpload(validKey, config.storageClass().name(), CONTENT_TYPE);
+            final String etag = s3.multipartUploadPart(validKey, uploadId, 1, buildTarBytes(blocks));
+            s3.completeMultipartUpload(validKey, uploadId, List.of(etag));
+
+            final String foreignUploadId =
+                    s3.createMultipartUpload(foreignKey, config.storageClass().name(), CONTENT_TYPE);
+            s3.multipartUploadPart(foreignKey, foreignUploadId, 1, "foreign content".getBytes());
+        }
+
+        final RecoveryResult result = new StartupRecoveryTask(config).call();
+
+        assertThat(result.currentGroupStart()).isEqualTo(groupSize);
+        assertThat(result.uploadId()).isNull();
+        try (S3Client s3 = openS3Client()) {
+            assertThat(s3.listMultipartUploads()).isEmpty();
+        }
     }
 
     private S3Client openS3Client() throws Exception {
