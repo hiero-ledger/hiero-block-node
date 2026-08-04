@@ -665,17 +665,20 @@ blockStream.writerMode=FILE_AND_GRPC
 blockNode.connectionStallThresholdMillis=5000
 EOF
 
-  # Verification-mode dependent settings. rsa-wrb streams Wrapped Record Blocks
-  # verified against the RSA roster, so TSS is disabled and WRB streaming enabled.
-  if [[ "${WRB_RSA}" == "true" ]]; then
+  # TSS on/off is independent of WRB streaming: rsa-wrb (WRB_RSA) always
+  # implies TSS_ENABLED=false (see load_topology) and additionally wants WRB
+  # streaming instead of the normal record stream, whereas a plain
+  # --tss-enabled false deploy (e.g. to test a mid-life TSS cutover via
+  # cn-upgrade-tss.sh, which is what actually turns TSS on for that scenario —
+  # issue #3125 step 11) wants TSS off at genesis but the normal record stream
+  # still on, since steps 1-10 consume record files, not WRB.
+  if [[ "${TSS_ENABLED}" != "true" ]]; then
     cat >> "${output_file}" << 'EOF'
 
 tss.hintsEnabled=false
 tss.historyEnabled=false
 tss.forceMockSignatures=false
 tss.wrapsEnabled=false
-
-blockStream.streamWrappedRecordBlocks=true
 EOF
   else
     cat >> "${output_file}" << 'EOF'
@@ -684,6 +687,16 @@ tss.hintsEnabled=true
 tss.historyEnabled=true
 tss.forceMockSignatures=false
 tss.wrapsEnabled=true
+EOF
+  fi
+
+  if [[ "${WRB_RSA}" == "true" ]]; then
+    cat >> "${output_file}" << 'EOF'
+
+blockStream.streamWrappedRecordBlocks=true
+EOF
+  else
+    cat >> "${output_file}" << 'EOF'
 
 blockStream.streamWrappedRecordBlocks=false
 EOF
