@@ -427,7 +427,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             blockMessaging.sendBlockPersisted(new PersistedNotification(blockNumber, succeeded, 0, source));
         } catch (final RejectedExecutionException e) {
             LOGGER.log(
-                    WARNING,
+                    INFO,
                     "Block {0}: could not deliver PersistedNotification; messaging facility already stopped.",
                     blockNumber);
         }
@@ -498,7 +498,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 metricsHolder.retryExhaustedTotal().increment();
                 metricsHolder.uploadFailuresTotal().increment();
                 LOGGER.log(
-                        WARNING,
+                        INFO,
                         "Block {0}: exhausted background retries; reporting persistent failure.",
                         entry.blockNumber());
             } else if (outcome == RetryOutcome.NOT_STAGED) {
