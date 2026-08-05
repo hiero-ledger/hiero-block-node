@@ -325,21 +325,6 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
 
-  # Diagnostic-only: dump BN2/BN3's live block-node-server logs + pod
-  # restart status directly into this step's own CI output. This is a
-  # baseline checkpoint — roughly 7 minutes after reconfigure-bn2-backfill /
-  # reconfigure-bn3-backfill (step 10) — to see whether backfill has made
-  # any progress at all by this point, for comparison against the
-  # later dump-bn-logs-before-tss-check checkpoint right before the
-  # assertion that has failed on every run so far.
-  - id: dump-bn-logs-baseline
-    type: command
-    description: "Diagnostic: dump BN2/BN3 logs + restart status (~7min after backfill reconfig)"
-    delay: 705
-    timeout: 60
-    args:
-      script: "${SCRIPT_DIR}/wrb-distribution/dump-bn-logs.sh 2 3"
-
   # Step 11 — TSS cutover. Canonical flow (per issue #3125 step 11 and the
   # node-operator runbook), implemented across four scripts:
   #   1. cn-upgrade-tss.sh: upgrade the 3 CNs to a TSS/WRAPS-native version
@@ -378,20 +363,22 @@ events:
       # trying the version issue #3125 step 11 actually calls out.
       script: "${SCRIPT_DIR}/wrb-distribution/cn-upgrade-tss.sh v0.76.0-rc.7"
 
-  # Diagnostic-only: dump BN2/BN3's live logs + restart status right after
-  # the upgrade, before the detect/stage/assert sequence below.
-  - id: dump-bn-logs-before-tss-check
-    type: command
-    description: "Diagnostic: dump BN2/BN3 logs + restart status (right before TSS detection/staging)"
+  # cn-upgrade-tss's FREEZE_UPGRADE cycles all 3 CN pods — heavy enough k8s
+  # churn that it can silently kill the long-lived kubectl port-forward
+  # processes targeting BN2/BN3 (same class of issue reconfigure-bn-backfill.sh
+  # / reconfigure-bn-roster-bootstrap-tss.sh caused earlier, at step 10 —
+  # see refresh-port-forwards-after-backfill-rollout above). Without this,
+  # assert-bn2-bn3-tss-data below fails with "connection refused" for the
+  # entire poll window, not because TSS data is actually missing.
+  - id: refresh-port-forwards-after-cn-upgrade
+    type: port-forward
+    description: "Re-forward all BN/MN ports after cn-upgrade-tss's FREEZE_UPGRADE cycled all 3 CN pods"
     delay: 1625
-    timeout: 60
-    args:
-      script: "${SCRIPT_DIR}/wrb-distribution/dump-bn-logs.sh 2 3"
 
   - id: detect-tss-enablement
     type: command
     description: "Step 11.2: download post-upgrade records, wrap + validate to detect the LedgerIdPublication and write tss-bootstrap-roster.json"
-    delay: 1630
+    delay: 1640
     # Generous: download_record_files_from_minio has its own internal 120s
     # wait for the CN to produce+upload post-upgrade record files, plus
     # potentially several hundred individual `mc cat` downloads (one kubectl
