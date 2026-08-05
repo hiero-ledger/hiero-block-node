@@ -154,7 +154,7 @@ public abstract class BaseSuite {
     /**
      * Teardown all Block Node containers and channels.
      */
-    protected void teardownBlockNodes() throws InterruptedException {
+    protected void teardownBlockNodes() {
         for (final GenericContainer<?> container : blockNodeContainers) {
             try {
                 container.stop();

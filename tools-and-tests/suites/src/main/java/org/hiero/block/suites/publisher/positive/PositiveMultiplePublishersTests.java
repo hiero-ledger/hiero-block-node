@@ -16,12 +16,16 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.locks.LockSupport;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
 import org.hiero.block.api.protoc.BlockAccessServiceGrpc.BlockAccessServiceBlockingStub;
 import org.hiero.block.api.protoc.BlockResponse;
@@ -48,7 +52,9 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 // TODO(#1665) Verify simulator's connection has been closed for multi-publisher scenarios
 @DisplayName("Positive Multiple Publishers Tests")
-@Timeout(30)
+// Ceiling only: every test below waits on an observed condition (see the await* helpers), so a
+// green run finishes in seconds; this bound just fails a genuinely stuck test with a clear message.
+@Timeout(60)
 public class PositiveMultiplePublishersTests extends BaseSuite {
 
     private final List<Future<?>> simulators = new ArrayList<>();
@@ -65,7 +71,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 // Bound the stop-wait: a simulator that never reports stopped must not hang teardown.
                 final long deadline = System.currentTimeMillis() + 5_000;
                 while (simulator.isRunning() && System.currentTimeMillis() < deadline) {
-                    Thread.sleep(100);
+                    LockSupport.parkNanos(100_000_000);
                 }
             } catch (InterruptedException e) {
                 // Do nothing, this is not mandatory, we try to shut down  cleaner and graceful
@@ -80,7 +86,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
             "We cannot send 'to far behind' alone. only in response to `NodeBehindPublisher`.  This test needs to be rewritten.")
     @Test
     @DisplayName("Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
-    public void testBackfillOnDemand() throws IOException, InterruptedException {
+    public void testBackfillOnDemand() throws IOException {
         launchBlockNodes(
                 List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json", new HashMap<>())));
         final Map<String, String> firstSimulatorConfiguration = Map.of(
@@ -106,7 +112,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
         startSimulatorInstance(firstSimulator);
         startSimulatorInstanceWithErrorResponse(secondSimulator);
-        Thread.sleep(3000);
+        LockSupport.parkNanos(3_000_000_000L);
 
         final Map<String, String> thirdSimulatorConfiguration = Map.of(
                 "blockStream.streamingMode",
@@ -125,7 +131,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "8082");
         final BlockStreamSimulatorApp thirdSimulator = createBlockSimulator(thirdSimulatorConfiguration);
         startSimulatorInstanceWithErrorResponse(thirdSimulator);
-        Thread.sleep(3000);
+        LockSupport.parkNanos(3_000_000_000L);
 
         final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStubs.get(8082));
         final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
@@ -168,7 +174,9 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
         startSimulatorInstance(firstSimulator);
         startSimulatorInstanceWithErrorResponse(secondSimulator);
-        Thread.sleep(3000);
+        // Wait until blocks 0-2 are actually persisted on the subject node before deleting them,
+        // rather than guessing with a fixed sleep.
+        awaitBlocksAvailable(blockAccessStubs.get(8082), AWAIT_TIMEOUT_MS, 0, 1, 2);
         deleteBlocks(0, 3);
         // Remove block-ranges.json so the node re-discovers its stored range from the filesystem
         // on restart. Without this, the node would read the stale "stored: 0-6" entry and the
@@ -183,7 +191,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         assertEquals(NOT_FOUND, block2Deleted.getStatus());
 
         restartBlockNode(0);
-        awaitBackfilledBlocks(blockAccessStubs.get(8082), 0, 1, 2);
+        awaitBlocksAvailable(blockAccessStubs.get(8082), BACKFILL_AWAIT_TIMEOUT_MS, 0, 1, 2);
 
         getAndAssertSingleBlock(blockAccessStubs, 0);
         getAndAssertSingleBlock(blockAccessStubs, 1);
@@ -192,29 +200,86 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         teardownBlockNodes();
     }
 
-    /**
-     * Polls until every requested block number returns {@code SUCCESS} from the given stub, or
-     * throws {@link AssertionError} if the deadline (60 s) is exceeded. This replaces a fixed
-     * sleep so the test finishes as soon as backfill completes rather than always waiting the
-     * maximum.
-     */
-    private static void awaitBackfilledBlocks(final BlockAccessServiceBlockingStub stub, final long... blockNumbers)
-            throws InterruptedException {
-        final long deadlineMs = System.currentTimeMillis() + 60_000;
-        while (true) {
-            boolean allPresent = true;
-            for (long blockNumber : blockNumbers) {
-                if (getBlock(stub, blockNumber).getStatus() != SUCCESS) {
-                    allPresent = false;
-                    break;
-                }
+    // ---- deterministic awaits ------------------------------------------------------------------
+    // Replace fixed sleeps: a test proceeds as soon as the awaited state is observed, and fails fast
+    // with a clear message otherwise — instead of guessing a duration that flakes when the node or
+    // simulator is slower than the guess.
+
+    /// Ceiling for in-process awaits (simulator status and published-block counts); a healthy run
+    /// reaches these in a few seconds.
+    private static final long AWAIT_TIMEOUT_MS = 20_000L;
+    /// Ceiling for backfill, which fetches missing blocks from another node over the network.
+    private static final long BACKFILL_AWAIT_TIMEOUT_MS = 60_000L;
+
+    /// Polls `condition` every `pollMs` until it is true or `timeoutMs` elapses, throwing an
+    /// `AssertionError` naming `description` on timeout.
+    private static void awaitCondition(
+            final long timeoutMs, final long pollMs, final String description, final BooleanSupplier condition) {
+        final long deadline = System.currentTimeMillis() + timeoutMs;
+        while (!condition.getAsBoolean()) {
+            if (System.currentTimeMillis() >= deadline) {
+                throw new AssertionError("Timed out after " + timeoutMs + " ms waiting for: " + description);
             }
-            if (allPresent) return;
-            if (System.currentTimeMillis() >= deadlineMs) {
-                throw new AssertionError("Backfill did not complete within 60 s; blocks still missing from node");
-            }
-            Thread.sleep(1_000);
+            LockSupport.parkNanos(pollMs * 1_000_000L);
         }
+    }
+
+    /// Awaits until `simulator` reports at least `minCount` published blocks.
+    private static void awaitPublishedBlocks(
+            final BlockStreamSimulatorApp simulator, final long minCount, final long timeoutMs) {
+        awaitCondition(
+                timeoutMs,
+                100L,
+                "simulator to publish >= " + minCount + " blocks",
+                () -> simulator.getStreamStatus().publishedBlocks() >= minCount);
+    }
+
+    /// True if any of `simulator`'s last-known publisher statuses contains `needle` (case-insensitive).
+    /// Statuses are stringified server responses, so this matches on the response message name (e.g.
+    /// "acknowledgement", "skip_block", "duplicate_block", "bad_block_proof").
+    private static boolean hasStatusContaining(final BlockStreamSimulatorApp simulator, final String needle) {
+        final String lower = needle.toLowerCase();
+        return simulator.getStreamStatus().lastKnownPublisherClientStatuses().stream()
+                .anyMatch(status -> status.toLowerCase().contains(lower));
+    }
+
+    /// Awaits until `hasStatusContaining` is true for `simulator` and `needle`.
+    private static void awaitStatusContaining(
+            final BlockStreamSimulatorApp simulator, final String needle, final long timeoutMs) {
+        awaitCondition(
+                timeoutMs,
+                100L,
+                "a publisher status containing '" + needle + "'",
+                () -> hasStatusContaining(simulator, needle));
+    }
+
+    /// Awaits until every one of `blockNumbers` is retrievable (`SUCCESS`) from `stub`. Used both to
+    /// confirm blocks are persisted before deleting them and to confirm they are backfilled after.
+    private static void awaitBlocksAvailable(
+            final BlockAccessServiceBlockingStub stub, final long timeoutMs, final long... blockNumbers) {
+        awaitCondition(
+                timeoutMs, 250L, "blocks " + Arrays.toString(blockNumbers) + " to be retrievable", () -> Arrays.stream(
+                                blockNumbers)
+                        .allMatch(number -> getBlock(stub, number).getStatus() == SUCCESS));
+    }
+
+    /// Awaits until the latest block on `stub` is retrievable with number at least `minNumber`, then
+    /// returns that latest `BlockResponse`. Guards the empty / NOT_AVAILABLE response so the caller
+    /// never dereferences a missing block.
+    private static BlockResponse awaitLatestBlockAtLeast(
+            final BlockAccessServiceBlockingStub stub, final long minNumber, final long timeoutMs) {
+        awaitCondition(timeoutMs, 250L, "latest block number >= " + minNumber, () -> {
+            final BlockResponse response = getLatestBlock(stub);
+            return response.getStatus() == SUCCESS
+                    && !response.getBlock().getItemsList().isEmpty()
+                    && response.getBlock()
+                                    .getItemsList()
+                                    .getFirst()
+                                    .getBlockHeader()
+                                    .getNumber()
+                            >= minNumber;
+        });
+        return getLatestBlock(stub);
     }
 
     private static void getAndAssertSingleBlock(
@@ -237,7 +302,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @DisplayName(
             "Autonomous backfill should fill the gaps and Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
     @Timeout(120)
-    public void testBackfillOnDemandAndAutonomousBackfill() throws IOException, InterruptedException {
+    public void testBackfillOnDemandAndAutonomousBackfill() throws IOException {
 
         //  2 Block Nodes, 1 Source (40840), Subject BN: Backfill will happen here. (8082)
         // We only launch 8082 cause the source is already in BASE class.
@@ -286,7 +351,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         // Wait until both simulators have published their blocks
         while (firstSimulator.getStreamStatus().publishedBlocks() < 101
                 || secondSimulator.getStreamStatus().publishedBlocks() < 21) {
-            Thread.sleep(1000);
+            LockSupport.parkNanos(1_000_000_000L);
         }
 
         // Simulator for Trigger Backfill on Demand from BN Subject (8082)
@@ -310,7 +375,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         startSimulatorInstanceWithErrorResponse(thirdSimulator);
 
         // polling the latest block until we reach block 200 (backfill on demand is completed)
-        Thread.sleep(5_000);
+        LockSupport.parkNanos(5_000_000_000L);
         long latestBlockNumber = getLatestBlock(blockAccessStubs.get(8082))
                 .getBlock()
                 .getItemsList()
@@ -320,7 +385,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
         while (latestBlockNumber < 100) {
             System.out.println("Latest Block Number: " + latestBlockNumber);
-            Thread.sleep(1000);
+            LockSupport.parkNanos(1_000_000_000L);
             latestBlockNumber = getLatestBlock(blockAccessStubs.get(8082))
                     .getBlock()
                     .getItemsList()
@@ -443,7 +508,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Disabled("Temporarily disabled while publisher plugin is being rewritten. Currently produces a false positive")
     @Test
     @DisplayName("Should switch to faster publisher when it catches up with current block number")
-    public void shouldSwitchToFasterPublisherWhenCaughtUp() throws IOException, InterruptedException {
+    public void shouldSwitchToFasterPublisherWhenCaughtUp() throws IOException {
         // ===== Prepare environment =================================================================
         final Map<String, String> slowerSimulatorConfiguration = Map.of("blockStream.millisecondsPerBlock", "1000");
         final Map<String, String> fasterSimulatorConfiguration = Map.of("blockStream.millisecondsPerBlock", "100");
@@ -503,7 +568,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 fasterSimulatorPublishedBlocksAfter =
                         fasterSimulator.getStreamStatus().publishedBlocks();
             }
-            Thread.sleep(100); // not necessary, just to avoid not needed iterations
+            LockSupport.parkNanos(100_000_000L); // not necessary, just to avoid not needed iterations
         }
 
         assertTrue(slowerSimulatorPublishedBlocksBefore > fasterSimulatorPublishedBlocksBefore);
@@ -513,11 +578,11 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Verify Single Publisher Acknowledgements")
-    public void testAcknowledgements() throws IOException, InterruptedException {
+    public void testAcknowledgements() throws IOException {
         final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
         startSimulatorInThread(firstSimulator);
         simulatorAppsRef.add(firstSimulator);
-        Thread.sleep(5000);
+        awaitStatusContaining(firstSimulator, "acknowledgement", AWAIT_TIMEOUT_MS);
 
         StreamStatus firstStreamStatus = simulatorAppsRef.getFirst().getStreamStatus();
         assertTrue(firstStreamStatus.publishedBlocks() > 0);
@@ -528,14 +593,14 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Verify Single Publisher Acknowledgements with settled WRAPS proofs")
-    public void testSettledWrapsAcknowledgements() throws IOException, InterruptedException {
+    public void testSettledWrapsAcknowledgements() throws IOException {
         // Stream blocks whose TSS signatures carry the settled 704-byte WRAPS proof (the post-genesis
         // production path) instead of the genesis Schnorr aggregate. Blocks are acknowledged only when
         // the node verifies them, so acknowledgements prove the WRAPS verification path works end-to-end.
         final BlockStreamSimulatorApp simulator = createBlockSimulator(Map.of("generator.tssProofType", "WRAPS"));
         startSimulatorInThread(simulator);
         simulatorAppsRef.add(simulator);
-        Thread.sleep(5000);
+        awaitStatusContaining(simulator, "acknowledgement", AWAIT_TIMEOUT_MS);
 
         final StreamStatus streamStatus = simulatorAppsRef.getFirst().getStreamStatus();
         assertTrue(streamStatus.publishedBlocks() > 0);
@@ -545,32 +610,57 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     }
 
     @Test
+    @Timeout(90)
     @DisplayName("Verify Multi Publisher Acknowledgements")
-    public void testMultiPublisherAcknowledgements() throws IOException, InterruptedException {
-        final Map<String, String> firstSimulatorConfiguration = Map.of("blockStream.millisecondsPerBlock", "5000");
+    public void testMultiPublisherAcknowledgements() throws IOException {
+        final Map<String, String> slowPublisherConfig = Map.of("blockStream.millisecondsPerBlock", "5000");
         final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
-        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(slowPublisherConfig);
         startSimulatorInThread(firstSimulator);
         startSimulatorInThread(secondSimulator);
         simulatorAppsRef.add(firstSimulator);
         simulatorAppsRef.add(secondSimulator);
-        Thread.sleep(5000);
 
-        StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
-        StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
+        // Both publishers must be streaming, and the fast one must have received at least one
+        // acknowledgement, before we compare.
+        awaitPublishedBlocks(firstSimulator, 1, AWAIT_TIMEOUT_MS);
+        awaitPublishedBlocks(secondSimulator, 1, AWAIT_TIMEOUT_MS);
+        awaitStatusContaining(firstSimulator, "acknowledgement", AWAIT_TIMEOUT_MS);
+
+        // Snapshot the fast publisher's acknowledgements, then wait until the (slower) second publisher
+        // has been sent the same ones. The node broadcasts each acknowledgement to every connected
+        // publisher, so this converges deterministically instead of relying on a fixed sleep and a
+        // lucky sampling instant.
+        final List<String> firstAcknowledgements =
+                firstSimulator.getStreamStatus().lastKnownPublisherClientStatuses().stream()
+                        .filter(status -> status.toLowerCase().contains("acknowledgement"))
+                        .toList();
+        awaitCondition(
+                AWAIT_TIMEOUT_MS,
+                100L,
+                "the second publisher to receive every acknowledgement the first received",
+                () -> {
+                    final Deque<String> secondStatuses =
+                            secondSimulator.getStreamStatus().lastKnownPublisherClientStatuses();
+                    return firstAcknowledgements.stream()
+                            .allMatch(ack -> secondStatuses.stream().anyMatch(status -> status.equalsIgnoreCase(ack)));
+                });
+
+        final StreamStatus firstStreamStatus = firstSimulator.getStreamStatus();
+        final StreamStatus secondStreamStatus = secondSimulator.getStreamStatus();
         assertTrue(firstStreamStatus.publishedBlocks() > 0);
         assertTrue(secondStreamStatus.publishedBlocks() > 0);
-        firstStreamStatus.lastKnownPublisherClientStatuses().stream()
-                .filter(status -> status.toLowerCase().contains("acknowledgement"))
-                .forEach(ackStatus -> assertTrue(
-                        secondStreamStatus.lastKnownPublisherClientStatuses().stream()
-                                .anyMatch(s -> s.equalsIgnoreCase(ackStatus)),
-                        "Acknowledgement from firstStreamStatus not found in secondStreamStatus: " + ackStatus));
+        for (final String ackStatus : firstAcknowledgements) {
+            assertTrue(
+                    secondStreamStatus.lastKnownPublisherClientStatuses().stream()
+                            .anyMatch(status -> status.equalsIgnoreCase(ackStatus)),
+                    "Acknowledgement from firstStreamStatus not found in secondStreamStatus: " + ackStatus);
+        }
     }
 
     @Test
     @DisplayName("Verify Multi Publisher Skip")
-    public void testMultiPublisherSkip() throws IOException, InterruptedException {
+    public void testMultiPublisherSkip() throws IOException {
         final Map<String, String> firstSimulatorConfiguration =
                 Map.of("generator.minEventsPerBlock", "100", "generator.maxEventsPerBlock", "200");
         final Map<String, String> secondSimulatorConfiguration =
@@ -581,7 +671,15 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         startSimulatorInThread(secondSimulator);
         simulatorAppsRef.add(firstSimulator);
         simulatorAppsRef.add(secondSimulator);
-        Thread.sleep(5000);
+        // Both publishers streaming, then wait until one of them is told to skip a block.
+        awaitPublishedBlocks(firstSimulator, 1, AWAIT_TIMEOUT_MS);
+        awaitPublishedBlocks(secondSimulator, 1, AWAIT_TIMEOUT_MS);
+        awaitCondition(
+                AWAIT_TIMEOUT_MS,
+                100L,
+                "a skip_block status on either publisher",
+                () -> hasStatusContaining(firstSimulator, "skip_block")
+                        || hasStatusContaining(secondSimulator, "skip_block"));
 
         StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
         StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
@@ -597,18 +695,18 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Verify Multi Publisher Duplicate Block")
-    public void testMultiPublisherDuplicateBlock() throws IOException, InterruptedException {
+    public void testMultiPublisherDuplicateBlock() throws IOException {
         final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
         final BlockStreamSimulatorApp secondSimulator = createBlockSimulator();
         startSimulatorInThread(firstSimulator);
         simulatorAppsRef.add(firstSimulator);
         simulatorAppsRef.add(secondSimulator);
-        // Let the first simulator persist enough blocks that block 0 from the second simulator
-        // lands outside the default producer.duplicateBlockSkipWindow and therefore receives
+        // Wait until the node has persisted past the default producer.duplicateBlockSkipWindow (5) so
+        // that block 0 from the second simulator lands outside the window and receives
         // EndOfStream(DUPLICATE_BLOCK) instead of SkipBlock.
-        Thread.sleep(8000);
+        awaitLatestBlockAtLeast(blockAccessStub, 8, AWAIT_TIMEOUT_MS);
         startSimulatorInThread(secondSimulator);
-        Thread.sleep(1000);
+        awaitStatusContaining(secondSimulator, "duplicate_block", AWAIT_TIMEOUT_MS);
 
         StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
         StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
@@ -622,12 +720,12 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Verify Failed Verification Handling")
-    public void testMultiPublisherBadBlockProof() throws IOException, InterruptedException {
+    public void testMultiPublisherBadBlockProof() throws IOException {
         final Map<String, String> simulatorConfig = Map.of("generator.invalidBlockHash", "true");
         final BlockStreamSimulatorApp simulator = createBlockSimulator(simulatorConfig);
         startSimulatorInThread(simulator);
         simulatorAppsRef.add(simulator);
-        Thread.sleep(1000);
+        awaitPublishedBlocks(simulator, 1, AWAIT_TIMEOUT_MS);
 
         StreamStatus streamStatus = simulatorAppsRef.getFirst().getStreamStatus();
         assertTrue(streamStatus.publishedBlocks() > 0);
@@ -646,14 +744,14 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
             public void onCompleted() {}
         };
         blockStreamPublishServiceStub.publishBlockStream(responseObserver);
-        Thread.sleep(3000);
+        // Await the bad-block-proof outcome on the connected (block-supplying) publisher; this also
+        // gives the separate observer (which supplied no block) a window in which it must stay silent.
+        awaitStatusContaining(simulator, "bad_block_proof", AWAIT_TIMEOUT_MS);
 
-        // We expect no responses in failed verification, when the connected publisher has not supplied the block
-        // that failed.
+        // The separate observer supplied no block, so it must have received no response.
         assertNull(response[0]);
-        // We expect the bad block proof message and an end of stream when the connected publisher has supplied the
-        // block that failed.
-        assertTrue(streamStatus.lastKnownPublisherClientStatuses().stream()
+        // The connected publisher supplied the failing block, so it must see the bad-block-proof status.
+        assertTrue(simulator.getStreamStatus().lastKnownPublisherClientStatuses().stream()
                 .anyMatch(s -> s.toLowerCase().contains("bad_block_proof")));
     }
 
@@ -696,6 +794,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     }
 
     @ParameterizedTest
+    @Timeout(90)
     @DisplayName("Publisher should handle error responses and resume streaming")
     @MethodSource("provideDataForErrorResponses")
     public void publisherShouldResumeAfterError(Map<String, String> config, String errorStatus)
@@ -714,6 +813,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 firstSimulator.getStreamStatus().publishedBlocks() - 1; // we subtract one since we started on 0
         firstSimulatorThread.cancel(true);
 
+        // Wait until the last published block is actually retrievable before dereferencing it.
+        awaitBlocksAvailable(blockAccessStub, AWAIT_TIMEOUT_MS, firstSimulatorLatestPublishedBlockNumber);
         final BlockResponse latestPublishedBlockBefore =
                 getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber);
         final BlockResponse nextPublishedBlockBefore =
@@ -740,9 +841,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 .lastKnownPublisherClientStatuses()
                 .getFirst();
 
-        Thread.sleep(2000);
-
-        final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStub);
+        // Await the node's latest block to advance past block 4 as the second simulator resumes streaming.
+        final BlockResponse latestPublishedBlockAfter = awaitLatestBlockAtLeast(blockAccessStub, 5, AWAIT_TIMEOUT_MS);
         secondSimulatorThread.cancel(true);
         assertNotNull(secondSimulatorLatestStatus);
         assertNotNull(latestPublishedBlockAfter);
@@ -833,39 +933,34 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      */
     private Future<?> startSimulatorInstance(@NonNull final BlockStreamSimulatorApp simulator) {
         Objects.requireNonNull(simulator);
-        final int statusesRequired = 5; // we wait for at least 5 statuses, to avoid flakiness
+        final int statusesRequired = 5; // wait for a few statuses so the simulator is genuinely streaming
 
         final Future<?> simulatorThread = startSimulatorInThread(simulator);
         simulators.add(simulatorThread);
-        String simulatorStatus = null;
-        while (simulator.getStreamStatus().lastKnownPublisherClientStatuses().size() < statusesRequired) {
-            if (!simulator.getStreamStatus().lastKnownPublisherClientStatuses().isEmpty()) {
-                simulatorStatus = simulator
-                        .getStreamStatus()
-                        .lastKnownPublisherClientStatuses()
-                        .getLast();
-            }
-        }
-        assertNotNull(simulatorStatus);
+        // Bounded wait instead of a tight spin: fails fast with a clear message if the simulator never
+        // reaches the expected number of statuses, rather than burning a core until the test times out.
+        awaitCondition(
+                AWAIT_TIMEOUT_MS,
+                50L,
+                statusesRequired + " publisher statuses from the simulator",
+                () -> simulator
+                                .getStreamStatus()
+                                .lastKnownPublisherClientStatuses()
+                                .size()
+                        >= statusesRequired);
         assertTrue(simulator.isRunning());
         return simulatorThread;
     }
 
-    private Future<?> startSimulatorInstanceWithErrorResponse(@NonNull final BlockStreamSimulatorApp simulator)
-            throws InterruptedException {
+    private Future<?> startSimulatorInstanceWithErrorResponse(@NonNull final BlockStreamSimulatorApp simulator) {
         Objects.requireNonNull(simulator);
 
         final Future<?> simulatorThread = startSimulatorInThread(simulator);
         simulators.add(simulatorThread);
-        String simulatorStatus = null;
-        Thread.sleep(500);
-        if (!simulator.getStreamStatus().lastKnownPublisherClientStatuses().isEmpty()) {
-            simulatorStatus = simulator
-                    .getStreamStatus()
-                    .lastKnownPublisherClientStatuses()
-                    .getFirst();
-        }
-        assertNotNull(simulatorStatus);
+        awaitCondition(AWAIT_TIMEOUT_MS, 50L, "at least one publisher status from the simulator", () -> !simulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .isEmpty());
         assertTrue(simulator.isRunning());
         return simulatorThread;
     }
