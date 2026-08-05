@@ -752,11 +752,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // a delta (next unstreamed must always be strictly greater than the current
         // streaming block number).
         final List<BlockRange> storedBlocks = serverContext.storedBlocks();
-        final long highestStoredBlock = storedBlocks.isEmpty()
+        final long latestKnownBlock = storedBlocks.isEmpty()
                 ? UNKNOWN_BLOCK_NUMBER
                 : storedBlocks.getLast().rangeEnd();
-        final long latestKnownBlock = Math.max(
-                serverContext.historicalBlockProvider().availableBlocks().max(), highestStoredBlock);
         // Always set the last persisted block number, even if there are no
         // known blocks.
         lastPersistedBlockNumber.set(latestKnownBlock);
