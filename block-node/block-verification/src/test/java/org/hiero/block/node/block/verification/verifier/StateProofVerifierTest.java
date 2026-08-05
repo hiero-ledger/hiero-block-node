@@ -225,10 +225,69 @@ class StateProofVerifierTest {
     }
 
     @Test
-    @DisplayName("verify() reject when first path is not a leaf")
-    void testShouldRejectFirstPathNotLeaf() throws IOException, ParseException {
+    @DisplayName("verify() passes for valid state proof that does not start with a leaf")
+    void testPassingStateProofWithNonLeafFirstPath() throws IOException, ParseException {
         initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof
+        // Reorder the paths of a real, valid state proof so the final join point comes first:
+        // [leaf, leaf, join] becomes [join, leaf, leaf], with every next path index remapped
+        // to the join point's new position. A state proof creator might order the paths this
+        // way, and the proof content is unchanged, so verification must pass.
+        final ResourceTestBlock block = ResourceTestBlockBuilder.load(StateProof.BLOCK_3);
+        final List<MerklePath> original = statePaths(block);
+        final MerklePath join = original.get(2);
+        final MerklePath firstLeaf =
+                original.get(0).copyBuilder().nextPathIndex(0).build();
+        final MerklePath secondLeaf =
+                original.get(1).copyBuilder().nextPathIndex(0).build();
+        final ResourceTestBlock reorderedBlock = swapPaths(block, List.of(join, firstLeaf, secondLeaf));
+        final HashingResult hashingResult = runHashing(verificationDataProvider, reorderedBlock);
+        final StateProofVerifier toTest = new StateProofVerifier(
+                isCanceled,
+                metricsHolder.proofVerificationMetrics(),
+                reorderedBlock.number(),
+                hashingResult.blockProofs().getFirst().blockStateProof(),
+                hashingResult.rootHash(),
+                verificationDataProvider);
+        final SessionFailureType actual = toTest.verify();
+        assertThat(actual).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2})
+    @DisplayName("verify() reject valid state proof carrying a join point that is never followed")
+    void testShouldRejectJoinPointNeverFollowed(final int orphanIndex) throws IOException, ParseException {
+        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
+        // Insert an unreferenced join point into the paths of a real, valid state proof,
+        // remapping the real indices for the shift. Every other aspect of the proof stays
+        // valid, so only the accurate visited tracking can catch the orphan path: a path
+        // counts as visited only when the walk actually processes it.
+        final ResourceTestBlock block = ResourceTestBlockBuilder.load(StateProof.BLOCK_3);
+        final List<MerklePath> original = statePaths(block);
+        final List<MerklePath> paths = new ArrayList<>();
+        // the real join point lands at index 3 for every tested insertion position
+        paths.add(original.get(0).copyBuilder().nextPathIndex(3).build());
+        paths.add(original.get(1).copyBuilder().nextPathIndex(3).build());
+        paths.add(original.get(2));
+        paths.add(orphanIndex, generateGenericMerklePath(false));
+        final ResourceTestBlock tamperedBlock = swapPaths(block, paths);
+        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
+        final StateProofVerifier toTest = new StateProofVerifier(
+                isCanceled,
+                metricsHolder.proofVerificationMetrics(),
+                tamperedBlock.number(),
+                hashingResult.blockProofs().getFirst().blockStateProof(),
+                hashingResult.rootHash(),
+                verificationDataProvider);
+        final SessionFailureType actual = toTest.verify();
+        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
+    @Test
+    @DisplayName("verify() reject when no leaf leads to a join point")
+    void testShouldRejectUnreachableJoinPoint() throws IOException, ParseException {
+        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
+        // The first path is allowed to be a non-leaf, but a join point that no leaf leads to
+        // is never visited and must reject the proof.
         final List<MerklePath> paths = new ArrayList<>();
         paths.add(generateGenericMerklePath(false));
         paths.add(generateGenericMerklePath(true));
@@ -409,6 +468,25 @@ class StateProofVerifierTest {
                 block.number(),
                 new BlockUnparsed(TestBlockBuilder.convertToUnparsedItems(resultItems)),
                 block.blockRootHash());
+    }
+
+    /// Returns the merkle paths of the block's real state proof, asserting the expected
+    /// structure ([leaf, leaf, join] with both leaves pointing at the join and the join
+    /// carrying the final next index) so reordering tests can remap the indices safely.
+    private List<MerklePath> statePaths(final ResourceTestBlock block) {
+        assertThat(block.proofs()).size().isEqualTo(1);
+        final com.hedera.hapi.block.stream.StateProof stateProof =
+                block.proofs().getFirst().blockStateProof();
+        assertThat(stateProof).isNotNull();
+        final List<MerklePath> paths = stateProof.paths();
+        assertThat(paths).hasSize(3);
+        assertThat(paths.get(0).content().kind()).isNotEqualTo(MerklePath.ContentOneOfType.UNSET);
+        assertThat(paths.get(1).content().kind()).isNotEqualTo(MerklePath.ContentOneOfType.UNSET);
+        assertThat(paths.get(2).content().kind()).isEqualTo(MerklePath.ContentOneOfType.UNSET);
+        assertThat(paths.get(0).nextPathIndex()).isEqualTo(2);
+        assertThat(paths.get(1).nextPathIndex()).isEqualTo(2);
+        assertThat(paths.get(2).nextPathIndex()).isEqualTo(-1);
+        return paths;
     }
 
     private ResourceTestBlock swapPaths(final ResourceTestBlock block, final List<MerklePath> paths) {

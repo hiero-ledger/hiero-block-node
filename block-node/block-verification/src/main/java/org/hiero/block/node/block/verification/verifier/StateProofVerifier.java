@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.block.verification.verifier;
 
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNode;
 import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNodeSingleChild;
@@ -83,11 +84,14 @@ public final class StateProofVerifier implements ProofVerifier {
     /// computed block root hash, which ties the proof to the block content.
     ///
     /// The proof is rejected when the structure is malformed: fewer than three
-    /// paths, a non-leaf first path, an out-of-range next index, a leaf pointing
-    /// to another leaf, a duplicate checkpoint, unvisited paths, or leftover
-    /// checkpoints after the walk. Note that the non-leaf first path check may be
-    /// relaxed in the future: a state proof creator might order the paths
-    /// slightly differently and still produce a valid state proof.
+    /// paths, an out-of-range next index, a leaf pointing to another leaf, a
+    /// duplicate checkpoint, unvisited paths, or leftover checkpoints after the
+    /// walk. The first path is not required to be a leaf: a state proof creator
+    /// might order the paths slightly differently and still produce a valid
+    /// state proof, so a non-leaf first path is only logged. A path counts as
+    /// visited only when it is actually processed (a leaf that is walked, or a
+    /// join point that is followed), so any path the walk never reaches, such
+    /// as a join point no leaf leads to, rejects the proof.
     ///
     /// Once reconstructed, the signed block root is verified against the
     /// signature carried by the proof. A signature verifier is required for this
@@ -106,10 +110,10 @@ public final class StateProofVerifier implements ProofVerifier {
         if (allPaths.size() < 3) {
             LOGGER.log(WARNING, "Block {0} state proof has {1} paths, expected >= 3", blockNumber, allPaths.size());
             result = SessionFailureType.BAD_BLOCK_PROOF;
-        } else if (!isLeaf(allPaths.getFirst())) {
-            LOGGER.log(WARNING, "Block {0} state proof has non-leaf first path", blockNumber);
-            result = SessionFailureType.BAD_BLOCK_PROOF;
         } else {
+            if (!isLeaf(allPaths.getFirst())) {
+                LOGGER.log(INFO, "Block {0} state proof has non-leaf first path", blockNumber);
+            }
             // Iterate over all paths, processing leafs in the order they are encountered until we have reconstructed
             // the signed block root.
             final boolean[] visited = new boolean[allPaths.size()];
@@ -121,8 +125,8 @@ public final class StateProofVerifier implements ProofVerifier {
                     return SessionFailureType.CANCELLED;
                 } else {
                     final MerklePath currentPath = allPaths.get(leafStartingIndex);
-                    visited[leafStartingIndex] = true;
                     if (isLeaf(currentPath)) {
+                        visited[leafStartingIndex] = true;
                         // First process the found leaf
                         final byte[] leafResult = processLeaf(currentPath);
                         // Now we must follow the next index, which must always be a join point,
@@ -204,8 +208,8 @@ public final class StateProofVerifier implements ProofVerifier {
                 return SessionFailureType.BAD_BLOCK_PROOF;
             } else {
                 final MerklePath nextPath = allPaths.get(currentJoinPointIndex);
-                visited[currentJoinPointIndex] = true;
                 if (isJoinPoint(nextPath)) {
+                    visited[currentJoinPointIndex] = true;
                     final MergeCheckpoint checkpoint = checkpoints.remove(currentJoinPointIndex);
                     if (checkpoint != null) {
                         // now we need to merge this with the checkpoint
