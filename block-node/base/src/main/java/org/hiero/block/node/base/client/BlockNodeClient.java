@@ -111,7 +111,7 @@ public class BlockNodeClient implements AutoCloseable {
             new Options(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
 
     private final PbjGrpcClientConfig grpcConfig;
-    /** Channel for the subscribe RPC, dialing the source's `port`. Package-private for testing. */
+    /** Channel for the subscribe RPC, dialing `subscribe_port` (or `port` when unset). Package-private for testing. */
     final WebClient webClient;
     /** Dedicated channel for the server status RPC, dialing `status_port` (or `port` when unset). Package-private for testing. */
     final WebClient statusWebClient;
@@ -157,10 +157,12 @@ public class BlockNodeClient implements AutoCloseable {
                 maxProtobufMessageSizeBytes,
                 maxIncomingBufferSize);
 
-        // The subscribe RPC dials the source's main port, while the server status RPC may live
-        // on a dedicated port. Fall back to the main port when no status port is configured (statusPort == 0).
-        final int subscribePort = blockNodeConfig.port();
-        final int statusPort = blockNodeConfig.statusPort() != 0 ? blockNodeConfig.statusPort() : subscribePort;
+        // The subscribe and server status RPCs may each live on a dedicated port; both fall back to
+        // the main `port` when their dedicated port is not configured (subscribePort/statusPort == 0).
+        final int subscribePort =
+                blockNodeConfig.subscribePort() != 0 ? blockNodeConfig.subscribePort() : blockNodeConfig.port();
+        final int statusPort =
+                blockNodeConfig.statusPort() != 0 ? blockNodeConfig.statusPort() : blockNodeConfig.port();
 
         // Each service gets its own channel; only the port value falls back to `port` when unset.
         webClient = buildWebClient(

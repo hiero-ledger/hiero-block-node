@@ -54,10 +54,11 @@ import org.junit.jupiter.api.Timeout;
  * <p>A single real {@link BlockNodeApp} is booted with the subscriber and server-status plugins on
  * dedicated, distinct ports (the other services stay on the default port). Blocks 0..2 are published
  * into it, then the real {@link BlockNodeClient} used by backfill is pointed at the source with
- * {@code port} = subscriber port and {@code status_port} = server-status port. The test asserts that
- * the server-status RPC (dialed on {@code status_port}) reports the available range and that the
- * subscribe RPC (dialed on {@code port}) fetches the blocks. This guards the regression where the
- * server-status RPC was dialed on the subscribe port.
+ * {@code subscribe_port} = subscriber port and {@code status_port} = server-status port (and {@code port}
+ * left as a fallback that serves neither RPC). The test asserts that the server-status RPC (dialed on
+ * {@code status_port}) reports the available range and that the subscribe RPC (dialed on
+ * {@code subscribe_port}) fetches the blocks. This guards the regression where the server-status RPC was
+ * dialed on the subscribe port.
  */
 @Tag("api")
 @DisplayName("Backfill From Multiport Source Tests")
@@ -123,10 +124,13 @@ public class BackfillMultiportSourceTests {
 
         publishBlocks(defaultPort);
 
-        // The backfill client: subscribe dials `port`, serverStatus dials `status_port`.
+        // The backfill client: subscribe dials `subscribe_port`, serverStatus dials `status_port`.
+        // `port` is only a fallback and points at the default port (which serves neither of these
+        // two RPCs), so the test fails if either RPC falls back instead of using its dedicated port.
         final BlockNodeSourceConfig source = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
-                .port(subscriberPort)
+                .port(defaultPort)
+                .subscribePort(subscriberPort)
                 .statusPort(serverStatusPort)
                 .build();
         try (BlockNodeClient client = new BlockNodeClient(

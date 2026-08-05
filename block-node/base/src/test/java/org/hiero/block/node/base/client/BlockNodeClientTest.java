@@ -16,38 +16,52 @@ public class BlockNodeClientTest {
     private static final int MAX_INCOMING_BUFFER_SIZE = 10_485_760;
     private static final int MAX_PROTOBUF_MESSAGE_SIZE = 10_485_760;
 
-    private static BlockNodeClient clientFor(final int port, final int statusPort) {
+    private static BlockNodeClient clientFor(final int port, final int subscribePort, final int statusPort) {
         final BlockNodeSourceConfig source = BlockNodeSourceConfig.newBuilder()
                 .address("localhost")
                 .port(port)
+                .subscribePort(subscribePort)
                 .statusPort(statusPort)
                 .build();
         return new BlockNodeClient(
                 source, GLOBAL_TIMEOUT_MS, false, MAX_INCOMING_BUFFER_SIZE, MAX_PROTOBUF_MESSAGE_SIZE, null);
     }
 
-    @Test
-    @DisplayName("Status RPC dials the dedicated status port when configured")
-    void statusPortRoutesToDedicatedChannel() {
-        final BlockNodeClient client = clientFor(40980, 40982);
+    private static int subscribePortOf(final BlockNodeClient client) {
+        return client.webClient.prototype().baseUri().orElseThrow().port();
+    }
 
-        assertNotSame(client.webClient, client.statusWebClient);
-        assertEquals(40980, client.webClient.prototype().baseUri().orElseThrow().port());
-        assertEquals(
-                40982,
-                client.statusWebClient.prototype().baseUri().orElseThrow().port());
+    private static int statusPortOf(final BlockNodeClient client) {
+        return client.statusWebClient.prototype().baseUri().orElseThrow().port();
     }
 
     @Test
-    @DisplayName("Status RPC uses its own channel on the subscribe port when no status port is configured")
-    void statusPortDefaultsToSubscribePort() {
-        final BlockNodeClient client = clientFor(40840, 0);
+    @DisplayName("Subscribe and status RPCs dial their dedicated ports when configured")
+    void dedicatedPortsRouteToTheirOwnChannels() {
+        final BlockNodeClient client = clientFor(40840, 40980, 40982);
 
         assertNotSame(client.webClient, client.statusWebClient);
-        assertEquals(40840, client.webClient.prototype().baseUri().orElseThrow().port());
-        assertEquals(
-                40840,
-                client.statusWebClient.prototype().baseUri().orElseThrow().port());
+        assertEquals(40980, subscribePortOf(client));
+        assertEquals(40982, statusPortOf(client));
+    }
+
+    @Test
+    @DisplayName("Subscribe and status RPCs fall back to `port` on their own channels when unset")
+    void portsFallBackToPortWhenUnset() {
+        final BlockNodeClient client = clientFor(40840, 0, 0);
+
+        assertNotSame(client.webClient, client.statusWebClient);
+        assertEquals(40840, subscribePortOf(client));
+        assertEquals(40840, statusPortOf(client));
+    }
+
+    @Test
+    @DisplayName("Status falls back to `port` independently of a configured subscribe port")
+    void statusFallsBackToPortNotSubscribePort() {
+        final BlockNodeClient client = clientFor(40840, 40980, 0);
+
+        assertEquals(40980, subscribePortOf(client));
+        assertEquals(40840, statusPortOf(client));
     }
 
     GrpcWebClientTuning tuning = GrpcWebClientTuning.newBuilder()

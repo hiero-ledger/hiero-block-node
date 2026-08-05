@@ -12,9 +12,9 @@ blockNode:
         # different namespace <serviceName>.<namespace>.svc.cluster.local
         - address: "source-block-node-helm-chart.source.svc.cluster.local"
           port: 40840
-          # Optional dedicated port for the source's server-status service. When the source
-          # exposes services on split ports (e.g. subscriber 40980 / serverStatus 40982), set
-          # `port` to the subscriber port and `statusPort` to the server-status port. Omit it
-          # (or set 0) to reuse `port` for server status.
+          # Optional dedicated ports for the source's subscribe and server-status services. When
+          # the source exposes services on split ports (e.g. subscriber 40980 / serverStatus 40982),
+          # set `subscribePort` and `statusPort` accordingly. Omit either (or set 0) to reuse `port`.
+          subscribePort: 40840
           statusPort: 40840
           priority: 1
