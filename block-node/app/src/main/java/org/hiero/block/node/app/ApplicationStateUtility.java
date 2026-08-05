@@ -113,11 +113,11 @@ final class ApplicationStateUtility {
     /// @return the parsed NetworkData, or [NetworkData#DEFAULT] if
     ///     absent or unreadable
     static NetworkData loadNetworkData(final Path path) {
-        if (path == null || !Files.exists(path)) {
-            LOGGER.log(DEBUG, "Network data file not present, using empty set: {0}", path);
-            return NetworkData.DEFAULT;
-        }
         try {
+            if (path == null || !Files.isRegularFile(path)) {
+                LOGGER.log(DEBUG, "Network data file not present or unreadable, using empty set: {0}", path);
+                return NetworkData.DEFAULT;
+            }
             final NetworkData data = standardParse(
                     NetworkData.JSON, Bytes.wrap(Files.readAllBytes(path)), MAX_APP_STATE_MESSAGE_SIZE_BYTES);
             return data;
@@ -127,49 +127,63 @@ final class ApplicationStateUtility {
         }
     }
 
-    /// Validates that the NodeAddressBook has at least one entry with a non-blank RSA\_PubKey.
+    /// Validates that the NodeAddressBook has at least one entry with a
+    /// non-blank `rsa_pubkey` that can be encoded and procesed.
     ///
     /// @param book the address book to validate
     /// @param source human-readable source name for error messages
-    /// @throws IllegalStateException if the book is empty or has no usable entries
-    static void validateAddressBook(final NodeAddressBook book, final String source) {
-        if (book.nodeAddress().isEmpty()) {
-            throw new IllegalStateException(
-                    "RSA address book from %s contains no entries — cannot verify WRB proofs".formatted(source));
-        }
-        final long declared = book.nodeAddress().stream()
-                .filter(a -> !a.rsaPubKey().isBlank())
-                .count();
-        final String noValidKeyMessage =
-                "RSA address book from %s has %s entries but none have a valid RSA_PubKey".formatted(source, declared);
-        if (declared == 0) {
-            throw new IllegalStateException(noValidKeyMessage);
-        }
-        long usable = 0;
-        final HexFormat hex = HexFormat.of();
-        // Obtain KeyFactory once — provider lookup is not cheap and RSA must always be available.
-        final KeyFactory kf;
+    /// @return true iff the address book is validated, false otherwise.
+    /// @throws IllegalStateException if the JVM does not have the RSA algorithm available.
+    static boolean validateAddressBook(final NodeAddressBook book, final String source) {
         try {
+            if (book == null || book.nodeAddress() == null || book.nodeAddress().isEmpty()) {
+                LOGGER.log(
+                        DEBUG,
+                        "RSA address book from %s contains no entries — cannot verify WRB proofs".formatted(source));
+                return false;
+            }
+            final long declared = book.nodeAddress().stream()
+                    .filter(a -> !(a == null
+                            || a.rsaPubKey() == null
+                            || a.rsaPubKey().isBlank()))
+                    .count();
+            final String noValidKeyMessage = "RSA address book from %s has %s entries but none have a valid RSA_PubKey"
+                    .formatted(source, declared);
+            if (declared == 0) {
+                LOGGER.log(DEBUG, noValidKeyMessage);
+                return false;
+            }
+            long usable = 0;
+            final HexFormat hex = HexFormat.of();
+            // Obtain KeyFactory once — provider lookup is not cheap and RSA must always be available.
+            final KeyFactory kf;
             kf = KeyFactory.getInstance("RSA");
+            for (final NodeAddress addr : book.nodeAddress()) {
+                if (addr == null || addr.rsaPubKey() == null || addr.rsaPubKey().isBlank()) {
+                    continue;
+                }
+                usable += checkKeyIsUseable(addr, hex, kf);
+            }
+            if (usable == 0) {
+                LOGGER.log(INFO, noValidKeyMessage);
+            }
+            return usable > 0;
         } catch (NoSuchAlgorithmException e) {
             // RSA must be available in every JVM — this is a JVM misconfiguration
             throw new IllegalStateException("RSA KeyFactory not available", e);
         }
-        for (final NodeAddress addr : book.nodeAddress()) {
-            if (addr.rsaPubKey().isBlank()) {
-                continue;
-            }
-            try {
-                final byte[] keyBytes = hex.parseHex(addr.rsaPubKey());
-                kf.generatePublic(new X509EncodedKeySpec(keyBytes));
-                usable++;
-            } catch (InvalidKeySpecException | IllegalArgumentException e) {
-                LOGGER.log(INFO, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e);
-            }
+    }
+
+    private static long checkKeyIsUseable(final NodeAddress address, final HexFormat hexForm, final KeyFactory kf) {
+        try {
+            final byte[] keyBytes = hexForm.parseHex(address.rsaPubKey());
+            kf.generatePublic(new X509EncodedKeySpec(keyBytes));
+            return 1;
+        } catch (InvalidKeySpecException | IllegalArgumentException e) {
+            // This is just a non-useable key, so just log DEBUG and don't count the key.
+            LOGGER.log(DEBUG, "Malformed RSA_PubKey for node {0} — skipped: {1}", address.nodeId(), e);
         }
-        if (usable == 0) {
-            throw new IllegalStateException(noValidKeyMessage);
-        }
+        return 0;
     }
 
     /// Returns a new list containing the entries of `connections` with duplicates removed,
