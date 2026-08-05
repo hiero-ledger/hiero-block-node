@@ -2,22 +2,32 @@
 #
 # Severe ("breaking-point") CN↔BN Latency — Geo-Asymmetric Gradient Test
 #
-# Three-tier per-BN latency gradient:
+# Three-tier per-BN latency gradient (full production-failure reproduction):
 #
-#   BN1  — "very far"  : CN↔BN1 800 ms ± 200 ms + 25% loss (corr 75%), BN1→BN 1000 ms (direction=to)
-#   BN2  — "mid-range" : CN↔BN2 400 ms ± 100 ms + 15% loss (corr 75%), BN2→BN  500 ms (direction=to)
-#   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest)
-#   CNs  — global      : CN↔CN 600 ms ± 150 ms, corr 75%  (bidirectional)
+#   BN1  — "very far"  : CN↔BN1 5000 ms ± 1500 ms + 75% loss (corr 75%), BN1→BN 2500 ms (direction=to)
+#   BN2  — "mid-range" : CN↔BN2 2500 ms ± 750 ms  + 40% loss (corr 50%), BN2→BN 1000 ms (direction=to)
+#   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest, reference node)
+#   CNs  — global      : CN↔CN 1000 ms ± 250 ms, corr 75%  (bidirectional)
 #
-# TCP absorbs packet loss via retransmit so gRPC streams stay alive. BN1 and BN2
-# receive every block despite the loss — they just receive them later than BN3.
+# At 5000ms one-way + 75% correlated loss on BN1: TCP retransmit backoff
+# (10s → 20s → 40s → 80s → 160s per retry cycle) means burst losses delay
+# blocks by up to ~310s. BN3 advances ~90 blocks while BN1 receives 5-10 in
+# 180s — spread of 40-80 blocks at peak chaos. This is the "clearly over the
+# threshold" failure mode that mirrors what is observed in geographic production
+# deployments where high-latency BNs permanently fall behind.
 #
-# BN→BN rules use direction=to (unidirectional) so the per-BN rules for BN1
-# and BN2 do not additively stack on the BN1↔BN2 path.
+# TCP stays alive: kernel retry limit (~34 min at 5000ms RTT) far exceeds the
+# 370s chaos window. gRPC keepalive is disabled by default on grpc-java (CN).
+# After chaos clears, the CN's buffered backlog drains at full speed; all BNs
+# converge within seconds regardless of how far behind BN1 fell.
 #
-# Intent: exercises the full three-tier asymmetric degradation profile and verifies
-# that (a) all CN↔BN streams survive across the entire gradient, and (b) all BNs
-# converge to the same block height after latency clears (spread ≤ 5 blocks).
+# BN→BN rules use direction=to (unidirectional) so per-BN rules do not stack.
+#
+# Intent: reproduces the full multi-tier production failure mode — (a) large
+# spread (≥ 3, typically 40-80) at peak chaos confirms the CN↔BN divergence
+# that is seen in production, (b) spread ≤ 5 after chaos confirms stream
+# survival and recovery. Contrast with latency-stress which only approaches
+# the threshold.
 #
 # Requires topology with ≥ 3 BNs (e.g. paired-3, 7cn-3bn-distributed).
 # The dryrun check will fail on 3cn-1bn.
@@ -44,68 +54,68 @@ events:
 
   - id: inject-cn-cn
     type: inject-latency
-    description: "Inject CN↔CN 600ms ± 150ms (corr 75%) — global consensus latency"
+    description: "Inject CN↔CN 1000ms ± 250ms (corr 75%) — global consensus latency"
     delay: 30
     args:
       name: cn-to-cn
       source: { kind: network-node }
       target: { kind: network-node }
-      latency: 600ms
-      jitter: 150ms
+      latency: 1000ms
+      jitter: 250ms
       correlation: "75"
       bidirectional: true
 
   - id: inject-cn-bn1
     type: inject-latency
-    description: "Inject CN↔BN1 800ms ± 200ms + 25% loss (corr 75%) — BN1 very-far tier"
+    description: "Inject CN↔BN1 5000ms ± 1500ms + 75% loss (corr 75%) — BN1 very-far tier (production failure mode)"
     delay: 35
     args:
       name: cn-to-bn1
       source: { kind: network-node }
       target: { kind: block-node, name: block-node-1 }
-      latency: 800ms
-      jitter: 200ms
+      latency: 5000ms
+      jitter: 1500ms
       correlation: "75"
       bidirectional: true
-      loss: "25%"
+      loss: "75%"
 
   - id: inject-cn-bn2
     type: inject-latency
-    description: "Inject CN↔BN2 400ms ± 100ms + 15% loss (corr 75%) — BN2 mid-range tier"
+    description: "Inject CN↔BN2 2500ms ± 750ms + 40% loss (corr 50%) — BN2 mid-range tier"
     delay: 40
     args:
       name: cn-to-bn2
       source: { kind: network-node }
       target: { kind: block-node, name: block-node-2 }
-      latency: 400ms
-      jitter: 100ms
-      correlation: "75"
+      latency: 2500ms
+      jitter: 750ms
+      correlation: "50"
       bidirectional: true
-      loss: "15%"
+      loss: "40%"
 
   - id: inject-bn1-bn
     type: inject-latency
-    description: "Inject BN1→BN peers 1000ms ± 250ms (direction=to) — BN1 peer latency"
+    description: "Inject BN1→BN peers 2500ms ± 750ms (direction=to) — BN1 peer latency"
     delay: 45
     args:
       name: bn1-to-bn
       source: { kind: block-node, name: block-node-1 }
       target: { kind: block-node }
-      latency: 1000ms
-      jitter: 250ms
+      latency: 2500ms
+      jitter: 750ms
       correlation: "75"
       bidirectional: false
 
   - id: inject-bn2-bn
     type: inject-latency
-    description: "Inject BN2→BN peers 500ms ± 125ms (direction=to) — BN2 peer latency"
+    description: "Inject BN2→BN peers 1000ms ± 250ms (direction=to) — BN2 peer latency"
     delay: 50
     args:
       name: bn2-to-bn
       source: { kind: block-node, name: block-node-2 }
       target: { kind: block-node }
-      latency: 500ms
-      jitter: 125ms
+      latency: 1000ms
+      jitter: 250ms
       correlation: "75"
       bidirectional: false
 
