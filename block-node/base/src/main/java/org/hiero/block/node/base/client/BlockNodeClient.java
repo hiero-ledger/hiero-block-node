@@ -119,6 +119,7 @@ public class BlockNodeClient implements AutoCloseable {
     private final int globalTimeoutMs;
     private BlockStreamSubscribeUnparsedClient blockStreamSubscribeUnparsedClient;
     private BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
+    private PbjGrpcClient subscribeGrpcClient;
     private boolean nodeReachable;
 
     /**
@@ -225,7 +226,7 @@ public class BlockNodeClient implements AutoCloseable {
 
     public void initializeClient() {
         try {
-            PbjGrpcClient subscribeGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
+            subscribeGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
             PbjGrpcClient statusGrpcClient = new PbjGrpcClient(statusWebClient, grpcConfig);
             blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(statusGrpcClient, OPTIONS);
             blockStreamSubscribeUnparsedClient =
@@ -239,8 +240,13 @@ public class BlockNodeClient implements AutoCloseable {
 
     @Override
     public void close() throws IOException {
+        // Close both channels: the status client owns the status channel; the subscribe channel is
+        // held directly since BlockStreamSubscribeUnparsedClient does not expose a close().
         if (blockNodeServiceClient != null) {
             blockNodeServiceClient.close();
+        }
+        if (subscribeGrpcClient != null) {
+            subscribeGrpcClient.close();
         }
     }
 

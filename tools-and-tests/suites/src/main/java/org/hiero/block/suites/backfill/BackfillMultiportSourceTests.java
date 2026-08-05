@@ -94,6 +94,11 @@ public class BackfillMultiportSourceTests {
                     .map(Path::toFile)
                     .forEach(File::delete);
         }
+        // Clear any per-service port properties left over from a previous (possibly crashed) run so
+        // they can't spill into this test's app before it sets its own.
+        System.clearProperty("server.status.port");
+        System.clearProperty("subscriber.port");
+
         // Provision the verifier with the roster that signs blocks built by BlockItemBuilderUtils.
         BlockItemBuilderUtils.provisionTssBootstrap();
     }
