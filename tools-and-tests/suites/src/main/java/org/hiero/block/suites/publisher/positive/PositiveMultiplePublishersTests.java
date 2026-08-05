@@ -62,7 +62,9 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         simulatorAppsRef.forEach(simulator -> {
             try {
                 simulator.stop();
-                while (simulator.isRunning()) {
+                // Bound the stop-wait: a simulator that never reports stopped must not hang teardown.
+                final long deadline = System.currentTimeMillis() + 5_000;
+                while (simulator.isRunning() && System.currentTimeMillis() < deadline) {
                     Thread.sleep(100);
                 }
             } catch (InterruptedException e) {
