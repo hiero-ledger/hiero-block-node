@@ -395,6 +395,19 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stage-tss-data-on-bn1.sh"
 
+  # stage-tss-data-on-bn1.sh already re-establishes BN1's own port-forwards as
+  # part of its restart, but restarting BN1's statefulset still collaterally
+  # kills BN2/BN3's long-lived port-forwards too — same class of issue as
+  # refresh-port-forwards-after-cn-upgrade above, just triggered by a
+  # different pod restart. Without this, assert-bn2-bn3-tss-data AND
+  # assert-cutover-sync below both fail with "connection refused" for
+  # BN2/BN3 (and mirror-2, which depends on them), not missing TSS data or
+  # sync divergence.
+  - id: refresh-port-forwards-after-bn1-restart
+    type: port-forward
+    description: "Re-forward all BN/MN ports after stage-tss-data-on-bn1.sh's BN1 restart"
+    delay: 2600
+
   - id: assert-bn1-tss-data
     type: command
     description: "Step 11.4: assert BN1's serverStatusDetail reports the staged TSS data"
