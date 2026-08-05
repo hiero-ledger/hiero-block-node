@@ -151,7 +151,7 @@ public final class VerificationDataProvider {
                             }
                             LOGGER.log(INFO, "Successfully updated TSS data");
                         } else {
-                            LOGGER.log(INFO, "Failed to CAS TSS data from application state");
+                            LOGGER.log(WARNING, "Failed to CAS TSS data from application state");
                         }
                     } else {
                         LOGGER.log(INFO, "No contributions in TSS data roster found");

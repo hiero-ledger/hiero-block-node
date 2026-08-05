@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.archive;
 
-import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
 import com.hedera.bucky.S3Client;
@@ -267,7 +267,8 @@ public class BlockUploadTask implements Callable<UploadResult> {
                     ? blockSource
                     : blocksInBuffer.firstEntry().getValue();
             blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlockNum, false, 1_000, firstBlockSource));
-            LOGGER.log(INFO, "Failed to upload part containing blocks %d to %d".formatted(firstBlockNum, blockNum), e);
+            LOGGER.log(
+                    WARNING, "Failed to upload part containing blocks %d to %d".formatted(firstBlockNum, blockNum), e);
             return null;
         }
     }
@@ -298,7 +299,7 @@ public class BlockUploadTask implements Callable<UploadResult> {
             final Map.Entry<Long, BlockSource> first = blocksInBuffer.firstEntry();
             blockMessaging.sendBlockPersisted(
                     new PersistedNotification(first.getKey(), false, 1_000, first.getValue()));
-            LOGGER.log(INFO, "Failed to upload final part for key {0}", key, e);
+            LOGGER.log(WARNING, "Failed to upload final part for key %s".formatted(key), e);
             partResult = UploadResult.FAILED;
             // Consistent with flushPartIfNeeded(): false notification signals failure; no retry here.
         }

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.archive;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
 import com.hedera.bucky.S3Client;
@@ -132,7 +134,10 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
                     }
                     throw e;
                 } catch (S3ResponseException | IOException e) {
-                    LOGGER.log(INFO, "Failed to accumulate block {0} for temp archive {1}", currentBlock, s3Key, e);
+                    LOGGER.log(
+                            WARNING,
+                            "Failed to accumulate block %s for temp archive %s".formatted(currentBlock, s3Key),
+                            e);
                     S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
                     blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlock, false, 1_000, lastSource));
                     throw e;
@@ -164,7 +169,7 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
             } catch (S3ResponseException | IOException e) {
                 S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
                 blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlock, false, 1_000, lastSource));
-                LOGGER.log(INFO, "Failed to upload final temp archive part for key {0}", s3Key, e);
+                LOGGER.log(WARNING, "Failed to upload final temp archive part for key %s".formatted(s3Key), e);
                 throw e;
             }
         }
@@ -174,7 +179,7 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
         } catch (S3ResponseException | IOException e) {
             S3UploadUtils.abortQuietly(s3, s3Key, uploadId);
             blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlock, false, 1_000, lastSource));
-            LOGGER.log(INFO, "Failed to complete temp archive multipart upload for key {0}", s3Key, e);
+            LOGGER.log(WARNING, "Failed to complete temp archive multipart upload for key %s".formatted(s3Key), e);
             throw e;
         }
         LOGGER.log(TRACE, "Completed temp archive upload for key {0}, blocks [{1}, {2}]", s3Key, firstBlock, lastBlock);
@@ -183,7 +188,7 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
         try {
             doUploadTextFile(s3, metaKey, config.storageClass().name(), String.valueOf(lastBlock));
         } catch (S3ResponseException | IOException e) {
-            LOGGER.log(INFO, "Failed to write temp archive meta {0}, tar is already committed", metaKey, e);
+            LOGGER.log(DEBUG, "Failed to write temp archive meta %s, tar is already committed".formatted(metaKey), e);
             blockMessaging.sendBlockPersisted(new PersistedNotification(lastBlock, true, 1_000, lastSource));
             applicationStateFacility.addStoredBlockRange(new LongRange(firstBlock, lastBlock));
             metricsHolder.blocksWritten().increment(lastBlock - firstBlock + 1);

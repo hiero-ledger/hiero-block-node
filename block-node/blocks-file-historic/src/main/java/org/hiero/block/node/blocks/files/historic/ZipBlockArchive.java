@@ -120,7 +120,7 @@ class ZipBlockArchive {
             final BlockPath blockPath = computeExistingBlockPath(config, blockNumber);
             return blockPath == null ? null : new ZipBlockAccessor(blockPath, linksRootPath);
         } catch (final IOException e) {
-            LOGGER.log(INFO, "Could not create zip block accessor", e);
+            LOGGER.log(WARNING, "Could not create zip block accessor", e);
             return null;
         }
     }
@@ -293,7 +293,7 @@ class ZipBlockArchive {
                     .count();
         } catch (final IOException e) {
             // TODO(2235) Report plugin unhealthy if number of zip files cannot be determined
-            LOGGER.log(INFO, "Error walking directory structure to count zip files", e);
+            LOGGER.log(WARNING, "Error walking directory structure to count zip files", e);
             return 0;
         }
     }
