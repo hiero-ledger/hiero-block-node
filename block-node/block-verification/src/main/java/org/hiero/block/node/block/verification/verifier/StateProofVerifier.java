@@ -2,6 +2,7 @@
 package org.hiero.block.node.block.verification.verifier;
 
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNode;
 import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNodeSingleChild;
@@ -136,6 +137,8 @@ public final class StateProofVerifier implements ProofVerifier {
                         if (followPathResult != null) {
                             return followPathResult;
                         }
+                    } else if (visited[leafStartingIndex]) {
+                        LOGGER.log(TRACE, "Index {0} of block {1} is already visited", leafStartingIndex, blockNumber);
                     }
                 }
             }
@@ -208,8 +211,8 @@ public final class StateProofVerifier implements ProofVerifier {
                 return SessionFailureType.BAD_BLOCK_PROOF;
             } else {
                 final MerklePath nextPath = allPaths.get(currentJoinPointIndex);
+                visited[currentJoinPointIndex] = true;
                 if (isJoinPoint(nextPath)) {
-                    visited[currentJoinPointIndex] = true;
                     final MergeCheckpoint checkpoint = checkpoints.remove(currentJoinPointIndex);
                     if (checkpoint != null) {
                         // now we need to merge this with the checkpoint
