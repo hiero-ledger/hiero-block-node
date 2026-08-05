@@ -212,19 +212,20 @@ Tier 1 and Tier 2.
 
 ### How do I configure the API ports?
 
-**Single port (default):** All APIs share port 40840. Override with the `SERVER_PORT`
-environment variable.
+**Single port (default):** All gRPC APIs share port `40840`. Override with the `SERVER_PORT`
+environment variable. The Health plugin always uses its own dedicated port (`40983`) regardless
+of deployment profile.
 
 **Per-service ports:** Set individual ports via the `blockNode.ports` Helm values section:
 
 ```yaml
 blockNode:
   ports:
-    publisher: 40840     # PRODUCER_PORT
-    subscriber: 40841    # SUBSCRIBER_PORT
-    blockAccess: 40842   # BLOCK_ACCESS_PORT
-    health: 40843        # HEALTH_PORT
-    serverStatus: 40844  # SERVER_STATUS_PORT
+    publisher: 40984     # PRODUCER_PORT
+    subscriber: 40980    # SUBSCRIBER_PORT
+    blockAccess: 40981   # BLOCK_ACCESS_PORT
+    health: 40983        # HEALTH_PORT
+    serverStatus: 40982  # SERVER_STATUS_PORT
 ```
 
 When set in Helm, do not also set these in `blockNode.config` — they are injected

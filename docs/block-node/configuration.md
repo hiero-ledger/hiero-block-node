@@ -222,9 +222,9 @@ for the JSON schema.
 
 ### Health Plugin Configuration
 
-| ENV Variable | Description                                                                                 | Default |
-|:-------------|:--------------------------------------------------------------------------------------------|--------:|
-| HEALTH_PORT  | Dedicated port for the health HTTP endpoints. When unset, the service shares `SERVER_PORT`. | (unset) |
+| ENV Variable | Description                                                                                                                              | Default |
+|:-------------|:-----------------------------------------------------------------------------------------------------------------------------------------|--------:|
+| HEALTH_PORT  | Dedicated port for the health HTTP endpoints. The Health plugin always runs on its own dedicated web server; this port is always active. |   40983 |
 
 ### Messaging Plugin Configuration
 
