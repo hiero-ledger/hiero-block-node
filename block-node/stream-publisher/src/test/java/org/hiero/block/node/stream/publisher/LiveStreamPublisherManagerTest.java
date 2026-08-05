@@ -554,8 +554,14 @@ class LiveStreamPublisherManagerTest {
                 // Persist the block in the local historical block facility, we do not need to send a notification.
                 localHistoricalBlockFacility.handleBlockItemsReceived(block.asBlockItems(), false);
                 // Construct a new LiveStreamPublisherManager with the local historical block facility.
-                final LiveStreamPublisherManager localToTest = new LiveStreamPublisherManager(
-                        generateContext(localHistoricalBlockFacility), generateManagerMetrics());
+                // Mirrors production, where BlockNodeApp merges availableBlocks into storedBlocks
+                // before a plugin ever sees the context.
+                final BlockNodeContext context = new BlockNodeContext.Builder(
+                                generateContext(localHistoricalBlockFacility))
+                        .storedBlocks(List.of(new BlockRange(block.number(), block.number())))
+                        .build();
+                final LiveStreamPublisherManager localToTest =
+                        new LiveStreamPublisherManager(context, generateManagerMetrics());
                 // After construction, the latest block number should be the one we just persisted.
                 // Call
                 final long actual = localToTest.getLatestBlockNumber();

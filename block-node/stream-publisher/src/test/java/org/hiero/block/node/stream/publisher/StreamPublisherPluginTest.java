@@ -445,6 +445,9 @@ class StreamPublisherPluginTest {
             for (final TestBlock block : blocks) {
                 historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems(), false);
             }
+            // Mirrors production, where BlockNodeApp merges availableBlocks into storedBlocks
+            // before a plugin ever sees the context.
+            storedBlocks = List.of(new BlockRange(earliestPersistedBlock, expectedLatestPersistedBlock));
             activatePlugin(10L);
             // Assert that the historical block facility has blocks 3-5
             assertThat(blockNodeContext
@@ -491,6 +494,9 @@ class StreamPublisherPluginTest {
             for (final TestBlock block : blocks) {
                 historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems(), false);
             }
+            // Mirrors production, where BlockNodeApp merges availableBlocks into storedBlocks
+            // before a plugin ever sees the context.
+            storedBlocks = List.of(new BlockRange(earliestPersistedBlock, latestPersistedBlock));
             activatePlugin(10L);
             // Assert that the historical block facility has blocks 0-5
             assertThat(blockNodeContext
@@ -531,6 +537,10 @@ class StreamPublisherPluginTest {
             final int expectedLatestPersistedBlockNumber = 10;
             final TestBlock block10 = TestBlockBuilder.generateBlockWithNumber(expectedLatestPersistedBlockNumber);
             historicalBlockFacility.handleBlockItemsReceived(block10.asBlockItems(), false);
+            // Mirrors production, where BlockNodeApp merges availableBlocks into storedBlocks
+            // before a plugin ever sees the context.
+            storedBlocks =
+                    List.of(new BlockRange(expectedLatestPersistedBlockNumber, expectedLatestPersistedBlockNumber));
             activatePlugin(10L);
             // Assert that the historical block facility has block 10
             assertThat(blockNodeContext
