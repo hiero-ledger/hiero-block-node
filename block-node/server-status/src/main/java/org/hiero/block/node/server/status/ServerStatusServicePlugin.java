@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.util.Objects.requireNonNull;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
@@ -127,15 +128,25 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                 .build();
     }
 
-    List<BlockRange> fixAvailable(List<BlockRange> availableBlocks) {
-        BlockRange lastBlockRange = availableBlocks.getLast();
-        BlockRange newLastBlockRange = BlockRange.newBuilder()
+    /**
+     * Returns a copy of {@code availableBlocks} whose last range end is aligned with the live
+     * {@code blockProvider.availableBlocks().max()}. A copy is returned because the supplied list is
+     * the shared, immutable context snapshot (see {@code ApplicationStateUtility.toBlockRange}); it
+     * must never be mutated in place.
+     *
+     * @param availableBlocks the context snapshot of available ranges (never empty)
+     * @return a new list with the last range end aligned to the live max
+     */
+    private List<BlockRange> fixAvailable(final List<BlockRange> availableBlocks) {
+        final BlockRange lastBlockRange = availableBlocks.getLast();
+        final BlockRange newLastBlockRange = BlockRange.newBuilder()
                 .rangeStart(lastBlockRange.rangeStart())
                 .rangeEnd(blockProvider.availableBlocks().max())
                 .build();
 
-        availableBlocks.set(availableBlocks.size() - 1, newLastBlockRange);
-        return availableBlocks;
+        final List<BlockRange> aligned = new ArrayList<>(availableBlocks);
+        aligned.set(aligned.size() - 1, newLastBlockRange);
+        return aligned;
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
