@@ -20,6 +20,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
@@ -452,6 +453,56 @@ class LiveStreamPublisherManagerTest {
                         .isEqualTo(BlockAction.ACCEPT);
                 assertThat(embManager.getNextUnstreamed()).isEqualTo(51L);
                 assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(-1L);
+            }
+        }
+
+        @Nested
+        @DisplayName("Startup block-number seeding Tests")
+        class StartupBlockNumberSeedingTests {
+
+            @Test
+            @DisplayName("initializeBlockNumbers seeds from storedBlocks() when higher than availableBlocks() max")
+            void seedsFromStoredBlocksWhenHigherThanAvailableBlocksMax() {
+                final SimpleInMemoryHistoricalBlockFacility localHistorical =
+                        new SimpleInMemoryHistoricalBlockFacility();
+                final SimpleBlockRangeSet localAvailable = new SimpleBlockRangeSet();
+                localAvailable.add(0L, 10L);
+                localHistorical.setTemporaryAvailableBlocks(localAvailable);
+
+                final BlockNodeContext baseContext =
+                        generateContext(localHistorical, threadPoolManager, messagingFacility);
+                localHistorical.init(baseContext, null);
+                final BlockNodeContext contextWithStoredBlocks = new BlockNodeContext.Builder(baseContext)
+                        .storedBlocks(List.of(new BlockRange(0L, 50L)))
+                        .build();
+
+                final LiveStreamPublisherManager seededManager =
+                        new LiveStreamPublisherManager(contextWithStoredBlocks, generateManagerMetrics());
+
+                assertThat(seededManager.getLatestBlockNumber()).isEqualTo(50L);
+                assertThat(seededManager.getNextUnstreamed()).isEqualTo(51L);
+            }
+
+            @Test
+            @DisplayName("initializeBlockNumbers seeds from storedBlocks() when there is no local block provider (RHF)")
+            void seedsFromStoredBlocksWhenNoBlockProvidersAvailable() {
+                // RHF has no block providers configured, so the historical facility never has any
+                // locally available blocks; availableBlocks() stays empty for the lifetime of the node.
+                final SimpleInMemoryHistoricalBlockFacility localHistorical =
+                        new SimpleInMemoryHistoricalBlockFacility();
+
+                final BlockNodeContext baseContext =
+                        generateContext(localHistorical, threadPoolManager, messagingFacility);
+                localHistorical.init(baseContext, null);
+                final BlockNodeContext contextWithStoredBlocks = new BlockNodeContext.Builder(baseContext)
+                        .storedBlocks(List.of(new BlockRange(0L, 50L)))
+                        .build();
+
+                final LiveStreamPublisherManager seededManager =
+                        new LiveStreamPublisherManager(contextWithStoredBlocks, generateManagerMetrics());
+
+                assertThat(seededManager.getLatestBlockNumber()).isEqualTo(50L);
+                assertThat(seededManager.getNextUnstreamed()).isEqualTo(51L);
             }
         }
 
