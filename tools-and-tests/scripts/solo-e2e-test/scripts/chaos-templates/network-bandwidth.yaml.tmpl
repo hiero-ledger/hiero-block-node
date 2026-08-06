@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# NetworkChaos template — bandwidth throttle injection.
+# Uses tc tbf (token bucket filter) to cap throughput between source and target pods.
+# Filled at apply time by solo-test-runner.sh via envsubst.
+#
+# Pod-label selectors:
+#   CN side → solo.hedera.com/type=network-node
+#   BN side → block-node.hiero.com/type=block-node
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: ${CHAOS_NAME}
+  namespace: chaos-mesh
+  labels:
+    solo-e2e-test/test-id: "${TEST_ID}"
+    solo-e2e-test/scenario-id: "${SCENARIO_ID}"
+    solo-e2e-test/managed-by: solo-test-runner
+spec:
+  action: bandwidth
+  mode: all
+  direction: ${DIRECTION}
+  selector:
+    namespaces:
+      - ${TARGET_NAMESPACE}
+    labelSelectors:
+      ${SOURCE_LABEL_KEY}: ${SOURCE_LABEL_VALUE}
+${SOURCE_NAME_FILTER}
+  target:
+    mode: all
+    selector:
+      namespaces:
+        - ${TARGET_NAMESPACE}
+      labelSelectors:
+        ${TARGET_LABEL_KEY}: ${TARGET_LABEL_VALUE}
+${TARGET_NAME_FILTER}
+  bandwidth:
+    rate: '${BANDWIDTH_RATE}'
+    limit: ${BANDWIDTH_LIMIT}
+    buffer: ${BANDWIDTH_BUFFER}
