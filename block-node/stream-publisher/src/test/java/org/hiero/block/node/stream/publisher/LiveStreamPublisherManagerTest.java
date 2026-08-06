@@ -504,6 +504,20 @@ class LiveStreamPublisherManagerTest {
                 assertThat(seededManager.getLatestBlockNumber()).isEqualTo(50L);
                 assertThat(seededManager.getNextUnstreamed()).isEqualTo(51L);
             }
+
+            @Test
+            @DisplayName("initializeBlockNumbers treats a null storedBlocks() as no known blocks")
+            void treatsNullStoredBlocksAsNoKnownBlocks() {
+                final BlockNodeContext contextWithNullStoredBlocks = new BlockNodeContext.Builder(generateContext())
+                        .storedBlocks(null)
+                        .build();
+
+                final LiveStreamPublisherManager seededManager =
+                        new LiveStreamPublisherManager(contextWithNullStoredBlocks, generateManagerMetrics());
+
+                assertThat(seededManager.getLatestBlockNumber()).isEqualTo(-1L);
+                assertThat(seededManager.getNextUnstreamed()).isEqualTo(0L);
+            }
         }
 
         /// Test for [LiveStreamPublisherManager#getLatestBlockNumber()].
