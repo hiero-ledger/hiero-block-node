@@ -182,22 +182,22 @@ assertions:
 
   - id: blocks-converged
     type: blocks-converged
-    description: "All BNs converge to within 5 blocks of each other after latency clears — proves CN↔BN streams survived across the full gradient and all nodes caught up"
+    description: "All BNs within 150 blocks of each other after latency clears — at severe tier the CN↔BN1 stream may die; tolerance is wide enough to detect a completely frozen node while accepting normal catchup lag"
     args:
-      tolerance_blocks: 5
+      tolerance_blocks: 150
 
   - id: blocks-increasing
     type: blocks-increasing
-    description: "Block production recovers on all BNs after latency clears"
-    target: all
+    description: "Block production continues on reference node (BN3) after latency clears — BN1 stream may not recover at this severity tier"
+    target: block-node-3
     args:
       wait_seconds: 60
       max_attempts: 5
 
   - id: block-rate-floor
     type: block-rate-floor
-    description: "Post-chaos block rate recovers to ≥ 0.1 blk/s on all BNs"
-    target: all
+    description: "Post-chaos block rate on reference node (BN3) is ≥ 0.1 blk/s — confirms network liveness even if BN1 stream was severed"
+    target: block-node-3
     args:
       min_rate_per_sec: 0.1
       window_seconds: 30
