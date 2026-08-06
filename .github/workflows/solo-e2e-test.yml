@@ -287,7 +287,7 @@ jobs:
       - name: Install zstd
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zstd
+          sudo apt-get install -y zstd gettext-base
 
       # Resolve 'latest' versions to actual GA releases
       - name: Resolve component versions
