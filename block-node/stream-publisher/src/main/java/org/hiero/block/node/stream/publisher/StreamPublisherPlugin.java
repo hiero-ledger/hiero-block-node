@@ -105,7 +105,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     private static final System.Logger LOGGER = System.getLogger(StreamPublisherPlugin.class.getName());
 
     /// The block node context, for access to core facilities.
-    private volatile BlockNodeContext context;
+    private BlockNodeContext context;
     /// The publisher block manager, which connects handlers to the messaging facility.
     private StreamPublisherManager publisherManager;
 
@@ -184,7 +184,6 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
 
     /**
      * {@inheritDoc}
-     * This method is called on a separate thread. Make sure this.context is marked as `volatile`
      */
     @Override
     public void onContextUpdate(final BlockNodeContext context) {

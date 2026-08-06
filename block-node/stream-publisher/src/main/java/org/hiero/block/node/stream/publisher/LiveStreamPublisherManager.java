@@ -751,10 +751,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // streamed, but _only_ on startup. After that there should always be
         // a delta (next unstreamed must always be strictly greater than the current
         // streaming block number).
-        final List<BlockRange> storedBlocks = serverContext.storedBlocks();
-        final long latestKnownBlock = storedBlocks.isEmpty()
-                ? UNKNOWN_BLOCK_NUMBER
-                : storedBlocks.getLast().rangeEnd();
+        final long latestKnownBlock;
+        if (serverContext != null && serverContext.storedBlocks() != null) {
+            final List<BlockRange> storedBlocks = serverContext.storedBlocks();
+            latestKnownBlock = storedBlocks.isEmpty()
+                    ? UNKNOWN_BLOCK_NUMBER
+                    : storedBlocks.getLast().rangeEnd();
+        } else {
+            latestKnownBlock = UNKNOWN_BLOCK_NUMBER;
+        }
         // Always set the last persisted block number, even if there are no
         // known blocks.
         lastPersistedBlockNumber.set(latestKnownBlock);
