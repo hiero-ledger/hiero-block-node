@@ -373,12 +373,12 @@ events:
   - id: refresh-port-forwards-after-cn-upgrade
     type: port-forward
     description: "Re-forward all BN/MN ports after cn-upgrade-tss's FREEZE_UPGRADE cycled all 3 CN pods"
-    delay: 1625
+    delay: 1120
 
   - id: detect-tss-enablement
     type: command
     description: "Step 11.2: download post-upgrade records, wrap + validate to detect the LedgerIdPublication and write tss-bootstrap-roster.json"
-    delay: 1640
+    delay: 1150
     # Generous: download_record_files_from_minio has its own internal 120s
     # wait for the CN to produce+upload post-upgrade record files, plus
     # potentially several hundred individual `mc cat` downloads (one kubectl
@@ -390,7 +390,7 @@ events:
   - id: stage-tss-data-on-bn1
     type: command
     description: "Step 11.3: stage tss-bootstrap-roster.json onto BN1 and restart it"
-    delay: 2530
+    delay: 2000
     timeout: 360
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stage-tss-data-on-bn1.sh"
@@ -406,12 +406,12 @@ events:
   - id: refresh-port-forwards-after-bn1-restart
     type: port-forward
     description: "Re-forward all BN/MN ports after stage-tss-data-on-bn1.sh's BN1 restart"
-    delay: 2600
+    delay: 2090
 
   - id: assert-bn1-tss-data
     type: command
     description: "Step 11.4: assert BN1's serverStatusDetail reports the staged TSS data"
-    delay: 2890
+    delay: 2130
     timeout: 150
     args:
       script: "POLL_TIMEOUT=120 ${SCRIPT_DIR}/wrb-distribution/assert-bn-tss-data.sh 1"
@@ -419,7 +419,7 @@ events:
   - id: assert-bn2-bn3-tss-data
     type: command
     description: "Step 11.4: assert BN2 and BN3 'eventually' report the same TSS data (via roster-bootstrap-tss peer gossip from BN1)"
-    delay: 3040
+    delay: 2170
     # Generous: BN2/BN3 only pick this up on their own roster-bootstrap-tss
     # poll cycle (ROSTER_BOOTSTRAP_TSS_QUERY_PEER_INTERVAL default 60s) after
     # BN1 already has it, so this necessarily starts after BN1's check above.
