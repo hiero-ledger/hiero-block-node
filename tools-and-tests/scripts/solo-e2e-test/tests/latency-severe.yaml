@@ -175,10 +175,10 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BNs were at least 3 blocks apart at peak chaos — confirms the three-tier latency gradient caused measurable divergence"
+    description: "BNs were at least 2 blocks apart at peak chaos — confirms the three-tier latency gradient caused measurable divergence (5000ms base → ~2.5 block lag; 75% correlated loss bursts push it higher)"
     args:
       snapshot_id: peak-chaos
-      min_spread: 3
+      min_spread: 2
 
   - id: blocks-converged
     type: blocks-converged
