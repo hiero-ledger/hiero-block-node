@@ -53,6 +53,22 @@ message BlockNodeSourceConfig {
    * IP protocol for this source connection.
    */
   org.hiero.block.api.NetworkConnection.IpProtocol protocol = 8;
+
+  /**
+   * Optional dedicated port for the server status RPC (0 = use `port`).
+   * Some deployments expose server status on a different port than the
+   * default; when set, status queries dial this port while other APIs
+   * use different ports.
+   */
+  uint32 status_port = 9;
+
+  /**
+   * Optional dedicated port for the subscribe RPC (0 = use `port`).
+   * Some deployments expose the subscribe API on a different port than the
+   * default; when set, block stream subscriptions dial this port while
+   * other APIs use different ports.
+   */
+  uint32 subscribe_port = 10;
 }
 
 /**
