@@ -585,6 +585,7 @@ function execute_inject_latency {
     correlation=$(echo "$args" | yq '.correlation // "0"')
     bidirectional=$(echo "$args" | yq '.bidirectional // true')
     loss=$(echo "$args" | yq '.loss // ""')
+    loss="${loss//%/}"  # Chaos Mesh expects plain numeric string, not "50%"
 
     [[ -z "$name" || "$name" == "null" ]] && { echo "ERROR: inject-latency requires args.name"; return 1; }
     [[ -z "$source_kind" || "$source_kind" == "null" ]] && { echo "ERROR: inject-latency requires args.source.kind"; return 1; }
@@ -642,7 +643,7 @@ function execute_inject_latency {
         direction="to"
     fi
 
-    if [[ -n "${loss}" && "${loss}" != "null" && "${loss}" != "0%" && "${loss}" != "0" ]]; then
+    if [[ -n "${loss}" && "${loss}" != "null" && "${loss}" != "0" ]]; then
         loss_block=$(printf "  loss:\n    loss: '%s'\n    correlation: '%s'" "${loss}" "${correlation}")
     else
         loss_block=""
@@ -672,7 +673,10 @@ function execute_inject_latency {
     echo "  delay: ${latency} +/- ${jitter} (correlation: ${correlation}, direction: ${direction})"
     [[ -n "${loss_block}" ]] && echo "  loss: ${loss}"
 
-    kctl apply -f "${manifest}"
+    if ! kctl apply -f "${manifest}"; then
+        echo "ERROR: Failed to apply NetworkChaos manifest '${chaos_name}'"
+        return 1
+    fi
 
     echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
 }
