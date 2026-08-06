@@ -8,19 +8,20 @@ description = "Hiero Block Node Base"
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 mainModuleInfo {
-    runtimeOnly("com.swirlds.config.impl")
-    runtimeOnly("io.helidon.logging.jul")
-    runtimeOnly("com.hedera.pbj.grpc.helidon.config")
     runtimeOnly("com.hedera.pbj.grpc.client.helidon")
     runtimeOnly("com.hedera.pbj.grpc.helidon")
+    runtimeOnly("com.hedera.pbj.grpc.helidon.config")
+    runtimeOnly("com.swirlds.config.impl")
+    runtimeOnly("io.helidon.logging.jul")
 }
 
 testModuleInfo {
+    requires("org.hiero.block.node.app.test.fixtures")
+    requires("io.helidon.builder.api")
+    requires("io.minio")
+    requires("org.assertj.core")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
-    requires("org.hiero.block.node.app.test.fixtures")
-    requires("org.assertj.core")
     requires("org.mockito")
     requires("org.testcontainers")
-    requires("io.minio")
 }
