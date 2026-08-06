@@ -228,6 +228,27 @@ workflows run concurrently after the tag push.
 > patch off `release/X.Y`); the branch you select in step 2/3 is simply whatever the tag should
 > point at.
 
+#### Cutting another GA on an already-released line
+
+This is also how you back-patch an *older* line while a newer one is active — e.g. cutting
+`0.39.2` off `release/0.39` while `main`/`release/0.40` is already on `0.40.0-rc1`. Nothing in
+`custom`'s path reads `main` or any other branch's state, so the two dispatches don't interact —
+run them in either order, or at the same time.
+
+**`rc`/`GA` cannot be reused on a branch that's already had a GA — only `custom` can.** After a
+GA, `version.txt` on the release branch is left at the exact plain released version (e.g.
+`0.39.1`, no `-SNAPSHOT` suffix — nothing bumps it forward for the next patch). `rc`/`GA`'s
+auto-increment logic treats any plain `X.Y.Z` it finds as "snapshot, no rc started yet" and would
+recompute that *same* version instead of the next patch — dispatching `rc` here computes
+`0.39.1-rc1` (not `0.39.2-rc1`), and dispatching `GA` recomputes `0.39.1` again, which fails
+outright since that tag already exists. Always use `custom` with the explicit next version string
+instead. If a patch needs its own rc step first, do that via `custom` too — type the full rc
+string by hand (e.g. `custom_version: 0.39.2-rc1`), then dispatch `custom` again with `0.39.2` for
+the actual patch release. Unlike the main rc→GA flow, this hand-rolled sequence has no
+drift protection — the second dispatch builds from the branch's live tip, not the exact rc1 tag,
+so a cherry-pick landing between the two would sneak in untested. Tracked for a proper fix in
+hiero-ledger/hiero-block-node#3389.
+
 ### Alpha (Preview Build)
 
 1. Go to **Actions → Release Automation → Run workflow**.
