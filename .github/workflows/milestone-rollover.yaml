@@ -1,0 +1,145 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Milestone Rollover
+
+# Rolls over a GA release's milestone: moves any still-open issues/PRs in it to the next
+# open milestone (creating one if it doesn't exist), closes it, and sweeps any other stale
+# open milestones the same way. Triggered manually or called by release-automation.yaml.
+# See hiero-ledger/hiero-block-node#3331 for the gap this replaces (the previous
+# step-security/close-milestone step closed the milestone unconditionally, with no check
+# for open issues/PRs).
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Milestone title to roll over and close (e.g. 0.40.0)"
+        required: true
+      dry_run:
+        description: "Preview only — log what would happen, don't move/close/create anything"
+        required: false
+        default: "true"
+  workflow_call:
+    inputs:
+      release_version:
+        description: "Milestone title to roll over and close (e.g. 0.40.0)"
+        type: string
+        required: true
+      dry_run:
+        description: "Preview only — log what would happen, don't move/close/create anything"
+        type: string
+        required: false
+        default: "false"
+
+permissions:
+  issues: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  rollover:
+    timeout-minutes: 10
+    name: Roll Over Milestone
+    runs-on: hl-bn-lin-md
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Roll over and close milestone
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        with:
+          github-token: ${{ secrets.GH_ACCESS_TOKEN }}
+          script: |
+            const dryRun = process.env.DRY_RUN === 'true';
+            const releaseVersion = process.env.RELEASE_VERSION;
+            const { owner, repo } = context.repo;
+
+            // Plain "X.Y.Z" comparison — milestones in this repo are never -rc/-alpha suffixed.
+            const semver = (t) => t.split('.').map(Number);
+            const cmp = (a, b) => semver(a).reduce((r, v, i) => r || v - semver(b)[i], 0);
+
+            const milestones = await github.paginate(github.rest.issues.listMilestones, {
+              owner, repo, state: 'all', per_page: 100,
+            });
+            const open = milestones.filter((m) => m.state === 'open');
+
+            const current = milestones.find((m) => m.title === releaseVersion);
+            if (!current) {
+              core.info(`No milestone titled "${releaseVersion}"; nothing to roll over (expected for patch/custom releases, which don't get their own milestone).`);
+              return;
+            }
+            if (current.state === 'closed') {
+              core.info(`Milestone "${releaseVersion}" is already closed; nothing to do.`);
+              return;
+            }
+
+            // Resolve the next milestone: smallest open one with a strictly greater version.
+            let next = open
+              .filter((m) => m.number !== current.number && cmp(m.title, releaseVersion) > 0)
+              .sort((a, b) => cmp(a.title, b.title))[0];
+
+            if (!next) {
+              const [major, minor] = semver(releaseVersion);
+              const dueOn = new Date(current.due_on ?? Date.now());
+              dueOn.setDate(dueOn.getDate() + 14);
+              const nextTitle = `${major}.${minor + 1}.0`;
+              if (dryRun) {
+                core.info(`[dry-run] Would create milestone "${nextTitle}", due ${dueOn.toISOString()}`);
+                next = { number: -1, title: nextTitle };
+              } else {
+                const { data: created } = await github.rest.issues.createMilestone({
+                  owner, repo, title: nextTitle, due_on: dueOn.toISOString(),
+                });
+                next = created;
+                core.info(`Created milestone "${next.title}" (#${next.number}), due ${dueOn.toISOString()}`);
+              }
+            }
+
+            // Sweep any other open milestone that's stale (version <= the one just released) -
+            // a straggler from a prior release whose rollover was missed.
+            const stale = open.filter(
+              (m) => m.number !== current.number && m.number !== next.number && cmp(m.title, releaseVersion) <= 0,
+            );
+
+            const summary = core.summary.addHeading(`Milestone Rollover${dryRun ? ' (dry run)' : ''}`);
+
+            for (const m of [current, ...stale]) {
+              const items = await github.paginate(github.rest.issues.listForRepo, {
+                owner, repo, milestone: m.number, state: 'open', per_page: 100,
+              });
+
+              for (const item of items) {
+                const kind = item.pull_request ? 'PR' : 'Issue';
+                if (dryRun) {
+                  core.info(`[dry-run] Would move ${kind} #${item.number} "${item.title}" from "${m.title}" to "${next.title}"`);
+                } else {
+                  await github.rest.issues.update({ owner, repo, issue_number: item.number, milestone: next.number });
+                }
+              }
+
+              if (dryRun) {
+                core.info(`[dry-run] Would close milestone "${m.title}" (#${m.number})`);
+              } else {
+                await github.rest.issues.updateMilestone({ owner, repo, milestone_number: m.number, state: 'closed' });
+              }
+
+              summary.addHeading(`${dryRun ? 'Would close' : 'Closed'} ${m.title}`, 3);
+              summary.addList(
+                items.length > 0
+                  ? items.map((i) => `${i.pull_request ? 'PR' : 'Issue'} #${i.number} ${i.title} → ${next.title}`)
+                  : ['No open issues/PRs.'],
+              );
+            }
+
+            summary.addRaw(
+              `\n**Target milestone:** ${next.title}${next.number === -1 ? ' (would be created)' : ` (#${next.number})`}`,
+              true,
+            );
+            await summary.write();

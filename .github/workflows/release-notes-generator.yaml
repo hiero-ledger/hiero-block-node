@@ -1,0 +1,152 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Release Notes Generator
+
+# Generates release notes for the latest tag on a branch and uploads them as
+# a workflow artifact. Triggered manually or called by release-automation.yaml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_branch:
+        description: "Branch to generate notes from (default: dispatched branch)"
+        required: false
+        default: ""
+      release_tag:
+        description: "Exact tag to generate notes for (default: auto-resolve the latest semver tag reachable from release_branch)"
+        required: false
+        default: ""
+      is_prerelease:
+        description: "true = incremental RC notes; false = full cycle GA notes"
+        required: false
+        default: "true"
+  workflow_call:
+    inputs:
+      release_branch:
+        description: "Release branch to generate notes from"
+        type: string
+        required: true
+      release_tag:
+        description: "Exact tag to generate notes for — skips branch-based auto-discovery, which can't see a tag that was never merged into release_branch (e.g. alpha/custom, which are tag-only and never push a branch commit)"
+        type: string
+        required: false
+        default: ""
+      is_prerelease:
+        description: "true = incremental RC notes; false = full cycle GA notes"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  generate-notes:
+    timeout-minutes: 10
+    name: Generate Release Notes
+    runs-on: hl-bn-lin-md
+    env:
+      # Single source of truth — bump to pick up a new git-cliff release.
+      # Verify tarball structure: tar tzf git-cliff-<V>-x86_64-unknown-linux-musl.tar.gz | head
+      GIT_CLIFF_VERSION: "2.13.1"
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_branch || github.ref_name }}
+
+      - name: Resolve Latest Tag on Branch
+        if: ${{ inputs.release_tag == '' }}
+        env:
+          IS_PRERELEASE: ${{ inputs.is_prerelease || 'true' }}
+        run: |
+          # git version:refname sort is not semver-aware (rc tags sort above stable).
+          # For GA, filter to stable-only tags so v0.39.0 wins over v0.39.0-rc3.
+          if [[ "${IS_PRERELEASE}" == "false" ]]; then
+            LATEST_TAG=$(git tag --sort=-version:refname --merged HEAD \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | grep -vE '\-(rc|alpha)' \
+              | head -1)
+          else
+            LATEST_TAG=$(git tag --sort=-version:refname --merged HEAD \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]' \
+              | head -1)
+          fi
+          [[ -z "${LATEST_TAG}" ]] && { echo "::error::No semver tags found on ${GITHUB_REF_NAME}"; exit 1; }
+          echo "LATEST_TAG=${LATEST_TAG}" >> "${GITHUB_ENV}"
+
+      - name: Use Provided Release Tag
+        if: ${{ inputs.release_tag != '' }}
+        run: |
+          # Bypasses branch-based discovery entirely — needed for alpha/custom,
+          # whose tag is never merged into any branch so --merged HEAD above
+          # would never find it (and would exit 1 with no tags found at all).
+          echo "LATEST_TAG=${{ inputs.release_tag }}" >> "${GITHUB_ENV}"
+
+      - name: Install git-cliff
+        id: install_cliff
+        continue-on-error: true
+        run: |
+          TARBALL="git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          gh release download "v${GIT_CLIFF_VERSION}" \
+            --repo orhun/git-cliff \
+            --pattern "${TARBALL}" \
+            --pattern "${TARBALL}.sha512"
+          sha512sum --check "${TARBALL}.sha512"
+          tar xzf "${TARBALL}" --strip-components=1 "git-cliff-${GIT_CLIFF_VERSION}/git-cliff"
+          sudo install -m755 git-cliff /usr/local/bin/git-cliff
+          rm "${TARBALL}" "${TARBALL}.sha512"
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+
+      - name: Generate Release Notes
+        if: steps.install_cliff.outcome == 'success'
+        continue-on-error: true
+        env:
+          IS_PRERELEASE: ${{ inputs.is_prerelease || 'true' }}
+          GITHUB_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+        run: |
+          if [[ "${IS_PRERELEASE}" == "false" ]]; then
+            # GA: full cycle changelog from previous stable tag to this one.
+            # Search all tags (not just --merged HEAD) since prior stable tags live
+            # on their own release/* branches and aren't ancestors of this HEAD.
+            PREV_STABLE_TAG=$(git tag --sort=-version:refname \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | grep -vE '\-(rc|alpha)' \
+              | sed -n '2p')
+            echo "GA range: ${PREV_STABLE_TAG}..${LATEST_TAG}"
+            # --ignore-tags collapses rc/alpha boundaries so the entire range
+            # renders as one section set instead of one set per intermediate tag.
+            # GITHUB_TOKEN (env, picked up automatically by git-cliff) authenticates
+            # the per-commit PR lookups that power @username/PR-link attribution.
+            git cliff --config cliff.toml \
+              --ignore-tags ".*-(rc|alpha).*" \
+              --output release_notes.md -- "${PREV_STABLE_TAG}..${LATEST_TAG}"
+          else
+            # RC: incremental notes since the previous pre-release tag.
+            git cliff --config cliff.toml --latest --output release_notes.md
+          fi
+          echo "=== Preview ==="
+          head -40 release_notes.md
+
+      - name: Ensure Release Notes File Exists
+        run: |
+          touch release_notes.md
+
+      - name: Upload Release Notes Artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes-${{ env.LATEST_TAG }}
+          path: release_notes.md
+          if-no-files-found: error
+          retention-days: 30

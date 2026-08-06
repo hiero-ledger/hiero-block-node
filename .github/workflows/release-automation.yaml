@@ -7,12 +7,16 @@ on:
       release_type:
         description: |
           Release type.
-          rc    → bumps current rc (0.38.0-rc1 → 0.38.0-rc2) or starts rc1 from SNAPSHOT.
-          alpha → same logic for alpha pre-releases.
-          GA    → strips the pre-release suffix (0.38.0-rc2 → 0.38.0).
-          custom → uses the custom_version field below verbatim; all other inputs are ignored.
+          rc     → bumps current rc (0.38.0-rc1 → 0.38.0-rc2) or starts rc1 from SNAPSHOT.
+                   Uses/creates a release/X.Y branch, like GA.
+          alpha  → always tags off main directly (counter derived from existing
+                   vX.Y.Z-alphaN tags, not version.txt). No release branch, no version.txt
+                   commit anywhere - only the tag is pushed.
+          GA     → strips the pre-release suffix (0.38.0-rc2 → 0.38.0).
+          custom → uses the custom_version field below verbatim. Tags off whatever branch
+                   you dispatch from (main, release/X.Y, or anything else) - no release
+                   branch, no version.txt commit anywhere - only the tag is pushed.
         required: true
-        default: "rc"
         type: choice
         options:
           - rc
@@ -36,17 +40,14 @@ jobs:
     timeout-minutes: 15
     name: Release
     runs-on: hl-bn-lin-md
-    env:
-      RELEASE_NOTES_FILENAME: release_notes
-      # Bump this to pick up a new git-cliff release; verify the new SHA via:
-      #   gh release view v<VERSION> --repo orhun/git-cliff --json assets \
-      #     | jq '.assets[].name' | grep sha256
-      GIT_CLIFF_VERSION: "2.8.0"
     outputs:
       create_pr: ${{ env.CREATE_PR }}
+      is_prerelease: ${{ env.IS_PRERELEASE }}
       next_version_snapshot: ${{ env.NEXT_VERSION_SNAPSHOT }}
       pr_title: ${{ env.PR_TITLE }}
       release_branch: ${{ env.RELEASE_BRANCH }}
+      release_tag: ${{ env.RELEASE_TAG }}
+      release_version: ${{ steps.version_parser.outputs.release }}
 
     steps:
       - name: Harden Runner
@@ -66,6 +67,24 @@ jobs:
               exit 1
             fi
             COMPUTED_VERSION="$INPUT_CUSTOM_VERSION"
+          elif [[ "$INPUT_RELEASE_TYPE" == "alpha" ]]; then
+            # Alpha always tags off main directly - no release branch, no version.txt
+            # commit. So the counter can't live in version.txt (nothing ever persists
+            # it); derive it from the highest existing vX.Y.Z-alphaN tag instead.
+            MAIN_VERSION=$(gh api "repos/${{ github.repository }}/contents/version.txt?ref=main" \
+              --jq '.content' | base64 -d | tr -d '[:space:]')
+            if [[ "$MAIN_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-SNAPSHOT)?$ ]]; then
+              BASE="${BASH_REMATCH[1]}"
+            else
+              echo "::error::Unrecognised version format '$MAIN_VERSION' in version.txt on main"
+              exit 1
+            fi
+
+            HIGHEST_ALPHA=$(gh api "repos/${{ github.repository }}/tags" --paginate --jq '.[].name' \
+              | grep -E "^v${BASE}-alpha[0-9]+$" \
+              | sed -E "s/^v${BASE}-alpha//" \
+              | sort -n | tail -1)
+            COMPUTED_VERSION="${BASE}-alpha$(( ${HIGHEST_ALPHA:-0} + 1 ))"
           else
             # Read version.txt from the dispatching branch — no checkout needed yet.
             # Using github.ref_name (not 'main') so rc2/GA runs off release/* read
@@ -76,8 +95,6 @@ jobs:
 
             if [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc([0-9]+)$ ]]; then
               BASE="${BASH_REMATCH[1]}" && RC_N="${BASH_REMATCH[2]}" && KIND="rc"
-            elif [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-alpha([0-9]+)$ ]]; then
-              BASE="${BASH_REMATCH[1]}" && ALPHA_N="${BASH_REMATCH[2]}" && KIND="alpha"
             elif [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-SNAPSHOT)?$ ]]; then
               BASE="${BASH_REMATCH[1]}" && KIND="snapshot"
             else
@@ -85,14 +102,15 @@ jobs:
               exit 1
             fi
 
-            # For a GA release, CURRENT is the last rc/alpha tagged by a previous
-            # run of this workflow (e.g. v0.38.0-rc2). GA must be built from that
-            # exact tag, not from whatever the release branch currently points
-            # to, so a stray commit landing on the branch after the last rc
-            # can't sneak into the GA release untested. If no rc/alpha ever
-            # existed for this version (KIND=snapshot), SOURCE_TAG stays unset
-            # and GA falls back to building from the release branch tip.
-            if [[ "$KIND" == "rc" || "$KIND" == "alpha" ]]; then
+            # For a GA release, CURRENT is the last rc tagged by a previous run of
+            # this workflow (e.g. v0.38.0-rc2). GA must be built from that exact
+            # tag, not from whatever the release branch currently points to, so a
+            # stray commit landing on the branch after the last rc can't sneak
+            # into the GA release untested. If no rc ever existed for this version
+            # (KIND=snapshot), SOURCE_TAG stays unset and GA falls back to
+            # building from the release branch tip. (alpha is excluded here since
+            # it never lands on a release branch - it's always tag-only off main.)
+            if [[ "$KIND" == "rc" ]]; then
               echo "SOURCE_TAG=v$CURRENT" >> "$GITHUB_ENV"
             fi
 
@@ -101,11 +119,6 @@ jobs:
                 [[ "$KIND" == "rc" ]] \
                   && COMPUTED_VERSION="${BASE}-rc$((RC_N + 1))" \
                   || COMPUTED_VERSION="${BASE}-rc1"
-                ;;
-              alpha)
-                [[ "$KIND" == "alpha" ]] \
-                  && COMPUTED_VERSION="${BASE}-alpha$((ALPHA_N + 1))" \
-                  || COMPUTED_VERSION="${BASE}-alpha1"
                 ;;
               GA)
                 COMPUTED_VERSION="$BASE"
@@ -124,10 +137,20 @@ jobs:
           version: ${{ env.COMPUTED_VERSION }}
 
       - name: Set Release Environment Variables
+        env:
+          INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type }}
         run: |
           PREMINOR_VERSION=${{ steps.version_parser.outputs.inc-preminor }}
           NEXT_VERSION_SNAPSHOT=${PREMINOR_VERSION//-0/-SNAPSHOT}
-          RELEASE_BRANCH="release/${{ steps.version_parser.outputs.major }}.${{ steps.version_parser.outputs.minor }}"
+
+          # alpha always tags off main; custom tags off whatever branch it was
+          # dispatched from — neither creates or uses a release/X.Y branch.
+          case "$INPUT_RELEASE_TYPE" in
+            alpha)  RELEASE_BRANCH="main" ;;
+            custom) RELEASE_BRANCH="${{ github.ref_name }}" ;;
+            *)      RELEASE_BRANCH="release/${{ steps.version_parser.outputs.major }}.${{ steps.version_parser.outputs.minor }}" ;;
+          esac
+
           [[ -z "${{ steps.version_parser.outputs.prerelease }}" ]] && \
             VERSION=${{ steps.version_parser.outputs.release }} || \
             VERSION="${{ steps.version_parser.outputs.release }}-${{ steps.version_parser.outputs.prerelease }}"
@@ -138,13 +161,14 @@ jobs:
           RELEASE_BRANCH=$RELEASE_BRANCH
           RELEASE_TAG=$RELEASE_TAG
           VERSION=$VERSION
+          IS_PRERELEASE=$([[ -n "${{ steps.version_parser.outputs.prerelease }}" ]] && echo "true" || echo "false")
           EOF
 
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.event.inputs.release_type == 'custom' && github.ref_name || 'main' }}
           token: ${{ secrets.GH_ACCESS_TOKEN }}
           persist-credentials: "true"
 
@@ -168,6 +192,9 @@ jobs:
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
       - name: Create and Switch to Release Branch
+        # alpha and custom never use a release/X.Y branch - they tag directly off
+        # whatever's already checked out (main for alpha, the dispatching branch for custom).
+        if: ${{ github.event.inputs.release_type != 'alpha' && github.event.inputs.release_type != 'custom' }}
         env:
           INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type }}
         run: |
@@ -191,15 +218,6 @@ jobs:
       - name: Bump Version
         run: ./gradlew versionAsSpecified -PnewVersion=${{ env.VERSION }}
 
-      - name: Close the Milestone
-        if: ${{ steps.version_parser.outputs.prerelease == '' }}
-        id: milestone
-        uses: step-security/close-milestone@d6e3b63e31f1f869bd3d0403f8cdc1a68f59ab4a # v2.2.2
-        with:
-          milestone_name: ${{ steps.version_parser.outputs.release }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
-
       - name: Commit and Tag
         if: ${{ github.event.inputs.release_type != 'GA' }}
         uses: step-security/git-auto-commit-action@749bc1cc775376092cc4227ba537137f445ca7c3 # v7.1.1
@@ -210,6 +228,13 @@ jobs:
           commit_user_name: ${{ steps.gpg_importer.outputs.name }}
           commit_user_email: ${{ steps.gpg_importer.outputs.email }}
           tagging_message: ${{ env.RELEASE_TAG }}
+          # alpha/custom: commit + tag locally only. Neither ever mutates main or the
+          # dispatching branch — only the tag itself gets pushed, in the next step.
+          skip_push: ${{ github.event.inputs.release_type == 'alpha' || github.event.inputs.release_type == 'custom' }}
+
+      - name: Push Tag Only
+        if: ${{ github.event.inputs.release_type == 'alpha' || github.event.inputs.release_type == 'custom' }}
+        run: git push origin ${{ env.RELEASE_TAG }}
 
       - name: Commit and Tag (GA)
         if: ${{ github.event.inputs.release_type == 'GA' }}
@@ -248,28 +273,99 @@ jobs:
           git merge --no-edit "${RELEASE_TAG}"
           git push origin "${RELEASE_BRANCH}"
 
-      - name: Install git-cliff
+      - name: Generate Protobuf Artifact
+        run: ./gradlew :protobuf-sources:generateBlockNodeProtoArtifact
+
+      - name: Upload Protobuf Artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: block-node-protobuf-${{ env.RELEASE_TAG }}
+          path: ./protobuf-sources/block-node-protobuf-*.tgz
+          if-no-files-found: error
+
+      - name: Generate Block-Stream-Tools Artifact
         run: |
-          TARBALL="git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl.tar.gz"
-          gh release download "v${GIT_CLIFF_VERSION}" \
-            --repo orhun/git-cliff \
-            --pattern "${TARBALL}" \
-            --pattern "${TARBALL}.sha256"
-          sha256sum --check "${TARBALL}.sha256"
-          tar xzf "${TARBALL}" \
-            --strip-components=1 \
-            "git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl/git-cliff"
-          sudo install -m755 git-cliff /usr/local/bin/git-cliff
-          rm "${TARBALL}" "${TARBALL}.sha256"
+          ./gradlew :tools:shadowJar
+          cp ./tools-and-tests/tools/build/libs/tools-${{ env.VERSION }}-all.jar \
+             ./tools-and-tests/tools/build/libs/block-stream-tools-${{ env.VERSION }}.jar
+
+      - name: Upload Block-Stream-Tools Artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: block-stream-tools-${{ env.RELEASE_TAG }}
+          path: ./tools-and-tests/tools/build/libs/block-stream-tools-${{ env.VERSION }}.jar
+          if-no-files-found: error
+
+  generate_notes:
+    name: Generate Release Notes
+    needs: release
+    uses: ./.github/workflows/release-notes-generator.yaml
+    with:
+      release_branch: ${{ needs.release.outputs.release_branch }}
+      release_tag: ${{ needs.release.outputs.release_tag }}
+      is_prerelease: ${{ needs.release.outputs.is_prerelease }}
+    secrets: inherit
+
+  milestone_rollover:
+    name: Roll Over Milestone
+    needs: release
+    if: ${{ needs.release.outputs.is_prerelease == 'false' }}
+    uses: ./.github/workflows/milestone-rollover.yaml
+    with:
+      release_version: ${{ needs.release.outputs.release_version }}
+      dry_run: "false"
+    secrets: inherit
+
+  create_release:
+    timeout-minutes: 10
+    name: Create GitHub Release
+    runs-on: hl-bn-lin-md
+    needs: [release, generate_notes]
+    continue-on-error: true
+    if: ${{ always() && needs.release.result == 'success' }}
+    env:
+      RELEASE_BRANCH: ${{ needs.release.outputs.release_branch }}
+      RELEASE_TAG: ${{ needs.release.outputs.release_tag }}
+      RELEASE_NOTES_FILENAME: release_notes
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Download Release Notes Artifact
+        id: download_notes
+        continue-on-error: true
+        run: |
+          gh run download "${{ github.run_id }}" \
+            --name "release-notes-${RELEASE_TAG}" \
+            --dir .
         env:
           GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
-      - name: Generate Release Notes
+      - name: Ensure Release Notes File Exists
+        run: touch "${RELEASE_NOTES_FILENAME}.md"
+
+      - name: Download Protobuf Artifact
+        id: download_protobuf
+        continue-on-error: true
         run: |
-          git cliff \
-            --config cliff.toml \
-            --latest \
-            --output "${RELEASE_NOTES_FILENAME}.md"
+          gh run download "${{ github.run_id }}" \
+            --name "block-node-protobuf-${RELEASE_TAG}" \
+            --dir ./protobuf-dl
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+
+      - name: Download Block-Stream-Tools Artifact
+        id: download_tools
+        continue-on-error: true
+        run: |
+          gh run download "${{ github.run_id }}" \
+            --name "block-stream-tools-${RELEASE_TAG}" \
+            --dir ./tools-dl
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
       - name: Create Github Release
         uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
@@ -280,7 +376,27 @@ jobs:
           draft: true
           generateReleaseNotes: false
           name: ${{ env.RELEASE_TAG }}
-          prerelease: ${{ steps.version_parser.outputs.prerelease != '' }}
+          prerelease: ${{ needs.release.outputs.is_prerelease == 'true' }}
+          tag: ${{ env.RELEASE_TAG }}
+          token: ${{ secrets.GH_ACCESS_TOKEN }}
+
+      - name: Attach Protobuf Artifact to Release
+        if: ${{ steps.download_protobuf.outcome == 'success' }}
+        uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
+        with:
+          allowUpdates: true
+          artifacts: ./protobuf-dl/block-node-protobuf-*.tgz
+          draft: true
+          tag: ${{ env.RELEASE_TAG }}
+          token: ${{ secrets.GH_ACCESS_TOKEN }}
+
+      - name: Attach Block-Stream-Tools Artifact to Release
+        if: ${{ steps.download_tools.outcome == 'success' }}
+        uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
+        with:
+          allowUpdates: true
+          artifacts: ./tools-dl/block-stream-tools-*.jar
+          draft: true
           tag: ${{ env.RELEASE_TAG }}
           token: ${{ secrets.GH_ACCESS_TOKEN }}
 
