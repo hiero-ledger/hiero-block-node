@@ -2,6 +2,7 @@
 package org.hiero.block.node.roster.bootstrap.tss;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -117,6 +118,31 @@ class TssDataFetcherTest {
             when(blockNodeClient.isNodeReachable()).thenReturn(true);
 
             return blockNodeClient;
+        }
+
+        @Test
+        @DisplayName("evicts cached client after a failed call so the next poll reconnects")
+        void evictsClientOnFailure() {
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+            final RosterBootstrapTssPlugin.MetricsHolder metrics = createTestMetricsHolder();
+            final TssDataFetcher fetcher = new TssDataFetcher(createSource(nodeConfig), createTestConfig(), metrics);
+
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.serverStatusDetail(any())).thenThrow(new RuntimeException("Socket closed"));
+
+            BlockNodeClient blockNodeClient = mock(BlockNodeClient.class);
+            when(blockNodeClient.getBlockNodeServiceClient()).thenReturn(serviceClient);
+            when(blockNodeClient.isNodeReachable()).thenReturn(true);
+            // Seed the cache directly (package-private field) so getNodeClient()'s real
+            // implementation finds this mock via computeIfAbsent, matching how a client
+            // that connected successfully but later failed a call would look in production.
+            fetcher.nodeClientMap.put(nodeConfig, blockNodeClient);
+
+            assertTrue(fetcher.getTssData().isEmpty());
+            assertFalse(
+                    fetcher.nodeClientMap.containsKey(nodeConfig),
+                    "a client that failed a call should be evicted, not reused on the next poll");
         }
     }
 

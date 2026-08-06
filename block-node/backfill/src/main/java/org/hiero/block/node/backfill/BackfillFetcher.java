@@ -6,11 +6,13 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -35,7 +37,7 @@ import org.hiero.metrics.LongCounter;
  * The client is initialized with a path to a block node preference file, which contains
  * a list of block nodes with their addresses, ports, and priorities.
  */
-public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthProvider {
+public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthProvider, AutoCloseable {
     private static final System.Logger LOGGER = System.getLogger(BackfillFetcher.class.getName());
 
     /** Metric for Number of retries during the backfill process. */
@@ -192,21 +194,25 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @return a BlockNodeClient for the specified node
      */
     protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
-        // Check if existing client is unreachable and remove it to allow recreation
-        BlockNodeClient existingClient = nodeClientMap.get(node);
-        if (existingClient != null && !existingClient.isNodeReachable()) {
-            nodeClientMap.remove(node);
-            LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", node.address());
-        }
-        return nodeClientMap.computeIfAbsent(
-                node,
-                n -> new BlockNodeClient(
-                        n,
-                        globalGrpcTimeoutMs,
-                        enableTls,
-                        maxIncomingBufferSize,
-                        maxProtobufMessageSizeBytes,
-                        n.grpcWebclientTuning()));
+        // Atomic check-close-construct: avoids the window a separate get()+remove()+
+        // computeIfAbsent() would leave between evicting an unreachable client and
+        // constructing its replacement.
+        return nodeClientMap.compute(node, (key, current) -> {
+            if (current != null) {
+                if (current.isNodeReachable()) {
+                    return current;
+                }
+                closeQuietly(key, current);
+                LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", key.address());
+            }
+            return new BlockNodeClient(
+                    key,
+                    globalGrpcTimeoutMs,
+                    enableTls,
+                    maxIncomingBufferSize,
+                    maxProtobufMessageSizeBytes,
+                    key.grpcWebclientTuning());
+        });
     }
 
     /**
@@ -338,7 +344,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
     private void markFailure(BlockNodeSourceConfig node) {
         // Evict cached client so a fresh one is created after backoff expires
-        nodeClientMap.remove(node);
+        removeAndClose(node);
         healthMap.compute(node, (n, h) -> {
             if (h == null) {
                 return new SourceHealth(1, System.currentTimeMillis() + initialRetryDelayMs, 0, 0);
@@ -349,6 +355,23 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             long nextAllowed = System.currentTimeMillis() + backoff;
             return new SourceHealth(failures, nextAllowed, h.successes, h.totalLatencyNanos);
         });
+    }
+
+    /** Removes and closes the cached client for {@code node}, if present. */
+    private void removeAndClose(BlockNodeSourceConfig node) {
+        BlockNodeClient removed = nodeClientMap.remove(node);
+        if (removed != null) {
+            closeQuietly(node, removed);
+        }
+    }
+
+    /** Closes {@code client}, logging (not throwing) if it fails. */
+    private void closeQuietly(BlockNodeSourceConfig node, BlockNodeClient client) {
+        try {
+            client.close();
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Unable to close BlockNodeClient [{0}]: {1}", node.address(), e);
+        }
     }
 
     private void markSuccess(BlockNodeSourceConfig node, long latencyNanos) {
@@ -375,13 +398,23 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
     /**
      * Resets the health tracking for all nodes, clearing failure counts and backoff times.
-     * Also clears cached clients so fresh connections are established on the next cycle.
+     * Also closes and clears cached clients so fresh connections are established on the next cycle.
      */
     public void resetHealth() {
         healthMap.clear();
-        nodeClientMap.clear();
+        for (BlockNodeSourceConfig node : nodeClientMap.keySet()) {
+            removeAndClose(node);
+        }
     }
 
     /** Package-private for testing. */
     record SourceHealth(int failures, long nextAllowedMillis, long successes, long totalLatencyNanos) {}
+
+    /** Closes every cached client. Safe to call multiple times. */
+    @Override
+    public void close() throws IOException {
+        for (Entry<BlockNodeSourceConfig, BlockNodeClient> entry : nodeClientMap.entrySet()) {
+            closeQuietly(entry.getKey(), entry.getValue());
+        }
+    }
 }

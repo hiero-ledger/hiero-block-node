@@ -303,6 +303,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 LOGGER.log(INFO, "Error closing liveTailScheduler: " + e.getMessage(), e);
             }
         }
+        if (autonomousFetcher != null) {
+            try {
+                autonomousFetcher.close();
+            } catch (IOException | RuntimeException e) {
+                LOGGER.log(INFO, "Error closing autonomousFetcher: " + e.getMessage(), e);
+            }
+        }
 
         // 3. Shutdown executors and wait for termination
         shutdownExecutor(historicalExecutor, "historicalExecutor");

@@ -8,6 +8,7 @@ import static java.lang.System.Logger.Level.WARNING;
 import com.hedera.hapi.node.base.NodeAddress;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
@@ -102,7 +103,7 @@ public class AddressBookFetcher implements AutoCloseable {
                         e.getMessage());
                 metrics.peerErrors().increment();
                 // Remove so a fresh client is created on the next attempt
-                nodeClientMap.remove(node);
+                removeAndClose(node);
             }
         }
         return null;
@@ -119,15 +120,28 @@ public class AddressBookFetcher implements AutoCloseable {
                 if (current.isNodeReachable()) {
                     return current;
                 }
-                try {
-                    current.close();
-                } catch (IOException e) {
-                    LOGGER.log(WARNING, "Unable to close BlockNodeClient [{0}]: {1}", key.name(), e);
-                }
+                closeQuietly(key, current);
+                LOGGER.log(DEBUG, "Client unreachable for peer [{0}], will recreate", key.address());
             }
-            LOGGER.log(DEBUG, "Client unreachable for peer [{0}], will recreate", key.address());
             return fromBlockNodeSourceConfig(key);
         });
+    }
+
+    /** Removes and closes the cached client for {@code node}, if present. */
+    private void removeAndClose(BlockNodeSourceConfig node) {
+        BlockNodeClient removed = nodeClientMap.remove(node);
+        if (removed != null) {
+            closeQuietly(node, removed);
+        }
+    }
+
+    /** Closes {@code client}, logging (not throwing) if it fails. */
+    private void closeQuietly(BlockNodeSourceConfig node, BlockNodeClient client) {
+        try {
+            client.close();
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Unable to close BlockNodeClient [{0}]: {1}", node.address(), e);
+        }
     }
 
     /// Returns `true` if the book has at least one entry with a non-blank RSA public key.
@@ -145,17 +159,9 @@ public class AddressBookFetcher implements AutoCloseable {
     }
 
     @Override
-    public void close() {
-        for (BlockNodeClient client : nodeClientMap.values()) {
-            try {
-                client.close();
-            } catch (IOException e) {
-                LOGGER.log(
-                        WARNING,
-                        "Unable to close BlockNodeClient [{0}]: {1}",
-                        client.getBlockNodeServiceClient().fullName(),
-                        e);
-            }
+    public void close() throws IOException {
+        for (Entry<BlockNodeSourceConfig, BlockNodeClient> entry : nodeClientMap.entrySet()) {
+            closeQuietly(entry.getKey(), entry.getValue());
         }
     }
 
