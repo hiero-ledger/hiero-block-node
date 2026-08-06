@@ -117,6 +117,12 @@ public class TssDataFetcher implements Closeable {
                 final String failedToRetrieveTssData = "Failed to retrieve TssData from node [{0}]: {1}";
                 LOGGER.log(WARNING, failedToRetrieveTssData, node, e.getMessage());
                 metrics.tssDataErrors().increment();
+                // Evict the cached client so a fresh connection is established on the next
+                // poll cycle instead of retrying the same dead one forever — isNodeReachable()
+                // only reflects initial connect success and is never updated by a later RPC
+                // failure, so without this eviction every subsequent poll fails identically
+                // (mirrors BackfillFetcher.markFailure()'s client eviction).
+                nodeClientMap.remove(node);
             }
         }
 
