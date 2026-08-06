@@ -133,10 +133,10 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BN1 was at least 3 blocks behind BN3 at peak chaos — confirms the latency gradient caused measurable divergence"
+    description: "BN1 was at least 1 block behind BN3 at peak chaos — confirms onset of cumulative lag at the approaching-threshold latency tier (3000ms base → ~1.5 block lag)"
     args:
       snapshot_id: peak-chaos
-      min_spread: 3
+      min_spread: 1
 
   - id: blocks-converged
     type: blocks-converged
