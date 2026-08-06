@@ -32,9 +32,9 @@ on:
           - all
         required: false
       solo-provisioner-version:
-        description: "solo-provisioner (solo-weaver) release tag to install (e.g. v0.26.0). Bump as needed."
+        description: "solo-provisioner (solo-weaver) release tag to install (e.g. v0.27.0). Bump as needed."
         required: false
-        default: "v0.26.0"
+        default: "v0.27.0"
   schedule:
     # Nightly Mon-Fri 04:00 UTC (offset from the solo-e2e scheduler at 06:00).
     - cron: "0 4 * * 1-5"
@@ -81,7 +81,7 @@ jobs:
       CHART_REGISTRY: localhost:5001
       # Pinned solo-provisioner (solo-weaver) release for reproducible runs. workflow_dispatch can override
       # via the solo-provisioner-version input; schedule/pull_request fall back to this default.
-      SOLO_PROVISIONER_VERSION: ${{ inputs.solo-provisioner-version || 'v0.26.0' }}
+      SOLO_PROVISIONER_VERSION: ${{ inputs.solo-provisioner-version || 'v0.27.0' }}
     steps:
       # ── PHASE 0: Setup ─────────────────────────────────────────────────────
       - name: Harden Runner
@@ -113,7 +113,7 @@ jobs:
         with:
           cluster_name: operator-test
           node_image: kindest/node:v1.31.4@sha256:2cb39f7295fe7eafee0842b1052a599a4fb0f8bcf3f83d96c7f4864c357c6c30
-          version: v0.26.0
+          version: v0.27.0
           kubectl_version: v1.31.4
 
       - name: Export KUBECONFIG for sudo solo-provisioner
@@ -302,7 +302,7 @@ jobs:
               # StatefulSet status fields helm actually checks (ready/updated replicas + revisions).
               kubectl get statefulset -n "${NAMESPACE}" -o jsonpath='{range .items[*]}STS {.metadata.name} ready={.status.readyReplicas}/{.status.replicas} updated={.status.updatedReplicas} curRev={.status.currentRevision} updRev={.status.updateRevision}{"\n"}{end}' 2>/dev/null || true
               kubectl get events -n "${NAMESPACE}" --sort-by=.lastTimestamp 2>/dev/null | tail -15 || true
-              # All containers incl. init (seed-plugins/init-storage-dirs) — slow boot vs crashing container.
+              # All containers incl. init (init-storage-dirs) — slow boot vs crashing container.
               kubectl logs -n "${NAMESPACE}" "${RELEASE}-block-node-server-0" --all-containers=true --prefix --tail=20 2>/dev/null || true
               sleep 15
             done ) &
@@ -319,6 +319,7 @@ jobs:
           sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node install \
             --profile=local --namespace="${NAMESPACE}" --non-interactive \
             --load-balancer-enabled=false \
+            --timeout 15m \
             --config=tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml \
             --values=/tmp/solo-ci-values-base.yaml \
             --chart-version="${{ steps.versions.outputs.BASE_VERSION }}"
@@ -401,6 +402,7 @@ jobs:
           sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node upgrade \
             --profile=local --namespace="${NAMESPACE}" --release-name="${RELEASE}" --non-interactive \
             --no-reuse-values --load-balancer-enabled=false \
+            --timeout 15m \
             --config=/tmp/solo-ci-config-snapshot.yaml \
             --values=/tmp/solo-ci-values-snap.yaml \
             --chart-version="${{ steps.versions.outputs.SNAP_VERSION }}"
