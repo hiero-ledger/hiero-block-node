@@ -12,7 +12,8 @@
 # hashgraph/solo-weaver#912, fixed in v0.27.0).
 #
 # Permissions: solo-provisioner backs PVCs with root-owned hostPath PVs and fsGroup is not honored, so
-# root init containers must chown the data dirs.
+# root init containers must chown the data dirs — including plugins-storage, which must be writable
+# before the chart's copy-core-modules init container (runs as the BN image user, hedera:2000) runs.
 image:
   repository: ghcr.io/hiero-ledger/hiero-block-node-solo-dev
   tag: "__BN_TAG__"
@@ -42,6 +43,8 @@ blockNode:
       initialDelaySeconds: 15
   # Replaces the chart's default init list (lists replace, not merge). init-storage-dirs runs as
   # root: the hostPath PVC roots are root-owned and the BN runs as non-root 'hedera' (2000).
+  # plugins-storage must also be chowned here — it runs before the chart's copy-core-modules init
+  # container (which runs as hedera:2000 and writes .core-modules.txt into the plugins volume).
   initContainers:
     - name: init-storage-dirs
       image: busybox
@@ -50,12 +53,12 @@ blockNode:
         - -c
         - |
           set -eux
-          # Chown/chmod the data/log/state PVCs to the BN (uid 2000): hostPath PVs are root-owned and
-          # fsGroup is not honored. live/archive use subPath; logs and state mount at the PVC root.
+          # Chown/chmod all PVCs to the BN (uid 2000): hostPath PVs are root-owned and fsGroup is
+          # not honored. live/archive use subPath; logs, state, and plugins mount at the PVC root.
           mkdir -p /live-pvc/live-data /archive-pvc/archive-data
-          chown -R 2000:2000 /live-pvc /archive-pvc /logs-pvc /state-pvc
-          chmod -R 777 /live-pvc /archive-pvc /logs-pvc /state-pvc
-          ls -ln /live-pvc /archive-pvc /logs-pvc /state-pvc
+          chown -R 2000:2000 /live-pvc /archive-pvc /logs-pvc /state-pvc /plugins-pvc
+          chmod -R 777 /live-pvc /archive-pvc /logs-pvc /state-pvc /plugins-pvc
+          ls -ln /live-pvc /archive-pvc /logs-pvc /state-pvc /plugins-pvc
       volumeMounts:
         - name: live-storage
           mountPath: /live-pvc
@@ -65,6 +68,8 @@ blockNode:
           mountPath: /logs-pvc
         - name: application-state-storage
           mountPath: /state-pvc
+        - name: plugins-storage
+          mountPath: /plugins-pvc
   # Only PVC sizes are overridden; volume names/mounts/claims use the chart defaults. On 0.37+ the
   # provisioner-owned state existingClaim persists across the upgrade (tss-parameters.bin + blocks intact).
   persistence:
