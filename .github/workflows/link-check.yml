@@ -21,7 +21,7 @@ jobs:
   internal-links:
     name: Internal links
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: hl-bn-lin-md
     steps:
       - name: Harden the runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -44,7 +44,7 @@ jobs:
   external-links:
     name: External links (advisory)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: hl-bn-lin-md
     continue-on-error: true
     steps:
       - name: Harden the runner
