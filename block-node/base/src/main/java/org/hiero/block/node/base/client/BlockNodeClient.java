@@ -111,10 +111,15 @@ public class BlockNodeClient implements AutoCloseable {
             new Options(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
 
     private final PbjGrpcClientConfig grpcConfig;
-    private final WebClient webClient;
+    /** Channel for the subscribe RPC, dialing `subscribe_port` (or `port` when unset). Package-private for testing. */
+    final WebClient webClient;
+    /** Dedicated channel for the server status RPC, dialing `status_port` (or `port` when unset). Package-private for testing. */
+    final WebClient statusWebClient;
+
     private final int globalTimeoutMs;
     private BlockStreamSubscribeUnparsedClient blockStreamSubscribeUnparsedClient;
     private BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
+    private PbjGrpcClient subscribeGrpcClient;
     private boolean nodeReachable;
 
     /**
@@ -153,15 +158,35 @@ public class BlockNodeClient implements AutoCloseable {
                 maxProtobufMessageSizeBytes,
                 maxIncomingBufferSize);
 
-        webClient = WebClient.builder()
-                .baseUri(protocol + blockNodeConfig.address() + ":" + blockNodeConfig.port())
+        // The subscribe and server status RPCs may each live on a dedicated port; both fall back to
+        // the main `port` when their dedicated port is not configured (subscribePort/statusPort == 0).
+        final int subscribePort =
+                blockNodeConfig.subscribePort() != 0 ? blockNodeConfig.subscribePort() : blockNodeConfig.port();
+        final int statusPort =
+                blockNodeConfig.statusPort() != 0 ? blockNodeConfig.statusPort() : blockNodeConfig.port();
+
+        // Each service gets its own channel; only the port value falls back to `port` when unset.
+        webClient = buildWebClient(
+                protocol + blockNodeConfig.address() + ":" + subscribePort, tls, tuning, pollWaitMs, connectTimeoutMs);
+        statusWebClient = buildWebClient(
+                protocol + blockNodeConfig.address() + ":" + statusPort, tls, tuning, pollWaitMs, connectTimeoutMs);
+
+        initializeClient();
+    }
+
+    private WebClient buildWebClient(
+            @NonNull String baseUri,
+            @NonNull Tls tls,
+            @Nullable GrpcWebClientTuning tuning,
+            int pollWaitMs,
+            int connectTimeoutMs) {
+        return WebClient.builder()
+                .baseUri(baseUri)
                 .tls(tls)
                 .protocolConfigs(List.of(buildHttp2Config(tuning), buildGrpcConfig(pollWaitMs, tuning)))
                 .connectTimeout(Duration.ofMillis(connectTimeoutMs))
                 .keepAlive(true)
                 .build();
-
-        initializeClient();
     }
 
     private Http2ClientProtocolConfig buildHttp2Config(@Nullable GrpcWebClientTuning tuning) {
@@ -201,9 +226,11 @@ public class BlockNodeClient implements AutoCloseable {
 
     public void initializeClient() {
         try {
-            PbjGrpcClient pbjGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
-            blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(pbjGrpcClient, OPTIONS);
-            blockStreamSubscribeUnparsedClient = new BlockStreamSubscribeUnparsedClient(pbjGrpcClient, globalTimeoutMs);
+            subscribeGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
+            PbjGrpcClient statusGrpcClient = new PbjGrpcClient(statusWebClient, grpcConfig);
+            blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(statusGrpcClient, OPTIONS);
+            blockStreamSubscribeUnparsedClient =
+                    new BlockStreamSubscribeUnparsedClient(subscribeGrpcClient, globalTimeoutMs);
             nodeReachable = true;
         } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException ex) {
             LOGGER.log(Level.WARNING, "Failed to initialize gRPC client: %s".formatted(ex.getMessage()), ex);
@@ -213,8 +240,13 @@ public class BlockNodeClient implements AutoCloseable {
 
     @Override
     public void close() throws IOException {
+        // Close both channels: the status client owns the status channel; the subscribe channel is
+        // held directly since BlockStreamSubscribeUnparsedClient does not expose a close().
         if (blockNodeServiceClient != null) {
             blockNodeServiceClient.close();
+        }
+        if (subscribeGrpcClient != null) {
+            subscribeGrpcClient.close();
         }
     }
 
