@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.backfill;
 
+import static java.lang.System.Logger.Level.WARNING;
+
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -98,6 +101,11 @@ final class BackfillTaskScheduler implements AutoCloseable {
         queue.clear();
         persistenceAwaiter.clear();
         // Note: executor lifecycle is managed by the creator (BackfillPlugin)
+        try {
+            fetcher.close();
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Error closing fetcher: " + e.getMessage(), e);
+        }
     }
 
     private void ensureWorkerRunning() {

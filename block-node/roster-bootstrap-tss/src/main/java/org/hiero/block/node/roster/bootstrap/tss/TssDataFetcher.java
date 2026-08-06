@@ -6,10 +6,10 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
@@ -24,7 +24,7 @@ import org.hiero.block.node.roster.bootstrap.tss.RosterBootstrapTssPlugin.Metric
 ///
 /// The client is initialized with a path to a block node preference file, which contains
 /// a list of block nodes with their addresses, ports, and priorities.
-public class TssDataFetcher implements Closeable {
+public class TssDataFetcher implements AutoCloseable {
     private static final System.Logger LOGGER = System.getLogger(TssDataFetcher.class.getName());
 
     /// Source of block node configurations.
@@ -74,25 +74,25 @@ public class TssDataFetcher implements Closeable {
     /// @param node the BlockNodeSourceConfig to get the client for
     /// @return a BlockNodeClient for the specified node
     protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
-        // Check if existing client is unreachable and remove it to allow recreation
-        BlockNodeClient existingClient = nodeClientMap.get(node);
-        if (existingClient != null && !existingClient.isNodeReachable()) {
-            try {
-                nodeClientMap.remove(node).close();
-            } catch (IOException e) {
-                LOGGER.log(WARNING, "Unable to close BlockNodeClient [{0}]: {1}", node.name(), e);
+        // Atomic check-close-construct: avoids the window a separate get()+remove()+
+        // computeIfAbsent() would leave between evicting an unreachable client and
+        // constructing its replacement.
+        return nodeClientMap.compute(node, (key, current) -> {
+            if (current != null) {
+                if (current.isNodeReachable()) {
+                    return current;
+                }
+                closeQuietly(key, current);
+                LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", key.address());
             }
-            LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", node.address());
-        }
-        return nodeClientMap.computeIfAbsent(
-                node,
-                n -> new BlockNodeClient(
-                        n,
-                        globalGrpcTimeoutMs,
-                        enableTls,
-                        maxIncomingBufferSize,
-                        TSS_DATA_MAX_PROTOBUF_MESSAGE_SIZE_BYTES,
-                        n.grpcWebclientTuning()));
+            return new BlockNodeClient(
+                    key,
+                    globalGrpcTimeoutMs,
+                    enableTls,
+                    maxIncomingBufferSize,
+                    TSS_DATA_MAX_PROTOBUF_MESSAGE_SIZE_BYTES,
+                    key.grpcWebclientTuning());
+        });
     }
 
     /// Perform a serverStatusDetail call per configured node and capture the TssData.
@@ -122,17 +122,34 @@ public class TssDataFetcher implements Closeable {
                 // only reflects initial connect success and is never updated by a later RPC
                 // failure, so without this eviction every subsequent poll fails identically
                 // (mirrors BackfillFetcher.markFailure()'s client eviction).
-                nodeClientMap.remove(node);
+                removeAndClose(node);
             }
         }
 
         return tssDataList;
     }
 
+    /** Removes and closes the cached client for {@code node}, if present. */
+    private void removeAndClose(BlockNodeSourceConfig node) {
+        BlockNodeClient removed = nodeClientMap.remove(node);
+        if (removed != null) {
+            closeQuietly(node, removed);
+        }
+    }
+
+    /** Closes {@code client}, logging (not throwing) if it fails. */
+    private void closeQuietly(BlockNodeSourceConfig node, BlockNodeClient client) {
+        try {
+            client.close();
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Unable to close BlockNodeClient [{0}]: {1}", node.address(), e);
+        }
+    }
+
     @Override
     public void close() throws IOException {
-        for (BlockNodeClient client : nodeClientMap.values()) {
-            client.close();
+        for (Entry<BlockNodeSourceConfig, BlockNodeClient> entry : nodeClientMap.entrySet()) {
+            closeQuietly(entry.getKey(), entry.getValue());
         }
     }
 }
