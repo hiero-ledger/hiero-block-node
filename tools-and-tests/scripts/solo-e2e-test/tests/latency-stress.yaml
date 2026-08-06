@@ -5,17 +5,17 @@
 # One of three BNs (BN1) receives moderate-to-severe CN↔BN and BN→BN latency;
 # the other two BNs run at normal latency.
 #
-#   BN1  — "approaching threshold" : CN↔BN1 3000 ms ± 750 ms + 50% loss (corr 50%), BN1→BN 1500 ms (direction=to)
+#   BN1  — "approaching threshold" : CN↔BN1 5000 ms ± 1250 ms + 50% loss (corr 50%), BN1→BN 2500 ms (direction=to)
 #   BN2  — "normal"                : no chaos
 #   BN3  — "normal"                : no chaos
 #   CNs  — global light            : CN↔CN 100 ms ± 20 ms
 #
-# At 3000ms one-way + 50% loss: base lag is 1.5 blocks (3000ms / 2000ms block
-# interval). Retransmit bursts (RTO ~6s → 12s per retry) push the spread to
-# 3-8 blocks at peak chaos — the borderline "approaching the production failure
-# threshold" zone. Contrast with latency-severe which pushes well past it.
+# At 5000ms one-way + 50% loss: base lag is 2.5 blocks (5000ms / 2000ms block
+# interval). Retransmit bursts (RTO ~10s → 20s per retry) push the spread to
+# 2-4 blocks at peak chaos — clearly above the min_spread=1 threshold while
+# staying below the severe tier. Contrast with latency-severe which pushes to 4+.
 #
-# TCP stays alive: kernel retry limit (~34 min at 3000ms RTT) far exceeds the
+# TCP stays alive: kernel retry limit (~34 min at 5000ms RTT) far exceeds the
 # test window. gRPC keepalive is disabled by default on grpc-java (CN side).
 # After chaos clears, the CN's buffered backlog drains at full speed; BN1 catches
 # up within seconds.
@@ -64,28 +64,28 @@ events:
 
   - id: inject-cn-bn1
     type: inject-latency
-    description: "Inject CN↔BN1 3000ms ± 750ms + 50% loss (corr 50%) — approaching-threshold latency"
+    description: "Inject CN↔BN1 5000ms ± 1250ms + 50% loss (corr 50%) — approaching-threshold latency"
     delay: 35
     args:
       name: cn-to-bn1
       source: { kind: network-node }
       target: { kind: block-node, name: block-node-1 }
-      latency: 3000ms
-      jitter: 750ms
+      latency: 5000ms
+      jitter: 1250ms
       correlation: "50"
       bidirectional: true
       loss: "50%"
 
   - id: inject-bn1-bn
     type: inject-latency
-    description: "Inject BN1→BN peers 1500ms ± 375ms (direction=to) — BN1 slow peer replication"
+    description: "Inject BN1→BN peers 2500ms ± 625ms (direction=to) — BN1 slow peer replication"
     delay: 40
     args:
       name: bn1-to-bn
       source: { kind: block-node, name: block-node-1 }
       target: { kind: block-node }
-      latency: 1500ms
-      jitter: 375ms
+      latency: 2500ms
+      jitter: 625ms
       correlation: "50"
       bidirectional: false
 
@@ -133,7 +133,7 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BN1 was at least 1 block behind BN3 at peak chaos — confirms onset of cumulative lag at the approaching-threshold latency tier (3000ms base → ~1.5 block lag)"
+    description: "BN1 was at least 1 block behind BN3 at peak chaos — confirms onset of cumulative lag at the approaching-threshold latency tier (5000ms base → ~2.5 block lag)"
     args:
       snapshot_id: peak-chaos
       min_spread: 1
