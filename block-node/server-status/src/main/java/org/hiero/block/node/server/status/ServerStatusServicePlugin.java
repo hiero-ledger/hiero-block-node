@@ -17,8 +17,8 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -60,8 +60,10 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
         final ApplicationStateFacility stateFacility = blockNodeContext.applicationStateFacility();
         final ServerStatusResponse.Builder serverStatusResponseBuilder = ServerStatusResponse.newBuilder();
-        final long firstAvailableBlock = blockProvider.availableBlocks().min();
-        long highestAvailableBlock = blockProvider.availableBlocks().max();
+        // Read min and max from a single reference so both come from a consistent snapshot
+        final BlockRangeSet availableBlocks = blockProvider.availableBlocks();
+        final long firstAvailableBlock = availableBlocks.min();
+        final long highestAvailableBlock = availableBlocks.max();
         long nextExpectedBlock = stateFacility.nextExpectedBlock();
         if (nextExpectedBlock < earliestManagedBlock) {
             nextExpectedBlock = UNKNOWN_BLOCK_NUMBER;
@@ -101,37 +103,50 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         requestDetailCounter.increment();
 
         // blockNodeContext is volatile, assign to local variable so reference stays consistent
-        BlockNodeContext context = blockNodeContext;
+        final BlockNodeContext context = blockNodeContext;
 
-        ServerStatusDetailResponse.Builder detailsBuilder = ServerStatusDetailResponse.newBuilder();
+        // serverStatus has the latest max available block. serverStatusDetail has an up to .5s old
+        // snapshot. This will align the lastBlock range end with what serverStatus would report without
+        // having to rebuild the entire available Blocks list.
+        List<BlockRange> fixedAvailable = !context.availableBlocks().isEmpty()
+                        && context.availableBlocks().getLast().rangeEnd()
+                                != blockProvider.availableBlocks().max()
+                ? fixAvailable(context.availableBlocks())
+                : context.availableBlocks();
 
-        // add in version information
-        detailsBuilder.versionInformation(context.blockNodeVersions());
-
-        BlockRange.Builder blockRangeBuilder = BlockRange.newBuilder();
-
-        List<BlockRange> blockRanges = new ArrayList<>();
-
-        for (LongRange longRange : context.historicalBlockProvider()
-                .availableBlocks()
-                .streamRanges()
-                .toList()) {
-            blockRanges.add(blockRangeBuilder
-                    .rangeStart(longRange.start())
-                    .rangeEnd(longRange.end())
-                    .build());
-        }
-
-        // return detailed block node status information.
-        return detailsBuilder
-                .availableRanges(blockRanges)
-                // @todo(3004) change to use context.availableBlocks() when that becomes the source of truth
-                // .availableRanges(context.availableBlocks())
+        // Return detailed block node status information. Every field is read from the
+        // periodically-refreshed context snapshot: this keeps the response internally consistent
+        // and avoids recomputing the merged available ranges on every request (the context already
+        // holds the merged List<BlockRange> maintained by the application state facility).
+        return ServerStatusDetailResponse.newBuilder()
+                .versionInformation(context.blockNodeVersions())
+                .availableRanges(fixedAvailable)
                 .storedRanges(context.storedBlocks())
                 .tssData(context.tssData())
                 .nodeAddressBook(context.nodeAddressBook())
                 .rangedAddressBookHistory(context.rangedAddressBookHistory())
                 .build();
+    }
+
+    /**
+     * Returns a copy of {@code availableBlocks} whose last range end is aligned with the live
+     * {@code blockProvider.availableBlocks().max()}. A copy is returned because the supplied list is
+     * the shared, immutable context snapshot (see {@code ApplicationStateUtility.toBlockRange}); it
+     * must never be mutated in place.
+     *
+     * @param availableBlocks the context snapshot of available ranges (never empty)
+     * @return a new list with the last range end aligned to the live max
+     */
+    private List<BlockRange> fixAvailable(final List<BlockRange> availableBlocks) {
+        final BlockRange lastBlockRange = availableBlocks.getLast();
+        final BlockRange newLastBlockRange = BlockRange.newBuilder()
+                .rangeStart(lastBlockRange.rangeStart())
+                .rangeEnd(blockProvider.availableBlocks().max())
+                .build();
+
+        final List<BlockRange> aligned = new ArrayList<>(availableBlocks);
+        aligned.set(aligned.size() - 1, newLastBlockRange);
+        return aligned;
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================

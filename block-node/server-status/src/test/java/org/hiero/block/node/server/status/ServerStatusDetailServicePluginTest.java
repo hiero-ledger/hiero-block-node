@@ -198,6 +198,50 @@ public class ServerStatusDetailServicePluginTest
         assertFalse(response.hasNodeAddressBook());
     }
 
+    /**
+     * Tests that when the context snapshot is slightly stale, the last available range end is
+     * aligned with the live max reported by the historical block provider, without mutating the
+     * shared context snapshot list.
+     *
+     * @throws ParseException if there is an error parsing the response
+     */
+    @Test
+    @DisplayName("Should align last available range end with live max when the snapshot has drifted")
+    void shouldAlignLastAvailableRangeEndWhenSnapshotDrifted() throws ParseException {
+        // The historical block provider's live max is 1_000_000_000_005L. Provide a context snapshot
+        // whose last range end lags behind that value to trigger the drift-alignment path. The list is
+        // immutable (List.of) to prove fixAvailable does not mutate the shared snapshot in place.
+        final List<BlockRange> staleAvailableBlocks =
+                List.of(new BlockRange(0L, 5L), new BlockRange(1_000_000_000_000L, 1_000_000_000_000L));
+        replaceAvailableBlocks(staleAvailableBlocks);
+
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
+                ServerStatusRequest.newBuilder().build()));
+        assertEquals(1, fromPluginBytes.size());
+
+        final ServerStatusDetailResponse response =
+                standardParse(ServerStatusDetailResponse.PROTOBUF, fromPluginBytes.getFirst());
+
+        final List<BlockRange> availableRanges = response.availableRanges();
+        assertEquals(2, availableRanges.size());
+        // Earlier ranges are untouched
+        assertEquals(0L, availableRanges.getFirst().rangeStart());
+        assertEquals(5L, availableRanges.getFirst().rangeEnd());
+        // Last range start preserved, end aligned to the live max
+        final BlockRange lastRange = availableRanges.getLast();
+        assertEquals(1_000_000_000_000L, lastRange.rangeStart());
+        assertEquals(1_000_000_000_005L, lastRange.rangeEnd());
+
+        // The shared context snapshot must not have been mutated in place
+        assertEquals(1_000_000_000_000L, staleAvailableBlocks.getLast().rangeEnd());
+    }
+
+    @Test
+    @DisplayName("Should expose the plugin name")
+    void shouldExposePluginName() {
+        assertEquals("ServerStatusServicePlugin", plugin.name());
+    }
+
     @Test
     @DisplayName("Should include NodeAddressBook in response when context carries one")
     void shouldReturnNodeAddressBookWhenLoaded() throws ParseException {
