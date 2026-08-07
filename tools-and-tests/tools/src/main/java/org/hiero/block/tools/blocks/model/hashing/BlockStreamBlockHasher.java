@@ -190,13 +190,6 @@ public class BlockStreamBlockHasher {
                 : blockFooter.startOfBlockStateRootHash().toByteArray();
         // build streaming merkle trees of items in the block
         final ItemHashers hashers = classifyBlockItems(digest, block);
-        // Pre-defined side (leaf positions 0-7): feed only up to the rightmost non-empty leaf
-        // into a StreamingHasher (same fold-up algorithm used within each subtree hasher).
-        // Trailing empty subtrees are not fed at all and drop out of the tree; interior empties
-        // contribute EMPTY_TREE_HASH so the left-to-right invariant holds. After the fold-up,
-        // wrap in single-child parents until height 3 so the pre-defined side always joins the
-        // extension side at the same depth. Tools has no extension routing yet, so the extension
-        // slot at depth 2 is single-child. See issue #3377.
         final byte[] ctHash =
                 hashLeaf(digest, Timestamp.PROTOBUF.toBytes(consensusTimestamp).toByteArray());
         final byte[] oitHash = hashers.outputItems.computeRootHash();
@@ -210,9 +203,31 @@ public class BlockStreamBlockHasher {
             hashers.stateChangeItems.computeRootHash(),
             hashers.traceItems.computeRootHash()
         };
-        // Positions 0-1 (previousBlockHash, rootHashOfAllBlockHashesTree) are always populated
-        // so 1 is the floor for the rightmost scan. Position 2 (state root) can be absent for
-        // WRB blocks and is included in the scan.
+        final byte[] depth3Node1 = computeSubtreesInternalRoot(digest, preDefinedLeaves);
+        // Depth 2: pre-defined side (depth3Node1) with reserved extension slot (single-child).
+        final byte[] fixedRootTree = hashInternalNode(digest, depth3Node1, null);
+        final byte[] rootHash = hashInternalNode(digest, ctHash, fixedRootTree);
+        return new BlockHashResult(rootHash, ctHash, oitHash);
+    }
+
+    /**
+     * Computes the height-3 internal root of the pre-defined side (leaf positions 0-7) using
+     * the rightmost-scan algorithm from issue #3377. Feeds only up to the rightmost non-empty
+     * leaf into a {@link StreamingHasher} (same fold-up algorithm used within each subtree
+     * hasher). Trailing empty subtrees are not fed at all and drop out of the tree; interior
+     * empties contribute {@code EMPTY_TREE_HASH} so the left-to-right invariant holds.
+     * Wraps the fold-up result in single-child parents until height 3 so the pre-defined side
+     * always joins the extension slot at the same depth.
+     *
+     * <p>Positions 0-1 (previousBlockHash, rootHashOfAllBlockHashesTree) are always populated
+     * so 1 is the floor for the rightmost scan. Position 2 (state root) can be absent for WRB
+     * blocks and is included in the scan.
+     *
+     * @param digest the SHA-384 digest instance to reuse
+     * @param preDefinedLeaves the eight pre-defined leaves at positions 0-7, in order
+     * @return the 48-byte SHA-384 root hash of the pre-defined subtree, at height 3
+     */
+    static byte[] computeSubtreesInternalRoot(final MessageDigest digest, final byte[][] preDefinedLeaves) {
         int rightmostIncluded = 1;
         for (int i = 2; i < preDefinedLeaves.length; i++) {
             if (!Arrays.equals(preDefinedLeaves[i], EMPTY_TREE_HASH)) {
@@ -223,16 +238,13 @@ public class BlockStreamBlockHasher {
         for (int i = 0; i <= rightmostIncluded; i++) {
             preDefinedHasher.addNodeByHash(preDefinedLeaves[i]);
         }
-        byte[] depth3Node1 = preDefinedHasher.computeRootHash();
+        byte[] internalRoot = preDefinedHasher.computeRootHash();
         // Canonicalize to height 3: 2 leaves -> h1 (need +2), 3-4 -> h2 (need +1), 5-8 -> h3.
         final int preDefinedHeight = rightmostIncluded < 2 ? 1 : rightmostIncluded < 4 ? 2 : 3;
         for (int h = preDefinedHeight; h < 3; h++) {
-            depth3Node1 = hashInternalNode(digest, depth3Node1, null);
+            internalRoot = hashInternalNode(digest, internalRoot, null);
         }
-        // Depth 2: pre-defined side (depth3Node1) with reserved extension slot (single-child).
-        final byte[] fixedRootTree = hashInternalNode(digest, depth3Node1, null);
-        final byte[] rootHash = hashInternalNode(digest, ctHash, fixedRootTree);
-        return new BlockHashResult(rootHash, ctHash, oitHash);
+        return internalRoot;
     }
 
     /**
