@@ -36,6 +36,12 @@ OUTPUT_MODE="console"
 VALIDATE_ONLY=false
 DEPLOYMENT="${DEPLOYMENT:-deployment-solo}"
 
+# Exported (not just shell-local) so "command"-type events -- which exec a
+# separate script process via `eval "$script"` -- inherit these regardless of
+# whether the outer caller (Taskfile / CI workflow) happened to export them.
+# Reassignment during CLI arg parsing below keeps the export flag.
+export NAMESPACE CONTEXT DEPLOYMENT PROTO_PATH
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
