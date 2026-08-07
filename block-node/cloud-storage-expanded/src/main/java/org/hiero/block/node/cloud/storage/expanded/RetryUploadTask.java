@@ -16,8 +16,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 /// {@link RetryBuffer}. Unlike {@link SingleBlockStoreTask}, no compression step is
 /// needed — the bytes were compressed once when the block was originally buffered.
 ///
-/// `stagedForRetry` is always `false` on the returned {@link UploadResult}: the retry pipeline in
-/// `ExpandedCloudStoragePlugin` handles buffer bookkeeping itself via
+/// `stagedForRetry` and `evictedEntry` are always `false`/`null` on the returned {@link UploadResult}:
+/// the retry pipeline in `ExpandedCloudStoragePlugin` handles buffer bookkeeping itself via
 /// {@link RetryBuffer#unstage} / {@link RetryBuffer#recordFailure} rather
 /// than re-buffering an already-buffered block on repeated failure.
 class RetryUploadTask implements Callable<UploadResult> {
@@ -70,15 +70,28 @@ class RetryUploadTask implements Callable<UploadResult> {
                     compressedBytes.length,
                     blockSource,
                     System.nanoTime() - uploadStartNs,
-                    false);
+                    false,
+                    null);
         } catch (final UploadException e) {
             LOGGER.log(DEBUG, "Block {0}: S3 retry upload failed", blockNumber, e);
             return new UploadResult(
-                    blockNumber, UploadStatus.S3_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs, false);
+                    blockNumber,
+                    UploadStatus.S3_ERROR,
+                    0L,
+                    blockSource,
+                    System.nanoTime() - uploadStartNs,
+                    false,
+                    null);
         } catch (final IOException e) {
             LOGGER.log(DEBUG, "Block {0}: I/O error during retry upload", blockNumber, e);
             return new UploadResult(
-                    blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs, false);
+                    blockNumber,
+                    UploadStatus.IO_ERROR,
+                    0L,
+                    blockSource,
+                    System.nanoTime() - uploadStartNs,
+                    false,
+                    null);
         } catch (final RuntimeException e) {
             LOGGER.log(WARNING, "Block {0}: unexpected error during retry upload", blockNumber, e);
             return new UploadResult(
@@ -87,7 +100,8 @@ class RetryUploadTask implements Callable<UploadResult> {
                     0L,
                     blockSource,
                     System.nanoTime() - uploadStartNs,
-                    false);
+                    false,
+                    null);
         }
     }
 }

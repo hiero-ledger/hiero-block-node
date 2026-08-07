@@ -6,12 +6,14 @@ import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.concurrent.Callable;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.node.cloud.storage.expanded.RetryBuffer.BufferedEntry;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
 /// Callable task that compresses a single verified block and uploads it to S3 as a
@@ -63,15 +65,19 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     /// @param bytesUploaded   compressed bytes transferred; 0 on any failure
     /// @param blockSource     origin of the block (forwarded to {@code PersistedNotification})
     /// @param uploadDurationNs wall-clock time of the upload call in nanoseconds
-    /// @param stagedForRetry  `true` if a failed upload's compressed bytes were staged to disk for a
+    /// @param stagedForRetry  `true` if a failed upload's compressed bytes were staged in memory for a
     ///                        later background retry; always `false` on success
+    /// @param evictedEntry    a block displaced from the retry buffer to make room for this one, or
+    ///                        `null` if none was evicted; the caller must report a terminal failure
+    ///                        for it since it will never be retried. Always `null` on success.
     public record UploadResult(
             long blockNumber,
             UploadStatus status,
             long bytesUploaded,
             BlockSource blockSource,
             long uploadDurationNs,
-            boolean stagedForRetry) {
+            boolean stagedForRetry,
+            @Nullable BufferedEntry evictedEntry) {
 
         /// Returns `true` if the upload completed successfully.
         public boolean succeeded() {
@@ -142,7 +148,8 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
                         0L,
                         blockSource,
                         System.nanoTime() - uploadStartNs,
-                        false);
+                        false,
+                        null);
             }
 
             s3Client.uploadFile(objectKey, storageClass, new PayloadIterator(compressed), CONTENT_TYPE);
@@ -153,42 +160,57 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
                     compressed.length,
                     blockSource,
                     System.nanoTime() - uploadStartNs,
-                    false);
+                    false,
+                    null);
 
         } catch (final UploadException e) {
             final String msg = "Block " + blockNumber + ": S3 upload failed";
             LOGGER.log(WARNING, msg, e);
-            final boolean staged = stageForRetry(compressed);
+            final RetryBuffer.StageOutcome outcome = stageForRetry(compressed);
             return new UploadResult(
-                    blockNumber, UploadStatus.S3_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs, staged);
+                    blockNumber,
+                    UploadStatus.S3_ERROR,
+                    0L,
+                    blockSource,
+                    System.nanoTime() - uploadStartNs,
+                    outcome.staged(),
+                    outcome.evicted());
         } catch (final IOException e) {
             final String msg = "Block " + blockNumber + ": I/O error during upload";
             LOGGER.log(WARNING, msg, e);
-            final boolean staged = stageForRetry(compressed);
+            final RetryBuffer.StageOutcome outcome = stageForRetry(compressed);
             return new UploadResult(
-                    blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs, staged);
+                    blockNumber,
+                    UploadStatus.IO_ERROR,
+                    0L,
+                    blockSource,
+                    System.nanoTime() - uploadStartNs,
+                    outcome.staged(),
+                    outcome.evicted());
         } catch (final RuntimeException e) {
             // Defensive: guards against any S3UploadClient implementation leaking an unchecked exception,
             // keeping this class's own "never throws, always returns a result" promise unconditionally true.
             final String msg = "Block " + blockNumber + ": unexpected exception during upload";
             LOGGER.log(WARNING, msg, e);
-            final boolean staged = stageForRetry(compressed);
+            final RetryBuffer.StageOutcome outcome = stageForRetry(compressed);
             return new UploadResult(
                     blockNumber,
                     UploadStatus.UNEXPECTED_ERROR,
                     0L,
                     blockSource,
                     System.nanoTime() - uploadStartNs,
-                    staged);
+                    outcome.staged(),
+                    outcome.evicted());
         }
     }
 
     /// Buffers the compressed bytes for background retry if compression completed before the upload
-    /// failed. Returns `false` without buffering when `compressed` is `null` or empty (the `IOException`
-    /// came from compression itself, not the upload) or when {@link RetryBuffer#stage} rejects the bytes.
-    private boolean stageForRetry(final byte[] compressed) {
-        return compressed != null
-                && compressed.length > 0
-                && retryBuffer.stage(blockNumber, compressed, objectKey, storageClass, blockSource);
+    /// failed. Returns a `staged=false`, `evicted=null` outcome without buffering when `compressed`
+    /// is `null` or empty (the `IOException` came from compression itself, not the upload).
+    @NonNull
+    private RetryBuffer.StageOutcome stageForRetry(@Nullable final byte[] compressed) {
+        return compressed == null || compressed.length == 0
+                ? new RetryBuffer.StageOutcome(false, null)
+                : retryBuffer.stage(blockNumber, compressed, objectKey, storageClass, blockSource);
     }
 }

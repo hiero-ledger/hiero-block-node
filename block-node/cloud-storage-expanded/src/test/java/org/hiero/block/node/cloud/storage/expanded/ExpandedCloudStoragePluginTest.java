@@ -1194,6 +1194,7 @@ class ExpandedCloudStoragePluginTest
         final long deadline = System.currentTimeMillis() + 5_000L;
         while (System.currentTimeMillis() < deadline
                 && getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS) > 0) {
+            plugin.drainCompletedTasks();
             Thread.sleep(10);
         }
 
@@ -1247,6 +1248,7 @@ class ExpandedCloudStoragePluginTest
         final long deadline = System.currentTimeMillis() + 5_000L;
         while (System.currentTimeMillis() < deadline
                 && getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS) > 0) {
+            plugin.drainCompletedTasks();
             Thread.sleep(10);
         }
 

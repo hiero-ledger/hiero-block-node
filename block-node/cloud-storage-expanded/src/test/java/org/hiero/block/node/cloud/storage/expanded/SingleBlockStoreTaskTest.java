@@ -256,7 +256,7 @@ class SingleBlockStoreTaskTest {
     void succeededConvenienceMethodMatchesSuccessStatus() {
         for (final SingleBlockStoreTask.UploadStatus status : SingleBlockStoreTask.UploadStatus.values()) {
             final SingleBlockStoreTask.UploadResult result =
-                    new SingleBlockStoreTask.UploadResult(0L, status, 0L, BlockSource.UNKNOWN, 0L, false);
+                    new SingleBlockStoreTask.UploadResult(0L, status, 0L, BlockSource.UNKNOWN, 0L, false, null);
             if (status == SingleBlockStoreTask.UploadStatus.SUCCESS) {
                 assertTrue(result.succeeded(), "succeeded() must be true for SUCCESS");
             } else {
@@ -283,7 +283,7 @@ class SingleBlockStoreTaskTest {
         assertTrue(result.stagedForRetry(), "bytes must be buffered for a later retry");
 
         final RetryBuffer.BufferedEntry entry =
-                retryBuffer.dueForRetry(Instant.now()).getFirst();
+                retryBuffer.dueForRetry(System.currentTimeMillis()).getFirst();
         final byte[] decompressed = CompressionType.ZSTD.decompress(entry.compressedBytes());
         final BlockUnparsed parsed = standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(decompressed));
         assertEquals(
