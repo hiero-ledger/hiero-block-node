@@ -425,10 +425,10 @@ public final class HashingUtilities {
             preDefinedHasher.addLeaf(ByteBuffer.wrap(preDefinedLeaves[i]));
         }
         byte[] depth3Node1 = preDefinedHasher.rootHash().join().toByteArray();
-        // Canonicalize to height 3 via single-child parents so the pre-defined side always joins
-        // the extension side at the same depth regardless of how many leaves were populated.
+        // Canonicalize to height 3 via single-child parents so the subtrees internal root always joins
+        // the timestamp leaf at the same depth regardless of how many leaves were populated.
         // Streaming-hasher output heights by leaf count: 3-4 leaves -> height 2, 5-8 -> height 3.
-        // Positions 0-2 always populated so we always have >= 3 leaves.
+        // Positions 0-1 always populated so we always have >= 2 leaves.
         final int preDefinedHeight = rightmostIncluded < 2 ? 1 : rightmostIncluded < 4 ? 2 : 3;
         for (int h = preDefinedHeight; h < 3; h++) {
             depth3Node1 = hashInternalNodeSingleChild(depth3Node1);
