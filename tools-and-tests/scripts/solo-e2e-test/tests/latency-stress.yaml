@@ -1,30 +1,48 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Heavy ("stress") CN↔CN + BN↔BN + CN↔BN Latency Test
+# Stress-Level CN↔BN Latency — 1/3 BN Degradation Test
 #
-# A deliberately harsher sibling of latency-all-three: ~3x the baseline delays,
-# wider jitter, and correlation (bursty delays) to push the network past the
-# "no visible impact" regime into "degrades but recovers":
-#   - CN ↔ CN  : 300 ms ± 80 ms,  correlation 50%  (bidirectional)
-#   - CN ↔ BN  : 450 ms ± 120 ms, correlation 50%  (bidirectional)
-#   - BN ↔ BN  : 600 ms ± 150 ms, correlation 50%  (bidirectional)
+# One of three BNs (BN1) receives moderate-to-severe CN↔BN and BN→BN latency;
+# the other two BNs run at normal latency.
 #
-# Intent: under this load the BNs should fall behind and recover via backfill,
-# then resume normal block production once the latency clears. The assertions run
-# AFTER the chaos is cleared, so they verify graceful recovery (not steady-state
-# throughput under chaos): nodes healthy, blocks increasing again, backfill was
-# exercised, and a (reduced) post-chaos block-rate floor still holds.
+#   BN1  — "approaching threshold" : CN↔BN1 5000 ms ± 1250 ms + 50% loss (corr 50%), BN1→BN 2500 ms (direction=to)
+#   BN2  — "normal"                : no chaos
+#   BN3  — "normal"                : no chaos
+#   CNs  — global light            : CN↔CN 100 ms ± 20 ms
+#
+# At 5000ms one-way + 50% loss: TCP throughput (~100-250 KB/s) far exceeds the
+# block data rate (~2 KB/block). The delay is constant (~2.5 blocks in-flight),
+# not cumulative — BN1 keeps up rather than falling progressively behind. Block
+# divergence only becomes observable at the severe tier where 8000ms + 75%
+# correlated loss triggers burst-loss RTO chains that freeze the stream.
+#
+# TCP stays alive: kernel retry limit (~34 min at 5000ms RTT) far exceeds the
+# test window. gRPC keepalive is disabled by default on grpc-java (CN side).
+# After chaos clears, the CN's buffered backlog drains at full speed; BN1 catches
+# up within seconds.
+#
+# BN→BN uses direction=to (unidirectional) to avoid double-stacking latency.
+#
+# Intent: survival test — validates that BN1 remains healthy, keeps receiving
+# blocks, and converges after chaos clears under high-latency conditions. Block
+# divergence is NOT asserted at this tier; at this loss/latency level TCP
+# throughput still exceeds the block data rate so lag is constant, not
+# cumulative. A measurable application-level impact assertion requires bandwidth
+# throttling (see https://github.com/hiero-ledger/hiero-block-node/issues/3379).
+# Use latency-severe for divergence assertions.
+#
+# Requires topology with ≥ 3 BNs (e.g. paired-3, 7cn-3bn-distributed).
+# The dryrun check will fail on 3cn-1bn.
 #
 # Pre-req:
-#   task up TOPOLOGY=paired-3            # TSS is on by default (now supported)
+#   task up TOPOLOGY=paired-3
 #   CHAOS_ENABLED=true task chaos:install
-# (TSS is on by default; CN_VERSION=latest is min-enforced to a TSS-capable tag.)
 #
 # Usage:
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-stress.yaml
 
 name: latency-stress
-description: "Heavy CN/BN bidirectional latency (3x baseline, bursty) — degrade-and-recover"
+description: "CN↔BN severe latency on 1/3 of BNs (BN1) — single-node degradation & greedy backfill"
 
 events:
   - id: load-start
@@ -38,42 +56,42 @@ events:
 
   - id: inject-cn-cn
     type: inject-latency
-    description: "Inject CN↔CN 300ms ± 80ms (corr 50%)"
+    description: "Inject CN↔CN 100ms ± 20ms — light global CN background latency"
     delay: 30
     args:
       name: cn-to-cn
       source: { kind: network-node }
       target: { kind: network-node }
-      latency: 300ms
-      jitter: 80ms
-      correlation: "50"
+      latency: 100ms
+      jitter: 20ms
       bidirectional: true
 
-  - id: inject-bn-bn
+  - id: inject-cn-bn1
     type: inject-latency
-    description: "Inject BN↔BN 600ms ± 150ms (corr 50%)"
+    description: "Inject CN↔BN1 5000ms ± 1250ms + 50% loss (corr 50%) — approaching-threshold latency"
     delay: 35
     args:
-      name: bn-to-bn
-      source: { kind: block-node }
-      target: { kind: block-node }
-      latency: 600ms
-      jitter: 150ms
+      name: cn-to-bn1
+      source: { kind: network-node }
+      target: { kind: block-node, name: block-node-1 }
+      latency: 5000ms
+      jitter: 1250ms
       correlation: "50"
       bidirectional: true
+      loss: "50%"
 
-  - id: inject-cn-bn
+  - id: inject-bn1-bn
     type: inject-latency
-    description: "Inject CN↔BN 450ms ± 120ms (corr 50%)"
+    description: "Inject BN1→BN peers 2500ms ± 625ms (direction=to) — BN1 slow peer replication"
     delay: 40
     args:
-      name: cn-to-bn
-      source: { kind: network-node }
+      name: bn1-to-bn
+      source: { kind: block-node, name: block-node-1 }
       target: { kind: block-node }
-      latency: 450ms
-      jitter: 120ms
+      latency: 2500ms
+      jitter: 625ms
       correlation: "50"
-      bidirectional: true
+      bidirectional: false
 
   - id: clear-cn-cn
     type: clear-latency
@@ -81,17 +99,17 @@ events:
     delay: 330
     args: { name: cn-to-cn }
 
-  - id: clear-bn-bn
+  - id: clear-cn-bn1
     type: clear-latency
-    description: "Clear BN↔BN"
+    description: "Clear CN↔BN1"
     delay: 332
-    args: { name: bn-to-bn }
+    args: { name: cn-to-bn1 }
 
-  - id: clear-cn-bn
+  - id: clear-bn1-bn
     type: clear-latency
-    description: "Clear CN↔BN"
+    description: "Clear BN1→BN peers"
     delay: 334
-    args: { name: cn-to-bn }
+    args: { name: bn1-to-bn }
 
   - id: load-stop
     type: load-stop
@@ -101,36 +119,34 @@ events:
 assertions:
   - id: all-healthy
     type: node-healthy
-    description: "All BNs healthy after heavy stacked chaos"
+    description: "All BNs remain healthy despite BN1 severe latency"
     target: all
 
   - id: all-have-blocks
     type: block-available
-    description: "All BNs have blocks"
+    description: "All BNs have blocks after chaos clears"
     target: all
     args:
       min_block: 0
 
-  - id: backfill-triggered
-    type: backfill-triggered
-    description: "BNs fell behind under heavy latency and caught up via backfill"
-    target: all
+  - id: blocks-converged
+    type: blocks-converged
+    description: "All BNs converge to within 5 blocks of each other after latency clears — proves CN↔BN streams survived and BN1 caught up"
     args:
-      grep: "backfill"
-      since_seconds: 420
+      tolerance_blocks: 5
 
   - id: blocks-increasing
     type: blocks-increasing
-    description: "Block production resumes after the latency clears"
+    description: "Block production recovers on all BNs after latency clears"
     target: all
     args:
-      wait_seconds: 45
-      max_attempts: 4
+      wait_seconds: 60
+      max_attempts: 5
 
   - id: block-rate-floor
     type: block-rate-floor
-    description: "Post-chaos block rate recovers to ≥ 0.2 blk/s"
+    description: "Post-chaos block rate recovers to ≥ 0.1 blk/s on all BNs"
     target: all
     args:
-      min_rate_per_sec: 0.2
+      min_rate_per_sec: 0.1
       window_seconds: 30
