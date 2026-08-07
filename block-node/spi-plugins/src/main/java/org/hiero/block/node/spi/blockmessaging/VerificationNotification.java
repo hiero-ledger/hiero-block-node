@@ -45,6 +45,14 @@ public record VerificationNotification(
         UNRECOGNIZED_PROOF_TYPE,
         /// This type indicates that the block is of unsupported HAPI version
         UNSUPPORTED_HAPI_VERSION,
+        /// This type indicates that the block contains an item type this version of the
+        /// Block Node cannot process (a reserved or specific-handling field number per the
+        /// block stream forward compatibility numbering rule); an upgrade is required
+        UNSUPPORTED_ITEM_TYPE,
+        /// This type indicates that the wire encoding parsed successfully, but the content
+        /// is not a processable block stream (for example an item that carries more than one
+        /// field, or a mandatory once per block item that appears more than once)
+        UNSUPPORTED_STREAM_FORMAT,
         /// This type indicates that the session was cancelled
         CANCELLED,
         /// This type indicates that an unknown error occurred

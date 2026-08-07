@@ -31,5 +31,5 @@ public interface StreamingTreeHasher {
      * any more leaf items.
      * @return a future that completes with the root hash of the tree of items
      */
-    CompletableFuture<Bytes> rootHash();
+    CompletableFuture<Bytes> rootHash(); // @todo(3372) re-evaluate the returned CompletableFuture
 }

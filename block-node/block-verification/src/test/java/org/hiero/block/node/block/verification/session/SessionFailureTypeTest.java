@@ -49,6 +49,18 @@ class SessionFailureTypeTest {
     }
 
     @Test
+    void unsupportedItemTypeMapsToCorrectFailureType() {
+        assertThat(SessionFailureType.UNSUPPORTED_ITEM_TYPE.asFailureType())
+                .isEqualTo(FailureType.UNSUPPORTED_ITEM_TYPE);
+    }
+
+    @Test
+    void unsupportedStreamFormatMapsToCorrectFailureType() {
+        assertThat(SessionFailureType.UNSUPPORTED_STREAM_FORMAT.asFailureType())
+                .isEqualTo(FailureType.UNSUPPORTED_STREAM_FORMAT);
+    }
+
+    @Test
     void cancelledMapsToCorrectFailureType() {
         assertThat(SessionFailureType.CANCELLED.asFailureType()).isEqualTo(FailureType.CANCELLED);
     }
@@ -67,6 +79,6 @@ class SessionFailureTypeTest {
 
     @Test
     void enumValueCount_matchesExpected() {
-        assertThat(SessionFailureType.values()).hasSize(9);
+        assertThat(SessionFailureType.values()).hasSize(11);
     }
 }
