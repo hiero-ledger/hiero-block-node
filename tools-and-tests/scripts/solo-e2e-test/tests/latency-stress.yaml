@@ -25,7 +25,11 @@
 #
 # Intent: survival test — validates that BN1 remains healthy, keeps receiving
 # blocks, and converges after chaos clears under high-latency conditions. Block
-# divergence is NOT asserted at this tier; use latency-severe for divergence.
+# divergence is NOT asserted at this tier; at this loss/latency level TCP
+# throughput still exceeds the block data rate so lag is constant, not
+# cumulative. A measurable application-level impact assertion requires bandwidth
+# throttling (see https://github.com/hiero-ledger/hiero-block-node/issues/3379).
+# Use latency-severe for divergence assertions.
 #
 # Requires topology with ≥ 3 BNs (e.g. paired-3, 7cn-3bn-distributed).
 # The dryrun check will fail on 3cn-1bn.
