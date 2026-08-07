@@ -9,6 +9,7 @@ import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import org.junit.jupiter.api.DisplayName;
@@ -298,7 +299,7 @@ class HashingUtilitiesTest {
         };
         int rightmostIncluded = 1;
         for (int i = 2; i < preDefinedLeaves.length; i++) {
-            if (!java.util.Arrays.equals(preDefinedLeaves[i], REF_EMPTY_TREE_HASH)) {
+            if (!Arrays.equals(preDefinedLeaves[i], REF_EMPTY_TREE_HASH)) {
                 rightmostIncluded = i;
             }
         }
