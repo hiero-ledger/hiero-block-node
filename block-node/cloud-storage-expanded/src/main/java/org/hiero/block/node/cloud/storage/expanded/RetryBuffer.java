@@ -4,7 +4,7 @@ package org.hiero.block.node.cloud.storage.expanded;
 import static java.lang.System.Logger.Level.DEBUG;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.time.Instant;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -14,12 +14,14 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 /// In-memory holding area for blocks whose S3 upload failed and are awaiting background retry.
 /// Nothing is written to local disk, so a buffered block is lost if the process restarts.
 /// Bounded by {@link ExpandedCloudStorageConfig#retryMaxAgeSeconds()} and
-/// {@link ExpandedCloudStorageConfig#retryMaxPendingBlocks()}.
+/// {@link ExpandedCloudStorageConfig#retryMaxPendingBlocks()} — once at capacity, {@link #stage}
+/// evicts the longest-buffered entry to make room for the newest failure and hands it back via
+/// {@link StageOutcome#evicted()} so the caller can report a terminal failure for it.
 ///
-/// {@link #stage}, {@link #recordFailure}, and {@link #unstage} mutate {@link #buffered} via
-/// {@link ConcurrentHashMap#computeIfAbsent} / {@link ConcurrentHashMap#compute} so that concurrent
-/// calls for the *same* block number (a duplicate `VerificationNotification` is possible upstream) are
-/// serialized; different block numbers may still be manipulated fully concurrently.
+/// {@link #stage} and {@link #recordFailure} mutate {@link #buffered} via
+/// {@link ConcurrentHashMap#compute} so that concurrent calls for the *same* block number (a duplicate
+/// `VerificationNotification` is possible upstream) are serialized; different block numbers may still
+/// be manipulated fully concurrently.
 class RetryBuffer {
 
     private static final System.Logger LOGGER = System.getLogger(RetryBuffer.class.getName());
@@ -55,6 +57,15 @@ class RetryBuffer {
             long firstBufferedEpochMs,
             long nextEligibleEpochMs) {}
 
+    /// Outcome of {@link #stage(long, byte[], String, String, BlockSource)}.
+    ///
+    /// @param staged  `true` if the block is now buffered (either freshly or already), `false` if
+    ///                retry is disabled or the buffer is {@link #close}d
+    /// @param evicted the entry displaced to make room for this call, or `null` if none was
+    ///                evicted; never the block just staged. The caller must report a terminal
+    ///                `succeeded=false` for it, since it will never be retried.
+    record StageOutcome(boolean staged, @Nullable BufferedEntry evicted) {}
+
     private final ExpandedCloudStorageConfig config;
     private final ConcurrentHashMap<Long, BufferedEntry> buffered = new ConcurrentHashMap<>();
 
@@ -65,46 +76,85 @@ class RetryBuffer {
         this.config = config;
     }
 
-    /// Buffers the given compressed block bytes in memory for background retry.
+    /// Buffers the given compressed block bytes in memory for background retry. A duplicate call
+    /// for an already-buffered block replaces its bytes/objectKey/storageClass/blockSource with
+    /// this latest offering (the newest arrival may carry a correction) while preserving its
+    /// existing attempt count and backoff timing.
     ///
     /// @param blockNumber     the block number
     /// @param compressedBytes the already-compressed (ZSTD) block bytes
     /// @param objectKey       the S3 object key this block should be uploaded to
     /// @param storageClass    the S3 storage class to use for the upload
     /// @param blockSource     origin of the block
-    /// @return `true` if buffered (now or already), `false` if retry is disabled, the buffer is
-    ///         full, or {@link #close}d
-    boolean stage(
+    /// @return the {@link StageOutcome} of this call
+    @NonNull
+    StageOutcome stage(
             final long blockNumber,
             @NonNull final byte[] compressedBytes,
             @NonNull final String objectKey,
             @NonNull final String storageClass,
             @NonNull final BlockSource blockSource) {
         if (!config.retryEnabled() || closed) {
-            return false;
+            return new StageOutcome(false, null);
         }
-        // A duplicate for an already-buffered block must not count against the cap.
-        if (!buffered.containsKey(blockNumber) && buffered.size() >= config.retryMaxPendingBlocks()) {
-            LOGGER.log(DEBUG, "Retry buffer full; not buffering block {0}.", blockNumber);
-            return false;
-        }
-        // computeIfAbsent leaves an already-buffered block untouched and serializes this write
-        // against a concurrent recordFailure()/unstage() for the same block number.
-        final BufferedEntry result = buffered.computeIfAbsent(blockNumber, key -> {
+        // A duplicate for an already-buffered block doesn't grow the buffer, so it must never
+        // trigger an eviction.
+        final BufferedEntry evicted =
+                !buffered.containsKey(blockNumber) && buffered.size() >= config.retryMaxPendingBlocks()
+                        ? evictOldestToMakeRoom(blockNumber)
+                        : null;
+        // compute() serializes this write against a concurrent recordFailure()/unstage() for the
+        // same block number.
+        buffered.compute(blockNumber, (key, previous) -> {
             final long now = System.currentTimeMillis();
-            return new BufferedEntry(key, compressedBytes, objectKey, storageClass, blockSource, 1, now, now);
+            return previous == null
+                    ? new BufferedEntry(key, compressedBytes, objectKey, storageClass, blockSource, 1, now, now)
+                    : new BufferedEntry(
+                            key,
+                            compressedBytes,
+                            objectKey,
+                            storageClass,
+                            blockSource,
+                            previous.attempts(),
+                            previous.firstBufferedEpochMs(),
+                            previous.nextEligibleEpochMs());
         });
-        return result != null;
+        return new StageOutcome(true, evicted);
     }
 
-    /// @param now the current time
-    /// @return buffered entries whose backoff has elapsed as of `now`
+    /// Evicts the longest-buffered entry so `incomingBlockNumber` can be admitted despite the
+    /// buffer being at `retryMaxPendingBlocks` capacity.
+    ///
+    /// @return the evicted entry, or `null` if nothing was evicted (a concurrent
+    ///         recordFailure()/unstage() removed the chosen entry first)
+    @Nullable
+    private BufferedEntry evictOldestToMakeRoom(final long incomingBlockNumber) {
+        BufferedEntry oldest = null;
+        for (final BufferedEntry entry : buffered.values()) {
+            if (oldest == null || entry.firstBufferedEpochMs() < oldest.firstBufferedEpochMs()) {
+                oldest = entry;
+            }
+        }
+        // Conditional remove: only evicts if nothing else (recordFailure/unstage) touched this
+        // entry since the scan above.
+        if (oldest != null && buffered.remove(oldest.blockNumber(), oldest)) {
+            LOGGER.log(
+                    DEBUG,
+                    "Retry buffer full; evicted block {0} to make room for block {1}.",
+                    oldest.blockNumber(),
+                    incomingBlockNumber);
+            return oldest;
+        }
+        return null;
+    }
+
+    /// @param nowEpochMs the current wall-clock time, in epoch milliseconds
+    /// @return buffered entries whose backoff has elapsed as of `nowEpochMs`
     @NonNull
-    List<BufferedEntry> dueForRetry(@NonNull final Instant now) {
-        final long nowMs = now.toEpochMilli();
+    List<BufferedEntry> dueForRetry(final long nowEpochMs) {
         final List<BufferedEntry> due = new ArrayList<>();
         for (final BufferedEntry entry : buffered.values()) {
-            if (entry.nextEligibleEpochMs() <= nowMs) {
+            if (entry.nextEligibleEpochMs() <= nowEpochMs) {
                 due.add(entry);
             }
         }
@@ -167,9 +217,12 @@ class RetryBuffer {
     /// Removes and returns every buffered entry. Call {@link #close()} first so a task racing
     /// this can't add an entry that gets silently wiped by `clear()` without ever being returned.
     ///
-    /// @return all entries that were buffered at the moment of the call
-    @NonNull
+    /// @return all entries that were buffered at the moment of the call, or `null` if called before
+    ///         {@link #close()}
     List<BufferedEntry> drainAll() {
+        if (!closed) {
+            return null;
+        }
         final List<BufferedEntry> drained = new ArrayList<>(buffered.values());
         buffered.clear();
         return drained;

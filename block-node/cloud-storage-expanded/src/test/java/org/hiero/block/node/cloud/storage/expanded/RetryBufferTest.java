@@ -4,9 +4,10 @@ package org.hiero.block.node.cloud.storage.expanded;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -55,11 +56,13 @@ class RetryBufferTest {
         final RetryBuffer buffer = newBuffer();
         final byte[] bytes = {1, 2, 3, 4};
 
-        final boolean staged = buffer.stage(42L, bytes, "blocks/key42", "STANDARD", BlockSource.PUBLISHER);
+        final boolean staged = buffer.stage(42L, bytes, "blocks/key42", "STANDARD", BlockSource.PUBLISHER)
+                .staged();
 
         assertTrue(staged);
         assertEquals(1, buffer.pendingCount());
-        final BufferedEntry entry = buffer.dueForRetry(Instant.now()).getFirst();
+        final BufferedEntry entry =
+                buffer.dueForRetry(System.currentTimeMillis()).getFirst();
         assertArrayEquals(bytes, entry.compressedBytes());
     }
 
@@ -68,22 +71,32 @@ class RetryBufferTest {
     void stageIsNoOpWhenRetryDisabled() {
         final RetryBuffer buffer = new RetryBuffer(newConfig(false, 30, 3_600, 200));
 
-        final boolean staged = buffer.stage(1L, new byte[] {1}, "blocks/key1", "STANDARD", BlockSource.PUBLISHER);
+        final boolean staged = buffer.stage(1L, new byte[] {1}, "blocks/key1", "STANDARD", BlockSource.PUBLISHER)
+                .staged();
 
         assertFalse(staged, "stage() must return false when retryEnabled is false");
         assertEquals(0, buffer.pendingCount());
     }
 
     @Test
-    @DisplayName("stage() rejects a new block once retryMaxPendingBlocks is reached")
-    void stageRejectsOnceCapacityReached() {
+    @DisplayName("stage() evicts the oldest entry to admit a new block once retryMaxPendingBlocks is reached")
+    void stageEvictsOldestOnceCapacityReached() {
         final RetryBuffer buffer = new RetryBuffer(newConfig(true, 30, 3_600, 1));
-        assertTrue(buffer.stage(1L, new byte[] {1}, "blocks/key1", "STANDARD", BlockSource.PUBLISHER));
+        assertTrue(buffer.stage(1L, new byte[] {1}, "blocks/key1", "STANDARD", BlockSource.PUBLISHER)
+                .staged());
 
-        final boolean secondStaged = buffer.stage(2L, new byte[] {2}, "blocks/key2", "STANDARD", BlockSource.PUBLISHER);
+        final RetryBuffer.StageOutcome outcome =
+                buffer.stage(2L, new byte[] {2}, "blocks/key2", "STANDARD", BlockSource.PUBLISHER);
 
-        assertFalse(secondStaged, "a new block must be rejected once the buffer is at capacity");
+        assertTrue(
+                outcome.staged(), "a new block must be admitted by evicting the oldest once the buffer is at capacity");
         assertEquals(1, buffer.pendingCount());
+        assertEquals(
+                2L,
+                buffer.dueForRetry(System.currentTimeMillis()).getFirst().blockNumber(),
+                "the newly staged block must be the one still buffered");
+        assertNotNull(outcome.evicted(), "the displaced block must be reported as evicted");
+        assertEquals(1L, outcome.evicted().blockNumber(), "the oldest block must be the one evicted");
     }
 
     @Test
@@ -92,7 +105,8 @@ class RetryBufferTest {
         final RetryBuffer buffer = new RetryBuffer(newConfig(true, 30, 3_600, 1));
         buffer.stage(1L, new byte[] {1}, "blocks/key1", "STANDARD", BlockSource.PUBLISHER);
 
-        final boolean staged = buffer.stage(1L, new byte[] {9}, "blocks/key1-dup", "STANDARD", BlockSource.PUBLISHER);
+        final boolean staged = buffer.stage(1L, new byte[] {9}, "blocks/key1-dup", "STANDARD", BlockSource.PUBLISHER)
+                .staged();
 
         assertTrue(staged, "a duplicate stage() for an already-buffered block must not be rejected by the cap");
         assertEquals(1, buffer.pendingCount());
@@ -103,15 +117,18 @@ class RetryBufferTest {
     void dueForRetryOnlyReturnsElapsedEntries() {
         final RetryBuffer buffer = new RetryBuffer(newConfig(true, 5, 3_600, 200));
         buffer.stage(1L, new byte[] {1}, "blocks/key1", "STANDARD", BlockSource.PUBLISHER);
-        assertEquals(1, buffer.dueForRetry(Instant.now()).size(), "freshly buffered block must be immediately due");
+        assertEquals(
+                1,
+                buffer.dueForRetry(System.currentTimeMillis()).size(),
+                "freshly buffered block must be immediately due");
 
         buffer.recordFailure(1L);
         assertTrue(
-                buffer.dueForRetry(Instant.now()).isEmpty(),
+                buffer.dueForRetry(System.currentTimeMillis()).isEmpty(),
                 "block must not be due immediately after a failed attempt");
         assertEquals(
                 1,
-                buffer.dueForRetry(Instant.now().plusSeconds(6)).size(),
+                buffer.dueForRetry(System.currentTimeMillis() + 6_000L).size(),
                 "block must become due once retryIntervalSeconds has elapsed");
     }
 
@@ -154,27 +171,33 @@ class RetryBufferTest {
     }
 
     @Test
-    @DisplayName("stage() is idempotent: a duplicate call for an already-buffered block does not reset its attempts")
-    void stageIsIdempotentForAlreadyStagedBlock() {
+    @DisplayName("stage() prefers the latest offered bytes for a duplicate call, but keeps attempts/backoff timing")
+    void stageForAlreadyStagedBlockPrefersLatestBytesButKeepsAttempts() {
         final RetryBuffer buffer = newBuffer();
         buffer.stage(15L, new byte[] {1, 2, 3}, "blocks/key15", "STANDARD", BlockSource.PUBLISHER);
         buffer.recordFailure(15L);
         final BufferedEntry entryAfterFirstFailure =
-                buffer.dueForRetry(Instant.now().plusSeconds(120)).getFirst();
+                buffer.dueForRetry(System.currentTimeMillis() + 120_000L).getFirst();
 
-        final boolean staged =
-                buffer.stage(15L, new byte[] {9, 9, 9}, "blocks/different-key", "STANDARD", BlockSource.BACKFILL);
+        final boolean staged = buffer.stage(
+                        15L, new byte[] {9, 9, 9}, "blocks/different-key", "STANDARD", BlockSource.BACKFILL)
+                .staged();
 
         assertTrue(staged, "a duplicate stage() call for an already-buffered block must still report staged=true");
         assertEquals(1, buffer.pendingCount(), "duplicate stage() must not create a second entry");
         final BufferedEntry entry =
-                buffer.dueForRetry(Instant.now().plusSeconds(120)).getFirst();
+                buffer.dueForRetry(System.currentTimeMillis() + 120_000L).getFirst();
         assertEquals(entryAfterFirstFailure.attempts(), entry.attempts(), "duplicate stage() must not reset attempts");
-        assertEquals("blocks/key15", entry.objectKey(), "duplicate stage() must not overwrite the original objectKey");
+        assertEquals(
+                entryAfterFirstFailure.nextEligibleEpochMs(),
+                entry.nextEligibleEpochMs(),
+                "duplicate stage() must not reset the existing backoff timing");
+        assertEquals("blocks/different-key", entry.objectKey(), "duplicate stage() must prefer the latest objectKey");
         assertArrayEquals(
-                new byte[] {1, 2, 3},
+                new byte[] {9, 9, 9},
                 entry.compressedBytes(),
-                "duplicate stage() must not overwrite the original buffered bytes");
+                "duplicate stage() must prefer the latest buffered bytes");
+        assertEquals(BlockSource.BACKFILL, entry.blockSource(), "duplicate stage() must prefer the latest blockSource");
     }
 
     @Test
@@ -228,8 +251,9 @@ class RetryBufferTest {
         buffer.stage(1L, new byte[] {1}, "blocks/key1", "STANDARD", BlockSource.PUBLISHER);
 
         buffer.close();
-        final boolean stagedAfterClose =
-                buffer.stage(2L, new byte[] {2}, "blocks/key2", "STANDARD", BlockSource.PUBLISHER);
+        final boolean stagedAfterClose = buffer.stage(
+                        2L, new byte[] {2}, "blocks/key2", "STANDARD", BlockSource.PUBLISHER)
+                .staged();
 
         assertFalse(stagedAfterClose, "stage() must return false for any new block once the buffer is closed");
         assertEquals(1, buffer.pendingCount(), "close() must not remove entries already buffered before it was called");
@@ -241,11 +265,22 @@ class RetryBufferTest {
         final RetryBuffer buffer = newBuffer();
         buffer.stage(1L, new byte[] {1}, "blocks/key1", "STANDARD", BlockSource.PUBLISHER);
         buffer.stage(2L, new byte[] {2}, "blocks/key2", "STANDARD", BlockSource.BACKFILL);
+        buffer.close();
 
         final List<BufferedEntry> drained = buffer.drainAll();
 
         assertEquals(2, drained.size());
         assertEquals(0, buffer.pendingCount(), "drainAll() must clear the buffer");
-        assertTrue(buffer.dueForRetry(Instant.now()).isEmpty());
+        assertTrue(buffer.dueForRetry(System.currentTimeMillis()).isEmpty());
+    }
+
+    @Test
+    @DisplayName("drainAll() returns null if called before close()")
+    void drainAllReturnsNullBeforeClose() {
+        final RetryBuffer buffer = newBuffer();
+        buffer.stage(1L, new byte[] {1}, "blocks/key1", "STANDARD", BlockSource.PUBLISHER);
+
+        assertNull(buffer.drainAll(), "drainAll() must return null when called before close()");
+        assertEquals(1, buffer.pendingCount(), "drainAll() called before close() must not touch the buffer");
     }
 }
