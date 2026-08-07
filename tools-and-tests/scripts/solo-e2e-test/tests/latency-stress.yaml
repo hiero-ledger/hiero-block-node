@@ -10,10 +10,11 @@
 #   BN3  — "normal"                : no chaos
 #   CNs  — global light            : CN↔CN 100 ms ± 20 ms
 #
-# At 5000ms one-way + 50% loss: base lag is 2.5 blocks (5000ms / 2000ms block
-# interval). Retransmit bursts (RTO ~10s → 20s per retry) push the spread to
-# 2-4 blocks at peak chaos — clearly above the min_spread=1 threshold while
-# staying below the severe tier. Contrast with latency-severe which pushes to 4+.
+# At 5000ms one-way + 50% loss: TCP throughput (~100-250 KB/s) far exceeds the
+# block data rate (~2 KB/block). The delay is constant (~2.5 blocks in-flight),
+# not cumulative — BN1 keeps up rather than falling progressively behind. Block
+# divergence only becomes observable at the severe tier where 8000ms + 75%
+# correlated loss triggers burst-loss RTO chains that freeze the stream.
 #
 # TCP stays alive: kernel retry limit (~34 min at 5000ms RTT) far exceeds the
 # test window. gRPC keepalive is disabled by default on grpc-java (CN side).
@@ -22,10 +23,9 @@
 #
 # BN→BN uses direction=to (unidirectional) to avoid double-stacking latency.
 #
-# Intent: validates BN behaviour approaching the divergence threshold — (a) spread
-# ≥ 3 at peak chaos confirms onset of cumulative lag, (b) spread ≤ 5 after chaos
-# confirms stream survival and catchup. Use latency-severe to reproduce the full
-# production failure mode.
+# Intent: survival test — validates that BN1 remains healthy, keeps receiving
+# blocks, and converges after chaos clears under high-latency conditions. Block
+# divergence is NOT asserted at this tier; use latency-severe for divergence.
 #
 # Requires topology with ≥ 3 BNs (e.g. paired-3, 7cn-3bn-distributed).
 # The dryrun check will fail on 3cn-1bn.
@@ -89,12 +89,6 @@ events:
       correlation: "50"
       bidirectional: false
 
-  - id: snapshot-peak-chaos
-    type: snapshot-block-heights
-    description: "Capture per-BN block heights at peak chaos (≈145s into chaos window)"
-    delay: 180
-    args: { snapshot_id: peak-chaos }
-
   - id: clear-cn-cn
     type: clear-latency
     description: "Clear CN↔CN"
@@ -130,13 +124,6 @@ assertions:
     target: all
     args:
       min_block: 0
-
-  - id: blocks-diverged
-    type: blocks-diverged
-    description: "BN1 was at least 1 block behind BN3 at peak chaos — confirms onset of cumulative lag at the approaching-threshold latency tier (5000ms base → ~2.5 block lag)"
-    args:
-      snapshot_id: peak-chaos
-      min_spread: 1
 
   - id: blocks-converged
     type: blocks-converged
