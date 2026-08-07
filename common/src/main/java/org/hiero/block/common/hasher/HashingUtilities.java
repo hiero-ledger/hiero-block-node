@@ -429,7 +429,7 @@ public final class HashingUtilities {
         // the extension side at the same depth regardless of how many leaves were populated.
         // Streaming-hasher output heights by leaf count: 3-4 leaves -> height 2, 5-8 -> height 3.
         // Positions 0-2 always populated so we always have >= 3 leaves.
-        final int preDefinedHeight = rightmostIncluded < 4 ? 2 : 3;
+        final int preDefinedHeight = rightmostIncluded < 2 ? 1 : rightmostIncluded < 4 ? 2 : 3;
         for (int h = preDefinedHeight; h < 3; h++) {
             depth3Node1 = hashInternalNodeSingleChild(depth3Node1);
         }
