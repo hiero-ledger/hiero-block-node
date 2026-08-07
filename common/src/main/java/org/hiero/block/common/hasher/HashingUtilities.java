@@ -399,10 +399,11 @@ public final class HashingUtilities {
         // into a NaiveStreamingTreeHasher (same fold-up algorithm used within each subtree
         // hasher). Trailing empty subtrees are not fed at all and drop out of the tree; interior
         // empties contribute EMPTY_TREE_HASH so the left-to-right invariant holds. After the
-        // fold-up, wrap the result in single-child parents until height 3, so the pre-defined
-        // side always joins the extension side (depth3Node2) at a fixed height. See issue #3377.
+        // fold-up, wrap the result in single-child parents until height 3, so the subtrees'
+        // internal root always joins the extension side (depth3Node2) at the same depth
+        // regardless of how many leaves were populated. See issue #3377.
         final byte[] stateRootHash =
-                startOfBlockStateRootHash.length() == 0 ? new byte[HASH_SIZE] : startOfBlockStateRootHash.toByteArray();
+                startOfBlockStateRootHash.length() == 0 ? EMPTY_TREE_HASH : startOfBlockStateRootHash.toByteArray();
         final byte[][] preDefinedLeaves = new byte[][] {
             previousBlockHash.toByteArray(),
             rootHashOfAllPreviousBlockHashes.toByteArray(),
@@ -413,9 +414,11 @@ public final class HashingUtilities {
             stateChangesHasher.rootHash().join().toByteArray(),
             traceDataHasher.rootHash().join().toByteArray()
         };
-        // Positions 0-2 always contribute so 2 is the floor for the rightmost scan.
-        int rightmostIncluded = 2;
-        for (int i = 3; i < preDefinedLeaves.length; i++) {
+        // Positions 0-1 (previousBlockHash, rootHashOfAllPreviousBlockHashes) are always
+        // populated so 1 is the floor for the rightmost scan. Position 2 (state root) can be
+        // absent (e.g. WRBs) and is included in the scan.
+        int rightmostIncluded = 1;
+        for (int i = 2; i < preDefinedLeaves.length; i++) {
             if (!Arrays.equals(preDefinedLeaves[i], EMPTY_TREE_HASH)) {
                 rightmostIncluded = i;
             }
@@ -425,10 +428,11 @@ public final class HashingUtilities {
             preDefinedHasher.addLeaf(ByteBuffer.wrap(preDefinedLeaves[i]));
         }
         byte[] depth3Node1 = preDefinedHasher.rootHash().join().toByteArray();
-        // Canonicalize to height 3 via single-child parents so the subtrees internal root always joins
-        // the timestamp leaf at the same depth regardless of how many leaves were populated.
-        // Streaming-hasher output heights by leaf count: 3-4 leaves -> height 2, 5-8 -> height 3.
-        // Positions 0-1 always populated so we always have >= 2 leaves.
+        // Canonicalize to height 3 via single-child parents so the subtrees' internal root
+        // always joins the timestamp leaf at the same depth regardless of how many leaves were
+        // populated. Streaming-hasher output heights by leaf count: 2 leaves -> height 1, 3-4
+        // -> height 2, 5-8 -> height 3. Positions 0-1 always populated so we always have >= 2
+        // leaves.
         final int preDefinedHeight = rightmostIncluded < 2 ? 1 : rightmostIncluded < 4 ? 2 : 3;
         for (int h = preDefinedHeight; h < 3; h++) {
             depth3Node1 = hashInternalNodeSingleChild(depth3Node1);

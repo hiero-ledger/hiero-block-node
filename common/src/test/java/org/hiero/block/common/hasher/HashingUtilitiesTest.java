@@ -115,17 +115,19 @@ class HashingUtilitiesTest {
     }
 
     /// Tests for the pre-defined side rightmost-scan behavior (issue #3377). Empty subtree
-    /// hashers at trailing pre-defined leaf positions (3-7) must be dropped from the fold-up,
+    /// hashers at trailing pre-defined leaf positions (2-7) must be dropped from the fold-up,
     /// not fed as EMPTY_TREE_HASH, so the pre-defined side has a variable shape driven by the
-    /// rightmost non-empty leaf. Positions 0-2 are always populated by protocol.
+    /// rightmost non-empty leaf. Only positions 0-1 (previousBlockHash and rootHashOfAll-
+    /// PreviousBlockHashes) are always populated by protocol; position 2 (state root) can be
+    /// absent for WRB blocks.
     @Nested
     @DisplayName("Pre-Defined Side Rightmost Scan Tests")
     class PreDefinedRightmostScanTests {
-        /// Presence bitmask over positions 3-7 (bit 0 = position 3, ..., bit 4 = position 7).
-        /// Covers: none present, only position 3, only position 7, position 3 and 7, interior
-        /// gap with rightmost present, all present.
+        /// Presence bitmask over positions 2-7 (bit 0 = position 2, ..., bit 5 = position 7).
+        /// Covers: none present (WRB with only prev-block and all-blocks), only position 2,
+        /// only position 7, positions 2 and 7, interior gap with rightmost present, all present.
         @ParameterizedTest
-        @ValueSource(ints = {0b00000, 0b00001, 0b10000, 0b10001, 0b10010, 0b11111})
+        @ValueSource(ints = {0b000000, 0b000001, 0b100000, 0b100001, 0b100010, 0b111111})
         @DisplayName("computeFinalBlockHash() pre-defined presence patterns match reference")
         void testPreDefinedPresencePatternsMatchReference(final int presenceMask) {
             final FixedTreeInputs inputs = randomInputsWithPreDefinedPresence(presenceMask);
@@ -170,6 +172,36 @@ class HashingUtilitiesTest {
                     hasherWithLeaves(1));
             assertThat(rightmostAtSix).isNotEqualTo(rightmostAtSeven);
         }
+
+        /// This test aims to assert the minimum 2-leaf case (only positions 0-1 populated,
+        /// e.g. state-root-less WRB with no subtree content) hashes correctly against the
+        /// reference: streaming hasher gives height 1, then 2 single-child promotions reach
+        /// height 3.
+        @Test
+        @DisplayName("computeFinalBlockHash() only positions 0-1 populated matches reference")
+        void testOnlyRequiredPositionsMatchesReference() {
+            final FixedTreeInputs inputs = new FixedTreeInputs(
+                    new Timestamp(1234567890L, 0),
+                    Bytes.wrap(randomHash()),
+                    Bytes.wrap(randomHash()),
+                    Bytes.EMPTY,
+                    hasherWithLeaves(0),
+                    hasherWithLeaves(0),
+                    hasherWithLeaves(0),
+                    hasherWithLeaves(0),
+                    hasherWithLeaves(0));
+            final Bytes actual = HashingUtilities.computeFinalBlockHash(
+                    inputs.timestamp(),
+                    inputs.previousBlockHash(),
+                    inputs.rootOfAllPreviousBlockHashes(),
+                    inputs.startOfBlockStateRootHash(),
+                    inputs.inputTreeHasher(),
+                    inputs.outputTreeHasher(),
+                    inputs.consensusHeaderHasher(),
+                    inputs.stateChangesHasher(),
+                    inputs.traceDataHasher());
+            assertThat(actual).isEqualTo(referenceRootHash(inputs, new byte[8][]));
+        }
     }
 
     /// The inputs to a final block hash computation.
@@ -199,20 +231,21 @@ class HashingUtilitiesTest {
                 hasherWithLeaves(2));
     }
 
-    /// Builds inputs where the five category subtree hashers at pre-defined positions 3-7 are
-    /// either empty or populated according to the given bitmask (bit 0 = position 3, ..., bit 4
-    /// = position 7). Positions 0-2 are always populated with random hashes.
+    /// Builds inputs where pre-defined positions 2-7 are either empty or populated according to
+    /// the given bitmask (bit 0 = position 2 state root, bit 1 = position 3 consensus headers,
+    /// bit 2 = position 4 inputs, bit 3 = position 5 outputs, bit 4 = position 6 state changes,
+    /// bit 5 = position 7 trace). Positions 0-1 are always populated with random hashes.
     private static FixedTreeInputs randomInputsWithPreDefinedPresence(final int presenceMask) {
         return new FixedTreeInputs(
                 new Timestamp(RANDOM.nextLong(0, Long.MAX_VALUE), RANDOM.nextInt(0, 1_000_000_000)),
                 Bytes.wrap(randomHash()),
                 Bytes.wrap(randomHash()),
-                Bytes.wrap(randomHash()),
-                hasherWithLeaves((presenceMask & 0b00010) != 0 ? 1 : 0),
-                hasherWithLeaves((presenceMask & 0b00100) != 0 ? 1 : 0),
-                hasherWithLeaves((presenceMask & 0b00001) != 0 ? 1 : 0),
-                hasherWithLeaves((presenceMask & 0b01000) != 0 ? 1 : 0),
-                hasherWithLeaves((presenceMask & 0b10000) != 0 ? 1 : 0));
+                (presenceMask & 0b000001) != 0 ? Bytes.wrap(randomHash()) : Bytes.EMPTY,
+                hasherWithLeaves((presenceMask & 0b000100) != 0 ? 1 : 0),
+                hasherWithLeaves((presenceMask & 0b001000) != 0 ? 1 : 0),
+                hasherWithLeaves((presenceMask & 0b000010) != 0 ? 1 : 0),
+                hasherWithLeaves((presenceMask & 0b010000) != 0 ? 1 : 0),
+                hasherWithLeaves((presenceMask & 0b100000) != 0 ? 1 : 0));
     }
 
     private static StreamingTreeHasher hasherWithLeaves(final int leafCount) {
@@ -244,13 +277,14 @@ class HashingUtilitiesTest {
     /// Reference implementation of the block root hash per HIP-1424 and issue #3377: the
     /// pre-defined side (positions 0-7) is a variable shape tree built by feeding only up to the
     /// rightmost non-empty leaf into the same fold-up algorithm used within each subtree hasher,
-    /// then wrapping the result in single-child parents until it reaches height 3. Interior
-    /// empty leaves contribute EMPTY_TREE_HASH; trailing empties are dropped. The extension side
+    /// then wrapping the result in single-child parents until it reaches height 3. Only positions
+    /// 0-1 are always populated; position 2 (state root) and 3-7 can be absent. Interior empty
+    /// leaves contribute EMPTY_TREE_HASH; trailing empties are dropped. The extension side
     /// (positions 8-15) is combined via combineOptional (single-child for lone present, dropped
     /// when both absent). The root combines the consensus timestamp leaf with the tree.
     private static Bytes referenceRootHash(final FixedTreeInputs inputs, final byte[][] extensionRoots) {
         final byte[] stateRoot = inputs.startOfBlockStateRootHash().length() == 0
-                ? new byte[HASH_SIZE]
+                ? REF_EMPTY_TREE_HASH
                 : inputs.startOfBlockStateRootHash().toByteArray();
         final byte[][] preDefinedLeaves = new byte[][] {
             inputs.previousBlockHash().toByteArray(),
@@ -262,8 +296,8 @@ class HashingUtilitiesTest {
             inputs.stateChangesHasher().rootHash().join().toByteArray(),
             inputs.traceDataHasher().rootHash().join().toByteArray()
         };
-        int rightmostIncluded = 2;
-        for (int i = 3; i < preDefinedLeaves.length; i++) {
+        int rightmostIncluded = 1;
+        for (int i = 2; i < preDefinedLeaves.length; i++) {
             if (!java.util.Arrays.equals(preDefinedLeaves[i], REF_EMPTY_TREE_HASH)) {
                 rightmostIncluded = i;
             }

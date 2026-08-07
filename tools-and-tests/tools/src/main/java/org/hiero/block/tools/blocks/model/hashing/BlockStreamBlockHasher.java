@@ -210,8 +210,11 @@ public class BlockStreamBlockHasher {
             hashers.stateChangeItems.computeRootHash(),
             hashers.traceItems.computeRootHash()
         };
-        int rightmostIncluded = 2;
-        for (int i = 3; i < preDefinedLeaves.length; i++) {
+        // Positions 0-1 (previousBlockHash, rootHashOfAllBlockHashesTree) are always populated
+        // so 1 is the floor for the rightmost scan. Position 2 (state root) can be absent for
+        // WRB blocks and is included in the scan.
+        int rightmostIncluded = 1;
+        for (int i = 2; i < preDefinedLeaves.length; i++) {
             if (!Arrays.equals(preDefinedLeaves[i], EMPTY_TREE_HASH)) {
                 rightmostIncluded = i;
             }
@@ -221,8 +224,9 @@ public class BlockStreamBlockHasher {
             preDefinedHasher.addNodeByHash(preDefinedLeaves[i]);
         }
         byte[] depth3Node1 = preDefinedHasher.computeRootHash();
-        // Canonicalize to height 3: 3-4 leaves -> streaming hasher produces height 2, need +1.
-        if (rightmostIncluded < 4) {
+        // Canonicalize to height 3: 2 leaves -> h1 (need +2), 3-4 -> h2 (need +1), 5-8 -> h3.
+        final int preDefinedHeight = rightmostIncluded < 2 ? 1 : rightmostIncluded < 4 ? 2 : 3;
+        for (int h = preDefinedHeight; h < 3; h++) {
             depth3Node1 = hashInternalNode(digest, depth3Node1, null);
         }
         // Depth 2: pre-defined side (depth3Node1) with reserved extension slot (single-child).
