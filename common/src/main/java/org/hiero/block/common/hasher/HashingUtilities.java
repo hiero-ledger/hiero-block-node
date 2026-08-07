@@ -7,6 +7,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -394,28 +395,44 @@ public final class HashingUtilities {
         Objects.requireNonNull(stateChangesHasher);
         Objects.requireNonNull(traceDataHasher);
 
-        final byte[] rootOfConsensusHeaders =
-                consensusHeaderHasher.rootHash().join().toByteArray();
-        final byte[] rootOfInputs = inputTreeHasher.rootHash().join().toByteArray();
-        final byte[] rootOfOutputs = outputTreeHasher.rootHash().join().toByteArray();
-        final byte[] rootOfStateChanges = stateChangesHasher.rootHash().join().toByteArray();
-        final byte[] rootOfTraceData = traceDataHasher.rootHash().join().toByteArray();
-
-        // Treat missing state root hash as zero hash, matching the CN convention
+        // Pre-defined side (leaf positions 0-7): feed only up to the rightmost non-empty leaf
+        // into a NaiveStreamingTreeHasher (same fold-up algorithm used within each subtree
+        // hasher). Trailing empty subtrees are not fed at all and drop out of the tree; interior
+        // empties contribute EMPTY_TREE_HASH so the left-to-right invariant holds. After the
+        // fold-up, wrap the result in single-child parents until height 3, so the pre-defined
+        // side always joins the extension side (depth3Node2) at a fixed height. See issue #3377.
         final byte[] stateRootHash =
                 startOfBlockStateRootHash.length() == 0 ? new byte[HASH_SIZE] : startOfBlockStateRootHash.toByteArray();
-
-        // Depth 5: pair the 8 data leaves
-        final byte[] depth5Node1 =
-                hashInternalNode(previousBlockHash.toByteArray(), rootHashOfAllPreviousBlockHashes.toByteArray());
-        final byte[] depth5Node2 = hashInternalNode(stateRootHash, rootOfConsensusHeaders);
-        final byte[] depth5Node3 = hashInternalNode(rootOfInputs, rootOfOutputs);
-        final byte[] depth5Node4 = hashInternalNode(rootOfStateChanges, rootOfTraceData);
-        // Depth 4
-        final byte[] depth4Node1 = hashInternalNode(depth5Node1, depth5Node2);
-        final byte[] depth4Node2 = hashInternalNode(depth5Node3, depth5Node4);
-        // Depth 3
-        final byte[] depth3Node1 = hashInternalNode(depth4Node1, depth4Node2);
+        final byte[][] preDefinedLeaves = new byte[][] {
+            previousBlockHash.toByteArray(),
+            rootHashOfAllPreviousBlockHashes.toByteArray(),
+            stateRootHash,
+            consensusHeaderHasher.rootHash().join().toByteArray(),
+            inputTreeHasher.rootHash().join().toByteArray(),
+            outputTreeHasher.rootHash().join().toByteArray(),
+            stateChangesHasher.rootHash().join().toByteArray(),
+            traceDataHasher.rootHash().join().toByteArray()
+        };
+        // Positions 0-2 always contribute so 2 is the floor for the rightmost scan.
+        int rightmostIncluded = 2;
+        for (int i = 3; i < preDefinedLeaves.length; i++) {
+            if (!Arrays.equals(preDefinedLeaves[i], EMPTY_TREE_HASH)) {
+                rightmostIncluded = i;
+            }
+        }
+        final NaiveStreamingTreeHasher preDefinedHasher = new NaiveStreamingTreeHasher();
+        for (int i = 0; i <= rightmostIncluded; i++) {
+            preDefinedHasher.addLeaf(ByteBuffer.wrap(preDefinedLeaves[i]));
+        }
+        byte[] depth3Node1 = preDefinedHasher.rootHash().join().toByteArray();
+        // Canonicalize to height 3 via single-child parents so the pre-defined side always joins
+        // the extension side at the same depth regardless of how many leaves were populated.
+        // Streaming-hasher output heights by leaf count: 3-4 leaves -> height 2, 5-8 -> height 3.
+        // Positions 0-2 always populated so we always have >= 3 leaves.
+        final int preDefinedHeight = rightmostIncluded < 4 ? 2 : 3;
+        for (int h = preDefinedHeight; h < 3; h++) {
+            depth3Node1 = hashInternalNodeSingleChild(depth3Node1);
+        }
         // Depth 3, right side: root over the extension subtrees (leaf positions 9 to 16), or null
         // when no extension subtree is present
         final byte[] depth3Node2 = combineExtensionSubtreeRoots(

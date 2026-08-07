@@ -15,6 +15,7 @@ import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.hashing.WritableMessageDigest;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.utils.Sha384;
@@ -189,42 +190,45 @@ public class BlockStreamBlockHasher {
                 : blockFooter.startOfBlockStateRootHash().toByteArray();
         // build streaming merkle trees of items in the block
         final ItemHashers hashers = classifyBlockItems(digest, block);
-        // combine all the merkle tree roots and other block data into final block hash
-        // spotless:off
-        // Code here won't be formatted by Spotless, Spotless makes it less readable
-        // Capture intermediate hashes before folding them into the tree
-        final byte[] ctHash = hashLeaf(digest, Timestamp.PROTOBUF.toBytes(consensusTimestamp).toByteArray());
+        // Pre-defined side (leaf positions 0-7): feed only up to the rightmost non-empty leaf
+        // into a StreamingHasher (same fold-up algorithm used within each subtree hasher).
+        // Trailing empty subtrees are not fed at all and drop out of the tree; interior empties
+        // contribute EMPTY_TREE_HASH so the left-to-right invariant holds. After the fold-up,
+        // wrap in single-child parents until height 3 so the pre-defined side always joins the
+        // extension side at the same depth. Tools has no extension routing yet, so the extension
+        // slot at depth 2 is single-child. See issue #3377.
+        final byte[] ctHash =
+                hashLeaf(digest, Timestamp.PROTOBUF.toBytes(consensusTimestamp).toByteArray());
         final byte[] oitHash = hashers.outputItems.computeRootHash();
-        final byte[] rootHash = hashInternalNode(digest,
-            ctHash,
-            hashInternalNode(digest,
-                hashInternalNode(digest,
-                    hashInternalNode(digest,
-                        hashInternalNode(digest,
-                            previousBlockHash,
-                            blockFooter.rootHashOfAllBlockHashesTree().toByteArray()
-                        ),
-                        hashInternalNode(digest,
-                            stateRootHash,
-                            hashers.consensusHeaders.computeRootHash()
-                        )
-                    ),
-                    hashInternalNode(digest,
-                        hashInternalNode(digest,
-                            hashers.inputItems.computeRootHash(),
-                            oitHash
-                        ),
-                        hashInternalNode(digest,
-                            hashers.stateChangeItems.computeRootHash(),
-                            hashers.traceItems.computeRootHash()
-                        )
-                    )
-                ),
-                null // reserved for future use
-            )
-        );
+        final byte[][] preDefinedLeaves = new byte[][] {
+            previousBlockHash,
+            blockFooter.rootHashOfAllBlockHashesTree().toByteArray(),
+            stateRootHash,
+            hashers.consensusHeaders.computeRootHash(),
+            hashers.inputItems.computeRootHash(),
+            oitHash,
+            hashers.stateChangeItems.computeRootHash(),
+            hashers.traceItems.computeRootHash()
+        };
+        int rightmostIncluded = 2;
+        for (int i = 3; i < preDefinedLeaves.length; i++) {
+            if (!Arrays.equals(preDefinedLeaves[i], EMPTY_TREE_HASH)) {
+                rightmostIncluded = i;
+            }
+        }
+        final StreamingHasher preDefinedHasher = new StreamingHasher();
+        for (int i = 0; i <= rightmostIncluded; i++) {
+            preDefinedHasher.addNodeByHash(preDefinedLeaves[i]);
+        }
+        byte[] depth3Node1 = preDefinedHasher.computeRootHash();
+        // Canonicalize to height 3: 3-4 leaves -> streaming hasher produces height 2, need +1.
+        if (rightmostIncluded < 4) {
+            depth3Node1 = hashInternalNode(digest, depth3Node1, null);
+        }
+        // Depth 2: pre-defined side (depth3Node1) with reserved extension slot (single-child).
+        final byte[] fixedRootTree = hashInternalNode(digest, depth3Node1, null);
+        final byte[] rootHash = hashInternalNode(digest, ctHash, fixedRootTree);
         return new BlockHashResult(rootHash, ctHash, oitHash);
-        // spotless:on
     }
 
     /**
