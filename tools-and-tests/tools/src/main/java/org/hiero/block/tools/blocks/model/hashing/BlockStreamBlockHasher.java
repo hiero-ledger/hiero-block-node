@@ -15,6 +15,7 @@ import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.hashing.WritableMessageDigest;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.utils.Sha384;
@@ -189,42 +190,61 @@ public class BlockStreamBlockHasher {
                 : blockFooter.startOfBlockStateRootHash().toByteArray();
         // build streaming merkle trees of items in the block
         final ItemHashers hashers = classifyBlockItems(digest, block);
-        // combine all the merkle tree roots and other block data into final block hash
-        // spotless:off
-        // Code here won't be formatted by Spotless, Spotless makes it less readable
-        // Capture intermediate hashes before folding them into the tree
-        final byte[] ctHash = hashLeaf(digest, Timestamp.PROTOBUF.toBytes(consensusTimestamp).toByteArray());
+        final byte[] ctHash =
+                hashLeaf(digest, Timestamp.PROTOBUF.toBytes(consensusTimestamp).toByteArray());
         final byte[] oitHash = hashers.outputItems.computeRootHash();
-        final byte[] rootHash = hashInternalNode(digest,
-            ctHash,
-            hashInternalNode(digest,
-                hashInternalNode(digest,
-                    hashInternalNode(digest,
-                        hashInternalNode(digest,
-                            previousBlockHash,
-                            blockFooter.rootHashOfAllBlockHashesTree().toByteArray()
-                        ),
-                        hashInternalNode(digest,
-                            stateRootHash,
-                            hashers.consensusHeaders.computeRootHash()
-                        )
-                    ),
-                    hashInternalNode(digest,
-                        hashInternalNode(digest,
-                            hashers.inputItems.computeRootHash(),
-                            oitHash
-                        ),
-                        hashInternalNode(digest,
-                            hashers.stateChangeItems.computeRootHash(),
-                            hashers.traceItems.computeRootHash()
-                        )
-                    )
-                ),
-                null // reserved for future use
-            )
-        );
+        final byte[][] preDefinedLeaves = new byte[][] {
+            previousBlockHash,
+            blockFooter.rootHashOfAllBlockHashesTree().toByteArray(),
+            stateRootHash,
+            hashers.consensusHeaders.computeRootHash(),
+            hashers.inputItems.computeRootHash(),
+            oitHash,
+            hashers.stateChangeItems.computeRootHash(),
+            hashers.traceItems.computeRootHash()
+        };
+        final byte[] depth3Node1 = computeSubtreesInternalRoot(digest, preDefinedLeaves);
+        // Depth 2: pre-defined side (depth3Node1) with reserved extension slot (single-child).
+        final byte[] fixedRootTree = hashInternalNode(digest, depth3Node1, null);
+        final byte[] rootHash = hashInternalNode(digest, ctHash, fixedRootTree);
         return new BlockHashResult(rootHash, ctHash, oitHash);
-        // spotless:on
+    }
+
+    /**
+     * Computes the height-3 internal root of the pre-defined side (leaf positions 0-7) using
+     * the rightmost-scan algorithm from issue #3377. Feeds only up to the rightmost non-empty
+     * leaf into a {@link StreamingHasher} (same fold-up algorithm used within each subtree
+     * hasher). Trailing empty subtrees are not fed at all and drop out of the tree; interior
+     * empties contribute {@code EMPTY_TREE_HASH} so the left-to-right invariant holds.
+     * Wraps the fold-up result in single-child parents until height 3 so the pre-defined side
+     * always joins the extension slot at the same depth.
+     *
+     * <p>Positions 0-1 (previousBlockHash, rootHashOfAllBlockHashesTree) are always populated
+     * so 1 is the floor for the rightmost scan. Position 2 (state root) can be absent for WRB
+     * blocks and is included in the scan.
+     *
+     * @param digest the SHA-384 digest instance to reuse
+     * @param preDefinedLeaves the eight pre-defined leaves at positions 0-7, in order
+     * @return the 48-byte SHA-384 root hash of the pre-defined subtree, at height 3
+     */
+    static byte[] computeSubtreesInternalRoot(final MessageDigest digest, final byte[][] preDefinedLeaves) {
+        int rightmostIncluded = 1;
+        for (int i = 2; i < preDefinedLeaves.length; i++) {
+            if (!Arrays.equals(preDefinedLeaves[i], EMPTY_TREE_HASH)) {
+                rightmostIncluded = i;
+            }
+        }
+        final StreamingHasher preDefinedHasher = new StreamingHasher();
+        for (int i = 0; i <= rightmostIncluded; i++) {
+            preDefinedHasher.addNodeByHash(preDefinedLeaves[i]);
+        }
+        byte[] internalRoot = preDefinedHasher.computeRootHash();
+        // Canonicalize to height 3: 2 leaves -> h1 (need +2), 3-4 -> h2 (need +1), 5-8 -> h3.
+        final int preDefinedHeight = rightmostIncluded < 2 ? 1 : rightmostIncluded < 4 ? 2 : 3;
+        for (int h = preDefinedHeight; h < 3; h++) {
+            internalRoot = hashInternalNode(digest, internalRoot, null);
+        }
+        return internalRoot;
     }
 
     /**
