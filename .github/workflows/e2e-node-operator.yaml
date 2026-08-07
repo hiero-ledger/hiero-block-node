@@ -23,12 +23,11 @@ on:
         required: false
         default: "true"
       plugin-profile:
-        description: "Which plugin profile to install (lfh = local-file-historic, rfh = remote-file-historic, all)"
+        description: "Which plugin profile to install (lfh = local-file-historic, all). rfh is not yet supported — Tier 2 nodes receive blocks via subscribe from a Tier 1 BN, not via direct push; see hiero-ledger/hiero-block-node#3397."
         type: choice
         default: "lfh"
         options:
           - lfh
-          - rfh
           - all
         required: false
       solo-provisioner-version:
@@ -221,13 +220,15 @@ jobs:
           echo "SNAP_VERSION=${SNAP}" >> "$GITHUB_OUTPUT"
           echo "Installing ${BASE}; upgrading to ${SNAP}"
 
-          # Plugin profile -> comma-separated plugin names the seed-plugins init container keeps.
-          # all -> empty (keep every baked plugin). lfh/rfh -> read plugins.names from the profile file.
-          # (grep the names: line so a malformed first line in the profile file doesn't break parsing.)
+          # Plugin profile -> comma-separated plugin names Maven resolves into the plugins PVC.
+          # all -> empty (provisioner skips the PVC; baked plugins from solo-dev image are used).
+          # lfh -> read plugins.names from the profile file.
+          # rfh is not supported: Tier 2 nodes receive blocks via subscribe from a Tier 1 BN, not via
+          # direct push. The test fixture blocks are pushed, so rfh cannot be exercised here (#3397).
           PROFILE="${{ inputs.plugin-profile }}"; PROFILE="${PROFILE:-lfh}"
           case "${PROFILE}" in
             all) NAMES="" ;;
-            lfh|rfh)
+            lfh)
               NAMES=$(grep -m1 'names:' "charts/block-node-server/values-overrides/plugin-profile-${PROFILE}.yaml" \
                 | sed -E 's/.*names:[[:space:]]*"?([^"]*)"?.*/\1/') ;;
             *) echo "::error::unknown plugin-profile '${PROFILE}'"; exit 1 ;;
