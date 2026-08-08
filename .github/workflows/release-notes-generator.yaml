@@ -149,4 +149,4 @@ jobs:
           name: release-notes-${{ env.LATEST_TAG }}
           path: release_notes.md
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
