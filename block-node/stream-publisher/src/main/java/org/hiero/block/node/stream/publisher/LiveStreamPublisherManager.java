@@ -49,6 +49,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.internal.BlockItemSetUnparsed;
@@ -750,8 +751,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // streamed, but _only_ on startup. After that there should always be
         // a delta (next unstreamed must always be strictly greater than the current
         // streaming block number).
-        final long latestKnownBlock =
-                serverContext.historicalBlockProvider().availableBlocks().max();
+        final long latestKnownBlock;
+        if (serverContext != null && serverContext.storedBlocks() != null) {
+            final List<BlockRange> storedBlocks = serverContext.storedBlocks();
+            latestKnownBlock = storedBlocks.isEmpty()
+                    ? UNKNOWN_BLOCK_NUMBER
+                    : storedBlocks.getLast().rangeEnd();
+        } else {
+            latestKnownBlock = UNKNOWN_BLOCK_NUMBER;
+        }
         // Always set the last persisted block number, even if there are no
         // known blocks.
         lastPersistedBlockNumber.set(latestKnownBlock);

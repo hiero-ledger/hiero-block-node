@@ -24,6 +24,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.hiero.block.api.BlockItemSet;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
@@ -37,6 +38,8 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
+import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestVerificationPlugin;
 import org.hiero.block.node.app.fixtures.plugintest.VerificationHandlingHistoricalBlockFacility;
@@ -442,6 +445,9 @@ class StreamPublisherPluginTest {
             for (final TestBlock block : blocks) {
                 historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems(), false);
             }
+            // Mirrors production, where BlockNodeApp merges availableBlocks into storedBlocks
+            // before a plugin ever sees the context.
+            storedBlocks = List.of(new BlockRange(earliestPersistedBlock, expectedLatestPersistedBlock));
             activatePlugin(10L);
             // Assert that the historical block facility has blocks 3-5
             assertThat(blockNodeContext
@@ -488,6 +494,9 @@ class StreamPublisherPluginTest {
             for (final TestBlock block : blocks) {
                 historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems(), false);
             }
+            // Mirrors production, where BlockNodeApp merges availableBlocks into storedBlocks
+            // before a plugin ever sees the context.
+            storedBlocks = List.of(new BlockRange(earliestPersistedBlock, latestPersistedBlock));
             activatePlugin(10L);
             // Assert that the historical block facility has blocks 0-5
             assertThat(blockNodeContext
@@ -528,6 +537,10 @@ class StreamPublisherPluginTest {
             final int expectedLatestPersistedBlockNumber = 10;
             final TestBlock block10 = TestBlockBuilder.generateBlockWithNumber(expectedLatestPersistedBlockNumber);
             historicalBlockFacility.handleBlockItemsReceived(block10.asBlockItems(), false);
+            // Mirrors production, where BlockNodeApp merges availableBlocks into storedBlocks
+            // before a plugin ever sees the context.
+            storedBlocks =
+                    List.of(new BlockRange(expectedLatestPersistedBlockNumber, expectedLatestPersistedBlockNumber));
             activatePlugin(10L);
             // Assert that the historical block facility has block 10
             assertThat(blockNodeContext
@@ -834,6 +847,69 @@ class StreamPublisherPluginTest {
                     .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
                     .returns(block.number(), resendBlockNumberExtractor);
             resendReceiver.clear();
+        }
+    }
+
+    /// Verifies [StreamPublisherPlugin] reacts to `onContextUpdate()` so the publisher
+    /// watermark is seeded from the stored-block range delivered after `init()`, not the
+    /// stale context captured at `init()` time. Drives `init()` -> `onContextUpdate()` ->
+    /// `start()` via [#doInit] and [#replaceStoredBlocks], mirroring production startup order.
+    @Nested
+    @DisplayName("Plugin Tests ASF Watermark Seeding")
+    class PluginTestsAsfWatermarkSeeding
+            extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService, ScheduledBlockingExecutor> {
+        /// Does not call `start()` — the test method drives `doInit()`/`replaceStoredBlocks()`/
+        /// `doStart()` in sequence instead.
+        PluginTestsAsfWatermarkSeeding() {
+            super(Executors.newSingleThreadExecutor(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
+            verificationPlugin = new TestVerificationPlugin();
+        }
+
+        /// Like [GrpcPluginTestBase#start], but splits `init()`/`start()` so
+        /// [#replaceStoredBlocks] can run in between.
+        private void activatePluginWithStoredBlocksDeliveredBeforeStart(
+                final StreamPublisherPlugin toTest, final List<BlockRange> storedBlocksAfterInit) {
+            doInit(toTest, historicalBlockFacility, List.of(verificationPlugin), null, Map.of());
+            replaceStoredBlocks(storedBlocksAfterInit);
+            doStart();
+            method = toTest.methods().getFirst();
+            if (webserviceBuilder instanceof RecordingServiceBuilder recordingBuilder
+                    && !recordingBuilder.grpcServiceRegistrations().isEmpty()) {
+                serviceInterface =
+                        recordingBuilder.grpcServiceRegistrations().getLast().service();
+            }
+            setupNewPipelines();
+        }
+
+        /// Historical provider has blocks 0-10; the stored-block range delivered before
+        /// `start()` reports up to 50. If the watermark seeded from 50, publishing block
+        /// 11 is rejected as a duplicate carrying watermark 50. If the update was missed,
+        /// the watermark stays at 10 and block 11 is accepted as the next expected block.
+        @Test
+        @DisplayName("start() seeds watermark from ASF stored blocks delivered via onContextUpdate before start()")
+        void testWatermarkSeedsFromStoredBlocksDeliveredBeforeStart() {
+            final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
+            availableBlocks.add(0, 10);
+            historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
+            final StreamPublisherPlugin toTest = new StreamPublisherPlugin();
+            activatePluginWithStoredBlocksDeliveredBeforeStart(toTest, List.of(new BlockRange(0L, 50L)));
+
+            final long staleBlockNumber = 11L;
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(staleBlockNumber);
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(block.asItemSetUnparsed())
+                    .build();
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            awaitPluginResponses(1);
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
+                    .returns(50L, endStreamResponseBlockNumberExtractor);
         }
     }
 

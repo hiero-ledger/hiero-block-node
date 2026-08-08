@@ -182,6 +182,14 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         publisherManager.shutdown();
     }
 
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void onContextUpdate(final BlockNodeContext context) {
+        this.context = context;
+    }
+
     /// This method is called when a new publisher handler is created.
     ///
     /// A new handler is created when a new publisher connects to the block node.
