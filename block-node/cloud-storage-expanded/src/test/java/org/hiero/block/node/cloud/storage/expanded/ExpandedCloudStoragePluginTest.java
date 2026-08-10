@@ -1059,6 +1059,59 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
+    @DisplayName("Retry task throwing an unexpected Error still exhausts and publishes succeeded=false")
+    void retryTaskUnexpectedErrorExhaustsAndPublishesFailure() throws InterruptedException {
+        final AtomicInteger attempt = new AtomicInteger();
+        final S3UploadClient throwingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                if (attempt.getAndIncrement() == 0) {
+                    // First (live) attempt: a normal failure so the block gets staged for retry.
+                    throw new UploadException("Simulated S3 failure", null);
+                }
+                // Retry attempt: escapes RetryUploadTask.call() uncaught, surfacing as an
+                // ExecutionException from the retry Future instead of a normal UploadResult.
+                throw new AssertionError("Simulated unexpected failure");
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(throwingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.retryMaxAgeSeconds", "1"));
+
+        plugin.handleVerification(verifiedNotification(13L, testBlock(13L).blockUnparsed()));
+        awaitPendingRetryCount(1);
+        assertTrue(blockMessaging.getSentPersistedNotifications().isEmpty());
+
+        // Buffered longer than retryMaxAgeSeconds=1, so the Error on this attempt must exhaust it.
+        Thread.sleep(1_100);
+        plugin.retryStagedBlocks();
+        awaitNotifications(1);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size());
+        assertEquals(13L, notifications.getFirst().blockNumber());
+        assertFalse(
+                notifications.getFirst().succeeded(),
+                "block must be reported succeeded=false once retries are exhausted, even via an Error");
+        assertEquals(
+                1L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_RETRY_EXHAUSTED_TOTAL));
+        assertEquals(0L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS));
+    }
+
+    @Test
     @DisplayName("stop() flushes any still-buffered blocks as PersistedNotification(succeeded=false)")
     void stopFlushesPendingRetriesAsFailures() throws InterruptedException {
         final S3UploadClient alwaysFailingClient = new S3UploadClient() {

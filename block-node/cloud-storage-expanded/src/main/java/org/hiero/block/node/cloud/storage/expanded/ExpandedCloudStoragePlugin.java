@@ -9,7 +9,6 @@ import static java.lang.System.Logger.Level.WARNING;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -157,16 +156,13 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// `null` when {@link ExpandedCloudStorageConfig#retryEnabled()} is `false`.
     private ScheduledExecutorService retryScheduler;
 
-    /// Block numbers with a retry attempt currently in flight, so the scheduled tick does not
-    /// submit a second concurrent retry for the same block before the first one completes.
-    private final Set<Long> retryInFlight = ConcurrentHashMap.newKeySet();
-
     /// `CompletionService` for async retry-upload tasks, separate from {@link #completionService}
     /// since retries don't participate in {@link #pendingPublish} ordering.
     private CompletionService<SingleBlockStoreTask.UploadResult> retryCompletionService;
 
-    /// Tracks which block number each outstanding retry {@link Future} belongs to, so
-    /// {@link #retryInFlight} can be cleared once that future is drained, regardless of outcome.
+    /// Block number of each outstanding retry {@link Future}. Only {@link #retryStagedBlocks}
+    /// (single-threaded {@link #retryScheduler}) adds entries, so a value-check before submitting
+    /// a duplicate is race-free despite not being atomic with the following `put()`.
     private final Map<Future<SingleBlockStoreTask.UploadResult>, Long> retryFutureBlockNumbers =
             new ConcurrentHashMap<>();
 
@@ -190,8 +186,10 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.config = context.configuration().getConfigData(ExpandedCloudStorageConfig.class);
         this.blockMessaging = context.blockMessaging();
-        this.threadPoolManager = context.threadPoolManager();
-        this.retryBuffer = new RetryBuffer(config);
+        if (config.retryEnabled()) {
+            this.threadPoolManager = context.threadPoolManager();
+            this.retryBuffer = new RetryBuffer(config);
+        }
         metricRegistry = context.metricRegistry();
         // @todo(#XXXX) replace these warnings with proper plugin health reporting once
         //   the block node supports plugin-level healthy/unhealthy status indication.
@@ -227,9 +225,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         }
         virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
         completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
-        retryCompletionService = new ExecutorCompletionService<>(virtualThreadExecutor);
         metricsHolder = Objects.requireNonNull(MetricsHolder.createMetrics(metricRegistry));
         if (config.retryEnabled()) {
+            retryCompletionService = new ExecutorCompletionService<>(virtualThreadExecutor);
             final Thread.UncaughtExceptionHandler handler =
                     (thread, e) -> LOGGER.log(WARNING, "Uncaught exception in thread: " + thread.getName(), e);
             retryScheduler = threadPoolManager.createSingleThreadScheduledExecutor("CloudExpandedRetry", handler);
@@ -257,7 +255,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         // Closed before awaiting termination below: otherwise a task still running past the
         // await timeout could stage() a new entry after flushPendingRetriesAsFailures() has
         // already drained the buffer, orphaning it forever.
-        retryBuffer.close();
+        if (retryBuffer != null) {
+            retryBuffer.close();
+        }
         if (virtualThreadExecutor != null) {
             // Stop accepting new tasks (none expected since we just unregistered), then wait
             // for all running uploads to finish. The executor tracks running tasks authoritatively,
@@ -294,6 +294,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// persists across a restart, a block left buffered here would otherwise never receive any
     /// `PersistedNotification` at all once {@link #stop()} discards the buffer.
     private void flushPendingRetriesAsFailures() {
+        if (retryBuffer == null) {
+            return;
+        }
         for (final BufferedEntry entry : retryBuffer.drainAll()) {
             sendPersistedNotification(entry.blockNumber(), false, entry.blockSource());
             metricsHolder.retryExhaustedTotal().increment();
@@ -384,7 +387,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 // here means something more severe (e.g. an Error) escaped the task — count it as
                 // a failure and log the root cause.
                 metricsHolder.uploadFailuresTotal().increment();
-                LOGGER.log(WARNING, "Unexpected exception in upload task", e.getCause());
+                LOGGER.log(INFO, "Unexpected exception in upload task", e.getCause());
             }
         } else {
             LOGGER.log(TRACE, "Upload task was cancelled during shutdown.");
@@ -404,7 +407,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     private void publishResult(final SingleBlockStoreTask.UploadResult result) {
         if (result.succeeded()) {
             // Clears any stale buffered entry from an earlier failed attempt for this block.
-            retryBuffer.unstage(result.blockNumber());
+            if (retryBuffer != null) {
+                retryBuffer.unstage(result.blockNumber());
+            }
             sendPersistedNotification(result.blockNumber(), true, result.blockSource());
             metricsHolder.uploadsTotal().increment();
             metricsHolder.uploadBytesTotal().increment(result.bytesUploaded());
@@ -473,12 +478,12 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// Package-private visibility allows tests to drive a retry tick without waiting on the
     /// real scheduler interval.
     void retryStagedBlocks() {
-        if (s3Client == null) {
+        if (s3Client == null || retryCompletionService == null) {
             return;
         }
         drainCompletedRetries();
         for (final BufferedEntry entry : retryBuffer.dueForRetry(System.currentTimeMillis())) {
-            if (retryInFlight.add(entry.blockNumber())) {
+            if (!retryFutureBlockNumbers.containsValue(entry.blockNumber())) {
                 final Future<SingleBlockStoreTask.UploadResult> future =
                         retryCompletionService.submit(new RetryUploadTask(
                                 entry.blockNumber(),
@@ -495,6 +500,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// Polls {@link #retryCompletionService} for retry attempts that have finished and applies
     /// each via {@link #processRetryResult}. Non-blocking — only collects tasks already done.
     private void drainCompletedRetries() {
+        if (retryCompletionService == null) {
+            return;
+        }
         Future<SingleBlockStoreTask.UploadResult> completed;
         while ((completed = retryCompletionService.poll()) != null) {
             processCompletedRetryFuture(completed);
@@ -502,8 +510,8 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     }
 
     /// Extracts the {@link SingleBlockStoreTask.UploadResult} from a completed retry future and
-    /// hands it to {@link #processRetryResult}, clearing {@link #retryInFlight} for that block
-    /// regardless of outcome so a later tick can retry it again if needed.
+    /// hands it to {@link #processRetryResult}, clearing {@link #retryFutureBlockNumbers} for that
+    /// block regardless of outcome so a later tick can retry it again if needed.
     ///
     /// Cancelled tasks are logged at TRACE and skipped — cancellation is not expected in practice
     /// since {@link #stop} uses {@code shutdown()} rather than {@code shutdownNow()}.
@@ -511,22 +519,22 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// {@link #processCompletedFuture}.
     private void processCompletedRetryFuture(final Future<SingleBlockStoreTask.UploadResult> completed) {
         final Long blockNumber = retryFutureBlockNumbers.remove(completed);
+        if (completed.isCancelled()) {
+            LOGGER.log(TRACE, "Retry upload task was cancelled during shutdown.");
+            return;
+        }
         try {
-            if (completed.isCancelled()) {
-                LOGGER.log(TRACE, "Retry upload task was cancelled during shutdown.");
-                return;
-            }
-            try {
-                processRetryResult(completed.get());
-            } catch (final InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (final ExecutionException e) {
-                metricsHolder.uploadFailuresTotal().increment();
-                LOGGER.log(WARNING, "Unexpected exception in retry upload task", e.getCause());
-            }
-        } finally {
-            if (blockNumber != null) {
-                retryInFlight.remove(blockNumber);
+            processRetryResult(completed.get());
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (final ExecutionException e) {
+            metricsHolder.uploadFailuresTotal().increment();
+            LOGGER.log(INFO, "Unexpected exception in retry upload task", e.getCause());
+            // Still counts as an attempt
+            if (blockNumber != null && retryBuffer.recordFailure(blockNumber) == RetryOutcome.EXHAUSTED) {
+                sendPersistedNotification(blockNumber, false, BlockSource.UNKNOWN);
+                metricsHolder.retryExhaustedTotal().increment();
+                updatePendingRetryGauge();
             }
         }
     }
@@ -579,7 +587,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// Refreshes the {@code cloud_expanded_pending_retry_blocks} gauge from
     /// {@link RetryBuffer#pendingCount}.
     private void updatePendingRetryGauge() {
-        metricsHolder.pendingRetryBlocks().set(retryBuffer.pendingCount());
+        if (retryBuffer != null) {
+            metricsHolder.pendingRetryBlocks().set(retryBuffer.pendingCount());
+        }
     }
 
     /// Builds the S3 object key for the given block number using the 4-digit folder

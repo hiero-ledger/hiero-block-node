@@ -102,7 +102,8 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     /// @param storageClass the S3 storage class
     /// @param blockSource  the source of the block (for the `PersistedNotification`)
     /// @param retryBuffer  in-memory buffer used to hold the compressed bytes for background retry
-    ///                     when the upload fails
+    ///                     when the upload fails; `null` if retry is disabled, in which case a
+    ///                     failed upload is never staged
     public SingleBlockStoreTask(
             final long blockNumber,
             @NonNull final BlockUnparsed block,
@@ -110,7 +111,7 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
             @NonNull final String objectKey,
             @NonNull final String storageClass,
             @NonNull final BlockSource blockSource,
-            @NonNull final RetryBuffer retryBuffer) {
+            @Nullable final RetryBuffer retryBuffer) {
         this.blockNumber = blockNumber;
         this.block = block;
         this.s3Client = s3Client;
@@ -205,11 +206,12 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     }
 
     /// Buffers the compressed bytes for background retry if compression completed before the upload
-    /// failed. Returns a `staged=false`, `evicted=null` outcome without buffering when `compressed`
-    /// is `null` or empty (the `IOException` came from compression itself, not the upload).
+    /// failed. Returns a `staged=false`, `evicted=null` outcome without buffering when retry is
+    /// disabled ({@link #retryBuffer} is `null`) or `compressed` is `null`/empty (the `IOException`
+    /// came from compression itself, not the upload).
     @NonNull
     private RetryBuffer.StageOutcome stageForRetry(@Nullable final byte[] compressed) {
-        return compressed == null || compressed.length == 0
+        return retryBuffer == null || compressed == null || compressed.length == 0
                 ? new RetryBuffer.StageOutcome(false, null)
                 : retryBuffer.stage(blockNumber, compressed, objectKey, storageClass, blockSource);
     }
