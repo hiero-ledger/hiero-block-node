@@ -283,6 +283,7 @@ jobs:
           name: block-node-protobuf-${{ env.RELEASE_TAG }}
           path: ./protobuf-sources/block-node-protobuf-*.tgz
           if-no-files-found: error
+          retention-days: 7
 
       - name: Generate Block-Stream-Tools Artifact
         run: |
@@ -296,6 +297,7 @@ jobs:
           name: block-stream-tools-${{ env.RELEASE_TAG }}
           path: ./tools-and-tests/tools/build/libs/block-stream-tools-${{ env.VERSION }}.jar
           if-no-files-found: error
+          retention-days: 7
 
   generate_notes:
     name: Generate Release Notes
@@ -340,6 +342,7 @@ jobs:
         continue-on-error: true
         run: |
           gh run download "${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
             --name "release-notes-${RELEASE_TAG}" \
             --dir .
         env:
@@ -353,6 +356,7 @@ jobs:
         continue-on-error: true
         run: |
           gh run download "${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
             --name "block-node-protobuf-${RELEASE_TAG}" \
             --dir ./protobuf-dl
         env:
@@ -363,6 +367,7 @@ jobs:
         continue-on-error: true
         run: |
           gh run download "${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
             --name "block-stream-tools-${RELEASE_TAG}" \
             --dir ./tools-dl
         env:
