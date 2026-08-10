@@ -416,6 +416,21 @@ events:
     args:
       script: "POLL_TIMEOUT=120 ${SCRIPT_DIR}/wrb-distribution/assert-bn-tss-data.sh 1"
 
+  # Diagnostic only (does not gate step 11 pass/fail) — added while root-causing
+  # assert-bn2-bn3-tss-data failures seen in CI where BN2/BN3's in-cluster
+  # calls to BN1 fail with "Socket closed" right after this restart, even
+  # though the external test runner's kubectl port-forward (which bypasses
+  # Service/Endpoints routing) still reaches BN1 fine. Runs after BN1 is
+  # confirmed up above, and before BN2/BN3's poll is asserted below, so its
+  # output captures the state of the world at the moment the failure occurs.
+  - id: diagnose-bn1-connectivity
+    type: command
+    description: "Probe whether block-node-1's Service/Endpoints are stale post-restart, or BN1 itself refuses in-cluster peer connections"
+    delay: 2165
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/diagnose-bn1-post-restart-connectivity.sh 2 3"
+
   - id: assert-bn2-bn3-tss-data
     type: command
     description: "Step 11.4: assert BN2 and BN3 'eventually' report the same TSS data (via roster-bootstrap-tss peer gossip from BN1)"
