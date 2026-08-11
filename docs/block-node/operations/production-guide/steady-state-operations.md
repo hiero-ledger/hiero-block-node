@@ -132,6 +132,22 @@ on-call contact provided at handoff.
 
 ---
 
+## Disk space alerting **[OPERATOR]**
+
+The `live` volume's retention policy is a fixed block-count cap
+(`files.recent.blockRetentionThreshold`), not a disk-size cap. If block sizes grow or the configured
+count is set too high for the provisioned volume, disk usage can reach 100% before the
+block-count cap is ever hit.
+
+There is no in-app metric for free disk space; it is host/volume-level, not something the
+Block Node process reports. Monitor it independently (e.g. `node_filesystem_avail_bytes`
+from node-exporter, or your platform's volume-usage metric for the `live` mount) and alert
+operators before the volume fills, for example when free space drops below 15%. Filling
+the `live` volume causes block writes to fail, which stalls ingestion until space is freed
+or the volume is expanded.
+
+---
+
 ## Related documentation
 
 - [Resetting and Upgrading the Block Node](../resetting-and-upgrading-the-block-node.md)
