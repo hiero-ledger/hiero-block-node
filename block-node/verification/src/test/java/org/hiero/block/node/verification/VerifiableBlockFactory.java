@@ -107,6 +107,14 @@ final class VerifiableBlockFactory {
                 outputHasher,
                 consensusHasher,
                 new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
                 new NaiveStreamingTreeHasher());
     }
 

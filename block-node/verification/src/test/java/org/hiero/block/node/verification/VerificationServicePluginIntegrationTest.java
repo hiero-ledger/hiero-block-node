@@ -68,7 +68,7 @@ import org.junit.jupiter.params.provider.EnumSource;
  * </pre>
  *
  * <p>The {@code .blk.gz} format is identical to the TSS block fixtures under
- * {@code test-blocks/CN_0_73_TSS_WRAPS/}: GZIP wrapping a protobuf-encoded {@link BlockUnparsed}.
+ * {@code test-blocks/CN_11_12_TSS_WRAPS/}: GZIP wrapping a protobuf-encoded {@link BlockUnparsed}.
  *
  * <p>The {@code address-book.json} file is the PBJ JSON serialisation of {@link NodeAddressBook}
  * whose {@code rsaPubKey} entries are hex-encoded X.509 {@code SubjectPublicKeyInfo} bytes (the

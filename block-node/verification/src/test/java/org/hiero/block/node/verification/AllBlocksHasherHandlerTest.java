@@ -227,7 +227,7 @@ class AllBlocksHasherHandlerTest {
                 .previousBlockRootHash(Bytes.wrap(Arrays.copyOf(previousBlockHash, previousBlockHash.length)))
                 .rootHashOfAllBlockHashesTree(
                         Bytes.wrap(Arrays.copyOf(rootHashOfAllBlockHashesTree, rootHashOfAllBlockHashesTree.length)))
-                .startOfBlockStateRootHash(Bytes.wrap(("state-" + blockNumber).getBytes()))
+                .startOfBlockStateRootHash(Bytes.EMPTY)
                 .build();
 
         StreamingTreeHasher emptyHasher = new NaiveStreamingTreeHasher();
@@ -240,12 +240,20 @@ class AllBlocksHasherHandlerTest {
                 header.blockTimestamp(),
                 Bytes.wrap(previousBlockHash),
                 Bytes.wrap(rootHashOfAllBlockHashesTree),
-                Bytes.wrap("state-" + blockNumber),
+                Bytes.EMPTY,
                 emptyHasher,
                 emptyHasher,
                 emptyHasher,
                 emptyHasher,
-                emptyHasher);
+                emptyHasher,
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher());
         Bytes blockProof = HashingUtilities.noThrowSha384HashOf(blockHash);
         final BlockProof proof = BlockProof.newBuilder()
                 .block(blockNumber)

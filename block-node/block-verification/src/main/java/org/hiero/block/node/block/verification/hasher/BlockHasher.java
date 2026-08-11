@@ -80,24 +80,25 @@ public final class BlockHasher implements Supplier<HashingResult> {
     private final NaiveStreamingTreeHasher traceDataHasher;
     /// Extension 0 subtree hasher, leaf position 9 of the fixed 16 leaf block root tree
     /// ("Merkle Mountain Top" in HIP-1424). The eight extension leaf positions (9 to 16) are
-    /// permanently defined in the tree; each hasher below is bound to its position. A hasher is
-    /// created when the block contains an item of the corresponding extension category, and a
-    /// null hasher means the leaf carries no data in this block, so it is excluded from the tree.
-    private NaiveStreamingTreeHasher extensionHasherZero;
+    /// permanently defined in the tree; each hasher below is bound to its position and is
+    /// always instantiated. An extension hasher with no items produces {@code EMPTY_TREE_HASH}
+    /// via the same fold as every other subtree, which is what its slot contributes to the
+    /// Merkle Mountain Top. See issue #3377.
+    private final NaiveStreamingTreeHasher extensionHasherZero;
     /// Extension 1 subtree hasher, leaf position 10. See [#extensionHasherZero].
-    private NaiveStreamingTreeHasher extensionHasherOne;
+    private final NaiveStreamingTreeHasher extensionHasherOne;
     /// Extension 2 subtree hasher, leaf position 11. See [#extensionHasherZero].
-    private NaiveStreamingTreeHasher extensionHasherTwo;
+    private final NaiveStreamingTreeHasher extensionHasherTwo;
     /// Extension 3 subtree hasher, leaf position 12. See [#extensionHasherZero].
-    private NaiveStreamingTreeHasher extensionHasherThree;
+    private final NaiveStreamingTreeHasher extensionHasherThree;
     /// Extension 4 subtree hasher, leaf position 13. See [#extensionHasherZero].
-    private NaiveStreamingTreeHasher extensionHasherFour;
+    private final NaiveStreamingTreeHasher extensionHasherFour;
     /// Extension 5 subtree hasher, leaf position 14. See [#extensionHasherZero].
-    private NaiveStreamingTreeHasher extensionHasherFive;
+    private final NaiveStreamingTreeHasher extensionHasherFive;
     /// Extension 6 subtree hasher, leaf position 15. See [#extensionHasherZero].
-    private NaiveStreamingTreeHasher extensionHasherSix;
+    private final NaiveStreamingTreeHasher extensionHasherSix;
     /// Extension 7 subtree hasher, leaf position 16. See [#extensionHasherZero].
-    private NaiveStreamingTreeHasher extensionHasherSeven;
+    private final NaiveStreamingTreeHasher extensionHasherSeven;
     /// Provider of the verification data, used to publish TSS data found in block 0.
     private final VerificationDataProvider verificationDataProvider;
     /// The parsed block header, set when the header item is seen.
@@ -143,6 +144,14 @@ public final class BlockHasher implements Supplier<HashingResult> {
         this.consensusHeaderHasher = new NaiveStreamingTreeHasher();
         this.stateChangesHasher = new NaiveStreamingTreeHasher();
         this.traceDataHasher = new NaiveStreamingTreeHasher();
+        this.extensionHasherZero = new NaiveStreamingTreeHasher();
+        this.extensionHasherOne = new NaiveStreamingTreeHasher();
+        this.extensionHasherTwo = new NaiveStreamingTreeHasher();
+        this.extensionHasherThree = new NaiveStreamingTreeHasher();
+        this.extensionHasherFour = new NaiveStreamingTreeHasher();
+        this.extensionHasherFive = new NaiveStreamingTreeHasher();
+        this.extensionHasherSix = new NaiveStreamingTreeHasher();
+        this.extensionHasherSeven = new NaiveStreamingTreeHasher();
     }
 
     /// This method keeps polling for block items received and dynamically hashes the items.
@@ -340,38 +349,14 @@ public final class BlockHasher implements Supplier<HashingResult> {
                     case 5 -> hashFutureItem(item, outputTreeHasher);
                     case 6 -> hashFutureItem(item, stateChangesHasher);
                     case 7 -> hashFutureItem(item, traceDataHasher);
-                    case 8 -> {
-                        extensionHasherZero = createIfNull(extensionHasherZero);
-                        yield hashFutureItem(item, extensionHasherZero);
-                    }
-                    case 9 -> {
-                        extensionHasherOne = createIfNull(extensionHasherOne);
-                        yield hashFutureItem(item, extensionHasherOne);
-                    }
-                    case 10 -> {
-                        extensionHasherTwo = createIfNull(extensionHasherTwo);
-                        yield hashFutureItem(item, extensionHasherTwo);
-                    }
-                    case 11 -> {
-                        extensionHasherThree = createIfNull(extensionHasherThree);
-                        yield hashFutureItem(item, extensionHasherThree);
-                    }
-                    case 12 -> {
-                        extensionHasherFour = createIfNull(extensionHasherFour);
-                        yield hashFutureItem(item, extensionHasherFour);
-                    }
-                    case 13 -> {
-                        extensionHasherFive = createIfNull(extensionHasherFive);
-                        yield hashFutureItem(item, extensionHasherFive);
-                    }
-                    case 14 -> {
-                        extensionHasherSix = createIfNull(extensionHasherSix);
-                        yield hashFutureItem(item, extensionHasherSix);
-                    }
-                    case 15 -> {
-                        extensionHasherSeven = createIfNull(extensionHasherSeven);
-                        yield hashFutureItem(item, extensionHasherSeven);
-                    }
+                    case 8 -> hashFutureItem(item, extensionHasherZero);
+                    case 9 -> hashFutureItem(item, extensionHasherOne);
+                    case 10 -> hashFutureItem(item, extensionHasherTwo);
+                    case 11 -> hashFutureItem(item, extensionHasherThree);
+                    case 12 -> hashFutureItem(item, extensionHasherFour);
+                    case 13 -> hashFutureItem(item, extensionHasherFive);
+                    case 14 -> hashFutureItem(item, extensionHasherSix);
+                    case 15 -> hashFutureItem(item, extensionHasherSeven);
                     // categories 16 to 18 are reserved with no subtree in the block root tree
                     case 16, 17, 18 -> {
                         // categories 16 to 18 are reserved with no subtree in the block root tree
@@ -397,32 +382,6 @@ public final class BlockHasher implements Supplier<HashingResult> {
 
     /// Returns the given extension subtree hasher, or a new one when it does not exist yet.
     /// @param hasher the current extension subtree hasher, or null when not yet created
-    /// @return the given hasher, or a new one when the given hasher is null
-    private static NaiveStreamingTreeHasher createIfNull(final NaiveStreamingTreeHasher hasher) {
-        final NaiveStreamingTreeHasher result;
-        if (hasher == null) {
-            result = new NaiveStreamingTreeHasher();
-        } else {
-            result = hasher;
-        }
-        return result;
-    }
-
-    /// Returns the root hash of the given extension subtree hasher, or null when the hasher was
-    /// never created, meaning the corresponding leaf of the block root tree carries no data in
-    /// this block.
-    /// @param hasher the extension subtree hasher, or null when never created
-    /// @return the root hash of the subtree, or null when the hasher is null
-    private static byte[] extensionSubtreeRoot(final NaiveStreamingTreeHasher hasher) {
-        final byte[] root;
-        if (hasher == null) {
-            root = null;
-        } else {
-            root = hasher.rootHash().join().toByteArray();
-        }
-        return root;
-    }
-
     /// Finish the hashing operation.
     /// This method will finalize the hashing process. Root hash will be calculated and
     /// a [HashingResult] will be returned.
@@ -448,14 +407,14 @@ public final class BlockHasher implements Supplier<HashingResult> {
                         consensusHeaderHasher,
                         stateChangesHasher,
                         traceDataHasher,
-                        extensionSubtreeRoot(extensionHasherZero),
-                        extensionSubtreeRoot(extensionHasherOne),
-                        extensionSubtreeRoot(extensionHasherTwo),
-                        extensionSubtreeRoot(extensionHasherThree),
-                        extensionSubtreeRoot(extensionHasherFour),
-                        extensionSubtreeRoot(extensionHasherFive),
-                        extensionSubtreeRoot(extensionHasherSix),
-                        extensionSubtreeRoot(extensionHasherSeven));
+                        extensionHasherZero,
+                        extensionHasherOne,
+                        extensionHasherTwo,
+                        extensionHasherThree,
+                        extensionHasherFour,
+                        extensionHasherFive,
+                        extensionHasherSix,
+                        extensionHasherSeven);
                 final BlockUnparsed block = BlockUnparsed.newBuilder()
                         .blockItems(accumulatedBlockItems)
                         .build();

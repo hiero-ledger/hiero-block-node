@@ -126,10 +126,13 @@ public final class TestBlockBuilder {
     }
 
     public static BlockFooter createFooter(final long blockNumber) {
+        // Slot 0 (previousBlockRootHash) and slot 1 (rootHashOfAllBlockHashesTree) MUST be
+        // exactly 48 bytes (SHA-384). Zero-filled placeholders satisfy the length guard while
+        // remaining deterministic. Slot 2 (startOfBlockStateRootHash) may be empty per HIP-1424.
         return BlockFooter.newBuilder()
-                .previousBlockRootHash(Bytes.wrap("previous_block_root_hash".getBytes()))
-                .rootHashOfAllBlockHashesTree(Bytes.wrap("root_hash_of_all_blocks".getBytes()))
-                .startOfBlockStateRootHash(Bytes.wrap("start_block_state_root_hash".getBytes()))
+                .previousBlockRootHash(Bytes.wrap(new byte[48]))
+                .rootHashOfAllBlockHashesTree(Bytes.wrap(new byte[48]))
+                .startOfBlockStateRootHash(Bytes.wrap(new byte[48]))
                 .build();
     }
 

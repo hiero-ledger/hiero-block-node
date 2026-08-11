@@ -356,7 +356,15 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                         outputTreeHasher,
                         consensusHeaderHasher,
                         stateChangesHasher,
-                        traceDataHasher)
+                        traceDataHasher,
+                        new NaiveStreamingTreeHasher(),
+                        new NaiveStreamingTreeHasher(),
+                        new NaiveStreamingTreeHasher(),
+                        new NaiveStreamingTreeHasher(),
+                        new NaiveStreamingTreeHasher(),
+                        new NaiveStreamingTreeHasher(),
+                        new NaiveStreamingTreeHasher(),
+                        new NaiveStreamingTreeHasher())
                 .toByteArray();
     }
 

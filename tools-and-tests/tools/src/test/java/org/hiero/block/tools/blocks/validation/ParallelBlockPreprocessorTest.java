@@ -44,8 +44,8 @@ class ParallelBlockPreprocessorTest {
             BlockItem.newBuilder().recordFile(RecordFileItem.DEFAULT).build();
     private static final BlockItem FOOTER_ITEM = BlockItem.newBuilder()
             .blockFooter(BlockFooter.newBuilder()
-                    .previousBlockRootHash(Bytes.EMPTY)
-                    .rootHashOfAllBlockHashesTree(Bytes.EMPTY)
+                    .previousBlockRootHash(Bytes.wrap(new byte[48]))
+                    .rootHashOfAllBlockHashesTree(Bytes.wrap(new byte[48]))
                     .startOfBlockStateRootHash(Bytes.EMPTY)
                     .build())
             .build();

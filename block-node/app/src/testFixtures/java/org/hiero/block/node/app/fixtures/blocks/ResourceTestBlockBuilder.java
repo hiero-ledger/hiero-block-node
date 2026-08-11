@@ -42,39 +42,39 @@ public class ResourceTestBlockBuilder {
     public enum WRAPS implements ResourceBlock {
         /// Genesis block — bootstraps TSS parameters and ledger ID.
         BLOCK_0(
-                "CN_0_73_TSS_WRAPS/0.blk.gz",
-                "3de47629fe289fc7c4c6757b78c90d5ae41dae532d252512854d7db16dd06715adb34ca54c33561f58a4661c2394849f",
+                "CN_11_12_TSS_WRAPS/0.blk.gz",
+                "3c421aac698b04fccdd46acad435125ea53af91fe404e787c8ccf4c23a11aa69190468ea1dd797af11d75335f4840749",
                 0),
         /// Sequential block 1 (pre-settled Schnorr signature).
         BLOCK_1(
-                "CN_0_73_TSS_WRAPS/1.blk.gz",
-                "a08777a11f74ec6c572c0bb72edff5f5ca9830f0cc4738534960ce2167ca46d58ddffc8f52c398170865d7526f96486b",
+                "CN_11_12_TSS_WRAPS/1.blk.gz",
+                "832ec52cfbb467c8d1373afefe682b27132c31ebaf4846fbb6e437c582ce09ea2a59c1d7aadc26827e969efc79a45c89",
                 1),
         /// Sequential block 2 (pre-settled Schnorr signature).
         BLOCK_2(
-                "CN_0_73_TSS_WRAPS/2.blk.gz",
-                "faa4dd0e83e9db4861833a574187d9c538006e33a63cdd25c0f907da317720b21d79ac80952519ea87ef765153051c34",
+                "CN_11_12_TSS_WRAPS/2.blk.gz",
+                "cb1c9b37ed6ae0f34b771f9f7692f266a1f77f7caf14669f359373137cc7986f0aef9ad17e8a63303c8b5e08423dc407",
                 2),
         /// Sequential block 3 (pre-settled Schnorr signature).
         BLOCK_3(
-                "CN_0_73_TSS_WRAPS/3.blk.gz",
-                "7e06bd1f69e149e3e04e7ee57f723edcab0a84283d0c592ca184d75dedd86aec5eaf61e50b4379adb4a4c90296f73a9b",
+                "CN_11_12_TSS_WRAPS/3.blk.gz",
+                "61d26789479764f622932348931833d2dda482bbf3f798e727e31bb50fecd76db894c256b1ebb11516413e3d08777cfd",
                 3),
         /// Sequential block 4 (pre-settled Schnorr signature).
         BLOCK_4(
-                "CN_0_73_TSS_WRAPS/4.blk.gz",
-                "83181d7d40842495c6bf9a19a5fc93dea992dae4dd95e669e6f4a4bcbf4dcc64fdce15d6b725b8db5ea9f58459ba8919",
+                "CN_11_12_TSS_WRAPS/4.blk.gz",
+                "a6d563cf11b04e5884958223169cbdd080f27425628584db76b0447982e869ebac08e9f8ecaa03d6b8aa225e8e188eb4",
                 4),
-        /// Transition block — first block with WRAPS signature (Schnorr to Wraps transition, oversized ~13MB).
-        BLOCK_466(
-                "CN_0_73_TSS_WRAPS/466.blk.gz",
-                "ad532f179da5abfc1f982a2a1dbc3d5c0c2e27b47126d559356a03fb656f81c862b3030ba13e1a98242e6390756d9c14",
-                466),
+        /// Transition block — first block with WRAPS signature (Schnorr to WRAPS transition).
+        BLOCK_322(
+                "CN_11_12_TSS_WRAPS/322.blk.gz",
+                "15c9a3e7d027c112e3378a1a66277e5b1e3d9b1aa4ec67749ad3ef0e4d99859e0784672c8c5f838717a5da8e6fcbf67f",
+                322),
         /// Post-settled block — has WRAPS signature (settled TSS).
-        BLOCK_467(
-                "CN_0_73_TSS_WRAPS/467.blk.gz",
-                "a7986473fa0a42a55a74f04eca352ec7cb6dc3715375500c141f01b1eae01c466f1fc88bd67bf84c84ab80c58fd1918e",
-                467);
+        BLOCK_391(
+                "CN_11_12_TSS_WRAPS/391.blk.gz",
+                "b850faadc920c095b77523520803a99c1387ebaeeb2a150aa3381b68ccfb58bf35ff8d5ade56b7313ad9f40baca1103e",
+                391);
         private final String resourceName;
         private final Bytes blockRootHash;
         private final long blockNumber;
@@ -109,27 +109,27 @@ public class ResourceTestBlockBuilder {
         /// Solo-network genesis WRB block — the only one in this batch containing tss-init metadata.
         SOLO_4N_BLOCK_0(
                 "WRB/SOLO_4N/0.blk.gz",
-                "52ad6e3386c1ba1c976cb0c1abd348becefaf3541fc0bb7ea5d4fa19dbe596d16cbbb4899328081b0eec6d88befb1340",
+                "cc2c7c849e9863458d2deb779dcca9563bec6ef4943b5709d8623803af78f9372d5e38ce8f9ae594fedc74909aece65d",
                 0,
                 "SOLO_4N"),
         SOLO_4N_BLOCK_1(
                 "WRB/SOLO_4N/1.blk.gz",
-                "8b420d35ba2f564444fcea007a6b74a3f3564c2da670ef059fa51f2e54397db8716803222abf0f3dce9f8b66218c6705",
+                "8b70cecb8deabc57acb12fa8696bcc27e696b7b1ede3febc2e3f0aaeef422bd55a043b319f326cbecbd886852f392b7a",
                 1,
                 "SOLO_4N"),
         SOLO_4N_BLOCK_2(
                 "WRB/SOLO_4N/2.blk.gz",
-                "a35667c3417ea24fcd1aeb7272d6094bc8a3d2b2ed04ee1cb7050bede41e29231eeb12b74cc85e4ba04a63bbc1ff04ff",
+                "6cfb9066c335aebe27563d8b7ffc2fae0baad4898880e82753827a9147b3b63455bc5fc7b794adeda0810198d717ee30",
                 2,
                 "SOLO_4N"),
         SOLO_4N_BLOCK_3(
                 "WRB/SOLO_4N/3.blk.gz",
-                "19b193e72f90d86bd3b848e17208a08567114f09d19479c1b43231751b238db99d0547b484469183948192216da3eb25",
+                "6204e2c36e154b152d43e9e5322346ef4691080d70bb589c8609bef12f63e4ccc1cfa386a27ab66a16c80679f368ac9f",
                 3,
                 "SOLO_4N"),
         SOLO_4N_BLOCK_4(
                 "WRB/SOLO_4N/4.blk.gz",
-                "dcf7b335327e738b7cb98461af62f42c56b76b0b51be363f340f1edd22362eeb5eba93522f433113586bc8be4720dbd6",
+                "32806f4d9977cf41ba2750e9b4254545c19870ff01a1783654b50429b201f2a310bae9cc549821f263935454de88bc43",
                 4,
                 "SOLO_4N");
         private final String resourceName;
@@ -177,34 +177,40 @@ public class ResourceTestBlockBuilder {
     }
 
     /// Sample blocks containing state proofs from a hapiTestWraps capture with Schnorr TSS signatures.
-    /// Every 4th block (0, 4, ...) is directly signed; blocks in between have state proofs.
-    /// Block 0 contains LedgerIdPublicationTransactionBody for TSS initialization.
+    /// Every 5th block (0, 5, ...) is directly signed with Schnorr; blocks in between carry
+    /// state proofs referencing the next signed block. Block 0 contains
+    /// LedgerIdPublicationTransactionBody for TSS initialization.
     public enum StateProof implements ResourceBlock {
         /// Genesis block — bootstraps TSS parameters and ledger ID. Direct Schnorr proof.
         BLOCK_0(
-                "CN_0_77_TSS_SCHNORR/0.blk.gz",
-                "bfeea5194985638c8dfd3fd56ef8627ff65982fae48a2f4c29eda4accd400b5d2c0414a8496770de531903b7d781522d",
+                "CN_11_12_TSS_SCHNORR/0.blk.gz",
+                "85d7117a94f091156a97e1f94fb11b640c12431527106e50aa7ce8e4e02af287f3f28591dc43d4c3942a67e7064e4148",
                 0),
-        /// Indirect proof — 3-gap state proof (15 siblings), references signed block 4.
+        /// Indirect proof — 4-gap state proof, references signed block 5.
         BLOCK_1(
-                "CN_0_77_TSS_SCHNORR/1.blk.gz",
-                "e2c09c05295e4e73133e7d59b8374aab9f274d0a5dfb0d5e5e9a76487cf71443b56525664cf044f3a893145744067f86",
+                "CN_11_12_TSS_SCHNORR/1.blk.gz",
+                "9799848eff3420617d5c2eb8e092f903bde6de8662887105f3bd17363d7c1cd3629814f9fc58a9d8f5e1e6ed3fdd53c1",
                 1),
-        /// Indirect proof — 2-gap state proof (11 siblings), references signed block 4.
+        /// Indirect proof — 3-gap state proof, references signed block 5.
         BLOCK_2(
-                "CN_0_77_TSS_SCHNORR/2.blk.gz",
-                "9d25ef1473fe5665ff1c8ac1ceab8f0d77c5d0e5030cf93980ea8dcef21fa73be0bdd5f0deb0fe2d5e5658ad30a50b64",
+                "CN_11_12_TSS_SCHNORR/2.blk.gz",
+                "0facbf0e5d94d4576635796c6be83f2d16203e6be633e475b70942f2b22c880944c156e1badcd27be96ffc7ee7b7e194",
                 2),
-        /// Indirect proof — 1-gap state proof (7 siblings), references signed block 4.
+        /// Indirect proof — 2-gap state proof, references signed block 5.
         BLOCK_3(
-                "CN_0_77_TSS_SCHNORR/3.blk.gz",
-                "8ced3ee04edad4c4eae5955523c9f00cc3c6712a47491bd8521d43a67ff3ebacbced21bf45dd31de3128ecdb1ac6db36",
+                "CN_11_12_TSS_SCHNORR/3.blk.gz",
+                "9d1ac9ba0c57558ab99691f97414d19698e068ff6d600502c3896fccfe3f58c261515f00dc3c116107961385be9f8eec",
                 3),
-        /// Direct Schnorr TSS proof — the signed block referenced by blocks 1-3.
+        /// Indirect proof — 1-gap state proof, references signed block 5.
         BLOCK_4(
-                "CN_0_77_TSS_SCHNORR/4.blk.gz",
-                "5a6dda11d4d05184a1eda31db0c9a798ff465c7f551f6454f2bd739ee8e141539652170a737b21d7bfef31bbb86ce54a",
-                4);
+                "CN_11_12_TSS_SCHNORR/4.blk.gz",
+                "e313796875ef100613684c0ee4ef1a80a13b73aa9c97f5f9592f9b9a25c798b33e36e397fa0e1456b17cee2155b8d7ac",
+                4),
+        /// Direct Schnorr TSS proof — the signed block referenced by blocks 1-4.
+        BLOCK_5(
+                "CN_11_12_TSS_SCHNORR/5.blk.gz",
+                "1c417b370965dd85e274b568694d0a5b3325b39f619a840df0161339864a30e389ba3aec4c7763236d2f4c505d031921",
+                5);
         private final String resourceName;
         private final Bytes blockRootHash;
         private final long blockNumber;

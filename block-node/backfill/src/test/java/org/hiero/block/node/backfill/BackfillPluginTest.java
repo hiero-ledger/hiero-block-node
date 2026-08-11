@@ -770,16 +770,18 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     }
 
     @Test
-    @DisplayName("On-Demand Backfill - TSS Wraps Transition Block (466)")
+    @DisplayName("On-Demand Backfill - TSS WRAPS Transition Block")
     void testBackfillOnDemandTssWrapsBlock() throws InterruptedException, IOException, ParseException {
         final BlockUtils.SampleBlockInfo tssBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_466);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_322);
+        final long tssBlockNumber = tssBlockInfo.blockNumber();
+        final long previousBlockNumber = tssBlockNumber - 1;
 
-        // Server has block 465 (synthetic) and block 466 (TSS Wraps transition)
-        final SimpleInMemoryHistoricalBlockFacility serverFacility = getHistoricalBlockFacility(465, 465);
+        // Server has the previous block (synthetic) and the TSS WRAPS transition block
+        final SimpleInMemoryHistoricalBlockFacility serverFacility =
+                getHistoricalBlockFacility(previousBlockNumber, previousBlockNumber);
         serverFacility.handleBlockItemsReceived(
-                new BlockItems(tssBlockInfo.blockUnparsed().blockItems(), tssBlockInfo.blockNumber(), true, true),
-                false);
+                new BlockItems(tssBlockInfo.blockUnparsed().blockItems(), tssBlockNumber, true, true), false);
 
         final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, serverFacility);
         testBlockNodeServers.add(mockServer);
@@ -797,15 +799,16 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .backfillSourcePath(backfillSourcePath)
                 .build();
 
-        // Local has only block 465 — block 466 is the gap
-        final SimpleInMemoryHistoricalBlockFacility localFacility = getHistoricalBlockFacility(465, 465);
+        // Local has only the previous block — the TSS WRAPS transition block is the gap
+        final SimpleInMemoryHistoricalBlockFacility localFacility =
+                getHistoricalBlockFacility(previousBlockNumber, previousBlockNumber);
         start(new BackfillPlugin(), localFacility, configOverride);
 
         CountDownLatch countDownLatch = new CountDownLatch(1);
         registerDefaultTestBackfillHandler();
         registerDefaultTestVerificationHandler(countDownLatch);
 
-        blockMessaging.sendNewestBlockKnownToNetwork(new NewestBlockKnownToNetworkNotification(466L));
+        blockMessaging.sendNewestBlockKnownToNetwork(new NewestBlockKnownToNetworkNotification(tssBlockNumber));
 
         countDownLatch.await(1, TimeUnit.MINUTES);
 

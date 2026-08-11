@@ -367,7 +367,7 @@ class VerificationServicePluginTest
     @DisplayName("should bootstrap TSS parameters from persisted file at startup")
     void shouldBootstrapTssParametersFromFile() throws IOException, ParseException {
         // Process block 0 to get a real LedgerIdPublicationTransactionBody
-        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
+        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
         blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
         LedgerIdPublicationTransactionBody publication = VerificationServicePlugin.activeTssPublication;
         assertNotNull(publication, "Block 0 must produce a TSS publication");
@@ -410,7 +410,7 @@ class VerificationServicePluginTest
         assertNull(VerificationServicePlugin.activeLedgerId, "activeLedgerId must be null before block 0");
         assertFalse(Files.exists(tssParametersFile), "TSS parameters file must not exist before block 0");
 
-        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
+        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
         blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
 
         assertNotNull(VerificationServicePlugin.activeLedgerId, "activeLedgerId must be set after block 0");
@@ -431,7 +431,7 @@ class VerificationServicePluginTest
     @DisplayName("should not overwrite file-loaded TSS parameters when block 0 is received (first-write-wins)")
     void shouldNotOverwriteFileLoadedTssParameters() throws IOException, ParseException {
         // Process block 0 to get a real publication
-        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
+        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
         blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
         Bytes originalLedgerId = VerificationServicePlugin.activeLedgerId;
         assertNotNull(originalLedgerId, "Block 0 must set ledger ID");
@@ -510,7 +510,7 @@ class VerificationServicePluginTest
         final SemanticVersion swVersion = new SemanticVersion(1, 0, 0, "", "");
         final BlockHeader header = new BlockHeader(
                 hapiVersion, swVersion, blockNumber, new Timestamp(1_700_000_000L, 0), BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        final BlockFooter footer = new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.EMPTY);
         final BlockProof proof = BlockProof.newBuilder()
                 .block(blockNumber)
                 .signedRecordFileProof(
@@ -627,7 +627,7 @@ class VerificationServicePluginTest
         final SemanticVersion swVersion = new SemanticVersion(1, 0, 0, "", "");
         final BlockHeader header = new BlockHeader(
                 hapiVersion, swVersion, blockNumber, new Timestamp(1_700_000_000L, 0), BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        final BlockFooter footer = new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.EMPTY);
         final BlockProof proof = BlockProof.newBuilder()
                 .block(blockNumber)
                 .signedRecordFileProof(
@@ -674,7 +674,7 @@ class VerificationServicePluginTest
         final SemanticVersion swVersion = new SemanticVersion(1, 0, 0, "", "");
         final BlockHeader header = new BlockHeader(
                 hapiVersion, swVersion, blockNumber, new Timestamp(1_700_000_000L, 0), BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        final BlockFooter footer = new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.EMPTY);
         // The signature content is irrelevant — the block will be rejected before signature verification.
         final BlockProof proof = BlockProof.newBuilder()
                 .block(blockNumber)
@@ -771,7 +771,7 @@ class VerificationServicePluginTest
         final SemanticVersion swVersion = new SemanticVersion(1, 0, 0, "", "");
         final BlockHeader header = new BlockHeader(
                 hapiVersion, swVersion, blockNumber, new Timestamp(1_700_000_000L, 0), BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        final BlockFooter footer = new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.EMPTY);
         final BlockProof proof = BlockProof.newBuilder()
                 .block(blockNumber)
                 .signedRecordFileProof(
@@ -805,8 +805,8 @@ class VerificationServicePluginTest
     @Test
     @DisplayName("TSS flow: block 0 bootstraps TSS state, subsequent block verifies with TSS")
     void tssFlowBlock0ThenSubsequentBlock() throws IOException, ParseException {
-        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
-        BlockUnparsed tssBlockN = loadTssBlock("test-blocks/CN_0_73_TSS_WRAPS/467.blk.gz");
+        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
+        BlockUnparsed tssBlockN = loadTssBlock("test-blocks/CN_11_12_TSS_WRAPS/391.blk.gz");
         long blockNNumber = standardParse(
                         BlockHeader.PROTOBUF, tssBlockN.blockItems().getFirst().blockHeaderOrThrow())
                 .number();

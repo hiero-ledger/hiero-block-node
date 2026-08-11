@@ -54,7 +54,8 @@ public class DummyVerificationSession implements VerificationSession {
         LOGGER.log(TRACE, "Processed {0} block items for block {1}", blockItems.size(), blockNumber);
         if (blockItemsMessage.isEndOfBlock()) {
             block = BlockUnparsed.newBuilder().blockItems(this.blockItems).build();
-            blockHash = Bytes.wrap("0x00");
+            // 48-byte placeholder — a downstream length guard rejects short values.
+            blockHash = Bytes.wrap(new byte[48]);
             LOGGER.log(TRACE, "Returning always True verification notification for block {0}", blockNumber);
             return new VerificationNotification(true, null, blockNumber, blockHash, block, blockSource);
         }
