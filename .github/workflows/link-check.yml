@@ -18,8 +18,27 @@ permissions:
   contents: read
 
 jobs:
+  setup-lychee:
+    name: Setup lychee
+    runs-on: hl-bn-lin-md
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Install lychee (if not present)
+        run: |
+          if ! command -v lychee &>/dev/null; then
+            curl -sLO https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-musl.tar.gz
+            tar -xzf lychee-x86_64-unknown-linux-musl.tar.gz --strip-components=1 lychee-x86_64-unknown-linux-musl/lychee
+            chmod +x lychee
+            sudo mv lychee /usr/local/bin/lychee
+          fi
+
   internal-links:
     name: Internal links
+    needs: setup-lychee
     if: github.event_name != 'schedule'
     runs-on: hl-bn-lin-md
     steps:
@@ -32,17 +51,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check internal links
-        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
-        with:
-          args: >-
-            --config .lychee.toml
-            --offline
-            --no-progress
-            'docs/**/*.md'
-          fail: true
+        run: lychee --config .lychee.toml --offline --no-progress 'docs/**/*.md'
 
   external-links:
     name: External links (advisory)
+    needs: setup-lychee
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: hl-bn-lin-md
     continue-on-error: true
@@ -56,10 +69,4 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check external links
-        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
-        with:
-          args: >-
-            --config .lychee.toml
-            --no-progress
-            'docs/**/*.md'
-          fail: true
+        run: lychee --config .lychee.toml --no-progress 'docs/**/*.md'
