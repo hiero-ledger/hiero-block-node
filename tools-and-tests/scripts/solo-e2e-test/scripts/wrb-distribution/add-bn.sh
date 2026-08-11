@@ -106,10 +106,15 @@ grpc_port=$((40839 + bn_index))
 log "Establishing kubectl port-forwards for ${bn_name} (grpc :${grpc_port}, metrics :${metrics_port})..."
 pf_log_dir="${TMPDIR:-/tmp}/wrb-dist-add-bn-pf"
 mkdir -p "${pf_log_dir}"
-nohup setsid kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+# setsid isn't available on macOS (it's a util-linux tool); fall back to plain
+# nohup there — the port-forwards still get backgrounded and survive the
+# parent shell exiting, just without their own process group.
+setsid_prefix=""
+command -v setsid >/dev/null 2>&1 && setsid_prefix="setsid"
+nohup ${setsid_prefix} kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
     port-forward "svc/${bn_name}" "${grpc_port}:40840" \
     >"${pf_log_dir}/${bn_name}-grpc.log" 2>&1 </dev/null &
-nohup setsid kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+nohup ${setsid_prefix} kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
     port-forward "svc/${bn_name}" "${metrics_port}:16007" \
     >"${pf_log_dir}/${bn_name}-metrics.log" 2>&1 </dev/null &
 # Give kubectl a moment to establish the tunnel before add-bn.sh exits.

@@ -91,10 +91,15 @@ sleep 1
 
 pf_log_dir="${TMPDIR:-/tmp}/wrb-dist-add-bn-pf"
 mkdir -p "${pf_log_dir}"
-nohup setsid kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+# setsid isn't available on macOS (it's a util-linux tool); fall back to plain
+# nohup there — the port-forwards still get backgrounded and survive the
+# parent shell exiting, just without their own process group.
+setsid_prefix=""
+command -v setsid >/dev/null 2>&1 && setsid_prefix="setsid"
+nohup ${setsid_prefix} kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
     port-forward svc/block-node-1 "${BN1_GRPC_PORT}:40840" \
     >"${pf_log_dir}/block-node-1-grpc.log" 2>&1 </dev/null &
-nohup setsid kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+nohup ${setsid_prefix} kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
     port-forward svc/block-node-1 "${BN1_METRICS_PORT}:16007" \
     >"${pf_log_dir}/block-node-1-metrics.log" 2>&1 </dev/null &
 wait_for_port_forward "${pf_log_dir}/block-node-1-grpc.log" "block-node-1 grpc"
