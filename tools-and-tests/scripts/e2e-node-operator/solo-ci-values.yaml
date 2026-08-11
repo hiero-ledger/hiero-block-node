@@ -30,7 +30,7 @@ resources:
 
 blockNode:
   config:
-    # Real verification against the real fixture blocks (CN_0_73_TSS_WRAPS), whose chain starts at
+    # Real verification against the real fixture blocks (CN_11_12_TSS_WRAPS), whose chain starts at
     # block 0 with the embedded TSS bootstrap. JAVA_OPTS sized for the kind envelope; SERVER_PORT
     # inherits the chart default.
     JAVA_OPTS: "-Xms1G -Xmx2G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/dump.hprof"

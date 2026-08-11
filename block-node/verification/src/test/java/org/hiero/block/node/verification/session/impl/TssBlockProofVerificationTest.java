@@ -44,8 +44,8 @@ class TssBlockProofVerificationTest {
 
     @BeforeAll
     static void setUp() throws IOException, ParseException {
-        wrapsBlock0 = loadBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
-        wrapsBlock467 = loadBlock("test-blocks/CN_0_73_TSS_WRAPS/467.blk.gz");
+        wrapsBlock0 = loadBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
+        wrapsBlock467 = loadBlock("test-blocks/CN_11_12_TSS_WRAPS/391.blk.gz");
     }
 
     @BeforeEach

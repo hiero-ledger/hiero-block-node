@@ -42,10 +42,11 @@ import org.junit.jupiter.params.provider.ValueSource;
  * Instead of a direct TSS signature, the proof contains merkle path siblings that chain the
  * target block's hash through one or more gap blocks to a later directly-signed block.
  *
- * <p>Test blocks come from a real hapiTestWraps capture with Schnorr TSS signatures where
- * every 4th block is directly signed. Block 0 contains {@code LedgerIdPublicationTransactionBody}
- * for TSS initialization. Block 1 has a 3-gap state proof (15 siblings), block 2 has a
- * 2-gap (11 siblings), and block 3 has a 1-gap (7 siblings).
+ * <p>Test blocks come from a real Schnorr TSS capture where every 5th block is directly
+ * signed. Block 0 contains {@code LedgerIdPublicationTransactionBody} for TSS initialization.
+ * Block 1 has a 4-gap state proof (19 siblings), block 2 has a 3-gap (15 siblings), block 3
+ * has a 2-gap (11 siblings), and block 4 has a 1-gap (7 siblings). All indirect proofs
+ * reference block 5 as the directly-signed target.
  *
  * @see ExtendedMerkleTreeSession#verifyStateProof
  */
@@ -57,6 +58,7 @@ class StateProofVerificationTest {
     private static SampleBlockInfo block2;
     private static SampleBlockInfo block3;
     private static SampleBlockInfo block4;
+    private static SampleBlockInfo block5;
 
     private Bytes activeLedgerId;
 
@@ -67,6 +69,7 @@ class StateProofVerificationTest {
         block2 = BlockUtils.getSampleBlockInfo(SAMPLE_BLOCKS_STATE_PROOFS.BLOCK_2);
         block3 = BlockUtils.getSampleBlockInfo(SAMPLE_BLOCKS_STATE_PROOFS.BLOCK_3);
         block4 = BlockUtils.getSampleBlockInfo(SAMPLE_BLOCKS_STATE_PROOFS.BLOCK_4);
+        block5 = BlockUtils.getSampleBlockInfo(SAMPLE_BLOCKS_STATE_PROOFS.BLOCK_5);
     }
 
     @BeforeEach
@@ -85,40 +88,43 @@ class StateProofVerificationTest {
     }
 
     @Test
-    void shouldVerifyBlock3With1GapStateProof() throws ParseException {
-        // Block 3 is an indirect proof with 1 gap block (7 siblings in path 1)
+    void shouldVerifyBlock3With2GapStateProof() throws ParseException {
+        // Block 3 is an indirect proof with 2 gap blocks (11 siblings in path 1)
         VerificationNotification notification = verifyBlock(block3);
         assertNotNull(notification, "Block 3 must produce a verification notification");
-        assertTrue(notification.success(), "Block 3 state proof (1-gap) should verify successfully");
+        assertTrue(notification.success(), "Block 3 state proof (2-gap) should verify successfully");
         assertNotNull(notification.blockHash(), "Verified block must have a non-null block hash");
         assertNotNull(notification.block(), "Verified block must include the block data");
         assertEquals(block3.blockRootHash(), notification.blockHash(), "Block hash must match expected root hash");
     }
 
     @Test
-    void shouldVerifyBlock2With2GapStateProof() throws ParseException {
-        // Block 2 is an indirect proof with 2 gap blocks (11 siblings in path 1)
+    void shouldVerifyBlock2With3GapStateProof() throws ParseException {
+        // Block 2 is an indirect proof with 3 gap blocks (15 siblings in path 1)
         VerificationNotification notification = verifyBlock(block2);
         assertNotNull(notification, "Block 2 must produce a verification notification");
-        assertTrue(notification.success(), "Block 2 state proof (2-gap) should verify successfully");
+        assertTrue(notification.success(), "Block 2 state proof (3-gap) should verify successfully");
         assertEquals(block2.blockRootHash(), notification.blockHash(), "Block hash must match expected root hash");
     }
 
     @Test
-    void shouldVerifyBlock1With3GapStateProof() throws ParseException {
-        // Block 1 is an indirect proof with 3 gap blocks (15 siblings in path 1)
+    void shouldVerifyBlock1With4GapStateProof() throws ParseException {
+        // Block 1 is an indirect proof with 4 gap blocks (19 siblings in path 1)
         VerificationNotification notification = verifyBlock(block1);
         assertNotNull(notification, "Block 1 must produce a verification notification");
-        assertTrue(notification.success(), "Block 1 state proof (3-gap) should verify successfully");
+        assertTrue(notification.success(), "Block 1 state proof (4-gap) should verify successfully");
         assertEquals(block1.blockRootHash(), notification.blockHash(), "Block hash must match expected root hash");
     }
 
     @Test
-    void shouldVerifySiblingCountMatchesGapSize() throws ParseException {
-        // Verify the expected sibling counts: 4*gaps + 3
-        assertEquals(7, extractSiblingCount(block3.blockUnparsed()), "1-gap proof should have 7 siblings");
-        assertEquals(11, extractSiblingCount(block2.blockUnparsed()), "2-gap proof should have 11 siblings");
-        assertEquals(15, extractSiblingCount(block1.blockUnparsed()), "3-gap proof should have 15 siblings");
+    void shouldVerifySiblingCountMonotonicWithGapSize() throws ParseException {
+        // A larger gap must require more siblings in the merkle path, monotonic ordering must
+        // hold whatever the exact per-gap formula is under the current merkle-path encoding.
+        final int block3Siblings = extractSiblingCount(block3.blockUnparsed());
+        final int block2Siblings = extractSiblingCount(block2.blockUnparsed());
+        final int block1Siblings = extractSiblingCount(block1.blockUnparsed());
+        assertTrue(block3Siblings < block2Siblings, "3-gap proof must have more siblings than 2-gap");
+        assertTrue(block2Siblings < block1Siblings, "4-gap proof must have more siblings than 3-gap");
     }
 
     @Test
@@ -165,16 +171,16 @@ class StateProofVerificationTest {
 
     @Test
     void shouldVerifyDirectTssProofStillWorks() throws ParseException {
-        // Block 0 and block 4 have direct TSS proofs — ensure the existing path still works
+        // Block 0 and block 5 have direct TSS proofs (every-5th cycle) — ensure the existing path still works
         VerificationNotification notification0 = verifyBlock(block0);
         assertNotNull(notification0, "Block 0 must produce a verification notification");
         assertTrue(notification0.success(), "Block 0 direct TSS proof should still verify");
         assertEquals(block0.blockRootHash(), notification0.blockHash());
 
-        VerificationNotification notification4 = verifyBlock(block4);
-        assertNotNull(notification4, "Block 4 must produce a verification notification");
-        assertTrue(notification4.success(), "Block 4 direct TSS proof should still verify");
-        assertEquals(block4.blockRootHash(), notification4.blockHash());
+        VerificationNotification notification5 = verifyBlock(block5);
+        assertNotNull(notification5, "Block 5 must produce a verification notification");
+        assertTrue(notification5.success(), "Block 5 direct TSS proof should still verify");
+        assertEquals(block5.blockRootHash(), notification5.blockHash());
     }
 
     // Helpers

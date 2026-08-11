@@ -919,27 +919,25 @@ class BlockHasherTest {
                             "Unsupported item type: " + item.item().kind());
             }
         }
-        final byte[] leftHalf = refNode(
-                refNode(
-                        refNode(
-                                footer.previousBlockRootHash().toByteArray(),
-                                footer.rootHashOfAllBlockHashesTree().toByteArray()),
-                        refNode(footer.startOfBlockStateRootHash().toByteArray(), refStreamingRoot(consensusLeaves))),
-                refNode(
-                        refNode(refStreamingRoot(inputLeaves), refStreamingRoot(outputLeaves)),
-                        refNode(refStreamingRoot(stateChangesLeaves), refStreamingRoot(traceLeaves))));
-        final byte[][] extensionRoots = new byte[8][];
+        // Merkle Mountain Top: always feed all 16 leaves in fixed positional order.
+        // Absent state root and empty subtrees contribute EMPTY_TREE_HASH (SHA-384(0x00)).
+        final byte[] emptyTreeHash = refSha384(new byte[] {0x00});
+        final byte[] stateRoot = footer.startOfBlockStateRootHash().length() == 0
+                ? emptyTreeHash
+                : footer.startOfBlockStateRootHash().toByteArray();
+        final List<byte[]> mountainTopLeaves = new ArrayList<>();
+        mountainTopLeaves.add(footer.previousBlockRootHash().toByteArray());
+        mountainTopLeaves.add(footer.rootHashOfAllBlockHashesTree().toByteArray());
+        mountainTopLeaves.add(stateRoot);
+        mountainTopLeaves.add(refStreamingRoot(consensusLeaves));
+        mountainTopLeaves.add(refStreamingRoot(inputLeaves));
+        mountainTopLeaves.add(refStreamingRoot(outputLeaves));
+        mountainTopLeaves.add(refStreamingRoot(stateChangesLeaves));
+        mountainTopLeaves.add(refStreamingRoot(traceLeaves));
         for (int i = 0; i < 8; i++) {
-            extensionRoots[i] = extensionLeaves.get(i).isEmpty() ? null : refStreamingRoot(extensionLeaves.get(i));
+            mountainTopLeaves.add(refStreamingRoot(extensionLeaves.get(i)));
         }
-        final byte[] rightHalf = refCombineOptional(
-                refCombineOptional(
-                        refCombineOptional(extensionRoots[0], extensionRoots[1]),
-                        refCombineOptional(extensionRoots[2], extensionRoots[3])),
-                refCombineOptional(
-                        refCombineOptional(extensionRoots[4], extensionRoots[5]),
-                        refCombineOptional(extensionRoots[6], extensionRoots[7])));
-        final byte[] mountainTop = rightHalf == null ? refSingle(leftHalf) : refNode(leftHalf, rightHalf);
+        final byte[] mountainTop = refStreamingRoot(mountainTopLeaves);
         final byte[] timestampLeaf =
                 refLeaf(Timestamp.PROTOBUF.toBytes(timestamp).toByteArray());
         return Bytes.wrap(refNode(timestampLeaf, mountainTop));

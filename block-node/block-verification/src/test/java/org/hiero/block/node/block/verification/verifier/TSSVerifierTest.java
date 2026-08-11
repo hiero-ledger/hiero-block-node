@@ -77,10 +77,10 @@ class TSSVerifierTest {
     @DisplayName("verify() successful verification block 467 settled path")
     void testShouldVerifyTssWrapsBlock467SettledPath() throws ParseException, IOException {
         initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(WRAPS.BLOCK_0));
-        final ResourceTestBlock block467 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_467);
+        final ResourceTestBlock block391 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_391);
         final Bytes hashToVerify =
-                runHashing(verificationDataProvider, block467).rootHash();
-        final Bytes signature = extractSignature(block467.blockUnparsed());
+                runHashing(verificationDataProvider, block391).rootHash();
+        final Bytes signature = extractSignature(block391.blockUnparsed());
         // settled path: vk (1096) + blsSig (1632) + WRAPS proof (704) = 3432
         assertThat(signature.length())
                 .withFailMessage("Block 467 signature must be 3432 bytes (settled WRAPS path)")

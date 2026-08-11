@@ -5,11 +5,15 @@ import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.security.MessageDigest;
+import java.util.Arrays;
 import org.hiero.block.tools.utils.Sha384;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Unit tests for {@link BlockStreamBlockHasher} validating compliance with Block & State Merkle Tree Design.
@@ -251,6 +255,114 @@ class BlockStreamBlockHasherTest {
             // Not hashed items (excluded from all subtrees)
             String[] excludedItems = {"BLOCK_FOOTER", "BLOCK_PROOF"};
             assertEquals(2, excludedItems.length, "2 item types are excluded from hashing");
+        }
+    }
+
+    // ========== Merkle Mountain Top Shape Tests ==========
+
+    /// Tests for the Merkle Mountain Top algorithm (issue #3377): always feed all 16 leaves
+    /// into a {@link StreamingHasher} — positions 0-7 pre-defined (empty subtree hashers and
+    /// absent state root contribute {@code EMPTY_TREE_HASH}), positions 8-15 extension slots
+    /// (tools has no extension routing yet, so always {@code EMPTY_TREE_HASH}). Verifies the
+    /// mountain-top root computation via a locally-reimplemented streaming-hasher fold.
+    @Nested
+    @DisplayName("Merkle Mountain Top Shape")
+    class MerkleMountainTopShapeTests {
+
+        /// Feeding all 16 EMPTY_TREE_HASH leaves through the production StreamingHasher must
+        /// produce the same root as feeding them through a fresh reference StreamingHasher.
+        /// This exercises the "empty extension side" path that tools always takes.
+        @Test
+        @DisplayName("All-empty mountain top matches reference")
+        void testAllEmptyMountainTopMatchesReference() {
+            final byte[][] leaves = new byte[16][];
+            for (int i = 0; i < 16; i++) {
+                leaves[i] = EMPTY_TREE_HASH;
+            }
+            Assertions.assertArrayEquals(referenceMountainTop(leaves), productionFold(leaves));
+        }
+
+        /// Presence bitmask over the 8 pre-defined positions 0-7 (bit N = position N). All
+        /// extension slots stay {@code EMPTY_TREE_HASH}. Verifies mountain-top output matches
+        /// reference across many pre-defined presence patterns.
+        @ParameterizedTest
+        @ValueSource(
+                ints = {
+                    0b00000011, // only positions 0,1 (minimum block content)
+                    0b00000111, // + state root
+                    0b00111111, // pre-defined pos 0-5
+                    0b11111111, // all pre-defined populated
+                    0b10000011, // trace present, interior empties
+                    0b11000011 // state changes + trace present, interior empties
+                })
+        @DisplayName("Pre-defined presence patterns produce reference mountain top")
+        void testPreDefinedPresencePatterns(final int presenceMask) {
+            final byte[][] leaves = new byte[16][];
+            for (int i = 0; i < 8; i++) {
+                leaves[i] = (presenceMask & (1 << i)) != 0 ? deterministicHash(i) : EMPTY_TREE_HASH;
+            }
+            for (int i = 8; i < 16; i++) {
+                leaves[i] = EMPTY_TREE_HASH;
+            }
+            Assertions.assertArrayEquals(
+                    referenceMountainTop(leaves),
+                    productionFold(leaves),
+                    "mask 0b" + Integer.toBinaryString(presenceMask));
+        }
+
+        /// Changing any position must change the mountain-top root — no two distinct presence
+        /// patterns collapse to the same hash. Verifies stable positional binding: position N's
+        /// content is bound to that position independent of other positions.
+        @Test
+        @DisplayName("Each position independently affects the mountain top")
+        void testEachPositionAffectsRoot() {
+            final byte[][] base = new byte[16][];
+            for (int i = 0; i < 16; i++) {
+                base[i] = EMPTY_TREE_HASH;
+            }
+            final byte[] baseRoot = productionFold(base);
+            for (int pos = 0; pos < 16; pos++) {
+                final byte[][] mutated = base.clone();
+                mutated[pos] = deterministicHash(pos);
+                Assertions.assertFalse(
+                        Arrays.equals(baseRoot, productionFold(mutated)),
+                        "changing position " + pos + " must change the mountain-top root");
+            }
+        }
+
+        /// Deterministic 48-byte hash where every byte equals {@code (index + 1)}, guaranteed
+        /// different from {@link HashingUtils#EMPTY_TREE_HASH}.
+        private byte[] deterministicHash(final int index) {
+            final byte[] hash = new byte[48];
+            Arrays.fill(hash, (byte) (index + 1));
+            return hash;
+        }
+
+        /// Feeds the 16 leaves into a fresh {@link StreamingHasher} — the same primitive used
+        /// inside {@link BlockStreamBlockHasher}. Independent of the {@code hashBlock} code
+        /// path so we're testing the algorithm shape, not a shared helper.
+        private byte[] productionFold(final byte[][] leaves) {
+            final StreamingHasher hasher = new StreamingHasher();
+            for (final byte[] leaf : leaves) {
+                hasher.addNodeByHash(leaf);
+            }
+            return hasher.computeRootHash();
+        }
+
+        /// Reference reimplementation: manual balanced pair-combine of 16 leaves at the
+        /// {@code 0x02} prefix into a height-4 tree. Distinct code path from
+        /// {@link StreamingHasher} so a mismatch surfaces bugs in either the hasher or the
+        /// mountain-top wiring.
+        private byte[] referenceMountainTop(final byte[][] leaves) {
+            byte[][] level = leaves;
+            while (level.length > 1) {
+                final byte[][] next = new byte[level.length / 2][];
+                for (int i = 0; i < next.length; i++) {
+                    next[i] = HashingUtils.hashInternalNode(digest, level[2 * i], level[2 * i + 1]);
+                }
+                level = next;
+            }
+            return level[0];
         }
     }
 }

@@ -6,7 +6,6 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
 import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNode;
-import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNodeSingleChild;
 import static org.hiero.block.common.hasher.HashingUtilities.hashLeaf;
 import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
@@ -55,6 +54,9 @@ import org.hiero.block.node.verification.VerificationServicePlugin;
 import org.hiero.block.node.verification.session.VerificationProofMetrics;
 import org.hiero.block.node.verification.session.VerificationSession;
 
+// TODO(#3377): the `verification` plugin (this session and its siblings) is superseded by
+//  the newer `block-verification` plugin and should be removed soon. New algorithm changes
+//  land here only to keep the two paths in sync until the removal happens.
 public class ExtendedMerkleTreeSession implements VerificationSession {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
@@ -329,7 +331,15 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 outputTreeHasher,
                 consensusHeaderHasher,
                 stateChangesHasher,
-                traceDataHasher);
+                traceDataHasher,
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher());
 
         final boolean verified =
                 verifySignature(blockRootHash, blockProof.signedBlockProof().blockSignature());
@@ -603,7 +613,15 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 outputTreeHasher,
                 consensusHeaderHasher,
                 stateChangesHasher,
-                traceDataHasher);
+                traceDataHasher,
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher());
 
         LOGGER.log(
                 DEBUG,
@@ -766,7 +784,15 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 outputTreeHasher,
                 consensusHeaderHasher,
                 stateChangesHasher,
-                traceDataHasher);
+                traceDataHasher,
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher());
 
         final boolean verified = verifyStateProof(blockRootHash, blockProof.blockStateProof());
 
@@ -821,10 +847,13 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
         List<SiblingNode> siblings = siblingPath.siblings();
         int totalSiblings = siblings.size();
-        if (totalSiblings < 3 || (totalSiblings - 3) % 4 != 0) {
+        // Always-feed-16 mountain top is height 4, so each intermediate gap block contributes 5
+        // siblings (4 tree-climb + 1 timestamp) and the final signed block contributes 4
+        // (4 tree-climb, timestamp comes from path 0). See issue #3377.
+        if (totalSiblings < 4 || (totalSiblings - 4) % 5 != 0) {
             LOGGER.log(
                     WARNING,
-                    "Block {0} state proof sibling count {1} is invalid (need >= 3, remainder must be multiple of 4)",
+                    "Block {0} state proof sibling count {1} is invalid (need >= 4, remainder must be multiple of 5)",
                     blockNumber,
                     totalSiblings);
             return false;
@@ -841,45 +870,56 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             }
         }
 
+        // Under the always-feed-16 shape, siblingPath.hash() is the target block's root hash
+        // itself. Integrity check compares it to the block-content-derived root hash before
+        // walking forward through the gap blocks. See issue #3377.
         byte[] current = siblingPath.hash().toByteArray();
-        int index = 0;
-        boolean firstIteration = true;
-
-        while (totalSiblings - index > 3) {
-            SiblingNode prevBlockRootsHash = siblings.get(index);
-            SiblingNode depth5Node2Sibling = siblings.get(index + 1);
-            SiblingNode depth4Node2Sibling = siblings.get(index + 2);
-            SiblingNode hashedTimestampSibling = siblings.get(index + 3);
-
-            byte[] depth5Node1 = combineSibling(current, prevBlockRootsHash);
-            byte[] depth4Node1 = combineSibling(depth5Node1, depth5Node2Sibling);
-            byte[] depth3Node1 = combineSibling(depth4Node1, depth4Node2Sibling);
-            byte[] depth2Node2 = hashInternalNodeSingleChild(depth3Node1);
-            current = hashInternalNode(hashedTimestampSibling.hash().toByteArray(), depth2Node2);
-
-            if (firstIteration) {
-                final Bytes reconstructed = Bytes.wrap(current);
-                if (!blockRootHash.equals(reconstructed)) {
-                    LOGGER.log(
-                            WARNING,
-                            "Block {0} state proof integrity check failed: hash reconstructed from path 1 siblings"
-                                    + " [{1}] does not match block root hash computed from block content [{2}]",
-                            blockNumber,
-                            reconstructed,
-                            blockRootHash);
-                    return false;
-                }
-                firstIteration = false;
+        {
+            final Bytes reconstructed = Bytes.wrap(current);
+            if (!blockRootHash.equals(reconstructed)) {
+                LOGGER.log(
+                        WARNING,
+                        "Block {0} state proof integrity check failed: starting hash on path 1 [{1}]"
+                                + " does not match block root hash computed from block content [{2}]",
+                        blockNumber,
+                        reconstructed,
+                        blockRootHash);
+                return false;
             }
-            index += 4;
+        }
+        int index = 0;
+
+        // Each intermediate gap block iteration consumes 5 siblings and walks current
+        // (= previous block's root hash) forward one block:
+        //   [0] rootHashOfAllPreviousBlockHashes sibling — pairs with leaf 0 → h1 node
+        //   [1] h1-pair sibling — pairs with h1 → h2 node
+        //   [2] h2-pair sibling — pairs with h2 → h3 node (root of positions 0-7 subtree)
+        //   [3] h3-pair sibling — pairs with h3 → mountain top root (root of positions 0-15)
+        //                          this is the extension-side h3 sibling; under always-feed-16 it is
+        //                          always present.
+        //   [4] hashed timestamp sibling — combines with mountain top root to produce next block's root
+        while (totalSiblings - index > 4) {
+            SiblingNode prevBlockRootsSibling = siblings.get(index);
+            SiblingNode h1PairSibling = siblings.get(index + 1);
+            SiblingNode h2PairSibling = siblings.get(index + 2);
+            SiblingNode h3PairSibling = siblings.get(index + 3);
+            SiblingNode hashedTimestampSibling = siblings.get(index + 4);
+
+            byte[] h1 = combineSibling(current, prevBlockRootsSibling);
+            byte[] h2 = combineSibling(h1, h1PairSibling);
+            byte[] h3 = combineSibling(h2, h2PairSibling);
+            byte[] mountainTopRoot = combineSibling(h3, h3PairSibling);
+            current = hashInternalNode(hashedTimestampSibling.hash().toByteArray(), mountainTopRoot);
+            index += 5;
         }
 
-        byte[] depth5Node1 = combineSibling(current, siblings.get(index));
-        byte[] depth4Node1 = combineSibling(depth5Node1, siblings.get(index + 1));
-        byte[] depth3Node1 = combineSibling(depth4Node1, siblings.get(index + 2));
-        byte[] depth2Node2 = hashInternalNodeSingleChild(depth3Node1);
+        // Final signed block: 4 tree-climb siblings; the timestamp is provided by path 0 (not a sibling).
+        byte[] h1 = combineSibling(current, siblings.get(index));
+        byte[] h2 = combineSibling(h1, siblings.get(index + 1));
+        byte[] h3 = combineSibling(h2, siblings.get(index + 2));
+        byte[] mountainTopRoot = combineSibling(h3, siblings.get(index + 3));
         byte[] hashedTimestampLeaf = hashLeaf(timestampPath.timestampLeaf().toByteArray());
-        byte[] signedBlockRoot = hashInternalNode(hashedTimestampLeaf, depth2Node2);
+        byte[] signedBlockRoot = hashInternalNode(hashedTimestampLeaf, mountainTopRoot);
 
         return verifySignature(
                 Bytes.wrap(signedBlockRoot), stateProof.signedBlockProof().blockSignature());

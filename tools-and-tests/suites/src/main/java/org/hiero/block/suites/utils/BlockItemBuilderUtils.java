@@ -449,7 +449,15 @@ public final class BlockItemBuilderUtils {
                 outputHasher,
                 consensusHasher,
                 stateHasher,
-                traceHasher);
+                traceHasher,
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher());
     }
 
     private static BlockItem sampleBlockFooter(final Bytes previousBlockHash) {
