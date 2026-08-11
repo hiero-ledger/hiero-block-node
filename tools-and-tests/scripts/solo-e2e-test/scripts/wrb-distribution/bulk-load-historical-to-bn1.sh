@@ -96,7 +96,12 @@ log "Streaming staged blocks into ${pod}:${HISTORIC_MOUNT_PATH}..."
 kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
     exec "${pod}" -c block-node-server -- mkdir -p "${HISTORIC_MOUNT_PATH}" \
     || fail "Failed to ensure ${HISTORIC_MOUNT_PATH} exists on ${pod}"
-tar -C "${staging_dir}" -cf - . | kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
+# COPYFILE_DISABLE=1 prevents macOS tar from adding AppleDouble ("._filename")
+# resource-fork sidecar entries on APFS. These aren't just noise here: they'd
+# land as real files on BN1's historic volume, and BlockFileHistoricPlugin's
+# ZipBlockArchive crashes trying to parse "._00000" as a block number
+# (NumberFormatException), crash-looping the pod. No-op on Linux CI runners.
+COPYFILE_DISABLE=1 tar -C "${staging_dir}" -cf - . | kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
     exec -i "${pod}" -c block-node-server -- tar xf - -C "${HISTORIC_MOUNT_PATH}" \
     || fail "Failed to stream staged blocks into ${pod}"
 log "Blocks copied onto ${pod}'s persistent historic volume."
@@ -123,10 +128,15 @@ sleep 1
 
 pf_log_dir="${TMPDIR:-/tmp}/wrb-dist-add-bn-pf"
 mkdir -p "${pf_log_dir}"
-nohup setsid kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
+# setsid isn't available on macOS (it's a util-linux tool); fall back to plain
+# nohup there — the port-forwards still get backgrounded and survive the
+# parent shell exiting, just without their own process group.
+setsid_prefix=""
+command -v setsid >/dev/null 2>&1 && setsid_prefix="setsid"
+nohup ${setsid_prefix} kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
     port-forward svc/block-node-1 "${BN1_GRPC_PORT}:40840" \
     >"${pf_log_dir}/block-node-1-grpc.log" 2>&1 </dev/null &
-nohup setsid kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
+nohup ${setsid_prefix} kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
     port-forward svc/block-node-1 "${BN1_METRICS_PORT}:16007" \
     >"${pf_log_dir}/block-node-1-metrics.log" 2>&1 </dev/null &
 wait_for_port_forward "${pf_log_dir}/block-node-1-grpc.log" "block-node-1 grpc"

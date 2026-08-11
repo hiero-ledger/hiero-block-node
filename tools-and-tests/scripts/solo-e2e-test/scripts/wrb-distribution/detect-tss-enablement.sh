@@ -115,7 +115,10 @@ days=$( find "${POST_UPGRADE_DIR}" -name "*.rcd" -exec basename {} \; | cut -d'T
 for day in ${days}; do
     archive="${POST_UPGRADE_DAYS_DIR}/${day}.tar.zstd"
     log "  ${day}.tar.zstd"
-    ( cd "${POST_UPGRADE_DIR}" && tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}" )
+    # COPYFILE_DISABLE=1 prevents macOS tar from adding AppleDouble ("._filename") resource-fork
+    # sidecar entries on APFS; those aren't real record files and TarReader chokes on them
+    # (misreads their garbage bytes as a record-format version). No-op on Linux CI runners.
+    ( cd "${POST_UPGRADE_DIR}" && COPYFILE_DISABLE=1 tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}" )
 done
 
 log "Generating block_times.bin and day_blocks.json for the post-upgrade subset..."
