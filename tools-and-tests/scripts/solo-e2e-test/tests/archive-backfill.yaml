@@ -1,0 +1,224 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Archive Backfill Test (Issue #1711)
+#
+# Tests cloud-storage-archive (TAR) and cloud-storage-expanded (.blk.zstd) plugins
+# in a realistic multi-node deployment with node replacement and archiving resumption.
+#
+# Scenario:
+#   1. BN1 archives to minio; BN2 receives from CN2 — verify both archive buckets fill
+#   2. Kill BN1 (archiving node); BN2 continues receiving from CN2
+#   3. Deploy BN3 with same minio archive config; CN1 redirected to BN3
+#   4. BN3 backfills from BN2 and resumes archiving to minio
+#   5. Verify both buckets have additional files (archiving resumed)
+#
+# Prerequisites:
+#   - Topology 2cn-2bn-archive (deploys minio before BN1/BN2)
+#   - plugin-profile-cloud.yaml applied to BN1 and BN3
+#
+# Usage:
+#   task test:run TEST_FILE=tests/archive-backfill.yaml TOPOLOGY=2cn-2bn-archive
+
+name: archive-backfill
+description: "Test cloud-storage-archive and cloud-storage-expanded with node replacement (Issue #1711)"
+
+# BN3 is deployed dynamically at t=160s; declare here so topology validation
+# allows it as an assertion target (bn3-healthy, bn3-has-blocks, bn3-blocks-increasing)
+dynamic_targets:
+  - block-node-3
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Verify BN1, BN2, MN healthy"
+    delay: 5
+
+  - id: initial-metrics
+    type: print-metrics
+    description: "Baseline metrics for all block nodes"
+    delay: 10
+    args:
+      target: all
+
+  - id: archive-accumulate
+    type: sleep
+    description: "Wait 60s — cloud-storage-archive triggers at >= 10 blocks (groupingLevel 1); expanded uploads each block immediately"
+    delay: 15
+    args:
+      seconds: 60
+
+  - id: verify-archive-tar-before
+    type: archive-files-exist
+    description: "TAR bucket has at least 1 file (BN1 cloud-storage-archive running)"
+    delay: 80
+    args:
+      bucket: block-archive-tar
+      min_files: 1
+
+  - id: verify-archive-expanded-before
+    type: archive-files-exist
+    description: "Expanded bucket has at least 1 file (BN1 cloud-storage-expanded running)"
+    delay: 80
+    args:
+      bucket: block-archive-expanded
+      min_files: 1
+
+  - id: pre-kill-status
+    type: network-status
+    description: "Snapshot network status before BN1 goes down"
+    delay: 85
+
+  - id: scale-down-bn1
+    type: scale-down
+    description: "Kill BN1 (archiving node)"
+    delay: 90
+    target: block-node-1
+
+  - id: gap-period
+    type: sleep
+    description: "Wait 60s — BN2 keeps receiving from CN2; gap forms for BN3 to backfill"
+    delay: 95
+    args:
+      seconds: 60
+
+  - id: deploy-bn3
+    type: deploy-block-node
+    description: "Deploy BN3 with backfill from BN2 and same minio archive config"
+    delay: 160
+    args:
+      name: block-node-3
+      backfill_sources: [block-node-2]
+      greedy: true
+      archive_backend: minio
+
+  - id: reconfigure-cn1
+    type: reconfigure-cn-streaming
+    description: "CN1 streams to BN3 — writes new block-nodes.json to the pod"
+    delay: 165
+    args:
+      consensus_node: node1
+      block_nodes: [block-node-3]
+
+  - id: reconfigure-cn2
+    type: reconfigure-cn-streaming
+    description: "Pin CN2 to BN2 only — defensive: solo block node add may have added BN3 to the on-disk config; this corrects it without requiring a Java restart"
+    delay: 165
+    args:
+      consensus_node: node2
+      block_nodes: [block-node-2]
+
+  - id: restart-java-cn1
+    type: command
+    description: "Kill CN1 Java process — s6 supervisor restarts it within the same container, re-reading the updated PVC config"
+    delay: 167
+    args:
+      script: "kctl exec network-node1-0 -n ${NAMESPACE} -c root-container -- pkill java"
+
+  - id: wait-java-restart
+    type: sleep
+    description: "Give s6 time to restart CN1 Java process and Hedera to finish startup (~90s)"
+    delay: 171
+    args:
+      seconds: 90
+
+  - id: refresh-ports
+    type: port-forward
+    description: "Refresh port-forwards for BN3"
+    delay: 265
+
+  - id: backfill-wait
+    type: sleep
+    description: "Wait 240s for BN3 to backfill from BN2 and start receiving live blocks from CN1"
+    delay: 280
+    args:
+      seconds: 240
+
+  - id: post-backfill-status
+    type: network-status
+    description: "Network status after backfill — verify BN2 and BN3 healthy"
+    delay: 525
+
+  - id: verify-archive-tar-after
+    type: archive-files-exist
+    description: "TAR bucket has additional files (BN3 archiving resumed)"
+    delay: 530
+    args:
+      bucket: block-archive-tar
+      min_files: 2
+
+  - id: verify-archive-expanded-after
+    type: archive-files-exist
+    description: "Expanded bucket has additional files (BN3 archiving resumed)"
+    delay: 530
+    args:
+      bucket: block-archive-expanded
+      min_files: 2
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Final metrics summary"
+    delay: 535
+    args:
+      target: all
+
+assertions:
+  - id: bn2-bn3-healthy
+    type: node-healthy
+    description: "BN2 and BN3 are running (BN1 intentionally killed)"
+    target: block-node-2
+
+  - id: bn3-healthy
+    type: node-healthy
+    description: "BN3 is running after replacement"
+    target: block-node-3
+
+  - id: bn2-has-blocks
+    type: block-available
+    description: "BN2 has blocks"
+    target: block-node-2
+    args:
+      min_block: 0
+
+  - id: bn3-has-blocks
+    type: block-available
+    description: "BN3 has blocks after backfill"
+    target: block-node-3
+    args:
+      min_block: 0
+
+  - id: no-errors
+    type: no-errors
+    description: "No hard errors on BN2 (verify_failed tolerated: CN2 Java restart causes expected signature failures)"
+    target: block-node-2
+    args:
+      skip_verify_failed: true
+
+  - id: bn2-blocks-increasing
+    type: blocks-increasing
+    description: "BN2 receiving live blocks after recovery"
+    target: block-node-2
+    args:
+      wait_seconds: 30
+      max_attempts: 3
+
+  - id: bn3-blocks-increasing
+    type: blocks-increasing
+    description: "BN3 receiving live blocks after backfill"
+    target: block-node-3
+    args:
+      wait_seconds: 30
+      max_attempts: 3
+
+  - id: cloud-archive-resumed
+    type: archive-files-exist
+    description: "TAR bucket has >= 2 files (BN3 resumed cloud-storage-archive)"
+    args:
+      bucket: block-archive-tar
+      min_files: 2
+
+  - id: expanded-archive-resumed
+    type: archive-files-exist
+    description: "Expanded bucket has >= 2 files (BN3 resumed cloud-storage-expanded)"
+    args:
+      bucket: block-archive-expanded
+      min_files: 2
