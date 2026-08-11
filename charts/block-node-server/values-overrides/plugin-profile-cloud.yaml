@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# Plugin profile for block nodes with cloud storage archiving.
+# Enables cloud-storage-archive and cloud-storage-expanded alongside the standard plugin set.
+# blocks-file-historic is included because cloud-storage-archive reads blocks from local
+# persistence via BlockAccessor after receiving PersistedNotification.
+plugins:
+  names: "facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,block-verification,blocks-file-historic,blocks-file-recent,backfill,cloud-storage-archive,cloud-storage-expanded"
