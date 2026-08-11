@@ -186,6 +186,14 @@ public class BlockNodeClient implements AutoCloseable {
                 .protocolConfigs(List.of(buildHttp2Config(tuning), buildGrpcConfig(pollWaitMs, tuning)))
                 .connectTimeout(Duration.ofMillis(connectTimeoutMs))
                 .keepAlive(true)
+                // Helidon shares one JVM-wide HTTP/2 connection cache across all WebClient instances by
+                // default (shareConnectionCache=true). That defeats getNodeClient()'s evict-and-recreate
+                // logic: a "fresh" BlockNodeClient still points at the same shared cache, so if it holds a
+                // dead connection handler for this peer (e.g. the peer's server restarted), the new client
+                // reuses that stale entry instead of dialing a new connection — surfacing as a persistent
+                // SocketException: Socket closed on every retry. A private, non-shared cache per client
+                // ensures eviction actually forces a fresh connection.
+                .shareConnectionCache(false)
                 .build();
     }
 

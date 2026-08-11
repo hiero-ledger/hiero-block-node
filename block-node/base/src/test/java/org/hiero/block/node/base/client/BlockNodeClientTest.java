@@ -2,6 +2,7 @@
 package org.hiero.block.node.base.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 
 import java.io.IOException;
@@ -73,6 +74,21 @@ public class BlockNodeClientTest {
             .pingTimeout(11)
             .readTimeout(0)
             .build();
+
+    @Test
+    @DisplayName("WebClients do not share Helidon's JVM-wide HTTP/2 connection cache")
+    void connectionCacheIsNotShared() throws IOException {
+        // Helidon's HttpClientConfigBlueprint defaults shareConnectionCache to true, which would let a
+        // freshly-constructed client (e.g. after getNodeClient() evicts an unreachable peer) reuse a
+        // stale connection handler for the same host:port from the JVM-wide Http2ConnectionCache.SHARED
+        // singleton instead of dialing a new connection — surfacing as a persistent
+        // "SocketException: Socket closed" after the peer restarts. Each client must use its own
+        // private cache so eviction actually forces a fresh connection.
+        try (BlockNodeClient client = clientFor(40840, 0, 0)) {
+            assertFalse(client.webClient.prototype().shareConnectionCache());
+            assertFalse(client.statusWebClient.prototype().shareConnectionCache());
+        }
+    }
 
     @Test
     @DisplayName("Test null GrpcWebClientTuning")
