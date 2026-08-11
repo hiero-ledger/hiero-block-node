@@ -79,12 +79,19 @@ wrapped_dir="${WRB_DIST_WORK_DIR}/wrappedBlocks"
 # Snapshot whatever "push OK" count is already in the log rather than assuming 0, so this
 # stays correct even if LOG_FILE isn't fresh (e.g. re-run in a debug session against a log the
 # short-circuit above left in place).
-initial_push_ok_count=$( grep -cE '\] push OK' "${LOG_FILE}" 2>/dev/null || echo 0 )
+initial_push_ok_count=$( grep -cE '\] push OK' "${LOG_FILE}" 2>/dev/null || true )
+initial_push_ok_count="${initial_push_ok_count:-0}"
 printf 'initial_push_ok_count=%s\n' "${initial_push_ok_count}" > "${STATE_FILE}"
 
 # Fork the worker into the background and write its PID. Using nohup+setsid so
-# the loop survives if the CI shell that started the event goes away.
-nohup setsid bash -c '
+# the loop survives if the CI shell that started the event goes away. setsid
+# isn't available on macOS (it's a util-linux tool); fall back to plain nohup
+# there — the worker still gets backgrounded and outlives the parent shell,
+# just without its own process group (stop-live-push.sh already falls back to
+# a plain `kill <pid>` when the process-group kill fails for this reason).
+setsid_prefix=""
+command -v setsid >/dev/null 2>&1 && setsid_prefix="setsid"
+nohup ${setsid_prefix} bash -c '
     set -uo pipefail
 
     CLI_LIB='"'${CLI_LIB}'"'

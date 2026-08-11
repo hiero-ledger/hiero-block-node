@@ -42,7 +42,8 @@ else
 fi
 
 # At least one new successful push iteration since start-live-push.sh's snapshot.
-current_push_ok_count=$( grep -cE '\] push OK' "${LOG_FILE}" 2>/dev/null || echo 0 )
+current_push_ok_count=$( grep -cE '\] push OK' "${LOG_FILE}" 2>/dev/null || true )
+current_push_ok_count="${current_push_ok_count:-0}"
 log "push_ok_iterations: initial=${initial_push_ok_count} current=${current_push_ok_count}"
 
 if (( current_push_ok_count > initial_push_ok_count )); then
