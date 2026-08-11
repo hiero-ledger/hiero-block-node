@@ -26,11 +26,17 @@ log() { echo "[wrb-dist-step345-emb] $*"; }
 fail() { echo "[wrb-dist-step345-emb] ERROR: $*" >&2; exit 1; }
 
 # bn_name -> expected EMB. Update in lock-step with the topology's overlay files.
-declare -A EXPECTED_EMB=(
-    [block-node-1]=0
-    [block-node-2]=0
-    [block-node-3]=100000000
-)
+# A plain function (not `declare -A`) so this runs on macOS's stock /bin/bash
+# 3.2 too, which has no associative arrays (added in bash 4.0).
+expected_emb() {
+    case "$1" in
+        block-node-1) echo 0 ;;
+        block-node-2) echo 0 ;;
+        block-node-3) echo 100000000 ;;
+        *) echo "" ;;
+    esac
+}
+BN_NAMES=(block-node-1 block-node-2 block-node-3)
 
 # Read the effective BLOCK_NODE_EARLIEST_MANAGED_BLOCK from the BN pod. Prefer
 # the Downward API (env of the running container) so we see the effective value
@@ -57,8 +63,8 @@ read_bn_emb() {
 }
 
 failures=0
-for bn in "${!EXPECTED_EMB[@]}"; do
-    expected="${EXPECTED_EMB[${bn}]}"
+for bn in "${BN_NAMES[@]}"; do
+    expected=$(expected_emb "${bn}")
     actual=$(read_bn_emb "${bn}")
     if [[ -z "${actual}" ]]; then
         log "${bn}: could not read BLOCK_NODE_EARLIEST_MANAGED_BLOCK from pod (expected ${expected})"

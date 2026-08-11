@@ -97,8 +97,14 @@ printf 'initial_zip_count=%s\ninitial_total_bytes=%s\ninitial_wrap_ok_count=0\n'
 log "Initial wrap output: ${initial_zip_count} zip file(s), ${initial_total_bytes} total byte(s)"
 
 # Fork the worker into the background and write its PID. Using nohup+setsid so
-# the loop survives if the CI shell that started the event goes away.
-nohup setsid bash -c '
+# the loop survives if the CI shell that started the event goes away. setsid
+# isn't available on macOS (it's a util-linux tool); fall back to plain nohup
+# there — the worker still gets backgrounded and outlives the parent shell,
+# just without its own process group (stop-live-wrap.sh already falls back to
+# a plain `kill <pid>` when the process-group kill fails for this reason).
+setsid_prefix=""
+command -v setsid >/dev/null 2>&1 && setsid_prefix="setsid"
+nohup ${setsid_prefix} bash -c '
     set -uo pipefail
 
     SCRIPT_DIR='"'${SCRIPT_DIR}'"'
@@ -143,7 +149,11 @@ nohup setsid bash -c '
             days=$( find "${records_dir}" -name "*.rcd" -exec basename {} \; | cut -d"T" -f1 | sort -u )
             for day in ${days}; do
                 archive="${days_dir}/${day}.tar.zstd"
-                ( cd "${records_dir}" && tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}" )
+                # COPYFILE_DISABLE=1 prevents macOS tar from adding AppleDouble ("._filename")
+                # resource-fork sidecar entries on APFS; those are not real record files and
+                # TarReader chokes on them (misreads their garbage bytes as a record-format
+                # version). No-op on Linux CI runners.
+                ( cd "${records_dir}" && COPYFILE_DISABLE=1 tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}" )
             done
 
             # Regenerate metadata so block_times.bin / day_blocks.json cover
