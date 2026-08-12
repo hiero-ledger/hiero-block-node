@@ -52,6 +52,14 @@
 #                           Requires the proto package to contain the
 #                           block_access_service.proto file (same archive as the
 #                           node_service.proto already required).
+#       --block-access-port PORT
+#                           Port to use for BlockAccessService/getBlock calls
+#                           when --latest-block-proof is enabled. Defaults to
+#                           the same port as the positional endpoint argument.
+#                           Set this to the blockAccess port (e.g. 40981) when
+#                           the node exposes separate ports per service — the
+#                           production default has serverStatus on 40982 and
+#                           getBlock on 40981.
 #   -h, --help              Print this help text and exit.
 #
 # ENVIRONMENT
@@ -80,6 +88,12 @@
 #   bn-endpoint-checker.sh --version 0.32.0 --latest-block-proof \
 #     node1.mainnet.blocknode.hashgraph-devops.com:40840 \
 #     node2.mainnet.blocknode.hashgraph-devops.com:40840
+#
+#   # Multi-port production deployment: status on 40982, block-access on 40981
+#   bn-endpoint-checker.sh --version 0.40.0 --latest-block-proof \
+#     --block-access-port 40981 \
+#     lfh01.mainnet.blocknode.hashgraph-devops.com:40982 \
+#     lfh02.mainnet.blocknode.hashgraph-devops.com:40982
 #
 # REQUIREMENTS
 #   grpcurl   Auto-installed if missing (you will be prompted for the
@@ -205,6 +219,7 @@ PROTO_DIR_ARG=""         # --proto-dir flag value (overrides PROTO_DIR env var).
 USE_TLS=false            # When true, grpcurl uses TLS; default is plaintext.
 DETAILED_STATUS=false    # When true, also call serverStatusDetail per endpoint.
 LATEST_BLOCK_PROOF=false # When true, fetch the latest block and report proof type.
+BLOCK_ACCESS_PORT=""     # When set, used as the port for BlockAccessService/getBlock.
 ENDPOINTS=()             # Positional <host:port> arguments collected here.
 
 while [[ $# -gt 0 ]]; do
@@ -221,6 +236,9 @@ while [[ $# -gt 0 ]]; do
       DETAILED_STATUS=true; shift ;;
     --latest-block-proof)
       LATEST_BLOCK_PROOF=true; shift ;;
+    --block-access-port)
+      [[ -n "${2:-}" ]] || { log_err "--block-access-port requires a value"; usage 2; }
+      BLOCK_ACCESS_PORT="$2"; shift 2 ;;
     -h|--help)
       usage 0 ;;
     -*)
@@ -910,10 +928,18 @@ check_endpoint() {
   # Failure is non-fatal: a node may have serverStatus working before it has
   # stored any blocks (e.g. freshly started or syncing). The warning is still
   # printed so the operator knows the block fetch was attempted.
+  #
+  # When --block-access-port is set, getBlock is sent to a different port than
+  # serverStatus — production deployments split these onto separate ports.
+  local block_access_target="${endpoint}"
+  if [[ -n "$BLOCK_ACCESS_PORT" ]]; then
+    block_access_target="${host}:${BLOCK_ACCESS_PORT}"
+  fi
+
   if [[ "$LATEST_BLOCK_PROOF" == "true" ]]; then
     local proof_json proof_line
     t0="$(now_ms)"
-    if proof_json="$(grpc_call_block_proof "$endpoint" 2>&1)"; then
+    if proof_json="$(grpc_call_block_proof "$block_access_target" 2>&1)"; then
       elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
       proof_line="$(print_block_proof "$proof_json")"
       log_success "  🔏 latest block proof  (${elapsed})"
@@ -955,17 +981,19 @@ main() {
   # Build human-readable labels for the run summary header.
   # Explicit if/else avoids the &&/|| ternary idiom, which is fragile: if the
   # true-branch command ever fails, the false-branch fires incorrectly.
-  local tls_label detail_label proof_label
+  local tls_label detail_label proof_label block_access_label
   if [[ "$USE_TLS"             == "true" ]]; then tls_label="TLS";     else tls_label="plaintext"; fi
   if [[ "$DETAILED_STATUS"     == "true" ]]; then detail_label="enabled"; else detail_label="disabled (pass --detailed-server-status to enable)"; fi
   if [[ "$LATEST_BLOCK_PROOF"  == "true" ]]; then proof_label="enabled"; else proof_label="disabled (pass --latest-block-proof to enable)"; fi
+  if [[ -n "$BLOCK_ACCESS_PORT" ]]; then block_access_label="$BLOCK_ACCESS_PORT"; else block_access_label="(same as endpoint)"; fi
 
   echo ""
   log_info "Checking ${#ENDPOINTS[@]} endpoint(s)"
-  log_info "  Proto dir       : ${RESOLVED_PROTO_DIR}"
-  log_info "  Transport       : ${tls_label}"
-  log_info "  Detailed status : ${detail_label}"
-  log_info "  Block proof     : ${proof_label}"
+  log_info "  Proto dir         : ${RESOLVED_PROTO_DIR}"
+  log_info "  Transport         : ${tls_label}"
+  log_info "  Detailed status   : ${detail_label}"
+  log_info "  Block proof       : ${proof_label}"
+  log_info "  Block access port : ${block_access_label}"
 
   # Iterate over every supplied endpoint. Failures are accumulated rather than
   # stopping immediately so the operator gets a complete picture of all nodes in
