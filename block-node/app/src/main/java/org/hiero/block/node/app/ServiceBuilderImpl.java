@@ -5,7 +5,6 @@ import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.ListenerConfig;
 import io.helidon.webserver.WebServerConfig;
@@ -53,14 +52,30 @@ public class ServiceBuilderImpl implements ServiceBuilder {
 
     /// {@inheritDoc}
     @Override
-    public void registerHttpService(@NonNull String path, @Nullable Integer port, @NonNull HttpService... service) {
-        httpBuilders.computeIfAbsent(resolve(port), k -> HttpRouting.builder()).register(path, service);
+    public void registerHttpService(@NonNull String path, @NonNull HttpService... service) {
+        httpBuilders
+                .computeIfAbsent(serverConfig.port(), k -> HttpRouting.builder())
+                .register(path, service);
     }
 
     /// {@inheritDoc}
     @Override
-    public void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service) {
-        grpcBuilders.computeIfAbsent(resolve(port), k -> PbjRouting.builder()).service(service);
+    public void registerHttpService(@NonNull String path, int port, @NonNull HttpService... service) {
+        httpBuilders.computeIfAbsent(port, k -> HttpRouting.builder()).register(path, service);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void registerGrpcService(int port, @NonNull ServiceInterface service) {
+        grpcBuilders.computeIfAbsent(port, k -> PbjRouting.builder()).service(service);
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void registerGrpcService(@NonNull ServiceInterface service) {
+        grpcBuilders
+                .computeIfAbsent(serverConfig.port(), k -> PbjRouting.builder())
+                .service(service);
     }
 
     /// Returns all HTTP routing builders keyed by port.
@@ -75,10 +90,6 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     /// @return map of port to [PbjRouting.Builder]
     Map<Integer, PbjRouting.Builder> grpcRoutingBuilders() {
         return grpcBuilders;
-    }
-
-    private int resolve(@Nullable Integer port) {
-        return port != null ? port : serverConfig.port();
     }
 
     @Override
@@ -181,7 +192,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
             final int port = portIterator.next();
             final ListenerConfig.Builder socketBuilder =
                     ListenerConfig.builder().port(port);
-            configureListenerSocket(
+            configureSocket(
                     socketBuilder,
                     port,
                     http2Config,
@@ -205,30 +216,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     }
 
     private void configureSocket(
-            WebServerConfig.Builder builder,
-            int port,
-            Http2Config http2Config,
-            PbjConfig pbjConfig,
-            SocketOptions socketOptions,
-            CommonSocketValues socketValues,
-            Map<Integer, PbjRouting.Builder> grpcBuilders,
-            Map<Integer, HttpRouting.Builder> httpBuilders) {
-        builder.addProtocol(http2Config);
-        builder.addProtocol(pbjConfig);
-        builder.connectionOptions(socketOptions);
-        builder.backlog(socketValues.backlogSize());
-        builder.writeQueueLength(socketValues.writeQueueLength());
-        builder.maxTcpConnections(socketValues.maxTcpConnections());
-        builder.idleConnectionPeriod(Duration.ofMinutes(socketValues.idleConnectionPeriodMinutes()));
-        builder.idleConnectionTimeout(Duration.ofMinutes(socketValues.idleConnectionTimeoutMinutes()));
-        final HttpRouting.Builder http = httpBuilders.get(port);
-        if (http != null) builder.addRouting(http);
-        final PbjRouting.Builder grpc = grpcBuilders.get(port);
-        if (grpc != null) builder.addRouting(grpc);
-    }
-
-    private void configureListenerSocket(
-            ListenerConfig.Builder builder,
+            ListenerConfig.BuilderBase<?, ?> builder,
             int port,
             Http2Config http2Config,
             PbjConfig pbjConfig,

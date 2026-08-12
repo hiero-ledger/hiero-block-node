@@ -526,6 +526,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         return AddressBookHistoryLookup.findAddressBookForBlock(addressBookIndex, blockNum);
     }
 
+    @Override public TssData getTssData() {
+        return blockNodeContext.tssData();
+    }
+
     private static boolean hasValidKey(NodeAddressBook book) {
         if (book == null || book.nodeAddress().isEmpty()) return false;
         return book.nodeAddress().stream()

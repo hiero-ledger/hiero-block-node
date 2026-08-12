@@ -3,7 +3,6 @@ package org.hiero.block.node.spi;
 
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.http.HttpService;
@@ -53,23 +52,35 @@ public interface ServiceBuilder {
             int idleConnectionPeriodMinutes,
             int idleConnectionTimeoutMinutes) {}
 
-    /// Registers an HTTP service on the given port, or on the default port
-    /// if `port` is `null`. This service is added to the "General" webserver.
+    /// Registers an HTTP service on the default port.
+    /// This service is added to the "General" webserver.
     ///
     /// @param path the path for the HTTP service
-    /// @param port the port number to bind this service to, or `null` to use
-    ///     the default port
     /// @param service the HTTP services to register at that path, must not
     ///     be empty.
-    void registerHttpService(@NonNull String path, @Nullable Integer port, @NonNull HttpService... service);
+    void registerHttpService(@NonNull String path, @NonNull HttpService... service);
 
-    /// Registers a gRPC service on the given port, or on the default port
-    /// if `port` is `null`. This service is added to the "General" webserver.
+    /// Registers an HTTP service on the given port.
+    /// This service is added to the "General" webserver.
     ///
-    /// @param port the port number to bind this service to, or `null` to
-    /// use the default port
+    /// @param path the path for the HTTP service
+    /// @param port the port number to bind this service to
+    /// @param service the HTTP services to register at that path, must not
+    ///     be empty.
+    void registerHttpService(@NonNull String path, int port, @NonNull HttpService... service);
+
+    /// Registers a gRPC service on the default port.
+    /// This service is added to the "General" webserver.
+    ///
     /// @param service the gRPC service to register
-    void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service);
+    void registerGrpcService(@NonNull ServiceInterface service);
+
+    /// Registers a gRPC service on the given port.
+    /// This service is added to the "General" webserver.
+    ///
+    /// @param port the port number to bind this service to
+    /// @param service the gRPC service to register
+    void registerGrpcService(int port, @NonNull ServiceInterface service);
 
     /// Registers a new webserver configured with one or more HTTP services
     /// attached to a set of ports.

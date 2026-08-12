@@ -248,7 +248,7 @@ class ServiceBuilderImplTest {
     void registerGrpcService_nullPort_resolvesToDefault() {
         final ServiceInterface mockService = mock(ServiceInterface.class);
 
-        serviceBuilder.registerGrpcService(null, mockService);
+        serviceBuilder.registerGrpcService(mockService);
 
         assertNotNull(
                 serviceBuilder.grpcRoutingBuilders().get(PUBLISHER_PORT), "null port must resolve to default port");
@@ -260,7 +260,7 @@ class ServiceBuilderImplTest {
     void registerHttpService_nullPort_resolvesToDefault() {
         final HttpService mockService = mock(HttpService.class);
 
-        serviceBuilder.registerHttpService("/api/test", null, mockService);
+        serviceBuilder.registerHttpService("/api/test", mockService);
 
         assertNotNull(
                 serviceBuilder.httpRoutingBuilders().get(PUBLISHER_PORT), "null port must resolve to default port");

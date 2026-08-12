@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
@@ -209,14 +208,26 @@ class HealthConnectionCloseTest
         private WebServer webServer;
 
         @Override
-        public void registerHttpService(final String path, @Nullable final Integer port, final HttpService... service) {
+        public void registerHttpService(final String path, final HttpService... service) {
             for (final HttpService httpService : service) {
                 registeredServices.put(path, httpService);
             }
         }
 
         @Override
-        public void registerGrpcService(@Nullable final Integer port, final ServiceInterface service) {
+        public void registerHttpService(final String path, final int port, final HttpService... service) {
+            for (final HttpService httpService : service) {
+                registeredServices.put(path, httpService);
+            }
+        }
+
+        @Override
+        public void registerGrpcService(final ServiceInterface service) {
+            // the health plugin registers no gRPC services
+        }
+
+        @Override
+        public void registerGrpcService(final int port, final ServiceInterface service) {
             // the health plugin registers no gRPC services
         }
 

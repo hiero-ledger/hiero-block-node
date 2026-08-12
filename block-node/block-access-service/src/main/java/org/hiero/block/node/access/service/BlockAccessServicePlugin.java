@@ -186,6 +186,10 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         // Register this service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(BlockAccessConfig.class).port();
-        serviceBuilder.registerGrpcService(port, this);
+        if (port == null) {
+            serviceBuilder.registerGrpcService(this);
+        } else {
+            serviceBuilder.registerGrpcService(port.intValue(), this);
+        }
     }
 }

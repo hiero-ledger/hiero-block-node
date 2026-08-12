@@ -129,16 +129,29 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     /// {@inheritDoc}
     /// Records the invocation; does not register anything with a real server.
     @Override
-    public void registerHttpService(
-            @NonNull final String path, @Nullable final Integer port, @NonNull final HttpService... service) {
+    public void registerHttpService(@NonNull final String path, final int port, @NonNull final HttpService... service) {
         httpServiceRegistrations.add(new HttpServiceRegistration(path, port, List.of(service)));
     }
 
     /// {@inheritDoc}
     /// Records the invocation; does not register anything with a real server.
     @Override
-    public void registerGrpcService(@Nullable final Integer port, @NonNull final ServiceInterface service) {
+    public void registerHttpService(@NonNull final String path, @NonNull final HttpService... service) {
+        httpServiceRegistrations.add(new HttpServiceRegistration(path, null, List.of(service)));
+    }
+
+    /// {@inheritDoc}
+    /// Records the invocation; does not register anything with a real server.
+    @Override
+    public void registerGrpcService(final int port, @NonNull final ServiceInterface service) {
         grpcServiceRegistrations.add(new GrpcServiceRegistration(port, service));
+    }
+
+    /// {@inheritDoc}
+    /// Records the invocation; does not register anything with a real server.
+    @Override
+    public void registerGrpcService(@NonNull final ServiceInterface service) {
+        grpcServiceRegistrations.add(new GrpcServiceRegistration(null, service));
     }
 
     /// {@inheritDoc}
