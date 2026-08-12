@@ -97,7 +97,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
     // State touched by multiple threads
     private final AtomicLong pendingBackfillBlocks = new AtomicLong(0);
-    // Deduplication: highest block scheduled for live-tail (prevents overlapping submissions)
+    // Deduplication: highest block scheduled for live-tail (prevents overlapping submissions between the
+    // periodic scan and on-demand notifications). Advanced on submission, and only ever pulled back down -
+    // never treated as a promise that the range actually landed. See handlePersisted() for why: a submitted
+    // range whose persistence later fails en masse must remain eligible for the periodic scan to rediscover.
     private final AtomicLong liveTailHighWaterMark = new AtomicLong(-1);
 
     // Cached stored+available snapshot delivered by the last onContextUpdate() call. The Application
@@ -547,12 +550,17 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                             "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
                     LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
                 } else {
-                    // The live-tail scheduler is unavailable (plugin not yet started) or its queue is full.
-                    // This block will now be picked up during the next periodic autonomous scan of
-                    // detectAndScheduleGaps, which will see the block missing from stored ranges on its next tick
-                    // and re-detect/resubmit it as a gap
+                    // The live-tail scheduler is unavailable (plugin not yet started) or its queue is full -
+                    // most likely because a mass failure (e.g. MISSING_VERIFICATION_DATA while the node is
+                    // still loading TSS data) is overwhelming it with individual retries. The high-water mark
+                    // was already advanced past this block when its gap was first submitted, so without
+                    // action here it would look permanently "handled" even though it never landed. Pull the
+                    // mark back down so the next periodic detectAndScheduleGaps scan sees this block (and
+                    // anything after it) as still missing and re-submits the range as a whole.
+                    liveTailHighWaterMark.updateAndGet(current -> Math.min(current, blockNumber - 1));
                     final String requeueFailedMsg =
-                            "Unable to requeue block=[{0}] for on-demand backfill (scheduler unavailable or queue full)";
+                            "Unable to requeue block=[{0}] for on-demand backfill (scheduler unavailable or queue full), "
+                                    + "reset live-tail high-water mark for re-detection";
                     LOGGER.log(INFO, requeueFailedMsg, blockNumber);
                 }
             }
