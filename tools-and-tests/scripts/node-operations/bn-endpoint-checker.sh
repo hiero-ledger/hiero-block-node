@@ -60,6 +60,14 @@
 #                           the node exposes separate ports per service — the
 #                           production default has serverStatus on 40982 and
 #                           getBlock on 40981.
+#       --max-block-sz BYTES
+#                           Maximum gRPC response size (bytes) accepted from
+#                           BlockAccessService/getBlock. grpcurl's built-in
+#                           default is 4 MiB (4194304), which is too small for
+#                           production blocks that can exceed 16 MiB, causing a
+#                           ResourceExhausted error. Defaults to 67108864
+#                           (64 MiB). Increase further if blocks grow beyond
+#                           that threshold.
 #   -h, --help              Print this help text and exit.
 #
 # ENVIRONMENT
@@ -220,6 +228,7 @@ USE_TLS=false            # When true, grpcurl uses TLS; default is plaintext.
 DETAILED_STATUS=false    # When true, also call serverStatusDetail per endpoint.
 LATEST_BLOCK_PROOF=false # When true, fetch the latest block and report proof type.
 BLOCK_ACCESS_PORT=""     # When set, used as the port for BlockAccessService/getBlock.
+BLOCK_MAX_MSG_SZ=67108864 # Max gRPC response bytes for getBlock (default 64 MiB).
 ENDPOINTS=()             # Positional <host:port> arguments collected here.
 
 while [[ $# -gt 0 ]]; do
@@ -239,6 +248,9 @@ while [[ $# -gt 0 ]]; do
     --block-access-port)
       [[ -n "${2:-}" ]] || { log_err "--block-access-port requires a value"; usage 2; }
       BLOCK_ACCESS_PORT="$2"; shift 2 ;;
+    --max-block-sz)
+      [[ -n "${2:-}" ]] || { log_err "--max-block-sz requires a value"; usage 2; }
+      BLOCK_MAX_MSG_SZ="$2"; shift 2 ;;
     -h|--help)
       usage 0 ;;
     -*)
@@ -528,6 +540,7 @@ grpc_call_block_proof() {
   local -a flags=(
     -import-path "${RESOLVED_PROTO_DIR}"
     -proto        "${BLOCK_ACCESS_PROTO}"
+    -max-msg-sz   "${BLOCK_MAX_MSG_SZ}"
     -d            '{"retrieve_latest": true}'
   )
   [[ "$USE_TLS" == "false" ]] && flags=("-plaintext" "${flags[@]}")
@@ -994,6 +1007,7 @@ main() {
   log_info "  Detailed status   : ${detail_label}"
   log_info "  Block proof       : ${proof_label}"
   log_info "  Block access port : ${block_access_label}"
+  log_info "  Max block size    : ${BLOCK_MAX_MSG_SZ} bytes"
 
   # Iterate over every supplied endpoint. Failures are accumulated rather than
   # stopping immediately so the operator gets a complete picture of all nodes in
