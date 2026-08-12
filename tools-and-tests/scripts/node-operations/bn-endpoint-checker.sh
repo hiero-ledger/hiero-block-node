@@ -65,9 +65,9 @@
 #                           BlockAccessService/getBlock. grpcurl's built-in
 #                           default is 4 MiB (4194304), which is too small for
 #                           production blocks that can exceed 16 MiB, causing a
-#                           ResourceExhausted error. Defaults to 67108864
-#                           (64 MiB). Increase further if blocks grow beyond
-#                           that threshold.
+#                           ResourceExhausted error. Defaults to 10485760
+#                           (10 MiB). Increase if blocks grow beyond that
+#                           threshold.
 #   -h, --help              Print this help text and exit.
 #
 # ENVIRONMENT
@@ -228,7 +228,7 @@ USE_TLS=false            # When true, grpcurl uses TLS; default is plaintext.
 DETAILED_STATUS=false    # When true, also call serverStatusDetail per endpoint.
 LATEST_BLOCK_PROOF=false # When true, fetch the latest block and report proof type.
 BLOCK_ACCESS_PORT=""     # When set, used as the port for BlockAccessService/getBlock.
-BLOCK_MAX_MSG_SZ=67108864 # Max gRPC response bytes for getBlock (default 64 MiB).
+BLOCK_MAX_MSG_SZ=10485760 # Max gRPC response bytes for getBlock (default 10 MiB).
 ENDPOINTS=()             # Positional <host:port> arguments collected here.
 
 while [[ $# -gt 0 ]]; do
