@@ -318,6 +318,16 @@ jobs:
           # the resolved mn_version below.
           MN_RESOLVED=$(echo "$OUTPUT" | grep "^mn_version=" | cut -d= -f2)
           echo "MN_VERSION=${MN_RESOLVED}" >> "${GITHUB_ENV}"
+          # Export CN_VERSION/BN_VERSION too: the later "Run Test Definitions" step invokes
+          # solo-test-runner.sh directly, which (for wrb-distribution tests) calls add-bn.sh to
+          # add BN2/BN3 post-genesis. Without these in the environment, add-bn.sh's BN_VERSION
+          # check is never true, so BN2/BN3 get deployed with no --chart-version at all —
+          # silently falling back to Solo's own hardcoded chart default instead of the version
+          # this workflow actually resolved and used for BN1 at genesis.
+          CN_RESOLVED=$(echo "$OUTPUT" | grep "^cn_version=" | cut -d= -f2)
+          BN_RESOLVED=$(echo "$OUTPUT" | grep "^bn_version=" | cut -d= -f2)
+          echo "CN_VERSION=${CN_RESOLVED}" >> "${GITHUB_ENV}"
+          echo "BN_VERSION=${BN_RESOLVED}" >> "${GITHUB_ENV}"
 
       # Install Solo CLI (npm by default, or build an approved fork/branch when solo-source=git)
       - name: Install Solo CLI
