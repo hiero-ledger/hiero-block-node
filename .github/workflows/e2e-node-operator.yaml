@@ -260,7 +260,10 @@ jobs:
             # Locally built image is single-arch, so kind load docker-image works directly.
             # createDockerImage bakes plugins (it depends on prepareDockerPlugins) and builds both the
             # barebone and -solo-dev variants; we load solo-dev.
-            ./gradlew :app:createDockerImage
+            # --no-build-cache bypasses the self-hosted runner's Gradle build cache, which can
+            # return stale plugin class outputs and produce NoSuchMethodError at runtime when
+            # cross-module signatures change (e.g. HashingUtilities in #3378).
+            ./gradlew --no-build-cache :app:createDockerImage
             docker tag "block-node-server-solo-dev:${SNAP}" "ghcr.io/hiero-ledger/hiero-block-node-solo-dev:${SNAP}"
             kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node-solo-dev:${SNAP}" --name "${CLUSTER_NAME}"
           fi
@@ -283,13 +286,23 @@ jobs:
 
       - name: Extract test blocks 0-4
         run: |
-          mkdir -p "${BLOCKS_DIR}"
-          SRC=block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS
+          # Two block sets during the always-feed-16 hasher transition (#3377):
+          #  - LEGACY: blocks compatible with the base BN version (still pre-#3377). Used for
+          #    the base-install push phase.
+          #  - NEW: blocks compatible with the snapshot BN version (this PR). Used for the
+          #    post-upgrade and post-reset push phases.
+          # Once base version rolls to a release containing #3377, drop the LEGACY dir and
+          # point every phase at NEW (single dir).
+          mkdir -p "${BLOCKS_DIR}/legacy" "${BLOCKS_DIR}/new"
+          LEGACY_SRC=block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS_LEGACY
+          NEW_SRC=block-node/app/src/testFixtures/resources/test-blocks/CN_11_12_TSS_WRAPS
           for i in 0 1 2 3 4; do
-            cp "${SRC}/${i}.blk.gz" "${BLOCKS_DIR}/"
-            gunzip -f "${BLOCKS_DIR}/${i}.blk.gz"
+            cp "${LEGACY_SRC}/${i}.blk.gz" "${BLOCKS_DIR}/legacy/"
+            gunzip -f "${BLOCKS_DIR}/legacy/${i}.blk.gz"
+            cp "${NEW_SRC}/${i}.blk.gz" "${BLOCKS_DIR}/new/"
+            gunzip -f "${BLOCKS_DIR}/new/${i}.blk.gz"
           done
-          ls -l "${BLOCKS_DIR}"
+          ls -l "${BLOCKS_DIR}/legacy" "${BLOCKS_DIR}/new"
 
       # ── PHASE 1: Install (base version) ────────────────────────────────────
       - name: Install block node (base version)
@@ -345,14 +358,15 @@ jobs:
       # currentTssData is set; pushing block 0 in its own step (separate JVM invocation) ensures this.
       - name: Push block 0 (TSS bootstrap)
         run: |
+          # LEGACY blocks: base install runs a released BN that predates #3377.
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
-            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk" \
+            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/legacy/0.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
 
       - name: Push blocks 1-2
         run: |
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
-            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk" \
+            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/legacy/1.blk,${BLOCKS_DIR}/legacy/2.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
 
       # ── PHASE 3: Verify (post-install) ─────────────────────────────────────
@@ -395,8 +409,13 @@ jobs:
           sed "s#oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server#oci://${CHART_REGISTRY}/hiero-ledger/hiero-block-node/block-node-server#" \
             tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml > /tmp/solo-ci-config-snapshot.yaml
           # Render CI values for the snapshot phase (image tag + plugin profile); volumes use chart defaults.
+          # Force PLUGIN_NAMES empty for the snapshot phase: this skips the Maven resolve-plugins
+          # init container so the pod uses the plugins baked into the locally-built solo-dev image.
+          # Otherwise the init container pulls the SNAP version from Sonatype Snapshots — which
+          # can be stale relative to this branch's build and produces NoSuchMethodError when
+          # cross-module signatures differ (see #3378 discussion).
           sed -e "s/__BN_TAG__/${{ steps.versions.outputs.SNAP_VERSION }}/g" \
-              -e "s/__PLUGIN_NAMES__/${{ steps.versions.outputs.PLUGIN_NAMES }}/g" \
+              -e "s/__PLUGIN_NAMES__//g" \
             tools-and-tests/scripts/e2e-node-operator/solo-ci-values.yaml > /tmp/solo-ci-values-snap.yaml
           # --namespace AND --release-name are both required: solo-provisioner records an empty ReleaseInfo
           # after install, so without them upgrade reports "block node is not deployed".
@@ -432,20 +451,18 @@ jobs:
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
           assert_server_status 0 2 18446744073709551615
 
-      - name: Push blocks 3-4 (post-upgrade ingestion)
-        run: |
-          SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
-            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
-            java -jar tools-and-tests/suites/build/libs/block-pusher.jar
+      # Post-upgrade push (blocks 3-4) is temporarily disabled during the #3377 hasher
+      # transition: legacy blocks 0-2 (pushed by the base BN and preserved via upgrade) live
+      # on the store, and appending NEW-algo blocks 3-4 fails chain integrity — block 3's
+      # footer previousBlockHash points to NEW block 2's hash, but the stored block 2 is a
+      # LEGACY-algo block with a different hash. The post-reset phase below still exercises
+      # NEW-algo ingestion end-to-end. Re-enable this once the base BN version rolls to a
+      # release containing #3377.
 
-      - name: Verify ingestion after upgrade (0-4)
+      - name: Verify blocks 0-2 still present after upgrade
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
-          assert_server_status 0 4 5
-          assert_get_block 3
-          assert_get_block 4
-          # Confirm subscribe still works on the upgraded (snapshot) node across the full range.
-          assert_subscribe 0 4
+          assert_server_status 0 2 18446744073709551615
 
       # ── PHASE 5: Reset -> re-push full set 0-4 ─────────────────────────────
       # solo-provisioner's reset clears /tmp/bn/* on the runner host — a no-op in kind because
@@ -505,17 +522,18 @@ jobs:
 
       - name: Re-push block 0 (TSS re-bootstrap after reset)
         run: |
+          # NEW blocks: post-reset BN still runs the snapshot (this PR) with #3377's algorithm.
           # Same TSS sequencing as install (Phase 2): block 0's extraction is async; blocks 1-4
           # must not arrive until it completes.
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
-            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk" \
+            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/new/0.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
 
       - name: Re-push blocks 1-4 and verify
         run: |
           source tools-and-tests/scripts/e2e-node-operator/assert-server-status.sh
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
-            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk,${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
+            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/new/1.blk,${BLOCKS_DIR}/new/2.blk,${BLOCKS_DIR}/new/3.blk,${BLOCKS_DIR}/new/4.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
           assert_server_status 0 4 5
           # Confirm subscribe works against the freshly re-populated store over the raw gRPC endpoint.
