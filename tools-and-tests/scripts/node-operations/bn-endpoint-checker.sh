@@ -60,14 +60,13 @@
 #                           the node exposes separate ports per service — the
 #                           production default has serverStatus on 40982 and
 #                           getBlock on 40981.
-#       --max-block-sz BYTES
-#                           Maximum gRPC response size (bytes) accepted from
+#       --max-block-sz MIB
+#                           Maximum gRPC response size in MiB accepted from
 #                           BlockAccessService/getBlock. grpcurl's built-in
-#                           default is 4 MiB (4194304), which is too small for
-#                           production blocks that can exceed 16 MiB, causing a
-#                           ResourceExhausted error. Defaults to 10485760
-#                           (10 MiB). Increase if blocks grow beyond that
-#                           threshold.
+#                           default is 4 MiB, which is too small for production
+#                           blocks (17+ MiB observed), causing a
+#                           ResourceExhausted error. Must be a positive integer
+#                           between 1 and 100 (inclusive). Defaults to 20.
 #   -h, --help              Print this help text and exit.
 #
 # ENVIRONMENT
@@ -228,7 +227,7 @@ USE_TLS=false            # When true, grpcurl uses TLS; default is plaintext.
 DETAILED_STATUS=false    # When true, also call serverStatusDetail per endpoint.
 LATEST_BLOCK_PROOF=false # When true, fetch the latest block and report proof type.
 BLOCK_ACCESS_PORT=""     # When set, used as the port for BlockAccessService/getBlock.
-BLOCK_MAX_MSG_SZ=10485760 # Max gRPC response bytes for getBlock (default 10 MiB).
+BLOCK_MAX_BLOCK_MIB=20   # Max getBlock response size in MiB (default 20; range 1–100).
 ENDPOINTS=()             # Positional <host:port> arguments collected here.
 
 while [[ $# -gt 0 ]]; do
@@ -250,7 +249,11 @@ while [[ $# -gt 0 ]]; do
       BLOCK_ACCESS_PORT="$2"; shift 2 ;;
     --max-block-sz)
       [[ -n "${2:-}" ]] || { log_err "--max-block-sz requires a value"; usage 2; }
-      BLOCK_MAX_MSG_SZ="$2"; shift 2 ;;
+      if ! [[ "${2}" =~ ^[0-9]+$ ]] || (( ${2} < 1 || ${2} > 100 )); then
+        log_err "--max-block-sz must be a positive integer between 1 and 100 (MiB)."
+        usage 2
+      fi
+      BLOCK_MAX_BLOCK_MIB="${2}"; shift 2 ;;
     -h|--help)
       usage 0 ;;
     -*)
@@ -540,7 +543,7 @@ grpc_call_block_proof() {
   local -a flags=(
     -import-path "${RESOLVED_PROTO_DIR}"
     -proto        "${BLOCK_ACCESS_PROTO}"
-    -max-msg-sz   "${BLOCK_MAX_MSG_SZ}"
+    -max-msg-sz   "$(( BLOCK_MAX_BLOCK_MIB * 1048576 ))"
     -d            '{"retrieve_latest": true}'
   )
   [[ "$USE_TLS" == "false" ]] && flags=("-plaintext" "${flags[@]}")
@@ -1007,7 +1010,7 @@ main() {
   log_info "  Detailed status   : ${detail_label}"
   log_info "  Block proof       : ${proof_label}"
   log_info "  Block access port : ${block_access_label}"
-  log_info "  Max block size    : ${BLOCK_MAX_MSG_SZ} bytes"
+  log_info "  Max block size    : ${BLOCK_MAX_BLOCK_MIB} MiB"
 
   # Iterate over every supplied endpoint. Failures are accumulated rather than
   # stopping immediately so the operator gets a complete picture of all nodes in
