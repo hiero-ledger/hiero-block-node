@@ -155,6 +155,35 @@ declare -a RELAY_ENDPOINTS=()
 declare -a EXPLORER_ENDPOINTS=()
 declare -a METRICS_ENDPOINTS=()
 
+# Collects the names of any forward that failed to bind, for a final visible
+# warning -- each individual `kubectl port-forward &` used to be launched with
+# its output sent to /dev/null and never checked, so a transient failure (e.g.
+# a race right after the `pkill` above) was silently invisible: the process
+# just wasn't there afterward, with no error anywhere.
+declare -a FAILED_FORWARDS=()
+PF_LOG_DIR="${TMPDIR:-/tmp}/solo-port-forward-logs"
+mkdir -p "${PF_LOG_DIR}"
+
+# Starts one `kubectl port-forward` in the background and waits for its own
+# log output to confirm the tunnel actually bound, instead of firing-and-
+# forgetting. Mirrors the wait_for_port_forward pattern already used in
+# bulk-load-historical-to-bn1.sh / stage-tss-data-on-bn1.sh: poll the
+# port-forward's own "Forwarding from" line rather than nc/bash's /dev/tcp,
+# whose availability varies across environments this script runs in.
+function start_port_forward {
+  local svc_name="$1" local_port="$2" remote_port="$3"
+  local log_file="${PF_LOG_DIR}/${svc_name}-${local_port}.log"
+  kubectl port-forward "svc/${svc_name}" -n "${NAMESPACE}" "${local_port}:${remote_port}" > "${log_file}" 2>&1 &
+  for _ in $(seq 1 15); do
+    grep -q "Forwarding from" "${log_file}" 2>/dev/null && return 0
+    sleep 1
+  done
+  echo "WARNING: port-forward for ${svc_name} (localhost:${local_port}) never came up:" >&2
+  sed 's/^/    /' "${log_file}" >&2 || true
+  FAILED_FORWARDS+=("${svc_name} (localhost:${local_port})")
+  return 1
+}
+
 echo "Setting up port forwards..."
 
 # Consensus node (single)
@@ -231,8 +260,6 @@ if [[ -n "$PROM_SVC" ]]; then
   METRICS_ENDPOINTS+=("http://localhost:9090 Prometheus")
 fi
 
-sleep 2
-
 # Print formatted summary
 echo ""
 echo "Port Forwards Active"
@@ -281,3 +308,9 @@ if [[ ${#METRICS_ENDPOINTS[@]} -gt 0 ]]; then
 fi
 
 echo ""
+
+if [[ ${#FAILED_FORWARDS[@]} -gt 0 ]]; then
+  echo "WARNING: ${#FAILED_FORWARDS[@]} port-forward(s) never came up (see warnings above):"
+  for ep in "${FAILED_FORWARDS[@]}"; do echo "  $ep"; done
+  echo ""
+fi

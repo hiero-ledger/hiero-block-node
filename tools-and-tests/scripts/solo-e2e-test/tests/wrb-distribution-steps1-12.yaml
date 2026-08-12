@@ -214,7 +214,14 @@ events:
     delay: 460
     timeout: 300
     args:
-      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-backfill.sh 2"
+      # BACKFILL_GREEDY=true: BN2 joins with an empty local store and depends
+      # entirely on backfill from BN1. BackfillPlugin's non-greedy default only
+      # scans up to its own last stored block (BackfillPlugin.determineEndCap()),
+      # so an empty store caps the scan at -1 forever and it never asks BN1 what's
+      # available -- a permanent bootstrap deadlock. Greedy mode consults the
+      # peer's max available block instead, so the empty node can actually
+      # discover and backfill BN1's blocks.
+      script: "BACKFILL_GREEDY=true ${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-backfill.sh 2"
 
   - id: reconfigure-bn3-backfill
     type: command
@@ -222,7 +229,9 @@ events:
     delay: 470
     timeout: 300
     args:
-      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-backfill.sh 3"
+      # See BACKFILL_GREEDY note on reconfigure-bn2-backfill above -- same
+      # empty-store bootstrap deadlock applies to BN3.
+      script: "BACKFILL_GREEDY=true ${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-backfill.sh 3"
 
   - id: assert-bn-backfill-source
     type: command
