@@ -138,7 +138,9 @@ class RetryBufferTest {
         final RetryBuffer buffer = new RetryBuffer(newConfig(true, 30, 3_600, 200));
         buffer.stage(9L, new byte[] {1}, "blocks/key9", "STANDARD", BlockSource.PUBLISHER);
 
-        assertEquals(RetryOutcome.RETRYING, buffer.recordFailure(9L));
+        final RetryBuffer.FailureResult failure = buffer.recordFailure(9L);
+        assertEquals(RetryOutcome.RETRYING, failure.outcome());
+        assertEquals(BlockSource.PUBLISHER, failure.blockSource());
         assertEquals(1, buffer.pendingCount(), "block must remain buffered while retrying");
     }
 
@@ -149,8 +151,9 @@ class RetryBufferTest {
         buffer.stage(5L, new byte[] {1}, "blocks/key5", "STANDARD", BlockSource.PUBLISHER);
         Thread.sleep(1_100);
 
-        assertEquals(
-                RetryOutcome.EXHAUSTED, buffer.recordFailure(5L), "a block older than retryMaxAgeSeconds must exhaust");
+        final RetryBuffer.FailureResult failure = buffer.recordFailure(5L);
+        assertEquals(RetryOutcome.EXHAUSTED, failure.outcome(), "a block older than retryMaxAgeSeconds must exhaust");
+        assertEquals(BlockSource.PUBLISHER, failure.blockSource());
         assertEquals(0, buffer.pendingCount());
     }
 
@@ -164,10 +167,12 @@ class RetryBufferTest {
         // this block while a background retry attempt for it is still in flight.
         buffer.unstage(20L);
 
+        final RetryBuffer.FailureResult failure = buffer.recordFailure(20L);
         assertEquals(
                 RetryOutcome.NOT_STAGED,
-                buffer.recordFailure(20L),
+                failure.outcome(),
                 "a block removed by a concurrent unstage() must not be reported as EXHAUSTED");
+        assertNull(failure.blockSource(), "no entry was found, so there is no blockSource to report");
     }
 
     @Test

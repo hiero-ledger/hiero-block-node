@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
 /// In-memory holding area for blocks whose S3 upload failed and are awaiting background retry.
@@ -65,6 +66,12 @@ class RetryBuffer {
     ///                evicted; never the block just staged. The caller must report a terminal
     ///                `succeeded=false` for it, since it will never be retried.
     record StageOutcome(boolean staged, @Nullable BufferedEntry evicted) {}
+
+    /// Outcome of {@link #recordFailure(long)}, pairing the {@link RetryOutcome} with the
+    /// `blockSource` of the entry acted on (`null` for {@link RetryOutcome#NOT_STAGED}, since no
+    /// entry was found).
+    record FailureResult(
+            @NonNull RetryOutcome outcome, @Nullable BlockSource blockSource) {}
 
     private final ExpandedCloudStorageConfig config;
     private final ConcurrentHashMap<Long, BufferedEntry> buffered = new ConcurrentHashMap<>();
@@ -174,11 +181,12 @@ class RetryBuffer {
     /// `retryIntervalSeconds`.
     ///
     /// @param blockNumber the block that failed another retry attempt
-    /// @return the resulting {@link RetryOutcome}
+    /// @return the resulting {@link FailureResult}
     @NonNull
-    RetryOutcome recordFailure(final long blockNumber) {
+    FailureResult recordFailure(final long blockNumber) {
         // compute() serializes against a concurrent stage()/unstage() for the same block.
         final AtomicBoolean wasStaged = new AtomicBoolean(true);
+        final AtomicReference<BlockSource> blockSource = new AtomicReference<>();
         final BufferedEntry result = buffered.compute(blockNumber, (key, previous) -> {
             if (previous == null) {
                 // A concurrent unstage() (e.g. duplicate notification succeeding live) can remove
@@ -187,6 +195,7 @@ class RetryBuffer {
                 wasStaged.set(false);
                 return null;
             }
+            blockSource.set(previous.blockSource());
             final int attempts = previous.attempts() + 1;
             final long now = System.currentTimeMillis();
             final long ageMs = now - previous.firstBufferedEpochMs();
@@ -204,9 +213,10 @@ class RetryBuffer {
                     previous.firstBufferedEpochMs(),
                     now + config.retryIntervalSeconds() * 1_000L);
         });
-        return result != null
+        final RetryOutcome outcome = result != null
                 ? RetryOutcome.RETRYING
                 : (wasStaged.get() ? RetryOutcome.EXHAUSTED : RetryOutcome.NOT_STAGED);
+        return new FailureResult(outcome, blockSource.get());
     }
 
     /// @return the number of blocks currently buffered and awaiting retry

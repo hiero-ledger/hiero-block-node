@@ -531,10 +531,13 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             metricsHolder.uploadFailuresTotal().increment();
             LOGGER.log(INFO, "Unexpected exception in retry upload task", e.getCause());
             // Still counts as an attempt
-            if (blockNumber != null && retryBuffer.recordFailure(blockNumber) == RetryOutcome.EXHAUSTED) {
-                sendPersistedNotification(blockNumber, false, BlockSource.UNKNOWN);
-                metricsHolder.retryExhaustedTotal().increment();
-                updatePendingRetryGauge();
+            if (blockNumber != null) {
+                final RetryBuffer.FailureResult failure = retryBuffer.recordFailure(blockNumber);
+                if (failure.outcome() == RetryOutcome.EXHAUSTED) {
+                    sendPersistedNotification(blockNumber, false, failure.blockSource());
+                    metricsHolder.retryExhaustedTotal().increment();
+                    updatePendingRetryGauge();
+                }
             }
         }
     }
@@ -561,7 +564,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                         blockNumber);
             }
         } else {
-            final RetryOutcome outcome = retryBuffer.recordFailure(blockNumber);
+            final RetryOutcome outcome = retryBuffer.recordFailure(blockNumber).outcome();
             if (outcome == RetryOutcome.EXHAUSTED) {
                 sendPersistedNotification(blockNumber, false, result.blockSource());
                 metricsHolder.retryExhaustedTotal().increment();

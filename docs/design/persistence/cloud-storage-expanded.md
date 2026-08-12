@@ -287,7 +287,7 @@ buffered via `RetryBuffer.stage(...)` instead of being discarded. The scheduled 
 `retryStagedBlocks()`:
 1. Returns immediately if `s3Client == null`.
 2. For each `RetryBuffer.dueForRetry(now)` entry not already retrying
-(`retryInFlight` guards against a second concurrent attempt for the same block), submits a
+(`retryFutureBlockNumbers` guards against a second concurrent attempt for the same block), submits a
 `RetryUploadTask` on `virtualThreadExecutor` — independent of `completionService` /
 `pendingPublish`, since that machinery exists to keep the *live* stream monotonically
 increasing, and retries are out-of-band corrections for already-verified blocks.
@@ -403,7 +403,7 @@ classDiagram
         -threadPoolManager: ThreadPoolManager
         -retryBuffer: RetryBuffer
         -retryScheduler: ScheduledExecutorService
-        -retryInFlight: Set~Long~
+        -retryFutureBlockNumbers: Map~Future, Long~
         +init(context, serviceBuilder)
         +start()
         +stop()
