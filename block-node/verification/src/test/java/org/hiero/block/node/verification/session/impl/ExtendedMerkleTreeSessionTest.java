@@ -89,7 +89,7 @@ class ExtendedMerkleTreeSessionTest {
     @Test
     @DisplayName("should verify TssWraps block 0 through the full session pipeline")
     void shouldVerifyTssWrapsBlock_throughSession() throws IOException, ParseException {
-        BlockUnparsed block = loadBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
+        BlockUnparsed block = loadBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
         List<BlockItemUnparsed> items = block.blockItems();
         long blockNumber = standardParse(BlockHeader.PROTOBUF, items.getFirst().blockHeaderOrThrow())
                 .number();
@@ -105,7 +105,7 @@ class ExtendedMerkleTreeSessionTest {
     @Test
     @DisplayName("should initialize TSS parameters on plugin when processing block 0")
     void shouldInitializeTssParametersFromBlock0() throws IOException, ParseException {
-        BlockUnparsed block = loadBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
+        BlockUnparsed block = loadBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
         createAndProcessSession(block, null);
         assertNotNull(
                 VerificationServicePlugin.activeLedgerId,

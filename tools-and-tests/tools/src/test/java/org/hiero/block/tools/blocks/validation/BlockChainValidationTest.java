@@ -139,11 +139,12 @@ class BlockChainValidationTest {
 
     @Test
     void firstBlockWithEmptyPreviousHashPasses() {
-        // Testnet genesis blocks have a 0-byte previousBlockRootHash instead of the 48-byte empty tree hash
+        // Genesis block's previousBlockRootHash is the empty tree hash (SHA-384(0x00)) —
+        // there is no previous block, so the "empty" convention applies.
         BlockChainValidation validation = new BlockChainValidation();
         BlockItem emptyHashFooter = BlockItem.newBuilder()
                 .blockFooter(com.hedera.hapi.block.stream.output.BlockFooter.newBuilder()
-                        .previousBlockRootHash(Bytes.EMPTY)
+                        .previousBlockRootHash(Bytes.wrap(EMPTY_TREE_HASH))
                         .rootHashOfAllBlockHashesTree(Bytes.wrap(EMPTY_TREE_HASH))
                         .startOfBlockStateRootHash(Bytes.wrap(EMPTY_TREE_HASH))
                         .build())
@@ -161,7 +162,7 @@ class BlockChainValidationTest {
 
         BlockItem emptyHashFooter = BlockItem.newBuilder()
                 .blockFooter(com.hedera.hapi.block.stream.output.BlockFooter.newBuilder()
-                        .previousBlockRootHash(Bytes.EMPTY)
+                        .previousBlockRootHash(Bytes.wrap(new byte[48]))
                         .rootHashOfAllBlockHashesTree(Bytes.wrap(EMPTY_TREE_HASH))
                         .startOfBlockStateRootHash(Bytes.wrap(EMPTY_TREE_HASH))
                         .build())

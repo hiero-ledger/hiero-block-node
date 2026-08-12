@@ -182,49 +182,55 @@ public class BlockStreamBlockHasher {
         // get consensus timestamp hash
         final Timestamp consensusTimestamp = blockHeader.blockTimestampOrThrow();
         // get previous block hash
-        final byte[] previousBlockHash = blockFooter.previousBlockRootHash().toByteArray();
-        // get state root hash, treating missing state root as zero hash
+        final byte[] previousBlockHash =
+                requireHashSize(blockFooter.previousBlockRootHash().toByteArray(), "previousBlockHash");
+        final byte[] allBlockHashesTree = requireHashSize(
+                blockFooter.rootHashOfAllBlockHashesTree().toByteArray(), "rootHashOfAllBlockHashesTree");
+        // get state root hash, treating missing state root as EMPTY_TREE_HASH per HIP-1424
         final byte[] stateRootHash = blockFooter.startOfBlockStateRootHash().length() == 0
                 ? EMPTY_TREE_HASH
                 : blockFooter.startOfBlockStateRootHash().toByteArray();
         // build streaming merkle trees of items in the block
         final ItemHashers hashers = classifyBlockItems(digest, block);
-        // combine all the merkle tree roots and other block data into final block hash
-        // spotless:off
-        // Code here won't be formatted by Spotless, Spotless makes it less readable
-        // Capture intermediate hashes before folding them into the tree
-        final byte[] ctHash = hashLeaf(digest, Timestamp.PROTOBUF.toBytes(consensusTimestamp).toByteArray());
+        final byte[] ctHash =
+                hashLeaf(digest, Timestamp.PROTOBUF.toBytes(consensusTimestamp).toByteArray());
         final byte[] oitHash = hashers.outputItems.computeRootHash();
-        final byte[] rootHash = hashInternalNode(digest,
-            ctHash,
-            hashInternalNode(digest,
-                hashInternalNode(digest,
-                    hashInternalNode(digest,
-                        hashInternalNode(digest,
-                            previousBlockHash,
-                            blockFooter.rootHashOfAllBlockHashesTree().toByteArray()
-                        ),
-                        hashInternalNode(digest,
-                            stateRootHash,
-                            hashers.consensusHeaders.computeRootHash()
-                        )
-                    ),
-                    hashInternalNode(digest,
-                        hashInternalNode(digest,
-                            hashers.inputItems.computeRootHash(),
-                            oitHash
-                        ),
-                        hashInternalNode(digest,
-                            hashers.stateChangeItems.computeRootHash(),
-                            hashers.traceItems.computeRootHash()
-                        )
-                    )
-                ),
-                null // reserved for future use
-            )
-        );
+        // Merkle Mountain Top: feed all 16 leaves (positions 0-7 pre-defined, 8-15 extensions)
+        // into a single StreamingHasher — the same streaming hasher used within each subtree.
+        // Empty subtrees contribute EMPTY_TREE_HASH. Tools has no extension routing yet, so
+        // positions 8-15 are always EMPTY_TREE_HASH here. See issue #3377.
+        final StreamingHasher mountainTopHasher = new StreamingHasher();
+        mountainTopHasher.addNodeByHash(previousBlockHash);
+        mountainTopHasher.addNodeByHash(allBlockHashesTree);
+        mountainTopHasher.addNodeByHash(stateRootHash);
+        mountainTopHasher.addNodeByHash(hashers.consensusHeaders.computeRootHash());
+        mountainTopHasher.addNodeByHash(hashers.inputItems.computeRootHash());
+        mountainTopHasher.addNodeByHash(oitHash);
+        mountainTopHasher.addNodeByHash(hashers.stateChangeItems.computeRootHash());
+        mountainTopHasher.addNodeByHash(hashers.traceItems.computeRootHash());
+        for (int i = 0; i < 8; i++) {
+            mountainTopHasher.addNodeByHash(EMPTY_TREE_HASH);
+        }
+        final byte[] mountainTopRoot = mountainTopHasher.computeRootHash();
+        final byte[] rootHash = hashInternalNode(digest, ctHash, mountainTopRoot);
         return new BlockHashResult(rootHash, ctHash, oitHash);
-        // spotless:on
+    }
+
+    /**
+     * Validates that a fixed-position mountain-top slot has exactly 48 bytes (SHA-384). Positions
+     * 0 and 1 (previousBlockHash, rootHashOfAllBlockHashesTree) are always present and must be a
+     * full digest; short values would silently be padded by the streaming hasher's underlying
+     * buffer, producing an incorrect root.
+     * @param hash the hash bytes to validate
+     * @param name the leaf name used in the error message
+     * @return the input hash, unchanged, if it is exactly 48 bytes
+     * @throws IllegalArgumentException if the input is not exactly 48 bytes
+     */
+    private static byte[] requireHashSize(final byte[] hash, final String name) {
+        if (hash.length != 48) {
+            throw new IllegalArgumentException(name + " must be exactly 48 bytes, got " + hash.length);
+        }
+        return hash;
     }
 
     /**

@@ -156,7 +156,7 @@ class RsaWrbVerificationTest {
     private static List<BlockItemUnparsed> buildWrbBlock(final List<RecordFileSignature> signatures) {
         final BlockHeader header =
                 new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        final BlockFooter footer = new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.EMPTY);
         final BlockProof proof = BlockProof.newBuilder()
                 .block(BLOCK_NUMBER)
                 .signedRecordFileProof(new SignedRecordFileProof(6, signatures))
@@ -188,7 +188,7 @@ class RsaWrbVerificationTest {
             final List<List<RecordFileSignature>> signaturesPerProof) {
         final BlockHeader header =
                 new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        final BlockFooter footer = new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.EMPTY);
 
         final List<BlockItemUnparsed> items = new ArrayList<>();
         items.add(BlockItemUnparsed.newBuilder()
@@ -501,7 +501,7 @@ class RsaWrbVerificationTest {
         {
             final BlockHeader header = new BlockHeader(
                     HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-            final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+            final BlockFooter footer = new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.EMPTY);
             // Version 5 — only V6 is supported in Phase 2a
             final BlockProof proof = BlockProof.newBuilder()
                     .block(BLOCK_NUMBER)
@@ -551,7 +551,7 @@ class RsaWrbVerificationTest {
         {
             final BlockHeader header = new BlockHeader(
                     HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-            final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+            final BlockFooter footer = new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.EMPTY);
             final BlockProof proof = BlockProof.newBuilder()
                     .block(BLOCK_NUMBER)
                     .signedRecordFileProof(new SignedRecordFileProof(6, sigs))
@@ -587,7 +587,7 @@ class RsaWrbVerificationTest {
             final Bytes customRecordFileBytes, final List<RecordFileSignature> signatures) {
         final BlockHeader header =
                 new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        final BlockFooter footer = new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.EMPTY);
         final BlockProof proof = BlockProof.newBuilder()
                 .block(BLOCK_NUMBER)
                 .signedRecordFileProof(new SignedRecordFileProof(6, signatures))

@@ -5,7 +5,6 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
 import java.util.LinkedList;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * A naive implementation of {@link StreamingTreeHasher} that computes the root hash of a Merkle tree
@@ -46,16 +45,16 @@ public class NaiveStreamingTreeHasher implements StreamingTreeHasher {
     }
 
     @Override
-    public CompletableFuture<Bytes> rootHash() {
+    public Bytes rootHash() {
         rootHashRequested = true;
         if (hashList.isEmpty()) {
-            return CompletableFuture.completedFuture(Bytes.wrap(HashingUtilities.EMPTY_TREE_HASH));
+            return Bytes.wrap(HashingUtilities.EMPTY_TREE_HASH);
         }
         // Fold remaining pending roots right-to-left
         byte[] merkleRootHash = hashList.getLast();
         for (int i = hashList.size() - 2; i >= 0; i--) {
             merkleRootHash = HashingUtilities.hashInternalNode(hashList.get(i), merkleRootHash);
         }
-        return CompletableFuture.completedFuture(Bytes.wrap(merkleRootHash));
+        return Bytes.wrap(merkleRootHash);
     }
 }

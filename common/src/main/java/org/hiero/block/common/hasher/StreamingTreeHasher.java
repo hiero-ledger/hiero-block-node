@@ -4,7 +4,6 @@ package org.hiero.block.common.hasher;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Defines a streaming hash computation for a perfect binary Merkle tree of {@link Bytes} leaves; where the leaves
@@ -27,9 +26,8 @@ public interface StreamingTreeHasher {
     void addLeaf(@NonNull ByteBuffer hash);
 
     /**
-     * Returns a future that completes with the root hash of the tree of items. Once called, this hasher will not accept
-     * any more leaf items.
-     * @return a future that completes with the root hash of the tree of items
+     * Returns the root hash of the tree of items. Once called, this hasher will not accept any more leaf items.
+     * @return the root hash of the tree of items
      */
-    CompletableFuture<Bytes> rootHash(); // @todo(3372) re-evaluate the returned CompletableFuture
+    Bytes rootHash();
 }
