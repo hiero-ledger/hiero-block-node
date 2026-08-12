@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# 2 Consensus Nodes, 2 Block Nodes with minio cloud-storage archiving on BN1
+# 2 Consensus Nodes, 2 Block Nodes with RustFS cloud-storage archiving on BN1
 # and bidirectional backfill.
 #
-# BN1 archives to local minio using cloud-storage-archive (TAR) and cloud-storage-expanded (.blk.zstd).
+# BN1 archives to local RustFS using cloud-storage-archive (TAR) and cloud-storage-expanded (.blk.zstd).
 # BN1 ↔ BN2 (backfill)
 # MN ← BN1, BN2
 #
@@ -10,10 +10,10 @@
 # This can be removed once Block Node v0.27+ is released, as the default will be increased.
 
 name: 2cn-2bn-archive
-description: "2 CNs, 2 BNs with minio cloud-storage archiving on BN1 and bidirectional backfill"
+description: "2 CNs, 2 BNs with RustFS cloud-storage archiving on BN1 and bidirectional backfill"
 
-minio_nodes:
-  minio-1:
+s3_nodes:
+  rustfs-1:
     buckets: [block-archive-tar, block-archive-expanded]
     port: 9000
 
@@ -24,8 +24,8 @@ block_nodes:
     peers: [block-node-2]
     greedy: false
     archive:
-      backend: minio
-      node: minio-1
+      backend: rustfs
+      node: rustfs-1
     grpc_tuning:
       max_frame_size: 8388608
   block-node-2:
