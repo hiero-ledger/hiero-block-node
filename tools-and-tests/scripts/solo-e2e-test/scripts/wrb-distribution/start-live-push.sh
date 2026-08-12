@@ -68,19 +68,41 @@ STATE_FILE="/tmp/wrb-dist-push.state"
 
 log() { echo "[wrb-dist-push-start] $*"; }
 
-if [[ -f "${PID_FILE}" ]] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
-    log "Live push already running (pid $(cat "${PID_FILE}")); leaving it in place."
-    exit 0
+# Never defer to a pre-existing worker: PID_FILE/LOG_FILE/STATE_FILE live under /tmp, which
+# survives `task down`/`task up` (only the Kubernetes cluster gets torn down, not local
+# background processes on this host). A worker orphaned by an interrupted/crashed prior run
+# (never reaching its own stop-live-push.sh) would otherwise be silently adopted here as "this
+# run's" worker -- still alive, but pushing against a stale wrapped_dir/port-forward from a
+# cluster that no longer exists, with a stale state-file baseline from whenever IT started.
+# Always kill anything still running first (same process-group kill as stop-live-push.sh) so
+# every run starts its own fresh worker with a correct, freshly-truncated log.
+if [[ -f "${PID_FILE}" ]]; then
+    stale_pid=$(cat "${PID_FILE}")
+    if [[ -n "${stale_pid}" ]] && kill -0 "${stale_pid}" 2>/dev/null; then
+        log "Found a live worker (pid ${stale_pid}) from a previous run; stopping it before starting fresh."
+        kill -TERM -"${stale_pid}" 2>/dev/null || kill -TERM "${stale_pid}" 2>/dev/null || true
+        for _ in $(seq 1 20); do
+            kill -0 "${stale_pid}" 2>/dev/null || break
+            sleep 0.5
+        done
+        if kill -0 "${stale_pid}" 2>/dev/null; then
+            kill -KILL -"${stale_pid}" 2>/dev/null || kill -KILL "${stale_pid}" 2>/dev/null || true
+        fi
+    fi
+    rm -f "${PID_FILE}"
 fi
 
 wrapped_dir="${WRB_DIST_WORK_DIR}/wrappedBlocks"
 [[ -d "${wrapped_dir}" ]] || { echo "Missing prerequisite: ${wrapped_dir}" >&2; exit 1; }
 
-# Snapshot whatever "push OK" count is already in the log rather than assuming 0, so this
-# stays correct even if LOG_FILE isn't fresh (e.g. re-run in a debug session against a log the
-# short-circuit above left in place).
-initial_push_ok_count=$( grep -cE '\] push OK' "${LOG_FILE}" 2>/dev/null || true )
-initial_push_ok_count="${initial_push_ok_count:-0}"
+# We only reach here when about to fork a fresh worker (the "already running" case above
+# already returned) -- the nohup redirect below truncates LOG_FILE, discarding any "push OK"
+# lines left over from a prior run. Snapshotting THAT stale count here (as this used to do)
+# would compare the fresh worker's own early iterations against a baseline that no longer
+# means anything once the log is wiped, producing a false "no new iterations" failure in
+# assert-live-push-produced-new-blocks.sh if the fresh count happens to reach the same number.
+# The fresh worker always starts its log from 0, so the baseline is always 0 here.
+initial_push_ok_count=0
 printf 'initial_push_ok_count=%s\n' "${initial_push_ok_count}" > "${STATE_FILE}"
 
 # Fork the worker into the background and write its PID. Using nohup+setsid so

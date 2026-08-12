@@ -76,7 +76,21 @@ log "  Applying BN${bn_index} EMB=${bn_emb} (from ${emb_map_file#${SOLO_E2E_ROOT
 
 chart_args=""
 if [[ -n "${BN_VERSION:-}" ]]; then
-    chart_args="--chart-version ${BN_VERSION}"
+    # Solo's --chart-version requires a real semver-like tag (it runs the value through
+    # SemanticVersion.getValidSemanticVersion, which throws on anything else) -- resolve
+    # keywords like 'main'/'rc'/'latest' to an actual published tag first, the same way
+    # cn-upgrade-tss.sh resolves CN_UPGRADE_VERSION, instead of passing them through as-is
+    # and letting `solo block node add` fail with "Invalid block node chart version".
+    resolved_bn_version="${BN_VERSION}"
+    if [[ "${BN_VERSION}" == "main" || "${BN_VERSION}" == "rc" || "${BN_VERSION}" == "latest" ]]; then
+        RESOLVE_SCRIPT="${SOLO_E2E_ROOT}/scripts/resolve-versions.sh"
+        [[ -x "${RESOLVE_SCRIPT}" ]] || fail "resolve-versions.sh not found at ${RESOLVE_SCRIPT}"
+        resolved_bn_version=$("${RESOLVE_SCRIPT}" v0.1.0 v0.1.0 "${BN_VERSION}" v0.1.0 v0.1.0 2>/dev/null \
+            | grep '^bn_version=' | cut -d= -f2)
+        [[ -n "${resolved_bn_version}" ]] || fail "Could not resolve BN_VERSION keyword '${BN_VERSION}'"
+        log "Resolved BN_VERSION '${BN_VERSION}' -> ${resolved_bn_version}"
+    fi
+    chart_args="--chart-version ${resolved_bn_version}"
 fi
 
 log "Adding ${bn_name} to deployment=${DEPLOYMENT} cluster-ref=${CLUSTER_REFERENCE}..."
