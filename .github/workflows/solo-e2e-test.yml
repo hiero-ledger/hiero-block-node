@@ -318,11 +318,21 @@ jobs:
           # the resolved mn_version below.
           MN_RESOLVED=$(echo "$OUTPUT" | grep "^mn_version=" | cut -d= -f2)
           echo "MN_VERSION=${MN_RESOLVED}" >> "${GITHUB_ENV}"
+          # Export BN_VERSION too: the later "Run Test Definitions" step invokes
+          # solo-test-runner.sh directly, which (for wrb-distribution tests) calls add-bn.sh to
+          # add BN2/BN3 post-genesis. Without these in the environment, add-bn.sh's BN_VERSION
+          # check is never true, so BN2/BN3 get deployed with no --chart-version at all —
+          # silently falling back to Solo's own hardcoded chart default instead of the version
+          # this workflow actually resolved and used for BN1 at genesis.
+          BN_RESOLVED=$(echo "$OUTPUT" | grep "^bn_version=" | cut -d= -f2)
+          echo "BN_VERSION=${BN_RESOLVED}" >> "${GITHUB_ENV}"
+
           # Solo installs the Consensus Node from a build zip on builds.hedera.com and only
           # tagged releases are published there. A -SNAPSHOT (what 'main' resolves to, from
           # version.txt on the CN branch) has no artifact, so it must be built from source and
           # handed to Solo via --local-build-path. Flag that for the steps below.
           CN_RESOLVED=$(echo "$OUTPUT" | grep "^cn_version=" | cut -d= -f2)
+          echo "CN_VERSION=${CN_RESOLVED}" >> "${GITHUB_ENV}"
           if [[ "${CN_RESOLVED}" == *-SNAPSHOT ]]; then
             echo "cn_needs_local_build=true" >> "${GITHUB_OUTPUT}"
           else
