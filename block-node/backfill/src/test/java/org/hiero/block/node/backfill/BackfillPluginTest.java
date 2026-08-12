@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -21,7 +22,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BooleanSupplier;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
@@ -1690,7 +1691,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
 
     @Test
     @DisplayName("Mass live-tail persistence failure does not permanently block re-detection")
-    void testMassLiveTailPersistenceFailureIsReDetectedAfterQueueOverflow() {
+    void testMassLiveTailPersistenceFailureIsReDetectedAfterQueueOverflow() throws InterruptedException {
         // Peer serves a range that lands entirely as LIVE_TAIL on an empty store (no historical boundary yet).
         final int blockCount = 15;
         final TestBlockNodeServer server = new TestBlockNodeServer(0, getHistoricalBlockFacility(0, blockCount - 1));
@@ -1717,14 +1718,34 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // issues below overflow it for most of them - mirroring a real mass MISSING_VERIFICATION_DATA burst.
         configOverride.put("backfill.liveTailQueueCapacity", "2");
 
+        // Counts how many times each block has been fetched from the peer. The first fetch of any block
+        // signals the initial gap was submitted; a second fetch of the same block can only happen if a
+        // later scan re-detected and resubmitted it - the exact behavior under test.
+        final Map<Long, AtomicInteger> fetchCountsByBlock = new ConcurrentHashMap<>();
+        final CountDownLatch firstFetchLatch = new CountDownLatch(1);
+        final CountDownLatch resubmitFetchLatch = new CountDownLatch(1);
+        blockMessaging.registerBlockNotificationHandler(
+                new BlockNotificationHandler() {
+                    @Override
+                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                        int fetchCount = fetchCountsByBlock
+                                .computeIfAbsent(notification.blockNumber(), b -> new AtomicInteger())
+                                .incrementAndGet();
+                        if (fetchCount == 1) {
+                            firstFetchLatch.countDown();
+                        } else if (fetchCount == 2) {
+                            resubmitFetchLatch.countDown();
+                        }
+                    }
+                },
+                false,
+                "test-mass-failure-fetch-handler");
+
         // Empty store: the whole peer range is classified LIVE_TAIL.
         start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
 
-        // Wait for the first autonomous scan to detect and submit the initial gap.
-        assertTrue(
-                waitUntil(10_000, () -> getMetricValue(BackfillPlugin.METRIC_BACKFILL_GAPS_SUBMITTED) >= 1),
-                "First scan should submit the initial live-tail gap");
-        final long submissionsBeforeFailure = getMetricValue(BackfillPlugin.METRIC_BACKFILL_GAPS_SUBMITTED);
+        // Wait for the first autonomous scan to detect, submit, and start fetching the initial gap.
+        assertTrue(firstFetchLatch.await(10, TimeUnit.SECONDS), "First scan should submit the initial live-tail gap");
 
         // Simulate every block in the gap failing verification/persistence en masse. handlePersisted()
         // retries each one directly against the tiny live-tail queue, so most of these are dropped
@@ -1738,23 +1759,11 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 "All injected failures should be recorded");
 
         // The range is still genuinely missing from the store, so a later scan must re-detect and
-        // resubmit it rather than treating it as already handled because of a stale high-water mark.
+        // resubmit it (triggering a second fetch of at least one block) rather than treating it as
+        // already handled because of a stale high-water mark.
         assertTrue(
-                waitUntil(
-                        10_000,
-                        () -> getMetricValue(BackfillPlugin.METRIC_BACKFILL_GAPS_SUBMITTED) > submissionsBeforeFailure),
-                "A subsequent scan should resubmit the still-missing live-tail range after the mass failure");
-    }
-
-    private boolean waitUntil(long timeoutMillis, BooleanSupplier condition) {
-        final long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
-        while (System.nanoTime() < deadlineNanos) {
-            if (condition.getAsBoolean()) {
-                return true;
-            }
-            parkNanos(50_000_000L);
-        }
-        return condition.getAsBoolean();
+                resubmitFetchLatch.await(10, TimeUnit.SECONDS),
+                "A subsequent scan should re-fetch the still-missing live-tail range after the mass failure");
     }
 
     private void createTestBlockNodeSourcesFile(BlockNodeSource backfillSource, String configPath) {
