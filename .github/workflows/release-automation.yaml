@@ -377,32 +377,22 @@ jobs:
         uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
         with:
           allowUpdates: true
+          # Attach all artifacts in a single call to prevent two races:
+          # 1. Multiple calls with allowUpdates:true can create duplicate releases
+          #    when GitHub's API hasn't yet propagated the first create by the
+          #    time a second call performs its lookup-by-tag.
+          # 2. Each subsequent call with omitBodyDuringUpdate:false (the default)
+          #    overwrites the release body with an empty string, erasing the notes.
+          # artifactErrorsFailBuild:false preserves the old per-step behaviour of
+          # skipping gracefully when a preceding download step failed.
+          artifactErrorsFailBuild: false
+          artifacts: "./protobuf-dl/block-node-protobuf-*.tgz,./tools-dl/block-stream-tools-*.jar"
           bodyFile: "${{ env.RELEASE_NOTES_FILENAME }}.md"
           commit: ${{ env.RELEASE_BRANCH }}
           draft: true
           generateReleaseNotes: false
           name: ${{ env.RELEASE_TAG }}
           prerelease: ${{ needs.release.outputs.is_prerelease == 'true' }}
-          tag: ${{ env.RELEASE_TAG }}
-          token: ${{ secrets.GH_ACCESS_TOKEN }}
-
-      - name: Attach Protobuf Artifact to Release
-        if: ${{ steps.download_protobuf.outcome == 'success' }}
-        uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
-        with:
-          allowUpdates: true
-          artifacts: ./protobuf-dl/block-node-protobuf-*.tgz
-          draft: true
-          tag: ${{ env.RELEASE_TAG }}
-          token: ${{ secrets.GH_ACCESS_TOKEN }}
-
-      - name: Attach Block-Stream-Tools Artifact to Release
-        if: ${{ steps.download_tools.outcome == 'success' }}
-        uses: step-security/release-action@a0d8e0f90f554c15366ca2c9046bf4090d24adbe # v1.21.0
-        with:
-          allowUpdates: true
-          artifacts: ./tools-dl/block-stream-tools-*.jar
-          draft: true
           tag: ${{ env.RELEASE_TAG }}
           token: ${{ secrets.GH_ACCESS_TOKEN }}
 
