@@ -25,6 +25,9 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# shellcheck source=lib/cloud-storage-overlay.sh
+source "${SCRIPT_DIR}/lib/cloud-storage-overlay.sh"
+
 # Defaults
 TEST_FILE=""
 TOPOLOGY="${TOPOLOGY:-single}"
@@ -457,35 +460,14 @@ EOF
         memory_override_args="-f ${memory_override}"
     fi
 
-    # Generate cloud-storage archive overlay when archive_backend: minio is requested.
-    # plugin-profile-cloud.yaml sets plugins.names; the inline overlay sets env vars + storage.
+    # Generate cloud-storage archive overlay when archive_backend: rustfs is requested.
+    # plugin-profile-cloud.yaml sets plugins.names; the overlay sets env vars + storage.
     local archive_overlay_args=""
-    if [[ "${archive_backend}" == "minio" ]]; then
+    if [[ "${archive_backend}" == "rustfs" ]]; then
         local cloud_overlay="/tmp/bn-${bn_name}-cloud-archive.yaml"
-        local minio_service="minio.${NAMESPACE}.svc.cluster.local"
-        cat > "${cloud_overlay}" << EOF
-blockNode:
-  secretRef: "minio-cloud-storage-creds"
-  config:
-    CLOUD_STORAGE_ARCHIVE_ENDPOINT_URL: "http://${minio_service}:9000"
-    CLOUD_STORAGE_ARCHIVE_REGION_NAME: "us-east-1"
-    CLOUD_STORAGE_ARCHIVE_BUCKET_NAME: "block-archive-tar"
-    CLOUD_STORAGE_ARCHIVE_GROUPING_LEVEL: "1"
-    CLOUD_STORAGE_ARCHIVE_STORAGE_CLASS: "STANDARD"
-    CLOUD_STORAGE_EXPANDED_ENDPOINT_URL: "http://${minio_service}:9000"
-    CLOUD_STORAGE_EXPANDED_REGION_NAME: "us-east-1"
-    CLOUD_STORAGE_EXPANDED_BUCKET_NAME: "block-archive-expanded"
-    CLOUD_STORAGE_EXPANDED_STORAGE_CLASS: "STANDARD"
-    CLOUD_STORAGE_EXPANDED_OBJECT_KEY_PREFIX: ""
-  persistence:
-    archive:
-      size: 10Gi
-    live:
-      size: 10Gi
-EOF
+        generate_s3_archive_overlay "${cloud_overlay}"
         local plugin_profile="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-cloud.yaml"
         archive_overlay_args="-f ${plugin_profile} -f ${cloud_overlay}"
-        echo "Generated minio cloud archive overlay for ${bn_name}"
     fi
 
     # Get cluster ref from context
@@ -534,7 +516,7 @@ EOF
         if [[ -f "${chart_path}" ]]; then
             echo "Using cached chart: ${chart_path}"
             # shellcheck disable=SC2086
-            helm install "${bn_name}" "${chart_path}" \
+            helm upgrade --install "${bn_name}" "${chart_path}" \
                 --namespace "${NAMESPACE}" \
                 -f "${values_file}" \
                 ${memory_override_args} \
@@ -543,7 +525,7 @@ EOF
         else
             echo "No cached chart found, pulling from OCI registry..."
             # shellcheck disable=SC2086
-            helm install "${bn_name}" oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server \
+            helm upgrade --install "${bn_name}" oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server \
                 --version "${helm_chart_version}" \
                 --namespace "${NAMESPACE}" \
                 -f "${values_file}" \
@@ -1410,33 +1392,51 @@ function assert_signature_transition {
     fi
 }
 
-# Check that a minio bucket contains at least min_files files by listing the
-# pod's data directory. Returns 0 if the threshold is met, 1 otherwise.
+# Check that an S3 archive bucket contains at least min_files files, via a
+# throwaway pod running the aws-cli client against the in-cluster S3 endpoint.
+# Returns 0 if the threshold is met, 1 otherwise.
+#
+# RustFS's own image is a single static binary (no bundled S3 client), unlike the
+# old MinIO image — so this execs aws-cli from a disposable pod rather than
+# kctl-exec'ing into the storage pod itself. Credentials are read from the
+# cloud-storage-creds Secret (same one the block node plugins use) rather
+# than duplicated here.
 function assert_archive_files_exist {
     local bucket="${1:-block-archive-tar}"
     local min_files="${2:-1}"
-    local minio_pod
-    # MinIO official chart uses label app=<release-name>; release is always "minio"
-    # Retry up to 3 times — a brief API server hiccup (e.g. during BN deploy) can
-    # return an empty result even when the pod is healthy.
-    local attempt
-    for attempt in 1 2 3; do
-        minio_pod=$(kctl get pods -n "${NAMESPACE}" -l app=minio \
-            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-        [[ -n "${minio_pod}" ]] && break
-        [[ $attempt -lt 3 ]] && sleep 5
-    done
-    if [[ -z "${minio_pod}" ]]; then
-        echo "Archive: minio pod not found in namespace ${NAMESPACE} after 3 attempts"
+
+    local access_key secret_key
+    access_key=$(kctl get secret cloud-storage-creds -n "${NAMESPACE}" \
+        -o jsonpath='{.data.CLOUD_STORAGE_ARCHIVE_ACCESS_KEY}' 2>/dev/null | base64 -d)
+    secret_key=$(kctl get secret cloud-storage-creds -n "${NAMESPACE}" \
+        -o jsonpath='{.data.CLOUD_STORAGE_ARCHIVE_SECRET_KEY}' 2>/dev/null | base64 -d)
+    if [[ -z "${access_key}" || -z "${secret_key}" ]]; then
+        echo "Archive: cloud-storage-creds secret not found in namespace ${NAMESPACE}"
         return 1
     fi
+
+    local s3_endpoint="http://rustfs-svc.${NAMESPACE}.svc.cluster.local:9000"
     local file_count
-    # MinIO official chart image does not ship 'find'; use 'mc' (bundled in the image)
-    # to list objects recursively and count them via the S3 API.
-    file_count=$(kctl exec "${minio_pod}" -n "${NAMESPACE}" -- \
-        sh -c "mc alias set local http://localhost:9000 minioadmin minioadmin123 >/dev/null 2>&1 && \
-               mc ls --recursive local/${bucket} 2>/dev/null | wc -l" | tr -d ' ')
-    file_count="${file_count:-0}"
+    # Retry up to 3 times — a brief API server hiccup (e.g. during BN deploy) can
+    # return an empty result even when the bucket is healthy.
+    local attempt
+    for attempt in 1 2 3; do
+        # </dev/null: prevent kubectl -i from consuming stdin of the surrounding
+        # while-read-event loop (both share the same pipe when events are processed).
+        # grep: kubectl >=1.29 prints the pod deletion message to stdout; filter it
+        # out by matching only lines that are purely numeric (the wc -l output).
+        file_count=$(kctl run "archive-check-$$-${RANDOM}" -n "${NAMESPACE}" --rm -i --restart=Never \
+            --image amazon/aws-cli \
+            --env="AWS_ACCESS_KEY_ID=${access_key}" \
+            --env="AWS_SECRET_ACCESS_KEY=${secret_key}" \
+            --env="AWS_DEFAULT_REGION=us-east-1" \
+            --command -- sh -c \
+            "aws --endpoint-url ${s3_endpoint} s3 ls s3://${bucket} --recursive 2>/dev/null | wc -l" \
+            </dev/null 2>/dev/null | grep -oE '^[[:space:]]*[0-9]+[[:space:]]*$' | head -1 | tr -d ' ')
+        [[ -n "${file_count}" && "${file_count}" =~ ^[0-9]+$ ]] && break
+        [[ $attempt -lt 3 ]] && sleep 5
+    done
+    [[ "${file_count}" =~ ^[0-9]+$ ]] || file_count=0
     if [[ "${file_count}" -ge "${min_files}" ]]; then
         echo "Archive: ${file_count} file(s) in bucket ${bucket} (need >= ${min_files})"
         return 0
@@ -1647,6 +1647,9 @@ function run_events {
         log INFO "No events to execute"
         return 0
     fi
+
+    # Set up port-forwards before any events so metrics/status checks work from t=0.
+    execute_port_forward
 
     log INFO "Executing $event_count events sequentially"
 

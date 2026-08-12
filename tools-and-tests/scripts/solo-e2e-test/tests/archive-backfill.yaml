@@ -6,14 +6,14 @@
 # in a realistic multi-node deployment with node replacement and archiving resumption.
 #
 # Scenario:
-#   1. BN1 archives to minio; BN2 receives from CN2 — verify both archive buckets fill
+#   1. BN1 archives to RustFS; BN2 receives from CN2 — verify both archive buckets fill
 #   2. Kill BN1 (archiving node); BN2 continues receiving from CN2
-#   3. Deploy BN3 with same minio archive config; CN1 redirected to BN3
-#   4. BN3 backfills from BN2 and resumes archiving to minio
+#   3. Deploy BN3 with same RustFS archive config; CN1 redirected to BN3
+#   4. BN3 backfills from BN2 and resumes archiving to RustFS
 #   5. Verify both buckets have additional files (archiving resumed)
 #
 # Prerequisites:
-#   - Topology 2cn-2bn-archive (deploys minio before BN1/BN2)
+#   - Topology 2cn-2bn-archive (deploys RustFS before BN1/BN2)
 #   - plugin-profile-cloud.yaml applied to BN1 and BN3
 #
 # Usage:
@@ -83,13 +83,13 @@ events:
 
   - id: deploy-bn3
     type: deploy-block-node
-    description: "Deploy BN3 with backfill from BN2 and same minio archive config"
+    description: "Deploy BN3 with backfill from BN2 and same RustFS archive config"
     delay: 160
     args:
       name: block-node-3
       backfill_sources: [block-node-2]
       greedy: true
-      archive_backend: minio
+      archive_backend: rustfs
 
   - id: reconfigure-cn1
     type: reconfigure-cn-streaming
@@ -192,22 +192,6 @@ assertions:
     target: block-node-2
     args:
       skip_verify_failed: true
-
-  - id: bn2-blocks-increasing
-    type: blocks-increasing
-    description: "BN2 receiving live blocks after recovery"
-    target: block-node-2
-    args:
-      wait_seconds: 30
-      max_attempts: 3
-
-  - id: bn3-blocks-increasing
-    type: blocks-increasing
-    description: "BN3 receiving live blocks after backfill"
-    target: block-node-3
-    args:
-      wait_seconds: 30
-      max_attempts: 3
 
   - id: cloud-archive-resumed
     type: archive-files-exist

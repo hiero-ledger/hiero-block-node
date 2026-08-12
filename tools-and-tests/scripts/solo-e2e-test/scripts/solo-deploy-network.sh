@@ -470,59 +470,34 @@ EOF
   log_line "  Generated BN WRB overlay (roster URL: %s)" "${mn_base_url}"
 }
 
-# Generate a cloud-storage archive overlay pointing to the in-namespace minio service.
-# Does NOT set plugins.names — that comes from plugin-profile-cloud.yaml.
-function generate_minio_cloud_storage_overlay {
-  local output_file="$1"
-  local minio_service="minio.${NAMESPACE}.svc.cluster.local"
-  cat > "${output_file}" << EOF
-blockNode:
-  secretRef: "minio-cloud-storage-creds"
-  config:
-    CLOUD_STORAGE_ARCHIVE_ENDPOINT_URL: "http://${minio_service}:9000"
-    CLOUD_STORAGE_ARCHIVE_REGION_NAME: "us-east-1"
-    CLOUD_STORAGE_ARCHIVE_BUCKET_NAME: "block-archive-tar"
-    CLOUD_STORAGE_ARCHIVE_GROUPING_LEVEL: "1"
-    CLOUD_STORAGE_ARCHIVE_STORAGE_CLASS: "STANDARD"
-    CLOUD_STORAGE_EXPANDED_ENDPOINT_URL: "http://${minio_service}:9000"
-    CLOUD_STORAGE_EXPANDED_REGION_NAME: "us-east-1"
-    CLOUD_STORAGE_EXPANDED_BUCKET_NAME: "block-archive-expanded"
-    CLOUD_STORAGE_EXPANDED_STORAGE_CLASS: "STANDARD"
-    CLOUD_STORAGE_EXPANDED_OBJECT_KEY_PREFIX: ""
-  persistence:
-    archive:
-      size: 10Gi
-    live:
-      size: 10Gi
-EOF
-  log_line "  Generated minio cloud archive overlay (endpoint: http://%s:9000)" "${minio_service}"
-}
+# shellcheck source=lib/cloud-storage-overlay.sh
+source "${SCRIPT_DIR}/lib/cloud-storage-overlay.sh"
 
-# Deploy minio via solo-deploy-minio.sh when the topology declares minio_nodes.
-function deploy_minio {
+# Deploy RustFS via solo-deploy-rustfs.sh when the topology declares s3_nodes.
+function deploy_rustfs {
   local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
-  local minio_node_count
-  minio_node_count=$(yq '.minio_nodes | keys | length // 0' "${topology_file}" 2>/dev/null || echo "0")
+  local s3_node_count
+  s3_node_count=$(yq '.s3_nodes | keys | length // 0' "${topology_file}" 2>/dev/null || echo "0")
 
-  if [[ "${minio_node_count}" -eq 0 ]]; then
+  if [[ "${s3_node_count}" -eq 0 ]]; then
     return 0
   fi
 
   log_line ""
-  log_line "Deploying Minio"
-  log_line "---------------"
+  log_line "Deploying RustFS"
+  log_line "----------------"
 
-  local minio_script="${SCRIPT_DIR}/solo-deploy-minio.sh"
-  [[ ! -x "${minio_script}" ]] && fail "ERROR: Minio deploy script not found or not executable: ${minio_script}" 1
+  local rustfs_script="${SCRIPT_DIR}/solo-deploy-rustfs.sh"
+  [[ ! -x "${rustfs_script}" ]] && fail "ERROR: RustFS deploy script not found or not executable: ${rustfs_script}" 1
 
-  # Collect all buckets from all minio_nodes into a comma-separated list
+  # Collect all buckets from all s3_nodes into a comma-separated list
   local all_buckets
-  all_buckets=$(yq '[.minio_nodes[] | .buckets[]] | join(",")' "${topology_file}" 2>/dev/null)
+  all_buckets=$(yq '[.s3_nodes[] | .buckets[]] | join(",")' "${topology_file}" 2>/dev/null)
 
-  start_task "Deploying Minio (buckets: %s)" "${all_buckets}"
-  "${minio_script}" \
+  start_task "Deploying RustFS (buckets: %s)" "${all_buckets}"
+  "${rustfs_script}" \
     --namespace "${NAMESPACE}" \
-    --buckets "${all_buckets}" || fail "ERROR: Failed to deploy Minio" 1
+    --buckets "${all_buckets}" || fail "ERROR: Failed to deploy RustFS" 1
   end_task
 }
 
@@ -632,14 +607,14 @@ function deploy_block_nodes {
       log_line "  Applying topology overlay for block-node-${i}: %s" "${bn_topology_overlay#${SCRIPT_DIR}/../}"
     fi
 
-    # Apply cloud-storage archive overlay for BNs that have archive.backend: minio in the topology.
+    # Apply cloud-storage archive overlay for BNs that have archive.backend: rustfs in the topology.
     # plugin-profile-cloud.yaml sets plugins.names; the generated overlay sets env vars + storage.
     local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
     local archive_backend
     archive_backend=$(yq ".block_nodes[\"block-node-${i}\"].archive.backend // \"\"" "${topology_file}" 2>/dev/null)
-    if [[ "${archive_backend}" == "minio" ]]; then
+    if [[ "${archive_backend}" == "rustfs" ]]; then
       local cloud_overlay="${overlay_dir}/bn-block-node-${i}-cloud-archive.yaml"
-      generate_minio_cloud_storage_overlay "${cloud_overlay}"
+      generate_s3_archive_overlay "${cloud_overlay}"
       local plugin_profile="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-cloud.yaml"
       overlay_args="${overlay_args} -f ${plugin_profile} -f ${cloud_overlay}"
       log_line "  Enabling cloud-storage archive plugins on block-node-${i}"
@@ -1089,8 +1064,8 @@ function main {
   # Generate all overlays up front (used by both Block Node and Mirror Node deploys).
   generate_overlays
 
-  # Deploy minio before block nodes if the topology declares minio_nodes.
-  deploy_minio
+  # Deploy RustFS before block nodes if the topology declares s3_nodes.
+  deploy_rustfs
 
   # Deploy in order: BN -> CN -> MN -> Relay -> Explorer.
   # Block Nodes must come first so Solo wires them as stream sources on the
