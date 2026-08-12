@@ -23,6 +23,13 @@
 
 set -euo pipefail
 
+# This script has twice failed silently between "Generated metadata" and "Running blocks
+# wrap..." with no visible error (the failing command isn't wrapped in an explicit `|| fail`,
+# so `set -e` just exits) -- both times reproducing the exact same segment standalone (with
+# either the real accumulated RECORDS_DIR or a clean scratch one) turned up nothing. Trap ERR
+# so the next occurrence prints the actual failing command/line instead of another blind spot.
+trap 'echo "[wrb-dist-step12] ERROR: command failed (exit $?) at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPARISON_SCRIPT="${SCRIPT_DIR}/../wrb-sequential-comparison.sh"
 PYTHON_DIR="${SCRIPT_DIR}/../python"
@@ -46,6 +53,12 @@ ENV_FILE="${ENV_FILE:-/tmp/wrb-distribution-step12.env}"
 log() { echo "[wrb-dist-step12] $*"; }
 fail() { echo "[wrb-dist-step12] ERROR: $*" >&2; exit 1; }
 
+# WORK_DIR lives under /tmp and survives `task down`/`task up` (those only tear down the
+# Kind cluster), so records/day-archives/metadata from a previous run's cluster would
+# otherwise sit here indefinitely and get mixed into this run's wrap -- old records signed
+# by a since-destroyed cluster's address book alongside fresh ones. Start every run clean.
+log "Clearing stale state from a previous run in ${WORK_DIR} (if any)..."
+rm -rf "${WORK_DIR}"
 mkdir -p "${RECORDS_DIR}" "${DAYS_DIR}" "${WRAPPED_DIR}"
 
 # ---- 1. Build the CLI ----------------------------------------------------------
