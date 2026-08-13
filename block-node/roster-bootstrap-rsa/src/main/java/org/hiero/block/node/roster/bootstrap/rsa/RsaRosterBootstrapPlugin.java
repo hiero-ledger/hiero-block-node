@@ -304,11 +304,23 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 ? currentHistory.addressBooks().getLast().startBlock()
                 : Long.MIN_VALUE; // sentinel: full-build path, never triggers early-stop
 
-        try (final HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
-                .build()) {
+        // Two separate clients, not one shared across both endpoint families: some Mirror Node
+        // deployments (e.g. Solo's) split /api/v1/network/nodes and /api/v1/blocks across two
+        // different backend services behind one ingress. A single HttpClient reuses its
+        // keep-alive connection across requests to the same host, and the ingress observed in
+        // practice pins that connection's backend to whichever service answered the *first*
+        // request rather than re-evaluating routing per request -- so a nodes call followed by a
+        // blocks call over the same connection/client silently 404s on the blocks call, having
+        // stayed pinned to the nodes backend. Separate clients guarantee separate connections, so
+        // each family's first request establishes its own, correctly-routed connection.
+        try (final HttpClient nodesClient = HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
+                        .build();
+                final HttpClient blocksClient = HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
+                        .build()) {
 
-            final Map<String, Era> eras = collectEras(client, currentLastStartBlock);
+            final Map<String, Era> eras = collectEras(nodesClient, blocksClient, currentLastStartBlock);
             if (eras == null) return; // Mirror Node unavailable — already logged by fetchAndParse
             if (eras.isEmpty()) {
                 if (currentHistory == null) {
@@ -370,14 +382,15 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     ///
     /// Returns {@code null} if the Mirror Node could not be reached (already logged), or a
     /// (possibly empty) map of era key to {@link Era} otherwise.
-    private Map<String, Era> collectEras(final HttpClient client, final long currentLastStartBlock) {
+    private Map<String, Era> collectEras(
+            final HttpClient nodesClient, final HttpClient blocksClient, final long currentLastStartBlock) {
         final Map<String, Era> eras = new LinkedHashMap<>();
         String nextUrl = config.mirrorNodeBaseUrl() + "/api/v1/network/nodes?limit=" + config.mirrorNodePageSize()
                 + "&order=desc";
 
         pagination:
         while (nextUrl != null) {
-            final MirrorNodeNodesResponse response = fetchAndParse(client, nextUrl);
+            final MirrorNodeNodesResponse response = fetchAndParse(nodesClient, nextUrl);
             if (response == null) return null;
             for (final NodeEntry entry : response.nodes()) {
                 if (entry.publicKey().isBlank()) {
@@ -391,7 +404,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
                 Era era = eras.get(eraKey);
                 if (era == null) {
-                    final long[] blockRange = fetchBlockRange(client, from, to);
+                    final long[] blockRange = fetchBlockRange(blocksClient, from, to);
                     if (blockRange == null) continue;
                     if (blockRange[0] <= currentLastStartBlock) break pagination;
                     era = new Era(blockRange, new ArrayList<>());
