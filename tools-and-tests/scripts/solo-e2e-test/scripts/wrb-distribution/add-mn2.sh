@@ -12,12 +12,17 @@
 # raw-K8s manifest (postgres + importer + service) modelled on the proven
 # recipe in wrb-sequential-comparison.sh's deploy_mn2_to_bn2 function.
 #
-# Scope for slice 4: importer-only (no REST/gRPC/Web3 sidecars). MN v0.157.1 has
+# Scope for slice 4: importer + REST (no gRPC/Web3 sidecars). MN v0.157.1 has
 # no `hiero.mirror.importer.block.verification.enabled` toggle -- block-stream
 # verification is TSS-driven, and Solo does not set up TSS data, so verification
 # is a natural no-op here. The step 7 assertion only needs to observe "MN2 is
 # consuming blocks from a BN source" via the importer pod's block-source env
 # vars + Ready state.
+#
+# REST was added in slice 6 (step 12) so assert-cutover-sync.sh can query MN2's
+# actual last-available block over its standard REST API, the same way it
+# already queries mirror-1 -- without it, MN2 can never be observed converging
+# at all, since nothing else exposes an equivalent "last block" endpoint.
 #
 # Reads:
 #   NAMESPACE         (default "solo-network")
@@ -53,7 +58,9 @@ fail() { echo "[wrb-dist-add-mn2] ERROR: $*" >&2; exit 1; }
 mn_tag="${MN_VERSION:-latest}"
 mn_tag="${mn_tag#v}"
 importer_image="gcr.io/mirrornode/hedera-mirror-importer:${mn_tag}"
+rest_image="gcr.io/mirrornode/hedera-mirror-rest:${mn_tag}"
 log "  Using JVM importer image: ${importer_image}"
+log "  Using REST image: ${rest_image}"
 
 # 2) Resolve MN2's startBlockNumber to BN2's current lastAvailableBlock.
 #    The topology intent of "startBlockNumber=0 pulls from genesis via BN
@@ -234,6 +241,79 @@ spec:
           value: "public"
         - name: HIERO_MIRROR_IMPORTER_DB_TEMPSCHEMA
           value: "temporary"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mirror-2-rest
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/instance: mirror-2
+    app.kubernetes.io/component: rest
+    app.kubernetes.io/name: rest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mirror-2-rest
+  template:
+    metadata:
+      labels:
+        app: mirror-2-rest
+        app.kubernetes.io/instance: mirror-2
+        app.kubernetes.io/component: rest
+        app.kubernetes.io/name: rest
+    spec:
+      containers:
+      - name: rest
+        image: ${rest_image}
+        ports:
+        - containerPort: 5551
+          name: http
+        env:
+        # Same DB credentials as the importer above -- mn2-postgres only has the
+        # mirror_node superuser role (its init.sql grants no login/password to the
+        # per-service roles like mirror_rest that a real Solo chart deployment
+        # would use), so REST connects the same way the importer does.
+        - name: HIERO_MIRROR_REST_DB_HOST
+          value: "mn2-postgres"
+        - name: HIERO_MIRROR_REST_DB_NAME
+          value: "mirror_node"
+        - name: HIERO_MIRROR_REST_DB_USERNAME
+          value: "mirror_node"
+        - name: HIERO_MIRROR_REST_DB_PASSWORD
+          value: "mirror_node_pass"
+        # REST defaults to caching via Redis at 127.0.0.1:6379; without a Redis sidecar
+        # (deliberately not deployed here -- this is a test-only mirror node), that
+        # connection is refused, and the readiness/liveness health checks fail on it.
+        - name: HIERO_MIRROR_REST_REDIS_ENABLED
+          value: "false"
+        readinessProbe:
+          httpGet:
+            path: /health/readiness
+            port: http
+          periodSeconds: 2
+          failureThreshold: 60
+        livenessProbe:
+          httpGet:
+            path: /health/liveness
+            port: http
+          periodSeconds: 2
+          failureThreshold: 60
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mirror-2-rest
+  namespace: ${NAMESPACE}
+spec:
+  type: ClusterIP
+  selector:
+    app: mirror-2-rest
+  ports:
+  - name: http
+    port: 80
+    targetPort: 5551
 EOF
 
 log "Applying MN2 manifest to namespace ${NAMESPACE}..."
@@ -262,4 +342,24 @@ kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
         fail "mirror-2-importer did not become Ready within ${MN2_READY_TIMEOUT}s"
     }
 
-log "MN2 is Ready (postgres + importer)."
+# Don't wait for the k8s Ready condition here -- REST's own /health/readiness requires at
+# least one imported record_file row, but BN2/BN3 (this MN's block-node sources) don't get
+# backfill configured until step 10, well after this script runs. Waiting on Ready would
+# always time out at this point in the test regardless of whether the deployment is actually
+# healthy. Just confirm the container started; the readinessProbe (and the Service's
+# endpoint) will flip healthy on its own once step 10's backfill actually delivers blocks,
+# which happens well before step 12's assert-cutover-sync needs to query it.
+log "Waiting for mirror-2-rest container to start (timeout ${MN2_READY_TIMEOUT}s)..."
+elapsed=0
+until [[ "$(kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+    get pod -l app=mirror-2-rest -o jsonpath='{.items[0].status.phase}' 2>/dev/null)" == "Running" ]]; do
+    (( elapsed >= MN2_READY_TIMEOUT )) && {
+        kubectl --context "${CLUSTER_REFERENCE}" --namespace "${NAMESPACE}" \
+            describe pod -l app=mirror-2-rest | tail -60 || true
+        fail "mirror-2-rest container did not start within ${MN2_READY_TIMEOUT}s"
+    }
+    sleep 2
+    elapsed=$(( elapsed + 2 ))
+done
+
+log "MN2 is Ready (postgres + importer + rest)."
