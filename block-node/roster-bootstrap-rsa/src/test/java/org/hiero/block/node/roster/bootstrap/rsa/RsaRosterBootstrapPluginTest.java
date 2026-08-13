@@ -10,8 +10,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.sun.net.httpserver.HttpServer;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -968,8 +973,209 @@ class RsaRosterBootstrapPluginTest
     }
 
     // -------------------------------------------------------------------------
+    // Split-backend Mirror Node (regression: keep-alive connection pinning)
+    //
+    // Some real Mirror Node deployments (e.g. Solo's, behind a HAProxy Ingress) split
+    // /api/v1/network/nodes and /api/v1/blocks across two different backend services under one
+    // base URL. A proxy/ingress that pins a persistent connection to whichever backend answered
+    // its *first* request -- rather than re-evaluating routing per request -- breaks a client
+    // that reuses one HttpClient/connection across both endpoint families: the nodes call
+    // succeeds, but the blocks call silently gets misrouted to the nodes backend over the same
+    // reused connection. PinningReverseProxy below reproduces exactly that behavior.
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("Split-backend Mirror Node behind a connection-pinning proxy")
+    class SplitBackendMirrorNode {
+
+        private HttpServer nodesServer;
+        private HttpServer blocksServer;
+        private PinningReverseProxy proxy;
+
+        @BeforeEach
+        void startServers() throws IOException {
+            nodesServer = HttpServer.create(new InetSocketAddress(0), 0);
+            nodesServer.start();
+            blocksServer = HttpServer.create(new InetSocketAddress(0), 0);
+            blocksServer.start();
+        }
+
+        @AfterEach
+        void stopServers() {
+            if (proxy != null) proxy.stop();
+            if (nodesServer != null) nodesServer.stop(0);
+            if (blocksServer != null) blocksServer.stop(0);
+        }
+
+        @Test
+        @DisplayName("Nodes and blocks calls each land on the correct backend despite the shared base URL")
+        void splitBackendsBothSucceedWithSeparateClients() throws IOException {
+            // One node with a real (non-genesis) timestamp, so the plugin must call the blocks
+            // endpoint to resolve its era's block range -- exercising both endpoint families.
+            nodesServer.createContext("/api/v1/network/nodes", exchange -> {
+                final byte[] bytes = ("{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\","
+                                + "\"timestamp\":{\"from\":\"1000.0\",\"to\":null}}],\"links\":{\"next\":null}}")
+                        .getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+            });
+            blocksServer.createContext("/api/v1/blocks", exchange -> {
+                final byte[] bytes =
+                        "{\"blocks\":[{\"number\":100000}],\"links\":{\"next\":null}}".getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+            });
+
+            proxy = new PinningReverseProxy(
+                    nodesServer.getAddress().getPort(),
+                    blocksServer.getAddress().getPort());
+            proxy.start();
+
+            final Map<String, String> config = Map.of(
+                    "roster.bootstrap.rsa.mirrorNodeBaseUrl", "http://localhost:" + proxy.port(),
+                    "roster.bootstrap.rsa.mirrorNodeConnectTimeoutSeconds", "5",
+                    "roster.bootstrap.rsa.mirrorNodeReadTimeoutSeconds", "5");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), config);
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(
+                    history,
+                    "History must be populated -- if the plugin shared one HttpClient/connection across both "
+                            + "endpoint families, the proxy's connection pinning would misroute the /blocks call "
+                            + "to the nodes backend (which 404s on it) and this would be null");
+            assertEquals(1, history.addressBooks().size());
+            assertEquals(100000L, history.addressBooks().getFirst().startBlock());
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /// A minimal reverse proxy that reproduces the keep-alive connection-pinning behavior observed
+    /// in a real HAProxy Ingress deployment: it inspects only the *first* HTTP request line on each
+    /// accepted client connection to pick a backend, then blindly relays every subsequent byte on
+    /// that same connection to that same backend -- regardless of what later requests on the
+    /// connection ask for. Real HTTP clients (including {@link java.net.http.HttpClient}) reuse a
+    /// persistent connection across requests to the same origin, so this is enough to reproduce the
+    /// bug without needing a real ingress controller.
+    private static final class PinningReverseProxy {
+        private final int nodesBackendPort;
+        private final int blocksBackendPort;
+        private ServerSocket serverSocket;
+        private volatile boolean running;
+
+        PinningReverseProxy(final int nodesBackendPort, final int blocksBackendPort) {
+            this.nodesBackendPort = nodesBackendPort;
+            this.blocksBackendPort = blocksBackendPort;
+        }
+
+        void start() throws IOException {
+            serverSocket = new ServerSocket(0);
+            running = true;
+            final Thread acceptThread = new Thread(this::acceptLoop, "pinning-proxy-accept");
+            acceptThread.setDaemon(true);
+            acceptThread.start();
+        }
+
+        int port() {
+            return serverSocket.getLocalPort();
+        }
+
+        void stop() {
+            running = false;
+            try {
+                if (serverSocket != null) {
+                    serverSocket.close();
+                }
+            } catch (final IOException ignored) {
+                // best effort
+            }
+        }
+
+        private void acceptLoop() {
+            while (running) {
+                try {
+                    final Socket client = serverSocket.accept();
+                    final Thread connThread = new Thread(() -> handleConnection(client), "pinning-proxy-conn");
+                    connThread.setDaemon(true);
+                    connThread.start();
+                } catch (final IOException e) {
+                    return; // socket closed by stop() -- exit the loop
+                }
+            }
+        }
+
+        private void handleConnection(final Socket client) {
+            try (client) {
+                final InputStream clientIn = client.getInputStream();
+                final ByteArrayOutputStream requestLine = new ByteArrayOutputStream();
+                int prev = -1;
+                int b;
+                while ((b = clientIn.read()) != -1) {
+                    requestLine.write(b);
+                    if (prev == '\r' && b == '\n') {
+                        break;
+                    }
+                    prev = b;
+                }
+                final String line = requestLine.toString(StandardCharsets.UTF_8);
+                final int backendPort = line.contains("/api/v1/network/nodes") ? nodesBackendPort : blocksBackendPort;
+
+                try (Socket backend = new Socket("localhost", backendPort)) {
+                    backend.getOutputStream().write(requestLine.toByteArray());
+                    backend.getOutputStream().flush();
+
+                    final Thread toBackend =
+                            new Thread(() -> relay(clientIn, uncheckedOutputStream(backend)), "pinning-proxy-c2b");
+                    final Thread toClient = new Thread(
+                            () -> relay(uncheckedInputStream(backend), uncheckedOutputStream(client)),
+                            "pinning-proxy-b2c");
+                    toBackend.start();
+                    toClient.start();
+                    toBackend.join();
+                    toClient.join();
+                }
+            } catch (final IOException | InterruptedException ignored) {
+                // connection closed; nothing more to relay
+            }
+        }
+
+        private static InputStream uncheckedInputStream(final Socket socket) {
+            try {
+                return socket.getInputStream();
+            } catch (final IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }
+
+        private static OutputStream uncheckedOutputStream(final Socket socket) {
+            try {
+                return socket.getOutputStream();
+            } catch (final IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }
+
+        private static void relay(final InputStream in, final OutputStream out) {
+            try {
+                final byte[] buf = new byte[4096];
+                int n;
+                while ((n = in.read(buf)) != -1) {
+                    out.write(buf, 0, n);
+                    out.flush();
+                }
+            } catch (final IOException ignored) {
+                // peer closed the connection
+            }
+        }
+    }
 
     private static NodeAddressBook buildAddressBook(final int count) {
         final List<NodeAddress> addresses = new ArrayList<>();
