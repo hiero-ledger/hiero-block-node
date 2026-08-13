@@ -1772,7 +1772,17 @@ function run_events {
     local sorted_events
     sorted_events=$(yq -o=json '.events | sort_by(.delay)' "$TEST_FILE")
 
-    echo "$sorted_events" | jq -c '.[]' | while read -r event; do
+    # Read from a dedicated fd (3), not stdin (fd 0): execute_event below runs arbitrary
+    # scripts several layers deep (kubectl exec -i, java, etc.), and any of them that reads
+    # from stdin without its own explicit redirection would otherwise silently consume a line
+    # of this loop's event stream -- the event on that line never reaches `read` at all, so it
+    # gets skipped with no EVENT_SUCCESS/EVENT_FAIL logged for it (previously observed as e.g.
+    # "39/42 events completed, 1 failed" with no accounting for the other 2). A trailing pipe
+    # (`... | while read -r event; do`) puts the loop's stdin and every command inside it on
+    # the exact same fd 0, so this is not just theoretical. Reading via `-u 3` / `3< <(...)`
+    # keeps this loop's input completely separate from whatever fd 0 already means for
+    # anything executed inside it.
+    while read -r -u 3 event; do
         local id delay event_type target desc args
         id=$(echo "$event" | jq -r '.id')
         delay=$(echo "$event" | jq -r '.delay // 0')
@@ -1805,7 +1815,7 @@ function run_events {
             log FAIL "$id failed" "$(($(date +%s) - start_time))"
             echo "EVENT_FAIL" >> /tmp/solo-test-results-$$
         fi
-    done
+    done 3< <(echo "$sorted_events" | jq -c '.[]')
 
     # Count results
     if [[ -f /tmp/solo-test-results-$$ ]]; then
