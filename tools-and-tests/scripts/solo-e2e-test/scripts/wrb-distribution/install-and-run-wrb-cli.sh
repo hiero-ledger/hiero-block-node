@@ -62,6 +62,13 @@ rm -rf "${WORK_DIR}"
 mkdir -p "${RECORDS_DIR}" "${DAYS_DIR}" "${WRAPPED_DIR}"
 
 # ---- 1. Build the CLI ----------------------------------------------------------
+# installDist's underlying Sync task fails ("neither empty nor does it contain an
+# installation for 'tools'") if this directory's contents don't match Gradle's own
+# tracking state from a prior sync -- e.g. left over from an interrupted build, a
+# different Gradle version, or state that predates a change to this build. It's pure,
+# fully-regenerable build output, so clear it proactively instead of letting a stale
+# copy intermittently break every run until someone notices and deletes it by hand.
+rm -rf "${REPO_ROOT}/tools-and-tests/tools/build/install/tools"
 log "Building wrb-cli (:tools:installDist)..."
 ( cd "${REPO_ROOT}" && ./gradlew :tools:installDist -x test ) > /tmp/wrb-dist-cli-build.log 2>&1 \
     || { tail -40 /tmp/wrb-dist-cli-build.log; fail "Failed to build :tools:installDist"; }
