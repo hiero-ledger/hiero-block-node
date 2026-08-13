@@ -233,6 +233,33 @@ events:
       # empty-store bootstrap deadlock applies to BN3.
       script: "BACKFILL_GREEDY=true ${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-backfill.sh 3"
 
+  - id: reconfigure-bn2-roster-bootstrap-rsa
+    type: command
+    description: "Step 10: point BN2 at the Mirror Node for its RSA roster"
+    delay: 472
+    timeout: 300
+    args:
+      # Blocks 0..N predate the CN's v0.76 TSS upgrade (step 11), so they're RSA-signed --
+      # TssData (from reconfigure-bn-roster-bootstrap-tss.sh, step 11) can never verify
+      # them. Verifying an RSA-signed block needs an "address book era" covering its block
+      # number (RSAProofVerifier), which BN2 only gets from rsa-address-book-history.json,
+      # populated by the roster-bootstrap-rsa plugin. Without this, BackfillPlugin's
+      # live-tail fetch of these blocks from BN1 succeeds at the network level but every
+      # block fails verification with MISSING_VERIFICATION_DATA, forever -- BN1 has the
+      # same empty roster.bootstrap.rsa.* config, so peer-BN query has nothing to serve
+      # either, leaving the Mirror Node as the only viable roster source in this topology.
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-roster-bootstrap-rsa.sh 2"
+
+  - id: reconfigure-bn3-roster-bootstrap-rsa
+    type: command
+    description: "Step 10: point BN3 at the Mirror Node for its RSA roster"
+    delay: 476
+    timeout: 300
+    args:
+      # See the RSA roster note on reconfigure-bn2-roster-bootstrap-rsa above -- same
+      # pre-upgrade RSA-signed-block verification gap applies to BN3.
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-roster-bootstrap-rsa.sh 3"
+
   - id: assert-bn-backfill-source
     type: command
     description: "Assert BN2 and BN3 are both configured to backfill from BN1"
@@ -274,11 +301,12 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-roster-bootstrap-tss-source.sh 2 1 && ${SCRIPT_DIR}/wrb-distribution/assert-bn-roster-bootstrap-tss-source.sh 3 1"
 
-  # reconfigure-bn-backfill.sh and reconfigure-bn-roster-bootstrap-tss.sh each
-  # patch BN2's/BN3's StatefulSet pod template (to add a sources-file
-  # volume/mount), which the StatefulSet controller responds to with its own
-  # automatic rolling restart of those pods (see those scripts' own header
-  # comments) — two rollouts each, back to back. A `kubectl port-forward
+  # reconfigure-bn-backfill.sh, reconfigure-bn-roster-bootstrap-rsa.sh, and
+  # reconfigure-bn-roster-bootstrap-tss.sh each either patch BN2's/BN3's
+  # StatefulSet pod template (adding a sources-file volume/mount) or explicitly
+  # restart it (RSA roster's mirrorNodeBaseUrl is a plain ConfigMap value with
+  # no volume to add, so that script triggers its own rollout restart
+  # directly) — three rollouts each, back to back. A `kubectl port-forward
   # svc/<name>` targets a specific backing pod at connection time, so
   # add-bn.sh's BN2/BN3 forwards (established long before these rollouts)
   # silently die once their pods are replaced. Steps 11-12 are the first
@@ -287,7 +315,7 @@ events:
   # every port-forward here before relying on any of them.
   - id: refresh-port-forwards-after-backfill-rollout
     type: port-forward
-    description: "Re-forward all BN/MN ports after BN2/BN3's backfill + roster-bootstrap-tss rollouts"
+    description: "Re-forward all BN/MN ports after BN2/BN3's backfill + RSA/TSS roster-bootstrap rollouts"
     delay: 500
 
   # Pre-cutover observation window — prove the wrb-cli live-wrap/live-push
