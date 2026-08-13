@@ -5,9 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
@@ -18,7 +16,6 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
-import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
@@ -26,6 +23,7 @@ import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.signing.TssBlockSigner;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -63,20 +61,24 @@ class VerificationRegressionTest
      */
     @Test
     @DisplayName("backfilled block via live-stream should not emit PUBLISHER failure (hasher enabled)")
-    void backfilledBlockWithHasherEnabledShouldNotCausePublisherFailure() throws IOException, ParseException {
-        BlockUtils.SampleBlockInfo block0 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-        BlockUtils.SampleBlockInfo block1 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_1);
+    void backfilledBlockWithHasherEnabledShouldNotCausePublisherFailure() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder builder =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create());
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                builder.genesisWithPublication();
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block1 = builder.next(1L);
 
         // Block 0 via live stream — establishes verification state
-        blockMessaging.sendBlockItems(
-                new BlockItems(block0.blockUnparsed().blockItems(), block0.blockNumber(), true, true));
+        blockMessaging.sendBlockItems(new BlockItems(
+                block0.block().blockUnparsed().blockItems(), block0.block().number(), true, true));
 
         // Block 1 via backfill — succeeds, but pollutes allBlocksHasher
-        plugin.handleBackfilled(new BackfilledBlockNotification(block1.blockNumber(), block1.blockUnparsed()));
+        plugin.handleBackfilled(new BackfilledBlockNotification(
+                block1.block().number(), block1.block().blockUnparsed()));
 
         // Same block 1 via live stream — reconnecting publisher resends it
-        plugin.handleBlockItemsReceived(
-                new BlockItems(block1.blockUnparsed().blockItems(), block1.blockNumber(), true, true));
+        plugin.handleBlockItemsReceived(new BlockItems(
+                block1.block().blockUnparsed().blockItems(), block1.block().number(), true, true));
 
         List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications();
         assertTrue(notifications.get(0).success(), "Block 0 live-stream should succeed");
@@ -88,9 +90,8 @@ class VerificationRegressionTest
         for (VerificationNotification notification : notifications) {
             assertTrue(
                     notification.success() || notification.source() != BlockSource.PUBLISHER,
-                    "Must not emit PUBLISHER failure for a block already verified via backfill. "
-                            + "Actual: success=" + notification.success()
-                            + ", source=" + notification.source());
+                    "Must not emit PUBLISHER failure for a block already verified via backfill. " + "Actual: success="
+                            + notification.success() + ", source=" + notification.source());
         }
     }
 
@@ -157,20 +158,26 @@ class VerificationRegressionTest
      */
     @Test
     @DisplayName("block after gap fails verification — allBlocksHasher detects missing preceding block")
-    void blockAfterGapFailsVerificationWhenPrecedingBlockMissing() throws IOException, ParseException {
-        final BlockUtils.SampleBlockInfo block0 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-        final BlockUtils.SampleBlockInfo block1 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_1);
-        final BlockUtils.SampleBlockInfo block2 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_2);
-        final BlockUtils.SampleBlockInfo block4 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_4);
+    void blockAfterGapFailsVerificationWhenPrecedingBlockMissing() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder builder =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create());
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                builder.genesisWithPublication();
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block1 = builder.next(1L);
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block2 = builder.next(2L);
+        // Advance builder state past block 3 (never pushed) so block 4's footer expects a
+        // 4-leaf allBlocksHasher root that the plugin — which only sees 0, 1, 2 — can't recompute.
+        builder.next(3L);
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block4 = builder.next(4L);
 
-        blockMessaging.sendBlockItems(
-                new BlockItems(block0.blockUnparsed().blockItems(), block0.blockNumber(), true, true));
-        blockMessaging.sendBlockItems(
-                new BlockItems(block1.blockUnparsed().blockItems(), block1.blockNumber(), true, true));
-        blockMessaging.sendBlockItems(
-                new BlockItems(block2.blockUnparsed().blockItems(), block2.blockNumber(), true, true));
-        blockMessaging.sendBlockItems(
-                new BlockItems(block4.blockUnparsed().blockItems(), block4.blockNumber(), true, true));
+        blockMessaging.sendBlockItems(new BlockItems(
+                block0.block().blockUnparsed().blockItems(), block0.block().number(), true, true));
+        blockMessaging.sendBlockItems(new BlockItems(
+                block1.block().blockUnparsed().blockItems(), block1.block().number(), true, true));
+        blockMessaging.sendBlockItems(new BlockItems(
+                block2.block().blockUnparsed().blockItems(), block2.block().number(), true, true));
+        blockMessaging.sendBlockItems(new BlockItems(
+                block4.block().blockUnparsed().blockItems(), block4.block().number(), true, true));
 
         final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications();
         assertEquals(4, notifications.size());

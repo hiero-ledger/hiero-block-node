@@ -26,7 +26,6 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -41,16 +40,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.zip.GZIPInputStream;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
-import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
@@ -59,6 +55,7 @@ import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
+import org.hiero.block.signing.TssBlockSigner;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -100,45 +97,45 @@ class VerificationServicePluginTest
 
     @Test
     @DisplayName("should verify consecutive blocks (block 0 then block 1)")
-    void shouldVerifyConsecutiveBlocks() throws IOException, ParseException {
-        BlockUtils.SampleBlockInfo block0Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-        BlockUtils.SampleBlockInfo block1Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_1);
+    void shouldVerifyConsecutiveBlocks() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder builder =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create());
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                builder.genesisWithPublication();
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block1 = builder.next(1L);
 
-        blockMessaging.sendBlockItems(
-                new BlockItems(block0Info.blockUnparsed().blockItems(), block0Info.blockNumber(), true, true));
-        blockMessaging.sendBlockItems(
-                new BlockItems(block1Info.blockUnparsed().blockItems(), block1Info.blockNumber(), true, true));
+        blockMessaging.sendBlockItems(new BlockItems(
+                block0.block().blockUnparsed().blockItems(), block0.block().number(), true, true));
+        blockMessaging.sendBlockItems(new BlockItems(
+                block1.block().blockUnparsed().blockItems(), block1.block().number(), true, true));
 
-        // check block 0 verification
         VerificationNotification block0Notification =
                 blockMessaging.getSentVerificationNotifications().get(0);
         assertNotNull(block0Notification);
-        assertEquals(block0Info.blockNumber(), block0Notification.blockNumber(), "block 0 number should match");
+        assertEquals(block0.block().number(), block0Notification.blockNumber(), "block 0 number should match");
         assertTrue(block0Notification.success(), "block 0 verification should succeed");
-        assertEquals(block0Info.blockRootHash(), block0Notification.blockHash(), "block 0 hash should match");
-        assertEquals(block0Info.blockUnparsed(), block0Notification.block(), "block 0 content should match");
+        assertEquals(block0.rootHash(), block0Notification.blockHash(), "block 0 hash should match");
+        assertEquals(block0.block().blockUnparsed(), block0Notification.block(), "block 0 content should match");
 
-        // check block 1 verification
         VerificationNotification block1Notification =
                 blockMessaging.getSentVerificationNotifications().get(1);
         assertNotNull(block1Notification);
-        assertEquals(block1Info.blockNumber(), block1Notification.blockNumber(), "block 1 number should match");
+        assertEquals(block1.block().number(), block1Notification.blockNumber(), "block 1 number should match");
         assertTrue(block1Notification.success(), "block 1 verification should succeed");
-        assertEquals(block1Info.blockRootHash(), block1Notification.blockHash(), "block 1 hash should match");
-        assertEquals(block1Info.blockUnparsed(), block1Notification.block(), "block 1 content should match");
+        assertEquals(block1.rootHash(), block1Notification.blockHash(), "block 1 hash should match");
+        assertEquals(block1.block().blockUnparsed(), block1Notification.block(), "block 1 content should match");
     }
 
     @Test
     @DisplayName("should fail verification when a block item is removed (tampered block)")
-    void shouldFailVerificationForTamperedBlock() throws IOException, ParseException {
-
-        BlockUtils.SampleBlockInfo sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
+    void shouldFailVerificationForTamperedBlock() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed signed =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create())
+                        .genesisWithPublication();
         List<BlockItemUnparsed> blockItems =
-                new ArrayList<>(sampleBlockInfo.blockUnparsed().blockItems());
-
-        // remove one block item, so the hash is no longer valid
+                new ArrayList<>(signed.block().blockUnparsed().blockItems());
         blockItems.remove(3);
-        long blockNumber = sampleBlockInfo.blockNumber();
+        long blockNumber = signed.block().number();
 
         blockMessaging.sendBlockItems(new BlockItems(blockItems, blockNumber, true, true));
 
@@ -152,15 +149,15 @@ class VerificationServicePluginTest
 
     @Test
     @DisplayName("should ignore block items received before a block header")
-    void shouldIgnoreBlockItemsWithoutHeader() throws IOException, ParseException {
-        BlockUtils.SampleBlockInfo sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-        long blockNumber = sampleBlockInfo.blockNumber();
+    void shouldIgnoreBlockItemsWithoutHeader() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed signed =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create())
+                        .genesisWithPublication();
         List<BlockItemUnparsed> blockItems =
-                new ArrayList<>(sampleBlockInfo.blockUnparsed().blockItems());
-
-        // remove the header to simulate receiving items without a prior header
+                new ArrayList<>(signed.block().blockUnparsed().blockItems());
         blockItems.removeFirst();
-        plugin.handleBlockItemsReceived(new BlockItems(blockItems, blockNumber, false, true));
+        plugin.handleBlockItemsReceived(
+                new BlockItems(blockItems, signed.block().number(), false, true));
         assertEquals(0, blockMessaging.getSentVerificationNotifications().size());
     }
 
@@ -191,11 +188,12 @@ class VerificationServicePluginTest
 
     @Test
     @DisplayName("backfill of sequential block should update allBlocksHasher")
-    void shouldUpdateHasherForSequentialBackfilledBlock() throws IOException, ParseException {
-        // Block 0 is the next expected block (hasher leafCount==0 == blockNumber==0).
-        // A successful backfill should append its hash to the hasher so continuity is maintained.
-        BlockUtils.SampleBlockInfo block0Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-        plugin.handleBackfilled(new BackfilledBlockNotification(block0Info.blockNumber(), block0Info.blockUnparsed()));
+    void shouldUpdateHasherForSequentialBackfilledBlock() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create())
+                        .genesisWithPublication();
+        plugin.handleBackfilled(new BackfilledBlockNotification(
+                block0.block().number(), block0.block().blockUnparsed()));
 
         VerificationNotification notification =
                 blockMessaging.getSentVerificationNotifications().getFirst();
@@ -205,16 +203,21 @@ class VerificationServicePluginTest
 
     @Test
     @DisplayName("backfill of out-of-order historical block should not update allBlocksHasher")
-    void shouldNotUpdateHasherForOutOfOrderBackfilledBlock() throws IOException, ParseException {
-        // Initialize TSS state via block 0 live-stream so TSS signature verification works
-        BlockUtils.SampleBlockInfo block0Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-        blockMessaging.sendBlockItems(
-                new BlockItems(block0Info.blockUnparsed().blockItems(), block0Info.blockNumber(), true, true));
+    void shouldNotUpdateHasherForOutOfOrderBackfilledBlock() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder builder =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create());
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                builder.genesisWithPublication();
+        // Advance the builder past blocks 1-3 so block 4's footer is correctly chained.
+        builder.next(1L);
+        builder.next(2L);
+        builder.next(3L);
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block4 = builder.next(4L);
 
-        // Block 4 arrives while hasher leafCount==1 (block 0 was sequential); block 4 is not the
-        // next sequential block so appending it would break the hasher's contiguous chain.
-        BlockUtils.SampleBlockInfo block4Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_4);
-        plugin.handleBackfilled(new BackfilledBlockNotification(block4Info.blockNumber(), block4Info.blockUnparsed()));
+        blockMessaging.sendBlockItems(new BlockItems(
+                block0.block().blockUnparsed().blockItems(), block0.block().number(), true, true));
+        plugin.handleBackfilled(new BackfilledBlockNotification(
+                block4.block().number(), block4.block().blockUnparsed()));
 
         VerificationNotification notification =
                 blockMessaging.getSentVerificationNotifications().get(1);
@@ -227,39 +230,41 @@ class VerificationServicePluginTest
 
     @Test
     @DisplayName("should verify backfilled block")
-    void shouldVerifyBackfilledBlock() throws IOException, ParseException {
-        // Initialize TSS state via block 0 live-stream so TSS signature verification works
-        BlockUtils.SampleBlockInfo block0Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-        blockMessaging.sendBlockItems(
-                new BlockItems(block0Info.blockUnparsed().blockItems(), block0Info.blockNumber(), true, true));
+    void shouldVerifyBackfilledBlock() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder builder =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create());
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                builder.genesisWithPublication();
+        builder.next(1L);
+        builder.next(2L);
+        builder.next(3L);
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block4 = builder.next(4L);
 
-        BlockUtils.SampleBlockInfo sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_4);
-        long blockNumber = sampleBlockInfo.blockNumber();
-        BackfilledBlockNotification notification =
-                new BackfilledBlockNotification(blockNumber, sampleBlockInfo.blockUnparsed());
+        blockMessaging.sendBlockItems(new BlockItems(
+                block0.block().blockUnparsed().blockItems(), block0.block().number(), true, true));
 
-        plugin.handleBackfilled(notification);
+        plugin.handleBackfilled(new BackfilledBlockNotification(
+                block4.block().number(), block4.block().blockUnparsed()));
 
         VerificationNotification blockNotification =
                 blockMessaging.getSentVerificationNotifications().get(1);
         assertNotNull(blockNotification);
-        assertEquals(blockNumber, blockNotification.blockNumber());
+        assertEquals(block4.block().number(), blockNotification.blockNumber());
         assertTrue(blockNotification.success(), "The verification should be successful");
-        assertEquals(sampleBlockInfo.blockRootHash(), blockNotification.blockHash());
-        assertEquals(sampleBlockInfo.blockUnparsed(), blockNotification.block());
+        assertEquals(block4.rootHash(), blockNotification.blockHash());
+        assertEquals(block4.block().blockUnparsed(), blockNotification.block());
     }
 
     @Test
     @DisplayName("should fail verification when block header number mismatches block number")
-    void shouldFailOnBlockHeaderNumberMismatch() throws ParseException, IOException {
-        BlockUtils.SampleBlockInfo sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-        BlockHeader blockHeader = standardParse(
-                BlockHeader.PROTOBUF,
-                sampleBlockInfo.blockUnparsed().blockItems().getFirst().blockHeaderOrThrow());
+    void shouldFailOnBlockHeaderNumberMismatch() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create())
+                        .genesisWithPublication();
 
-        long blockNumber = blockHeader.number() + 1;
+        long wrongBlockNumber = block0.block().number() + 1;
         plugin.handleBlockItemsReceived(
-                new BlockItems(sampleBlockInfo.blockUnparsed().blockItems(), blockNumber, true, true));
+                new BlockItems(block0.block().blockUnparsed().blockItems(), wrongBlockNumber, true, true));
 
         assertEquals(1, blockMessaging.getSentVerificationNotifications().size());
         VerificationNotification blockNotification =
@@ -270,7 +275,7 @@ class VerificationServicePluginTest
 
     @Test
     @DisplayName("fresh BN with empty allBlocksHasher should use footer values for first non-genesis block")
-    void shouldUseFooterValuesWhenHasherIsEmptyForNonGenesisBlock() throws IOException, ParseException {
+    void shouldUseFooterValuesWhenHasherIsEmptyForNonGenesisBlock() {
         // Scenario: BN starts fresh (no stored blocks, allBlocksHasherEnabled=true) with
         // earliestManagedBlock > 0, so the first block received is not block 0.
         //
@@ -286,27 +291,29 @@ class VerificationServicePluginTest
         //
         // After the fix: when earliestManagedBlock > 0 and the hasher has no chain continuity
         // (leafCount != currentBlockNumber), both values fall back to footer and verification succeeds.
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder builder =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create());
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                builder.genesisWithPublication();
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block1 = builder.next(1L);
 
-        // Bootstrap TSS state via block 0 on the initial plugin so TSS verification works
-        BlockUtils.SampleBlockInfo block0Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-        blockMessaging.sendBlockItems(
-                new BlockItems(block0Info.blockUnparsed().blockItems(), block0Info.blockNumber(), true, true));
+        // Bootstrap TSS state via block 0 on the initial plugin so TSS verification works.
+        blockMessaging.sendBlockItems(new BlockItems(
+                block0.block().blockUnparsed().blockItems(), block0.block().number(), true, true));
 
-        // Restart plugin with earliestManagedBlock=1 (TSS static state persists across restarts)
+        // Restart plugin with earliestManagedBlock=1 (TSS static state persists across restarts).
         blockMessaging = new TestBlockMessagingFacility();
         Map<String, String> config = new HashMap<>(defaultConfig);
         config.put("block.node.earliestManagedBlock", "1");
         start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), config);
 
-        BlockUtils.SampleBlockInfo block1Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_1);
-
-        blockMessaging.sendBlockItems(
-                new BlockItems(block1Info.blockUnparsed().blockItems(), block1Info.blockNumber(), true, true));
+        blockMessaging.sendBlockItems(new BlockItems(
+                block1.block().blockUnparsed().blockItems(), block1.block().number(), true, true));
 
         VerificationNotification notification =
                 blockMessaging.getSentVerificationNotifications().getFirst();
         assertNotNull(notification);
-        assertEquals(block1Info.blockNumber(), notification.blockNumber());
+        assertEquals(block1.block().number(), notification.blockNumber());
         assertTrue(
                 notification.success(),
                 "Block 1 on a fresh BN with earliestManagedBlock=1 should verify using block footer "
@@ -322,9 +329,12 @@ class VerificationServicePluginTest
 
     @Test
     @DisplayName("should send BAD_BLOCK_PROOF failure when backfill block number mismatches header number")
-    void shouldSendFailureOnBackfillBlockNumberMismatch() throws IOException, ParseException {
-        BlockUtils.SampleBlockInfo block0Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-        plugin.handleBackfilled(new BackfilledBlockNotification(999L, block0Info.blockUnparsed()));
+    void shouldSendFailureOnBackfillBlockNumberMismatch() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create())
+                        .genesisWithPublication();
+        plugin.handleBackfilled(
+                new BackfilledBlockNotification(999L, block0.block().blockUnparsed()));
 
         assertEquals(1, blockMessaging.getSentVerificationNotifications().size());
         VerificationNotification notification =
@@ -338,21 +348,22 @@ class VerificationServicePluginTest
 
     @Test
     @DisplayName("should attempt dump when a backfilled block fails verification (matching block number)")
-    void shouldAttemptDumpWhenBackfilledBlockFailsVerification() throws IOException, ParseException {
-        // Bootstrap TSS state via live stream so signature verification can run
-        BlockUtils.SampleBlockInfo block0Info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-        blockMessaging.sendBlockItems(
-                new BlockItems(block0Info.blockUnparsed().blockItems(), block0Info.blockNumber(), true, true));
+    void shouldAttemptDumpWhenBackfilledBlockFailsVerification() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create())
+                        .genesisWithPublication();
+        blockMessaging.sendBlockItems(new BlockItems(
+                block0.block().blockUnparsed().blockItems(), block0.block().number(), true, true));
         assertNotNull(VerificationServicePlugin.activeLedgerId, "TSS state must be set after block 0");
 
         // Tamper block 0 by removing one item — the hash will change and TSS signature verification fails.
         // The block number still matches the header, so the session runs to completion and returns success=false.
         List<BlockItemUnparsed> tamperedItems =
-                new ArrayList<>(block0Info.blockUnparsed().blockItems());
+                new ArrayList<>(block0.block().blockUnparsed().blockItems());
         tamperedItems.remove(3);
         BlockUnparsed tamperedBlock =
                 BlockUnparsed.newBuilder().blockItems(tamperedItems).build();
-        plugin.handleBackfilled(new BackfilledBlockNotification(block0Info.blockNumber(), tamperedBlock));
+        plugin.handleBackfilled(new BackfilledBlockNotification(block0.block().number(), tamperedBlock));
 
         assertEquals(2, blockMessaging.getSentVerificationNotifications().size());
         VerificationNotification backfillNotification =
@@ -366,23 +377,23 @@ class VerificationServicePluginTest
     @Test
     @DisplayName("should bootstrap TSS parameters from persisted file at startup")
     void shouldBootstrapTssParametersFromFile() throws IOException, ParseException {
-        // Process block 0 to get a real LedgerIdPublicationTransactionBody
-        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
-        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+        // Process a harness-generated block 0 to get a real LedgerIdPublicationTransactionBody
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create())
+                        .genesisWithPublication();
+        blockMessaging.sendBlockItems(
+                new BlockItems(block0.block().blockUnparsed().blockItems(), 0, true, true));
         LedgerIdPublicationTransactionBody publication = VerificationServicePlugin.activeTssPublication;
         assertNotNull(publication, "Block 0 must produce a TSS publication");
 
-        // Serialize and write to a file
         Path tssParametersFile = testTempDir.resolve("tss-parameters-priority.bin");
         Bytes serialized = LedgerIdPublicationTransactionBody.PROTOBUF.toBytes(publication);
         Files.write(tssParametersFile, serialized.toByteArray());
 
-        // Reset static state so the restart actually exercises file loading
         VerificationServicePlugin.activeLedgerId = null;
         VerificationServicePlugin.activeTssPublication = null;
         VerificationServicePlugin.tssParametersPersisted = false;
 
-        // Restart plugin with the file — TSS state should be restored
         blockMessaging = new TestBlockMessagingFacility();
         Map<String, String> config = new HashMap<>(defaultConfig);
         config.put("verification.tssParametersFilePath", tssParametersFile.toString());
@@ -410,13 +421,15 @@ class VerificationServicePluginTest
         assertNull(VerificationServicePlugin.activeLedgerId, "activeLedgerId must be null before block 0");
         assertFalse(Files.exists(tssParametersFile), "TSS parameters file must not exist before block 0");
 
-        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
-        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create())
+                        .genesisWithPublication();
+        blockMessaging.sendBlockItems(
+                new BlockItems(block0.block().blockUnparsed().blockItems(), 0, true, true));
 
         assertNotNull(VerificationServicePlugin.activeLedgerId, "activeLedgerId must be set after block 0");
         assertTrue(Files.exists(tssParametersFile), "TSS parameters file must be created after block 0");
 
-        // Verify the file contains a valid LedgerIdPublicationTransactionBody
         Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssParametersFile));
         LedgerIdPublicationTransactionBody persisted =
                 standardParse(LedgerIdPublicationTransactionBody.PROTOBUF, fileBytes);
@@ -430,13 +443,14 @@ class VerificationServicePluginTest
     @Test
     @DisplayName("should not overwrite file-loaded TSS parameters when block 0 is received (first-write-wins)")
     void shouldNotOverwriteFileLoadedTssParameters() throws IOException, ParseException {
-        // Process block 0 to get a real publication
-        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
-        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create())
+                        .genesisWithPublication();
+        blockMessaging.sendBlockItems(
+                new BlockItems(block0.block().blockUnparsed().blockItems(), 0, true, true));
         Bytes originalLedgerId = VerificationServicePlugin.activeLedgerId;
         assertNotNull(originalLedgerId, "Block 0 must set ledger ID");
 
-        // Persist to file, reset static state, restart plugin with the file
         Path tssParametersFile = testTempDir.resolve("tss-parameters-first-write-wins.bin");
         Bytes serialized =
                 LedgerIdPublicationTransactionBody.PROTOBUF.toBytes(VerificationServicePlugin.activeTssPublication);
@@ -457,7 +471,8 @@ class VerificationServicePluginTest
                 "File-loaded ledger ID must match original");
 
         // Send block 0 again — first-write-wins: plugin state unchanged
-        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+        blockMessaging.sendBlockItems(
+                new BlockItems(block0.block().blockUnparsed().blockItems(), 0, true, true));
 
         assertEquals(
                 originalLedgerId,
@@ -804,22 +819,24 @@ class VerificationServicePluginTest
 
     @Test
     @DisplayName("TSS flow: block 0 bootstraps TSS state, subsequent block verifies with TSS")
-    void tssFlowBlock0ThenSubsequentBlock() throws IOException, ParseException {
-        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
-        BlockUnparsed tssBlockN = loadTssBlock("test-blocks/CN_11_12_TSS_WRAPS/391.blk.gz");
-        long blockNNumber = standardParse(
-                        BlockHeader.PROTOBUF, tssBlockN.blockItems().getFirst().blockHeaderOrThrow())
-                .number();
+    void tssFlowBlock0ThenSubsequentBlock() {
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder builder =
+                org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.create(TssBlockSigner.create());
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed block0 =
+                builder.genesisWithPublication();
+        final org.hiero.block.node.verification.harness.LegacyHarnessChainBuilder.Signed blockN = builder.next(1L);
 
-        // Process block 0 via live stream — bootstraps TSS parameters
-        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+        // Process block 0 via live stream — bootstraps TSS parameters.
+        blockMessaging.sendBlockItems(
+                new BlockItems(block0.block().blockUnparsed().blockItems(), 0, true, true));
         VerificationNotification block0Notification =
                 blockMessaging.getSentVerificationNotifications().get(0);
         assertTrue(block0Notification.success(), "TSS block 0 must verify successfully");
         assertNotNull(VerificationServicePlugin.activeLedgerId, "Plugin must have ledger ID after block 0");
 
-        // Process subsequent block via backfill — verifies using TSS with ledger ID from block 0
-        plugin.handleBackfilled(new BackfilledBlockNotification(blockNNumber, tssBlockN));
+        // Process subsequent block via backfill — verifies using TSS with ledger ID from block 0.
+        plugin.handleBackfilled(new BackfilledBlockNotification(
+                blockN.block().number(), blockN.block().blockUnparsed()));
         VerificationNotification blockNNotification =
                 blockMessaging.getSentVerificationNotifications().get(1);
         assertTrue(
@@ -828,13 +845,6 @@ class VerificationServicePluginTest
     }
 
     // ==== Helpers ====================================================================================================
-
-    private static BlockUnparsed loadTssBlock(String resourcePath) throws IOException, ParseException {
-        try (InputStream stream = TestUtils.class.getModule().getResourceAsStream(resourcePath);
-                GZIPInputStream gzip = new GZIPInputStream(stream)) {
-            return standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(gzip.readAllBytes()));
-        }
-    }
 
     private static class VerificationConfigBuilder {
 

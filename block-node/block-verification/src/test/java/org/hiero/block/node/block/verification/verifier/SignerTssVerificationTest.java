@@ -31,10 +31,10 @@ import org.junit.jupiter.api.Timeout;
 
 /// End-to-end test that a [TssBlockSigner] signature is accepted by the real [TSSVerifier].
 ///
-/// Unlike [TSSVerifierTest], which replays captured consensus-node blocks, this test generates the
-/// roster and keys locally, provisions the real [VerificationDataProvider] with the signer's
-/// [org.hiero.block.signing.VerificationMaterial], signs the root hash that [BlockHasher] computes for
-/// a locally built block, and confirms the production verifier accepts it.
+/// Generates the roster and keys locally, provisions the real [VerificationDataProvider] with the
+/// signer's [org.hiero.block.signing.VerificationMaterial], signs the root hash that [BlockHasher]
+/// computes for a locally built block, and confirms the production verifier accepts it — covering
+/// both the genesis-Schnorr (2920 B) and settled-WRAPS (3432 B) paths plus tampering rejections.
 @Timeout(unit = SECONDS, value = 30)
 @DisplayName("Signer -> TSSVerifier end-to-end")
 class SignerTssVerificationTest {
@@ -92,6 +92,50 @@ class SignerTssVerificationTest {
                 Bytes.wrap(tamperedHash),
                 signature,
                 verificationDataProvider);
+
+        assertThat(verifier.verify()).isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
+    @Test
+    @DisplayName("verify() accepts a locally signed block on the settled WRAPS path")
+    void verifyAcceptsSettledWrapsSignedBlock() {
+        final TestBlock block = TestBlockBuilder.generateBlockWithNumber(3L);
+        final Bytes rootHash = runHashing(block).rootHash();
+
+        final TssBlockSigner signer = TssBlockSigner.createDeterministicSettled();
+        verificationDataProvider.safeUpdateTssData(signer.verificationMaterial().tssData(), false);
+        final Bytes signature = signer.signBlockProof(block.number(), rootHash)
+                .signedBlockProof()
+                .blockSignature();
+        // settled path: hintsVk (1096) + blsSig (1632) + WRAPS proof (704) = 3432
+        assertThat(signature.length())
+                .withFailMessage("Settled-WRAPS signature must be 3432 bytes")
+                .isEqualTo(3_432);
+
+        final TSSVerifier verifier = new TSSVerifier(
+                metricsHolder.proofVerificationMetrics(), rootHash, signature, verificationDataProvider);
+
+        assertThat(verifier.verify())
+                .withFailMessage("Locally signed settled-WRAPS block should verify successfully")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("verify() rejects a tampered signature")
+    void verifyRejectsTamperedSignature() {
+        final TestBlock block = TestBlockBuilder.generateBlockWithNumber(3L);
+        final Bytes rootHash = runHashing(block).rootHash();
+
+        final TssBlockSigner signer = TssBlockSigner.create();
+        verificationDataProvider.safeUpdateTssData(signer.verificationMaterial().tssData(), false);
+        final byte[] signature = signer.signBlockProof(block.number(), rootHash)
+                .signedBlockProof()
+                .blockSignature()
+                .toByteArray();
+        signature[0] = (byte) ~signature[0];
+
+        final TSSVerifier verifier = new TSSVerifier(
+                metricsHolder.proofVerificationMetrics(), rootHash, Bytes.wrap(signature), verificationDataProvider);
 
         assertThat(verifier.verify()).isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
     }

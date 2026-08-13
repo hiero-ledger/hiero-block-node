@@ -26,7 +26,6 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlock;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.StateProof;
-import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRAPS;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRB;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestWRBBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
@@ -39,6 +38,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
+import org.hiero.block.signing.TssBlockSigner;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.RepeatedTest;
@@ -47,8 +47,8 @@ import org.junit.jupiter.api.Test;
 /// Plugin-level integration test for [VerificationServicePlugin].
 @DisplayName("VerificationServicePlugin Tests")
 class VerificationServicePluginTest {
-    private static final WRAPS[] consecutiveWRAPSBlocks =
-            new WRAPS[] {WRAPS.BLOCK_0, WRAPS.BLOCK_1, WRAPS.BLOCK_2, WRAPS.BLOCK_3, WRAPS.BLOCK_4};
+    // consecutiveWRAPSBlocks removed — the last WRAPS-fixture consumers were migrated to
+    // HarnessChainBuilder; only WRAPS.BLOCK_0 remains as canary for BlockHasherTest.
     private static final WRB[] consecutiveWRBBlocks = new WRB[] {
         WRB.SOLO_4N_BLOCK_0, WRB.SOLO_4N_BLOCK_1, WRB.SOLO_4N_BLOCK_2, WRB.SOLO_4N_BLOCK_3, WRB.SOLO_4N_BLOCK_4
     };
@@ -73,21 +73,21 @@ class VerificationServicePluginTest {
         /// the block will pass verification successfully. Uses Live RB.
         @Test
         @DisplayName("Successful WRAPS Verification - Live RB")
-        void testSuccessfulWRAPSVerificationLiveRB() throws IOException, ParseException {
-            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
-            // We push the block to the live items RB
-            plugin.handleBlockItemsReceived(block0.asBlockItems());
-            // Finally, await a single response and assert success
+        void testSuccessfulWRAPSVerificationLiveRB() {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder builder = harnessChainBuilder();
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
+                    builder.genesisWithPublication();
+            plugin.handleBlockItemsReceived(genesis.block().asBlockItems());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(true, VerificationNotification::success)
                     .returns(null, VerificationNotification::failureInfo)
-                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(genesis.block().number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
-                    .returns(block0.blockUnparsed(), VerificationNotification::block)
-                    .returns(block0.blockRootHash(), VerificationNotification::blockHash);
+                    .returns(genesis.block().blockUnparsed(), VerificationNotification::block)
+                    .returns(genesis.rootHash(), VerificationNotification::blockHash);
         }
 
         /// This test aims to assert that when the next in line WRAPS block is
@@ -95,21 +95,20 @@ class VerificationServicePluginTest {
         /// the block will pass verification successfully. Uses Backfill.
         @Test
         @DisplayName("Successful WRAPS Verification - Backfill")
-        void testSuccessfulWRAPSVerificationBackfill() throws IOException, ParseException {
-            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
-            // We push the block as a backfilled notification
-            plugin.handleBackfilled(block0.asBackfilledNotification());
-            // Finally, await a single response and assert success
+        void testSuccessfulWRAPSVerificationBackfill() {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
+                    harnessChainBuilder().genesisWithPublication();
+            plugin.handleBackfilled(genesis.block().asBackfilledNotification());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(true, VerificationNotification::success)
                     .returns(null, VerificationNotification::failureInfo)
-                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(genesis.block().number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.BACKFILL, VerificationNotification::source)
-                    .returns(block0.blockUnparsed(), VerificationNotification::block)
-                    .returns(block0.blockRootHash(), VerificationNotification::blockHash);
+                    .returns(genesis.block().blockUnparsed(), VerificationNotification::block)
+                    .returns(genesis.rootHash(), VerificationNotification::blockHash);
         }
 
         /// This test aims to assert that when the next in line WRAPS block is
@@ -118,31 +117,26 @@ class VerificationServicePluginTest {
         /// Verifies multiple consecutive blocks.
         @Test
         @DisplayName("Successful consecutive WRAPS Verification - Live RB")
-        void testSuccessfulConsecutiveWRAPSVerificationLiveRB() throws IOException, ParseException {
-            final List<ResourceTestBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRAPSBlocks);
-            // Load block 0 first which will update tss data, make sure it passes before continuing to ensure
-            // no flakiness due to missing tss data. Other tests can pre-load tss data and it will not be
-            // relevant to wait.
-            plugin.handleBlockItemsReceived(loadedBlocks.getFirst().asBlockItems());
+        void testSuccessfulConsecutiveWRAPSVerificationLiveRB() {
+            final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
+                    signedChain(5);
+            plugin.handleBlockItemsReceived(chain.getFirst().block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1);
-            for (final ResourceTestBlock block : loadedBlocks.subList(1, loadedBlocks.size())) {
-                // We push the block to the live items RB
-                plugin.handleBlockItemsReceived(block.asBlockItems());
+            for (int i = 1; i < chain.size(); i++) {
+                plugin.handleBlockItemsReceived(chain.get(i).block().asBlockItems());
             }
-            // Finally, await a single response and assert success
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(loadedBlocks.size());
-            assertThat(notifications).hasSize(loadedBlocks.size());
+                    blockMessaging.getSentVerificationNotifications(chain.size());
+            assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
-                final ResourceTestBlock block = loadedBlocks.get(i);
-                final VerificationNotification notification = notifications.get(i);
-                assertThat(notification)
+                final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed = chain.get(i);
+                assertThat(notifications.get(i))
                         .returns(true, VerificationNotification::success)
                         .returns(null, VerificationNotification::failureInfo)
-                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(signed.block().number(), VerificationNotification::blockNumber)
                         .returns(BlockSource.PUBLISHER, VerificationNotification::source)
-                        .returns(block.blockUnparsed(), VerificationNotification::block)
-                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+                        .returns(signed.block().blockUnparsed(), VerificationNotification::block)
+                        .returns(signed.rootHash(), VerificationNotification::blockHash);
             }
         }
 
@@ -152,31 +146,26 @@ class VerificationServicePluginTest {
         /// Verifies multiple consecutive blocks.
         @Test
         @DisplayName("Successful consecutive WRAPS Verification - Backfill")
-        void testSuccessfulConsecutiveWRAPSVerificationBackfill() throws IOException, ParseException {
-            final List<ResourceTestBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRAPSBlocks);
-            // Load block 0 first which will update tss data, make sure it passes before continuing to ensure
-            // no flakiness due to missing tss data. Other tests can pre-load tss data and it will not be
-            // relevant to wait.
-            plugin.handleBackfilled(loadedBlocks.getFirst().asBackfilledNotification());
+        void testSuccessfulConsecutiveWRAPSVerificationBackfill() {
+            final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
+                    signedChain(5);
+            plugin.handleBackfilled(chain.getFirst().block().asBackfilledNotification());
             blockMessaging.getSentVerificationNotifications(1);
-            for (final ResourceTestBlock block : loadedBlocks.subList(1, loadedBlocks.size())) {
-                // We push the block to the live items RB
-                plugin.handleBackfilled(block.asBackfilledNotification());
+            for (int i = 1; i < chain.size(); i++) {
+                plugin.handleBackfilled(chain.get(i).block().asBackfilledNotification());
             }
-            // Finally, await a single response and assert success
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(loadedBlocks.size());
-            assertThat(notifications).hasSize(loadedBlocks.size());
+                    blockMessaging.getSentVerificationNotifications(chain.size());
+            assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
-                final ResourceTestBlock block = loadedBlocks.get(i);
-                final VerificationNotification notification = notifications.get(i);
-                assertThat(notification)
+                final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed = chain.get(i);
+                assertThat(notifications.get(i))
                         .returns(true, VerificationNotification::success)
                         .returns(null, VerificationNotification::failureInfo)
-                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(signed.block().number(), VerificationNotification::blockNumber)
                         .returns(BlockSource.BACKFILL, VerificationNotification::source)
-                        .returns(block.blockUnparsed(), VerificationNotification::block)
-                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+                        .returns(signed.block().blockUnparsed(), VerificationNotification::block)
+                        .returns(signed.rootHash(), VerificationNotification::blockHash);
             }
         }
 
@@ -186,47 +175,40 @@ class VerificationServicePluginTest {
         /// Verifies multiple consecutive blocks.
         @Test
         @DisplayName("Successful consecutive WRAPS Verification - Multi Source")
-        void testSuccessfulConsecutiveWRAPSVerificationMultiSource() throws IOException, ParseException {
-            final List<ResourceTestBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRAPSBlocks);
-            // Load block 0 first which will update tss data, make sure it passes before continuing to ensure
-            // no flakiness due to missing tss data. Other tests can pre-load tss data and it will not be
-            // relevant to wait.
+        void testSuccessfulConsecutiveWRAPSVerificationMultiSource() {
+            final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
+                    signedChain(5);
             final Map<Long, BlockSource> blockSources = new HashMap<>();
-            plugin.handleBackfilled(loadedBlocks.getFirst().asBackfilledNotification());
-            blockSources.put(loadedBlocks.getFirst().number(), BlockSource.BACKFILL);
+            plugin.handleBackfilled(chain.getFirst().block().asBackfilledNotification());
+            blockSources.put(chain.getFirst().block().number(), BlockSource.BACKFILL);
             blockMessaging.getSentVerificationNotifications(1);
-            // Now push the blocks
-            for (final ResourceTestBlock block : loadedBlocks.subList(1, loadedBlocks.size())) {
-                // We push the block either to live or backfill
-                if (block.number() % 2 == 0) {
-                    blockSources.put(block.number(), BlockSource.BACKFILL);
-                    plugin.handleBackfilled(block.asBackfilledNotification());
+            for (int i = 1; i < chain.size(); i++) {
+                final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed = chain.get(i);
+                if (signed.block().number() % 2 == 0) {
+                    blockSources.put(signed.block().number(), BlockSource.BACKFILL);
+                    plugin.handleBackfilled(signed.block().asBackfilledNotification());
                 } else {
-                    blockSources.put(block.number(), BlockSource.PUBLISHER);
-                    final BlockItems blockItems = block.asBlockItems();
-                    plugin.handleBlockItemsReceived(blockItems);
+                    blockSources.put(signed.block().number(), BlockSource.PUBLISHER);
+                    plugin.handleBlockItemsReceived(signed.block().asBlockItems());
                 }
             }
-            // Finally, await a single response and assert success
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(loadedBlocks.size());
-            assertThat(notifications).hasSize(loadedBlocks.size());
+                    blockMessaging.getSentVerificationNotifications(chain.size());
+            assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
-                final ResourceTestBlock block = loadedBlocks.get(i);
-                final VerificationNotification notification = notifications.get(i);
-                final ObjectAssert<VerificationNotification> assertion = assertThat(notification);
+                final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed = chain.get(i);
+                final ObjectAssert<VerificationNotification> assertion = assertThat(notifications.get(i));
                 assertion
                         .returns(true, VerificationNotification::success)
                         .returns(null, VerificationNotification::failureInfo)
-                        .returns(block.number(), VerificationNotification::blockNumber)
-                        .returns(block.blockUnparsed(), VerificationNotification::block)
-                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
-                if (blockSources.get(block.number()) == BlockSource.PUBLISHER) {
-                    assertion.returns(BlockSource.PUBLISHER, VerificationNotification::source);
-                } else if (blockSources.get(block.number()) == BlockSource.BACKFILL) {
-                    assertion.returns(BlockSource.BACKFILL, VerificationNotification::source);
+                        .returns(signed.block().number(), VerificationNotification::blockNumber)
+                        .returns(signed.block().blockUnparsed(), VerificationNotification::block)
+                        .returns(signed.rootHash(), VerificationNotification::blockHash);
+                final BlockSource source = blockSources.get(signed.block().number());
+                if (source == BlockSource.PUBLISHER || source == BlockSource.BACKFILL) {
+                    assertion.returns(source, VerificationNotification::source);
                 } else {
-                    fail("unrecognized or unsupported source %s".formatted(blockSources.get(block.number())));
+                    fail("unrecognized or unsupported source %s".formatted(source));
                 }
             }
         }
@@ -236,24 +218,23 @@ class VerificationServicePluginTest {
         /// the block will pass verification successfully.
         @Test
         @DisplayName("Successful WRAPS Verification - Multiple Valid Proofs")
-        void testSuccessfulWRAPSVerificationMultipleValidProofs() throws IOException, ParseException {
-            final ResourceTestBlock base = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
-            // Append the valid proof from base again so we have multiple valid proofs
-            final ResourceTestBlock block0MultiProof =
-                    appendProof(base, wrapBlockProof(base.proofs().getFirst()));
-            // We push the block to the live items RB
-            plugin.handleBlockItemsReceived(block0MultiProof.asBlockItems());
-            // Finally, await a single response and assert success
+        void testSuccessfulWRAPSVerificationMultipleValidProofs() {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed base =
+                    harnessChainBuilder().genesisWithPublication();
+            // Append a duplicate of the (real, signed) proof so the block carries two valid proofs.
+            final TestBlock multiProof =
+                    base.block().append(wrapBlockProof(base.block().proofs().getFirst()));
+            plugin.handleBlockItemsReceived(multiProof.asBlockItems());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(true, VerificationNotification::success)
                     .returns(null, VerificationNotification::failureInfo)
-                    .returns(block0MultiProof.number(), VerificationNotification::blockNumber)
+                    .returns(multiProof.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
-                    .returns(block0MultiProof.blockUnparsed(), VerificationNotification::block)
-                    .returns(block0MultiProof.blockRootHash(), VerificationNotification::blockHash);
+                    .returns(multiProof.blockUnparsed(), VerificationNotification::block)
+                    .returns(base.rootHash(), VerificationNotification::blockHash);
         }
 
         /// This test aims to assert that when the next in line WRAPS block is
@@ -261,20 +242,18 @@ class VerificationServicePluginTest {
         /// will fail.
         @Test
         @DisplayName("Failed WRAPS Verification - One Valid and One Invalid proof")
-        void testFailedWRAPSVerificationOneValidAndOneInvalidProof() throws IOException, ParseException {
-            // Append
-            final ResourceTestBlock block0 =
-                    appendProof(ResourceTestBlockBuilder.load(WRAPS.BLOCK_0), badTssSignedProof());
-            // We push the block to the live items RB
-            plugin.handleBlockItemsReceived(block0.asBlockItems());
-            // Finally, await a single response and assert success
+        void testFailedWRAPSVerificationOneValidAndOneInvalidProof() {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed base =
+                    harnessChainBuilder().genesisWithPublication();
+            final TestBlock oneValidOneBad = base.block().append(badTssSignedProof());
+            plugin.handleBlockItemsReceived(oneValidOneBad.asBlockItems());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), VerificationNotification::failureInfo)
-                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(oneValidOneBad.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
@@ -285,19 +264,15 @@ class VerificationServicePluginTest {
         /// informational if the block was recently verified.
         @Test
         @DisplayName("Failed WRAPS Verification - Informational Failure")
-        void testFailedWRAPSVerificationInformationalFailure() throws IOException, ParseException {
-            final ResourceTestBlock block0Valid = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
-            plugin.handleBlockItemsReceived(block0Valid.asBlockItems());
-            // Assert success
+        void testFailedWRAPSVerificationInformationalFailure() {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed valid =
+                    harnessChainBuilder().genesisWithPublication();
+            plugin.handleBlockItemsReceived(valid.block().asBlockItems());
             final List<VerificationNotification> preCheck = blockMessaging.getSentVerificationNotifications(1);
             assertThat(preCheck).hasSize(1).first().returns(true, VerificationNotification::success);
-            // Clear the notifications so we can assert below
             preCheck.clear();
-            // Append
-            final ResourceTestBlock block0Invalid = appendProof(block0Valid, badTssSignedProof());
-            // We push the block to the live items RB
-            plugin.handleBlockItemsReceived(block0Invalid.asBlockItems());
-            // Finally, await a single response and assert success
+            final TestBlock invalid = valid.block().append(badTssSignedProof());
+            plugin.handleBlockItemsReceived(invalid.asBlockItems());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
@@ -306,7 +281,7 @@ class VerificationServicePluginTest {
                     .returns(
                             FailureInfo.informational(FailureType.BAD_BLOCK_PROOF),
                             VerificationNotification::failureInfo)
-                    .returns(block0Invalid.number(), VerificationNotification::blockNumber)
+                    .returns(invalid.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
@@ -317,24 +292,44 @@ class VerificationServicePluginTest {
         /// fails TSS signature verification, producing a failure notification.
         @Test
         @DisplayName("Failed WRAPS Verification - tampered block covers VFE extraction path")
-        void testTamperedWRAPSBlockTriggersVfePath() throws IOException, ParseException {
-            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
-            plugin.handleBlockItemsReceived(block0.asBlockItems());
-            // Wait for block 0 to complete so TSS data is initialized before block 1 is submitted
-            // Clear the notification so we can assert cleanly below
+        void testTamperedWRAPSBlockTriggersVfePath() {
+            final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
+                    signedChain(2);
+            plugin.handleBlockItemsReceived(chain.get(0).block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1).clear();
-            final ResourceTestBlock block1 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_1);
+            final TestBlock block1 = chain.get(1).block();
             final List<BlockItemUnparsed> tamperedItems =
                     new ArrayList<>(block1.blockUnparsed().blockItems());
-            tamperedItems.remove(1); // remove a non-mandatory item to change the block hash
+            // Drop a non-mandatory item so the recomputed hash differs from the signature's target.
+            tamperedItems.remove(1);
             plugin.handleBlockItemsReceived(new BlockItems(tamperedItems, block1.number(), true, true));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
-            // Assert, for this test we only care about receiving a failure, regardless of type
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(block1.number(), VerificationNotification::blockNumber);
+        }
+
+        /// Convenience helper that builds a HarnessChainBuilder with an isolated MetricRegistry
+        /// so it doesn't collide with the plugin's already-registered verification metrics.
+        /// The generated block 0's LedgerIdPublication self-provisions this plugin's own TSS state.
+        private org.hiero.block.node.block.verification.harness.HarnessChainBuilder harnessChainBuilder() {
+            return org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(TssBlockSigner.create());
+        }
+
+        /// Emits a length-N signed chain starting at block 0. Block 0 carries the LedgerIdPublication
+        /// so the plugin under test self-provisions its TSS state.
+        private List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> signedChain(
+                final int length) {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder builder = harnessChainBuilder();
+            final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
+                    new ArrayList<>(length);
+            chain.add(builder.genesisWithPublication());
+            for (long n = 1; n < length; n++) {
+                chain.add(builder.next(n));
+            }
+            return chain;
         }
     }
 
@@ -350,265 +345,206 @@ class VerificationServicePluginTest {
             start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility());
         }
 
-        /// This test aims to assert that when the next in line StateProof block is
-        /// received, is valid, and we have valid TSS parameters initialized,
-        /// the block will pass verification successfully. Uses Live RB.
         @Test
         @DisplayName("Successful StateProof Verification - Live RB")
-        void testSuccessfulStateProofVerificationLiveRB() throws IOException, ParseException {
-            // Block 0 is direct tss proof, initialize tss
-            // We push the block to the live items RB and initialize tss
-            plugin.handleBlockItemsReceived(
-                    ResourceTestBlockBuilder.load(StateProof.BLOCK_0).asBlockItems());
-            // We will receive notification, then clear it so we can assert below
+        void testSuccessfulStateProofVerificationLiveRB() {
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
+                    builder.genesisWithPublication();
+            plugin.handleBlockItemsReceived(genesis.block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1).clear();
-            // Block 1 is indirect proof
-            final ResourceTestBlock block1 = ResourceTestBlockBuilder.load(StateProof.BLOCK_1);
-            plugin.handleBlockItemsReceived(block1.asBlockItems());
-            // Finally, await a single response and assert success
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed block1 =
+                    builder.next(1L);
+            plugin.handleBlockItemsReceived(block1.block().asBlockItems());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(true, VerificationNotification::success)
                     .returns(null, VerificationNotification::failureInfo)
-                    .returns(block1.number(), VerificationNotification::blockNumber)
+                    .returns(block1.block().number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
-                    .returns(block1.blockUnparsed(), VerificationNotification::block)
-                    .returns(block1.blockRootHash(), VerificationNotification::blockHash);
+                    .returns(block1.block().blockUnparsed(), VerificationNotification::block)
+                    .returns(block1.rootHash(), VerificationNotification::blockHash);
         }
 
-        /// This test aims to assert that when the next in line StateProof block is
-        /// received, is valid, and we have valid TSS parameters initialized,
-        /// the block will pass verification successfully. Uses Backfill.
         @Test
         @DisplayName("Successful StateProof Verification - Backfill")
-        void testSuccessfulStateProofVerificationBackfill() throws IOException, ParseException {
-            // Block 0 is direct tss proof, initialize tss
-            // We push the block as a backfilled notification and initialize tss
-            plugin.handleBackfilled(
-                    ResourceTestBlockBuilder.load(StateProof.BLOCK_0).asBackfilledNotification());
-            // We will receive notification, then clear it so we can assert below
+        void testSuccessfulStateProofVerificationBackfill() {
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
+                    builder.genesisWithPublication();
+            plugin.handleBackfilled(genesis.block().asBackfilledNotification());
             blockMessaging.getSentVerificationNotifications(1).clear();
-            // Block 1 is indirect proof
-            final ResourceTestBlock block1 = ResourceTestBlockBuilder.load(StateProof.BLOCK_1);
-            plugin.handleBackfilled(block1.asBackfilledNotification());
-            // Finally, await a single response and assert success
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed block1 =
+                    builder.next(1L);
+            plugin.handleBackfilled(block1.block().asBackfilledNotification());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(true, VerificationNotification::success)
                     .returns(null, VerificationNotification::failureInfo)
-                    .returns(block1.number(), VerificationNotification::blockNumber)
+                    .returns(block1.block().number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.BACKFILL, VerificationNotification::source)
-                    .returns(block1.blockUnparsed(), VerificationNotification::block)
-                    .returns(block1.blockRootHash(), VerificationNotification::blockHash);
+                    .returns(block1.block().blockUnparsed(), VerificationNotification::block)
+                    .returns(block1.rootHash(), VerificationNotification::blockHash);
         }
 
-        /// This test aims to assert that when the next in line StateProof block is
-        /// received, is valid, and we have valid TSS parameters initialized,
-        /// the block will pass verification successfully. Uses Live RB.
-        /// Verifies multiple consecutive blocks.
         @Test
         @DisplayName("Successful consecutive StateProof Verification - Live RB")
-        void testSuccessfulConsecutiveStateProofVerificationLiveRB() throws IOException, ParseException {
-            final List<ResourceTestBlock> loadedBlocks =
-                    ResourceTestBlockBuilder.loadMultiple(consecutiveStateProofBlocks);
-            // Load block 0 first which will update tss data, make sure it passes before continuing to ensure
-            // no flakiness due to missing tss data. Other tests can pre-load tss data and it will not be
-            // relevant to wait.
-            plugin.handleBlockItemsReceived(loadedBlocks.getFirst().asBlockItems());
+        void testSuccessfulConsecutiveStateProofVerificationLiveRB() {
+            final List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed> chain =
+                    signedStateProofChain(5);
+            plugin.handleBlockItemsReceived(chain.getFirst().block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1);
-            for (final ResourceTestBlock block : loadedBlocks.subList(1, loadedBlocks.size())) {
-                // We push the block to the live items RB
-                plugin.handleBlockItemsReceived(block.asBlockItems());
+            for (int i = 1; i < chain.size(); i++) {
+                plugin.handleBlockItemsReceived(chain.get(i).block().asBlockItems());
             }
-            // Finally, await a single response and assert success
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(loadedBlocks.size());
-            assertThat(notifications).hasSize(loadedBlocks.size());
+                    blockMessaging.getSentVerificationNotifications(chain.size());
+            assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
-                final ResourceTestBlock block = loadedBlocks.get(i);
-                final VerificationNotification notification = notifications.get(i);
-                assertThat(notification)
+                final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed s = chain.get(i);
+                assertThat(notifications.get(i))
                         .returns(true, VerificationNotification::success)
                         .returns(null, VerificationNotification::failureInfo)
-                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(s.block().number(), VerificationNotification::blockNumber)
                         .returns(BlockSource.PUBLISHER, VerificationNotification::source)
-                        .returns(block.blockUnparsed(), VerificationNotification::block)
-                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+                        .returns(s.block().blockUnparsed(), VerificationNotification::block)
+                        .returns(s.rootHash(), VerificationNotification::blockHash);
             }
         }
 
-        /// This test aims to assert that when the next in line StateProof block is
-        /// received, is valid, and we have valid TSS parameters initialized,
-        /// the block will pass verification successfully. Uses Backfill.
-        /// Verifies multiple consecutive blocks.
         @Test
         @DisplayName("Successful consecutive StateProof Verification - Backfill")
-        void testSuccessfulConsecutiveStateProofVerificationBackfill() throws IOException, ParseException {
-            final List<ResourceTestBlock> loadedBlocks =
-                    ResourceTestBlockBuilder.loadMultiple(consecutiveStateProofBlocks);
-            // Load block 0 first which will update tss data, make sure it passes before continuing to ensure
-            // no flakiness due to missing tss data. Other tests can pre-load tss data and it will not be
-            // relevant to wait.
-            plugin.handleBackfilled(loadedBlocks.getFirst().asBackfilledNotification());
+        void testSuccessfulConsecutiveStateProofVerificationBackfill() {
+            final List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed> chain =
+                    signedStateProofChain(5);
+            plugin.handleBackfilled(chain.getFirst().block().asBackfilledNotification());
             blockMessaging.getSentVerificationNotifications(1);
-            for (final ResourceTestBlock block : loadedBlocks.subList(1, loadedBlocks.size())) {
-                // We push the block to the live items RB
-                plugin.handleBackfilled(block.asBackfilledNotification());
+            for (int i = 1; i < chain.size(); i++) {
+                plugin.handleBackfilled(chain.get(i).block().asBackfilledNotification());
             }
-            // Finally, await a single response and assert success
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(loadedBlocks.size());
-            assertThat(notifications).hasSize(loadedBlocks.size());
+                    blockMessaging.getSentVerificationNotifications(chain.size());
+            assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
-                final ResourceTestBlock block = loadedBlocks.get(i);
-                final VerificationNotification notification = notifications.get(i);
-                assertThat(notification)
+                final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed s = chain.get(i);
+                assertThat(notifications.get(i))
                         .returns(true, VerificationNotification::success)
                         .returns(null, VerificationNotification::failureInfo)
-                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(s.block().number(), VerificationNotification::blockNumber)
                         .returns(BlockSource.BACKFILL, VerificationNotification::source)
-                        .returns(block.blockUnparsed(), VerificationNotification::block)
-                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+                        .returns(s.block().blockUnparsed(), VerificationNotification::block)
+                        .returns(s.rootHash(), VerificationNotification::blockHash);
             }
         }
 
-        /// This test aims to assert that when the next in line StateProof block is
-        /// received, is valid, and we have valid TSS parameters initialized,
-        /// the block will pass verification successfully. Uses Multiple Sources.
-        /// Verifies multiple consecutive blocks.
         @Test
         @DisplayName("Successful consecutive StateProof Verification - Multi Source")
-        void testSuccessfulConsecutiveStateProofVerificationMultiSource() throws IOException, ParseException {
-            final List<ResourceTestBlock> loadedBlocks =
-                    ResourceTestBlockBuilder.loadMultiple(consecutiveStateProofBlocks);
-            // Load block 0 first which will update tss data, make sure it passes before continuing to ensure
-            // no flakiness due to missing tss data. Other tests can pre-load tss data and it will not be
-            // relevant to wait.
+        void testSuccessfulConsecutiveStateProofVerificationMultiSource() {
+            final List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed> chain =
+                    signedStateProofChain(5);
             final Map<Long, BlockSource> blockSources = new HashMap<>();
-            plugin.handleBackfilled(loadedBlocks.getFirst().asBackfilledNotification());
-            blockSources.put(loadedBlocks.getFirst().number(), BlockSource.BACKFILL);
+            plugin.handleBackfilled(chain.getFirst().block().asBackfilledNotification());
+            blockSources.put(chain.getFirst().block().number(), BlockSource.BACKFILL);
             blockMessaging.getSentVerificationNotifications(1);
-            // Now push the blocks
-            for (final ResourceTestBlock block : loadedBlocks.subList(1, loadedBlocks.size())) {
-                // We push the block either to live or backfill
-                if (block.number() % 2 == 0) {
-                    blockSources.put(block.number(), BlockSource.BACKFILL);
-                    plugin.handleBackfilled(block.asBackfilledNotification());
+            for (int i = 1; i < chain.size(); i++) {
+                final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed s = chain.get(i);
+                if (s.block().number() % 2 == 0) {
+                    blockSources.put(s.block().number(), BlockSource.BACKFILL);
+                    plugin.handleBackfilled(s.block().asBackfilledNotification());
                 } else {
-                    blockSources.put(block.number(), BlockSource.PUBLISHER);
-                    final BlockItems blockItems = block.asBlockItems();
-                    plugin.handleBlockItemsReceived(blockItems);
+                    blockSources.put(s.block().number(), BlockSource.PUBLISHER);
+                    plugin.handleBlockItemsReceived(s.block().asBlockItems());
                 }
             }
-            // Finally, await a single response and assert success
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(loadedBlocks.size());
-            assertThat(notifications).hasSize(loadedBlocks.size());
+                    blockMessaging.getSentVerificationNotifications(chain.size());
+            assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
-                final ResourceTestBlock block = loadedBlocks.get(i);
-                final VerificationNotification notification = notifications.get(i);
-                final ObjectAssert<VerificationNotification> assertion = assertThat(notification);
+                final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed s = chain.get(i);
+                final ObjectAssert<VerificationNotification> assertion = assertThat(notifications.get(i));
                 assertion
                         .returns(true, VerificationNotification::success)
                         .returns(null, VerificationNotification::failureInfo)
-                        .returns(block.number(), VerificationNotification::blockNumber)
-                        .returns(block.blockUnparsed(), VerificationNotification::block)
-                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
-                if (blockSources.get(block.number()) == BlockSource.PUBLISHER) {
-                    assertion.returns(BlockSource.PUBLISHER, VerificationNotification::source);
-                } else if (blockSources.get(block.number()) == BlockSource.BACKFILL) {
-                    assertion.returns(BlockSource.BACKFILL, VerificationNotification::source);
+                        .returns(s.block().number(), VerificationNotification::blockNumber)
+                        .returns(s.block().blockUnparsed(), VerificationNotification::block)
+                        .returns(s.rootHash(), VerificationNotification::blockHash);
+                final BlockSource source = blockSources.get(s.block().number());
+                if (source == BlockSource.PUBLISHER || source == BlockSource.BACKFILL) {
+                    assertion.returns(source, VerificationNotification::source);
                 } else {
-                    fail("unrecognized or unsupported source %s".formatted(blockSources.get(block.number())));
+                    fail("unrecognized or unsupported source %s".formatted(source));
                 }
             }
         }
 
-        /// This test aims to assert that when the next in line StateProof block is
-        /// received, has multiple valid proofs, and we have valid TSS parameters initialized,
-        /// the block will pass verification successfully.
         @Test
         @DisplayName("Successful StateProof Verification - Multiple Valid Proofs")
-        void testSuccessfulStateProofVerificationMultipleValidProofs() throws IOException, ParseException {
-            // Block 0 is direct tss proof, initialize tss
-            // We push the block to the live items RB and initialize tss
-            plugin.handleBlockItemsReceived(
-                    ResourceTestBlockBuilder.load(StateProof.BLOCK_0).asBlockItems());
-            // We will receive notification, then clear it so we can assert below
+        void testSuccessfulStateProofVerificationMultipleValidProofs() {
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
+                    builder.genesisWithPublication();
+            plugin.handleBlockItemsReceived(genesis.block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1).clear();
-            // Block 1 is indirect proof
-            final ResourceTestBlock base = ResourceTestBlockBuilder.load(StateProof.BLOCK_1);
-            final ResourceTestBlock block1MultiProof =
-                    appendProof(base, wrapBlockProof(base.proofs().getFirst()));
-            plugin.handleBlockItemsReceived(block1MultiProof.asBlockItems());
-            // Finally, await a single response and assert success
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed base = builder.next(1L);
+            // Append a duplicate of the (real, signed) proof so the block carries two valid proofs.
+            final TestBlock multiProof =
+                    base.block().append(wrapBlockProof(base.block().proofs().getFirst()));
+            plugin.handleBlockItemsReceived(multiProof.asBlockItems());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(true, VerificationNotification::success)
                     .returns(null, VerificationNotification::failureInfo)
-                    .returns(block1MultiProof.number(), VerificationNotification::blockNumber)
+                    .returns(multiProof.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
-                    .returns(block1MultiProof.blockUnparsed(), VerificationNotification::block)
-                    .returns(block1MultiProof.blockRootHash(), VerificationNotification::blockHash);
+                    .returns(multiProof.blockUnparsed(), VerificationNotification::block)
+                    .returns(base.rootHash(), VerificationNotification::blockHash);
         }
 
-        /// This test aims to assert that when the next in line StateProof block is
-        /// received but has one valid and one invalid proof, verification will fail.
         @Test
         @DisplayName("Failed StateProof Verification - One Valid and One Invalid Proof")
-        void testFailedStateProofVerificationOneValidAndOneInvalidProof() throws IOException, ParseException {
-            // Block 0 is direct tss proof, initialize tss
-            // We push the block to the live items RB and initialize tss
-            plugin.handleBlockItemsReceived(
-                    ResourceTestBlockBuilder.load(StateProof.BLOCK_0).asBlockItems());
-            // We will receive notification, then clear it so we can assert below
+        void testFailedStateProofVerificationOneValidAndOneInvalidProof() {
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
+                    builder.genesisWithPublication();
+            plugin.handleBlockItemsReceived(genesis.block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1).clear();
-            // Block 1 is indirect proof
-            final ResourceTestBlock base = ResourceTestBlockBuilder.load(StateProof.BLOCK_1);
-            final ResourceTestBlock block1BadProof = appendProof(base, badStateProof());
-            plugin.handleBlockItemsReceived(block1BadProof.asBlockItems());
-            // Finally, await a single response and assert success
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed base = builder.next(1L);
+            final TestBlock bad = base.block().append(badStateProof());
+            plugin.handleBlockItemsReceived(bad.asBlockItems());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), VerificationNotification::failureInfo)
-                    .returns(block1BadProof.number(), VerificationNotification::blockNumber)
+                    .returns(bad.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
         }
 
-        /// This test aims to assert that when the next in line StateProof block is
-        /// received but verification fails, the verification is expected to be
-        /// informational if the block was recently verified.
         @Test
         @DisplayName("Failed StateProof Verification - Informational Failure")
-        void testFailedStateProofVerificationInformationalFailure() throws IOException, ParseException {
-            // Block 0 is direct tss proof, initialize tss
-            // We push the block to the live items RB and initialize tss
-            plugin.handleBlockItemsReceived(
-                    ResourceTestBlockBuilder.load(StateProof.BLOCK_0).asBlockItems());
-            // We will receive notification, then clear it so we can assert below
+        void testFailedStateProofVerificationInformationalFailure() {
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
+                    builder.genesisWithPublication();
+            plugin.handleBlockItemsReceived(genesis.block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1).clear();
-            final ResourceTestBlock block0Valid = ResourceTestBlockBuilder.load(StateProof.BLOCK_1);
-            plugin.handleBlockItemsReceived(block0Valid.asBlockItems());
-            // Assert success
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed valid =
+                    builder.next(1L);
+            plugin.handleBlockItemsReceived(valid.block().asBlockItems());
             final List<VerificationNotification> preCheck = blockMessaging.getSentVerificationNotifications(1);
             assertThat(preCheck).hasSize(1).first().returns(true, VerificationNotification::success);
-            // Clear the notifications so we can assert below
             preCheck.clear();
-            // Block 1 is indirect proof
-            final ResourceTestBlock block1BadProof = appendProof(block0Valid, badStateProof());
-            plugin.handleBlockItemsReceived(block1BadProof.asBlockItems());
-            // Finally, await a single response and assert success
+            final TestBlock invalid = valid.block().append(badStateProof());
+            plugin.handleBlockItemsReceived(invalid.asBlockItems());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
@@ -617,34 +553,52 @@ class VerificationServicePluginTest {
                     .returns(
                             FailureInfo.informational(FailureType.BAD_BLOCK_PROOF),
                             VerificationNotification::failureInfo)
-                    .returns(block1BadProof.number(), VerificationNotification::blockNumber)
+                    .returns(invalid.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
         }
 
-        /// This test exercises the VFE extraction path in SessionResultHandler.
-        /// Block that was tampered with will fail StateProof Verification.
         @Test
         @DisplayName("Failed StateProof Verification - tampered block covers VFE extraction path")
-        void testTamperedStateProofBlockTriggersVfePath() throws IOException, ParseException {
-            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(StateProof.BLOCK_0);
-            plugin.handleBlockItemsReceived(block0.asBlockItems());
-            // Wait for block 0 to complete so TSS data is initialized before block 1 is submitted
-            // Clear the notification so we can assert cleanly below
+        void testTamperedStateProofBlockTriggersVfePath() {
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
+                    builder.genesisWithPublication();
+            plugin.handleBlockItemsReceived(genesis.block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1).clear();
-            final ResourceTestBlock block1 = ResourceTestBlockBuilder.load(StateProof.BLOCK_1);
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed block1 =
+                    builder.next(1L);
             final List<BlockItemUnparsed> tamperedItems =
-                    new ArrayList<>(block1.blockUnparsed().blockItems());
-            tamperedItems.remove(1); // remove a non-mandatory item to change the block hash
-            plugin.handleBlockItemsReceived(new BlockItems(tamperedItems, block1.number(), true, true));
+                    new ArrayList<>(block1.block().blockUnparsed().blockItems());
+            tamperedItems.remove(1);
+            plugin.handleBlockItemsReceived(
+                    new BlockItems(tamperedItems, block1.block().number(), true, true));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
-            // Assert, for this test we only care about receiving a failure, regardless of type
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(false, VerificationNotification::success)
-                    .returns(block1.number(), VerificationNotification::blockNumber);
+                    .returns(block1.block().number(), VerificationNotification::blockNumber);
+        }
+
+        /// Helper: harness with isolated MetricRegistry, safe under PluginTestBase.
+        private org.hiero.block.node.block.verification.harness.StateProofChainBuilder spBuilder() {
+            return org.hiero.block.node.block.verification.harness.StateProofChainBuilder.create(
+                    TssBlockSigner.create());
+        }
+
+        /// Emits an N-block signed state-proof chain; block 0 self-provisions the plugin's TSS state.
+        private List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed>
+                signedStateProofChain(final int length) {
+            final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
+            final List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed> chain =
+                    new ArrayList<>(length);
+            chain.add(builder.genesisWithPublication());
+            for (long n = 1; n < length; n++) {
+                chain.add(builder.next(n));
+            }
+            return chain;
         }
     }
 
@@ -1210,6 +1164,31 @@ class VerificationServicePluginTest {
     @Nested
     @DisplayName("Block Order Tests")
     class BlockOrderTests extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+
+        /// Deterministic signer cached at class level so the hinTS ceremony runs once for the
+        /// full 200 @RepeatedTest iterations instead of once per iteration. Safe because every
+        /// iteration creates a fresh plugin whose TSS state is provisioned from CACHED_CHAIN[0]'s
+        /// LedgerIdPublication.
+        private static final TssBlockSigner CACHED_SIGNER = TssBlockSigner.createDeterministic();
+
+        /// Length-5 signed chain built once from CACHED_SIGNER. Blocks are immutable so every
+        /// iteration reuses them without conflict.
+        private static final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed>
+                CACHED_CHAIN = buildCachedChain();
+
+        private static List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed>
+                buildCachedChain() {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder builder =
+                    org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(CACHED_SIGNER);
+            final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
+                    new ArrayList<>(5);
+            chain.add(builder.genesisWithPublication());
+            for (long n = 1; n < 5; n++) {
+                chain.add(builder.next(n));
+            }
+            return chain;
+        }
+
         BlockOrderTests() {
             super(
                     Executors.newVirtualThreadPerTaskExecutor(),
@@ -1221,35 +1200,28 @@ class VerificationServicePluginTest {
         /// when completing verification. Proof type and source are irrelevant here.
         @RepeatedTest(100)
         @DisplayName("Block Order Preserved for Out of Order Blocks Received")
-        void testOutOfOrderBlocksPreserveOrderingOnCompletion() throws IOException, ParseException {
-            final List<ResourceTestBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRAPSBlocks);
-            // Load block 0 first which will update tss data, make sure it passes before continuing to ensure
-            // no flakiness due to missing tss data. Other tests can pre-load tss data and it will not be
-            // relevant to wait.
-            plugin.handleBlockItemsReceived(loadedBlocks.getFirst().asBlockItems());
+        void testOutOfOrderBlocksPreserveOrderingOnCompletion() {
+            plugin.handleBlockItemsReceived(CACHED_CHAIN.get(0).block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1);
-            // Now send the rest out of order
-            final List<ResourceTestBlock> shuffledBlocks =
-                    new ArrayList<>(loadedBlocks.subList(1, loadedBlocks.size()));
-            Collections.shuffle(shuffledBlocks);
-            for (final ResourceTestBlock block : shuffledBlocks) {
-                // We push the block to the live items RB
-                plugin.handleBlockItemsReceived(block.asBlockItems());
+            final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> rest =
+                    new ArrayList<>(CACHED_CHAIN.subList(1, CACHED_CHAIN.size()));
+            Collections.shuffle(rest);
+            for (final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed : rest) {
+                plugin.handleBlockItemsReceived(signed.block().asBlockItems());
             }
-            // Finally, await a single response and assert success
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(loadedBlocks.size());
-            assertThat(notifications).hasSize(loadedBlocks.size());
+                    blockMessaging.getSentVerificationNotifications(CACHED_CHAIN.size());
+            assertThat(notifications).hasSize(CACHED_CHAIN.size());
             for (int i = 0; i < notifications.size(); i++) {
-                final ResourceTestBlock block = loadedBlocks.get(i);
-                final VerificationNotification notification = notifications.get(i);
-                assertThat(notification)
+                final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed =
+                        CACHED_CHAIN.get(i);
+                assertThat(notifications.get(i))
                         .returns(true, VerificationNotification::success)
                         .returns(null, VerificationNotification::failureInfo)
-                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(signed.block().number(), VerificationNotification::blockNumber)
                         .returns(BlockSource.PUBLISHER, VerificationNotification::source)
-                        .returns(block.blockUnparsed(), VerificationNotification::block)
-                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+                        .returns(signed.block().blockUnparsed(), VerificationNotification::block)
+                        .returns(signed.rootHash(), VerificationNotification::blockHash);
             }
         }
 
@@ -1257,52 +1229,42 @@ class VerificationServicePluginTest {
         /// the high watermark, it will pass immediately and no strict ordering applies.
         @RepeatedTest(100)
         @DisplayName("No Strict Ordering Below High Water Mark")
-        void testNoStrictOrderingBelowHighWaterMark() throws IOException, ParseException {
-            final List<ResourceTestBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRAPSBlocks);
-            // Load block 0 first which will update tss data, make sure it passes before continuing to ensure
-            // no flakiness due to missing tss data. Other tests can pre-load tss data and it will not be
-            // relevant to wait.
-            plugin.handleBlockItemsReceived(loadedBlocks.getFirst().asBlockItems());
+        void testNoStrictOrderingBelowHighWaterMark() {
+            plugin.handleBlockItemsReceived(CACHED_CHAIN.get(0).block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1);
-            // Now send the rest out of order
-            final List<ResourceTestBlock> restOfBlocks = new ArrayList<>(loadedBlocks.subList(1, loadedBlocks.size()));
-            for (final ResourceTestBlock block : restOfBlocks) {
-                // We push the block to the live items RB
-                plugin.handleBlockItemsReceived(block.asBlockItems());
+            final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> rest =
+                    new ArrayList<>(CACHED_CHAIN.subList(1, CACHED_CHAIN.size()));
+            for (final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed : rest) {
+                plugin.handleBlockItemsReceived(signed.block().asBlockItems());
             }
-            // Finally, await a single response and assert success
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(loadedBlocks.size());
-            assertThat(notifications).hasSize(loadedBlocks.size());
+                    blockMessaging.getSentVerificationNotifications(CACHED_CHAIN.size());
+            assertThat(notifications).hasSize(CACHED_CHAIN.size());
             for (int i = 0; i < notifications.size(); i++) {
-                final ResourceTestBlock block = loadedBlocks.get(i);
-                final VerificationNotification notification = notifications.get(i);
-                assertThat(notification)
+                final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed =
+                        CACHED_CHAIN.get(i);
+                assertThat(notifications.get(i))
                         .returns(true, VerificationNotification::success)
                         .returns(null, VerificationNotification::failureInfo)
-                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(signed.block().number(), VerificationNotification::blockNumber)
                         .returns(BlockSource.PUBLISHER, VerificationNotification::source)
-                        .returns(block.blockUnparsed(), VerificationNotification::block)
-                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+                        .returns(signed.block().blockUnparsed(), VerificationNotification::block)
+                        .returns(signed.rootHash(), VerificationNotification::blockHash);
             }
-            // Now clear all notifications so we can cleanly assert again
-            final ArrayList<ResourceTestBlock> shuffled = new ArrayList<>(restOfBlocks);
+            final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> shuffled =
+                    new ArrayList<>(rest);
             Collections.shuffle(shuffled);
             notifications.clear();
-            for (final ResourceTestBlock block : shuffled) {
-                // Push a random block that is below the high water mark
-                plugin.handleBlockItemsReceived(block.asBlockItems());
-                // Await for the successful notification
+            for (final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed : shuffled) {
+                plugin.handleBlockItemsReceived(signed.block().asBlockItems());
                 blockMessaging.getSentVerificationNotifications(1);
-                final VerificationNotification notification = notifications.getFirst();
-                assertThat(notification)
+                assertThat(notifications.getFirst())
                         .returns(true, VerificationNotification::success)
                         .returns(null, VerificationNotification::failureInfo)
-                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(signed.block().number(), VerificationNotification::blockNumber)
                         .returns(BlockSource.PUBLISHER, VerificationNotification::source)
-                        .returns(block.blockUnparsed(), VerificationNotification::block)
-                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
-                // Finally, clear the notifications and continue with the next block
+                        .returns(signed.block().blockUnparsed(), VerificationNotification::block)
+                        .returns(signed.rootHash(), VerificationNotification::blockHash);
                 notifications.clear();
             }
         }
@@ -1323,27 +1285,26 @@ class VerificationServicePluginTest {
         /// (Publisher Source). The block proof type is irrelevant for this test.
         @Test
         @DisplayName("Live RB Ingestion - Block Received in Multiple Batches")
-        void testLiveRBIngestionBlockReceivedInMultipleBatches() throws IOException, ParseException {
-            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
-            // We push the block in multiple batches
-            for (final BlockItemUnparsed item : block0.blockUnparsed().blockItems()) {
+        void testLiveRBIngestionBlockReceivedInMultipleBatches() {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
+                    org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(TssBlockSigner.create())
+                            .genesisWithPublication();
+            for (final BlockItemUnparsed item : genesis.block().blockUnparsed().blockItems()) {
                 final boolean isStartOfNewBlock = item.hasBlockHeader();
                 final boolean isEndOfBlock = item.hasBlockProof();
-                final BlockItems itemAsBlockItems =
-                        new BlockItems(List.of(item), block0.number(), isStartOfNewBlock, isEndOfBlock);
-                plugin.handleBlockItemsReceived(itemAsBlockItems);
+                plugin.handleBlockItemsReceived(
+                        new BlockItems(List.of(item), genesis.block().number(), isStartOfNewBlock, isEndOfBlock));
             }
-            // Finally, await a single response and assert success
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(true, VerificationNotification::success)
                     .returns(null, VerificationNotification::failureInfo)
-                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(genesis.block().number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
-                    .returns(block0.blockUnparsed(), VerificationNotification::block)
-                    .returns(block0.blockRootHash(), VerificationNotification::blockHash);
+                    .returns(genesis.block().blockUnparsed(), VerificationNotification::block)
+                    .returns(genesis.rootHash(), VerificationNotification::blockHash);
         }
 
         /// This test aims to assert that when we receive the start of a new block via the Live RB (Publisher Source),
@@ -1354,24 +1315,24 @@ class VerificationServicePluginTest {
         @Test
         @DisplayName(
                 "Live RB Ingestion - Cancel Current Live Session When New Block Received While Not Finished Current One")
-        void testLiveRBIngestionCancelLiveSessionWhenNewBlockReceivedAndCurrentNotComplete()
-                throws IOException, ParseException {
-            final ResourceTestBlock block0 = ResourceTestBlockBuilder.load(WRAPS.BLOCK_0);
-            // We push an item to start a session
-            final BlockItems headerAsBlockItems =
-                    new BlockItems(List.of(block0.getHeaderUnparsed()), block0.number(), true, false);
+        void testLiveRBIngestionCancelLiveSessionWhenNewBlockReceivedAndCurrentNotComplete() {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
+                    org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(TssBlockSigner.create())
+                            .genesisWithPublication();
+            final BlockItems headerAsBlockItems = new BlockItems(
+                    List.of(genesis.block().getHeaderUnparsed()),
+                    genesis.block().number(),
+                    true,
+                    false);
             plugin.handleBlockItemsReceived(headerAsBlockItems);
-            // Now we push that same item again, which starts a new session
             plugin.handleBlockItemsReceived(headerAsBlockItems);
-            // Now, we expect the cancellation
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
-            // Assert cancellation received
             assertThat(notifications)
                     .hasSize(1)
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
-                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(genesis.block().number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);

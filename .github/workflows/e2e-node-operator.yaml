@@ -287,19 +287,24 @@ jobs:
       - name: Extract test blocks 0-4
         run: |
           # Two block sets during the always-feed-16 hasher transition (#3377):
-          #  - LEGACY: blocks compatible with the base BN version (still pre-#3377). Used for
-          #    the base-install push phase.
-          #  - NEW: blocks compatible with the snapshot BN version (this PR). Used for the
-          #    post-upgrade and post-reset push phases.
-          # Once base version rolls to a release containing #3377, drop the LEGACY dir and
-          # point every phase at NEW (single dir).
+          #  - LEGACY: blocks compatible with the base BN version (still pre-#3377). Copied
+          #    from the committed CN_0_73_TSS_WRAPS_LEGACY fixture set. Used for the
+          #    base-install push phase.
+          #  - NEW: blocks compatible with the snapshot BN version (this PR). Generated
+          #    fresh via the harness (HarnessChainBuilder -> TssBlockSigner). Once base
+          #    version rolls to a release containing #3377, drop the LEGACY dir and point
+          #    every phase at NEW (single dir).
           mkdir -p "${BLOCKS_DIR}/legacy" "${BLOCKS_DIR}/new"
           LEGACY_SRC=block-node/app/src/testFixtures/resources/test-blocks/CN_0_73_TSS_WRAPS_LEGACY
-          NEW_SRC=block-node/app/src/testFixtures/resources/test-blocks/CN_11_12_TSS_WRAPS
           for i in 0 1 2 3 4; do
             cp "${LEGACY_SRC}/${i}.blk.gz" "${BLOCKS_DIR}/legacy/"
             gunzip -f "${BLOCKS_DIR}/legacy/${i}.blk.gz"
-            cp "${NEW_SRC}/${i}.blk.gz" "${BLOCKS_DIR}/new/"
+          done
+          # Generate the NEW-version blocks via the harness so no committed fixture set is
+          # required. Emits <BLOCKS_DIR>/new/0.blk.gz..4.blk.gz.
+          ./gradlew :block-verification:generateHarnessBlocks \
+            -PoutputDir="${BLOCKS_DIR}/new" -Pcount=5 --no-daemon
+          for i in 0 1 2 3 4; do
             gunzip -f "${BLOCKS_DIR}/new/${i}.blk.gz"
           done
           ls -l "${BLOCKS_DIR}/legacy" "${BLOCKS_DIR}/new"
@@ -409,23 +414,51 @@ jobs:
           sed "s#oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server#oci://${CHART_REGISTRY}/hiero-ledger/hiero-block-node/block-node-server#" \
             tools-and-tests/scripts/e2e-node-operator/solo-ci-config.yaml > /tmp/solo-ci-config-snapshot.yaml
           # Render CI values for the snapshot phase (image tag + plugin profile); volumes use chart defaults.
-          # Force PLUGIN_NAMES empty for the snapshot phase: this skips the Maven resolve-plugins
-          # init container so the pod uses the plugins baked into the locally-built solo-dev image.
-          # Otherwise the init container pulls the SNAP version from Sonatype Snapshots — which
-          # can be stale relative to this branch's build and produces NoSuchMethodError when
-          # cross-module signatures differ (see #3378 discussion).
+          # Use the SAME non-empty PLUGIN_NAMES as the base install: the 0.41+ chart drops the
+          # plugins-storage volume when plugins.names is empty, and our init-storage-dirs container
+          # unconditionally references that volume — leading to FailedCreate on the upgrade pod
+          # ('spec.initContainers[0].volumeMounts[4].name: Not found: "plugins-storage"') for the
+          # entire --timeout window. A non-empty PLUGIN_NAMES keeps the volume around.
           sed -e "s/__BN_TAG__/${{ steps.versions.outputs.SNAP_VERSION }}/g" \
-              -e "s/__PLUGIN_NAMES__//g" \
+              -e "s/__PLUGIN_NAMES__/${{ steps.versions.outputs.PLUGIN_NAMES }}/g" \
             tools-and-tests/scripts/e2e-node-operator/solo-ci-values.yaml > /tmp/solo-ci-values-snap.yaml
+
+          # Watch loop — same pattern as install. --atomic rolls the release back to the base
+          # version on timeout, wiping the failing snapshot pod BEFORE the diagnostics step could
+          # capture what it was doing. Sampling during the upgrade produces a diagnosable log
+          # instead of just a bare "context deadline exceeded".
+          ( for i in $(seq 1 40); do
+              echo "===== upgrade watch t=$((i*30))s ====="
+              kubectl get pods,pvc,svc,statefulset,endpoints -n "${NAMESPACE}" -o wide 2>/dev/null || true
+              kubectl get statefulset -n "${NAMESPACE}" -o jsonpath='{range .items[*]}STS {.metadata.name} ready={.status.readyReplicas}/{.status.replicas} updated={.status.updatedReplicas} curRev={.status.currentRevision} updRev={.status.updateRevision}{"\n"}{end}' 2>/dev/null || true
+              kubectl get events -n "${NAMESPACE}" --sort-by=.lastTimestamp 2>/dev/null | tail -20 || true
+              kubectl logs -n "${NAMESPACE}" "${RELEASE}-block-node-server-0" --all-containers=true --prefix --tail=20 2>/dev/null || true
+              sleep 30
+            done ) &
+          WATCH_PID=$!
+
           # --namespace AND --release-name are both required: solo-provisioner records an empty ReleaseInfo
           # after install, so without them upgrade reports "block node is not deployed".
+          # --timeout 20m: chart's resolve-plugins init container pulls Maven artifacts even with
+          # PLUGIN_NAMES="" set, and Sonatype Snapshots is slow enough on shared runners that the
+          # snapshot upgrade routinely takes 15+ minutes.
+          set +e
           sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node upgrade \
             --profile=local --namespace="${NAMESPACE}" --release-name="${RELEASE}" --non-interactive \
             --no-reuse-values --load-balancer-enabled=false \
-            --timeout 15m \
+            --timeout 20m \
             --config=/tmp/solo-ci-config-snapshot.yaml \
             --values=/tmp/solo-ci-values-snap.yaml \
             --chart-version="${{ steps.versions.outputs.SNAP_VERSION }}"
+          RC=$?
+          set -e
+
+          kill "${WATCH_PID}" 2>/dev/null || true
+          echo "===== post-upgrade snapshot (rc=${RC}) ====="
+          kubectl get pods,pvc,svc,statefulset,endpoints -n "${NAMESPACE}" -o wide 2>/dev/null || true
+          kubectl describe statefulset -n "${NAMESPACE}" 2>/dev/null || true
+          kubectl describe pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=${RELEASE}" 2>/dev/null || true
+          exit "${RC}"
 
       - name: Wait for BN ready + port-forward (post-upgrade)
         run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
