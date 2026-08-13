@@ -191,6 +191,17 @@ Activity and utilization of the historic on‑disk tier.
 
 ---
 
+### Host / Volume (external)
+
+**Source:** host or platform-level exporter, not emitted by the Block Node process.
+Free disk space for the `live` and `historic` volumes is not tracked by any BN metric, since
+retention on each is governed by a block-count cap rather than a disk-size cap (see the
+[Disk space alerting](./operations/production-guide/steady-state-operations.md#disk-space-alerting-operator)
+operator guide). Track it via a host-level exporter, for example `node_filesystem_avail_bytes`
+from node-exporter, or your platform's equivalent volume-usage metric for each mount.
+
+---
+
 ### cloud-storage-archive
 
 **Plugin:** `cloud-storage-archive`
@@ -289,6 +300,13 @@ As the product matures through beta and rc phases, high severity alerts will be 
 | Severity |       Metric       |      Alert Condition      |
 |----------|--------------------|---------------------------|
 | M        | `app_state_status` | If not equal to `RUNNING` |
+
+**Disk Space**: Host-level alert for the `live` and `historic` volumes, since retention on each
+is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-external))
+
+| Severity |            Metric             |                         Alert Condition                         |
+|----------|-------------------------------|-----------------------------------------------------------------|
+| M        | `node_filesystem_avail_bytes` | If free space on the `live` or `historic` mount drops below 15% |
 
 **Publisher**: Alerts related to publisher connections and performance
 
