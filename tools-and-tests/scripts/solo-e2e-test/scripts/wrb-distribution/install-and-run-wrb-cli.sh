@@ -161,6 +161,28 @@ first_record_file=$( find "${RECORDS_DIR}" -maxdepth 1 -name "*.rcd" | sort | he
 genesis_timestamp=$(basename "${first_record_file}" | sed 's/\(.*\)\.rcd.*/\1/')
 genesis_date=$( echo "${genesis_timestamp}" | cut -d'T' -f1 )
 
+# Generate addressBookHistory.json from the Solo consensus node's actual RSA keys
+# (same mechanism wrb-sequential-comparison.sh already uses) and drop it into DAYS_DIR.
+# `blocks wrap` auto-detects and loads this from --input-dir if present, taking priority
+# over network-other.json's genesisAddressBookResource below -- without it, wrap falls
+# back to the bundled mainnet-genesis-address-book.proto.bin, whose real mainnet keys
+# never match this cluster's own randomly-generated ones, so every signature check fails
+# (cosmetic/non-blocking, but alarming log noise on every run).
+genesis_ts_no_z="${genesis_timestamp%Z}"
+genesis_ts_nanos="${genesis_ts_no_z#*.}"
+genesis_ts_datetime="${genesis_ts_no_z%.*}"
+genesis_ts_datetime="${genesis_ts_datetime//_/:}"
+if date --version >/dev/null 2>&1; then
+    genesis_ts_seconds=$( date -u -d "${genesis_ts_datetime}Z" +%s 2>/dev/null || echo "0" )
+else
+    genesis_ts_seconds=$( date -u -j -f "%Y-%m-%dT%H:%M:%S" "${genesis_ts_datetime}" +%s 2>/dev/null || echo "0" )
+fi
+bash "${SCRIPT_DIR}/../extract-solo-ab-and-generate.sh" \
+    "${NAMESPACE}" \
+    "${genesis_ts_seconds}.${genesis_ts_nanos}" \
+    "${DAYS_DIR}/addressBookHistory.json" \
+    || log "WARNING: Could not extract address book from CN; wrap will fall back to the mainnet resource (signature checks will fail, harmlessly)"
+
 network_config_file="${WORK_DIR}/network-other.json"
 cat > "${network_config_file}" <<EOF
 {

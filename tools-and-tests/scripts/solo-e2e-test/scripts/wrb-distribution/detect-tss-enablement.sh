@@ -153,6 +153,19 @@ python3 "${PYTHON_DIR}/generate_metadata.py" \
     "${POST_UPGRADE_DIR}" "${block_times_file}" "${day_blocks_file}" "${genesis_epoch_nanos}" \
     || fail "Failed to generate metadata for post-upgrade subset"
 
+# Generate addressBookHistory.json from the Solo consensus node's actual RSA keys (same
+# mechanism wrb-sequential-comparison.sh / install-and-run-wrb-cli.sh use) into
+# POST_UPGRADE_DAYS_DIR. `blocks wrap` auto-detects and loads this from --input-dir if
+# present, taking priority over network-other.json's genesisAddressBookResource below --
+# without it, wrap falls back to the bundled mainnet-genesis-address-book.proto.bin, whose
+# real mainnet keys never match this cluster's own randomly-generated ones, so every
+# signature check fails (cosmetic/non-blocking, but alarming log noise on every run).
+bash "${SCRIPT_DIR}/../extract-solo-ab-and-generate.sh" \
+    "${NAMESPACE}" \
+    "${first_seconds}.${first_nanos_part}" \
+    "${POST_UPGRADE_DAYS_DIR}/addressBookHistory.json" \
+    || log "WARNING: Could not extract address book from CN; wrap will fall back to the mainnet resource (signature checks will fail, harmlessly)"
+
 network_config_file="${WRB_DIST_WORK_DIR}/post-upgrade-network-other.json"
 cat > "${network_config_file}" <<EOF
 {
