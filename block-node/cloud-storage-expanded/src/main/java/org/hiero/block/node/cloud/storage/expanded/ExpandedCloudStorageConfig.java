@@ -48,6 +48,18 @@ import org.hiero.block.node.base.Loggable;
 ///                             variables or IAM instance role.
 /// @param uploadTimeoutSeconds maximum seconds to wait for in-flight uploads during
 ///                             `stop()` before treating them as failed. Default: 60.
+/// @param retryEnabled         whether failed uploads are held in memory and retried in the
+///                             background instead of being reported as failed immediately.
+///                             Blocks are never written to local disk; a process restart loses
+///                             any not-yet-recovered retry. Default: `true`.
+/// @param retryIntervalSeconds fixed interval, in seconds, at which the background retry tick
+///                             re-attempts every currently-buffered block that isn't already
+///                             in flight.
+/// @param retryMaxAgeSeconds   maximum time, in seconds, a block may remain buffered for retry
+///                             before it is dropped and reported as a terminal failure.
+/// @param retryMaxPendingBlocks maximum number of blocks held in the in-memory retry buffer at
+///                             once; a failure that would exceed this cap is reported as a
+///                             terminal failure immediately instead of being buffered.
 // spotless:off - long annotations on record components must stay on one line
 @ConfigData("cloud.storage.expanded")
 public record ExpandedCloudStorageConfig(
@@ -58,7 +70,11 @@ public record ExpandedCloudStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "") String regionName,
         @ConfigProperty(defaultValue = "") String accessKey,
         @ConfigProperty(defaultValue = "") String secretKey,
-        @Loggable @ConfigProperty(defaultValue = "60") @Min(1) int uploadTimeoutSeconds) {
+        @Loggable @ConfigProperty(defaultValue = "60") @Min(1) int uploadTimeoutSeconds,
+        @Loggable @ConfigProperty(defaultValue = "true") boolean retryEnabled,
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) int retryIntervalSeconds,
+        @Loggable @ConfigProperty(defaultValue = "60") @Min(1) int retryMaxAgeSeconds,
+        @Loggable @ConfigProperty(defaultValue = "30") @Min(1) int retryMaxPendingBlocks) {
 
     /// S3 storage class values accepted by this plugin.
     public enum StorageClass {

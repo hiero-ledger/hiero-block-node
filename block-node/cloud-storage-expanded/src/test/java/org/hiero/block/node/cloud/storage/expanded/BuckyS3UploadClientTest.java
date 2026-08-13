@@ -34,7 +34,18 @@ class BuckyS3UploadClientTest {
 
     private ExpandedCloudStorageConfig configFor(final String endpointUrl) {
         return new ExpandedCloudStorageConfig(
-                endpointUrl, "test-bucket", "prefix", StorageClass.STANDARD, "us-east-1", "key", "secret", 60);
+                endpointUrl,
+                "test-bucket",
+                "prefix",
+                StorageClass.STANDARD,
+                "us-east-1",
+                "key",
+                "secret",
+                60,
+                false,
+                30,
+                3_600,
+                200);
     }
 
     /// Opens and immediately closes a local socket to obtain a port number that nothing is
