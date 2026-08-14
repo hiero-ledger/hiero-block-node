@@ -74,14 +74,14 @@ The Block Node exposes per-service ports. Lock inbound access to the **publisher
 per-service ports are accessible to their respective clients. Deny all other inbound by
 default.
 
-| Port  |    Service    |                            Access                             |
-|-------|---------------|---------------------------------------------------------------|
-| 40984 | Publisher     | Consensus Node source IPs (Hashgraph-provided)                |
-| 40980 | Subscriber    | Generally public; BNs and MNs prioritized via traffic shaping |
-| 40981 | Block Access  | Generally public; BNs and MNs prioritized via traffic shaping |
-| 40982 | Server Status | Globally available (CNs, MNs, other BNs, general public)      |
-| 40983 | Health        | Monitoring and operators                                      |
-| 40840 | LoadBalancer  | External clients (MetalLB front-end)                          |
+| Port  |    Service    |                                        Access                                        |
+|-------|---------------|--------------------------------------------------------------------------------------|
+| 40984 | Publisher     | Consensus Node source IPs (Hashgraph-provided)                                       |
+| 40980 | Subscriber    | Generally public; BNs and MNs prioritized via traffic shaping                        |
+| 40981 | Block Access  | Generally public; BNs and MNs prioritized via traffic shaping                        |
+| 40982 | Server Status | Globally available (CNs, MNs, other BNs, general public); subject to traffic shaping |
+| 40983 | Health        | Monitoring and operators                                                             |
+| 40840 | LoadBalancer  | External clients (MetalLB front-end)                                                 |
 
 ```bash
 # nftables
