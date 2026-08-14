@@ -156,14 +156,18 @@ public class BackfillMultiportSourceTests {
     }
 
     /// Publishes blocks 0..{@link #LAST_BLOCK_NUMBER}, chained by block hash, on the given port and
-    /// awaits an acknowledgement for each.
+    /// awaits an acknowledgement covering the last block. Acknowledgements are watermark-coalesced by
+    /// the server (an ack for block N implicitly acks all blocks below N), so fewer acks than blocks
+    /// may arrive; waiting for a fixed per-block count would flake (#3401).
     private void publishBlocks(final int port) throws InterruptedException {
         final BlockStreamPublishServiceClient publishClient =
                 new BlockStreamPublishServiceClient(createGrpcClientForPort(port), OPTIONS);
         final ResponsePipelineUtils<PublishStreamResponse> observer = new ResponsePipelineUtils<>();
         final Pipeline<? super PublishStreamRequest> stream = publishClient.publishBlockStream(observer);
 
-        final AtomicReference<CountDownLatch> ackLatch = observer.setAndGetOnNextLatch(LAST_BLOCK_NUMBER + 1);
+        final AtomicReference<CountDownLatch> ackLatch = observer.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
+                        && response.acknowledgement().blockNumber() >= LAST_BLOCK_NUMBER);
         Bytes previousBlockHash = null;
         for (long blockNumber = 0; blockNumber <= LAST_BLOCK_NUMBER; blockNumber++) {
             final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber, previousBlockHash);
@@ -177,7 +181,10 @@ public class BackfillMultiportSourceTests {
         }
 
         ackLatch.get().await(AWAIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-        assertEquals(0, ackLatch.get().getCount(), "Timed out waiting for publish acknowledgements");
+        assertEquals(
+                0,
+                ackLatch.get().getCount(),
+                "Timed out waiting for a publish acknowledgement of block >= " + LAST_BLOCK_NUMBER);
         stream.closeConnection();
         publishClient.close();
     }

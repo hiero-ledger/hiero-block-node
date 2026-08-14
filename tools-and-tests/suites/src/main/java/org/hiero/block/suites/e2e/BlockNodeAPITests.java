@@ -471,14 +471,18 @@ public class BlockNodeAPITests {
         final int totalBlocks = 20;
         final long headBlock = totalBlocks - 1L;
 
-        // ==== Step 1: Publish blocks 0..19, chained by block hash, and await all acknowledgements ====
+        // ==== Step 1: Publish blocks 0..19, chained by block hash, and await the head-block acknowledgement ====
         final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publishClient =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
                         publishBlockStreamPbjGrpcClient, OPTIONS);
         final ResponsePipelineUtils<PublishStreamResponse> primaryObserver = new ResponsePipelineUtils<>();
         final Pipeline<? super PublishStreamRequest> primaryStream = publishClient.publishBlockStream(primaryObserver);
 
-        final AtomicReference<CountDownLatch> ackLatch = primaryObserver.setAndGetOnNextLatch(totalBlocks);
+        // Acks are watermark-coalesced by the server (ack of block N implicitly acks all below),
+        // so wait for the watermark to reach the head block rather than for one ack per block (#3401).
+        final AtomicReference<CountDownLatch> ackLatch = primaryObserver.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
+                        && response.acknowledgement().blockNumber() >= headBlock);
         BlockItem[] headBlockItems = null;
         BlockItem[] genesisBlockItems = null;
         Bytes previousBlockHash = null;
@@ -497,12 +501,19 @@ public class BlockNodeAPITests {
             endBlock(blockNumber, primaryStream);
             previousBlockHash = BlockItemBuilderUtils.computeBlockHash(blockNumber, previousBlockHash);
         }
-        awaitLatch(ackLatch, "acknowledgements for blocks 0..19");
-        assertThat(primaryObserver.getOnNextCalls()).hasSize(totalBlocks);
+        awaitLatch(ackLatch, "acknowledgement watermark covering blocks 0..19");
         assertThat(primaryObserver.getOnNextCalls())
                 .last()
                 .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
                 .returns(headBlock, acknowledgementBlockNumberExtractor);
+
+        // Confirm blocks 0..19 are actually persisted, not just acknowledged.
+        final BlockNodeServiceInterface.BlockNodeServiceClient statusClient =
+                new BlockNodeServiceInterface.BlockNodeServiceClient(serverStatusPbjGrpcClient, OPTIONS);
+        final ServerStatusResponse statusAfterPublish = statusClient.serverStatus(SIMPLE_SERVER_STAUS_REQUEST);
+        assertNotNull(statusAfterPublish);
+        assertThat(statusAfterPublish.firstAvailableBlock()).isEqualTo(0);
+        assertThat(statusAfterPublish.lastAvailableBlock()).isEqualTo(headBlock);
 
         // ==== Step 2: Republish head block (distance 0, within window) and expect SkipBlock ====
         final AtomicReference<CountDownLatch> skipLatch = primaryObserver.setAndGetOnNextLatch(1);
@@ -512,8 +523,9 @@ public class BlockNodeAPITests {
         primaryStream.onNext(headBlockRequest);
 
         awaitLatch(skipLatch, "skip response for in-window duplicate");
+        // No response count assertion: the number of step 1 acknowledgements is nondeterministic
+        // under watermark coalescing (#3401), so only the latest response is deterministic.
         assertThat(primaryObserver.getOnNextCalls())
-                .hasSize(totalBlocks + 1)
                 .last()
                 .returns(PublishStreamResponse.ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
                 .returns(headBlock, skipBlockNumberExtractor);
@@ -657,8 +669,11 @@ public class BlockNodeAPITests {
 
         final int totalBlocks = 8;
         final long headBlock = totalBlocks - 1L;
-        final AtomicReference<CountDownLatch> publishCountDownLatch =
-                responseObserver.setAndGetOnNextLatch(totalBlocks);
+        // Acks are watermark-coalesced by the server (ack of block N implicitly acks all below),
+        // so wait for the watermark to reach the head block rather than for one ack per block (#3401).
+        final AtomicReference<CountDownLatch> publishCountDownLatch = responseObserver.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
+                        && response.acknowledgement().blockNumber() >= headBlock);
         BlockItem[] genesisBlockItems = null;
         Bytes previousBlockHash = null;
         for (long blockNumber = 0; blockNumber < totalBlocks; blockNumber++) {
@@ -674,8 +689,7 @@ public class BlockNodeAPITests {
             previousBlockHash = BlockItemBuilderUtils.computeBlockHash(blockNumber, previousBlockHash);
         }
 
-        awaitLatch(publishCountDownLatch, "socket test acknowledgements for blocks 0..7");
-        assertThat(responseObserver.getOnNextCalls()).hasSize(totalBlocks);
+        awaitLatch(publishCountDownLatch, "socket test acknowledgement watermark covering blocks 0..7");
         assertThat(responseObserver.getOnNextCalls())
                 .last()
                 .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
