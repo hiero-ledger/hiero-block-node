@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.block.stream.Block;
 import org.hiero.block.tools.config.HelidonWebClientConfig;
+import org.hiero.block.tools.push.LiveBlockPushClient.QueryFailedException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -98,12 +99,19 @@ class LiveBlockPushClientTest {
     class UnreachableBn {
 
         @Test
-        @DisplayName("queryLastAvailableBlock() returns -1 when the BN is unreachable")
+        @DisplayName("queryLastAvailableBlock() throws QueryFailedException when the BN is unreachable")
         @Timeout(60)
-        void queryReturnsMinusOneOnUnreachable() {
+        void queryThrowsOnUnreachable() {
             try (final LiveBlockPushClient client = newClient(8)) {
-                final long result = client.queryLastAvailableBlock();
-                assertEquals(-1L, result, "Expected sentinel -1 when BN is unreachable");
+                final QueryFailedException thrown = assertThrows(
+                        QueryFailedException.class,
+                        client::queryLastAvailableBlock,
+                        "Expected QueryFailedException when BN is unreachable (silent -1 return caused #3374)");
+                final String msg = thrown.getMessage();
+                assertTrue(
+                        msg.contains("127.0.0.1") && msg.contains(":1"),
+                        "Message must name the host:port that was tried so a port mismatch is diagnosable; was: "
+                                + msg);
             }
         }
     }

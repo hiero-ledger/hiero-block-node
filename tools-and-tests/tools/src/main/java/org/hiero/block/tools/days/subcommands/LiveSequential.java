@@ -205,6 +205,16 @@ public class LiveSequential implements Runnable {
     private int pushBnPort = 40840;
 
     @Option(
+            names = {"--push-bn-status-port"},
+            description = "Block Node BlockNodeService port for the one-time serverStatus query "
+                    + "used to establish the push-skip watermark. Defaults to --push-bn-port for the "
+                    + "common single-port deployment. Override when the BN uses per-API split ports "
+                    + "(publish and status on different ports); a wrong port here causes the startup "
+                    + "query to fail, and the tool aborts rather than pushing every block from 0 "
+                    + "(see #3374). Ignored unless --push-enabled is set. -1 means 'unset'.")
+    private int pushBnStatusPort = -1;
+
+    @Option(
             names = {"--push-queue-capacity"},
             description = "Bounded backpressure queue between the wrap thread and the push worker "
                     + "(default: 32). When full, the wrap thread blocks; nothing is dropped. "
@@ -360,12 +370,39 @@ public class LiveSequential implements Runnable {
             // side coordinating with the other. The push subsystem owns its own thread + bounded
             // queue (see LiveBlockPushClient javadoc).
             if (pushEnabled) {
+                final int effectiveStatusPort = pushBnStatusPort > 0 ? pushBnStatusPort : pushBnPort;
                 pushClient = new LiveBlockPushClient(
-                        pushBnHost, pushBnPort, pushQueueCapacity, LiveBlockPushClient.loadDefaultWebConfig());
-                pushSkipUpToInclusive = pushClient.queryLastAvailableBlock();
+                        pushBnHost,
+                        pushBnPort,
+                        effectiveStatusPort,
+                        pushQueueCapacity,
+                        LiveBlockPushClient.loadDefaultWebConfig());
+                // Fail-fast on query failure. Silently proceeding with pushSkipUpToInclusive=-1
+                // would push every block from 0 into a BN that already has thousands, driving the
+                // BN into the DUPLICATE_BLOCK/SkipBlock reconnect loop that motivated #3374.
+                try {
+                    pushSkipUpToInclusive = pushClient.queryLastAvailableBlock();
+                } catch (final LiveBlockPushClient.QueryFailedException e) {
+                    throw new IllegalStateException(
+                            "Cannot enable --push-enabled: " + e.getMessage()
+                                    + ". Remove --push-enabled or point --push-bn-status-port at the BlockNodeService port.",
+                            e);
+                }
+                if (pushSkipUpToInclusive < 0) {
+                    // Defense in depth: the BN should never advertise a negative watermark, but if
+                    // it does, the producer-side `blockNum > pushSkipUpToInclusive` guard would
+                    // still push everything. Abort with a diagnosable message.
+                    throw new IllegalStateException("BN returned lastAvailableBlock=" + pushSkipUpToInclusive
+                            + " which is not a valid watermark; aborting to avoid pushing every block from 0");
+                }
                 System.out.printf(
-                        "[live-sequential] Live push enabled: target=%s:%d queueCapacity=%d BN lastAvailableBlock=%d (blocks <= this are skipped from push)%n",
-                        pushBnHost, pushBnPort, pushQueueCapacity, pushSkipUpToInclusive);
+                        "[live-sequential] Live push enabled: publish=%s:%d status=%s:%d queueCapacity=%d BN lastAvailableBlock=%d (blocks <= this are skipped from push)%n",
+                        pushBnHost,
+                        pushBnPort,
+                        pushBnHost,
+                        effectiveStatusPort,
+                        pushQueueCapacity,
+                        pushSkipUpToInclusive);
                 pushClient.start();
             }
 
