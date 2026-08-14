@@ -16,6 +16,7 @@ mainModuleInfo {
 
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
+    requires("org.hiero.block.signing")
     requires("com.google.common.jimfs")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")

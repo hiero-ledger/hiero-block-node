@@ -194,6 +194,46 @@ public final class TestBlockBuilder {
         return new TestBlock(blockNumber, createSimpleBlockWithNumber(blockNumber));
     }
 
+    /**
+     * Wraps the given serialized {@link com.hedera.hapi.node.transaction.SignedTransaction} bytes
+     * in a {@link BlockItemUnparsed}. Use with {@link TssBlockSigner#genesisLedgerIdSignedTransaction()}
+     * (or any hand-built signed transaction) to embed a transaction body in a synthetic block.
+     */
+    public static BlockItemUnparsed sampleSignedTransactionUnparsed(@NonNull final Bytes signedTransactionBytes) {
+        return BlockItemUnparsed.newBuilder()
+                .signedTransaction(signedTransactionBytes)
+                .build();
+    }
+
+    /**
+     * Creates a genesis (block 0) test block that carries the given serialized
+     * {@code SignedTransaction} — typically a
+     * {@link com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody} publication produced by
+     * {@code TssBlockSigner.genesisLedgerIdSignedTransaction()} — so the verifier can self-provision
+     * its TSS parameters from the block stream. The signed-transaction item is placed immediately
+     * after the header so the session-side extraction sees it during {@code processBlockItems}.
+     */
+    public static TestBlock generateGenesisBlockWithSignedTransaction(@NonNull final Bytes signedTransactionBytes) {
+        return generateBlockWithSignedTransaction(0L, signedTransactionBytes);
+    }
+
+    /**
+     * Creates a test block at the given number carrying the given serialized {@code SignedTransaction}.
+     * Use this to embed a signed-transaction item for tests that need one (e.g. state-proof tampering
+     * that mutates the SIGNED_TRANSACTION item).
+     */
+    public static TestBlock generateBlockWithSignedTransaction(
+            final long blockNumber, @NonNull final Bytes signedTransactionBytes) {
+        final List<BlockItemUnparsed> items = new ArrayList<>();
+        items.add(sampleHeaderUnparsed(blockNumber));
+        items.add(sampleSignedTransactionUnparsed(signedTransactionBytes));
+        items.add(sampleRoundHeaderUnparsed(blockNumber * 10L));
+        items.add(sampleFooterUnparsed(blockNumber * 10L));
+        items.add(sampleProofUnparsed(blockNumber));
+        return new TestBlock(
+                blockNumber, BlockUnparsed.newBuilder().blockItems(items).build());
+    }
+
     /// Creates a list of simple test blocks.
     public static List<TestBlock> generateBlocksInRange(final long startBlockNumber, final long endBlockNumber) {
         assertTrue(startBlockNumber <= endBlockNumber);

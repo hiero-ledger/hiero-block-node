@@ -21,3 +21,18 @@ testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
 }
+
+/// Materializes a chain of harness-signed .blk.gz files. Invoked by the E2E lifecycle
+/// workflow to produce valid TSS-signed blocks at CI time instead of reading a committed
+/// fixture set. Usage:
+///   ./gradlew :block-verification:generateHarnessBlocks -PoutputDir=/tmp/blocks -Pcount=5
+tasks.register<JavaExec>("generateHarnessBlocks") {
+    description = "Generate a chain of TSS-signed .blk.gz files via HarnessChainBuilder."
+    group = "verification"
+    dependsOn(tasks.named("testClasses"))
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("org.hiero.block.node.block.verification.harness.GenerateHarnessBlocksMain")
+    val outputDir = (project.findProperty("outputDir") as String?) ?: "build/harness-blocks"
+    val count = (project.findProperty("count") as String?) ?: "5"
+    args(outputDir, count)
+}

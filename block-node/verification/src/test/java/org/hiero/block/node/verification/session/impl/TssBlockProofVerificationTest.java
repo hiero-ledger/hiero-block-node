@@ -8,135 +8,125 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.cryptography.tss.TSS;
-import com.hedera.hapi.block.stream.BlockProof;
-import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.transaction.SignedTransaction;
+import com.hedera.hapi.node.transaction.TransactionBody;
+import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.Map;
-import java.util.zip.GZIPInputStream;
-import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.TestUtils;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.VerificationServicePlugin;
 import org.hiero.block.node.verification.session.VerificationProofMetrics;
-import org.junit.jupiter.api.BeforeAll;
+import org.hiero.block.signing.TssBlockSigner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies that TSS.verifyTSS() correctly validates real TssWraps block proofs.
- *
- * <p>Block 0 uses the genesis (aggregate Schnorr, 2,920-byte) path. Block 467 uses the
- * settled WRAPS path (3,432-byte blockSignature).
+ * Verifies that {@link TSS#verifyTSS} correctly validates TSS block proofs produced by the
+ * {@link TssBlockSigner} harness — both the genesis (aggregate-Schnorr, 2920-byte) and the
+ * settled (WRAPS, 3432-byte) paths.
  */
 class TssBlockProofVerificationTest {
 
-    private static BlockUnparsed wrapsBlock0;
-    private static BlockUnparsed wrapsBlock467;
-
-    /** Ledger ID initialized from block 0 via the plugin's static TSS state. */
-    private Bytes activeLedgerId;
-
-    @BeforeAll
-    static void setUp() throws IOException, ParseException {
-        wrapsBlock0 = loadBlock("test-blocks/CN_11_12_TSS_WRAPS/0.blk.gz");
-        wrapsBlock467 = loadBlock("test-blocks/CN_11_12_TSS_WRAPS/391.blk.gz");
-    }
-
     @BeforeEach
-    void initializeLedgerState() throws ParseException {
-        // Reset static TSS state for test isolation
+    void resetStatics() {
         VerificationServicePlugin.activeLedgerId = null;
         VerificationServicePlugin.activeTssPublication = null;
         VerificationServicePlugin.tssParametersPersisted = false;
-        // Process block 0 through a session to initialize native TSS state and extract ledger ID
-        long blockNumber = standardParse(
-                        BlockHeader.PROTOBUF,
-                        wrapsBlock0.blockItems().getFirst().blockHeaderOrThrow())
-                .number();
-        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
-        session.processBlockItems(new BlockItems(wrapsBlock0.blockItems(), blockNumber, true, true));
-        assertNotNull(VerificationServicePlugin.activeLedgerId, "Block 0 must set the active ledger ID");
-        this.activeLedgerId = VerificationServicePlugin.activeLedgerId;
     }
 
     @Test
     void shouldVerifyTssWrapsBlock0BeforeSettled() throws ParseException {
-        Bytes hash = computeBlockHash(wrapsBlock0, null);
-        Bytes signature = extractSignature(wrapsBlock0);
+        final TssBlockSigner signer = TssBlockSigner.create();
+        provisionPluginFrom(signer);
+        final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+        final Bytes hash = computeBlockHash(block, VerificationServicePlugin.activeLedgerId);
+        final Bytes signature =
+                signer.signBlockProof(block.number(), hash).signedBlockProof().blockSignature();
         // genesis: vk (1096) + blsSig (1632) + aggregate Schnorr (192) = 2920
-        assertEquals(2_920, signature.length(), "Block 0 signature must be 2920 bytes (genesis path)");
+        assertEquals(2_920, signature.length(), "Genesis-path signature must be 2920 bytes");
         assertTrue(
-                TSS.verifyTSS(activeLedgerId.toByteArray(), signature.toByteArray(), hash.toByteArray()),
-                "TssWraps block 0 aggregate Schnorr signature should verify successfully");
+                TSS.verifyTSS(
+                        VerificationServicePlugin.activeLedgerId.toByteArray(),
+                        signature.toByteArray(),
+                        hash.toByteArray()),
+                "Aggregate-Schnorr signature should verify successfully");
     }
 
     @Test
     void shouldVerifyTssWrapsBlock467SettledPath() throws ParseException {
-        Bytes hash = computeBlockHash(wrapsBlock467, activeLedgerId);
-        Bytes signature = extractSignature(wrapsBlock467);
+        final TssBlockSigner signer = TssBlockSigner.createDeterministicSettled();
+        provisionPluginFrom(signer);
+        final TestBlock block = TestBlockBuilder.generateBlockWithNumber(467L);
+        final Bytes hash = computeBlockHash(block, VerificationServicePlugin.activeLedgerId);
+        final Bytes signature =
+                signer.signBlockProof(block.number(), hash).signedBlockProof().blockSignature();
         // settled path: vk (1096) + blsSig (1632) + WRAPS proof (704) = 3432
-        assertEquals(3_432, signature.length(), "Block 467 signature must be 3432 bytes (settled WRAPS path)");
+        assertEquals(3_432, signature.length(), "Settled-path signature must be 3432 bytes");
         assertTrue(
-                TSS.verifyTSS(activeLedgerId.toByteArray(), signature.toByteArray(), hash.toByteArray()),
-                "TssWraps block 467 settled WRAPS signature should verify successfully");
+                TSS.verifyTSS(
+                        VerificationServicePlugin.activeLedgerId.toByteArray(),
+                        signature.toByteArray(),
+                        hash.toByteArray()),
+                "Settled WRAPS signature should verify successfully");
     }
 
     @Test
     void shouldRejectTamperedSignature() throws ParseException {
-        Bytes hash = computeBlockHash(wrapsBlock0, null);
-        byte[] sig = extractSignature(wrapsBlock0).toByteArray();
-        sig[0] = (byte) ~sig[0];
+        final TssBlockSigner signer = TssBlockSigner.create();
+        provisionPluginFrom(signer);
+        final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+        final Bytes hash = computeBlockHash(block, VerificationServicePlugin.activeLedgerId);
+        final byte[] signature = signer.signBlockProof(block.number(), hash)
+                .signedBlockProof()
+                .blockSignature()
+                .toByteArray();
+        signature[0] = (byte) ~signature[0];
         assertFalse(
-                TSS.verifyTSS(activeLedgerId.toByteArray(), sig, hash.toByteArray()),
+                TSS.verifyTSS(VerificationServicePlugin.activeLedgerId.toByteArray(), signature, hash.toByteArray()),
                 "Tampered signature should not verify against a valid block hash");
     }
 
     @Test
     void shouldRejectTamperedBlockHash() throws ParseException {
-        byte[] hash = computeBlockHash(wrapsBlock0, null).toByteArray();
-        hash[0] = (byte) ~hash[0];
-        Bytes signature = extractSignature(wrapsBlock0);
+        final TssBlockSigner signer = TssBlockSigner.create();
+        provisionPluginFrom(signer);
+        final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+        final Bytes hash = computeBlockHash(block, VerificationServicePlugin.activeLedgerId);
+        final Bytes signature =
+                signer.signBlockProof(block.number(), hash).signedBlockProof().blockSignature();
+        final byte[] tamperedHash = hash.toByteArray();
+        tamperedHash[0] = (byte) ~tamperedHash[0];
         assertFalse(
-                TSS.verifyTSS(activeLedgerId.toByteArray(), signature.toByteArray(), hash),
+                TSS.verifyTSS(
+                        VerificationServicePlugin.activeLedgerId.toByteArray(), signature.toByteArray(), tamperedHash),
                 "BLS aggregate signature should not verify against a tampered block hash");
     }
 
-    private static BlockUnparsed loadBlock(String resourcePath) throws IOException, ParseException {
-        try (InputStream stream = TestUtils.class.getModule().getResourceAsStream(resourcePath);
-                GZIPInputStream gzip = new GZIPInputStream(stream)) {
-            return standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(gzip.readAllBytes()));
-        }
+    /**
+     * Extracts the signer's ledger-id publication and pushes it through the same
+     * {@link VerificationServicePlugin#initializeTssParameters} entry point block 0 processing
+     * would use, so the JVM-wide {@link TSS} native state matches the signer's roster.
+     */
+    private static void provisionPluginFrom(final TssBlockSigner signer) throws ParseException {
+        final SignedTransaction signedTx =
+                standardParse(SignedTransaction.PROTOBUF, signer.genesisLedgerIdSignedTransaction());
+        final TransactionBody body = standardParse(TransactionBody.PROTOBUF, signedTx.bodyBytes());
+        final LedgerIdPublicationTransactionBody publication = body.ledgerIdPublicationOrThrow();
+        VerificationServicePlugin.initializeTssParameters(publication);
+        assertNotNull(VerificationServicePlugin.activeLedgerId, "initializeTssParameters must set the ledger ID");
     }
 
-    private static Bytes computeBlockHash(BlockUnparsed block, Bytes ledgerId) throws ParseException {
-        long blockNumber = standardParse(
-                        BlockHeader.PROTOBUF, block.blockItems().getFirst().blockHeaderOrThrow())
-                .number();
-        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                blockNumber, BlockSource.PUBLISHER, null, null, ledgerId, Map.of(), VerificationProofMetrics.NONE);
-        BlockItems message = new BlockItems(block.blockItems(), blockNumber, true, true);
-        VerificationNotification notification = session.processBlockItems(message);
+    private static Bytes computeBlockHash(final TestBlock block, final Bytes ledgerId) throws ParseException {
+        final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
+                block.number(), BlockSource.PUBLISHER, null, null, ledgerId, Map.of(), VerificationProofMetrics.NONE);
+        final BlockItems message = new BlockItems(block.blockUnparsed().blockItems(), block.number(), true, true);
+        final VerificationNotification notification = session.processBlockItems(message);
         assertNotNull(notification, "Session must produce a VerificationNotification");
         return notification.blockHash();
-    }
-
-    private static Bytes extractSignature(BlockUnparsed block) throws ParseException {
-        for (BlockItemUnparsed item : block.blockItems().reversed()) {
-            if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
-                continue;
-            }
-            BlockProof proof = standardParse(BlockProof.PROTOBUF, item.blockProofOrThrow());
-            if (proof.hasSignedBlockProof()) {
-                return proof.signedBlockProof().blockSignature();
-            }
-        }
-        throw new IllegalStateException("No BlockProof with signedBlockProof found in block");
     }
 }

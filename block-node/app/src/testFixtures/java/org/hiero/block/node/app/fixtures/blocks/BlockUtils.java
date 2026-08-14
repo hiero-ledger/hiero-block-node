@@ -109,41 +109,21 @@ public final class BlockUtils {
      * These blocks are used for testing purposes only.
      */
     public enum SAMPLE_BLOCKS implements SampleBlock {
-        /** Genesis block — bootstraps TSS parameters and ledger ID. */
+        /** Genesis block — canary for BlockHasherTest.PositiveBlockHasher only. */
         BLOCK_0(
                 "CN_11_12_TSS_WRAPS/0.blk.gz",
                 "3c421aac698b04fccdd46acad435125ea53af91fe404e787c8ccf4c23a11aa69190468ea1dd797af11d75335f4840749",
                 0),
-        /** Sequential block 1 (pre-settled Schnorr signature). */
-        BLOCK_1(
-                "CN_11_12_TSS_WRAPS/1.blk.gz",
-                "832ec52cfbb467c8d1373afefe682b27132c31ebaf4846fbb6e437c582ce09ea2a59c1d7aadc26827e969efc79a45c89",
-                1),
-        /** Sequential block 2 (pre-settled Schnorr signature). */
-        BLOCK_2(
-                "CN_11_12_TSS_WRAPS/2.blk.gz",
-                "cb1c9b37ed6ae0f34b771f9f7692f266a1f77f7caf14669f359373137cc7986f0aef9ad17e8a63303c8b5e08423dc407",
-                2),
-        /** Sequential block 3 (pre-settled Schnorr signature). */
-        BLOCK_3(
-                "CN_11_12_TSS_WRAPS/3.blk.gz",
-                "61d26789479764f622932348931833d2dda482bbf3f798e727e31bb50fecd76db894c256b1ebb11516413e3d08777cfd",
-                3),
-        /** Sequential block 4 (pre-settled Schnorr signature). */
-        BLOCK_4(
-                "CN_11_12_TSS_WRAPS/4.blk.gz",
-                "a6d563cf11b04e5884958223169cbdd080f27425628584db76b0447982e869ebac08e9f8ecaa03d6b8aa225e8e188eb4",
-                4),
-        /** Transition block — first block with WRAPS signature (Schnorr to WRAPS transition). */
+        /**
+         * Transition block — the first block with a WRAPS (post-settled) signature after the
+         * Schnorr → WRAPS TSS transition. Kept for {@code BackfillPluginTest.testBackfillOnDemandTssWrapsBlock}
+         * which specifically exercises backfill of a transition block; the harness can't
+         * synthesize the transition boundary.
+         */
         BLOCK_322(
                 "CN_11_12_TSS_WRAPS/322.blk.gz",
                 "15c9a3e7d027c112e3378a1a66277e5b1e3d9b1aa4ec67749ad3ef0e4d99859e0784672c8c5f838717a5da8e6fcbf67f",
-                322),
-        /** Post-settled block — has WRAPS signature (settled TSS). */
-        BLOCK_391(
-                "CN_11_12_TSS_WRAPS/391.blk.gz",
-                "b850faadc920c095b77523520803a99c1387ebaeeb2a150aa3381b68ccfb58bf35ff8d5ade56b7313ad9f40baca1103e",
-                391);
+                322);
 
         private final String blockName;
         private final Bytes blockHash;

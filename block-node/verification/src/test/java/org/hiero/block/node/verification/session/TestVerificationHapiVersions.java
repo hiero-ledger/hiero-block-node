@@ -95,14 +95,6 @@ class TestVerificationHapiVersions {
     /** Supply the concrete samples you want to cover. Add more here as they're added to fixtures. */
     private static Stream<Arguments> sampleBlocks() throws IOException, ParseException {
         final BlockUtils.SampleBlockInfo block0 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
-
-        final BlockUtils.SampleBlockInfo block1 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_1);
-
-        final BlockUtils.SampleBlockInfo block4 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_4);
-
-        return Stream.of(
-                Arguments.of("CN_0_73_BLOCK_0", block0),
-                Arguments.of("CN_0_73_BLOCK_1", block1),
-                Arguments.of("CN_0_73_BLOCK_4", block4));
+        return Stream.of(Arguments.of("CN_0_73_BLOCK_0", block0));
     }
 }

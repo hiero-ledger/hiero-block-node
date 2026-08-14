@@ -3,7 +3,6 @@ package org.hiero.block.node.block.verification.verifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.MerklePath;
 import com.hedera.hapi.block.stream.MerklePath.Builder;
@@ -11,13 +10,11 @@ import com.hedera.hapi.block.stream.SiblingNode;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestConfigurationBuilder;
@@ -25,12 +22,9 @@ import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
-import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlock;
-import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder;
-import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.StateProof;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
-import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
+import org.hiero.block.node.block.verification.harness.StateProofChainBuilder;
 import org.hiero.block.node.block.verification.hasher.BlockHasher;
 import org.hiero.block.node.block.verification.hasher.HashingResult;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
@@ -38,22 +32,21 @@ import org.hiero.block.node.block.verification.session.SessionFailureType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.signing.TssBlockSigner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/// Tests for [StateProofVerifier].
+/// Tests for [StateProofVerifier] using the harness-generated indirect state proofs.
 @DisplayName("State Proof Verifier Tests")
 class StateProofVerifierTest {
     private AtomicBoolean isCanceled;
     private MetricsHolder metricsHolder;
     private VerificationDataProvider verificationDataProvider;
+    private StateProofChainBuilder builder;
 
-    /// Setup before each.
     @BeforeEach
     void setUp() {
         final BlockNodeContext context = TestUtils.testContext(
@@ -64,353 +57,254 @@ class StateProofVerifierTest {
         metricsHolder = MetricsHolder.create(context.metricRegistry());
         verificationDataProvider = new VerificationDataProvider(context);
         isCanceled = new AtomicBoolean(false);
+        final TssBlockSigner signer = TssBlockSigner.create();
+        verificationDataProvider.safeUpdateTssData(signer.verificationMaterial().tssData(), false);
+        builder = new StateProofChainBuilder(signer, verificationDataProvider, metricsHolder);
     }
 
     @ParameterizedTest
-    @MethodSource("blocksWithStateProof")
+    @ValueSource(longs = {1L, 2L, 3L, 4L})
     @DisplayName("verify() passes for valid state proof")
-    void testPassingStateProofVerification(final ResourceTestBlock block) throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        final HashingResult hashingResult = runHashing(verificationDataProvider, block);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                block.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNull();
+    void testPassingStateProofVerification(final long blockNumber) {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed signed = advanceTo(blockNumber);
+        assertVerifies(signed);
     }
 
     @Test
     @DisplayName("verify() reject tampered sibling hash")
-    void testShouldRejectTamperedSiblingHash() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Tamper with a sibling hash - the reconstructed root will differ, TSS verification must fail
-        final TestBlock tamperedBlock = tamperSiblingHash(ResourceTestBlockBuilder.load(StateProof.BLOCK_3));
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    void testShouldRejectTamperedSiblingHash() throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
+        final TestBlock tampered = tamperSiblingHash(original.block());
+        assertRejects(tampered);
     }
 
     @Test
     @DisplayName("verify() reject tampered timestamp leaf")
-    void testShouldRejectTamperedTimestampLeaf() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Tamper with the timestamp leaf in path 0 - the signed block root will differ
-        final TestBlock tamperedBlock = tamperTimestampLeaf(ResourceTestBlockBuilder.load(StateProof.BLOCK_3));
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    void testShouldRejectTamperedTimestampLeaf() throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
+        final TestBlock tampered = tamperTimestampLeaf(original.block());
+        assertRejects(tampered);
     }
 
     @Test
     @DisplayName("verify() reject tampered block content with valid state proof")
-    void testShouldRejectTamperedBlockContentWithValidStateProof() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Tamper with a transaction in the block body while leaving the state proof unchanged.
-        // The independently computed blockRootHash will differ from what the state proof chain
-        // encodes, so the first-iteration integrity check must reject the block.
-        final TestBlock tamperedBlock = tamperSignedTransaction(ResourceTestBlockBuilder.load(StateProof.BLOCK_3));
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    void testShouldRejectTamperedBlockContentWithValidStateProof() {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
+        final TestBlock tampered = tamperSignedTransaction(original.block());
+        assertRejects(tampered);
     }
 
     @Test
     @DisplayName("verify() reject when null signed proof")
-    void testShouldRejectNullSignedProof() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof with null signed proof.
-        final ResourceTestBlock tamperedBlock =
-                swapSignedProof(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), null);
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    void testShouldRejectNullSignedProof() throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
+        final TestBlock tampered = swapSignedProof(original.block(), null);
+        assertRejects(tampered);
     }
 
     @Test
     @DisplayName("verify() reject when empty signed proof")
-    void testShouldRejectEmptySignedProof() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof with empty signed proof
-        final TssSignedBlockProof emptySignedProof =
+    void testShouldRejectEmptySignedProof() throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
+        final TssSignedBlockProof emptySigned =
                 TssSignedBlockProof.newBuilder().blockSignature(Bytes.EMPTY).build();
-        final ResourceTestBlock tamperedBlock =
-                swapSignedProof(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), emptySignedProof);
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        final TestBlock tampered = swapSignedProof(original.block(), emptySigned);
+        assertRejects(tampered);
     }
 
     @Test
     @DisplayName("verify() reject when tampered signed proof")
-    void testShouldRejectTamperedSignedProof() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof with tampered signed proof
-        final TssSignedBlockProof emptySignedProof = TssSignedBlockProof.newBuilder()
+    void testShouldRejectTamperedSignedProof() throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
+        final TssSignedBlockProof tamperedSigned = TssSignedBlockProof.newBuilder()
                 .blockSignature(Bytes.wrap("tampered"))
                 .build();
-        final ResourceTestBlock tamperedBlock =
-                swapSignedProof(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), emptySignedProof);
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        final TestBlock tampered = swapSignedProof(original.block(), tamperedSigned);
+        assertRejects(tampered);
     }
 
     @ParameterizedTest
     @ValueSource(ints = {0, 1, 2})
     @DisplayName("verify() reject when not enough merkle paths")
-    void testShouldRejectNoMerklePaths(final int pathCount) throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof
+    void testShouldRejectNoMerklePaths(final int pathCount) throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
         for (int i = 0; i < pathCount; i++) {
             paths.add(generateGenericMerklePath(true));
         }
-        final ResourceTestBlock tamperedBlock = swapPaths(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), paths);
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        final TestBlock tampered = swapPaths(original.block(), paths);
+        assertRejects(tampered);
     }
 
     @Test
     @DisplayName("verify() passes for valid state proof that does not start with a leaf")
-    void testPassingStateProofWithNonLeafFirstPath() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Reorder the paths of a real, valid state proof so the final join point comes first:
-        // [leaf, leaf, join] becomes [join, leaf, leaf], with every next path index remapped
-        // to the join point's new position. A state proof creator might order the paths this
-        // way, and the proof content is unchanged, so verification must pass.
-        final ResourceTestBlock block = ResourceTestBlockBuilder.load(StateProof.BLOCK_3);
-        final List<MerklePath> original = statePaths(block);
-        final MerklePath join = original.get(2);
+    void testPassingStateProofWithNonLeafFirstPath() throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
+        // Reorder [leaf, leaf, join] → [join, leaf, leaf] with next indices remapped to the join's new position.
+        final List<MerklePath> pathsOriginal = statePaths(original.block());
+        final MerklePath join = pathsOriginal.get(2);
         final MerklePath firstLeaf =
-                original.get(0).copyBuilder().nextPathIndex(0).build();
+                pathsOriginal.get(0).copyBuilder().nextPathIndex(0).build();
         final MerklePath secondLeaf =
-                original.get(1).copyBuilder().nextPathIndex(0).build();
-        final ResourceTestBlock reorderedBlock = swapPaths(block, List.of(join, firstLeaf, secondLeaf));
-        final HashingResult hashingResult = runHashing(verificationDataProvider, reorderedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                reorderedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNull();
+                pathsOriginal.get(1).copyBuilder().nextPathIndex(0).build();
+        final TestBlock reordered = swapPaths(original.block(), List.of(join, firstLeaf, secondLeaf));
+        // Path reorder doesn't change the block content so the computed root hash is unchanged.
+        assertVerifies(new StateProofChainBuilder.Signed(reordered, original.rootHash()));
     }
 
     @ParameterizedTest
     @ValueSource(ints = {0, 1, 2})
     @DisplayName("verify() reject valid state proof carrying a join point that is never followed")
-    void testShouldRejectJoinPointNeverFollowed(final int orphanIndex) throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Insert an unreferenced join point into the paths of a real, valid state proof,
-        // remapping the real indices for the shift. Every other aspect of the proof stays
-        // valid, so only the accurate visited tracking can catch the orphan path: a path
-        // counts as visited only when the walk actually processes it.
-        final ResourceTestBlock block = ResourceTestBlockBuilder.load(StateProof.BLOCK_3);
-        final List<MerklePath> original = statePaths(block);
+    void testShouldRejectJoinPointNeverFollowed(final int orphanIndex) throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
+        final List<MerklePath> pathsOriginal = statePaths(original.block());
         final List<MerklePath> paths = new ArrayList<>();
-        // the real join point lands at index 3 for every tested insertion position
-        paths.add(original.get(0).copyBuilder().nextPathIndex(3).build());
-        paths.add(original.get(1).copyBuilder().nextPathIndex(3).build());
-        paths.add(original.get(2));
+        paths.add(pathsOriginal.get(0).copyBuilder().nextPathIndex(3).build());
+        paths.add(pathsOriginal.get(1).copyBuilder().nextPathIndex(3).build());
+        paths.add(pathsOriginal.get(2));
         paths.add(orphanIndex, generateGenericMerklePath(false));
-        final ResourceTestBlock tamperedBlock = swapPaths(block, paths);
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        final TestBlock tampered = swapPaths(original.block(), paths);
+        assertRejects(tampered);
     }
 
     @Test
     @DisplayName("verify() reject when no leaf leads to a join point")
-    void testShouldRejectUnreachableJoinPoint() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // The first path is allowed to be a non-leaf, but a join point that no leaf leads to
-        // is never visited and must reject the proof.
+    void testShouldRejectUnreachableJoinPoint() throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
         paths.add(generateGenericMerklePath(false));
         paths.add(generateGenericMerklePath(true));
         paths.add(generateGenericMerklePath(true));
-        final ResourceTestBlock tamperedBlock = swapPaths(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), paths);
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        final TestBlock tampered = swapPaths(original.block(), paths);
+        assertRejects(tampered);
     }
 
     @Test
     @DisplayName("verify() reject when a leaf has a path outside of bounds")
-    void testShouldRejectWhenNextPathOfALeafIsOutsideOfBounds() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof
+    void testShouldRejectWhenNextPathOfALeafIsOutsideOfBounds() throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
         paths.add(generateGenericMerklePath(true, 1_000));
         paths.add(generateGenericMerklePath(true));
         paths.add(generateGenericMerklePath(true));
-        final ResourceTestBlock tamperedBlock = swapPaths(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), paths);
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        final TestBlock tampered = swapPaths(original.block(), paths);
+        assertRejects(tampered);
     }
 
     @Test
     @DisplayName("verify() reject when the next path of leaf is not a join point")
-    void testShouldRejectWhenNextPathOfALeafIsNotAJoinPoint() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof
+    void testShouldRejectWhenNextPathOfALeafIsNotAJoinPoint() throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
         paths.add(generateGenericMerklePath(true, 1));
         paths.add(generateGenericMerklePath(true, 2));
         paths.add(generateGenericMerklePath(true));
-        final ResourceTestBlock tamperedBlock = swapPaths(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), paths);
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        final TestBlock tampered = swapPaths(original.block(), paths);
+        assertRejects(tampered);
     }
 
     @Test
     @DisplayName("verify() reject if canceled")
-    void testShouldRejectIfCanceled() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        final ResourceTestBlock block3 = ResourceTestBlockBuilder.load(StateProof.BLOCK_3);
-        final HashingResult hashingResult = runHashing(verificationDataProvider, block3);
+    void testShouldRejectIfCanceled() {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed signed = advanceTo(3L);
+        final HashingResult hashing = runHashing(signed.block());
         final StateProofVerifier toTest = new StateProofVerifier(
                 isCanceled,
                 metricsHolder.proofVerificationMetrics(),
-                block3.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
+                signed.block().number(),
+                hashing.blockProofs().getFirst().blockStateProof(),
+                hashing.rootHash(),
                 verificationDataProvider);
         isCanceled.set(true);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.CANCELLED);
+        assertThat(toTest.verify()).isEqualTo(SessionFailureType.CANCELLED);
     }
 
     @Test
     @DisplayName("verify() reject when not all paths visited")
-    void testShouldRejectWhenNotAllPathsVisited() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof
+    void testShouldRejectWhenNotAllPathsVisited() throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
         paths.add(generateGenericMerklePath(true, 2));
         paths.add(generateGenericMerklePath(true, 2));
         paths.add(generateGenericMerklePath(false, -1));
         paths.add(generateGenericMerklePath(true, -1));
-        final ResourceTestBlock tamperedBlock = swapPaths(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), paths);
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
-        final StateProofVerifier toTest = new StateProofVerifier(
-                isCanceled,
-                metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
-                verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        final TestBlock tampered = swapPaths(original.block(), paths);
+        assertRejects(tampered);
     }
 
     @Test
     @DisplayName("verify() reject when checkpoints left after visiting all indices")
-    void testShouldRejectWhenCheckpointsLeftAfterVisitingAllIndices() throws IOException, ParseException {
-        initializeTssData(verificationDataProvider, ResourceTestBlockBuilder.load(StateProof.BLOCK_0));
-        // Swap state proof
+    void testShouldRejectWhenCheckpointsLeftAfterVisitingAllIndices() throws ParseException {
+        builder.genesisWithPublication();
+        final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
         paths.add(generateGenericMerklePath(true, 2));
         paths.add(generateGenericMerklePath(true, 2));
         paths.add(generateGenericMerklePath(false, 3));
         paths.add(generateGenericMerklePath(false, -1));
-        final ResourceTestBlock tamperedBlock = swapPaths(ResourceTestBlockBuilder.load(StateProof.BLOCK_3), paths);
-        final HashingResult hashingResult = runHashing(verificationDataProvider, tamperedBlock);
+        final TestBlock tampered = swapPaths(original.block(), paths);
+        assertRejects(tampered);
+    }
+
+    /// Emits blocks 1..blockNumber through the builder, returning the last signed one.
+    private StateProofChainBuilder.Signed advanceTo(final long blockNumber) {
+        StateProofChainBuilder.Signed signed = null;
+        for (long n = 1L; n <= blockNumber; n++) {
+            signed = builder.next(n);
+        }
+        return signed;
+    }
+
+    private void assertVerifies(final StateProofChainBuilder.Signed signed) {
+        final HashingResult hashing = runHashing(signed.block());
         final StateProofVerifier toTest = new StateProofVerifier(
                 isCanceled,
                 metricsHolder.proofVerificationMetrics(),
-                tamperedBlock.number(),
-                hashingResult.blockProofs().getFirst().blockStateProof(),
-                hashingResult.rootHash(),
+                signed.block().number(),
+                hashing.blockProofs().getFirst().blockStateProof(),
+                hashing.rootHash(),
                 verificationDataProvider);
-        final SessionFailureType actual = toTest.verify();
-        assertThat(actual).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        assertThat(toTest.verify()).isNull();
+    }
+
+    private void assertRejects(final TestBlock tampered) {
+        final HashingResult hashing = runHashing(tampered);
+        final StateProofVerifier toTest = new StateProofVerifier(
+                isCanceled,
+                metricsHolder.proofVerificationMetrics(),
+                tampered.number(),
+                hashing.blockProofs().getFirst().blockStateProof(),
+                hashing.rootHash(),
+                verificationDataProvider);
+        assertThat(toTest.verify()).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
+    private HashingResult runHashing(final TestBlock block) {
+        final ConcurrentLinkedDeque<BlockItems> deque = new ConcurrentLinkedDeque<>();
+        final BlockHasher hasher = new BlockHasher(
+                new AtomicBoolean(false),
+                deque,
+                metricsHolder.hashingMetrics(),
+                block.number(),
+                BlockSource.PUBLISHER,
+                verificationDataProvider);
+        deque.add(block.asBlockItems());
+        return hasher.get();
     }
 
     private MerklePath generateGenericMerklePath(final boolean isLeaf) {
@@ -418,213 +312,129 @@ class StateProofVerifierTest {
     }
 
     private MerklePath generateGenericMerklePath(final boolean isLeaf, final int nextPathIndex) {
-        final Builder builder = MerklePath.newBuilder();
-        builder.siblings(List.of());
-        builder.nextPathIndex(nextPathIndex);
+        final Builder b = MerklePath.newBuilder();
+        b.siblings(List.of());
+        b.nextPathIndex(nextPathIndex);
         if (isLeaf) {
-            builder.hash(Bytes.wrap(new byte[32]));
+            b.hash(Bytes.wrap(new byte[32]));
         }
-        return builder.build();
+        return b.build();
     }
 
-    /// Initialize TSS Data so we can verify TSS signatures.
-    private void initializeTssData(final VerificationDataProvider vdp, final TestBlock block) {
-        runHashing(vdp, block);
-        assertThat(vdp.hasTssData()).isTrue();
-    }
-
-    private HashingResult runHashing(final VerificationDataProvider vdp, final TestBlock block) {
-        final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
-        final BlockHasher hasher = new BlockHasher(
-                new AtomicBoolean(false),
-                blockItemsDeque,
-                metricsHolder.hashingMetrics(),
-                block.number(),
-                BlockSource.PUBLISHER,
-                vdp);
-        blockItemsDeque.add(block.asBlockItems());
-        return hasher.get();
-    }
-
-    private ResourceTestBlock swapSignedProof(final ResourceTestBlock block, final TssSignedBlockProof signedProof) {
-        assertThat(block.proofs()).size().isEqualTo(1);
-        final BlockProof proof = block.proofs().getFirst();
-        final com.hedera.hapi.block.stream.StateProof stateProof = proof.blockStateProof();
-        assertThat(stateProof).isNotNull();
-        final com.hedera.hapi.block.stream.StateProof.Builder builder =
-                com.hedera.hapi.block.stream.StateProof.newBuilder().paths(stateProof.paths());
-        if (signedProof != null) {
-            builder.signedBlockProof(signedProof);
-        }
-        final com.hedera.hapi.block.stream.StateProof toSwap = builder.build();
-        final List<BlockItem> proofsExcluded =
-                block.asBlockItemFiltered(i -> i.item().kind() != BlockItem.ItemOneOfType.BLOCK_PROOF);
-        final ArrayList<BlockItem> resultItems = new ArrayList<>(proofsExcluded);
-        final BlockItem swappedProof = BlockItem.newBuilder()
-                .blockProof(BlockProof.newBuilder().blockStateProof(toSwap).build())
-                .build();
-        resultItems.add(swappedProof);
-        return new ResourceTestBlock(
-                block.number(),
-                new BlockUnparsed(TestBlockBuilder.convertToUnparsedItems(resultItems)),
-                block.blockRootHash());
-    }
-
-    /// Returns the merkle paths of the block's real state proof, asserting the expected
-    /// structure ([leaf, leaf, join] with both leaves pointing at the join and the join
-    /// carrying the final next index) so reordering tests can remap the indices safely.
-    private List<MerklePath> statePaths(final ResourceTestBlock block) {
-        assertThat(block.proofs()).size().isEqualTo(1);
-        final com.hedera.hapi.block.stream.StateProof stateProof =
-                block.proofs().getFirst().blockStateProof();
-        assertThat(stateProof).isNotNull();
-        final List<MerklePath> paths = stateProof.paths();
+    private static List<MerklePath> statePaths(final TestBlock block) throws ParseException {
+        final BlockProof proof = extractProof(block);
+        final com.hedera.hapi.block.stream.StateProof sp = proof.blockStateProof();
+        assertThat(sp).isNotNull();
+        final List<MerklePath> paths = sp.paths();
         assertThat(paths).hasSize(3);
-        assertThat(paths.get(0).content().kind()).isNotEqualTo(MerklePath.ContentOneOfType.UNSET);
-        assertThat(paths.get(1).content().kind()).isNotEqualTo(MerklePath.ContentOneOfType.UNSET);
-        assertThat(paths.get(2).content().kind()).isEqualTo(MerklePath.ContentOneOfType.UNSET);
-        assertThat(paths.get(0).nextPathIndex()).isEqualTo(2);
-        assertThat(paths.get(1).nextPathIndex()).isEqualTo(2);
-        assertThat(paths.get(2).nextPathIndex()).isEqualTo(-1);
         return paths;
     }
 
-    private ResourceTestBlock swapPaths(final ResourceTestBlock block, final List<MerklePath> paths) {
-        assertThat(block.proofs()).size().isEqualTo(1);
-        final BlockProof proof = block.proofs().getFirst();
-        final com.hedera.hapi.block.stream.StateProof stateProof = proof.blockStateProof();
-        assertThat(stateProof).isNotNull();
-        final com.hedera.hapi.block.stream.StateProof toSwap = com.hedera.hapi.block.stream.StateProof.newBuilder()
-                .paths(paths)
-                .signedBlockProof(stateProof.signedBlockProof())
-                .build();
-        final List<BlockItem> proofsExcluded =
-                block.asBlockItemFiltered(i -> i.item().kind() != BlockItem.ItemOneOfType.BLOCK_PROOF);
-        final ArrayList<BlockItem> resultItems = new ArrayList<>(proofsExcluded);
-        final BlockItem swappedProof = BlockItem.newBuilder()
-                .blockProof(BlockProof.newBuilder().blockStateProof(toSwap).build())
-                .build();
-        resultItems.add(swappedProof);
-        return new ResourceTestBlock(
-                block.number(),
-                new BlockUnparsed(TestBlockBuilder.convertToUnparsedItems(resultItems)),
-                block.blockRootHash());
-    }
-
-    /// Creates a copy of the block with a tampered sibling hash in the state proof's path 1.
-    /// Flips the first byte of the first sibling's hash.
-    private TestBlock tamperSiblingHash(final TestBlock block) throws ParseException {
-        List<BlockItemUnparsed> items = new ArrayList<>(block.blockUnparsed().blockItems());
-        for (int i = items.size() - 1; i >= 0; i--) {
-            BlockItemUnparsed item = items.get(i);
-            if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
-                continue;
+    private static BlockProof extractProof(final TestBlock block) throws ParseException {
+        for (final BlockItemUnparsed item : block.blockUnparsed().blockItems()) {
+            if (item.item().kind() == BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
+                return BlockProof.PROTOBUF.parse(item.blockProofOrThrow());
             }
-            BlockProof proof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow());
-            if (!proof.hasBlockStateProof()) {
-                continue;
-            }
-            com.hedera.hapi.block.stream.StateProof stateProof = proof.blockStateProof();
-            List<SiblingNode> siblings =
-                    new ArrayList<>(stateProof.paths().get(1).siblings());
-            SiblingNode original = siblings.get(0);
-            byte[] tamperedHash = original.hash().toByteArray();
-            tamperedHash[0] = (byte) ~tamperedHash[0];
-            siblings.set(0, new SiblingNode(original.isLeft(), Bytes.wrap(tamperedHash)));
-
-            com.hedera.hapi.block.stream.StateProof tamperedStateProof = stateProof
-                    .copyBuilder()
-                    .paths(List.of(
-                            stateProof.paths().get(0),
-                            stateProof
-                                    .paths()
-                                    .get(1)
-                                    .copyBuilder()
-                                    .siblings(siblings)
-                                    .build(),
-                            stateProof.paths().get(2)))
-                    .build();
-            BlockProof tamperedProof =
-                    proof.copyBuilder().blockStateProof(tamperedStateProof).build();
-            Bytes tamperedProofBytes = BlockProof.PROTOBUF.toBytes(tamperedProof);
-            items.set(
-                    i,
-                    BlockItemUnparsed.newBuilder()
-                            .blockProof(tamperedProofBytes)
-                            .build());
-            break;
         }
-        return new TestBlock(block.number(), new BlockUnparsed(items));
+        throw new IllegalStateException("no BlockProof item");
     }
 
-    /// Creates a copy of the block with a tampered signed transaction item. Flips the first byte of the first signed
-    /// transaction's raw bytes, leaving the state proof intact.
-    private TestBlock tamperSignedTransaction(final TestBlock block) {
-        List<BlockItemUnparsed> items = new ArrayList<>(block.blockUnparsed().blockItems());
+    private static TestBlock swapSignedProof(final TestBlock block, final TssSignedBlockProof signedProof)
+            throws ParseException {
+        final BlockProof original = extractProof(block);
+        final com.hedera.hapi.block.stream.StateProof sp = original.blockStateProof();
+        final com.hedera.hapi.block.stream.StateProof.Builder spBuilder =
+                com.hedera.hapi.block.stream.StateProof.newBuilder().paths(sp.paths());
+        if (signedProof != null) {
+            spBuilder.signedBlockProof(signedProof);
+        }
+        return replaceProof(
+                block, original.copyBuilder().blockStateProof(spBuilder.build()).build());
+    }
+
+    private static TestBlock swapPaths(final TestBlock block, final List<MerklePath> paths) throws ParseException {
+        final BlockProof original = extractProof(block);
+        final com.hedera.hapi.block.stream.StateProof sp = original.blockStateProof();
+        final com.hedera.hapi.block.stream.StateProof swapped = com.hedera.hapi.block.stream.StateProof.newBuilder()
+                .paths(paths)
+                .signedBlockProof(sp.signedBlockProof())
+                .build();
+        return replaceProof(
+                block, original.copyBuilder().blockStateProof(swapped).build());
+    }
+
+    private static TestBlock tamperSiblingHash(final TestBlock block) throws ParseException {
+        final BlockProof original = extractProof(block);
+        final com.hedera.hapi.block.stream.StateProof sp = original.blockStateProof();
+        final List<SiblingNode> siblings = new ArrayList<>(sp.paths().get(1).siblings());
+        final SiblingNode s0 = siblings.get(0);
+        final byte[] tampered = s0.hash().toByteArray();
+        tampered[0] = (byte) ~tampered[0];
+        siblings.set(0, new SiblingNode(s0.isLeft(), Bytes.wrap(tampered)));
+        final com.hedera.hapi.block.stream.StateProof updated = sp.copyBuilder()
+                .paths(List.of(
+                        sp.paths().get(0),
+                        sp.paths().get(1).copyBuilder().siblings(siblings).build(),
+                        sp.paths().get(2)))
+                .build();
+        return replaceProof(
+                block, original.copyBuilder().blockStateProof(updated).build());
+    }
+
+    private static TestBlock tamperTimestampLeaf(final TestBlock block) throws ParseException {
+        final BlockProof original = extractProof(block);
+        final com.hedera.hapi.block.stream.StateProof sp = original.blockStateProof();
+        final byte[] tampered = sp.paths().get(0).timestampLeaf().toByteArray();
+        tampered[0] = (byte) ~tampered[0];
+        final com.hedera.hapi.block.stream.StateProof updated = sp.copyBuilder()
+                .paths(List.of(
+                        sp.paths()
+                                .get(0)
+                                .copyBuilder()
+                                .timestampLeaf(Bytes.wrap(tampered))
+                                .build(),
+                        sp.paths().get(1),
+                        sp.paths().get(2)))
+                .build();
+        return replaceProof(
+                block, original.copyBuilder().blockStateProof(updated).build());
+    }
+
+    private static TestBlock tamperSignedTransaction(final TestBlock block) {
+        final List<BlockItemUnparsed> items =
+                new ArrayList<>(block.blockUnparsed().blockItems());
         for (int i = 0; i < items.size(); i++) {
-            BlockItemUnparsed item = items.get(i);
+            final BlockItemUnparsed item = items.get(i);
             if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION) {
                 continue;
             }
-            byte[] tamperedTx = item.signedTransactionOrThrow().toByteArray();
+            final byte[] tamperedTx = item.signedTransactionOrThrow().toByteArray();
             tamperedTx[0] = (byte) ~tamperedTx[0];
             items.set(
                     i,
                     BlockItemUnparsed.newBuilder()
                             .signedTransaction(Bytes.wrap(tamperedTx))
                             .build());
-            return new TestBlock(block.number(), new BlockUnparsed(items));
+            return new TestBlock(
+                    block.number(), BlockUnparsed.newBuilder().blockItems(items).build());
         }
         throw new IllegalStateException("No SIGNED_TRANSACTION found in block");
     }
 
-    /// Creates a copy of the block with a tampered timestamp leaf in the state proof's path 0. Flips the first byte of
-    /// the timestamp leaf data.
-    private TestBlock tamperTimestampLeaf(final TestBlock block) throws ParseException {
-        List<BlockItemUnparsed> items = new ArrayList<>(block.blockUnparsed().blockItems());
-        for (int i = items.size() - 1; i >= 0; i--) {
-            BlockItemUnparsed item = items.get(i);
-            if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
-                continue;
+    private static TestBlock replaceProof(final TestBlock block, final BlockProof newProof) {
+        final List<BlockItemUnparsed> items = new ArrayList<>();
+        boolean replaced = false;
+        for (final BlockItemUnparsed item : block.blockUnparsed().blockItems()) {
+            if (!replaced && item.item().kind() == BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
+                items.add(BlockItemUnparsed.newBuilder()
+                        .blockProof(BlockProof.PROTOBUF.toBytes(newProof))
+                        .build());
+                replaced = true;
+            } else {
+                items.add(item);
             }
-            BlockProof proof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow());
-            if (!proof.hasBlockStateProof()) {
-                continue;
-            }
-            com.hedera.hapi.block.stream.StateProof stateProof = proof.blockStateProof();
-            byte[] tamperedTimestamp = stateProof.paths().get(0).timestampLeaf().toByteArray();
-            tamperedTimestamp[0] = (byte) ~tamperedTimestamp[0];
-
-            com.hedera.hapi.block.stream.StateProof tamperedStateProof = stateProof
-                    .copyBuilder()
-                    .paths(List.of(
-                            stateProof
-                                    .paths()
-                                    .get(0)
-                                    .copyBuilder()
-                                    .timestampLeaf(Bytes.wrap(tamperedTimestamp))
-                                    .build(),
-                            stateProof.paths().get(1),
-                            stateProof.paths().get(2)))
-                    .build();
-            BlockProof tamperedProof =
-                    proof.copyBuilder().blockStateProof(tamperedStateProof).build();
-            Bytes tamperedProofBytes = BlockProof.PROTOBUF.toBytes(tamperedProof);
-            items.set(
-                    i,
-                    BlockItemUnparsed.newBuilder()
-                            .blockProof(tamperedProofBytes)
-                            .build());
-            break;
         }
-        return new TestBlock(block.number(), new BlockUnparsed(items));
-    }
-
-    private static Stream<Arguments> blocksWithStateProof() throws IOException, ParseException {
-        return Stream.of(
-                Arguments.of(ResourceTestBlockBuilder.load(StateProof.BLOCK_1)),
-                Arguments.of(ResourceTestBlockBuilder.load(StateProof.BLOCK_2)),
-                Arguments.of(ResourceTestBlockBuilder.load(StateProof.BLOCK_3)),
-                Arguments.of(ResourceTestBlockBuilder.load(StateProof.BLOCK_4)));
+        return new TestBlock(
+                block.number(), BlockUnparsed.newBuilder().blockItems(items).build());
     }
 }
