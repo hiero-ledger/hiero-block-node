@@ -9,6 +9,7 @@ import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
@@ -105,7 +106,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     private static final System.Logger LOGGER = System.getLogger(StreamPublisherPlugin.class.getName());
 
     /// The block node context, for access to core facilities.
-    private BlockNodeContext context;
+    private final AtomicReference<BlockNodeContext> context = new AtomicReference<>();
     /// The publisher block manager, which connects handlers to the messaging facility.
     private StreamPublisherManager publisherManager;
 
@@ -136,7 +137,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
                 (BlockStreamPublishServiceMethod) method;
 
         final int maxMessageSize =
-                context.configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes();
+                context.get().configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes();
 
         final String rawCorrelationId = options.metadata().getOrDefault("hiero-correlation-id", "");
         final String correlationId = truncateCorrelationId(rawCorrelationId);
@@ -155,7 +156,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
 
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
-        this.context = Objects.requireNonNull(context);
+        this.context.set(Objects.requireNonNull(context));
         // register us as a service, we need to register the gRPC service in
         // the init method, otherwise the server will be started and we will not
         // have registered at all. A null port (the default) shares server.port.
@@ -166,19 +167,21 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
 
     @Override
     public void start() {
+        final BlockNodeContext currentContext = context.get();
         // Initialize plugin metrics
-        initMetrics(context.metricRegistry());
+        initMetrics(currentContext.metricRegistry());
         // Initialize the publisher manager
-        publisherManager = new LiveStreamPublisherManager(context, managerMetrics);
+        publisherManager = new LiveStreamPublisherManager(currentContext, managerMetrics);
         // register the manager as a notification handler
-        context.blockMessaging()
+        currentContext
+                .blockMessaging()
                 .registerBlockNotificationHandler(
                         publisherManager, false, LiveStreamPublisherManager.class.getSimpleName());
     }
 
     @Override
     public void stop() {
-        context.blockMessaging().unregisterBlockNotificationHandler(publisherManager);
+        context.get().blockMessaging().unregisterBlockNotificationHandler(publisherManager);
         publisherManager.shutdown();
     }
 
@@ -187,7 +190,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
      */
     @Override
     public void onContextUpdate(final BlockNodeContext context) {
-        this.context = context;
+        this.context.set(Objects.requireNonNull(context));
     }
 
     /// This method is called when a new publisher handler is created.
