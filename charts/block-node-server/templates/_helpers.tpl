@@ -119,39 +119,16 @@ Usage: include "hiero-block-node.pluginPortEnvVars" .
 
 {{/*
 Emit Service port entries for each non-null plugin port in blockNode.ports.
+The health port is intentionally excluded: probes go directly to the pod port
+(by number) and do not need a Service entry. Excluding it prevents health from
+appearing on a public LoadBalancer when includePluginPorts is true. Operators
+who want health in a Service (either ClusterIP or LB) can add it explicitly
+via loadBalancer.extraPorts or service.extraPorts.
 Multiple plugins that share the same port number emit only one Service port entry
 (Kubernetes rejects duplicate port numbers within a Service).
 Usage: include "hiero-block-node.pluginServicePorts" . | nindent 4
 */}}
 {{- define "hiero-block-node.pluginServicePorts" -}}
-{{- $seen := dict -}}
-{{- with .Values.blockNode.ports -}}
-{{- $entries := list (list "publisher" .publisher) (list "subscriber" .subscriber) (list "block-access" .blockAccess) (list "health" .health) (list "server-status" .serverStatus) -}}
-{{- range $entries -}}
-{{- $name := index . 0 -}}
-{{- $port := index . 1 -}}
-{{- if $port -}}
-{{- $key := toString $port -}}
-{{- if not (hasKey $seen $key) -}}
-{{- $_ := set $seen $key true }}
-- name: {{ $name }}
-  port: {{ $port }}
-  targetPort: {{ $port }}
-  protocol: TCP
-{{- end -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-Emit Service port entries for each non-null plugin port in blockNode.ports, excluding
-the health port. Used by the LoadBalancer Service: the health port (40983) is
-ClusterIP-internal (liveness/readiness probes) and must not appear on the public LB.
-To expose it explicitly, add it to loadBalancer.extraPorts.
-Usage: include "hiero-block-node.pluginLBServicePorts" . | nindent 4
-*/}}
-{{- define "hiero-block-node.pluginLBServicePorts" -}}
 {{- $seen := dict -}}
 {{- with .Values.blockNode.ports -}}
 {{- $entries := list (list "publisher" .publisher) (list "subscriber" .subscriber) (list "block-access" .blockAccess) (list "server-status" .serverStatus) -}}
