@@ -607,16 +607,37 @@ function deploy_block_nodes {
       log_line "  Applying topology overlay for block-node-${i}: %s" "${bn_topology_overlay#${SCRIPT_DIR}/../}"
     fi
 
-    # Apply cloud-storage archive overlay for BNs that have archive.backend: rustfs in the topology.
-    # plugin-profile-cloud.yaml sets plugins.names; the generated overlay sets env vars + storage.
     local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
+
+    # Apply a shipped plugin profile when the topology names one via flavor:.
+    # The flavor overlay sets plugins.names, and it lands AFTER the per-topology overlay
+    # above -- a plugins.names in overrides/<topology>/ would be silently overridden.
+    # Only the archive overlay below is applied later and can still win.
+    local flavor
+    flavor=$(yq ".block_nodes[\"block-node-${i}\"].flavor // \"\"" "${topology_file}" 2>/dev/null)
+    if [[ -n "${flavor}" ]]; then
+      local flavor_profile="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-${flavor}.yaml"
+      [[ ! -f "${flavor_profile}" ]] && fail "ERROR: Unknown BN flavor '${flavor}' for block-node-${i}: ${flavor_profile} not found" 1
+      overlay_args="${overlay_args} -f ${flavor_profile}"
+      log_line "  Applying plugin profile '%s' to block-node-${i}" "${flavor}"
+    fi
+
+    # Apply cloud-storage archive overlay for BNs that have archive.backend set in the topology.
+    # The plugin profile that enables cloud-storage-archive/expanded must be declared via flavor:.
     local archive_backend
     archive_backend=$(yq ".block_nodes[\"block-node-${i}\"].archive.backend // \"\"" "${topology_file}" 2>/dev/null)
+    [[ "${archive_backend}" == "null" ]] && archive_backend=""
+    if [[ -n "${archive_backend}" && "${archive_backend}" != "rustfs" ]]; then
+      fail "ERROR: block-node-${i} has unknown archive.backend: '${archive_backend}' -- only 'rustfs' is supported" 1
+    fi
+    if [[ "${archive_backend}" == "rustfs" ]] &&
+      { [[ -z "${flavor}" ]] || ! grep -q "cloud-storage-archive" "${flavor_profile}"; }; then
+      fail "ERROR: block-node-${i} has archive.backend: ${archive_backend} but flavor '${flavor:-<unset>}' does not enable the cloud-storage plugins -- use a flavor (e.g. rfh, all) that includes cloud-storage-archive" 1
+    fi
     if [[ "${archive_backend}" == "rustfs" ]]; then
       local cloud_overlay="${overlay_dir}/bn-block-node-${i}-cloud-archive.yaml"
       generate_s3_archive_overlay "${cloud_overlay}"
-      local plugin_profile="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-cloud.yaml"
-      overlay_args="${overlay_args} -f ${plugin_profile} -f ${cloud_overlay}"
+      overlay_args="${overlay_args} -f ${cloud_overlay}"
       log_line "  Enabling cloud-storage archive plugins on block-node-${i}"
     fi
 

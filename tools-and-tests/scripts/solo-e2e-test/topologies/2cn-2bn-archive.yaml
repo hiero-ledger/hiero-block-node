@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # 2 Consensus Nodes, 2 Block Nodes with RustFS cloud-storage archiving on BN1.
 #
-# BN1 runs the cloud-only plugin profile (charts/block-node-server/values-overrides/
-# plugin-profile-cloud.yaml): no stream-publisher, no stream-subscriber and no local
+# BN1 runs the RFH plugin profile (charts/block-node-server/values-overrides/
+# plugin-profile-rfh.yaml): no stream-publisher, no stream-subscriber and no local
 # block storage. It therefore receives nothing directly from a Consensus Node and
 # serves no downstream client -- its only block source is greedy backfill from BN2,
 # and its only output is the RustFS archive (cloud-storage-archive TAR and
-# cloud-storage-expanded .blk.zstd).
+# cloud-storage-expanded .blk.zstd). Deploying it here is what covers plugin-profile-rfh:
+# the cloud-only persistence loop (backfill -> verify -> archive -> addStoredBlockRange)
+# cannot close unless every jar in the profile resolves and starts.
+#
+# BN1 needs ROSTER_BOOTSTRAP_TSS_BLOCK_NODE_SOURCES_PATH so roster-bootstrap-tss can pull
+# a public key from BN2; the topology tool emits it for any BN with peers.
 #
 # CN1, CN2 -> BN2 (live stream)
 # BN1 <- BN2 (greedy backfill)
@@ -32,6 +37,7 @@ block_nodes:
   block-node-1:
     address: block-node-1
     port: 40840
+    flavor: rfh
     peers: [block-node-2]
     # No live stream reaches BN1, so backfill must pull the whole history greedily.
     greedy: true

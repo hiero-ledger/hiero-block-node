@@ -82,7 +82,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, high-load, node-restart-resilience, full-history-backfill, archive-backfill, bn-flavors, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-cli-jumpstart-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
         type: string
         default: "none"
     outputs:
@@ -104,6 +104,8 @@ on:
         options:
           - single # 1 CN, 1 BN
           - 2cn-2bn-backfill # 2 CN, 2 BN with backfill
+          - 2cn-2bn-archive # 2 CN streaming to BN2; BN1 backfills from BN2 and archives to RustFS
+          - 2cn-3bn-flavors # 2 CN, 3 BN exercising the lfh, minimal and all plugin flavors
           - paired-3 # 3 CN, 3 BN
           - fan-out-3cn-2bn # 3 CN, 2 BN
           - 3cn-1bn # 3 CN, 1 BN
@@ -204,7 +206,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, high-load, node-restart-resilience, full-history-backfill, archive-backfill, bn-flavors, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-cli-jumpstart-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
         required: false
         default: "none"
 
