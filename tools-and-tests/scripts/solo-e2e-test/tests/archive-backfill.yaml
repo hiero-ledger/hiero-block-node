@@ -13,9 +13,14 @@
 #   4. BN3 backfills from BN2 and resumes archiving to RustFS
 #   5. Verify both buckets grew past the snapshot taken while nothing was archiving
 #
+# This also covers plugin-profile-rfh: BN1 and BN3 both run the RFH flavor, so the
+# early bucket checks only pass if the cloud-only persistence loop closes
+# (backfill scan -> block-verification -> cloud-storage-archive/expanded -> addStoredBlockRange)
+# on a node with no local block provider and no live stream.
+#
 # Prerequisites:
 #   - Topology 2cn-2bn-archive (deploys RustFS before BN1/BN2)
-#   - plugin-profile-cloud.yaml applied to BN1 and BN3
+#   - plugin-profile-rfh.yaml applied to BN1 and BN3
 #
 # Usage:
 #   task test:run TEST_FILE=tests/archive-backfill.yaml TOPOLOGY=2cn-2bn-archive
@@ -112,6 +117,7 @@ events:
       name: block-node-3
       backfill_sources: [block-node-2]
       greedy: true
+      flavor: rfh
       archive_backend: rustfs
 
   - id: refresh-ports
@@ -156,10 +162,23 @@ assertions:
     args:
       min_block: 0
 
+  - id: mn1-healthy
+    type: node-healthy
+    description: "MN importer is running - BN2 still serves the Mirror Node alongside the RFH neighbour"
+    target: importer
+
+  # BN2 is the only BN in any topology fed by two Consensus Nodes (node1 and node2 both list
+  # it). When the losing publisher is told to skip a block it has already started streaming,
+  # its verification session is cancelled mid-block and counts as verification_blocks_failed --
+  # LiveStreamPublisherManager logs "CANCELLED_INCOMPLETE ... no action needed" and the block
+  # is verified and written from the winning publisher milliseconds later. Budget a handful of
+  # those handovers; verify_errors and stream_errors stay strict at zero.
   - id: no-errors
     type: no-errors
-    description: "No errors on BN2"
+    description: "No hard errors on BN2 (up to 5 verify_failed: cancelled sessions from the second CN)"
     target: block-node-2
+    args:
+      max_verify_failed: 5
 
   - id: cloud-archive-resumed
     type: archive-files-exist

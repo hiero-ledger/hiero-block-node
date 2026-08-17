@@ -12,7 +12,7 @@ ARCHIVE_GROUPING_LEVEL="${ARCHIVE_GROUPING_LEVEL:-1}"
 EXPANDED_BUCKET="${EXPANDED_BUCKET:-block-archive-expanded}"
 
 # Generate a cloud-storage archive overlay pointing to the in-namespace RustFS service.
-# Does NOT set plugins.names — that comes from plugin-profile-cloud.yaml.
+# Does NOT set plugins.names -- that comes from the plugin profile (flavor:) applied alongside it.
 # Requires NAMESPACE to be set by the caller.
 function generate_s3_archive_overlay {
   local output_file="$1"

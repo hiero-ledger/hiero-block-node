@@ -81,6 +81,21 @@ properties:
     enum: [tss, rsa-wrb]
     description: "Block verification mode: 'tss' (default, TSS/WRAPS signed blocks) or 'rsa-wrb' (Wrapped Record Blocks verified against the RSA roster)"
 
+  s3_nodes:
+    type: object
+    description: "S3-compatible storage nodes (e.g. RustFS) that BNs with archive.backend: rustfs upload to"
+    patternProperties:
+      "^[a-zA-Z0-9_-]+$":
+        type: object
+        properties:
+          buckets:
+            type: array
+            items: { type: string }
+            description: "Bucket names to create on this storage node"
+          port:
+            $ref: "#/$defs/port"
+        additionalProperties: false
+
   block_nodes:
     type: object
     description: "Block nodes that receive streams from consensus nodes"
@@ -102,12 +117,32 @@ properties:
           greedy:
             type: boolean
             description: "Enable greedy backfill mode (defaults to false)"
+          backfill_scan_interval:
+            type: integer
+            minimum: 100
+            description: "Backfill gap-scan interval in milliseconds (defaults to 15000)"
           grpc_tuning:
             $ref: "#/$defs/grpcTuning"
           plugin_ports:
             type: object
             description: "Per-plugin port overrides. Keys match blockNode.ports in the Helm chart (camelCase: publisher, subscriber, blockAccess, health, serverStatus). publisher defaults to service.port (40840) when unset."
             additionalProperties: { $ref: "#/$defs/port" }
+          flavor:
+            type: string
+            enum: [minimal, lfh, rfh, all]
+            description: "Shipped plugin profile to apply (plugin-profile-<flavor>.yaml). Overrides default plugins.names."
+          archive:
+            type: object
+            description: "Cloud-storage archive backend configuration"
+            properties:
+              backend:
+                type: string
+                enum: [rustfs]
+                description: "Storage backend type (currently only 'rustfs' is supported)"
+              node:
+                type: string
+                description: "Reference to an s3_nodes key for documentation; the deploy script uses the single in-cluster RustFS service"
+            additionalProperties: false
 
   consensus_nodes:
     type: object

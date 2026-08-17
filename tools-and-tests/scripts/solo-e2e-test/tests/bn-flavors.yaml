@@ -1,0 +1,162 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# BN Plugin Flavors E2E Test
+#
+# Validates that plugin-profile-lfh.yaml, plugin-profile-minimal.yaml, and
+# plugin-profile-all.yaml each deploy correctly and behave as documented:
+#
+#   lfh (block-node-1):     chart-default plugin set; receives live stream from CN1,
+#                           serves MN, backfills with BN3.
+#   minimal (block-node-2): only facility-messaging, block-access-service, health,
+#                           server-status plugins; cannot receive blocks by any path --
+#                           pod boots and stays healthy, but never sees a block.
+#   all (block-node-3):     lfh + cloud-storage-archive + cloud-storage-expanded;
+#                           receives live stream from CN2, archives to RustFS,
+#                           backfills with BN1.
+#
+# Topology: 2cn-3bn-flavors
+#   CN1 -> BN1 (lfh)    CN2 -> BN3 (all)    BN1 <-> BN3 (backfill)
+#   MN <- BN1, BN3      BN2 wired to nothing by design
+#
+# Prerequisites:
+#   - Topology 2cn-3bn-flavors deployed (deploys RustFS before BN1/BN2/BN3)
+#   - plugin-profile-<flavor>.yaml applied to each BN via flavor: field in topology
+#
+# Usage:
+#   task test:run TEST_FILE=tests/bn-flavors.yaml TOPOLOGY=2cn-3bn-flavors
+
+name: bn-flavors
+description: "lfh / minimal / all plugin profiles exercise"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Verify BN1, BN2, BN3, MN are up"
+    delay: 5
+
+  - id: initial-metrics
+    type: print-metrics
+    description: "Baseline metrics for all block nodes (print only, never asserts)"
+    delay: 10
+    args:
+      target: all
+
+  - id: accumulate
+    type: sleep
+    # 180s: TAR bucket closes a group every 10 blocks (groupingLevel 1), giving ~3x headroom
+    # on both bucket thresholds. BN1 <-> BN3 backfill cross-populates local storage on both.
+    description: "Wait 180s -- blocks flow; cloud-storage-archive TAR groups form on BN3"
+    delay: 15
+    args:
+      seconds: 180
+
+  - id: verify-archive-expanded
+    type: archive-files-exist
+    description: "Expanded bucket has >= 5 files -- proves all-flavor cloud-storage-expanded loop closed multiple times"
+    delay: 200
+    args:
+      bucket: block-archive-expanded
+      min_files: 5
+
+  - id: verify-archive-tar
+    type: archive-files-exist
+    description: "TAR bucket has >= 2 files -- each file is a 10-block group, >= 2 proves multiple archival rounds"
+    delay: 200
+    args:
+      bucket: block-archive-tar
+      min_files: 2
+
+  - id: verify-local-storage-bn3
+    type: command
+    description: "BN3 (all flavor) has local .blk files -- proves local-file plugin also populated, not cloud only"
+    delay: 205
+    args:
+      script: |
+        count=$(kctl exec block-node-3-0 -n ${NAMESPACE} -- sh -c 'find /opt/hiero/block-node/data -type f -name "*.blk.*" 2>/dev/null | wc -l' | tr -d '[:space:]'); echo "BN3 local block files: ${count}"; [ "${count}" -gt 0 ]
+
+  - id: verify-minimal-serves-status
+    type: command
+    description: "BN2 (minimal flavor) answers serverStatus -- proves 4-plugin set boots and serves gRPC with no block provider"
+    delay: 205
+    args:
+      script: |
+        validate_proto_path block-node-2 && grpcurl -plaintext -import-path ${PROTO_PATH} -proto block-node/api/node_service.proto -d '{}' "localhost:$(get_bn_grpc_port block-node-2)" org.hiero.block.api.BlockNodeService/serverStatus
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Final metrics summary"
+    delay: 210
+    args:
+      target: all
+
+assertions:
+  - id: bn1-healthy
+    type: node-healthy
+    description: "BN1 (lfh flavor) is running"
+    target: block-node-1
+
+  - id: bn1-block-available
+    type: block-available
+    description: "BN1 has received blocks from CN1"
+    target: block-node-1
+    args:
+      min_block: 0
+
+  - id: bn1-blocks-increasing
+    type: blocks-increasing
+    description: "BN1 block count is growing"
+    target: block-node-1
+
+  - id: bn1-no-errors
+    type: no-errors
+    description: "No hard errors on BN1 (up to 100 verify_failed: TSS takes ~100 blocks to stabilise)"
+    target: block-node-1
+    args:
+      max_verify_failed: 100
+
+  - id: bn3-healthy
+    type: node-healthy
+    description: "BN3 (all flavor) is running"
+    target: block-node-3
+
+  - id: bn3-block-available
+    type: block-available
+    description: "BN3 has received blocks from CN2"
+    target: block-node-3
+    args:
+      min_block: 0
+
+  - id: bn3-blocks-increasing
+    type: blocks-increasing
+    description: "BN3 block count is growing"
+    target: block-node-3
+
+  - id: bn3-no-errors
+    type: no-errors
+    description: "No hard errors on BN3 (up to 100 verify_failed: TSS takes ~100 blocks to stabilise)"
+    target: block-node-3
+    args:
+      max_verify_failed: 100
+
+  - id: bn2-healthy
+    type: node-healthy
+    description: "BN2 (minimal flavor) is running -- proves 4-plugin set starts without any block provider"
+    target: block-node-2
+
+  - id: bn2-no-errors
+    type: no-errors
+    description: "No hard errors on BN2 (strict: no verify_failed or missing-counter error expected with no block stream)"
+    target: block-node-2
+
+  - id: bn2-log-match
+    type: log-match
+    description: "BN2 log confirms clean plugin init -- emitted after all plugin init() calls return"
+    target: block-node-2
+    args:
+      grep: "BlockNode Primary Server configured on port(s)"
+      since_seconds: 3600
+
+  - id: mn-healthy
+    type: node-healthy
+    description: "Mirror Node importer is running -- BN1 and BN3 serve MN; minimal BN2 is correctly excluded"
+    target: importer
