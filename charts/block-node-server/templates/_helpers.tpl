@@ -145,6 +145,34 @@ Usage: include "hiero-block-node.pluginServicePorts" . | nindent 4
 {{- end -}}
 
 {{/*
+Emit Service port entries for each non-null plugin port in blockNode.ports, excluding
+the health port. Used by the LoadBalancer Service: the health port (40983) is
+ClusterIP-internal (liveness/readiness probes) and must not appear on the public LB.
+To expose it explicitly, add it to loadBalancer.extraPorts.
+Usage: include "hiero-block-node.pluginLBServicePorts" . | nindent 4
+*/}}
+{{- define "hiero-block-node.pluginLBServicePorts" -}}
+{{- $seen := dict -}}
+{{- with .Values.blockNode.ports -}}
+{{- $entries := list (list "publisher" .publisher) (list "subscriber" .subscriber) (list "block-access" .blockAccess) (list "server-status" .serverStatus) -}}
+{{- range $entries -}}
+{{- $name := index . 0 -}}
+{{- $port := index . 1 -}}
+{{- if $port -}}
+{{- $key := toString $port -}}
+{{- if not (hasKey $seen $key) -}}
+{{- $_ := set $seen $key true }}
+- name: {{ $name }}
+  port: {{ $port }}
+  targetPort: {{ $port }}
+  protocol: TCP
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Emit container port entries for each non-null plugin port in blockNode.ports.
 Multiple plugins that share the same port number emit only one container port entry
 (Kubernetes rejects duplicate containerPort numbers within a container).

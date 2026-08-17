@@ -26,7 +26,7 @@ spec:
       targetPort: {{ default "http" .Values.loadBalancer.targetPort }}
       protocol: {{ default "TCP" .Values.loadBalancer.protocol }}
     {{- if .Values.loadBalancer.includePluginPorts }}
-    {{- include "hiero-block-node.pluginServicePorts" . | nindent 4 }}
+    {{- include "hiero-block-node.pluginLBServicePorts" . | nindent 4 }}
     {{- end }}
     {{- range .Values.loadBalancer.extraPorts }}
     - name: {{ .name }}
