@@ -81,10 +81,14 @@ jobs:
               exit 1
             fi
 
+            # grep exits 1 when no alpha tags exist yet (first alpha for this base
+            # version). With set -eo pipefail that would kill the script before the
+            # ${HIGHEST_ALPHA:-0} fallback is reached. || true absorbs the non-zero
+            # exit so an empty result is treated as counter = 0 → alpha1.
             HIGHEST_ALPHA=$(gh api "repos/${{ github.repository }}/tags" --paginate --jq '.[].name' \
               | grep -E "^v${BASE}-alpha[0-9]+$" \
               | sed -E "s/^v${BASE}-alpha//" \
-              | sort -n | tail -1)
+              | sort -n | tail -1 || true)
             COMPUTED_VERSION="${BASE}-alpha$(( ${HIGHEST_ALPHA:-0} + 1 ))"
           else
             # Read version.txt from the dispatching branch — no checkout needed yet.
