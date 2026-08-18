@@ -43,13 +43,13 @@ import org.junit.jupiter.api.Test;
 public class ServerStatusDetailServicePluginTest
         extends GrpcPluginTestBase<ServerStatusServicePlugin, BlockingExecutor, ScheduledExecutorService> {
     private final ServerStatusServicePlugin plugin = new ServerStatusServicePlugin();
+    private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility =
+            new SimpleInMemoryHistoricalBlockFacility();
 
     public ServerStatusDetailServicePluginTest() {
         super(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
-        final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility =
-                new SimpleInMemoryHistoricalBlockFacility();
         final SimpleBlockRangeSet temporaryAvailableBlocks = new SimpleBlockRangeSet();
         temporaryAvailableBlocks.add(1_000_000_000_000L, 1_000_000_000_005L);
         temporaryAvailableBlocks.add(0L, 5L);
@@ -240,6 +240,34 @@ public class ServerStatusDetailServicePluginTest
     @DisplayName("Should expose the plugin name")
     void shouldExposePluginName() {
         assertEquals("ServerStatusServicePlugin", plugin.name());
+    }
+
+    /**
+     * Tests that when the live provider reports no blocks (max is unknown), the context snapshot is
+     * returned unchanged rather than having its last range end clobbered to the {@code -1} unknown
+     * sentinel by the drift-alignment path.
+     *
+     * @throws ParseException if there is an error parsing the response
+     */
+    @Test
+    @DisplayName("Should not corrupt last range when live provider is empty")
+    void shouldReturnSnapshotUnchangedWhenLiveProviderIsEmpty() throws ParseException {
+        // Context snapshot holds a non-empty range, but the live provider is empty (max == -1).
+        replaceAvailableBlocks(List.of(new BlockRange(0L, 5L)));
+        historicalBlockFacility.setTemporaryAvailableBlocks(new SimpleBlockRangeSet());
+
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
+                ServerStatusRequest.newBuilder().build()));
+        assertEquals(1, fromPluginBytes.size());
+
+        final ServerStatusDetailResponse response =
+                standardParse(ServerStatusDetailResponse.PROTOBUF, fromPluginBytes.getFirst());
+
+        // Snapshot returned unchanged — no rangeEnd = -1 corruption
+        final List<BlockRange> ranges = response.availableRanges();
+        assertEquals(1, ranges.size());
+        assertEquals(0L, ranges.getFirst().rangeStart());
+        assertEquals(5L, ranges.getFirst().rangeEnd()); // NOT -1
     }
 
     @Test

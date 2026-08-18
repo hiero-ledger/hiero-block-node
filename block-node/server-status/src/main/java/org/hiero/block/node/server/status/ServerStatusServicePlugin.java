@@ -108,10 +108,11 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // serverStatus has the latest max available block. serverStatusDetail has an up to .5s old
         // snapshot. This will align the lastBlock range end with what serverStatus would report without
         // having to rebuild the entire available Blocks list.
+        final long liveMax = blockProvider.availableBlocks().max();
         List<BlockRange> fixedAvailable = !context.availableBlocks().isEmpty()
-                        && context.availableBlocks().getLast().rangeEnd()
-                                != blockProvider.availableBlocks().max()
-                ? fixAvailable(context.availableBlocks())
+                        && liveMax != UNKNOWN_BLOCK_NUMBER
+                        && context.availableBlocks().getLast().rangeEnd() != liveMax
+                ? fixAvailable(context.availableBlocks(), liveMax)
                 : context.availableBlocks();
 
         // Return detailed block node status information. Every field is read from the
@@ -130,18 +131,18 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
     /**
      * Returns a copy of {@code availableBlocks} whose last range end is aligned with the live
-     * {@code blockProvider.availableBlocks().max()}. A copy is returned because the supplied list is
-     * the shared, immutable context snapshot (see {@code ApplicationStateUtility.toBlockRange}); it
-     * must never be mutated in place.
+     * {@code liveMax}. A copy is returned because the supplied list is the shared, immutable context
+     * snapshot (see {@code ApplicationStateUtility.toBlockRange}); it must never be mutated in place.
      *
      * @param availableBlocks the context snapshot of available ranges (never empty)
+     * @param liveMax the live maximum available block number to align the last range end with
      * @return a new list with the last range end aligned to the live max
      */
-    private List<BlockRange> fixAvailable(final List<BlockRange> availableBlocks) {
+    private List<BlockRange> fixAvailable(final List<BlockRange> availableBlocks, final long liveMax) {
         final BlockRange lastBlockRange = availableBlocks.getLast();
         final BlockRange newLastBlockRange = BlockRange.newBuilder()
                 .rangeStart(lastBlockRange.rangeStart())
-                .rangeEnd(blockProvider.availableBlocks().max())
+                .rangeEnd(liveMax)
                 .build();
 
         final List<BlockRange> aligned = new ArrayList<>(availableBlocks);
