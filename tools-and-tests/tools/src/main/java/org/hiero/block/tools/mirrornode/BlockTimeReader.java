@@ -11,7 +11,6 @@ import java.nio.LongBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import org.hiero.block.tools.config.NetworkConfig;
@@ -25,11 +24,8 @@ public class BlockTimeReader implements AutoCloseable {
     /** Mapped buffer on the block_times.bin file. */
     private LongBuffer mappedLongBuffer;
 
-    /** Genesis instant for this network - used to convert relative block times to absolute times. */
+    /** Genesis instant for this network. Stored for reference but not used in decode — block_times.bin always encodes values relative to mainnet genesis via {@code instantToBlockTimeLong}. */
     private final Instant genesisInstant;
-
-    /** Whether to use the RecordFileDates helper methods (mainnet) or direct calculations (custom network). */
-    private final boolean useMainnetHelpers;
 
     /**
      * Load and map the default block_times.bin file into memory.
@@ -61,7 +57,6 @@ public class BlockTimeReader implements AutoCloseable {
      */
     public BlockTimeReader(Path blockTimesFile, Instant genesisInstant) throws IOException {
         this.genesisInstant = genesisInstant;
-        this.useMainnetHelpers = FIRST_BLOCK_TIME_INSTANT.equals(genesisInstant);
         try (FileChannel channel = FileChannel.open(blockTimesFile, StandardOpenOption.READ)) {
             this.mappedLongBuffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size())
                     .asLongBuffer();
@@ -137,8 +132,7 @@ public class BlockTimeReader implements AutoCloseable {
                     + "Try running UpdateBlockData to fetch latest block times from mirror node.");
         }
         long relativeNanos = mappedLongBuffer.get(index);
-        // Use RecordFileDates helper for mainnet, direct calculation for custom networks
-        return useMainnetHelpers ? blockTimeLongToInstant(relativeNanos) : genesisInstant.plusNanos(relativeNanos);
+        return blockTimeLongToInstant(relativeNanos);
     }
 
     /**
@@ -158,10 +152,7 @@ public class BlockTimeReader implements AutoCloseable {
                     + "then reload the BlockTimeReader.");
         }
         long relativeNanos = mappedLongBuffer.get(index);
-        // Use RecordFileDates helper for mainnet, direct calculation for custom networks
-        Instant instant =
-                useMainnetHelpers ? blockTimeLongToInstant(relativeNanos) : genesisInstant.plusNanos(relativeNanos);
-        return instant.atZone(UTC).toLocalDateTime();
+        return blockTimeLongToInstant(relativeNanos).atZone(UTC).toLocalDateTime();
     }
 
     /**
@@ -203,11 +194,7 @@ public class BlockTimeReader implements AutoCloseable {
      */
     public long getNearestBlockAfterTime(LocalDateTime targetTime) {
         Instant targetInstant = targetTime.toInstant(UTC);
-        // Use RecordFileDates helper for mainnet, direct calculation for custom networks
-        long relativeNanos = useMainnetHelpers
-                ? instantToBlockTimeLong(targetInstant)
-                : Duration.between(genesisInstant, targetInstant).toNanos();
-        return getNearestBlockAfterTime(relativeNanos);
+        return getNearestBlockAfterTime(instantToBlockTimeLong(targetInstant));
     }
 
     @Override
