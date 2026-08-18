@@ -231,63 +231,40 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// {@inheritDoc}
     @Override
     public void handleVerification(VerificationNotification notification) {
-        try {
-            if (notification != null && notification.success() && notification.block() != null) {
-                // If the task was cancelled (i.e. stop() was called), do not start a new task or process
-                // the current block since the plugin is shutting down.
-                if (!checkCompletedUpload()) {
-                    checkAndDrainTempUploadResults();
-                    drainPendingResumedArchives();
-                    drainOverflowStash();
-                    checkAndDrainConsolidations();
-                    // While recovery is running, stash every block.  routeVerifiedBlock() sends
-                    // it directly to blocksStash without any extra logic.
-                    completeRecoveryIfReady();
-                    final long blockNumber = notification.blockNumber();
-                    // Route the verified block into the regular or temp pipeline, or stash it
-                    // while recovery is in progress.
-                    routeVerifiedBlock(blockNumber, notification);
-                }
-            } else {
-                logInvalidOrFailedNotification(notification);
+        if (notification != null && notification.success() && notification.block() != null) {
+            // If the task was cancelled (i.e. stop() was called), do not start a new task or process
+            // the current block since the plugin is shutting down.
+            if (!checkCompletedUpload()) {
+                checkAndDrainTempUploadResults();
+                drainPendingResumedArchives();
+                drainOverflowStash();
+                checkAndDrainConsolidations();
+                // While recovery is running, stash every block.  routeVerifiedBlock() sends
+                // it directly to blocksStash without any extra logic.
+                completeRecoveryIfReady();
+                final long blockNumber = notification.blockNumber();
+                // Route the verified block into the regular or temp pipeline, or stash it
+                // while recovery is in progress.
+                routeVerifiedBlock(blockNumber, notification);
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (ExecutionException e) {
-            metricsHolder.failedTasks().increment();
-            // Capture before triggerMidRunRecovery() runs, since it nulls currentUploadFuture itself.
-            final boolean fromUploadTask = currentUploadFuture != null;
-            triggerMidRunRecovery();
-            if (fromUploadTask) {
-                // routeVerifiedBlock() was never reached (the exception bypassed it), so stash the
-                // triggering block manually — it is safe to use blocksStash directly because
-                // triggerMidRunRecovery() already set currentGroupStart to -1.
-                LOGGER.log(WARNING, "Block upload task failed", e.getCause());
-                blocksStash.put(
-                        notification.blockNumber(), new BlockWithSource(notification.block(), notification.source()));
-            } else {
-                // Exception from the recovery task itself; recoveryFuture is already null (cleared in
-                // completeRecoveryIfReady() before this was thrown), so the triggerMidRunRecovery() call
-                // above submits a retry.
-                LOGGER.log(WARNING, "Could not complete uploading blocks to cloud archive storage", e.getCause());
-            }
+        } else {
+            logInvalidOrFailedNotification(notification);
         }
     }
 
     /// Checks whether the active [BlockUploadTask] has finished and cleans up its state.
     /// Returns `true` if the task was cancelled, signalling the caller to skip further processing.
-    private boolean checkCompletedUpload() throws ExecutionException, InterruptedException {
+    private boolean checkCompletedUpload() {
         boolean cancelled = false;
         if (currentUploadFuture != null && currentUploadFuture.isDone()) {
             final FutureOutcome<UploadResult> outcome = awaitOutcome(currentUploadFuture);
             if (outcome.isCancelled()) {
                 LOGGER.log(TRACE, "Block upload task was cancelled");
                 cancelled = true;
-            } else if (outcome.failure() != null) {
-                throw outcome.failure();
-            } else if (outcome.result() == UploadResult.FAILED) {
-                LOGGER.log(WARNING, "Block upload task failed");
+            } else if (outcome.failure() != null || outcome.result() == UploadResult.FAILED) {
+                LOGGER.log(WARNING, "Block upload task failed", outcome.failure());
                 metricsHolder.failedTasks().increment();
+                currentUploadFuture = null;
                 // False PersistedNotifications were already sent by the task for the affected blocks.
                 // Trigger S3 recovery so the next task resumes from the last confirmed part boundary.
                 triggerMidRunRecovery();
@@ -302,8 +279,9 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     }
 
     /// Outcome of awaiting a [Future]: on normal completion exactly one of [result] or [failure] is
-    /// non-null; both are `null` when the future was cancelled.
-    private record FutureOutcome<T>(T result, ExecutionException failure) {
+    /// non-null; both are `null` when the future was cancelled.  [failure] is the task's cause when
+    /// one is available, otherwise the exception observed while awaiting.
+    private record FutureOutcome<T>(T result, Throwable failure) {
         /// Returns `true` when the underlying [Future] was cancelled, i.e. neither a result nor a
         /// failure was captured.
         boolean isCancelled() {
@@ -311,16 +289,23 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
-    /// Awaits `future`, which must already be [Future#isDone()], wrapping any [ExecutionException]
-    /// into the returned [FutureOutcome] instead of throwing it. Returns a [FutureOutcome] with both
-    /// fields `null` when `future` was cancelled, without calling [Future#get()] at all.
-    private static <T> FutureOutcome<T> awaitOutcome(Future<T> future) throws InterruptedException {
+    /// Awaits `future`, which must already be [Future#isDone()], returning any failure in the
+    /// [FutureOutcome] rather than throwing it.  Returns a [FutureOutcome] with both fields `null`
+    /// when `future` was cancelled, without calling [Future#get()] at all.
+    ///
+    /// [InterruptedException] cannot occur for a future that is already done unless the calling
+    /// thread was interrupted beforehand; it is reported as a failure like any other, after the
+    /// interrupt flag is restored.
+    private static <T> FutureOutcome<T> awaitOutcome(Future<T> future) {
         if (future.isCancelled()) {
             return new FutureOutcome<>(null, null);
         }
         try {
             return new FutureOutcome<>(future.get(), null);
         } catch (ExecutionException e) {
+            return new FutureOutcome<>(null, e.getCause() != null ? e.getCause() : e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             return new FutureOutcome<>(null, e);
         }
     }
@@ -330,7 +315,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// [TempArchiveUploadTask] calls `ApplicationStateFacility.addStoredBlockRange()` once after
     /// both the multipart upload and the meta file write succeed, so no additional range
     /// registration is needed here.
-    private void checkAndDrainTempUploadResults() throws InterruptedException {
+    private void checkAndDrainTempUploadResults() {
         final Iterator<Map.Entry<Long, Future<TempArchiveEntry>>> it =
                 tempUploadFutures.entrySet().iterator();
         while (it.hasNext()) {
@@ -348,7 +333,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                         WARNING,
                         "Temp archive upload failed for firstBlock %d; triggering mid-run recovery"
                                 .formatted(entry.getKey()),
-                        outcome.failure().getCause());
+                        outcome.failure());
                 metricsHolder.failedTasks().increment();
                 triggerMidRunRecovery();
             } else {
@@ -364,7 +349,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     }
 
     /// Submits pending [ConsolidationTask]s and drains completed ones.
-    private void checkAndDrainConsolidations() throws InterruptedException {
+    private void checkAndDrainConsolidations() {
         // Process completed consolidations.
         final Iterator<Map.Entry<Long, Future<UploadResult>>> it =
                 consolidationFutures.entrySet().iterator();
@@ -383,7 +368,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 LOGGER.log(
                         WARNING,
                         "Consolidation task threw exception for group %d".formatted(groupStart),
-                        outcome.failure().getCause());
+                        outcome.failure());
                 metricsHolder.failedTasks().increment();
                 checkGroupCoverage(groupStart);
             } else {
@@ -481,20 +466,22 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     ///
     /// When the result is a fresh start, no upload task is created and the next call to
     /// [handleVerification] will fall through to [tryStartNewUploadTask] as normal.
-    private void completeRecoveryIfReady() throws ExecutionException, InterruptedException {
+    private void completeRecoveryIfReady() {
         if (recoveryFuture != null && recoveryFuture.isDone()) {
             final FutureOutcome<RecoveryResult> outcome = awaitOutcome(recoveryFuture);
             if (outcome.isCancelled()) {
                 LOGGER.log(TRACE, "Startup recovery task was cancelled");
                 recoveryFuture = null;
-                return;
-            }
-            try {
-                if (outcome.failure() != null) {
-                    throw outcome.failure();
-                }
+            } else if (outcome.failure() != null) {
+                LOGGER.log(WARNING, "Could not complete uploading blocks to cloud archive storage", outcome.failure());
+                metricsHolder.failedTasks().increment();
+                // Clear before triggerMidRunRecovery() so that it submits a retry rather than
+                // seeing a recovery already in progress.
+                recoveryFuture = null;
+                triggerMidRunRecovery();
+            } else {
                 final RecoveryResult result = outcome.result();
-
+                recoveryFuture = null;
                 // Rebuild the temporary-archive tracker from startup recovery.  These archives
                 // survived a restart so their block ranges must be re-registered with the state
                 // facility (the upload task's per-run registration did not survive the restart).
@@ -552,8 +539,6 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                     }
                 }
                 tryReplayStash();
-            } finally {
-                recoveryFuture = null;
             }
         }
     }

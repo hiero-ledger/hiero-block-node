@@ -2270,11 +2270,10 @@ class CloudStorageArchivePluginTest {
             // RuntimeException.
             assertThatThrownBy(executor::executeSerially).isInstanceOf(RuntimeException.class);
 
-            // Block 10 triggers handleVerification() -> checkCompletedUpload() calls
-            // currentUploadFuture.get(), which throws ExecutionException, propagating up to
-            // handleVerification()'s catch block. It logs the real cause via e.getCause(), then
-            // calls triggerMidRunRecovery() (moves currentGroupPending blocks 5-9 to stash) and
-            // manually stashes block 10 itself, since routeVerifiedBlock(10) is never reached.
+            // Block 10 triggers handleVerification() -> checkCompletedUpload(), where awaitOutcome()
+            // reports the task's failure. It logs the real cause and calls triggerMidRunRecovery()
+            // (moves currentGroupPending blocks 5-9 to stash); block 10 itself is then stashed by
+            // routeVerifiedBlock(), since recovery is now in progress.
             sendVerification(blocks.get(10));
 
             assertThat(plugin.currentUploadFuture).isNull();
