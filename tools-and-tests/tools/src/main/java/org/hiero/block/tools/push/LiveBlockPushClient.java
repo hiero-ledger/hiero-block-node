@@ -28,6 +28,7 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
@@ -363,6 +364,18 @@ public final class LiveBlockPushClient implements AutoCloseable {
                     PublishStreamRequest.newBuilder().blockItems(set).build();
             session.requestPipeline.onNext(req);
         }
+        // Emit the mandatory end_of_block message after the block's items. Without this, the BN's
+        // PublisherHandler stays "mid-block" for qb.blockNumber and never commits it — the next
+        // block's BlockHeader triggers PublisherHandler.handleBlockItemsRequest's mid-block guard,
+        // which fires blockIsEnding() and marks the block for resend. Every subsequent block
+        // repeats the pattern, producing the "Handler N is ending mid-block X" cascade with zero
+        // blocks ever persisted. See BlockStreamPublishService.PublishStreamRequest.oneof: the
+        // publish protocol requires exactly one end_of_block per block, distinct from the item
+        // batches that carry the BlockProof.
+        final BlockEnd endOfBlock =
+                BlockEnd.newBuilder().blockNumber(qb.blockNumber).build();
+        session.requestPipeline.onNext(
+                PublishStreamRequest.newBuilder().endOfBlock(endOfBlock).build());
         // Only increment `submitted` on the first send of a given block — reattempts after a
         // stream reconnect walk in-flight in ascending order, so a block <= the current high
         // watermark has already been counted.
