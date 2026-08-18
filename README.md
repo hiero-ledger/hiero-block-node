@@ -48,6 +48,8 @@ The Block Node will also expose additional targeted value adding APIs to the Hie
 
 Refer to the [Hiero Block Node Documentation Overview](docs/overview.md) for more information about the project, design and guides.
 
+To query the Block Node gRPC APIs from the command line, see the [gRPC API Quickstart](docs/block-node/api-quickstart.md).
+
 ## Contributing
 
 Whether you’re fixing bugs, enhancing features, or improving documentation, your contributions are important — let’s build something great together!
