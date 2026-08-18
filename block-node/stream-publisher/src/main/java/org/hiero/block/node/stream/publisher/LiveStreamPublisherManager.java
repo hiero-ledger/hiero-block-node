@@ -64,6 +64,7 @@ import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
@@ -416,15 +417,32 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 && blockNumber > lastPersistedBlockNumber.get()
                 && blockNumber < nextUnstreamedBlockNumber.get();
         if (shouldHandle) {
-            // Schedule a resend for the block before sending the bad block proof message
-            blocksToResend.add(blockNumber);
-            // Iterate over all handlers and attempt to send the
-            // bad block proof message.
-            for (final PublisherHandler handler : handlers.values()) {
-                if (handler.handleFailedVerification(blockNumber)) {
-                    // There will always be only one handler that will send the
-                    // bad block proof message. Once we have, we can break.
-                    break;
+            // A note for a flaky test fix for #3391 & #3392:
+            // After investigating, we have found out that the new verification
+            // plugin's report of canceled verifications is being picked up
+            // here, but there is no guarantee that we will accurately point to
+            // the actual publisher that has supplied the failed (canceled) block.
+            // This is true because we only see a snapshot of the current activity.
+            // If publisher 1 supplied block 5 that was later canceled, publisher 2
+            // might have started resending block 5, and the current state
+            // of the publisher manager will point a finger to publisher 2 for
+            // the failure of block 5.
+            // There is more work to be done so that we will be more accurate,
+            // this is captured by @todo(3436).
+            // Completely handling the FailureInfo is captured by @todo(2977).
+            if (notification.failureInfo().failureType() == FailureType.CANCELLED) {
+                LOGGER.log(INFO, "Session for block {0} was cancelled", blockNumber);
+            } else {
+                // Schedule a resend for the block before sending the bad block proof message
+                blocksToResend.add(blockNumber);
+                // Iterate over all handlers and attempt to send the
+                // bad block proof message.
+                for (final PublisherHandler handler : handlers.values()) {
+                    if (handler.handleFailedVerification(blockNumber)) {
+                        // There will always be only one handler that will send the
+                        // bad block proof message. Once we have, we can break.
+                        break;
+                    }
                 }
             }
         }
