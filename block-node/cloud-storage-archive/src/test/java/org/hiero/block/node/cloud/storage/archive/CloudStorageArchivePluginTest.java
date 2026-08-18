@@ -1324,6 +1324,48 @@ class CloudStorageArchivePluginTest {
             assertThat(blockMessaging.getBlockNotificationHandlerCount()).isZero();
         }
 
+        /// Verifies that a notification arriving after the active [BlockUploadTask] future was
+        /// cancelled is skipped entirely: the cancelled future is left in place rather than being
+        /// treated as a failure, and no replacement task is submitted.
+        @Test
+        @DisplayName("Cancelled upload future makes the plugin skip the notification")
+        void testCancelledUploadFutureSkipsNotification() {
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 1);
+            sendVerification(blocks.getFirst());
+            assertThat(plugin.currentUploadFuture).isNotNull();
+            final int queuedTasks = pluginExecutor.getQueue().size();
+
+            plugin.currentUploadFuture.cancel(false);
+            sendVerification(blocks.get(1));
+
+            // A cancelled future must not be cleared (that is the FAILED path) and must not cause a
+            // new task to be queued -- the plugin is shutting down.
+            assertThat(plugin.currentUploadFuture).isNotNull();
+            assertThat(plugin.currentUploadFuture.isCancelled()).isTrue();
+            assertThat(plugin.currentGroupPending).doesNotContainKey(1L);
+            assertThat(pluginExecutor.getQueue()).hasSize(queuedTasks);
+        }
+
+        /// Verifies that cancelled [TempArchiveUploadTask] and [ConsolidationTask] futures are
+        /// dropped from their tracking maps without being counted as failed tasks.
+        @Test
+        @DisplayName("Cancelled temp archive and consolidation futures are drained without failing")
+        void testCancelledTempAndConsolidationFuturesAreDrained() {
+            final CompletableFuture<TempArchiveEntry> tempFuture = new CompletableFuture<>();
+            final CompletableFuture<UploadResult> consolFuture = new CompletableFuture<>();
+            tempFuture.cancel(false);
+            consolFuture.cancel(false);
+            plugin.tempUploadFutures.put(10L, tempFuture);
+            plugin.consolidationFutures.put(0L, consolFuture);
+
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+
+            assertThat(plugin.tempUploadFutures).isEmpty();
+            assertThat(plugin.consolidationFutures).isEmpty();
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
+                    .isZero();
+        }
+
         private void sendVerification(TestBlock block) {
             blockMessaging.sendBlockVerification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
@@ -1366,6 +1408,24 @@ class CloudStorageArchivePluginTest {
                 pluginExecutor.executeSerially();
             } catch (java.util.concurrent.CancellationException ignored) {
             }
+        }
+
+        /// Verifies that a verification notification still in flight when [CloudStorageArchivePlugin#stop]
+        /// cancelled the startup recovery task clears the cancelled future instead of trying to read
+        /// its result.
+        @Test
+        @DisplayName("Cancelled startup recovery future is cleared, not read, on the next notification")
+        void testCancelledRecoveryFutureIsCleared() {
+            plugin.stop();
+            // A cancelled future is also a done future, so recovery looks "complete" here.
+            assertThat(plugin.isRecoveryComplete()).isTrue();
+
+            final TestBlock block = TestBlockBuilder.generateBlocksInRange(0, 0).getFirst();
+            plugin.handleVerification(new VerificationNotification(
+                    true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+
+            // completeRecoveryIfReady() dropped the cancelled future without calling get() on it.
+            assertThat(plugin.isRecoveryComplete()).isFalse();
         }
     }
 

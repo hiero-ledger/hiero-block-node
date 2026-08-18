@@ -205,11 +205,18 @@ public class BlockUploadTask implements Callable<UploadResult> {
     private void completeMultipartUploadWithRetry(S3Client s3, String uploadId, List<String> etags)
             throws S3ResponseException, IOException {
         try {
-            s3.completeMultipartUpload(key, uploadId, etags);
+            doCompleteMultipartUpload(s3, uploadId, etags);
         } catch (S3ResponseException | IOException e) {
             LOGGER.log(DEBUG, "Failed to complete multipart upload for key {0}; retrying once", key, e);
-            s3.completeMultipartUpload(key, uploadId, etags);
+            doCompleteMultipartUpload(s3, uploadId, etags);
         }
+    }
+
+    /// Delegates to [S3Client#completeMultipartUpload].  Overridable so tests can inject completion
+    /// failures without a live S3 endpoint.
+    void doCompleteMultipartUpload(S3Client s3, String uploadId, List<String> etags)
+            throws S3ResponseException, IOException {
+        s3.completeMultipartUpload(key, uploadId, etags);
     }
 
     /// Takes one block from [blockQueue], encodes it as a tar entry, and appends it to `buffer`.

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.bucky.S3Client;
+import com.hedera.bucky.S3ResponseException;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -277,6 +278,45 @@ class BlockUploadTaskTest {
             assertThat(n.succeeded()).isTrue();
             assertThat(n.blockSource()).isEqualTo(BlockSource.PUBLISHER);
         });
+    }
+
+    /// Verifies that a transient failure of the multipart completion is retried once and that the
+    /// retry produces the same tar object as an uninterrupted upload, so no recovery is needed.
+    @Test
+    @DisplayName("Failed multipart completion is retried once and the upload still succeeds")
+    void testCompleteMultipartUploadIsRetriedOnce() throws Exception {
+        final int groupingLevel = 1;
+        final int groupSize = (int) Math.pow(10, groupingLevel);
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
+        final CloudStorageArchiveConfig config = builder.build().getConfigData(CloudStorageArchiveConfig.class);
+        final FailFirstCompleteTask task = new FailFirstCompleteTask(
+                config, messaging, 0, groupSize, queue, createMetricsHolder(new TestMetricsExporter()), noOpAsf());
+
+        final Random rng = new Random(0xDEADBEEFL);
+        for (int i = 0; i < groupSize; i++) {
+            final byte[] data = new byte[100];
+            rng.nextBytes(data);
+            final BlockItemUnparsed item = new BlockItemUnparsed(
+                    new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+            queue.put(new BlockWithSource(
+                    BlockUnparsed.newBuilder()
+                            .blockItems(new BlockItemUnparsed[] {item})
+                            .build(),
+                    BlockSource.PUBLISHER));
+        }
+
+        assertThat(task.call()).isEqualTo(UploadResult.SUCCESS);
+        assertThat(task.completionAttempts).isEqualTo(2);
+        assertThat(getAllObjects()).contains(ArchiveKey.format(0, groupingLevel, config.objectKeyPrefix()));
+
+        final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+        assertThat(notifications).isNotEmpty().allSatisfy(n -> assertThat(n.succeeded())
+                .isTrue());
     }
 
     /// Verifies that the last block's [BlockSource] is preserved in its [PersistedNotification].
@@ -702,6 +742,33 @@ class BlockUploadTaskTest {
         @Override
         void doUploadPart(byte[] buffer, S3Client s3, String uploadId, List<String> etags) throws IOException {
             throw new IOException("Simulated S3 final part upload failure");
+        }
+    }
+
+    /// [BlockUploadTask] subclass whose first multipart completion fails, so the retry inside
+    /// [BlockUploadTask#completeMultipartUploadWithRetry] is the call that actually completes it.
+    private static final class FailFirstCompleteTask extends BlockUploadTask {
+        private int completionAttempts = 0;
+
+        FailFirstCompleteTask(
+                CloudStorageArchiveConfig config,
+                BlockMessagingFacility blockMessaging,
+                long firstBlock,
+                int groupSize,
+                BlockingQueue<BlockWithSource> queue,
+                CloudStorageArchivePlugin.MetricsHolder metricsHolder,
+                ApplicationStateFacility applicationStateFacility) {
+            super(config, blockMessaging, firstBlock, groupSize, queue, metricsHolder, applicationStateFacility);
+        }
+
+        @Override
+        void doCompleteMultipartUpload(S3Client s3, String uploadId, List<String> etags)
+                throws S3ResponseException, IOException {
+            completionAttempts++;
+            if (completionAttempts == 1) {
+                throw new IOException("Simulated transient completion failure");
+            }
+            super.doCompleteMultipartUpload(s3, uploadId, etags);
         }
     }
 
