@@ -190,7 +190,9 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
      */
     @Override
     public void onContextUpdate(final BlockNodeContext context) {
-        this.context.set(Objects.requireNonNull(context));
+        if (context != null) {
+            this.context.set(context);
+        }
     }
 
     /// This method is called when a new publisher handler is created.
