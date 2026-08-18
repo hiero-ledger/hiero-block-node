@@ -13,10 +13,10 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
-import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import javax.inject.Inject;
@@ -83,7 +83,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
         this.metricsService = requireNonNull(metricsService);
         this.streamEnabled = requireNonNull(streamEnabled);
         this.lastKnownStatusesCapacity = blockStreamConfig.lastKnownStatusesCapacity();
-        this.lastKnownStatuses = new ArrayDeque<>(this.lastKnownStatusesCapacity);
+        this.lastKnownStatuses = new ConcurrentLinkedDeque<>();
         this.startupData = requireNonNull(startupData);
         this.publishStreamObserver =
                 new PublishStreamObserver(startupData, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);

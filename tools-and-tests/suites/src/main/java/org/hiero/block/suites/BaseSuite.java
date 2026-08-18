@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites;
 
+import static org.junit.jupiter.api.Assertions.fail;
+
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import java.io.IOException;
@@ -9,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -16,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
 import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
 import org.hiero.block.api.protoc.BlockNodeServiceGrpc;
@@ -426,6 +430,32 @@ public abstract class BaseSuite {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    /**
+     * Polls the given condition until it becomes true, sleeping briefly between polls. Fails the
+     * calling test if the condition is not met within the timeout, so a dead counterpart (for
+     * example a simulator that never produced a status) fails fast instead of spinning until the
+     * CI job times out.
+     *
+     * @param condition the condition to poll
+     * @param timeout the maximum time to wait for the condition
+     */
+    protected static void waitFor(final BooleanSupplier condition, final Duration timeout) {
+        final long deadline = System.nanoTime() + timeout.toNanos();
+        boolean conditionMet = condition.getAsBoolean();
+        while (!conditionMet && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(50L);
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+                fail("Interrupted while waiting for condition", e);
+            }
+            conditionMet = condition.getAsBoolean();
+        }
+        if (!conditionMet) {
+            fail("Condition not met within %s".formatted(timeout));
+        }
     }
 
     /**

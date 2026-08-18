@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,9 @@ import org.junit.jupiter.api.Test;
  */
 @DisplayName("Negative Single Subscriber Tests")
 public class NegativeSingleSubscriberTests extends BaseSuite {
+    /** Bounds every status poll so a dead simulator fails the test instead of spinning forever. */
+    private static final Duration WAIT_TIMEOUT = Duration.ofSeconds(30);
+
     private final List<Future<?>> simulators = new ArrayList<>();
     private final List<BlockStreamSimulatorApp> simulatorAppsRef = new ArrayList<>();
 
@@ -81,20 +85,15 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
         // ===== Start consumer and try to request blocks ===========================================
         final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);
         simulators.add(consumerSimulatorThread);
-        String consumerStatus = "";
-        long consumedBlocks = -1L;
-        while (consumerStatus.isEmpty()) {
-            if (!consumerSimulator
-                    .getStreamStatus()
-                    .lastKnownConsumersStatuses()
-                    .isEmpty()) {
-                consumerStatus = consumerSimulator
+        waitFor(
+                () -> !consumerSimulator
                         .getStreamStatus()
                         .lastKnownConsumersStatuses()
-                        .getLast();
-                consumedBlocks = consumerSimulator.getStreamStatus().consumedBlocks();
-            }
-        }
+                        .isEmpty(),
+                WAIT_TIMEOUT);
+        final String consumerStatus =
+                consumerSimulator.getStreamStatus().lastKnownConsumersStatuses().getLast();
+        final long consumedBlocks = consumerSimulator.getStreamStatus().consumedBlocks();
 
         assertTrue(consumerStatus.contains("INVALID_END_BLOCK_NUMBER"));
         assertEquals(0L, consumedBlocks);
@@ -130,20 +129,15 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
         // ===== Start consumer and try to request blocks ===========================================
         final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);
         simulators.add(consumerSimulatorThread);
-        String consumerStatus = "";
-        long consumedBlocks = -1L;
-        while (consumerStatus.isEmpty()) {
-            if (!consumerSimulator
-                    .getStreamStatus()
-                    .lastKnownConsumersStatuses()
-                    .isEmpty()) {
-                consumerStatus = consumerSimulator
+        waitFor(
+                () -> !consumerSimulator
                         .getStreamStatus()
                         .lastKnownConsumersStatuses()
-                        .getLast();
-                consumedBlocks = consumerSimulator.getStreamStatus().consumedBlocks();
-            }
-        }
+                        .isEmpty(),
+                WAIT_TIMEOUT);
+        final String consumerStatus =
+                consumerSimulator.getStreamStatus().lastKnownConsumersStatuses().getLast();
+        final long consumedBlocks = consumerSimulator.getStreamStatus().consumedBlocks();
 
         assertTrue(consumerStatus.contains("INVALID_START_BLOCK_NUMBER"));
         assertEquals(0L, consumedBlocks);
@@ -179,20 +173,15 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
         // ===== Start consumer and try to request blocks ===========================================
         final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);
         simulators.add(consumerSimulatorThread);
-        String consumerStatus = "";
-        long consumedBlocks = -1L;
-        while (consumerStatus.isEmpty()) {
-            if (!consumerSimulator
-                    .getStreamStatus()
-                    .lastKnownConsumersStatuses()
-                    .isEmpty()) {
-                consumerStatus = consumerSimulator
+        waitFor(
+                () -> !consumerSimulator
                         .getStreamStatus()
                         .lastKnownConsumersStatuses()
-                        .getLast();
-                consumedBlocks = consumerSimulator.getStreamStatus().consumedBlocks();
-            }
-        }
+                        .isEmpty(),
+                WAIT_TIMEOUT);
+        final String consumerStatus =
+                consumerSimulator.getStreamStatus().lastKnownConsumersStatuses().getLast();
+        final long consumedBlocks = consumerSimulator.getStreamStatus().consumedBlocks();
 
         assertTrue(consumerStatus.contains("INVALID_END_BLOCK_NUMBER"));
         assertEquals(0L, consumedBlocks);
@@ -272,15 +261,15 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
 
         final Future<?> simulatorThread = startSimulatorInThread(simulator);
         simulators.add(simulatorThread);
-        String simulatorStatus = null;
-        while (simulator.getStreamStatus().lastKnownPublisherClientStatuses().size() < statusesRequired) {
-            if (!simulator.getStreamStatus().lastKnownPublisherClientStatuses().isEmpty()) {
-                simulatorStatus = simulator
-                        .getStreamStatus()
-                        .lastKnownPublisherClientStatuses()
-                        .getLast();
-            }
-        }
+        waitFor(
+                () -> simulator
+                                .getStreamStatus()
+                                .lastKnownPublisherClientStatuses()
+                                .size()
+                        >= statusesRequired,
+                WAIT_TIMEOUT);
+        final String simulatorStatus =
+                simulator.getStreamStatus().lastKnownPublisherClientStatuses().getLast();
         assertNotNull(simulatorStatus);
         assertTrue(simulator.isRunning());
         return simulatorThread;

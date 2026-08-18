@@ -2,6 +2,7 @@
 package org.hiero.block.simulator.grpc.impl;
 
 import static org.hiero.block.simulator.fixtures.TestUtils.findFreePort;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,6 +16,11 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.api.protoc.BlockEnd;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
@@ -152,6 +158,40 @@ public class ConsumerStreamGrpcClientImplTest {
 
         assertThrows(
                 IllegalArgumentException.class, () -> consumerStreamGrpcClientImpl.requestBlocks(startBlock, endBlock));
+    }
+
+    /**
+     * Regression test for concurrent access to lastKnownStatuses. The gRPC callback thread
+     * appends statuses while another thread snapshots them via getLastKnownStatuses(). With
+     * a non-thread-safe deque the snapshot can observe a torn toArray() containing null
+     * slots and List.copyOf throws NullPointerException.
+     */
+    @Test
+    void getLastKnownStatuses_ConcurrentMutation() {
+        final long startBlock = 0;
+        final long endBlock = 500;
+        final AtomicBoolean consumptionDone = new AtomicBoolean(false);
+        final ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            final Future<?> consumerFuture = executor.submit(() -> {
+                try {
+                    consumerStreamGrpcClientImpl.requestBlocks(startBlock, endBlock);
+                } finally {
+                    consumptionDone.set(true);
+                }
+                return null;
+            });
+            final Future<?> readerFuture = executor.submit(() -> {
+                while (!consumptionDone.get()) {
+                    consumerStreamGrpcClientImpl.getLastKnownStatuses();
+                }
+                return null;
+            });
+            assertDoesNotThrow(() -> consumerFuture.get(30, TimeUnit.SECONDS));
+            assertDoesNotThrow(() -> readerFuture.get(30, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
