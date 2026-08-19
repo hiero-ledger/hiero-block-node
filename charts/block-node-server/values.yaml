@@ -64,10 +64,10 @@ loadBalancer:
     # - 35.191.0.0/16   # GCP health check (example)
     # - 130.211.0.0/22  # GCP health check (example)
   # When true, all non-null blockNode.ports entries (except health) are added to the LB Service
-  # in addition to the primary port. The health port (40983) is always excluded because it is
-  # ClusterIP-internal only (liveness/readiness probes); add it explicitly via extraPorts if
-  # you have a specific reason to expose it publicly. Requires each included plugin port to be
-  # distinct from loadBalancer.port.
+  # in addition to the primary port. The health port (40983) is excluded from all Services —
+  # probes go directly to the pod port by number and do not require a Service entry. Add it
+  # explicitly via extraPorts only if you have a specific reason to expose it. Requires each
+  # included plugin port to be distinct from loadBalancer.port.
   includePluginPorts: false
   # Explicit additional ports to expose on the LB Service (beyond the primary port and any
   # plugin ports included via includePluginPorts). Each entry must have a unique name and port.
@@ -189,6 +189,9 @@ blockNode:
     # HTTP port for /healthz endpoints (env: HEALTH_PORT). hostPorts key: health
     # The health plugin runs on its own dedicated web server; this is that port, and the liveness/
     # readiness probes are automatically directed to it. Defaults to the app's health port (40983).
+    # Note: this is declared as a containerPort in the StatefulSet so probes and hostPort bindings
+    # work, but it is NOT added to any Service (ClusterIP or LB) by default. Use
+    # loadBalancer.extraPorts to expose it on the LB if needed.
     health: 40983
     # HTTP port for server-status endpoint (env: SERVER_STATUS_PORT). hostPorts key: server-status
     serverStatus: null

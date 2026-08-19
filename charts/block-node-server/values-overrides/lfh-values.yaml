@@ -72,7 +72,9 @@ blockNode:
 loadBalancer:
     enabled: true
     port: "40840"
-    metallb.io/address-pool: public-address-pool
+    includePluginPorts: true
+    annotations:
+        metallb.io/address-pool: "public-address-pool"
 
 resources:
     requests:

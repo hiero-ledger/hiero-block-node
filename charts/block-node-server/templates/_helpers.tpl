@@ -119,11 +119,12 @@ Usage: include "hiero-block-node.pluginPortEnvVars" .
 
 {{/*
 Emit Service port entries for each non-null plugin port in blockNode.ports.
-The health port is intentionally excluded: probes go directly to the pod port
-(by number) and do not need a Service entry. Excluding it prevents health from
-appearing on a public LoadBalancer when includePluginPorts is true. Operators
-who want health in a Service (either ClusterIP or LB) can add it explicitly
-via loadBalancer.extraPorts or service.extraPorts.
+The health port is intentionally excluded from both the ClusterIP and the
+LoadBalancer Service: probes go directly to the pod port by number and do not
+need a Service entry, so advertising 40983 in any Service serves no functional
+purpose and would expose the /healthz endpoint on the public LB when
+includePluginPorts is true. Operators who want health in a Service for any
+reason can add it explicitly via loadBalancer.extraPorts.
 Multiple plugins that share the same port number emit only one Service port entry
 (Kubernetes rejects duplicate port numbers within a Service).
 Usage: include "hiero-block-node.pluginServicePorts" . | nindent 4
