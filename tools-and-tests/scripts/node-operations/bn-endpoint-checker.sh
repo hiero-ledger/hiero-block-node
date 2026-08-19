@@ -248,10 +248,14 @@ while [[ $# -gt 0 ]]; do
       LATEST_BLOCK_PROOF=true; shift ;;
     --block-access-port)
       [[ -n "${2:-}" ]] || { log_err "--block-access-port requires a value"; usage 2; }
+      if ! [[ "${2}" =~ ^[1-9][0-9]*$ ]] || (( ${2} < 1 || ${2} > 65535 )); then
+        log_err "--block-access-port must be a positive integer between 1 and 65535."
+        usage 2
+      fi
       BLOCK_ACCESS_PORT="$2"; shift 2 ;;
     --max-block-sz)
       [[ -n "${2:-}" ]] || { log_err "--max-block-sz requires a value"; usage 2; }
-      if ! [[ "${2}" =~ ^[0-9]+$ ]] || (( ${2} < 1 || ${2} > 100 )); then
+      if ! [[ "${2}" =~ ^[1-9][0-9]*$ ]] || (( ${2} < 1 || ${2} > 100 )); then
         log_err "--max-block-sz must be a positive integer between 1 and 100 (MiB)."
         usage 2
       fi
