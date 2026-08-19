@@ -119,8 +119,15 @@ final class BackfillRunner {
                 }
                 case SUCCESS -> {
                     List<Long> blockNumbers = extractBlockNumbers(result.blocks());
-                    sendBlocksForPersistence(result.blocks(), blockNumbers, result.chunk());
-                    awaitBlocksPersistence(blockNumbers, result.chunk());
+                    boolean persisted =
+                            sendChunkAndAwaitPersistenceWithRetries(result.blocks(), blockNumbers, result.chunk());
+
+                    if (!persisted) {
+                        final String chunkNeverPersistedMsg = "Chunk [{0}] did not fully persist after [{1}] "
+                                + "attempt(s); stopping this gap scan, remaining range will be re-detected";
+                        logger.log(INFO, chunkNeverPersistedMsg, result.chunk(), config.maxRetries());
+                        break backfillLoop;
+                    }
 
                     lastSuccessfulBlock = result.chunk().end();
                     Thread.sleep(Math.max(0, config.delayBetweenBatches()));
@@ -245,6 +252,58 @@ final class BackfillRunner {
     }
 
     /**
+     * Sends a chunk for persistence once, then awaits it, retrying the wait (never the send) for
+     * whichever blocks are still outstanding whenever some of the chunk fails to persist within
+     * {@code perBlockProcessingTimeout}.
+     * <p>
+     * A block can fail to persist purely because it is still parked in the verification module awaiting
+     * its turn under strict ordering, not because anything actually went wrong with it. If the caller
+     * responded by advancing to the next chunk anyway, it would keep dispatching new backfill blocks on
+     * top of ones still parked from this chunk, growing the number of outstanding, unconfirmed blocks
+     * without bound across the whole gap -- eventually exceeding the verification module's
+     * {@code activeSessionsBufferSize} and causing it to evict the lowest (oldest, still-waiting) session,
+     * which permanently stalls the gap on exactly the block backfill most needs to complete next.
+     * Waiting longer for the same chunk instead keeps the number of outstanding unconfirmed blocks
+     * bounded to at most one chunk ({@code fetchBatchSize}) at a time.
+     * <p>
+     * Re-sending an already in-flight block would not help either: verification sessions are keyed by
+     * {@code (blockNumber, uniqueId)} and explicitly allow multiple sessions per block, so a resend spins
+     * up a second, fully independent session rather than nudging the first one along -- consuming another
+     * slot in the very buffer this is trying to relieve pressure on.
+     *
+     * @param blocks the unparsed blocks to send
+     * @param blockNumbers pre-extracted block numbers (same order as blocks)
+     * @param chunk the range being processed (for logging)
+     * @return {@code true} if every block in the chunk was confirmed persisted within the retry budget
+     */
+    private boolean sendChunkAndAwaitPersistenceWithRetries(
+            List<BlockUnparsed> blocks, List<Long> blockNumbers, LongRange chunk) throws InterruptedException {
+        sendBlocksForPersistence(blocks, blockNumbers, chunk);
+        List<Long> stillPending = blockNumbers;
+        for (int attempt = 1; attempt <= config.maxRetries() && !stillPending.isEmpty(); attempt++) {
+            stillPending = awaitBlocksPersistence(stillPending, chunk);
+            if (stillPending.isEmpty()) {
+                return true;
+            }
+            if (attempt < config.maxRetries()) {
+                final String retryingChunkMsg =
+                        "Chunk [{0}] persistence attempt [{1}/{2}] incomplete for [{3}] block(s), continuing to "
+                                + "wait on the same in-flight session(s)";
+                logger.log(DEBUG, retryingChunkMsg, chunk, attempt, config.maxRetries(), stillPending.size());
+                Thread.sleep(Math.max(0, (long) config.initialRetryDelay() * attempt));
+                // awaitPersistence always clears its own bookkeeping entry once it returns (success,
+                // timeout, or interrupt alike), so without re-tracking here the next await call would
+                // immediately report "already persisted or not tracked" for a block that may still
+                // actually be in flight.
+                for (long blockNumber : stillPending) {
+                    persistenceAwaiter.trackBlock(blockNumber);
+                }
+            }
+        }
+        return stillPending.isEmpty();
+    }
+
+    /**
      * Sends blocks to the messaging facility for persistence.
      * <p>
      * For each block: increments metrics, registers for persistence tracking,
@@ -278,17 +337,23 @@ final class BackfillRunner {
      *
      * @param blockNumbers the block numbers to await
      * @param chunk the range being processed (for logging)
+     * @return the subset of {@code blockNumbers} that did not confirm persistence within the timeout
      */
-    private void awaitBlocksPersistence(List<Long> blockNumbers, LongRange chunk) throws InterruptedException {
+    private List<Long> awaitBlocksPersistence(List<Long> blockNumbers, LongRange chunk) throws InterruptedException {
+        List<Long> stillPending = new ArrayList<>();
         for (long blockNumber : blockNumbers) {
             boolean persisted = persistenceAwaiter.awaitPersistence(blockNumber, config.perBlockProcessingTimeout());
             if (!persisted) {
                 final String persistenceTimedOutMsg = "Block [{0}] persistence timed out, will be re-detected";
                 logger.log(INFO, persistenceTimedOutMsg, blockNumber);
+                stillPending.add(blockNumber);
             }
         }
-        final String allBlocksPersistedMsg = "All blocks in chunk [{0}] persisted";
-        logger.log(TRACE, allBlocksPersistedMsg, chunk);
+        if (stillPending.isEmpty()) {
+            final String allBlocksPersistedMsg = "All blocks in chunk [{0}] persisted";
+            logger.log(TRACE, allBlocksPersistedMsg, chunk);
+        }
+        return stillPending;
     }
 
     /**

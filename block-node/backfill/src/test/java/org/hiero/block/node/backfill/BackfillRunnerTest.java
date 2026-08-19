@@ -577,6 +577,124 @@ class BackfillRunnerTest {
     }
 
     @Nested
+    @DisplayName("Chunk Persistence Retry Tests")
+    class ChunkPersistenceRetryTests {
+
+        @Test
+        @DisplayName("should retry the wait (not re-dispatch) when persistence confirms late")
+        void shouldRetryWithoutRedispatchWhenPersistenceArrivesLate() throws Exception {
+            // given - a short per-block timeout so the first await times out, but the persisted
+            // notification is delivered a bit later, simulating a block that was merely still
+            // parked in the verification module's ordering buffer rather than actually failed.
+            BackfillConfiguration retryConfig = BackfillPluginTest.BackfillConfigBuilder.NewBuilder()
+                    .delayBetweenBatches(0)
+                    .perBlockProcessingTimeout(100)
+                    .initialRetryDelay(50)
+                    .maxRetries(5)
+                    .buildRecord();
+            BackfillRunner retrySubject = new BackfillRunner(
+                    mockFetcher,
+                    retryConfig,
+                    messaging,
+                    logger,
+                    mockMetricsHolder,
+                    pendingBackfillBlocks,
+                    persistenceAwaiter);
+
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
+            availability.put(nodeConfig, List.of(new LongRange(0, 0)));
+            BlockUnparsed testBlock = createTestBlock(0L);
+
+            when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L)));
+            when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(testBlock));
+
+            messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
+            messaging.registerBlockNotificationHandler(
+                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                        @Override
+                        public void handleBackfilled(
+                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                            // Deliver the persisted notification only after the first await's
+                            // 100ms timeout has already elapsed, so only a retried (re-tracked)
+                            // await can pick it up. 175ms lands comfortably inside the second
+                            // attempt's [150ms, 250ms) window (after the 50ms retry backoff)
+                            // rather than right at either edge.
+                            new Thread(() -> {
+                                        try {
+                                            Thread.sleep(175);
+                                        } catch (InterruptedException ignored) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                        messaging.sendBlockPersisted(new PersistedNotification(
+                                                notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                                    })
+                                    .start();
+                        }
+                    },
+                    false,
+                    "delayed-persistence-handler");
+
+            // when
+            long lastSuccessful = retrySubject.run(gap);
+
+            // then - eventually persisted via retry, and the block was fetched only once (no
+            // duplicate dispatch of a second, independent verification session for it)
+            assertEquals(0L, lastSuccessful, "Should succeed once the delayed persistence notification lands");
+            verify(mockFetcher, times(1)).fetchBlocksFromNode(eq(nodeConfig), any());
+        }
+
+        @Test
+        @DisplayName("should stop the gap scan without advancing when a chunk never persists")
+        void shouldStopGapWithoutAdvancingWhenChunkNeverPersists() throws Exception {
+            // given - block 0 will never receive a persisted notification, so every retry
+            // attempt times out. This must not cause the loop to advance and fetch block 1's
+            // chunk anyway -- that would keep piling new backfill dispatches on top of a block
+            // still stuck, instead of bounding the outstanding/unconfirmed count.
+            BackfillConfiguration retryConfig = BackfillPluginTest.BackfillConfigBuilder.NewBuilder()
+                    .delayBetweenBatches(0)
+                    .perBlockProcessingTimeout(50)
+                    .initialRetryDelay(10)
+                    .maxRetries(2)
+                    .fetchBatchSize(1)
+                    .buildRecord();
+            BackfillRunner retrySubject = new BackfillRunner(
+                    mockFetcher,
+                    retryConfig,
+                    messaging,
+                    logger,
+                    mockMetricsHolder,
+                    pendingBackfillBlocks,
+                    persistenceAwaiter);
+
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 1), GapDetector.Type.HISTORICAL);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
+            availability.put(nodeConfig, List.of(new LongRange(0, 1)));
+            BlockUnparsed block0 = createTestBlock(0L);
+
+            when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L)));
+            when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(block0));
+
+            // Only the awaiter is registered -- nothing ever sends a PersistedNotification, so
+            // block 0 never confirms no matter how many retries are attempted.
+            messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
+
+            // when
+            long lastSuccessful = retrySubject.run(gap);
+
+            // then - stuck on block 0 forever, so block 1's chunk is never fetched
+            assertEquals(-1L, lastSuccessful, "Should never succeed since block 0 never persists");
+            verify(mockFetcher, times(1)).fetchBlocksFromNode(eq(nodeConfig), any());
+        }
+    }
+
+    @Nested
     @DisplayName("lastSuccessfulBlock Return Value Tests")
     class LastSuccessfulBlockTests {
 
