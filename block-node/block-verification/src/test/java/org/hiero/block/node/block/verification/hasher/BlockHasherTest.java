@@ -42,6 +42,9 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
+import org.hiero.block.node.block.verification.fixtures.FutureBlockItem;
+import org.hiero.block.node.block.verification.fixtures.MultiFieldBlockItem;
+import org.hiero.block.node.block.verification.fixtures.OneofWithExtraFieldBlockItem;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
 import org.hiero.block.node.block.verification.session.VerificationSessionFailedException;
@@ -75,6 +78,10 @@ class BlockHasherTest {
             "org.hiero.block.node.block.verification.hasher.BlockHasherTest#unsupportedItemTypes";
     private static final String ITEM_TYPES_ALLOWED_ONLY_ONCE_PER_BLOCK =
             "org.hiero.block.node.block.verification.hasher.BlockHasherTest#itemTypesAllowedOnlyOncePerBlock";
+    /// Payload carried by the simulated future block items in the forward compatibility tests.
+    private static final Bytes FUTURE_PAYLOAD = Bytes.wrap("future item payload");
+    /// Block number 1 so hashing does not enter the genesis block TSS bootstrap path.
+    private static final long BLOCK_NUMBER = 1L;
     private MetricRegistry metricsRegistry;
     private MetricsHolder metrics;
     private BlockNodeContext context;
@@ -637,10 +644,6 @@ class BlockHasherTest {
     @Nested
     @DisplayName("Forward Compatibility Tests")
     class ForwardCompatibilityTests {
-        private static final Bytes FUTURE_PAYLOAD = Bytes.wrap("future item payload");
-        /// Block number 1 so hashing does not enter the genesis block TSS bootstrap path.
-        private static final long BLOCK_NUMBER = 1L;
-
         /// This test aims to assert that a future item type mapping to a not hashed category
         /// (0 or 19) is read and ignored: the block root hash is identical to the hash of the
         /// same block without the item.
@@ -779,44 +782,442 @@ class BlockHasherTest {
             final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, original);
             assertThat(BlockItemUnparsed.PROTOBUF.toBytes(parsed)).isEqualTo(original);
         }
+    }
 
-        /// Runs a [BlockHasher] over the given items supplied as one complete block.
-        private HashingResult hashBlockItems(final List<BlockItemUnparsed> items) {
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
-            final BlockHasher toTest = new BlockHasher(
-                    new AtomicBoolean(false),
-                    blockItemsDeque,
-                    metrics.hashingMetrics(),
-                    BLOCK_NUMBER,
-                    BlockSource.PUBLISHER,
-                    verificationDataProvider);
-            blockItemsDeque.add(new BlockItems(items, BLOCK_NUMBER, true, true));
-            return toTest.get();
+    /// Tests for the forward compatibility handling of [BlockHasher] driven by the compiled
+    /// test fixture schema in `src/testFixtures/proto/future_block_item.proto` instead of hand
+    /// rolled wire bytes: [FutureBlockItem] defines the `BlockItem` oneof as a future schema
+    /// version could, and [MultiFieldBlockItem] deliberately drops the oneof so invalid multi
+    /// field combinations can be serialized. Every item under test is serialized by the PBJ
+    /// generated fixture codec and parsed by the production `BlockItemUnparsed` codec, so
+    /// these tests also pin the PBJ serialization and unknown field parsing behavior the
+    /// forward compatibility logic relies on, even as PBJ changes in future versions.
+    @Nested
+    @DisplayName("Forward Compatibility Fixture Proto Tests")
+    class FixtureProtoForwardCompatibilityTests {
+        /// This test aims to assert that a single future field serialized by the fixture codec
+        /// surfaces on the production schema exactly as the forward compatibility logic
+        /// expects: the oneof is unset and the item carries exactly one unknown field with the
+        /// original field number.
+        @ParameterizedTest
+        @ValueSource(
+                ints = {
+                    13, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 43, 47,
+                    48, 55, 59, 500
+                })
+        @DisplayName("fixture future item parses to unset oneof with a single unknown field")
+        void testFixtureFutureItemParsesToSingleUnknownField(final int fieldNumber) throws ParseException {
+            final BlockItemUnparsed parsed = fixtureFutureItem(fieldNumber, FUTURE_PAYLOAD);
+            assertThat(parsed.item().kind()).isEqualTo(BlockItemUnparsed.ItemOneOfType.UNSET);
+            assertThat(parsed.getUnknownFields()).hasSize(1);
+            assertThat(parsed.getUnknownFields().getFirst().field()).isEqualTo(fieldNumber);
         }
 
-        /// Asserts that hashing a block containing the given item fails with the expected
-        /// failure type.
-        private void assertHashingFails(final BlockItemUnparsed item, final SessionFailureType expectedFailure) {
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
-            final BlockSource blockSource = BlockSource.PUBLISHER;
-            final BlockHasher toTest = new BlockHasher(
-                    new AtomicBoolean(false),
-                    blockItemsDeque,
-                    metrics.hashingMetrics(),
-                    BLOCK_NUMBER,
-                    blockSource,
-                    verificationDataProvider);
-            blockItemsDeque.offer(new BlockItems(List.of(item), BLOCK_NUMBER, false, false));
-            assertThatThrownBy(toTest::get)
-                    .isInstanceOf(VerificationSessionFailedException.class)
-                    .asInstanceOf(type(VerificationSessionFailedException.class))
-                    .satisfies(e -> {
-                        assertThat(e)
-                                .returns(BLOCK_NUMBER, VerificationSessionFailedException::getBlockNumber)
-                                .returns(blockSource, VerificationSessionFailedException::getBlockSource)
-                                .returns(expectedFailure, VerificationSessionFailedException::getFailureType);
-                    });
+        /// This test aims to assert that the fixture codec produces exactly the wire encoding
+        /// the hand rolled byte helpers produce, so the fixture driven tests and the manual
+        /// byte tests guard each other against an encoding drift on either side.
+        @ParameterizedTest
+        @ValueSource(
+                ints = {
+                    13, 18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 43, 47,
+                    48, 55, 59, 500
+                })
+        @DisplayName("fixture future item bytes match the hand rolled wire bytes")
+        void testFixtureBytesMatchHandRolledBytes(final int fieldNumber) {
+            assertThat(fixtureFutureItemBytes(fieldNumber, FUTURE_PAYLOAD))
+                    .isEqualTo(futureItemBytes(fieldNumber, FUTURE_PAYLOAD));
         }
+
+        /// This test aims to assert that a known item type serialized through the fixture
+        /// schema is byte identical to the production encoding and parses to the known oneof
+        /// value with no unknown fields: the fixture mirrors the production field numbers.
+        @Test
+        @DisplayName("fixture known item matches the production serialization")
+        void testFixtureKnownItemMatchesProductionSerialization() throws ParseException {
+            final Bytes resultBytes = Bytes.wrap("transaction result bytes");
+            final Bytes fixtureBytes = FutureBlockItem.PROTOBUF.toBytes(
+                    FutureBlockItem.newBuilder().transactionResult(resultBytes).build());
+            final Bytes productionBytes = BlockItemUnparsed.PROTOBUF.toBytes(BlockItemUnparsed.newBuilder()
+                    .transactionResult(resultBytes)
+                    .build());
+            assertThat(fixtureBytes).isEqualTo(productionBytes);
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, fixtureBytes);
+            assertThat(parsed.item().kind()).isEqualTo(BlockItemUnparsed.ItemOneOfType.TRANSACTION_RESULT);
+            assertThat(parsed.getUnknownFields()).isEmpty();
+        }
+
+        /// This test aims to assert that a fixture serialized future item survives the parse
+        /// and serialize round trip byte for byte. The leaf hash of a future item is computed
+        /// over the item's serialized bytes, so the round trip must reproduce the exact bytes
+        /// the producing node hashed.
+        @ParameterizedTest
+        @ValueSource(ints = {13, 20, 23, 28, 39, 500})
+        @DisplayName("fixture future item round trips byte identical through the production codec")
+        void testFixtureFutureItemRoundTripsByteIdentical(final int fieldNumber) throws ParseException {
+            final Bytes original = fixtureFutureItemBytes(fieldNumber, FUTURE_PAYLOAD);
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, original);
+            assertThat(BlockItemUnparsed.PROTOBUF.toBytes(parsed)).isEqualTo(original);
+        }
+
+        /// This test aims to assert that a fixture serialized future item mapping to a not
+        /// hashed category (0 or 19) is read and ignored: the block root hash is identical to
+        /// the hash of the same block without the item.
+        @ParameterizedTest
+        @ValueSource(ints = {20, 39, 40, 59, 500})
+        @DisplayName("get() fixture item in a not hashed category leaves the root hash unchanged")
+        void testNotHashedFixtureItemLeavesRootUnchanged(final int fieldNumber) throws ParseException {
+            final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
+                    .blockUnparsed()
+                    .blockItems();
+            final Bytes baseRootHash = hashBlockItems(baseItems).rootHash();
+            final List<BlockItemUnparsed> withFutureItem =
+                    insertBeforeFooter(baseItems, fixtureFutureItem(fieldNumber, FUTURE_PAYLOAD));
+            final HashingResult actual = hashBlockItems(withFutureItem);
+            assertThat(actual.rootHash()).isEqualTo(baseRootHash);
+        }
+
+        /// This test aims to assert that a fixture serialized future item mapping to one of
+        /// the five defined category subtrees (categories 3 to 7) is hashed into that subtree
+        /// exactly like a known item: the root hash matches the reference implementation and
+        /// differs from the hash of the block without the item.
+        @ParameterizedTest
+        @ValueSource(ints = {23, 24, 25, 26, 27, 43, 47})
+        @DisplayName("get() fixture item in a defined category is hashed into that subtree")
+        void testFixtureItemHashedIntoExistingSubtree(final int fieldNumber) throws ParseException {
+            final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
+                    .blockUnparsed()
+                    .blockItems();
+            final Bytes baseRootHash = hashBlockItems(baseItems).rootHash();
+            final List<BlockItemUnparsed> withFutureItem =
+                    insertBeforeFooter(baseItems, fixtureFutureItem(fieldNumber, FUTURE_PAYLOAD));
+            final HashingResult actual = hashBlockItems(withFutureItem);
+            assertThat(actual.rootHash()).isEqualTo(referenceRootHash(withFutureItem));
+            assertThat(actual.rootHash()).isNotEqualTo(baseRootHash);
+        }
+
+        /// This test aims to assert that a fixture serialized future item mapping to an
+        /// extension category (categories 8 to 15) is hashed into the corresponding extension
+        /// subtree: the root hash matches the reference implementation and differs from the
+        /// hash of the block without the item.
+        @ParameterizedTest
+        @ValueSource(ints = {28, 29, 30, 31, 32, 33, 34, 35, 48, 55})
+        @DisplayName("get() fixture item in an extension category is hashed into the extension subtree")
+        void testFixtureItemHashedIntoExtensionSubtree(final int fieldNumber) throws ParseException {
+            final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
+                    .blockUnparsed()
+                    .blockItems();
+            final Bytes baseRootHash = hashBlockItems(baseItems).rootHash();
+            final List<BlockItemUnparsed> withFutureItem =
+                    insertBeforeFooter(baseItems, fixtureFutureItem(fieldNumber, FUTURE_PAYLOAD));
+            final HashingResult actual = hashBlockItems(withFutureItem);
+            assertThat(actual.rootHash()).isEqualTo(referenceRootHash(withFutureItem));
+            assertThat(actual.rootHash()).isNotEqualTo(baseRootHash);
+        }
+
+        /// This test aims to assert that a block carrying fixture serialized future items
+        /// across several categories at once, including repeated items in the same extension
+        /// subtree and a not hashed item, produces the root hash computed by the reference
+        /// implementation.
+        @Test
+        @DisplayName("get() fixture items across several categories hash correctly together")
+        void testMultipleFixtureItemsAcrossSubtrees() throws ParseException {
+            final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
+                    .blockUnparsed()
+                    .blockItems();
+            List<BlockItemUnparsed> items = baseItems;
+            for (final int fieldNumber : new int[] {23, 28, 31, 35, 35, 40}) {
+                items = insertBeforeFooter(items, fixtureFutureItem(fieldNumber, Bytes.wrap("payload " + fieldNumber)));
+            }
+            final HashingResult actual = hashBlockItems(items);
+            assertThat(actual.rootHash()).isEqualTo(referenceRootHash(items));
+        }
+
+        /// This test aims to assert that a single future field serialized from the fixture
+        /// message without a oneof is still a valid future item: validity is a property of
+        /// the wire bytes, which cannot tell whether the producing schema declared the field
+        /// inside a oneof, so the item is hashed like any other future item.
+        @Test
+        @DisplayName("get() single field from the multi field fixture message is a valid future item")
+        void testSingleFieldFromMultiFieldMessageIsValid() throws ParseException {
+            final Bytes wireBytes = MultiFieldBlockItem.PROTOBUF.toBytes(MultiFieldBlockItem.newBuilder()
+                    .futureConsensusHeader23(FUTURE_PAYLOAD)
+                    .build());
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, wireBytes);
+            assertThat(parsed.item().kind()).isEqualTo(BlockItemUnparsed.ItemOneOfType.UNSET);
+            assertThat(parsed.getUnknownFields()).hasSize(1);
+            final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
+                    .blockUnparsed()
+                    .blockItems();
+            final List<BlockItemUnparsed> withFutureItem = insertBeforeFooter(baseItems, parsed);
+            final HashingResult actual = hashBlockItems(withFutureItem);
+            assertThat(actual.rootHash()).isEqualTo(referenceRootHash(withFutureItem));
+        }
+
+        /// This test aims to assert that a fixture serialized future item this version cannot
+        /// process refuses the block: categories 1 and 2 (requires specific handling) and
+        /// categories 16 to 18 (reserved, no subtree in the block root tree).
+        @ParameterizedTest
+        @ValueSource(ints = {21, 22, 36, 37, 38})
+        @DisplayName("get() fixture item in a reserved or specific handling category refuses the block")
+        void testUnsupportedFixtureItemRefusesBlock(final int fieldNumber) throws ParseException {
+            assertHashingFails(
+                    fixtureFutureItem(fieldNumber, FUTURE_PAYLOAD), SessionFailureType.UNSUPPORTED_ITEM_TYPE);
+        }
+
+        /// This test aims to assert that a fixture serialized unknown field numbered below 20
+        /// refuses the block: such fields are first release fields reserved for item types
+        /// that require specific handling this version does not know.
+        @ParameterizedTest
+        @ValueSource(ints = {13, 18})
+        @DisplayName("get() fixture unknown first release field refuses the block")
+        void testUnknownFirstReleaseFixtureFieldRefusesBlock(final int fieldNumber) throws ParseException {
+            assertHashingFails(
+                    fixtureFutureItem(fieldNumber, FUTURE_PAYLOAD), SessionFailureType.UNSUPPORTED_ITEM_TYPE);
+        }
+
+        /// This test aims to assert that an item carrying a known item type together with an
+        /// unknown field is rejected: a BlockItem is a protobuf oneof, so a valid item
+        /// carries exactly one field, and such an item parses fine but is not a processable
+        /// stream.
+        @Test
+        @DisplayName("get() fixture known item type with an unknown field is rejected")
+        void testKnownItemWithUnknownFieldRejected() throws ParseException {
+            final Bytes wireBytes = MultiFieldBlockItem.PROTOBUF.toBytes(MultiFieldBlockItem.newBuilder()
+                    .transactionResult(Bytes.wrap("transaction result bytes"))
+                    .futureConsensusHeader23(FUTURE_PAYLOAD)
+                    .build());
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, wireBytes);
+            assertThat(parsed.item().kind()).isEqualTo(BlockItemUnparsed.ItemOneOfType.TRANSACTION_RESULT);
+            assertThat(parsed.getUnknownFields()).hasSize(1);
+            assertHashingFails(parsed, SessionFailureType.UNSUPPORTED_STREAM_FORMAT);
+        }
+
+        /// This test aims to assert that an item carrying a known item type together with
+        /// several unknown fields is rejected the same way as with a single unknown field.
+        @Test
+        @DisplayName("get() fixture known item type with multiple unknown fields is rejected")
+        void testKnownItemWithMultipleUnknownFieldsRejected() throws ParseException {
+            final Bytes wireBytes = MultiFieldBlockItem.PROTOBUF.toBytes(MultiFieldBlockItem.newBuilder()
+                    .transactionResult(Bytes.wrap("transaction result bytes"))
+                    .futureConsensusHeader23(FUTURE_PAYLOAD)
+                    .futureTraceData27(FUTURE_PAYLOAD)
+                    .build());
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, wireBytes);
+            assertHashingFails(parsed, SessionFailureType.UNSUPPORTED_STREAM_FORMAT);
+        }
+
+        /// This test aims to assert that an item carrying two unknown fields with the oneof
+        /// unset is rejected: a BlockItem is a protobuf oneof, so a valid item carries
+        /// exactly one field, and such an item parses fine but is not a processable stream.
+        @Test
+        @DisplayName("get() fixture item with two unknown fields is rejected")
+        void testTwoUnknownFieldsRejected() throws ParseException {
+            final Bytes wireBytes = MultiFieldBlockItem.PROTOBUF.toBytes(MultiFieldBlockItem.newBuilder()
+                    .futureConsensusHeader23(FUTURE_PAYLOAD)
+                    .futureTraceData27(FUTURE_PAYLOAD)
+                    .build());
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, wireBytes);
+            assertThat(parsed.item().kind()).isEqualTo(BlockItemUnparsed.ItemOneOfType.UNSET);
+            assertThat(parsed.getUnknownFields()).hasSize(2);
+            assertHashingFails(parsed, SessionFailureType.UNSUPPORTED_STREAM_FORMAT);
+        }
+
+        /// This test aims to assert that an item carrying three unknown fields with the oneof
+        /// unset is rejected the same way as with two unknown fields.
+        @Test
+        @DisplayName("get() fixture item with three unknown fields is rejected")
+        void testThreeUnknownFieldsRejected() throws ParseException {
+            final Bytes wireBytes = MultiFieldBlockItem.PROTOBUF.toBytes(MultiFieldBlockItem.newBuilder()
+                    .futureConsensusHeader23(FUTURE_PAYLOAD)
+                    .futureTraceData27(FUTURE_PAYLOAD)
+                    .futureExtensionZero28(FUTURE_PAYLOAD)
+                    .build());
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, wireBytes);
+            assertHashingFails(parsed, SessionFailureType.UNSUPPORTED_STREAM_FORMAT);
+        }
+
+        /// This test aims to assert that a field added outside the oneof and set alone is a
+        /// valid future item: a field carries no trace of oneof membership on the wire, so it
+        /// serializes byte identical to the same field declared inside the oneof and is
+        /// hashed into its category like any other future item.
+        @Test
+        @DisplayName("get() outside field set alone is a valid future item")
+        void testOutsideFieldAloneIsValidFutureItem() throws ParseException {
+            final Bytes wireBytes =
+                    OneofWithExtraFieldBlockItem.PROTOBUF.toBytes(OneofWithExtraFieldBlockItem.newBuilder()
+                            .outsideTraceData27(FUTURE_PAYLOAD)
+                            .build());
+            assertThat(wireBytes).isEqualTo(fixtureFutureItemBytes(27, FUTURE_PAYLOAD));
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, wireBytes);
+            assertThat(parsed.item().kind()).isEqualTo(BlockItemUnparsed.ItemOneOfType.UNSET);
+            assertThat(parsed.getUnknownFields()).hasSize(1);
+            final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
+                    .blockUnparsed()
+                    .blockItems();
+            final List<BlockItemUnparsed> withFutureItem = insertBeforeFooter(baseItems, parsed);
+            final HashingResult actual = hashBlockItems(withFutureItem);
+            assertThat(actual.rootHash()).isEqualTo(referenceRootHash(withFutureItem));
+        }
+
+        /// This test aims to assert that an item carrying a known oneof value together with a
+        /// field set outside the oneof is rejected: the outside field surfaces as an unknown
+        /// field next to the known type, violating the single field invariant. The wire bytes
+        /// are identical to the same combination serialized without any oneof.
+        @Test
+        @DisplayName("get() known oneof value with an outside field is rejected")
+        void testKnownOneofValueWithOutsideFieldRejected() throws ParseException {
+            final Bytes resultBytes = Bytes.wrap("transaction result bytes");
+            final Bytes wireBytes =
+                    OneofWithExtraFieldBlockItem.PROTOBUF.toBytes(OneofWithExtraFieldBlockItem.newBuilder()
+                            .transactionResult(resultBytes)
+                            .outsideTraceData27(FUTURE_PAYLOAD)
+                            .build());
+            final Bytes noOneofBytes = MultiFieldBlockItem.PROTOBUF.toBytes(MultiFieldBlockItem.newBuilder()
+                    .transactionResult(resultBytes)
+                    .futureTraceData27(FUTURE_PAYLOAD)
+                    .build());
+            assertThat(wireBytes).isEqualTo(noOneofBytes);
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, wireBytes);
+            assertThat(parsed.item().kind()).isEqualTo(BlockItemUnparsed.ItemOneOfType.TRANSACTION_RESULT);
+            assertThat(parsed.getUnknownFields()).hasSize(1);
+            assertHashingFails(parsed, SessionFailureType.UNSUPPORTED_STREAM_FORMAT);
+        }
+
+        /// This test aims to assert that an item carrying a known oneof value together with
+        /// several fields set outside the oneof is rejected the same way as with a single
+        /// outside field.
+        @Test
+        @DisplayName("get() known oneof value with multiple outside fields is rejected")
+        void testKnownOneofValueWithMultipleOutsideFieldsRejected() throws ParseException {
+            final Bytes wireBytes =
+                    OneofWithExtraFieldBlockItem.PROTOBUF.toBytes(OneofWithExtraFieldBlockItem.newBuilder()
+                            .transactionResult(Bytes.wrap("transaction result bytes"))
+                            .outsideTraceData27(FUTURE_PAYLOAD)
+                            .outsideNotHashed40(FUTURE_PAYLOAD)
+                            .build());
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, wireBytes);
+            assertThat(parsed.item().kind()).isEqualTo(BlockItemUnparsed.ItemOneOfType.TRANSACTION_RESULT);
+            assertThat(parsed.getUnknownFields()).hasSize(2);
+            assertHashingFails(parsed, SessionFailureType.UNSUPPORTED_STREAM_FORMAT);
+        }
+
+        /// This test aims to assert that an item carrying a future oneof value together with a
+        /// field set outside the oneof is rejected: both surface as unknown fields on the
+        /// production schema, so the item carries two unknown fields, even though each field
+        /// alone would be a valid future item (and field 40 alone would not even be hashed).
+        @Test
+        @DisplayName("get() future oneof value with an outside field is rejected")
+        void testFutureOneofValueWithOutsideFieldRejected() throws ParseException {
+            final Bytes wireBytes =
+                    OneofWithExtraFieldBlockItem.PROTOBUF.toBytes(OneofWithExtraFieldBlockItem.newBuilder()
+                            .futureConsensusHeader23(FUTURE_PAYLOAD)
+                            .outsideNotHashed40(FUTURE_PAYLOAD)
+                            .build());
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, wireBytes);
+            assertThat(parsed.item().kind()).isEqualTo(BlockItemUnparsed.ItemOneOfType.UNSET);
+            assertThat(parsed.getUnknownFields()).hasSize(2);
+            assertHashingFails(parsed, SessionFailureType.UNSUPPORTED_STREAM_FORMAT);
+        }
+
+        /// This test aims to assert that a fixture item with no field at all serializes to
+        /// zero bytes and is refused: there is nothing valid to process, so something
+        /// unexpected is happening.
+        @Test
+        @DisplayName("get() fixture item with no field at all is refused as unknown error")
+        void testEmptyFixtureItemRefusedAsUnknownError() throws ParseException {
+            final Bytes wireBytes = FutureBlockItem.PROTOBUF.toBytes(
+                    FutureBlockItem.newBuilder().build());
+            assertThat(wireBytes.length()).isZero();
+            final BlockItemUnparsed parsed = standardParse(BlockItemUnparsed.PROTOBUF, wireBytes);
+            assertHashingFails(parsed, SessionFailureType.UNKNOWN_ERROR);
+        }
+
+        /// Builds a block item carrying a single future field the way a newer producing node
+        /// would create it: the fixture schema serializes the field and the production schema
+        /// parses the bytes with unknown field collection enabled.
+        private BlockItemUnparsed fixtureFutureItem(final int fieldNumber, final Bytes payload) throws ParseException {
+            return standardParse(BlockItemUnparsed.PROTOBUF, fixtureFutureItemBytes(fieldNumber, payload));
+        }
+
+        /// Serializes a [FutureBlockItem] carrying the given payload in the future field with
+        /// the given field number, using the PBJ generated fixture codec.
+        private Bytes fixtureFutureItemBytes(final int fieldNumber, final Bytes payload) {
+            final FutureBlockItem.Builder builder = FutureBlockItem.newBuilder();
+            final FutureBlockItem item;
+            item = switch (fieldNumber) {
+                case 13 -> builder.futureFirstRelease13(payload).build();
+                case 18 -> builder.futureFirstRelease18(payload).build();
+                case 20 -> builder.futureNotHashed20(payload).build();
+                case 21 -> builder.futureSpecificHandling21(payload).build();
+                case 22 -> builder.futureSpecificHandling22(payload).build();
+                case 23 -> builder.futureConsensusHeader23(payload).build();
+                case 24 -> builder.futureInput24(payload).build();
+                case 25 -> builder.futureOutput25(payload).build();
+                case 26 -> builder.futureStateChanges26(payload).build();
+                case 27 -> builder.futureTraceData27(payload).build();
+                case 28 -> builder.futureExtensionZero28(payload).build();
+                case 29 -> builder.futureExtensionOne29(payload).build();
+                case 30 -> builder.futureExtensionTwo30(payload).build();
+                case 31 -> builder.futureExtensionThree31(payload).build();
+                case 32 -> builder.futureExtensionFour32(payload).build();
+                case 33 -> builder.futureExtensionFive33(payload).build();
+                case 34 -> builder.futureExtensionSix34(payload).build();
+                case 35 -> builder.futureExtensionSeven35(payload).build();
+                case 36 -> builder.futureReserved36(payload).build();
+                case 37 -> builder.futureReserved37(payload).build();
+                case 38 -> builder.futureReserved38(payload).build();
+                case 39 -> builder.futureNotHashed39(payload).build();
+                case 40 -> builder.futureNotHashed40(payload).build();
+                case 43 -> builder.futureConsensusHeader43(payload).build();
+                case 47 -> builder.futureTraceData47(payload).build();
+                case 48 -> builder.futureExtensionZero48(payload).build();
+                case 55 -> builder.futureExtensionSeven55(payload).build();
+                case 59 -> builder.futureNotHashed59(payload).build();
+                case 500 -> builder.futureNotHashed500(payload).build();
+                default ->
+                    throw new IllegalArgumentException(
+                            "Field number %d is not defined by the fixture schema".formatted(fieldNumber));
+            };
+            return FutureBlockItem.PROTOBUF.toBytes(item);
+        }
+    }
+
+    /// Runs a [BlockHasher] over the given items supplied as one complete block.
+    private HashingResult hashBlockItems(final List<BlockItemUnparsed> items) {
+        final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+        final BlockHasher toTest = new BlockHasher(
+                new AtomicBoolean(false),
+                blockItemsDeque,
+                metrics.hashingMetrics(),
+                BLOCK_NUMBER,
+                BlockSource.PUBLISHER,
+                verificationDataProvider);
+        blockItemsDeque.add(new BlockItems(items, BLOCK_NUMBER, true, true));
+        return toTest.get();
+    }
+
+    /// Asserts that hashing a block containing the given item fails with the expected
+    /// failure type.
+    private void assertHashingFails(final BlockItemUnparsed item, final SessionFailureType expectedFailure) {
+        final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+        final BlockSource blockSource = BlockSource.PUBLISHER;
+        final BlockHasher toTest = new BlockHasher(
+                new AtomicBoolean(false),
+                blockItemsDeque,
+                metrics.hashingMetrics(),
+                BLOCK_NUMBER,
+                blockSource,
+                verificationDataProvider);
+        blockItemsDeque.offer(new BlockItems(List.of(item), BLOCK_NUMBER, false, false));
+        assertThatThrownBy(toTest::get)
+                .isInstanceOf(VerificationSessionFailedException.class)
+                .asInstanceOf(type(VerificationSessionFailedException.class))
+                .satisfies(e -> {
+                    assertThat(e)
+                            .returns(BLOCK_NUMBER, VerificationSessionFailedException::getBlockNumber)
+                            .returns(blockSource, VerificationSessionFailedException::getBlockSource)
+                            .returns(expectedFailure, VerificationSessionFailedException::getFailureType);
+                });
     }
 
     /// Returns a copy of the given items with the given item inserted just before the footer.
@@ -869,8 +1270,8 @@ class BlockHasherTest {
     /// production hashing code: items are placed into their category (known types by their
     /// fixed assignment, unknown types by field number modulo 20), each category is folded
     /// with the streaming merkle tree algorithm, and the category roots are combined into the
-    /// fixed 16 leaf block root tree with absent extension leaves excluded and single child
-    /// nodes prefixed with 0x01.
+    /// fixed 16 leaf block root tree, where every empty subtree and the absent state root
+    /// contribute the empty tree hash (SHA-384 of a single 0x00 byte).
     private static Bytes referenceRootHash(final List<BlockItemUnparsed> items) throws ParseException {
         final List<byte[]> consensusLeaves = new ArrayList<>();
         final List<byte[]> inputLeaves = new ArrayList<>();

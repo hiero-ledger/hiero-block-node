@@ -1,0 +1,249 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package org.hiero.block.node.block.verification.fixtures;
+
+option java_package = "org.hiero.block.node.block.verification.fixtures.protoc";
+// <<<pbj.java_package = "org.hiero.block.node.block.verification.fixtures">>> This comment is special code for setting PBJ Compiler java package
+option java_multiple_files = true;
+
+/**
+ * A test fixture mirroring the `BlockItem` message as a future schema version could define
+ * it: every item type known to the production schema today keeps its field number, and new
+ * item types are added inside the `oneof` at field numbers unknown to the production schema.
+ *
+ * The known fields are declared as `bytes` instead of their real message types. On the wire
+ * both encode as length delimited fields, so the serialized form is identical to the
+ * production encoding while keeping this fixture free of any schema dependency.
+ *
+ * The future fields cover every category of the block stream forward compatibility
+ * numbering rule (category is the field number modulo 20 for fields numbered 20 and above),
+ * second wraps of the rule, a field number requiring a multi byte tag varint (500), and the
+ * unused first release field numbers below 20 (13 and 18).
+ */
+message FutureBlockItem {
+    oneof item {
+        /**
+         * Mirror of the production `block_header` field.
+         */
+        bytes block_header = 1;
+        /**
+         * Mirror of the production `event_header` field.
+         */
+        bytes event_header = 2;
+        /**
+         * Mirror of the production `round_header` field.
+         */
+        bytes round_header = 3;
+        /**
+         * Mirror of the production `signed_transaction` field.
+         */
+        bytes signed_transaction = 4;
+        /**
+         * Mirror of the production `transaction_result` field.
+         */
+        bytes transaction_result = 5;
+        /**
+         * Mirror of the production `transaction_output` field.
+         */
+        bytes transaction_output = 6;
+        /**
+         * Mirror of the production `state_changes` field.
+         */
+        bytes state_changes = 7;
+        /**
+         * Mirror of the production `filtered_single_item` field.
+         */
+        bytes filtered_single_item = 8;
+        /**
+         * Mirror of the production `block_proof` field.
+         */
+        bytes block_proof = 9;
+        /**
+         * Mirror of the production `record_file` field.
+         */
+        bytes record_file = 10;
+        /**
+         * Mirror of the production `trace_data` field.
+         */
+        bytes trace_data = 11;
+        /**
+         * Mirror of the production `block_footer` field.
+         */
+        bytes block_footer = 12;
+        /**
+         * A first release field number (below 20) unknown to the production schema.
+         */
+        bytes future_first_release_13 = 13;
+        /**
+         * A first release field number (below 20) unknown to the production schema.
+         */
+        bytes future_first_release_18 = 18;
+        /**
+         * Mirror of the production `redacted_item` field.
+         */
+        bytes redacted_item = 19;
+        /**
+         * Future item in category 0: not hashed.
+         */
+        bytes future_not_hashed_20 = 20;
+        /**
+         * Future item in category 1: requires specific handling.
+         */
+        bytes future_specific_handling_21 = 21;
+        /**
+         * Future item in category 2: requires specific handling.
+         */
+        bytes future_specific_handling_22 = 22;
+        /**
+         * Future item in category 3: consensus headers subtree.
+         */
+        bytes future_consensus_header_23 = 23;
+        /**
+         * Future item in category 4: inputs subtree.
+         */
+        bytes future_input_24 = 24;
+        /**
+         * Future item in category 5: outputs subtree.
+         */
+        bytes future_output_25 = 25;
+        /**
+         * Future item in category 6: state changes subtree.
+         */
+        bytes future_state_changes_26 = 26;
+        /**
+         * Future item in category 7: trace data subtree.
+         */
+        bytes future_trace_data_27 = 27;
+        /**
+         * Future item in category 8: Extension 0 subtree.
+         */
+        bytes future_extension_zero_28 = 28;
+        /**
+         * Future item in category 9: Extension 1 subtree.
+         */
+        bytes future_extension_one_29 = 29;
+        /**
+         * Future item in category 10: Extension 2 subtree.
+         */
+        bytes future_extension_two_30 = 30;
+        /**
+         * Future item in category 11: Extension 3 subtree.
+         */
+        bytes future_extension_three_31 = 31;
+        /**
+         * Future item in category 12: Extension 4 subtree.
+         */
+        bytes future_extension_four_32 = 32;
+        /**
+         * Future item in category 13: Extension 5 subtree.
+         */
+        bytes future_extension_five_33 = 33;
+        /**
+         * Future item in category 14: Extension 6 subtree.
+         */
+        bytes future_extension_six_34 = 34;
+        /**
+         * Future item in category 15: Extension 7 subtree.
+         */
+        bytes future_extension_seven_35 = 35;
+        /**
+         * Future item in category 16: reserved, no subtree in the block root tree.
+         */
+        bytes future_reserved_36 = 36;
+        /**
+         * Future item in category 17: reserved, no subtree in the block root tree.
+         */
+        bytes future_reserved_37 = 37;
+        /**
+         * Future item in category 18: reserved, no subtree in the block root tree.
+         */
+        bytes future_reserved_38 = 38;
+        /**
+         * Future item in category 19: not hashed.
+         */
+        bytes future_not_hashed_39 = 39;
+        /**
+         * Future item in category 0 on the second wrap of the rule: not hashed.
+         */
+        bytes future_not_hashed_40 = 40;
+        /**
+         * Future item in category 3 on the second wrap of the rule: consensus headers subtree.
+         */
+        bytes future_consensus_header_43 = 43;
+        /**
+         * Future item in category 7 on the second wrap of the rule: trace data subtree.
+         */
+        bytes future_trace_data_47 = 47;
+        /**
+         * Future item in category 8 on the second wrap of the rule: Extension 0 subtree.
+         */
+        bytes future_extension_zero_48 = 48;
+        /**
+         * Future item in category 15 on the second wrap of the rule: Extension 7 subtree.
+         */
+        bytes future_extension_seven_55 = 55;
+        /**
+         * Future item in category 19 on the second wrap of the rule: not hashed.
+         */
+        bytes future_not_hashed_59 = 59;
+        /**
+         * Future item in category 0 with a field number whose tag needs a two byte varint.
+         */
+        bytes future_not_hashed_500 = 500;
+    }
+}
+
+/**
+ * A test fixture that deliberately violates the `BlockItem` single field invariant: the same
+ * field numbers as `FutureBlockItem`, but without a `oneof`, so any combination of fields
+ * can be set and serialized. A `oneof` builder can only ever set one field at a time, while
+ * the invalid combinations under test (a known item type together with unknown fields, or
+ * several unknown fields at once) require several fields in a single serialized item.
+ */
+message MultiFieldBlockItem {
+    /**
+     * Mirror of the production `transaction_result` field, a known item type.
+     */
+    bytes transaction_result = 5;
+    /**
+     * Future item in category 3: consensus headers subtree.
+     */
+    bytes future_consensus_header_23 = 23;
+    /**
+     * Future item in category 7: trace data subtree.
+     */
+    bytes future_trace_data_27 = 27;
+    /**
+     * Future item in category 8: Extension 0 subtree.
+     */
+    bytes future_extension_zero_28 = 28;
+}
+
+/**
+ * A test fixture modeling a future schema version that keeps the `BlockItem` oneof but adds
+ * new fields OUTSIDE of it. On the wire a field carries no trace of oneof membership, so an
+ * outside field set alone is indistinguishable from a future oneof member and is a valid
+ * future item, while an outside field combined with a set oneof value violates the single
+ * field invariant and must be refused.
+ */
+message OneofWithExtraFieldBlockItem {
+    oneof item {
+        /**
+         * Mirror of the production `transaction_result` field, a known item type.
+         */
+        bytes transaction_result = 5;
+        /**
+         * Future item in category 3: consensus headers subtree.
+         */
+        bytes future_consensus_header_23 = 23;
+    }
+    /**
+     * Field added outside the oneof, in category 7: trace data subtree.
+     */
+    bytes outside_trace_data_27 = 27;
+    /**
+     * Field added outside the oneof, in category 0: not hashed.
+     */
+    bytes outside_not_hashed_40 = 40;
+}
