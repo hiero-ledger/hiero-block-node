@@ -260,6 +260,37 @@ function execute_network_status {
         --output console || echo "Network status unavailable"
 }
 
+# Record lastAvailableBlock for every BN to a named snapshot file.
+# The file is written to /tmp/chaos-snapshot-<id>.txt as "node=block" lines.
+# Used together with the blocks-diverged assertion to confirm BNs diverged
+# during chaos and later converged after it cleared.
+function execute_snapshot_block_heights {
+    local snapshot_id="${1:-default}"
+    local snapshot_file="/tmp/chaos-snapshot-${snapshot_id}.txt"
+
+    echo "Capturing block height snapshot '${snapshot_id}'"
+    : > "${snapshot_file}"
+
+    for bn in $(get_all_block_nodes); do
+        local port
+        port=$(get_bn_grpc_port "$bn")
+        local import_args="-import-path ${PROTO_PATH}"
+        local status_json last_block
+        # shellcheck disable=SC2086
+        status_json=$(grpcurl -plaintext -emit-defaults \
+            ${import_args} \
+            -proto block-node/api/node_service.proto \
+            -d '{}' "localhost:${port}" \
+            org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
+        last_block=$(echo "$status_json" | jq -r '.lastAvailableBlock // "0"' 2>/dev/null)
+        last_block=${last_block:-0}
+        echo "${bn}=${last_block}" >> "${snapshot_file}"
+        echo "  ${bn}: lastBlock=${last_block}"
+    done
+
+    echo "Snapshot written: ${snapshot_file}"
+}
+
 function execute_restart {
     local target="$1"
     echo "Restarting $target..."
@@ -543,15 +574,18 @@ function chaos_resource_name {
 
 function execute_inject_latency {
     local args="$1"
-    local name source_kind target_kind latency jitter correlation bidirectional loss
+    local name source_kind source_name target_kind target_name latency jitter correlation bidirectional loss
     name=$(echo "$args" | yq '.name // ""')
     source_kind=$(echo "$args" | yq '.source.kind // ""')
+    source_name=$(echo "$args" | yq '.source.name // ""')
     target_kind=$(echo "$args" | yq '.target.kind // ""')
+    target_name=$(echo "$args" | yq '.target.name // ""')
     latency=$(echo "$args" | yq '.latency // "0ms"')
     jitter=$(echo "$args" | yq '.jitter // "0ms"')
     correlation=$(echo "$args" | yq '.correlation // "0"')
     bidirectional=$(echo "$args" | yq '.bidirectional // true')
     loss=$(echo "$args" | yq '.loss // ""')
+    loss="${loss//%/}"  # Chaos Mesh expects plain numeric string, not "50%"
 
     [[ -z "$name" || "$name" == "null" ]] && { echo "ERROR: inject-latency requires args.name"; return 1; }
     [[ -z "$source_kind" || "$source_kind" == "null" ]] && { echo "ERROR: inject-latency requires args.source.kind"; return 1; }
@@ -579,13 +613,24 @@ function execute_inject_latency {
     target_selector=$(chaos_label_selector "$target_kind") || return 1
     local source_key="${source_selector%%=*}" source_val="${source_selector#*=}"
     local target_key="${target_selector%%=*}" target_val="${target_selector#*=}"
+    local source_name_filter="" target_name_filter=""
+    local source_dryrun_selector="${source_selector}"
+    local target_dryrun_selector="${target_selector}"
+    if [[ -n "${source_name}" && "${source_name}" != "null" ]]; then
+        source_dryrun_selector="${source_selector},app.kubernetes.io/instance=${source_name}"
+        source_name_filter="      app.kubernetes.io/instance: ${source_name}"
+    fi
+    if [[ -n "${target_name}" && "${target_name}" != "null" ]]; then
+        target_dryrun_selector="${target_selector},app.kubernetes.io/instance=${target_name}"
+        target_name_filter="        app.kubernetes.io/instance: ${target_name}"
+    fi
 
     if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
-            --selector "${source_selector}" --label "source(${source_kind})"; then
+            --selector "${source_dryrun_selector}" --label "source(${source_kind})"; then
         return 1
     fi
     if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
-            --selector "${target_selector}" --label "target(${target_kind})"; then
+            --selector "${target_dryrun_selector}" --label "target(${target_kind})"; then
         return 1
     fi
 
@@ -598,7 +643,7 @@ function execute_inject_latency {
         direction="to"
     fi
 
-    if [[ -n "${loss}" && "${loss}" != "null" && "${loss}" != "0%" && "${loss}" != "0" ]]; then
+    if [[ -n "${loss}" && "${loss}" != "null" && "${loss}" != "0" ]]; then
         loss_block=$(printf "  loss:\n    loss: '%s'\n    correlation: '%s'" "${loss}" "${correlation}")
     else
         loss_block=""
@@ -612,8 +657,10 @@ function execute_inject_latency {
     export TARGET_NAMESPACE="${NAMESPACE}"
     export SOURCE_LABEL_KEY="${source_key}"
     export SOURCE_LABEL_VALUE="${source_val}"
+    export SOURCE_NAME_FILTER="${source_name_filter}"
     export TARGET_LABEL_KEY="${target_key}"
     export TARGET_LABEL_VALUE="${target_val}"
+    export TARGET_NAME_FILTER="${target_name_filter}"
     export LATENCY="${latency}"
     export JITTER="${jitter}"
     export CORRELATION="${correlation}"
@@ -622,11 +669,14 @@ function execute_inject_latency {
     envsubst < "${CHAOS_TEMPLATE_DIR}/network-latency.yaml.tmpl" > "${manifest}"
 
     echo "Applying NetworkChaos '${chaos_name}'"
-    echo "  selector: ${source_key}=${source_val}  ->  target: ${target_key}=${target_val}"
+    echo "  selector: ${source_key}=${source_val}${source_name:+,instance=${source_name}}  ->  target: ${target_key}=${target_val}${target_name:+,instance=${target_name}}"
     echo "  delay: ${latency} +/- ${jitter} (correlation: ${correlation}, direction: ${direction})"
     [[ -n "${loss_block}" ]] && echo "  loss: ${loss}"
 
-    kctl apply -f "${manifest}"
+    if ! kctl apply -f "${manifest}"; then
+        echo "ERROR: Failed to apply NetworkChaos manifest '${chaos_name}'"
+        return 1
+    fi
 
     echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
 }
@@ -680,6 +730,11 @@ function execute_event {
             ;;
         network-status)
             execute_network_status
+            ;;
+        snapshot-block-heights)
+            local snap_id
+            snap_id=$(echo "$args" | yq '.snapshot_id // "default"')
+            execute_snapshot_block_heights "${snap_id}"
             ;;
         restart)
             [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // ""')
@@ -1141,6 +1196,84 @@ function assert_blocks_increasing {
     fi
 }
 
+# Assert that all block nodes have converged to within tolerance_blocks of each other.
+# Queries serverStatus on all nodes and checks max(lastAvailableBlock) - min(lastAvailableBlock)
+# <= tolerance_blocks. Confirms both that CN↔BN streams survived (nodes have current-ish
+# blocks) and that any latency-induced lag has closed (spread is small).
+function assert_blocks_converged {
+    local tolerance="${1:-5}"
+
+    local min_last max_last spread
+    min_last=999999999
+    max_last=0
+    local results=""
+    local failed=0
+
+    for bn in $(get_all_block_nodes); do
+        local port
+        port=$(get_bn_grpc_port "$bn")
+        local import_args="-import-path ${PROTO_PATH}"
+        local status_json last_block
+        # shellcheck disable=SC2086
+        status_json=$(grpcurl -plaintext -emit-defaults \
+            ${import_args} \
+            -proto block-node/api/node_service.proto \
+            -d '{}' "localhost:${port}" \
+            org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
+        last_block=$(echo "$status_json" | jq -r '.lastAvailableBlock // "0"' 2>/dev/null)
+        last_block=${last_block:-0}
+        results="${results}${bn}: lastBlock=${last_block}\n"
+        [[ "${last_block}" -lt "${min_last}" ]] && min_last="${last_block}"
+        [[ "${last_block}" -gt "${max_last}" ]] && max_last="${last_block}"
+    done
+
+    spread=$(( max_last - min_last ))
+    echo -e "${results%\\n}"
+    if [[ "${spread}" -gt "${tolerance}" ]]; then
+        echo "FAIL: Block spread ${spread} exceeds tolerance ${tolerance} (min=${min_last}, max=${max_last})"
+        failed=1
+    else
+        echo "PASS: Block spread ${spread} ≤ ${tolerance} (min=${min_last}, max=${max_last})"
+    fi
+
+    return $failed
+}
+
+# Assert that a named snapshot captured during chaos shows a block spread
+# >= min_spread. Confirms BNs actually diverged while the fault was active.
+# Snapshot must have been written by a preceding snapshot-block-heights event.
+function assert_blocks_diverged {
+    local snapshot_id="${1:-default}"
+    local min_spread="${2:-3}"
+    local snapshot_file="/tmp/chaos-snapshot-${snapshot_id}.txt"
+
+    if [[ ! -f "${snapshot_file}" ]]; then
+        echo "FAIL: Snapshot '${snapshot_id}' not found at ${snapshot_file} — was the snapshot-block-heights event executed?"
+        return 1
+    fi
+
+    local min_last max_last spread
+    min_last=999999999
+    max_last=0
+    local results=""
+
+    while IFS='=' read -r bn last_block; do
+        [[ -z "$bn" ]] && continue
+        results="${results}${bn}: lastBlock=${last_block}\n"
+        [[ "${last_block}" -lt "${min_last}" ]] && min_last="${last_block}"
+        [[ "${last_block}" -gt "${max_last}" ]] && max_last="${last_block}"
+    done < "${snapshot_file}"
+
+    spread=$(( max_last - min_last ))
+    echo -e "${results%\\n}"
+    if [[ "${spread}" -lt "${min_spread}" ]]; then
+        echo "FAIL: Block spread ${spread} at snapshot '${snapshot_id}' is below minimum ${min_spread} (min=${min_last}, max=${max_last}) — chaos produced no detectable divergence"
+        return 1
+    else
+        echo "PASS: Block spread ${spread} ≥ ${min_spread} at snapshot '${snapshot_id}' (min=${min_last}, max=${max_last})"
+    fi
+}
+
 # Assert that block signatures transition from Schnorr to WRAPS.
 # Delegates to monitor-block-proofs.sh and captures its output.
 function assert_signature_transition {
@@ -1217,6 +1350,17 @@ function run_assertion {
             wait_seconds=$(echo "$args" | yq '.wait_seconds // 60')
             max_attempts=$(echo "$args" | yq '.max_attempts // 3')
             assert_blocks_increasing "$target" "$wait_seconds" "$max_attempts"
+            ;;
+        blocks-converged)
+            local bc_tolerance
+            bc_tolerance=$(echo "$args" | yq '.tolerance_blocks // 5')
+            assert_blocks_converged "$bc_tolerance"
+            ;;
+        blocks-diverged)
+            local bd_snapshot_id bd_min_spread
+            bd_snapshot_id=$(echo "$args" | yq '.snapshot_id // "default"')
+            bd_min_spread=$(echo "$args" | yq '.min_spread // 3')
+            assert_blocks_diverged "${bd_snapshot_id}" "${bd_min_spread}"
             ;;
         signature-transition)
             if [[ "${TSS_ENABLED:-true}" != "true" ]]; then
