@@ -82,7 +82,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step89, wrb-distribution-step10, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three"
         type: string
         default: "none"
     outputs:
@@ -117,7 +117,8 @@ on:
           - wrb-distribution-step345 # WRB Distribution E2E (#3125) — slice 3: adds BN1/BN2/BN3 with EMB
           - wrb-distribution-step67 # WRB Distribution E2E (#3125) — slice 4: MN1 → BN2/BN3 + MN2 from genesis
           - wrb-distribution-step89 # WRB Distribution E2E (#3125) — slice 5: CN → BN3 + wrb-cli push to BN1
-          - wrb-distribution-step10 # WRB Distribution E2E (#3125) — slice 5: BN2/BN3 reconfigured to backfill from BN1
+          - wrb-distribution-step10 # WRB Distribution E2E (#3125) — slice 5: steps 1-10 (CN→BN3 + wrb-cli push to BN1 + BN2/BN3 backfill from BN1)
+          - wrb-distribution-steps1-12 # WRB Distribution E2E (#3125) — slice 6: TSS cutover to v0.76 + CN cutover validation
       block-node-version:
         description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.29.0')"
         required: false
@@ -204,7 +205,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three"
         required: false
         default: "none"
 
@@ -317,6 +318,16 @@ jobs:
           # the resolved mn_version below.
           MN_RESOLVED=$(echo "$OUTPUT" | grep "^mn_version=" | cut -d= -f2)
           echo "MN_VERSION=${MN_RESOLVED}" >> "${GITHUB_ENV}"
+          # Export CN_VERSION/BN_VERSION too: the later "Run Test Definitions" step invokes
+          # solo-test-runner.sh directly, which (for wrb-distribution tests) calls add-bn.sh to
+          # add BN2/BN3 post-genesis. Without these in the environment, add-bn.sh's BN_VERSION
+          # check is never true, so BN2/BN3 get deployed with no --chart-version at all —
+          # silently falling back to Solo's own hardcoded chart default instead of the version
+          # this workflow actually resolved and used for BN1 at genesis.
+          CN_RESOLVED=$(echo "$OUTPUT" | grep "^cn_version=" | cut -d= -f2)
+          BN_RESOLVED=$(echo "$OUTPUT" | grep "^bn_version=" | cut -d= -f2)
+          echo "CN_VERSION=${CN_RESOLVED}" >> "${GITHUB_ENV}"
+          echo "BN_VERSION=${BN_RESOLVED}" >> "${GITHUB_ENV}"
 
       # Install Solo CLI (npm by default, or build an approved fork/branch when solo-source=git)
       - name: Install Solo CLI

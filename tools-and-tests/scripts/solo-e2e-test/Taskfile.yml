@@ -238,7 +238,7 @@ tasks:
     cmds:
       - |
         echo "Stopping port forwards..."
-        if pkill -f "kubectl port-forward" 2>/dev/null; then
+        if pkill -f "kubectl.*port-forward" 2>/dev/null; then
           echo "  Port forward processes terminated"
         else
           echo "  No port forward processes found"
@@ -505,6 +505,17 @@ tasks:
     deps: [proto:extract]
     vars:
       TEST_FILE: '{{.TEST_FILE | default "tests/smoke-test.yaml"}}'
+    # Task variables are template-only by default -- they are NOT exported as OS
+    # environment variables just because they're passed on the CLI (e.g.
+    # `task test:run BN_VERSION=main`). Event scripts invoked deep inside
+    # solo-test-runner.sh (add-bn.sh, add-mn2.sh, reconfigure-mn1-to-bn-sources.sh,
+    # etc.) read these directly from the environment, so they must be listed here
+    # explicitly or they silently fall back to each script's own hardcoded default.
+    env:
+      BN_VERSION: "{{.BN_VERSION}}"
+      CN_VERSION: "{{.CN_VERSION}}"
+      MN_VERSION: "{{.MN_VERSION}}"
+      TSS_ENABLED: "{{.TSS_ENABLED}}"
     cmds:
       - |
         "{{.SCRIPTS_DIR}}/solo-test-runner.sh" \

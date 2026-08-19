@@ -23,6 +23,13 @@
 
 set -euo pipefail
 
+# This script has twice failed silently between "Generated metadata" and "Running blocks
+# wrap..." with no visible error (the failing command isn't wrapped in an explicit `|| fail`,
+# so `set -e` just exits) -- both times reproducing the exact same segment standalone (with
+# either the real accumulated RECORDS_DIR or a clean scratch one) turned up nothing. Trap ERR
+# so the next occurrence prints the actual failing command/line instead of another blind spot.
+trap 'echo "[wrb-dist-step12] ERROR: command failed (exit $?) at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPARISON_SCRIPT="${SCRIPT_DIR}/../wrb-sequential-comparison.sh"
 PYTHON_DIR="${SCRIPT_DIR}/../python"
@@ -46,9 +53,22 @@ ENV_FILE="${ENV_FILE:-/tmp/wrb-distribution-step12.env}"
 log() { echo "[wrb-dist-step12] $*"; }
 fail() { echo "[wrb-dist-step12] ERROR: $*" >&2; exit 1; }
 
+# WORK_DIR lives under /tmp and survives `task down`/`task up` (those only tear down the
+# Kind cluster), so records/day-archives/metadata from a previous run's cluster would
+# otherwise sit here indefinitely and get mixed into this run's wrap -- old records signed
+# by a since-destroyed cluster's address book alongside fresh ones. Start every run clean.
+log "Clearing stale state from a previous run in ${WORK_DIR} (if any)..."
+rm -rf "${WORK_DIR}"
 mkdir -p "${RECORDS_DIR}" "${DAYS_DIR}" "${WRAPPED_DIR}"
 
 # ---- 1. Build the CLI ----------------------------------------------------------
+# installDist's underlying Sync task fails ("neither empty nor does it contain an
+# installation for 'tools'") if this directory's contents don't match Gradle's own
+# tracking state from a prior sync -- e.g. left over from an interrupted build, a
+# different Gradle version, or state that predates a change to this build. It's pure,
+# fully-regenerable build output, so clear it proactively instead of letting a stale
+# copy intermittently break every run until someone notices and deletes it by hand.
+rm -rf "${REPO_ROOT}/tools-and-tests/tools/build/install/tools"
 log "Building wrb-cli (:tools:installDist)..."
 ( cd "${REPO_ROOT}" && ./gradlew :tools:installDist -x test ) > /tmp/wrb-dist-cli-build.log 2>&1 \
     || { tail -40 /tmp/wrb-dist-cli-build.log; fail "Failed to build :tools:installDist"; }
@@ -108,7 +128,10 @@ days=$( find "${RECORDS_DIR}" -name "*.rcd" -exec basename {} \; | cut -d'T' -f1
 for day in ${days}; do
     archive="${DAYS_DIR}/${day}.tar.zstd"
     log "  ${day}.tar.zstd"
-    ( cd "${RECORDS_DIR}" && tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}" )
+    # COPYFILE_DISABLE=1 prevents macOS tar from adding AppleDouble ("._filename") resource-fork
+    # sidecar entries on APFS; those aren't real record files and TarReader chokes on them
+    # (misreads their garbage bytes as a record-format version). No-op on Linux CI runners.
+    ( cd "${RECORDS_DIR}" && COPYFILE_DISABLE=1 tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}" )
 done
 
 log "Generating block_times.bin and day_blocks.json..."
@@ -137,6 +160,28 @@ first_record_file=$( find "${RECORDS_DIR}" -maxdepth 1 -name "*.rcd" | sort | he
 [[ -n "${first_record_file}" ]] || fail "No record file to derive genesis timestamp from"
 genesis_timestamp=$(basename "${first_record_file}" | sed 's/\(.*\)\.rcd.*/\1/')
 genesis_date=$( echo "${genesis_timestamp}" | cut -d'T' -f1 )
+
+# Generate addressBookHistory.json from the Solo consensus node's actual RSA keys
+# (same mechanism wrb-sequential-comparison.sh already uses) and drop it into DAYS_DIR.
+# `blocks wrap` auto-detects and loads this from --input-dir if present, taking priority
+# over network-other.json's genesisAddressBookResource below -- without it, wrap falls
+# back to the bundled mainnet-genesis-address-book.proto.bin, whose real mainnet keys
+# never match this cluster's own randomly-generated ones, so every signature check fails
+# (cosmetic/non-blocking, but alarming log noise on every run).
+genesis_ts_no_z="${genesis_timestamp%Z}"
+genesis_ts_nanos="${genesis_ts_no_z#*.}"
+genesis_ts_datetime="${genesis_ts_no_z%.*}"
+genesis_ts_datetime="${genesis_ts_datetime//_/:}"
+if date --version >/dev/null 2>&1; then
+    genesis_ts_seconds=$( date -u -d "${genesis_ts_datetime}Z" +%s 2>/dev/null || echo "0" )
+else
+    genesis_ts_seconds=$( date -u -j -f "%Y-%m-%dT%H:%M:%S" "${genesis_ts_datetime}" +%s 2>/dev/null || echo "0" )
+fi
+bash "${SCRIPT_DIR}/../extract-solo-ab-and-generate.sh" \
+    "${NAMESPACE}" \
+    "${genesis_ts_seconds}.${genesis_ts_nanos}" \
+    "${DAYS_DIR}/addressBookHistory.json" \
+    || log "WARNING: Could not extract address book from CN; wrap will fall back to the mainnet resource (signature checks will fail, harmlessly)"
 
 network_config_file="${WORK_DIR}/network-other.json"
 cat > "${network_config_file}" <<EOF

@@ -51,7 +51,8 @@ wrapped_dir="${WRB_DIST_WORK_DIR}/wrappedBlocks"
 # .blk-entry count are reliable here (WRB CLI consolidates all input .rcd
 # files into a single wrapped-stream block per invocation), so we look at
 # the worker log itself and count "wrap OK" iterations.
-current_wrap_ok_count=$( grep -cE '\] wrap OK' "${LOG_FILE}" 2>/dev/null || echo 0 )
+current_wrap_ok_count=$( grep -cE '\] wrap OK' "${LOG_FILE}" 2>/dev/null || true )
+current_wrap_ok_count="${current_wrap_ok_count:-0}"
 current_total_bytes=$( find "${wrapped_dir}" -name '*.zip' -exec stat -c '%s' {} \; 2>/dev/null \
     | awk '{s+=$1} END {print s+0}' )
 
