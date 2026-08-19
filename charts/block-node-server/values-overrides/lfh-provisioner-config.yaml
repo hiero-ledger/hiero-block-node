@@ -7,7 +7,7 @@ blockNode:
     namespace: block-node
     release: block-node
     chart: oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server
-    version: "0.37.1"
+    version: "0.40.1"
     storage:
         applicationStatePath: /mnt/fast-storage/block-node/application-state
         applicationStateSize: 50Gi
