@@ -14,10 +14,10 @@
 #                                    version, available block ranges, registered
 #                                    plugins, and TSS data presence
 #                                    (only when --detailed-server-status is passed)
-#   4. Fetching the latest block   → reports the block proof type observed in the
-#                                    most recent block: WRB/RSA (Phase 2a),
-#                                    TSS hinTS + WRAPS proof, or TSS hinTS +
-#                                    Aggregate Schnorr signature (Phase 2b)
+#   4. Fetching the latest block   → reports the block proof type and effective
+#                                    download throughput; proof types: WRB/RSA
+#                                    (Phase 2a), TSS hinTS + WRAPS proof, or
+#                                    TSS hinTS + Aggregate Schnorr (Phase 2b)
 #                                    (only when --latest-block-proof is passed)
 #
 # Endpoints are supplied as positional arguments in <host:port> form.
@@ -902,10 +902,11 @@ check_endpoint() {
   fi
 
   # 3. Latest block proof (opt-in via --latest-block-proof) ────────────────────
-  # Fetches the most recent block from the node and reports the proof type.
-  # This confirms two things at once:
+  # Fetches the most recent block from the node and reports the proof type and
+  # effective download throughput. This confirms two things at once:
   #   a) The node can serve block data via BlockAccessService/getBlock.
   #   b) The current network proof phase (WRB/RSA vs TSS WRAPS vs TSS Schnorr).
+  # Throughput is labelled "approx" because JSON response size > proto wire size.
   #
   # Failure is non-fatal: a node may have serverStatus working before it has
   # stored any blocks (e.g. freshly started or syncing). The warning is still
@@ -919,15 +920,27 @@ check_endpoint() {
   fi
 
   if [[ "$LATEST_BLOCK_PROOF" == "true" ]]; then
-    local proof_json proof_line
-    t0="$(now_ms)"
+    local proof_json proof_line proof_t0 proof_elapsed_ms
+    proof_t0="$(now_ms)"
     if proof_json="$(grpc_call_block_proof "$block_access_target" 2>&1)"; then
-      elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+      proof_elapsed_ms=$(( $(now_ms) - proof_t0 ))
+      elapsed="$(format_elapsed_ms "$proof_elapsed_ms")"
       proof_line="$(print_block_proof "$proof_json")"
       log_success "  🔏 latest block proof  (${elapsed})"
       print_field "proof_type" "$proof_line"
+      # Compute effective throughput from JSON response size and elapsed time.
+      # JSON bytes are a proxy for wire size (actual proto is smaller, but this
+      # gives a meaningful order-of-magnitude bandwidth indicator).
+      local proof_bytes throughput_str
+      proof_bytes="${#proof_json}"
+      if (( proof_elapsed_ms > 0 )); then
+        throughput_str="$(awk "BEGIN { bps = ${proof_bytes} / (${proof_elapsed_ms} / 1000.0); \
+          if (bps >= 1048576) printf \"%.1f MiB/s\", bps/1048576; \
+          else printf \"%.0f KiB/s\", bps/1024 }")"
+        print_field "throughput (approx)" "${proof_bytes} B JSON -> ${throughput_str}"
+      fi
     else
-      elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+      elapsed="$(format_elapsed_ms "$(( $(now_ms) - proof_t0 ))")"
       log_warn "  🟠 latest block proof WARN (getBlock unavailable or no blocks stored)  (${elapsed})"
       echo "$proof_json" | sed 's/^/     /'
     fi
