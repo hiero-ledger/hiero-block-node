@@ -291,7 +291,7 @@ fi
 
 # Validate that every endpoint looks like host:port before hitting the network.
 # Also verifies the port portion is a valid integer in the range 1–65535 so that
-# nc and grpcurl receive well-formed arguments and produce useful error messages.
+# grpcurl receives well-formed arguments and produces useful error messages.
 for ep in "${ENDPOINTS[@]}"; do
   local_port="${ep##*:}"
   if [[ "$ep" != *:* ]] \
