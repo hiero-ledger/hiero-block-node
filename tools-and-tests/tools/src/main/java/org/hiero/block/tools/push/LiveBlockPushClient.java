@@ -143,6 +143,11 @@ public final class LiveBlockPushClient implements AutoCloseable {
      * mid-block — triggering an unbounded reconnect/SkipBlock loop where nothing ever persists
      * (see {@code #3374}).
      *
+     * <p><b>Empty-BN case:</b> a BN with no blocks advertises {@code lastAvailableBlock} as
+     * unsigned 64-bit max, which surfaces here as {@code -1L}. That is a legitimate
+     * "push everything from block 0" watermark for the producer's {@code blockNum > watermark}
+     * guard — not an error. Callers should not treat a negative return value as failure.
+     *
      * @throws QueryFailedException wrapping the underlying gRPC/network failure; the message
      *     names the {@code host:statusPort} that was tried
      */

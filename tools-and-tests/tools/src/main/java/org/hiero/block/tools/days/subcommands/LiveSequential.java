@@ -388,21 +388,21 @@ public class LiveSequential implements Runnable {
                                     + ". Remove --push-enabled or point --push-bn-status-port at the BlockNodeService port.",
                             e);
                 }
-                if (pushSkipUpToInclusive < 0) {
-                    // Defense in depth: the BN should never advertise a negative watermark, but if
-                    // it does, the producer-side `blockNum > pushSkipUpToInclusive` guard would
-                    // still push everything. Abort with a diagnosable message.
-                    throw new IllegalStateException("BN returned lastAvailableBlock=" + pushSkipUpToInclusive
-                            + " which is not a valid watermark; aborting to avoid pushing every block from 0");
-                }
+                // An empty BN advertises lastAvailableBlock as uint64 max, which arrives here as
+                // -1L. That's the correct sentinel for "push everything from block 0" — the
+                // producer-side guard `blockNum > pushSkipUpToInclusive` gives us exactly that.
+                final boolean bnEmpty = pushSkipUpToInclusive == -1L;
                 System.out.printf(
-                        "[live-sequential] Live push enabled: publish=%s:%d status=%s:%d queueCapacity=%d BN lastAvailableBlock=%d (blocks <= this are skipped from push)%n",
+                        "[live-sequential] Live push enabled: publish=%s:%d status=%s:%d queueCapacity=%d BN %s%n",
                         pushBnHost,
                         pushBnPort,
                         pushBnHost,
                         effectiveStatusPort,
                         pushQueueCapacity,
-                        pushSkipUpToInclusive);
+                        bnEmpty
+                                ? "is empty (will push from block 0)"
+                                : "lastAvailableBlock=" + pushSkipUpToInclusive
+                                        + " (blocks <= this are skipped from push)");
                 pushClient.start();
             }
 
