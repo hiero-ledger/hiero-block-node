@@ -5,17 +5,20 @@
 # =============================================================================
 #
 # Checks one or more Block Node gRPC endpoints by:
-#   1. Verifying TCP reachability  (nc)
+#   1. Ping RTT probe              → reports min/avg/max ICMP round-trip time
+#                                    per endpoint; falls back to a raw TCP-connect
+#                                    RTT against the target port when ICMP is
+#                                    blocked (common behind cloud/k8s firewalls)
 #   2. Calling serverStatus        → reports first/last available block,
 #                                    only_latest_state flag
 #   3. Calling serverStatusDetail  → reports BN software version, stream proto
 #                                    version, available block ranges, registered
 #                                    plugins, and TSS data presence
 #                                    (only when --detailed-server-status is passed)
-#   4. Fetching the latest block   → reports the block proof type observed in the
-#                                    most recent block: WRB/RSA (Phase 2a),
-#                                    TSS hinTS + WRAPS proof, or TSS hinTS +
-#                                    Aggregate Schnorr signature (Phase 2b)
+#   4. Fetching the latest block   → reports the block proof type and effective
+#                                    download throughput; proof types: WRB/RSA
+#                                    (Phase 2a), TSS hinTS + WRAPS proof, or
+#                                    TSS hinTS + Aggregate Schnorr (Phase 2b)
 #                                    (only when --latest-block-proof is passed)
 #
 # Endpoints are supplied as positional arguments in <host:port> form.
@@ -105,7 +108,6 @@
 # REQUIREMENTS
 #   grpcurl   Auto-installed if missing (you will be prompted for the
 #             install location).
-#   nc        Netcat — used for the TCP reachability check.
 #   jq        JSON processor — used for pretty-printing gRPC responses.
 #   curl      Used to download grpcurl and proto archives when needed.
 #
@@ -125,8 +127,8 @@
 #   These are all present in the official hiero-block-node release archive.
 #
 # EXIT CODES
-#   0   All endpoints passed TCP and serverStatus checks.
-#   1   One or more endpoints failed (TCP unreachable or serverStatus error).
+#   0   All endpoints passed serverStatus checks.
+#   1   One or more endpoints failed (serverStatus error).
 #   2   Usage / configuration error (bad arguments, missing dependencies).
 # =============================================================================
 
@@ -246,10 +248,14 @@ while [[ $# -gt 0 ]]; do
       LATEST_BLOCK_PROOF=true; shift ;;
     --block-access-port)
       [[ -n "${2:-}" ]] || { log_err "--block-access-port requires a value"; usage 2; }
+      if ! [[ "${2}" =~ ^[1-9][0-9]*$ ]] || (( ${2} < 1 || ${2} > 65535 )); then
+        log_err "--block-access-port must be a positive integer between 1 and 65535."
+        usage 2
+      fi
       BLOCK_ACCESS_PORT="$2"; shift 2 ;;
     --max-block-sz)
       [[ -n "${2:-}" ]] || { log_err "--max-block-sz requires a value"; usage 2; }
-      if ! [[ "${2}" =~ ^[0-9]+$ ]] || (( ${2} < 1 || ${2} > 100 )); then
+      if ! [[ "${2}" =~ ^[1-9][0-9]*$ ]] || (( ${2} < 1 || ${2} > 100 )); then
         log_err "--max-block-sz must be a positive integer between 1 and 100 (MiB)."
         usage 2
       fi
@@ -290,7 +296,7 @@ fi
 
 # Validate that every endpoint looks like host:port before hitting the network.
 # Also verifies the port portion is a valid integer in the range 1–65535 so that
-# nc and grpcurl receive well-formed arguments and produce useful error messages.
+# grpcurl receives well-formed arguments and produces useful error messages.
 for ep in "${ENDPOINTS[@]}"; do
   local_port="${ep##*:}"
   if [[ "$ep" != *:* ]] \
@@ -303,18 +309,6 @@ done
 
 # ── Dependency checks ─────────────────────────────────────────────────────────
 
-# Verify nc (netcat) is present. nc is used for the fast TCP reachability probe
-# before we attempt a full gRPC call. On most Linux distros it ships with
-# netcat-openbsd; on macOS it is part of the base system.
-check_nc() {
-  if ! command -v nc &>/dev/null; then
-    log_err "Error: 'nc' (netcat) is required for TCP reachability checks but was not found."
-    log_err "Install it via your package manager:"
-    log_err "  Debian/Ubuntu : apt install netcat-openbsd"
-    log_err "  macOS         : nc is included in the base system"
-    exit 2
-  fi
-}
 
 # Verify jq is present. jq is used to extract and format fields from the JSON
 # responses returned by grpcurl.
@@ -506,6 +500,10 @@ ensure_proto_dir() {
 #   -emit-defaults   Include proto3 fields that hold their default (zero) value
 #                    in the JSON output. Without this, fields like block=0 are
 #                    silently omitted, making the output ambiguous.
+#   -connect-timeout Set a reliable 5-second deadline for the TCP+TLS handshake.
+#                    This replaces the former nc-based TCP pre-check and avoids
+#                    the 75–150 s hang that nc's -w flag cannot prevent on
+#                    DROP-firewalled nodes when timeout/gtimeout is absent.
 #   -import-path     Root directory from which proto imports are resolved.
 #   -proto           Entry-point proto file (relative to -import-path).
 #   -d '{}'          Send an empty request body (all fields at default).
@@ -518,6 +516,7 @@ grpc_call() {
   local target="$1" method="$2"
   local -a flags=(
     -emit-defaults
+    -connect-timeout 5
     -import-path "${RESOLVED_PROTO_DIR}"
     -proto        "${NODE_SERVICE_PROTO}"
     -d            '{}'
@@ -541,6 +540,7 @@ grpc_call() {
 grpc_call_block_proof() {
   local target="$1"
   local -a flags=(
+    -connect-timeout 5
     -import-path "${RESOLVED_PROTO_DIR}"
     -proto        "${BLOCK_ACCESS_PROTO}"
     -max-msg-sz   "$(( BLOCK_MAX_BLOCK_MIB * 1048576 ))"
@@ -624,7 +624,7 @@ print_block_proof() {
 # "3N" and outputs a string ending in "N". We detect that case and use the
 # first available alternative in priority order:
 #   1. gdate (GNU coreutils, installed via `brew install coreutils` on macOS —
-#      the same package that provides gtimeout used in tcp_check).
+#      the same package that provides gtimeout on macOS).
 #   2. perl  (ships on all macOS versions without additional tooling; starts
 #      faster than python3 and Time::HiRes is always present).
 #   3. python3 (last resort; available on modern macOS but slower to start).
@@ -659,54 +659,121 @@ format_elapsed_ms() {
   fi
 }
 
-# ── TCP reachability check ────────────────────────────────────────────────────
+# ── TCP-connect RTT fallback ──────────────────────────────────────────────────
 
-# Probes whether host:port is accepting TCP connections.
+# Bounds how long the fallback TCP-connect attempt will wait for a response
+# before giving up. Kept short since this only runs after ping has already
+# failed — it should not meaningfully extend the per-endpoint check time.
+TCP_CONNECT_TIMEOUT_S=3
+
+# Takes a host and port. Opens a raw TCP connection via bash's /dev/tcp and
+# times how long the handshake takes. This is a fallback for when ICMP is
+# blocked but the network path still needs characterizing — many cloud/k8s
+# environments drop ICMP by policy (a blanket anti-recon rule with no
+# application value) while leaving the actual service port open, so ping
+# alone reports "unreachable" on a perfectly healthy node.
 #
-# What nc -z does:
-#   -z   "Zero I/O mode" — opens a TCP socket and immediately closes it without
-#        sending any data. It simply confirms the port is open and listening.
-#        This is much faster than a full gRPC handshake and gives an early
-#        signal when a node is completely unreachable (wrong IP, firewall, etc.).
+# There is no portable `timeout` binary to rely on here (that dependency is
+# exactly what this script removed `nc`/`timeout` to avoid), so the connect
+# attempt runs in a background subshell that we bound ourselves by polling
+# and killing it if it outlives TCP_CONNECT_TIMEOUT_S.
 #
-# The -w 3 timeout problem:
-#   nc's -w flag is documented as a timeout in seconds, but its behaviour
-#   differs across implementations (BSD nc on macOS vs netcat-openbsd on Linux
-#   vs netcat-traditional). Crucially, when a firewall silently DROPs packets
-#   (no TCP RST is sent back), -w may not cut off the connection attempt —
-#   instead the OS-level TCP SYN retransmission backoff runs to completion,
-#   which can take 75–127 seconds depending on the kernel's tcp_syn_retries
-#   setting. This has been observed causing 75-second hangs on unreachable nodes.
-#
-# The fix — wrapping with `timeout`:
-#   The shell's `timeout` command sends SIGALRM to the child process after the
-#   specified interval regardless of what the process is doing, providing a
-#   reliable hard deadline. We prefer `timeout` (GNU coreutils, present on
-#   Linux by default) and fall back to `gtimeout` (the same tool installed by
-#   `brew install coreutils` on macOS). If neither is available we fall back to
-#   plain nc with -w 3, accepting the risk of the longer hang.
-#
-# The -w 3 is kept even when timeout is available as belt-and-suspenders: if
-# the connection is actively refused (RST received), nc exits immediately and
-# the timeout wrapper adds no overhead.
-tcp_check() {
+# Prints exactly one of, on stdout:
+#   <ms>        connection succeeded; ms is the TCP handshake time
+#   refused     connection actively refused (RST) - host is up and routable,
+#               but nothing is listening on this port
+#   timeout     no response within TCP_CONNECT_TIMEOUT_S - a real "host down"
+#               or bad route usually errors out fast (ICMP unreachable, RST
+#               from a router); a silent timeout instead is the fingerprint
+#               of a firewall dropping the SYN rather than a definitive
+#               "host unreachable"
+#   error       connection failed for some other reason (e.g. DNS resolution)
+# Always returns 0 (failure is non-fatal); the caller inspects stdout.
+tcp_connect_rtt() {
   local host="$1" port="$2"
+  local start_ms err_file
+  start_ms="$(now_ms)"
+  err_file="$(mktemp)"
 
-  # Resolve whichever timeout command is available on this system.
-  # An array is used rather than a string so word-splitting is never needed and
-  # the empty-array case ("${timeout_cmd[@]}") expands to nothing cleanly.
-  local -a timeout_cmd=()
-  if   command -v timeout  &>/dev/null; then timeout_cmd=(timeout  3)
-  elif command -v gtimeout &>/dev/null; then timeout_cmd=(gtimeout 3)
+  ( exec 3<>"/dev/tcp/${host}/${port}" ) 2>"$err_file" &
+  local pid=$!
+
+  local waited_ds=0
+  local timeout_ds=$(( TCP_CONNECT_TIMEOUT_S * 10 ))
+  while kill -0 "$pid" 2>/dev/null; do
+    if (( waited_ds >= timeout_ds )); then
+      kill "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      rm -f "$err_file"
+      echo "timeout"
+      return 0
+    fi
+    sleep 0.1
+    (( waited_ds++ ))
+  done
+
+  wait "$pid"
+  local rc=$?
+  if (( rc == 0 )); then
+    echo "$(( $(now_ms) - start_ms ))"
+  elif grep -qi "refused" "$err_file" 2>/dev/null; then
+    echo "refused"
+  else
+    echo "error"
   fi
-  # Note: if neither is found, timeout_cmd remains empty and we rely on -w 3
-  # alone. This is safe for reachable nodes; unreachable DROP-firewalled nodes
-  # may still hang up to the OS TCP timeout in that case.
+  rm -f "$err_file"
+  return 0
+}
 
-  # "${timeout_cmd[@]+...}" expands to the array elements when the array is
-  # non-empty and to nothing when it is empty, safely handling the set -u case
-  # where a bare "${timeout_cmd[@]}" on an empty array is treated as unbound.
-  "${timeout_cmd[@]+"${timeout_cmd[@]}"}" nc -z -w 3 "$host" "$port" &>/dev/null
+# ── Ping RTT probe ────────────────────────────────────────────────────────────
+
+# Takes a host and port. Sends 3 ICMP probes with 0.5 s interval.
+# Prints the min/avg/max RTT line on success. On failure, falls back to
+# tcp_connect_rtt() against the target port so ICMP-filtering firewalls
+# (common in cloud/k8s environments) don't blank out the latency signal
+# for otherwise-healthy nodes.
+# Always returns 0 (failure is non-fatal).
+ping_rtt() {
+  local host="$1" port="$2"
+  local output
+  # -c 3: send 3 probes; -i 0.5: 0.5 s between probes (finishes in ~2 s naturally)
+  # Capture both stdout and stderr; failure just means ICMP blocked.
+  if output="$(ping -c 3 -i 0.5 "$host" 2>&1)"; then
+    # Both macOS ("round-trip min/avg/max/stddev") and Linux ("rtt min/avg/max/mdev")
+    # have "min/avg/max" in the stats line.
+    local stats
+    stats="$(printf '%s\n' "$output" | grep -oE '[0-9]+(\.[0-9]+)?/[0-9]+(\.[0-9]+)?/[0-9]+(\.[0-9]+)?' | tail -1)"
+    if [[ -n "$stats" ]]; then
+      local rtt_min rtt_avg rtt_max
+      IFS='/' read -r rtt_min rtt_avg rtt_max <<< "$stats"
+      log_info "  🏓 ping RTT          min/avg/max = ${rtt_min}/${rtt_avg}/${rtt_max} ms"
+    else
+      log_info "  🏓 ping RTT          (could not parse stats)"
+    fi
+    return
+  fi
+
+  if [[ -z "$port" ]]; then
+    log_info "  🏓 ping RTT          (ICMP unavailable or host unreachable)"
+    return
+  fi
+
+  local tcp_result
+  tcp_result="$(tcp_connect_rtt "$host" "$port")"
+  case "$tcp_result" in
+    timeout)
+      log_info "  🏓 ping RTT          (ICMP blocked; TCP :${port} connect also timed out after ${TCP_CONNECT_TIMEOUT_S}s — SYN likely dropped by a firewall)"
+      ;;
+    refused)
+      log_info "  🏓 ping RTT          (ICMP blocked; TCP :${port} connection refused — host is up, nothing listening on this port)"
+      ;;
+    error)
+      log_info "  🏓 ping RTT          (ICMP blocked; TCP :${port} connect failed — host unreachable or name resolution failed)"
+      ;;
+    *)
+      log_info "  🏓 ping RTT          (ICMP blocked) tcp-connect :${port} = ${tcp_result} ms"
+      ;;
+  esac
 }
 
 # ── Output formatting ─────────────────────────────────────────────────────────
@@ -857,10 +924,11 @@ print_server_status_detail() {
 
 # ── Per-endpoint check ────────────────────────────────────────────────────────
 
-# Runs the full check sequence for a single endpoint: TCP probe → serverStatus
-# gRPC call → (optional) serverStatusDetail gRPC call.
+# Runs the full check sequence for a single endpoint: ping RTT probe →
+# serverStatus gRPC call → (optional) serverStatusDetail gRPC call →
+# (optional) block proof fetch.
 #
-# Returns 0 if TCP and serverStatus both succeed; 1 if either fails.
+# Returns 0 if serverStatus succeeds; 1 if it fails.
 # serverStatusDetail failure is non-fatal (reported as a warning) because some
 # nodes sit behind HTTP/1.1 proxies that do not support streaming RPCs.
 #
@@ -883,21 +951,14 @@ check_endpoint() {
   printf "%b\n" "${C_BOLD}  ${endpoint}${C_RESET}"
   printf "%b\n" "${C_BOLD}──────────────────────────────────────────────────────────────${C_RESET}"
 
-  # 1. TCP reachability ───────────────────────────────────────────────────────
-  # A fast port-open check before attempting a full gRPC handshake. If TCP
-  # fails we skip the gRPC calls entirely — there is no point waiting for them
-  # when the node is not even network-reachable.
-  t0="$(now_ms)"
-  if tcp_check "$host" "$port"; then
-    elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
-    log_success "  🟢 TCP reachable  (${elapsed})"
-  else
-    elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
-    log_err "  🔴 TCP FAIL — cannot reach ${host}:${port}  (${elapsed})"
-    return 1
-  fi
+  # 0. Ping RTT probe ────────────────────────────────────────────────────────
+  # ICMP round-trip time reported before any gRPC call so operators can
+  # distinguish network latency from server-side slowness at a glance.
+  # Non-fatal: falls back to a TCP-connect RTT against the target port when
+  # ICMP is blocked.
+  ping_rtt "$host" "$port"
 
-  # 2. serverStatus ──────────────────────────────────────────────────────────
+  # 1. serverStatus ──────────────────────────────────────────────────────────
   # The primary health signal. A successful response confirms the node's gRPC
   # stack is up and it is actively serving blocks. The response includes the
   # first and last available block numbers and the only_latest_state flag.
@@ -914,7 +975,7 @@ check_endpoint() {
     return 1
   fi
 
-  # 3. serverStatusDetail (opt-in via --detailed-server-status) ──────────────
+  # 2. serverStatusDetail (opt-in via --detailed-server-status) ──────────────
   # Returns richer metadata: software version, stream proto version, available
   # block ranges, installed plugins, and TSS configuration presence. Omitted by
   # default because this RPC can be noticeably slower on nodes that hold many
@@ -935,11 +996,12 @@ check_endpoint() {
     fi
   fi
 
-  # 4. Latest block proof (opt-in via --latest-block-proof) ────────────────────
-  # Fetches the most recent block from the node and reports the proof type.
-  # This confirms two things at once:
+  # 3. Latest block proof (opt-in via --latest-block-proof) ────────────────────
+  # Fetches the most recent block from the node and reports the proof type and
+  # effective download throughput. This confirms two things at once:
   #   a) The node can serve block data via BlockAccessService/getBlock.
   #   b) The current network proof phase (WRB/RSA vs TSS WRAPS vs TSS Schnorr).
+  # Throughput is labelled "approx" because JSON response size > proto wire size.
   #
   # Failure is non-fatal: a node may have serverStatus working before it has
   # stored any blocks (e.g. freshly started or syncing). The warning is still
@@ -953,21 +1015,33 @@ check_endpoint() {
   fi
 
   if [[ "$LATEST_BLOCK_PROOF" == "true" ]]; then
-    local proof_json proof_line
-    t0="$(now_ms)"
+    local proof_json proof_line proof_t0 proof_elapsed_ms
+    proof_t0="$(now_ms)"
     if proof_json="$(grpc_call_block_proof "$block_access_target" 2>&1)"; then
-      elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+      proof_elapsed_ms=$(( $(now_ms) - proof_t0 ))
+      elapsed="$(format_elapsed_ms "$proof_elapsed_ms")"
       proof_line="$(print_block_proof "$proof_json")"
       log_success "  🔏 latest block proof  (${elapsed})"
       print_field "proof_type" "$proof_line"
+      # Compute effective throughput from JSON response size and elapsed time.
+      # JSON bytes are a proxy for wire size (actual proto is smaller, but this
+      # gives a meaningful order-of-magnitude bandwidth indicator).
+      local proof_bytes throughput_str
+      proof_bytes="${#proof_json}"
+      if (( proof_elapsed_ms > 0 )); then
+        throughput_str="$(awk "BEGIN { bps = ${proof_bytes} / (${proof_elapsed_ms} / 1000.0); \
+          if (bps >= 1048576) printf \"%.1f MiB/s\", bps/1048576; \
+          else printf \"%.0f KiB/s\", bps/1024 }")"
+        print_field "throughput (approx)" "${proof_bytes} B JSON -> ${throughput_str}"
+      fi
     else
-      elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+      elapsed="$(format_elapsed_ms "$(( $(now_ms) - proof_t0 ))")"
       log_warn "  🟠 latest block proof WARN (getBlock unavailable or no blocks stored)  (${elapsed})"
       echo "$proof_json" | sed 's/^/     /'
     fi
   fi
 
-  # Print the wall-clock time spent on this endpoint in total (TCP + all gRPC
+  # Print the wall-clock time spent on this endpoint in total (all gRPC
   # calls). Useful for spotting outliers when checking many nodes at once.
   elapsed="$(format_elapsed_ms "$(( $(now_ms) - ep_start_ms ))")"
   printf "     %b\n" "${C_BLUE}endpoint total: ${elapsed}${C_RESET}"
@@ -985,7 +1059,6 @@ main() {
 
   # Verify hard dependencies before touching the network. Fail fast with clear
   # install instructions rather than cryptic errors mid-run.
-  check_nc
   check_jq
   check_grpcurl
 
