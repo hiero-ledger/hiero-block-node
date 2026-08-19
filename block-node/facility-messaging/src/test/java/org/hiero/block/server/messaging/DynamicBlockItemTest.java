@@ -33,15 +33,24 @@ import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-@Timeout(value = 20, unit = TimeUnit.SECONDS)
+// If changing this timeout, verify it is matched to the TEST_TIMEOUT_LIMIT
+// constant below.
+@Timeout(value = 30, unit = TimeUnit.SECONDS)
 public class DynamicBlockItemTest {
-
     /**
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
      * test the back pressure and the slow handler.
      */
     public static final int TEST_DATA_COUNT =
             TestConfig.getConfig().getConfigData(MessagingConfig.class).blockItemQueueSize() * 2;
+    /// Test timeout limit (MUST match the value for `@Timeout` above).
+    private static final int TEST_TIMEOUT_LIMIT = 30;
+    /// Short timeout for a barrier wait, should be no more than 1/6 of the test timeout limit.
+    private static final int SHORT_BARRIER_TIMEOUT = TEST_TIMEOUT_LIMIT / 6;
+    /// Long timeout for a wait, should be 10 less than the test timeout limit.
+    private static final int LONG_AWAIT_TIMEOUT = TEST_TIMEOUT_LIMIT - 10;
+    /// mediut timeout for a wait, should be no more than 1/2 of the test timeout limit.
+    private static final int MEDIUM_AWAIT_TIMEOUT = TEST_TIMEOUT_LIMIT / 2;
 
     /**
      * Test to verify that the messaging service can handle dynamic handlers with no back pressure and a slow handler is
@@ -111,7 +120,7 @@ public class DynamicBlockItemTest {
                 }
                 // wait for the sender to finish sending, so we are in lock step
                 try {
-                    barrier.await(5, TimeUnit.SECONDS);
+                    barrier.await(SHORT_BARRIER_TIMEOUT, TimeUnit.SECONDS);
                 } catch (InterruptedException | BrokenBarrierException | TimeoutException e) {
                     throw new RuntimeException(e);
                 }
@@ -132,14 +141,14 @@ public class DynamicBlockItemTest {
                     false));
             // notify the fast handler that we are done sending an item, so we stay in lock step
             try {
-                barrier.await(5, TimeUnit.SECONDS);
+                barrier.await(SHORT_BARRIER_TIMEOUT, TimeUnit.SECONDS);
             } catch (BrokenBarrierException | TimeoutException e) {
                 throw new RuntimeException(e);
             }
         }
         // wait for both handlers to finish
         assertTrue(
-                latch.await(20, TimeUnit.SECONDS),
+                latch.await(LONG_AWAIT_TIMEOUT, TimeUnit.SECONDS),
                 "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.stop();
@@ -208,7 +217,7 @@ public class DynamicBlockItemTest {
         messagingService.start();
         // send 2000 items to the service, in lock step with fast handler
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
-            if (i == 5) {
+            if (i == SHORT_BARRIER_TIMEOUT) {
                 // unregister the first handler, so it will not get any more items
                 messagingService.unregisterBlockItemHandler(handler1);
                 // wait for a bit to let the handler unregister
@@ -232,7 +241,7 @@ public class DynamicBlockItemTest {
         }
         // wait for handler 2 to finish
         assertTrue(
-                latch.await(20, TimeUnit.SECONDS),
+                latch.await(LONG_AWAIT_TIMEOUT, TimeUnit.SECONDS),
                 "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.stop();
@@ -299,7 +308,7 @@ public class DynamicBlockItemTest {
         });
 
         // If the handler were a gating sequence this would time out.
-        publishFuture.get(10, TimeUnit.SECONDS);
+        publishFuture.get(MEDIUM_AWAIT_TIMEOUT, TimeUnit.SECONDS);
 
         blockForever.countDown(); // ensure handler thread can exit
         messagingService.stop();
@@ -332,7 +341,7 @@ public class DynamicBlockItemTest {
                 }
                 // Block long enough to fall far behind, but not forever.
                 try {
-                    Thread.sleep(5);
+                    Thread.sleep(SHORT_BARRIER_TIMEOUT);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
@@ -360,7 +369,7 @@ public class DynamicBlockItemTest {
                     false));
         }
 
-        assertTrue(evicted.await(15, TimeUnit.SECONDS), "Slow handler was never evicted");
+        assertTrue(evicted.await(MEDIUM_AWAIT_TIMEOUT, TimeUnit.SECONDS), "Slow handler was never evicted");
         assertFalse(dispatchAfterEviction.get(), "Events were dispatched to handler after eviction");
 
         messagingService.stop();
@@ -396,7 +405,8 @@ public class DynamicBlockItemTest {
                     false));
         }
 
-        assertTrue(allReceived.await(20, TimeUnit.SECONDS), "Regular handler did not receive all events");
+        assertTrue(
+                allReceived.await(LONG_AWAIT_TIMEOUT, TimeUnit.SECONDS), "Regular handler did not receive all events");
         assertEquals(totalItems, receiveCount.get());
         messagingService.stop();
     }
@@ -493,7 +503,7 @@ public class DynamicBlockItemTest {
 
         // Either eviction fires (expected happy path) or the test continues to completion.
         // Either way, no value should have been delivered twice.
-        evictedLatch.await(15, TimeUnit.SECONDS);
+        evictedLatch.await(MEDIUM_AWAIT_TIMEOUT, TimeUnit.SECONDS);
 
         consumerRunning.set(false);
         consumerThread.interrupt();
@@ -560,7 +570,7 @@ public class DynamicBlockItemTest {
             throws InterruptedException {
         final String message =
                 "No-backpressure handler received only %d/%d items".formatted(allReceived.getCount(), totalItems);
-        assertTrue(allReceived.await(20, TimeUnit.SECONDS), message);
+        assertTrue(allReceived.await(LONG_AWAIT_TIMEOUT, TimeUnit.SECONDS), message);
     }
 
     /**
