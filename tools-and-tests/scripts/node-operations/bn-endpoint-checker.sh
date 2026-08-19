@@ -5,13 +5,16 @@
 # =============================================================================
 #
 # Checks one or more Block Node gRPC endpoints by:
-#   1. Calling serverStatus        → reports first/last available block,
+#   1. Ping RTT probe              → reports min/avg/max ICMP round-trip time
+#                                    per endpoint; falls back gracefully when
+#                                    ICMP is blocked
+#   2. Calling serverStatus        → reports first/last available block,
 #                                    only_latest_state flag
-#   2. Calling serverStatusDetail  → reports BN software version, stream proto
+#   3. Calling serverStatusDetail  → reports BN software version, stream proto
 #                                    version, available block ranges, registered
 #                                    plugins, and TSS data presence
 #                                    (only when --detailed-server-status is passed)
-#   3. Fetching the latest block   → reports the block proof type observed in the
+#   4. Fetching the latest block   → reports the block proof type observed in the
 #                                    most recent block: WRB/RSA (Phase 2a),
 #                                    TSS hinTS + WRAPS proof, or TSS hinTS +
 #                                    Aggregate Schnorr signature (Phase 2b)
@@ -651,6 +654,34 @@ format_elapsed_ms() {
   fi
 }
 
+# ── Ping RTT probe ────────────────────────────────────────────────────────────
+
+# Takes a hostname (no port). Sends 3 ICMP probes with 0.5 s interval.
+# Prints the min/avg/max RTT line on success, or a graceful message if
+# ICMP is blocked or ping is unavailable.
+# Always returns 0 (failure is non-fatal).
+ping_rtt() {
+  local host="$1"
+  local output
+  # -c 3: send 3 probes; -i 0.5: 0.5 s between probes (finishes in ~2 s naturally)
+  # Capture both stdout and stderr; failure just means ICMP blocked.
+  if output="$(ping -c 3 -i 0.5 "$host" 2>&1)"; then
+    # Both macOS ("round-trip min/avg/max/stddev") and Linux ("rtt min/avg/max/mdev")
+    # have "min/avg/max" in the stats line.
+    local stats
+    stats="$(printf '%s\n' "$output" | grep -oE '[0-9]+(\.[0-9]+)?/[0-9]+(\.[0-9]+)?/[0-9]+(\.[0-9]+)?' | tail -1)"
+    if [[ -n "$stats" ]]; then
+      local rtt_min rtt_avg rtt_max
+      IFS='/' read -r rtt_min rtt_avg rtt_max <<< "$stats"
+      log_info "  🏓 ping RTT          min/avg/max = ${rtt_min}/${rtt_avg}/${rtt_max} ms"
+    else
+      log_info "  🏓 ping RTT          (could not parse stats)"
+    fi
+  else
+    log_info "  🏓 ping RTT          (ICMP unavailable or host unreachable)"
+  fi
+}
+
 # ── Output formatting ─────────────────────────────────────────────────────────
 
 # Prints a key/value pair indented by 5 spaces with the key left-padded to a
@@ -799,8 +830,9 @@ print_server_status_detail() {
 
 # ── Per-endpoint check ────────────────────────────────────────────────────────
 
-# Runs the full check sequence for a single endpoint: serverStatus gRPC call
-# → (optional) serverStatusDetail gRPC call → (optional) block proof fetch.
+# Runs the full check sequence for a single endpoint: ping RTT probe →
+# serverStatus gRPC call → (optional) serverStatusDetail gRPC call →
+# (optional) block proof fetch.
 #
 # Returns 0 if serverStatus succeeds; 1 if it fails.
 # serverStatusDetail failure is non-fatal (reported as a warning) because some
@@ -824,6 +856,12 @@ check_endpoint() {
   printf "%b\n" "${C_BOLD}──────────────────────────────────────────────────────────────${C_RESET}"
   printf "%b\n" "${C_BOLD}  ${endpoint}${C_RESET}"
   printf "%b\n" "${C_BOLD}──────────────────────────────────────────────────────────────${C_RESET}"
+
+  # 0. Ping RTT probe ────────────────────────────────────────────────────────
+  # ICMP round-trip time reported before any gRPC call so operators can
+  # distinguish network latency from server-side slowness at a glance.
+  # Non-fatal: falls back gracefully when ICMP is blocked.
+  ping_rtt "$host"
 
   # 1. serverStatus ──────────────────────────────────────────────────────────
   # The primary health signal. A successful response confirms the node's gRPC
