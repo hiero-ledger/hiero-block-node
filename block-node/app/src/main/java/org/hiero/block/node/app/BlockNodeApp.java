@@ -19,6 +19,7 @@ import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
@@ -74,7 +75,10 @@ import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
+import org.hiero.metrics.LongGauge;
+import org.hiero.metrics.LongGauge.Measurement;
 import org.hiero.metrics.ObservableGauge;
+import org.hiero.metrics.core.Label;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
@@ -101,6 +105,14 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// Metric key for the current state status of the app
     public static final MetricKey<ObservableGauge> METRIC_APP_STATE_STATUS =
             MetricKey.of("app_state_status", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    /// Metric key for the current version of the app; this stores the actual data
+    /// in labels, because there is no string metric option.
+    public static final MetricKey<LongGauge> METRIC_APP_VERSION =
+            MetricKey.of("app_current_version", LongGauge.class).addCategory(METRICS_CATEGORY);
+    /// The version of the block node, a value read from the module descriptor.
+    public static final SemanticVersion BLOCK_NODE_VERSION = SemanticVersionUtility.from(BlockNodeApp.class);
+    /// The version of the Block Stream specification compiled into this block node.
+    public static final SemanticVersion BLOCK_STREAM_VERSION = SemanticVersionUtility.from(Block.class);
     /// Number of stored blocks between automatic persistence of the block range sets
     private static final long BLOCK_RANGE_PERSIST_INTERVAL = 1000;
     /// The state of the server.
@@ -119,6 +131,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private final HistoricalBlockFacilityImpl historicalBlockFacility;
     /// Should the shutdown() method exit the JVM.
     private final boolean shouldExitJvmOnShutdown;
+    /// A metric used to publish the block node version.
+    private final LongGauge versionMetric;
+    // The measurement for the version metric (this is what is set and queried).
+    private Measurement versionMetricInstance;
 
     /// The block node context. It is marked as volatile for thread safety.
     /// It is written by the scheduled scanner thread, read by plugin threads.
@@ -299,6 +315,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         metricRegistry.register(ObservableGauge.builder(METRIC_APP_STATE_STATUS)
                 .setDescription("The current state of the BlockNode App")
                 .observe(() -> state.get().ordinal()));
+        // This metric is not _really_ a metric, but a one-time tag.
+        // We don't have string metrics, so we use a label.
+        Label versionString = new Label("VersionString", SemanticVersionUtility.asString(BLOCK_NODE_VERSION));
+        versionMetric = metricRegistry.register(LongGauge.builder(METRIC_APP_VERSION)
+                .setDescription("The current version of the BlockNode App, set only on startup")
+                .addStaticLabels(versionString));
+        versionMetricInstance = versionMetric.getOrCreateNotLabeled();
     }
 
     /// Build the BlockNodeVersions for this BlockNodeServer
@@ -310,8 +333,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
         return BlockNodeVersions.newBuilder()
                 .installedPluginVersions(pluginVersions)
-                .blockNodeVersion(SemanticVersionUtility.from(BlockNodeApp.class))
-                .streamProtoVersion(SemanticVersionUtility.from(Block.class))
+                .blockNodeVersion(BLOCK_NODE_VERSION)
+                .streamProtoVersion(BLOCK_STREAM_VERSION)
                 .build();
     }
 
@@ -335,6 +358,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         .streamRanges()
                         .map(LongRange::toString)
                         .collect(Collectors.joining(", ")));
+        // Publish a metric with the full version in a label,
+        // and the major version as the value.
+        versionMetricInstance.set(BLOCK_NODE_VERSION.major());
     }
 
     /// {@inheritDoc}

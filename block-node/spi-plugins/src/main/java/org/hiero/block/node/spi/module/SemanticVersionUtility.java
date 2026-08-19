@@ -69,4 +69,12 @@ public final class SemanticVersionUtility {
 
         return semanticVersionBuilder.build();
     }
+
+    /// Return the canonical string form of a semantic version.
+    /// @param version a semantic version value to transform to a string.
+    /// @return The canonical string format of the provided version.
+    public static String asString(final SemanticVersion version) {
+        return "%d.%d.%d-%s+%s"
+                .formatted(version.major(), version.minor(), version.patch(), version.pre(), version.build());
+    }
 }
