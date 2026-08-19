@@ -1014,9 +1014,12 @@ function assert_block_available {
 # Single node health check
 function assert_node_healthy_single {
     local target="$1"
-    local status
+    local status restart_count
     status=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
         -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
+    restart_count=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
+        -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null)
+    restart_count="${restart_count:-0}"
 
     if [[ -z "$status" ]]; then
         echo "${target}: Pod not found"
@@ -1025,6 +1028,14 @@ function assert_node_healthy_single {
 
     if [[ "$status" != "Running" ]]; then
         echo "${target}: $status (expected Running)"
+        return 1
+    fi
+
+    if [[ "$restart_count" -gt 0 ]]; then
+        local term_reason
+        term_reason=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
+            -o jsonpath='{.items[0].status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null)
+        echo "${target}: Running but restarted ${restart_count}x (last: ${term_reason:-unknown})"
         return 1
     fi
 
@@ -1599,6 +1610,8 @@ function assert_archive_contiguous {
 # ============================================================================
 # shellcheck source=lib/chaos-assertions.sh
 source "${SCRIPT_DIR}/lib/chaos-assertions.sh"
+# shellcheck source=lib/mirror-assertions.sh
+source "${SCRIPT_DIR}/lib/mirror-assertions.sh"
 
 # ============================================================================
 # Assertion Dispatch
@@ -1709,6 +1722,19 @@ function run_assertion {
             local ac_bucket
             ac_bucket=$(echo "$args" | yq ".bucket // \"${ARCHIVE_BUCKET}\"")
             assert_archive_contiguous "$ac_bucket"
+            ;;
+        mirror-blocks-increasing)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local mb_wait mb_attempts
+            mb_wait=$(echo "$args" | yq '.wait_seconds // 60')
+            mb_attempts=$(echo "$args" | yq '.max_attempts // 3')
+            assert_mirror_blocks_increasing "$target" "$mb_wait" "$mb_attempts"
+            ;;
+        mirror-lag)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local ml_max_behind
+            ml_max_behind=$(echo "$args" | yq '.max_blocks_behind // 30')
+            assert_mirror_lag "$target" "$ml_max_behind"
             ;;
         *)
             echo "Unknown assertion type: $assert_type"
