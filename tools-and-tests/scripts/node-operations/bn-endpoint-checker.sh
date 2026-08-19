@@ -6,8 +6,9 @@
 #
 # Checks one or more Block Node gRPC endpoints by:
 #   1. Ping RTT probe              → reports min/avg/max ICMP round-trip time
-#                                    per endpoint; falls back gracefully when
-#                                    ICMP is blocked
+#                                    per endpoint; falls back to a raw TCP-connect
+#                                    RTT against the target port when ICMP is
+#                                    blocked (common behind cloud/k8s firewalls)
 #   2. Calling serverStatus        → reports first/last available block,
 #                                    only_latest_state flag
 #   3. Calling serverStatusDetail  → reports BN software version, stream proto
@@ -654,14 +655,82 @@ format_elapsed_ms() {
   fi
 }
 
+# ── TCP-connect RTT fallback ──────────────────────────────────────────────────
+
+# Bounds how long the fallback TCP-connect attempt will wait for a response
+# before giving up. Kept short since this only runs after ping has already
+# failed — it should not meaningfully extend the per-endpoint check time.
+TCP_CONNECT_TIMEOUT_S=3
+
+# Takes a host and port. Opens a raw TCP connection via bash's /dev/tcp and
+# times how long the handshake takes. This is a fallback for when ICMP is
+# blocked but the network path still needs characterizing — many cloud/k8s
+# environments drop ICMP by policy (a blanket anti-recon rule with no
+# application value) while leaving the actual service port open, so ping
+# alone reports "unreachable" on a perfectly healthy node.
+#
+# There is no portable `timeout` binary to rely on here (that dependency is
+# exactly what this script removed `nc`/`timeout` to avoid), so the connect
+# attempt runs in a background subshell that we bound ourselves by polling
+# and killing it if it outlives TCP_CONNECT_TIMEOUT_S.
+#
+# Prints exactly one of, on stdout:
+#   <ms>        connection succeeded; ms is the TCP handshake time
+#   refused     connection actively refused (RST) - host is up and routable,
+#               but nothing is listening on this port
+#   timeout     no response within TCP_CONNECT_TIMEOUT_S - a real "host down"
+#               or bad route usually errors out fast (ICMP unreachable, RST
+#               from a router); a silent timeout instead is the fingerprint
+#               of a firewall dropping the SYN rather than a definitive
+#               "host unreachable"
+#   error       connection failed for some other reason (e.g. DNS resolution)
+# Always returns 0 (failure is non-fatal); the caller inspects stdout.
+tcp_connect_rtt() {
+  local host="$1" port="$2"
+  local start_ms err_file
+  start_ms="$(now_ms)"
+  err_file="$(mktemp)"
+
+  ( exec 3<>"/dev/tcp/${host}/${port}" ) 2>"$err_file" &
+  local pid=$!
+
+  local waited_ds=0
+  local timeout_ds=$(( TCP_CONNECT_TIMEOUT_S * 10 ))
+  while kill -0 "$pid" 2>/dev/null; do
+    if (( waited_ds >= timeout_ds )); then
+      kill "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      rm -f "$err_file"
+      echo "timeout"
+      return 0
+    fi
+    sleep 0.1
+    (( waited_ds++ ))
+  done
+
+  wait "$pid"
+  local rc=$?
+  if (( rc == 0 )); then
+    echo "$(( $(now_ms) - start_ms ))"
+  elif grep -qi "refused" "$err_file" 2>/dev/null; then
+    echo "refused"
+  else
+    echo "error"
+  fi
+  rm -f "$err_file"
+  return 0
+}
+
 # ── Ping RTT probe ────────────────────────────────────────────────────────────
 
-# Takes a hostname (no port). Sends 3 ICMP probes with 0.5 s interval.
-# Prints the min/avg/max RTT line on success, or a graceful message if
-# ICMP is blocked or ping is unavailable.
+# Takes a host and port. Sends 3 ICMP probes with 0.5 s interval.
+# Prints the min/avg/max RTT line on success. On failure, falls back to
+# tcp_connect_rtt() against the target port so ICMP-filtering firewalls
+# (common in cloud/k8s environments) don't blank out the latency signal
+# for otherwise-healthy nodes.
 # Always returns 0 (failure is non-fatal).
 ping_rtt() {
-  local host="$1"
+  local host="$1" port="$2"
   local output
   # -c 3: send 3 probes; -i 0.5: 0.5 s between probes (finishes in ~2 s naturally)
   # Capture both stdout and stderr; failure just means ICMP blocked.
@@ -677,9 +746,30 @@ ping_rtt() {
     else
       log_info "  🏓 ping RTT          (could not parse stats)"
     fi
-  else
-    log_info "  🏓 ping RTT          (ICMP unavailable or host unreachable)"
+    return
   fi
+
+  if [[ -z "$port" ]]; then
+    log_info "  🏓 ping RTT          (ICMP unavailable or host unreachable)"
+    return
+  fi
+
+  local tcp_result
+  tcp_result="$(tcp_connect_rtt "$host" "$port")"
+  case "$tcp_result" in
+    timeout)
+      log_info "  🏓 ping RTT          (ICMP blocked; TCP :${port} connect also timed out after ${TCP_CONNECT_TIMEOUT_S}s — SYN likely dropped by a firewall)"
+      ;;
+    refused)
+      log_info "  🏓 ping RTT          (ICMP blocked; TCP :${port} connection refused — host is up, nothing listening on this port)"
+      ;;
+    error)
+      log_info "  🏓 ping RTT          (ICMP blocked; TCP :${port} connect failed — host unreachable or name resolution failed)"
+      ;;
+    *)
+      log_info "  🏓 ping RTT          (ICMP blocked) tcp-connect :${port} = ${tcp_result} ms"
+      ;;
+  esac
 }
 
 # ── Output formatting ─────────────────────────────────────────────────────────
@@ -860,8 +950,9 @@ check_endpoint() {
   # 0. Ping RTT probe ────────────────────────────────────────────────────────
   # ICMP round-trip time reported before any gRPC call so operators can
   # distinguish network latency from server-side slowness at a glance.
-  # Non-fatal: falls back gracefully when ICMP is blocked.
-  ping_rtt "$host"
+  # Non-fatal: falls back to a TCP-connect RTT against the target port when
+  # ICMP is blocked.
+  ping_rtt "$host" "$port"
 
   # 1. serverStatus ──────────────────────────────────────────────────────────
   # The primary health signal. A successful response confirms the node's gRPC
