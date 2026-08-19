@@ -63,8 +63,11 @@ loadBalancer:
     # - 203.0.113.0/24  # your clients
     # - 35.191.0.0/16   # GCP health check (example)
     # - 130.211.0.0/22  # GCP health check (example)
-  # When true, all non-null blockNode.ports entries are added to the LB Service in addition to
-  # the primary port. Requires each plugin port to be distinct from loadBalancer.port.
+  # When true, all non-null blockNode.ports entries (except health) are added to the LB Service
+  # in addition to the primary port. The health port (40983) is always excluded because it is
+  # ClusterIP-internal only (liveness/readiness probes); add it explicitly via extraPorts if
+  # you have a specific reason to expose it publicly. Requires each included plugin port to be
+  # distinct from loadBalancer.port.
   includePluginPorts: false
   # Explicit additional ports to expose on the LB Service (beyond the primary port and any
   # plugin ports included via includePluginPorts). Each entry must have a unique name and port.
