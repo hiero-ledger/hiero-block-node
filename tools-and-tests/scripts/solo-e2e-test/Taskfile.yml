@@ -550,6 +550,17 @@ tasks:
         echo ""
         echo "Run a test with: task test:run TEST_FILE=tests/<name>.yaml"
 
+  test:unit:
+    desc: "Run unit tests for script helpers (scripts/test/test-*.sh)"
+    cmds:
+      - |
+        failed=0
+        for f in "{{.SCRIPTS_DIR}}/test/test-"*.sh; do
+          echo "--- $f"
+          bash "$f" || failed=1
+        done
+        exit $failed
+
   # ============================================================================
   # TCK-SDK Tests (matches consensus-node approach: uses latest tags)
   # ============================================================================
