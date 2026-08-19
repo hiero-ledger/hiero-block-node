@@ -784,27 +784,35 @@ function get_bn_grpc_port {
     echo $((40839 + node_num))
 }
 
+# fetch_bn_server_status: network-touching primitive that calls grpcurl serverStatus.
+# Overridable in fixture tests (mock it to avoid needing a real cluster).
+# Returns the raw JSON, or empty string if grpcurl fails.
+function fetch_bn_server_status {
+    local target="$1"
+    validate_proto_path "$target" >/dev/null || return 1
+    local port
+    port=$(get_bn_grpc_port "$target")
+    local import_args="-import-path ${PROTO_PATH:-}"
+    # shellcheck disable=SC2086  # Intentional word splitting for import path argument
+    grpcurl -plaintext -emit-defaults \
+        ${import_args} \
+        -proto block-node/api/node_service.proto \
+        -d '{}' "localhost:${port}" \
+        org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null
+}
+
 # Single node block availability check
 function assert_block_available_single {
     local target="$1"
     local min_block="${2:-0}"
     local max_block_gte="${3:-0}"
-    local port
-    port=$(get_bn_grpc_port "$target")
 
     if ! validate_proto_path "${target}"; then
         return 1
     fi
 
-    local import_args="-import-path ${PROTO_PATH}"
-
     local status_json
-    # shellcheck disable=SC2086  # Intentional word splitting for import path argument
-    status_json=$(grpcurl -plaintext -emit-defaults \
-        ${import_args} \
-        -proto block-node/api/node_service.proto \
-        -d '{}' "localhost:${port}" \
-        org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
+    status_json=$(fetch_bn_server_status "$target")
 
     local first_block last_block
     first_block=$(echo "$status_json" | jq -r '.firstAvailableBlock // "null"')
@@ -855,9 +863,12 @@ function assert_block_available {
 # Single node health check
 function assert_node_healthy_single {
     local target="$1"
-    local status
+    local status restart_count
     status=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
         -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
+    restart_count=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
+        -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null)
+    restart_count="${restart_count:-0}"
 
     if [[ -z "$status" ]]; then
         echo "${target}: Pod not found"
@@ -866,6 +877,14 @@ function assert_node_healthy_single {
 
     if [[ "$status" != "Running" ]]; then
         echo "${target}: $status (expected Running)"
+        return 1
+    fi
+
+    if [[ "$restart_count" -gt 0 ]]; then
+        local term_reason
+        term_reason=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
+            -o jsonpath='{.items[0].status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null)
+        echo "${target}: Running but restarted ${restart_count}x (last: ${term_reason:-unknown})"
         return 1
     fi
 
@@ -1023,22 +1042,14 @@ function assert_rsa_roster_verification {
 # Helper to get block count from a node with error handling
 function get_block_count {
     local target="$1"
-    local port
-    port=$(get_bn_grpc_port "$target")
 
     if ! validate_proto_path >/dev/null 2>&1; then
         echo ""
         return 1
     fi
 
-    local import_args="-import-path ${PROTO_PATH}"
     local json block_count
-
-    json=$(grpcurl -plaintext -emit-defaults \
-        ${import_args} \
-        -proto block-node/api/node_service.proto \
-        -d '{}' "localhost:${port}" \
-        org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
+    json=$(fetch_bn_server_status "$target")
 
     block_count=$(echo "$json" | jq -r '.lastAvailableBlock // ""' 2>/dev/null)
 
@@ -1186,6 +1197,8 @@ function assert_signature_transition {
 # ============================================================================
 # shellcheck source=lib/chaos-assertions.sh
 source "${SCRIPT_DIR}/lib/chaos-assertions.sh"
+# shellcheck source=lib/mirror-assertions.sh
+source "${SCRIPT_DIR}/lib/mirror-assertions.sh"
 
 # ============================================================================
 # Assertion Dispatch
@@ -1272,6 +1285,19 @@ function run_assertion {
                 return 1
             fi
             assert_log_match "$target" "$lm_grep" "$lm_since"
+            ;;
+        mirror-blocks-increasing)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local mb_wait mb_attempts
+            mb_wait=$(echo "$args" | yq '.wait_seconds // 60')
+            mb_attempts=$(echo "$args" | yq '.max_attempts // 3')
+            assert_mirror_blocks_increasing "$target" "$mb_wait" "$mb_attempts"
+            ;;
+        mirror-lag)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local ml_max_behind
+            ml_max_behind=$(echo "$args" | yq '.max_blocks_behind // 30')
+            assert_mirror_lag "$target" "$ml_max_behind"
             ;;
         *)
             echo "Unknown assertion type: $assert_type"

@@ -646,17 +646,19 @@ assertions:                      # Validations to run after all events
 
 ### Assertion Types
 
-|           Type            |                           Description                            |                         Arguments                          |
-|---------------------------|------------------------------------------------------------------|------------------------------------------------------------|
-| `block-available`         | Verify BN has blocks in range                                    | `min_block`, `max_block_gte`                               |
-| `node-healthy`            | Verify pod is Running                                            | `target`                                                   |
-| `no-errors`               | Verify no verification errors                                    | `target`                                                   |
-| `blocks-increasing`       | Verify blocks are actively flowing                               | `wait_seconds`, `max_attempts`                             |
-| `rsa-roster-verification` | Verify blocks accepted via the RSA roster (WRB), no RSA failures | `min_rsa_success`                                          |
-| `metric-threshold`        | Compare any BN Prometheus metric                                 | `metric`, `comparator`, `value`, `samples`, `wait_seconds` |
-| `block-rate-floor`        | Assert Δblocks/Δtime ≥ floor                                     | `min_rate_per_sec`, `window_seconds`                       |
-| `backfill-triggered`      | Assert backfill log marker observed                              | `grep` (default `"backfill"`), `since_seconds`             |
-| `log-match`               | Generic log-substring check                                      | `grep`, `since_seconds`                                    |
+|            Type            |                           Description                            |                         Arguments                          |
+|----------------------------|------------------------------------------------------------------|------------------------------------------------------------|
+| `block-available`          | Verify BN has blocks in range                                    | `min_block`, `max_block_gte`                               |
+| `node-healthy`             | Verify pod is Running                                            | `target`                                                   |
+| `no-errors`                | Verify no verification errors                                    | `target`                                                   |
+| `blocks-increasing`        | Verify blocks are actively flowing                               | `wait_seconds`, `max_attempts`                             |
+| `rsa-roster-verification`  | Verify blocks accepted via the RSA roster (WRB), no RSA failures | `min_rsa_success`                                          |
+| `metric-threshold`         | Compare any BN Prometheus metric                                 | `metric`, `comparator`, `value`, `samples`, `wait_seconds` |
+| `block-rate-floor`         | Assert Δblocks/Δtime ≥ floor                                     | `min_rate_per_sec`, `window_seconds`                       |
+| `backfill-triggered`       | Assert backfill log marker observed                              | `grep` (default `"backfill"`), `since_seconds`             |
+| `log-match`                | Generic log-substring check                                      | `grep`, `since_seconds`                                    |
+| `mirror-blocks-increasing` | Verify Mirror Node is importing new blocks                       | `wait_seconds`, `max_attempts`                             |
+| `mirror-lag`               | Verify Mirror Node is not falling behind its paired Block Node   | `max_blocks_behind` (default 30)                           |
 
 **Note:** The `blocks-increasing` assertion verifies a Block Node is actively receiving blocks. It measures baseline, waits `wait_seconds` (default: 60), verifies increase, retrying up to `max_attempts` (default: 3) times.
 
@@ -845,16 +847,16 @@ The `solo-e2e-scheduler.yml` workflow runs tests automatically:
 
 Tests are validated against topologies before execution. The matrix defines which tests run on each topology:
 
-|       Topology        |                         Tests                         |
-|-----------------------|-------------------------------------------------------|
-| `single`              | `smoke-test`, `basic-load`, `node-restart-resilience` |
-| `paired-3`            | `smoke-test`, `basic-load`                            |
-| `3cn-1bn`             | `smoke-test`                                          |
-| `fan-out-3cn-2bn`     | `smoke-test`                                          |
-| `2cn-2bn-backfill`    | `full-history-backfill`                               |
-| `7cn-3bn-distributed` | `smoke-test`                                          |
-| `single-wrb-rsa`      | `smoke-test`, `rsa-roster-verification`               |
-| `3cn-2bn-wrb-rsa`     | `smoke-test`, `rsa-roster-verification`               |
+|       Topology        |                               Tests                                |
+|-----------------------|--------------------------------------------------------------------|
+| `single`              | `smoke-test`, `basic-load`, `high-load`, `node-restart-resilience` |
+| `paired-3`            | `smoke-test`, `basic-load`, `high-load`                            |
+| `3cn-1bn`             | `smoke-test`                                                       |
+| `fan-out-3cn-2bn`     | `smoke-test`                                                       |
+| `2cn-2bn-backfill`    | `full-history-backfill`                                            |
+| `7cn-3bn-distributed` | `smoke-test`                                                       |
+| `single-wrb-rsa`      | `smoke-test`, `rsa-roster-verification`                            |
+| `3cn-2bn-wrb-rsa`     | `smoke-test`, `rsa-roster-verification`                            |
 
 Multiple tests run sequentially on the same deployment, reducing CI time.
 
