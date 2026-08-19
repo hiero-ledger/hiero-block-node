@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.archive;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.util.Objects.requireNonNull;
@@ -193,13 +194,32 @@ public class BlockUploadTask implements Callable<UploadResult> {
             }
 
             if (result == UploadResult.SUCCESS) {
-                s3.completeMultipartUpload(key, uploadId, etags);
+                completeMultipartUploadWithRetry(s3, uploadId, etags);
             }
         }
         return result;
     }
 
-    /// Takes one block from [blockQueue], encodes it as a tar entry, and appends it to [buffer].
+    /// Retries once: idempotent with the same `etags`, and cheaper than falling back to
+    /// [StartupRecoveryTask], which discards and re-derives the last block on this boundary.
+    private void completeMultipartUploadWithRetry(S3Client s3, String uploadId, List<String> etags)
+            throws S3ResponseException, IOException {
+        try {
+            doCompleteMultipartUpload(s3, uploadId, etags);
+        } catch (S3ResponseException | IOException e) {
+            LOGGER.log(DEBUG, "Failed to complete multipart upload for key {0}; retrying once", key, e);
+            doCompleteMultipartUpload(s3, uploadId, etags);
+        }
+    }
+
+    /// Delegates to [S3Client#completeMultipartUpload].  Overridable so tests can inject completion
+    /// failures without a live S3 endpoint.
+    void doCompleteMultipartUpload(S3Client s3, String uploadId, List<String> etags)
+            throws S3ResponseException, IOException {
+        s3.completeMultipartUpload(key, uploadId, etags);
+    }
+
+    /// Takes one block from [blockQueue], encodes it as a tar entry, and appends it to `buffer`.
     ///
     /// @param blockNum the block number to accumulate (used as the tar entry name)
     /// @param buffer   the current accumulation buffer
@@ -212,7 +232,7 @@ public class BlockUploadTask implements Callable<UploadResult> {
         return new BlockData(S3UploadUtils.concat(buffer, tarEntry), item.source());
     }
 
-    /// Flushes a fixed-size part to S3 when [buffer] has reached [partSizeBytes], then sends
+    /// Flushes a fixed-size part to S3 when `buffer` has reached [partSizeBytes], then sends
     /// [PersistedNotification]s for every block whose bytes are now durably stored.
     ///
     /// @param blockNum      the block number just accumulated (used for failure notifications and logging)
@@ -221,7 +241,7 @@ public class BlockUploadTask implements Callable<UploadResult> {
     /// @param s3            the S3 client for this upload session
     /// @param uploadId      the multipart upload ID
     /// @param etags         the list of part ETags collected so far (mutated in place)
-    /// @param blocksInBuffer map of block number → source for blocks whose bytes are in [buffer]
+    /// @param blocksInBuffer map of block number → source for blocks whose bytes are in `buffer`
     ///                       (mutated in place)
     /// @return the remainder buffer after the flush, or `null` if the part upload failed
     ///         (false [PersistedNotification]s have already been sent for all affected blocks)
@@ -279,17 +299,17 @@ public class BlockUploadTask implements Callable<UploadResult> {
         }
     }
 
-    /// Uploads [buffer] as the final multipart part and sends a [PersistedNotification] for the
-    /// last block in [blocksInBuffer].
+    /// Uploads `buffer` as the final multipart part and sends a [PersistedNotification] for the
+    /// last block in `blocksInBuffer`.
     ///
     /// Called after the main loop when leftover bytes did not fill a complete part. Assumes
-    /// [buffer] is non-empty and that the upload has not already failed.
+    /// `buffer` is non-empty and that the upload has not already failed.
     ///
     /// @param buffer         the leftover bytes that did not fill a complete part during the loop
     /// @param s3             the S3 client for this upload session
     /// @param uploadId       the multipart upload ID
     /// @param etags          the list of part ETags collected so far (mutated in place)
-    /// @param blocksInBuffer map of block number → source for blocks whose bytes are in [buffer]
+    /// @param blocksInBuffer map of block number → source for blocks whose bytes are in `buffer`
     /// @return [UploadResult#SUCCESS] if the part was uploaded and a success notification was sent,
     ///         [UploadResult#FAILED] otherwise (a failure notification has already been sent)
     private UploadResult uploadFinalPart(
@@ -333,7 +353,7 @@ public class BlockUploadTask implements Callable<UploadResult> {
         S3UploadUtils.uploadPart(buffer, key, s3, uploadId, etags);
     }
 
-    /// Splits [buffer] at [partSizeBytes], uploads the first part via [doUploadPart], and returns
+    /// Splits `buffer` at [partSizeBytes], uploads the first part via [doUploadPart], and returns
     /// the remainder.
     @NonNull
     private byte[] uploadPart(byte[] buffer, S3Client s3, String uploadId, List<String> etags)
