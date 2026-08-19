@@ -3,7 +3,11 @@
 # High Load Test
 #
 # Validates that all Block Nodes correctly receive and store blocks
-# under high load conditions (5000 TPS).
+# under high load conditions (5000 TPS cap) and that Mirror Node
+# keeps pace. Scheduled on: single, paired-3.
+#
+# Out of scope: memory-stability (BN /metrics exposes no heap gauge;
+# kubectl top sampling requires a separate event type — tracked as follow-up).
 #
 # Prerequisites:
 #   - Any topology deployed (task up)
@@ -77,3 +81,26 @@ assertions:
     type: blocks-increasing
     description: "All Block Nodes are receiving new blocks"
     target: all
+
+  - id: mirror-blocks-flowing
+    type: mirror-blocks-increasing
+    description: "Mirror Node is still importing blocks after load"
+    target: all
+
+  - id: mirror-not-lagging
+    type: mirror-lag
+    description: "Mirror Node kept pace with Block Node"
+    target: all
+    args:
+      max_blocks_behind: 30
+
+  - id: verification-queue-healthy
+    type: metric-threshold
+    description: "Queue utilisation stays below 60%"
+    target: all
+    args:
+      metric: blocknode_messaging_item_queue_percent_used
+      comparator: "<"
+      value: 60
+      samples: 3
+      wait_seconds: 20
