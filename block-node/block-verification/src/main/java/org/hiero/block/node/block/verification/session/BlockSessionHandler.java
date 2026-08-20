@@ -146,6 +146,11 @@ public final class BlockSessionHandler {
         }
         // check if we have an active publisher session, if not, then disregard the items
         if (local != null) {
+            if (blockItems.isEndOfBlock()) {
+                // mark before offering so the session never observes the ending
+                // batch in its deque while still considered incomplete
+                local.markEndOfBlockReceived();
+            }
             local.getBlockItemsDeque().offer(blockItems);
         }
         if (blockItems.isEndOfBlock()) {
@@ -161,6 +166,8 @@ public final class BlockSessionHandler {
     private void processBackfilledItems(final BlockItems blockItems) {
         final BlockVerificationSession session = startNewSession(blockItems, BlockSource.BACKFILL);
         activateSession(session);
+        // a backfilled block always arrives complete in a single batch
+        session.markEndOfBlockReceived();
         session.getBlockItemsDeque().offer(blockItems);
     }
 

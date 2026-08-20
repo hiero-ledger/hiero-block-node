@@ -35,6 +35,16 @@ public interface BlockVerificationSession {
     /// Cancel and stop the session.
     void cancel();
 
+    /// Mark that the end of block has been received for this session.
+    ///
+    /// The supplier of the block items must call this method as soon as it
+    /// supplies the batch that ends the block. If the session ends without
+    /// producing a result, this mark determines whether the failure is
+    /// reported as [SessionFailureType#CANCELLED] (the complete block was
+    /// received) or [SessionFailureType#CANCELLED_INCOMPLETE] (the block was never
+    /// fully received).
+    void markEndOfBlockReceived();
+
     /// Get the block items deque.
     /// Through this deque, we are able to offer the next block items of the block.
     ConcurrentLinkedDeque<BlockItems> getBlockItemsDeque();

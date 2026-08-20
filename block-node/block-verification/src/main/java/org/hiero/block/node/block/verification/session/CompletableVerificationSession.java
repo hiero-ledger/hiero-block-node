@@ -37,6 +37,10 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     private final ExecutorService executor;
     /// Cancellation flag shared with all stages of the session.
     private final AtomicBoolean isCancelled;
+    /// Flag raised when the batch ending the block has been received, shared
+    /// with the result handling stage so it can discriminate between a
+    /// cancelled complete block and an incomplete one.
+    private final AtomicBoolean endOfBlockReceived;
     /// The block node context, for access to core facilities.
     private final BlockNodeContext context;
     /// The last successfully verified block, shared across sessions.
@@ -96,6 +100,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         this.blockSource = Objects.requireNonNull(blockSource);
         this.executor = Objects.requireNonNull(executor);
         this.isCancelled = new AtomicBoolean(false);
+        this.endOfBlockReceived = new AtomicBoolean(false);
         this.blockItemsDeque = new ConcurrentLinkedDeque<>();
         this.verificationConfig = Objects.requireNonNull(verificationConfig);
         this.finishedSessions = Objects.requireNonNull(finishedSessions);
@@ -147,7 +152,8 @@ public final class CompletableVerificationSession implements BlockVerificationSe
                 blockNumber,
                 blockSource,
                 finishedSessions,
-                sessionKey);
+                sessionKey,
+                endOfBlockReceived);
         final CompletableFuture<BlockVerificationResult> completionChain = CompletableFuture.supplyAsync(
                         hasher, executor)
                 .thenApply(verifier)
@@ -178,6 +184,12 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         } finally {
             isCancelled.set(true);
         }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void markEndOfBlockReceived() {
+        endOfBlockReceived.set(true);
     }
 
     /// {@inheritDoc}

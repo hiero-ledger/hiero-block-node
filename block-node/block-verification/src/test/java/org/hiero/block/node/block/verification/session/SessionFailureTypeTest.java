@@ -66,6 +66,11 @@ class SessionFailureTypeTest {
     }
 
     @Test
+    void cancelledIncompleteMapsToCorrectFailureType() {
+        assertThat(SessionFailureType.CANCELLED_INCOMPLETE.asFailureType()).isEqualTo(FailureType.CANCELLED_INCOMPLETE);
+    }
+
+    @Test
     void unknownErrorMapsToCorrectFailureType() {
         assertThat(SessionFailureType.UNKNOWN_ERROR.asFailureType()).isEqualTo(FailureType.UNKNOWN_ERROR);
     }
@@ -79,6 +84,6 @@ class SessionFailureTypeTest {
 
     @Test
     void enumValueCount_matchesExpected() {
-        assertThat(SessionFailureType.values()).hasSize(11);
+        assertThat(SessionFailureType.values()).hasSize(12);
     }
 }

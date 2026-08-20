@@ -294,12 +294,13 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     /// This method must be called when a verification fails for a given block.
     /// If this handler was the one that streamed the block, we will attempt to
-    /// send an [EndOfStream] with a [Code#BAD_BLOCK_PROOF] and proceed to
-    /// schedule a shutdown for the handler.
+    /// send an [EndOfStream] with the given code and proceed to schedule a
+    /// shutdown for the handler.
     ///
     /// @param blockNumber of the block that failed verification
-    /// @return true if the handler has sent the [Code#BAD_BLOCK_PROOF] message
-    boolean handleFailedVerification(final long blockNumber) {
+    /// @param endStreamCode the end of stream code to send
+    /// @return true if the handler has sent the end of stream message
+    boolean handleFailedVerification(final long blockNumber, final Code endStreamCode) {
         LOGGER.log(
                 DEBUG,
                 "[{0}] Handler {1} handling failed verification for block {2}",
@@ -308,8 +309,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 blockNumber);
         if (unacknowledgedStreamedBlocks.remove(blockNumber)) {
             // If the block number that failed verification was sent by this
-            // handler, we need to send an EndOfStream with BAD_BLOCK_PROOF code.
-            endStreamWithCode(Code.BAD_BLOCK_PROOF, false, blockNumber);
+            // handler, we need to send an EndOfStream with the given code.
+            endStreamWithCode(endStreamCode, false, blockNumber);
             return true;
         } else {
             return false;
