@@ -187,7 +187,7 @@ class PublisherHandlerTest {
                     new PublisherHandler(1L, repliesPipeline, metrics, manager, TEST_CORRELATION_ID);
             manager.addHandler(handler);
 
-            handler.handleFailedVerification(42L);
+            handler.handleFailedVerification(42L, Code.BAD_BLOCK_PROOF);
 
             assertThat(logHandler.getLogMessages()).anyMatch(msg -> msg.startsWith("[" + TEST_CORRELATION_ID + "] "));
         }
@@ -202,7 +202,7 @@ class PublisherHandlerTest {
             final PublisherHandler handler = new PublisherHandler(1L, repliesPipeline, metrics, manager, null);
             manager.addHandler(handler);
 
-            handler.handleFailedVerification(42L);
+            handler.handleFailedVerification(42L, Code.BAD_BLOCK_PROOF);
 
             assertThat(logHandler.getLogMessages())
                     .anyMatch(msg -> msg.startsWith("[]"))
@@ -221,7 +221,7 @@ class PublisherHandlerTest {
             manager.addHandler(handler);
 
             // Triggers a DEBUG log: "Handler {0} handling failed verification for block {1}"
-            handler.handleFailedVerification(10L);
+            handler.handleFailedVerification(10L, Code.BAD_BLOCK_PROOF);
             // FLAKEY WARNING - Tests that rely on log output are rarely reliable.
             // Triggers a DEBUG log: "[{0}] Handler {1} ending with code {2}"
             handler.endStreamWithCode(Code.PERSISTENCE_FAILED, false, 0L);
@@ -247,8 +247,8 @@ class PublisherHandlerTest {
             manager.addHandler(handlerA);
             manager.addHandler(handlerB);
 
-            handlerA.handleFailedVerification(1L);
-            handlerB.handleFailedVerification(2L);
+            handlerA.handleFailedVerification(1L, Code.BAD_BLOCK_PROOF);
+            handlerB.handleFailedVerification(2L, Code.BAD_BLOCK_PROOF);
 
             assertThat(logHandler.getLogMessages())
                     .anyMatch(msg -> msg.startsWith("[" + idA + "] "))
@@ -2483,12 +2483,12 @@ class PublisherHandlerTest {
             }
         }
 
-        /// Tests for the [PublisherHandler#handleFailedVerification(long)]method.
+        /// Tests for the [PublisherHandler#handleFailedVerification(long,Code)] method.
         @Nested
         @DisplayName("handleFailedVerification() Tests")
         class HandleVerificationTests {
             /// This test aims to assert that the
-            /// [PublisherHandler#handleFailedVerification(long)] will
+            /// [PublisherHandler#handleFailedVerification(long,Code)] will
             /// correctly handle a failed verification by sending no response,
             /// when the publisher has not sent the block that failed verification.
             @Test
@@ -2497,7 +2497,7 @@ class PublisherHandlerTest {
             void testHandleVerificationNoResponse() {
                 final long expectedResponseBlockNumber = 0;
                 // Call
-                toTest.handleFailedVerification(expectedResponseBlockNumber);
+                toTest.handleFailedVerification(expectedResponseBlockNumber, Code.BAD_BLOCK_PROOF);
                 // Assert no response is sent and shared metrics is not updated
                 assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
@@ -2510,16 +2510,18 @@ class PublisherHandlerTest {
             }
 
             /// This test aims to assert that the
-            /// [PublisherHandler#handleFailedVerification(long)] will
+            /// [PublisherHandler#handleFailedVerification(long,Code)] will
             /// correctly handle a failed verification by sending a
             /// [org.hiero.block.api.PublishStreamResponse.EndOfStream]
-            /// response with code
-            /// [org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#BAD_BLOCK_PROOF]
+            /// response with the given code
             /// and then scheduling the handler to be shutdown.
-            @Test
+            @ParameterizedTest
+            @EnumSource(
+                    value = Code.class,
+                    names = {"BAD_BLOCK_PROOF", "ERROR"})
             @DisplayName(
-                    "handleFailedVerification() - EndOfStream response with Code BAD_BLOCK_PROOF when handler sent the block that failed verification")
-            void testHandleVerificationBadProof() {
+                    "handleFailedVerification() - EndOfStream response with the given code when handler sent the block that failed verification")
+            void testHandleVerificationBadProof(final Code endStreamCode) {
                 // Generate any block, we do not have an actual verification, we will simulate a failure
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final long expectedBlockNumber = block.number();
@@ -2540,13 +2542,13 @@ class PublisherHandlerTest {
                 final long latestBlockNumber = expectedBlockNumber - 1L;
                 manager.setLatestBlockNumber(latestBlockNumber);
                 // Call
-                toTest.handleFailedVerification(expectedBlockNumber);
-                // Assert single response is EndOfStream with Code BAD_BLOCK_PROOF
+                toTest.handleFailedVerification(expectedBlockNumber, endStreamCode);
+                // Assert single response is EndOfStream with the given code
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
-                        .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
+                        .returns(endStreamCode, endStreamResponseCodeExtractor)
                         .returns(latestBlockNumber, endStreamBlockNumberExtractor);
                 // We expect a shutdown to be scheduled
                 // We need to send any request or trigger any pipeline method
