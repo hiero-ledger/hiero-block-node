@@ -1,0 +1,147 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 50kbps
+#
+# Stress tier of the bandwidth-lag failure mode family.
+# Models near-complete link failure between all CNs and BN1 — e.g. a pod network
+# policy misconfiguration, a saturated fabric uplink, or a cloud AZ routing event
+# that effectively blacks out CN→BN ingest. BN1 is starved to ~12.5% of its
+# normal ingest rate.
+#
+# Design:
+#   - CN→BN1 is capped at 50kbps — BN1 receives blocks at ~12.5% of data rate
+#     (~50 KB/s = 400kbps needed; 50kbps allows only ~6.25 KB/s).
+#   - All BN peers→BN1 are also capped at 50kbps so greedy backfill cannot
+#     neutralise the starvation during chaos.
+#   - BN2 and BN3 receive no throttle — they serve as reference nodes.
+#
+# Rate rationale (50kbps):
+#   Lag accrues at ~87.5% of the block rate (0.5 blk/s × 87.5% ≈ 0.44 blk/s).
+#   Over the 150s chaos window this produces ~66 blocks of divergence.
+#   This corresponds to a worst-case production outage: all 39 CN streams to BN1
+#   are effectively unusable, leaving BN1 to fall massively behind the live tip.
+#   BN1 must rely entirely on BN-peer backfill (also throttled) and the brief
+#   recovery window after chaos clears.
+#
+# Assertions:
+#   blocks-diverged  min_spread=30  — expect 60+ blocks; 30 is conservative to
+#                                     avoid flakiness when block sizes vary.
+#   blocks-converged tolerance=60   — BN1 has a large gap to close; greedy
+#                                     backfill from BN2/BN3 takes time at full speed.
+#
+# Note: the extended load-stop delay (480s) gives BN1 more time post-chaos to
+# begin closing its gap before assertions run. The blocks-converged assertion may
+# still be tight on slower CI hardware; loosen tolerance_blocks if flaky.
+#
+# Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
+#
+# Pre-req:
+#   task up TOPOLOGY=paired-3
+#   CHAOS_ENABLED=true task chaos:install
+#
+# Usage:
+#   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-stress.yaml
+
+name: bandwidth-lag-stress
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (50kbps) — stress/near-complete-failure scenario"
+
+events:
+  - id: load-start
+    type: load-start
+    description: "Start NLG load"
+    delay: 0
+    args:
+      concurrency: 5
+      accounts: 10
+      duration: 540
+
+  - id: inject-cn-bn1-bw
+    type: inject-bandwidth
+    description: "Cap CN→BN1 to 50kbps — BN1 starved to ~12.5% of block production rate"
+    delay: 30
+    args:
+      name: cn-to-bn1-bw-stress
+      source: { kind: network-node }
+      target: { kind: block-node, name: block-node-1 }
+      rate: "50kbps"
+      limit: 62500
+      buffer: 10000
+      bidirectional: false
+
+  - id: inject-peer-bn1-bw
+    type: inject-bandwidth
+    description: "Cap all BN peers→BN1 to 50kbps — prevents greedy backfill from neutralising starvation"
+    delay: 35
+    args:
+      name: peer-to-bn1-bw-stress
+      source: { kind: block-node }
+      target: { kind: block-node, name: block-node-1 }
+      rate: "50kbps"
+      limit: 62500
+      buffer: 10000
+      bidirectional: false
+
+  - id: snapshot-peak-chaos
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights at peak chaos (≈150s into chaos window)"
+    delay: 180
+    args: { snapshot_id: peak-chaos-stress }
+
+  - id: clear-cn-bn1-bw
+    type: clear-bandwidth
+    description: "Clear CN→BN1 bandwidth cap"
+    delay: 330
+    args: { name: cn-to-bn1-bw-stress }
+
+  - id: clear-peer-bn1-bw
+    type: clear-bandwidth
+    description: "Clear BN peers→BN1 bandwidth cap"
+    delay: 335
+    args: { name: peer-to-bn1-bw-stress }
+
+  - id: load-stop
+    type: load-stop
+    description: "Stop NLG load — extended window to allow BN1 to begin closing its large gap"
+    delay: 510
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All BNs survive severe bandwidth starvation and stay/return healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All BNs still have blocks after chaos"
+    target: all
+    args:
+      min_block: 0
+
+  - id: blocks-diverged
+    type: blocks-diverged
+    description: "BNs were at least 30 blocks apart at peak chaos — confirms 50kbps starvation caused massive cumulative lag on BN1"
+    args:
+      snapshot_id: peak-chaos-stress
+      min_spread: 30
+
+  - id: blocks-converged
+    type: blocks-converged
+    description: "All BNs converge to within 60 blocks after bandwidth clears — allows BN1 time to close large backfill gap via BN-peer sources"
+    args:
+      tolerance_blocks: 60
+
+  - id: blocks-increasing
+    type: blocks-increasing
+    description: "Block production recovers on all BNs after bandwidth clears"
+    target: all
+    args:
+      wait_seconds: 120
+      max_attempts: 5
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Post-chaos block rate recovers to ≥ 0.1 blk/s on all BNs"
+    target: all
+    args:
+      min_rate_per_sec: 0.1
+      window_seconds: 30

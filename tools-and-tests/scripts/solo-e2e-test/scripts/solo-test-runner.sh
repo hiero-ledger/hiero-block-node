@@ -569,7 +569,7 @@ function chaos_slug {
 function chaos_resource_name {
     local scenario_name="$1"
     local n="$(chaos_slug "${TEST_NAME}")--$(chaos_slug "${scenario_name}")"
-    echo "${n:0:63}"
+    echo "${n:0:63}" | sed 's/-*$//'
 }
 
 function execute_inject_latency {
@@ -583,7 +583,7 @@ function execute_inject_latency {
     latency=$(echo "$args" | yq '.latency // "0ms"')
     jitter=$(echo "$args" | yq '.jitter // "0ms"')
     correlation=$(echo "$args" | yq '.correlation // "0"')
-    bidirectional=$(echo "$args" | yq '.bidirectional // true')
+    bidirectional=$(echo "$args" | yq 'if has("bidirectional") then .bidirectional else true end')
     loss=$(echo "$args" | yq '.loss // ""')
     loss="${loss//%/}"  # Chaos Mesh expects plain numeric string, not "50%"
 
@@ -698,6 +698,101 @@ function execute_clear_latency {
     fi
 }
 
+function execute_inject_bandwidth {
+    local args="$1"
+    local name source_kind source_name target_kind target_name rate limit buffer bidirectional
+    name=$(echo "$args" | yq '.name // ""')
+    source_kind=$(echo "$args" | yq '.source.kind // ""')
+    source_name=$(echo "$args" | yq '.source.name // ""')
+    target_kind=$(echo "$args" | yq '.target.kind // ""')
+    target_name=$(echo "$args" | yq '.target.name // ""')
+    rate=$(echo "$args" | yq '.rate // "1mbps"')
+    limit=$(echo "$args" | yq '.limit // 1000000')
+    buffer=$(echo "$args" | yq '.buffer // 10000')
+    bidirectional=$(echo "$args" | yq '.bidirectional // false')
+
+    [[ -z "$name" || "$name" == "null" ]] && { echo "ERROR: inject-bandwidth requires args.name"; return 1; }
+    [[ -z "$source_kind" || "$source_kind" == "null" ]] && { echo "ERROR: inject-bandwidth requires args.source.kind"; return 1; }
+    [[ -z "$target_kind" || "$target_kind" == "null" ]] && { echo "ERROR: inject-bandwidth requires args.target.kind"; return 1; }
+
+    # Retry the CRD check — kubectl can return non-zero transiently after
+    # Chaos Mesh install (CRD propagation lag) or under cluster API-server load.
+    local crd_attempts=0
+    local crd_max=6
+    while [[ $crd_attempts -lt $crd_max ]]; do
+        if kctl api-resources --api-group=chaos-mesh.org -o name 2>/dev/null | grep -q networkchaos; then
+            break
+        fi
+        crd_attempts=$((crd_attempts + 1))
+        [[ $crd_attempts -lt $crd_max ]] && sleep 2
+    done
+    if [[ $crd_attempts -ge $crd_max ]]; then
+        echo "ERROR: Chaos Mesh CRDs not present after ${crd_max} retries. Run: CHAOS_ENABLED=true task chaos:install"
+        return 1
+    fi
+
+    local source_selector target_selector
+    source_selector=$(chaos_label_selector "$source_kind") || return 1
+    target_selector=$(chaos_label_selector "$target_kind") || return 1
+    local source_key="${source_selector%%=*}" source_val="${source_selector#*=}"
+    local target_key="${target_selector%%=*}" target_val="${target_selector#*=}"
+    local source_name_filter="" target_name_filter=""
+    local source_dryrun_selector="${source_selector}"
+    local target_dryrun_selector="${target_selector}"
+    if [[ -n "${source_name}" && "${source_name}" != "null" ]]; then
+        source_dryrun_selector="${source_selector},app.kubernetes.io/instance=${source_name}"
+        source_name_filter="      app.kubernetes.io/instance: ${source_name}"
+    fi
+    if [[ -n "${target_name}" && "${target_name}" != "null" ]]; then
+        target_dryrun_selector="${target_selector},app.kubernetes.io/instance=${target_name}"
+        target_name_filter="        app.kubernetes.io/instance: ${target_name}"
+    fi
+
+    if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
+            --selector "${source_dryrun_selector}" --label "source(${source_kind})"; then
+        return 1
+    fi
+    if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
+            --selector "${target_dryrun_selector}" --label "target(${target_kind})"; then
+        return 1
+    fi
+
+    local chaos_name direction
+    chaos_name=$(chaos_resource_name "${name}")
+
+    if [[ "${bidirectional}" == "true" ]]; then
+        direction="both"
+    else
+        direction="to"
+    fi
+
+    local manifest="/tmp/${chaos_name}.yaml"
+    export CHAOS_NAME="${chaos_name}"
+    export TEST_ID="$(chaos_slug "${TEST_NAME}")"
+    export SCENARIO_ID="$(chaos_slug "${name}")"
+    export DIRECTION="${direction}"
+    export TARGET_NAMESPACE="${NAMESPACE}"
+    export SOURCE_LABEL_KEY="${source_key}"
+    export SOURCE_LABEL_VALUE="${source_val}"
+    export SOURCE_NAME_FILTER="${source_name_filter}"
+    export TARGET_LABEL_KEY="${target_key}"
+    export TARGET_LABEL_VALUE="${target_val}"
+    export TARGET_NAME_FILTER="${target_name_filter}"
+    export BANDWIDTH_RATE="${rate}"
+    export BANDWIDTH_LIMIT="${limit}"
+    export BANDWIDTH_BUFFER="${buffer}"
+
+    envsubst < "${CHAOS_TEMPLATE_DIR}/network-bandwidth.yaml.tmpl" > "${manifest}"
+
+    echo "Applying NetworkChaos '${chaos_name}'"
+    echo "  selector: ${source_key}=${source_val}${source_name:+,instance=${source_name}}  ->  target: ${target_key}=${target_val}${target_name:+,instance=${target_name}}"
+    echo "  bandwidth: ${rate} (limit: ${limit}, buffer: ${buffer}, direction: ${direction})"
+
+    kctl apply -f "${manifest}"
+
+    echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
+}
+
 # ============================================================================
 # Event Dispatch
 # ============================================================================
@@ -785,6 +880,12 @@ function execute_event {
             execute_inject_latency "$args"
             ;;
         clear-latency)
+            execute_clear_latency "$args"
+            ;;
+        inject-bandwidth)
+            execute_inject_bandwidth "$args"
+            ;;
+        clear-bandwidth)
             execute_clear_latency "$args"
             ;;
         *)

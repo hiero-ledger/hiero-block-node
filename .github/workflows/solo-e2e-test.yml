@@ -82,7 +82,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe, bandwidth-lag, bandwidth-lag-severe, bandwidth-lag-stress"
         type: string
         default: "none"
     outputs:
@@ -204,7 +204,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe, bandwidth-lag, bandwidth-lag-severe, bandwidth-lag-stress"
         required: false
         default: "none"
 
@@ -533,7 +533,7 @@ jobs:
       # Chaos Mesh CRDs in the cluster. solo-test-runner only checks for the CRDs (it does not install them),
       # so install Chaos Mesh when a chaos/latency test is selected. No-op for every other run.
       - name: Install Chaos Mesh (chaos/latency tests only)
-        if: ${{ contains(inputs.test-definition, 'chaos') || contains(inputs.test-definition, 'latency') }}
+        if: ${{ contains(inputs.test-definition, 'chaos') || contains(inputs.test-definition, 'latency') || contains(inputs.test-definition, 'bandwidth') }}
         run: |
           if kubectl api-resources --api-group=chaos-mesh.org -o name 2>/dev/null | grep -q networkchaos; then
             echo "Chaos Mesh CRDs already present, skipping install"
