@@ -317,6 +317,43 @@ jobs:
           # the resolved mn_version below.
           MN_RESOLVED=$(echo "$OUTPUT" | grep "^mn_version=" | cut -d= -f2)
           echo "MN_VERSION=${MN_RESOLVED}" >> "${GITHUB_ENV}"
+          # Solo installs the Consensus Node from a build zip on builds.hedera.com and only
+          # tagged releases are published there. A -SNAPSHOT (what 'main' resolves to, from
+          # version.txt on the CN branch) has no artifact, so it must be built from source and
+          # handed to Solo via --local-build-path. Flag that for the steps below.
+          CN_RESOLVED=$(echo "$OUTPUT" | grep "^cn_version=" | cut -d= -f2)
+          if [[ "${CN_RESOLVED}" == *-SNAPSHOT ]]; then
+            echo "cn_needs_local_build=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "cn_needs_local_build=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      # Only for a -SNAPSHOT Consensus Node: build it from source, since no artifact exists.
+      - name: Checkout Consensus Node source
+        if: steps.versions.outputs.cn_needs_local_build == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: hiero-ledger/hiero-consensus-node
+          ref: main
+          path: hiero-consensus-node
+          fetch-depth: 1
+
+      - name: Build Consensus Node from source
+        id: cn-build
+        if: steps.versions.outputs.cn_needs_local_build == 'true'
+        working-directory: hiero-consensus-node
+        run: |
+          echo "Building Consensus Node $(cat version.txt) at $(git rev-parse --short HEAD)"
+          ./gradlew assemble --no-daemon
+          # Solo wants the data directory itself and validates it holds apps/ and lib/.
+          CN_DATA_DIR="${PWD}/hedera-node/data"
+          for subdirectory in apps lib; do
+            if [[ ! -d "${CN_DATA_DIR}/${subdirectory}" ]]; then
+              echo "ERROR: ${CN_DATA_DIR}/${subdirectory} missing after assemble" >&2
+              exit 1
+            fi
+          done
+          echo "cn_local_build_path=${CN_DATA_DIR}" >> "${GITHUB_OUTPUT}"
 
       # Install Solo CLI (npm by default, or build an approved fork/branch when solo-source=git)
       - name: Install Solo CLI
@@ -398,7 +435,16 @@ jobs:
 
       # Deploy network using shared script
       - name: Deploy network
+        env:
+          # Empty unless the Consensus Node was built from source above, in which case Solo
+          # is pointed at those jars instead of downloading a (nonexistent) SNAPSHOT zip.
+          CN_LOCAL_BUILD_PATH: "${{ steps.cn-build.outputs.cn_local_build_path }}"
         run: |
+          CN_LOCAL_BUILD_ARG=""
+          if [[ -n "${CN_LOCAL_BUILD_PATH}" ]]; then
+            CN_LOCAL_BUILD_ARG="--cn-local-build-path ${CN_LOCAL_BUILD_PATH}"
+          fi
+
           ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-deploy-network.sh \
             --deployment "${DEPLOYMENT}" \
             --namespace "${NAMESPACE}" \
@@ -406,6 +452,7 @@ jobs:
             --topology "${{ inputs.topology }}" \
             --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies" \
             --cn-version "${{ steps.versions.outputs.cn_version }}" \
+            ${CN_LOCAL_BUILD_ARG} \
             --mn-version "${{ steps.versions.outputs.mn_version }}" \
             --bn-version "${{ steps.versions.outputs.bn_version }}" \
             --relay-version "${{ steps.versions.outputs.relay_version }}" \

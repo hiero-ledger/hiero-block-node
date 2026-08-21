@@ -52,7 +52,7 @@ vars:
   # 'main' by default: no published CN tag yet carries the fixed 16-slot block-root hashing
   # rework, so a released tag cannot verify against current BN/MN. 'main' resolves to a
   # -SNAPSHOT with no published build artifact, so it requires CN_LOCAL_BUILD_PATH below.
-  # CI keeps its own 'latest'/'rc' defaults — runners have no CN checkout to build.
+  # CI builds the Consensus Node itself when the resolved version is a -SNAPSHOT.
   CN_VERSION: '{{.CN_VERSION | default "main"}}'
   # Path to a built Consensus Node 'hedera-node/data' directory. Required when CN_VERSION
   # resolves to a -SNAPSHOT (e.g. CN_VERSION=main), which has no published build artifact.

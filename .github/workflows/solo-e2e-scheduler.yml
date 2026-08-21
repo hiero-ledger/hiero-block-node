@@ -211,12 +211,21 @@ jobs:
             CN_VERSION="${{ inputs.consensus-node-version }}"
             CN_VERSION="${CN_VERSION:-main}"
             MN_VERSION="${{ inputs.mirror-node-version }}"
-            MN_VERSION="${MN_VERSION:-main}"
+            # Mirror Node publishes no 'main' snapshots, so this cannot default to main.
+            # Pinned to the first release carrying the reworked block-root hashing, which is
+            # what a 'main' Consensus Node produces.
+            MN_VERSION="${MN_VERSION:-v0.162.0-rc1}"
           else
-            # Scheduled runs (daily/weekend): use SNAPSHOT BN against GA stable CN/MN
-            BN_VERSION="main"
-            CN_VERSION="latest"
-            MN_VERSION="latest"
+            # Scheduled runs (daily/weekend) and manual dispatches that named no Block Node
+            # version. Honour any explicitly supplied version — this branch used to hardcode
+            # all three, so a manual dispatch setting only consensus-node-version had it
+            # silently discarded.
+            BN_VERSION="${{ inputs.block-node-version }}"
+            BN_VERSION="${BN_VERSION:-main}"
+            CN_VERSION="${{ inputs.consensus-node-version }}"
+            CN_VERSION="${CN_VERSION:-main}"
+            MN_VERSION="${{ inputs.mirror-node-version }}"
+            MN_VERSION="${MN_VERSION:-v0.162.0-rc1}"
           fi
 
           # Solo CLI version: use input if provided, otherwise default to latest stable

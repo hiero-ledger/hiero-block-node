@@ -259,8 +259,11 @@ and Mirror Node. That means a local `task up` requires `CN_LOCAL_BUILD_PATH`; th
 if it is unset. Pin a released tag (`v0.79.0-alpha.1`, `v0.78.0-rc.2`) if you want to skip the build
 and don't need the new hashing.
 
-CI is unaffected — the `solo-e2e-test` and `solo-e2e-scheduler` workflows pass their own
-`latest` / `rc` values, since runners have no Consensus Node checkout to build from.
+CI does the same thing automatically. When the resolved CN version ends in `-SNAPSHOT`,
+`solo-e2e-test.yml` checks out `hiero-ledger/hiero-consensus-node` at `main`, runs
+`./gradlew assemble`, and passes the result as `--cn-local-build-path`. Released tags skip
+the build entirely and fetch the published zip as before, so only SNAPSHOT runs pay the
+build cost.
 
 Solo does not pull the Consensus Node as a container image. `solo consensus node setup` downloads a
 platform build zip from `builds.hedera.com/node/software/<vMAJOR.MINOR>/build-<tag>.zip` and unpacks it
