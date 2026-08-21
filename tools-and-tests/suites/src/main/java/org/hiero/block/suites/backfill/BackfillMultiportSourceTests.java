@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient;
@@ -128,7 +129,7 @@ public class BackfillMultiportSourceTests {
         awaitRunning();
 
         publishBlocks(defaultPort);
-
+        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1_500));
         // The backfill client: subscribe dials `subscribe_port`, serverStatus dials `status_port`.
         // `port` is only a fallback and points at the default port (which serves neither of these
         // two RPCs), so the test fails if either RPC falls back instead of using its dedicated port.
