@@ -3,12 +3,14 @@ package org.hiero.block.tools.push;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.block.stream.Block;
 import org.hiero.block.tools.config.HelidonWebClientConfig;
+import org.hiero.block.tools.push.LiveBlockPushClient.QueryFailedException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -27,9 +29,24 @@ class LiveBlockPushClientTest {
     /** Port 1 is reserved and effectively always refuses TCP connections — used as an unreachable target. */
     private static final int UNREACHABLE_PORT = 1;
 
+    /**
+     * A second reserved/unreachable port, distinct from {@link #UNREACHABLE_PORT}, so a split-port
+     * test can tell which of the two client URIs the code actually contacted.
+     */
+    private static final int UNREACHABLE_STATUS_PORT = 7;
+
     private static LiveBlockPushClient newClient(final int queueCapacity) {
         return new LiveBlockPushClient(
                 "127.0.0.1", UNREACHABLE_PORT, queueCapacity, LiveBlockPushClient.loadDefaultWebConfig());
+    }
+
+    private static LiveBlockPushClient newSplitPortClient(final int queueCapacity) {
+        return new LiveBlockPushClient(
+                "127.0.0.1",
+                UNREACHABLE_PORT,
+                UNREACHABLE_STATUS_PORT,
+                queueCapacity,
+                LiveBlockPushClient.loadDefaultWebConfig());
     }
 
     @Nested
@@ -98,12 +115,43 @@ class LiveBlockPushClientTest {
     class UnreachableBn {
 
         @Test
-        @DisplayName("queryLastAvailableBlock() returns -1 when the BN is unreachable")
+        @DisplayName("queryLastAvailableBlock() throws QueryFailedException when the BN is unreachable")
         @Timeout(60)
-        void queryReturnsMinusOneOnUnreachable() {
+        void queryThrowsOnUnreachable() {
             try (final LiveBlockPushClient client = newClient(8)) {
-                final long result = client.queryLastAvailableBlock();
-                assertEquals(-1L, result, "Expected sentinel -1 when BN is unreachable");
+                final QueryFailedException thrown = assertThrows(
+                        QueryFailedException.class,
+                        client::queryLastAvailableBlock,
+                        "Expected QueryFailedException when BN is unreachable (silent -1 return caused #3374)");
+                final String msg = thrown.getMessage();
+                assertTrue(
+                        msg.contains("127.0.0.1") && msg.contains(":1"),
+                        "Message must name the host:port that was tried so a port mismatch is diagnosable; was: "
+                                + msg);
+            }
+        }
+
+        @Test
+        @DisplayName("queryLastAvailableBlock() uses the status port, not the publish port, in split-port mode")
+        @Timeout(60)
+        void queryUsesStatusPortInSplitPortMode() {
+            // Publish port = 1, status port = 7 — both unreachable, distinct so the message
+            // uniquely identifies which URI the query actually contacted. Guards against a
+            // regression in buildStatusWebClient()/statusPort routing that would otherwise
+            // silently query the publish port and only surface in production against real BNs.
+            try (final LiveBlockPushClient client = newSplitPortClient(8)) {
+                final QueryFailedException thrown =
+                        assertThrows(QueryFailedException.class, client::queryLastAvailableBlock);
+                final String msg = thrown.getMessage();
+                assertTrue(
+                        msg.contains(":" + UNREACHABLE_STATUS_PORT),
+                        "Message must name the STATUS port (" + UNREACHABLE_STATUS_PORT
+                                + ") the query targets — otherwise the split-port routing is broken; was: "
+                                + msg);
+                assertFalse(
+                        msg.contains(":" + UNREACHABLE_PORT + ")") || msg.contains(":" + UNREACHABLE_PORT + " "),
+                        "Message must NOT name the publish port (" + UNREACHABLE_PORT
+                                + ") — that would mean the query went to the wrong port; was: " + msg);
             }
         }
     }

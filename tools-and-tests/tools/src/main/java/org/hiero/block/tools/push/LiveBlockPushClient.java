@@ -28,6 +28,7 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
@@ -61,6 +62,7 @@ public final class LiveBlockPushClient implements AutoCloseable {
 
     private final String host;
     private final int port;
+    private final int statusPort;
     private final HelidonWebClientConfig webConfig;
     private final BlockingQueue<QueuedBlock> queue;
     private final long maxBatchBytes;
@@ -75,18 +77,36 @@ public final class LiveBlockPushClient implements AutoCloseable {
     private final AtomicLong streamReconnects = new AtomicLong();
 
     private Thread worker;
-    private WebClient cachedWebClient; // lazily created once and reused for every session
+    private WebClient cachedPublishWebClient; // lazily created for the publish stream
+    private WebClient cachedStatusWebClient; // lazily created for the BlockNodeService (status) queries
+
+    /**
+     * Same as {@link #LiveBlockPushClient(String, int, int, int, HelidonWebClientConfig)} with
+     * the status port defaulting to the publish port — the common single-port deployment.
+     */
+    public LiveBlockPushClient(
+            final String host, final int port, final int queueCapacity, final HelidonWebClientConfig webConfig) {
+        this(host, port, port, queueCapacity, webConfig);
+    }
 
     /**
      * @param host BN host
-     * @param port BN port (publish service)
+     * @param port BN publish-service port ({@code BlockStreamPublishService})
+     * @param statusPort BN block-node-service port ({@code BlockNodeService}) — different from
+     *     {@code port} in split-port deployments where per-API services listen on distinct ports;
+     *     equal to {@code port} in the common single-port deployment
      * @param queueCapacity backpressure queue size (blocks)
      * @param webConfig Helidon/gRPC tuning; uses {@code serverMaxMessageSizeBytes} for batching
      */
     public LiveBlockPushClient(
-            final String host, final int port, final int queueCapacity, final HelidonWebClientConfig webConfig) {
+            final String host,
+            final int port,
+            final int statusPort,
+            final int queueCapacity,
+            final HelidonWebClientConfig webConfig) {
         this.host = host;
         this.port = port;
+        this.statusPort = statusPort;
         this.webConfig = webConfig;
         this.queue = new ArrayBlockingQueue<>(Math.max(1, queueCapacity));
         this.maxBatchBytes = webConfig.serverMaxMessageSizeBytes();
@@ -114,10 +134,26 @@ public final class LiveBlockPushClient implements AutoCloseable {
         }
     }
 
-    /** Query the target BN once for its current {@code lastAvailableBlock}; returns -1 on error. */
-    public long queryLastAvailableBlock() {
+    /**
+     * Query the target BN once for its current {@code lastAvailableBlock}.
+     *
+     * <p>Throws instead of returning a sentinel: if the query fails the caller MUST NOT proceed
+     * with a made-up watermark. A stale/absent watermark causes the producer to push every block
+     * from 0, which the BN dedups with {@code EndOfStream(DUPLICATE_BLOCK)} and drops the stream
+     * mid-block — triggering an unbounded reconnect/SkipBlock loop where nothing ever persists
+     * (see {@code #3374}).
+     *
+     * <p><b>Empty-BN case:</b> a BN with no blocks advertises {@code lastAvailableBlock} as
+     * unsigned 64-bit max, which surfaces here as {@code -1L}. That is a legitimate
+     * "push everything from block 0" watermark for the producer's {@code blockNum > watermark}
+     * guard — not an error. Callers should not treat a negative return value as failure.
+     *
+     * @throws QueryFailedException wrapping the underlying gRPC/network failure; the message
+     *     names the {@code host:statusPort} that was tried
+     */
+    public long queryLastAvailableBlock() throws QueryFailedException {
         try {
-            final WebClient web = buildWebClient();
+            final WebClient web = buildStatusWebClient();
             final PbjGrpcClient pbj = new PbjGrpcClient(web, buildGrpcConfig());
             final BlockNodeServiceInterface.BlockNodeServiceClient client =
                     new BlockNodeServiceInterface.BlockNodeServiceClient(pbj, defaultOptions());
@@ -125,8 +161,20 @@ public final class LiveBlockPushClient implements AutoCloseable {
                     client.serverStatus(ServerStatusRequest.newBuilder().build());
             return resp.lastAvailableBlock();
         } catch (final Exception e) {
-            System.err.println("[push] queryLastAvailableBlock failed: " + e.getMessage());
-            return -1;
+            throw new QueryFailedException(host, statusPort, e);
+        }
+    }
+
+    /**
+     * Thrown when {@link #queryLastAvailableBlock()} cannot reach the BN's {@code
+     * BlockNodeService} on {@code host:statusPort}. Common causes: BN not running, wrong port
+     * (in split-port deployments the publish port and status port differ), or firewall.
+     */
+    public static final class QueryFailedException extends Exception {
+        QueryFailedException(final String host, final int statusPort, final Throwable cause) {
+            super("queryLastAvailableBlock failed against " + host + ":" + statusPort + " (" + cause.getMessage()
+                    + "); if the BN uses split ports, pass --push-bn-status-port for its BlockNodeService port");
+            initCause(cause);
         }
     }
 
@@ -321,6 +369,18 @@ public final class LiveBlockPushClient implements AutoCloseable {
                     PublishStreamRequest.newBuilder().blockItems(set).build();
             session.requestPipeline.onNext(req);
         }
+        // Emit the mandatory end_of_block message after the block's items. Without this, the BN's
+        // PublisherHandler stays "mid-block" for qb.blockNumber and never commits it — the next
+        // block's BlockHeader triggers PublisherHandler.handleBlockItemsRequest's mid-block guard,
+        // which fires blockIsEnding() and marks the block for resend. Every subsequent block
+        // repeats the pattern, producing the "Handler N is ending mid-block X" cascade with zero
+        // blocks ever persisted. See BlockStreamPublishService.PublishStreamRequest.oneof: the
+        // publish protocol requires exactly one end_of_block per block, distinct from the item
+        // batches that carry the BlockProof.
+        final BlockEnd endOfBlock =
+                BlockEnd.newBuilder().blockNumber(qb.blockNumber).build();
+        session.requestPipeline.onNext(
+                PublishStreamRequest.newBuilder().endOfBlock(endOfBlock).build());
         // Only increment `submitted` on the first send of a given block — reattempts after a
         // stream reconnect walk in-flight in ascending order, so a block <= the current high
         // watermark has already been counted.
@@ -382,31 +442,51 @@ public final class LiveBlockPushClient implements AutoCloseable {
 
     // ------- gRPC plumbing -------
 
+    /** Web client for the publish stream ({@code host:port}). Lazily cached. */
     private WebClient buildWebClient() {
-        if (cachedWebClient == null) {
-            final Duration timeout = Duration.ofMillis(webConfig.readTimeoutMillis());
-            final Tls tls = Tls.builder().enabled(false).build();
-            final Http2ClientProtocolConfig http2Config = Http2ClientProtocolConfig.builder()
-                    .flowControlBlockTimeout(Duration.ofMillis(webConfig.flowControlTimeoutMillis()))
-                    .initialWindowSize(webConfig.initialWindowSize())
-                    .maxFrameSize(webConfig.maxFrameSize())
-                    .maxHeaderListSize(webConfig.maxHeaderListSize())
-                    .ping(webConfig.pingEnabled())
-                    .pingTimeout(Duration.ofMillis(webConfig.pingTimeoutMillis()))
-                    .priorKnowledge(webConfig.priorKnowledge())
-                    .build();
-            final GrpcClientProtocolConfig grpcProtocolConfig = GrpcClientProtocolConfig.builder()
-                    .abortPollTimeExpired(false)
-                    .pollWaitTime(timeout)
-                    .build();
-            cachedWebClient = WebClient.builder()
-                    .baseUri("http://" + host + ":" + port)
-                    .tls(tls)
-                    .protocolConfigs(List.of(http2Config, grpcProtocolConfig))
-                    .connectTimeout(timeout)
-                    .build();
+        if (cachedPublishWebClient == null) {
+            cachedPublishWebClient = buildWebClientFor(port);
         }
-        return cachedWebClient;
+        return cachedPublishWebClient;
+    }
+
+    /**
+     * Web client for the BN status query ({@code host:statusPort}). Cached separately from the
+     * publish stream client because in split-port deployments the two services listen on
+     * different ports.
+     */
+    private WebClient buildStatusWebClient() {
+        if (statusPort == port) {
+            return buildWebClient();
+        }
+        if (cachedStatusWebClient == null) {
+            cachedStatusWebClient = buildWebClientFor(statusPort);
+        }
+        return cachedStatusWebClient;
+    }
+
+    private WebClient buildWebClientFor(final int targetPort) {
+        final Duration timeout = Duration.ofMillis(webConfig.readTimeoutMillis());
+        final Tls tls = Tls.builder().enabled(false).build();
+        final Http2ClientProtocolConfig http2Config = Http2ClientProtocolConfig.builder()
+                .flowControlBlockTimeout(Duration.ofMillis(webConfig.flowControlTimeoutMillis()))
+                .initialWindowSize(webConfig.initialWindowSize())
+                .maxFrameSize(webConfig.maxFrameSize())
+                .maxHeaderListSize(webConfig.maxHeaderListSize())
+                .ping(webConfig.pingEnabled())
+                .pingTimeout(Duration.ofMillis(webConfig.pingTimeoutMillis()))
+                .priorKnowledge(webConfig.priorKnowledge())
+                .build();
+        final GrpcClientProtocolConfig grpcProtocolConfig = GrpcClientProtocolConfig.builder()
+                .abortPollTimeExpired(false)
+                .pollWaitTime(timeout)
+                .build();
+        return WebClient.builder()
+                .baseUri("http://" + host + ":" + targetPort)
+                .tls(tls)
+                .protocolConfigs(List.of(http2Config, grpcProtocolConfig))
+                .connectTimeout(timeout)
+                .build();
     }
 
     private PbjGrpcClientConfig buildGrpcConfig() {
