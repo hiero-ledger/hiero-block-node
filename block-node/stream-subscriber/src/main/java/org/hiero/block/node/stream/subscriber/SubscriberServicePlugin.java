@@ -13,14 +13,18 @@ import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
 import org.hiero.block.api.SubscribeStreamRequest;
@@ -32,6 +36,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
+import org.hiero.block.node.stream.subscriber.SubscriberServicePlugin.MetricsHolder.SessionMetrics;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -51,6 +56,21 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     /** Metric key for the number of subscriber errors */
     public static final MetricKey<LongCounter> METRIC_SUBSCRIBER_ERRORS =
             MetricKey.of("subscriber_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the time live batches wait between reaching a session and being sent */
+    public static final MetricKey<LongCounter> METRIC_SUBSCRIBER_LIVE_SEND_LATENCY_NS =
+            MetricKey.of("subscriber_live_send_latency_ns", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the number of live batches the send latency was measured over */
+    public static final MetricKey<LongCounter> METRIC_SUBSCRIBER_LIVE_BATCHES_SENT =
+            MetricKey.of("subscriber_live_batches_sent", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Dynamic label name identifying one subscriber session */
+    private static final String LABEL_SUBSCRIBER = "subscriber";
+    /**
+     * Number of subscriber sessions that get a metric label of their own. Sessions beyond this share a single
+     * overflow label, so the series count stays bounded no matter how many subscribers connect at once.
+     */
+    private static final int MAX_METRICS_SLOTS = 64;
+    /** Label value shared by every session that connects while all {@value #MAX_METRICS_SLOTS} slots are taken */
+    private static final String LABEL_VALUE_OVERFLOW = "overflow";
 
     /** The logger for this class. */
     private final Logger LOGGER = System.getLogger(getClass().getName());
@@ -126,6 +146,81 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     }
 
     /**
+     * Holder for the metrics of the subscriber service, registered once and shared by all sessions.
+     *
+     * @param numberOfSubscribers gauge of currently connected subscribers
+     * @param subscriberErrors counter of errors while streaming to subscribers
+     * @param sendLatencyNs counter accumulating, per subscriber, the time live batches waited between reaching a
+     *     session and being sent
+     * @param batchesSent counter of measured live batches per subscriber, the denominator for
+     *     {@code sendLatencyNs}
+     */
+    public record MetricsHolder(
+            LongGauge.Measurement numberOfSubscribers,
+            LongCounter.Measurement subscriberErrors,
+            LongCounter sendLatencyNs,
+            LongCounter batchesSent) {
+        /**
+         * Initialize and return a new {@link MetricsHolder} instance.
+         *
+         * @param metricRegistry used to create and initialize metrics
+         * @return a new {@link MetricsHolder} instance fully initialized
+         */
+        public static MetricsHolder createMetrics(@NonNull final MetricRegistry metricRegistry) {
+            final LongGauge.Measurement numberOfSubscribers = metricRegistry
+                    .register(LongGauge.builder(METRIC_SUBSCRIBER_OPEN_CONNECTIONS)
+                            .setDescription("Connected subscribers"))
+                    .getOrCreateNotLabeled();
+            final LongCounter.Measurement subscriberErrors = metricRegistry
+                    .register(LongCounter.builder(METRIC_SUBSCRIBER_ERRORS)
+                            .setDescription("Errors while streaming to subscribers"))
+                    .getOrCreateNotLabeled();
+            final LongCounter sendLatencyNs =
+                    metricRegistry.register(LongCounter.builder(METRIC_SUBSCRIBER_LIVE_SEND_LATENCY_NS)
+                            .setDescription(
+                                    "Time (ns) live batches waited between reaching a subscriber session and being sent")
+                            .addDynamicLabelNames(LABEL_SUBSCRIBER));
+            final LongCounter batchesSent =
+                    metricRegistry.register(LongCounter.builder(METRIC_SUBSCRIBER_LIVE_BATCHES_SENT)
+                            .setDescription("Live batches sent to subscribers, the denominator for the send latency")
+                            .addDynamicLabelNames(LABEL_SUBSCRIBER));
+            return new MetricsHolder(numberOfSubscribers, subscriberErrors, sendLatencyNs, batchesSent);
+        }
+
+        /**
+         * Resolve the send measurements for one session, labeled with the given slot.
+         *
+         * @param slot the slot index to use as the {@code subscriber} label value, or {@value #MAX_METRICS_SLOTS} for
+         *     a session that connected while all slots were taken
+         * @return the measurements that session records its sends to
+         */
+        public SessionMetrics forSlot(final int slot) {
+            final String labelValue = slot < MAX_METRICS_SLOTS ? Integer.toString(slot) : LABEL_VALUE_OVERFLOW;
+            return new SessionMetrics(
+                    sendLatencyNs.getOrCreateLabeled(LABEL_SUBSCRIBER, labelValue),
+                    batchesSent.getOrCreateLabeled(LABEL_SUBSCRIBER, labelValue));
+        }
+
+        /**
+         * The send measurements of one subscriber session.
+         *
+         * @param latencyNs accumulated send latency, in nanoseconds, for this session
+         * @param batches count of live batches measured for this session
+         */
+        public record SessionMetrics(LongCounter.Measurement latencyNs, LongCounter.Measurement batches) {
+            /**
+             * Record that one live batch was sent to the client.
+             *
+             * @param latencyNanos time the batch waited between reaching the session and being sent
+             */
+            public void recordBatchSent(final long latencyNanos) {
+                latencyNs.increment(latencyNanos);
+                batches.increment();
+            }
+        }
+    }
+
+    /**
      * Handler for block stream subscription requests from clients. Handles creation of session, assigning a clientId and managing futures.
      */
     static class SubscribeBlockStreamHandler
@@ -139,11 +234,16 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         private final BlockNodeContext context;
         /** Set of open client sessions */
         private volatile Map<Long, BlockStreamSubscriberSession> openSessions;
-        // Metrics
-        /** Counter for errors while streaming to subscribers */
-        private final LongCounter.Measurement subscriberErrorsCounter;
-        /** Gauge for number of subscribers */
-        private final LongGauge.Measurement numberOfSubscribers;
+        /** The metrics of the subscriber service */
+        private final MetricsHolder metrics;
+        /**
+         * Metric label slots released by ended sessions, available for reuse. Reusing them bounds the number of
+         * per-subscriber metric series by the peak count of concurrent subscribers, which matters because the metrics
+         * API has no way to unregister a labeled measurement once created.
+         */
+        private final Queue<Integer> freeMetricsSlots = new ConcurrentLinkedQueue<>();
+        /** The next metric label slot to use when no released slot is available */
+        private final AtomicInteger nextMetricsSlot = new AtomicInteger(0);
 
         private final ExecutorService virtualThreadExecutor;
         private volatile CompletionService<BlockStreamSubscriberSession> streamSessions;
@@ -154,15 +254,32 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
             streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
             // create the metrics
-            final MetricRegistry metricRegistry = context.metricRegistry();
-            numberOfSubscribers = metricRegistry
-                    .register(LongGauge.builder(METRIC_SUBSCRIBER_OPEN_CONNECTIONS)
-                            .setDescription("Connected subscribers"))
-                    .getOrCreateNotLabeled();
-            subscriberErrorsCounter = metricRegistry
-                    .register(LongCounter.builder(METRIC_SUBSCRIBER_ERRORS)
-                            .setDescription("Errors while streaming to subscribers"))
-                    .getOrCreateNotLabeled();
+            metrics = MetricsHolder.createMetrics(context.metricRegistry());
+        }
+
+        /**
+         * Take a metric label slot for a new session, reusing one released by an ended session when available.
+         * Once all {@value #MAX_METRICS_SLOTS} slots are in use, every further session gets the shared overflow slot.
+         *
+         * @return the slot index to label the new session's measurements with
+         */
+        private int acquireMetricsSlot() {
+            final Integer reused = freeMetricsSlots.poll();
+            return reused == null
+                    ? nextMetricsSlot.getAndUpdate(next -> Math.min(next + 1, MAX_METRICS_SLOTS))
+                    : reused;
+        }
+
+        /**
+         * Release a slot taken by {@link #acquireMetricsSlot()} so a later session can reuse its label value. The
+         * overflow slot is shared by any number of concurrent sessions, so it is never pooled.
+         *
+         * @param slot the slot the ended session was labeled with
+         */
+        private void releaseMetricsSlot(final int slot) {
+            if (slot < MAX_METRICS_SLOTS) {
+                freeMetricsSlots.add(slot);
+            }
         }
 
         private void stop() {
@@ -208,14 +325,29 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             final Map<Long, BlockStreamSubscriberSession> sessions = openSessions;
             if (streams != null && sessions != null) {
                 final SessionContext sessionContext = SessionContext.create(clientId, request, context);
-                final BlockStreamSubscriberSession blockStreamSession =
-                        new BlockStreamSubscriberSession(sessionContext, responsePipeline, context, sessionReadyLatch);
-                streams.submit(blockStreamSession);
+                final int metricsSlot = acquireMetricsSlot();
+                // Slots are recycled, so this is the only record of which client a `subscriber` label value refers to.
+                LOGGER.log(
+                        Level.DEBUG, "Subscriber session {0} is measured by metrics slot {1}.", clientId, metricsSlot);
+                final BlockStreamSubscriberSession blockStreamSession = new BlockStreamSubscriberSession(
+                        sessionContext,
+                        responsePipeline,
+                        context,
+                        sessionReadyLatch,
+                        metrics.forSlot(metricsSlot),
+                        () -> releaseMetricsSlot(metricsSlot));
+                try {
+                    streams.submit(blockStreamSession);
+                } catch (final RejectedExecutionException e) {
+                    // The session never runs, so it never releases its slot; release it here instead.
+                    releaseMetricsSlot(metricsSlot);
+                    throw e;
+                }
                 // Wait for the session to start
                 sessionReadyLatch.await();
                 // add the session to the set of open sessions
                 sessions.put(clientId, blockStreamSession);
-                numberOfSubscribers.set(sessionCount.incrementAndGet());
+                metrics.numberOfSubscribers().set(sessionCount.incrementAndGet());
                 Future<BlockStreamSubscriberSession> completedSessionFuture;
                 // Get any available completed sessions and log success/failure.
                 while ((completedSessionFuture = streams.poll()) != null) {
@@ -260,7 +392,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                     // Subscribers can reconnect or retry, so this is only an informational log.
                     final String message = "Subscriber session %(,d failed due to {0}.".formatted(clientId);
                     LOGGER.log(Level.INFO, message, failureCause);
-                    subscriberErrorsCounter.increment();
+                    metrics.subscriberErrors().increment();
                 } else {
                     // Otherwise, log that the session completed successfully.
                     LOGGER.log(Level.TRACE, "Subscriber session %(,d completed successfully.".formatted(clientId));
@@ -270,10 +402,10 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                 // the session to fail, so the error is significant.
                 final String message = "Subscriber session failed due to unhandled %s:%n{0}.".formatted(e.getCause());
                 LOGGER.log(Level.ERROR, message, e);
-                subscriberErrorsCounter.increment();
+                metrics.subscriberErrors().increment();
             }
             // Decrement the session count and update the metric.
-            numberOfSubscribers.set(sessionCount.decrementAndGet());
+            metrics.numberOfSubscribers().set(sessionCount.decrementAndGet());
         }
 
         /*==================== Testing Access Methods ====================*/
