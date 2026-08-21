@@ -86,13 +86,13 @@ kubectl rollout status statefulset/block-node-block-node-server \
 
 A default install provisions five PVCs (per-pod, via `volumeClaimTemplates`):
 
-| PVC                          | Purpose                                                                |
-|------------------------------|------------------------------------------------------------------------|
-| `application-state-storage-*`| RSA/roster bootstrap, TSS parameters, verification state.              |
-| `archive-storage-*`          | Historical archives — the target of the bulk-load path (§5).           |
-| `live-storage-*`             | Live-received blocks pending archival.                                 |
-| `plugins-storage-*`          | Version-specific plugin JARs resolved by the `resolve-plugins` init.   |
-| `logging-storage-*`          | Per-pod log storage.                                                   |
+|              PVC              |                               Purpose                                |
+|-------------------------------|----------------------------------------------------------------------|
+| `application-state-storage-*` | RSA/roster bootstrap, TSS parameters, verification state.            |
+| `archive-storage-*`           | Historical archives — the target of the bulk-load path (§5).         |
+| `live-storage-*`              | Live-received blocks pending archival.                               |
+| `plugins-storage-*`           | Version-specific plugin JARs resolved by the `resolve-plugins` init. |
+| `logging-storage-*`           | Per-pod log storage.                                                 |
 
 **Do not delete PVCs to reset state on static-PV setups.** Deleting the PVC releases the PV; on
 `Retain` reclaim (the default for hand-provisioned PVs) the PV stays with the old data attached
@@ -117,11 +117,11 @@ java -jar tools-*-all.jar --network <network> blocks convert-address-book-histor
 
 Key options (`--help` for the full list):
 
-| Flag                   | Description                                                                                             |
-|------------------------|---------------------------------------------------------------------------------------------------------|
-| `-i` / `--input`       | The CLI-produced `addressBookHistory.json`.                                                             |
-| `-o` / `--output`      | Roster history JSON output. Default: `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json`. |
-| `--block-times-file`   | `block_times.bin` used to translate consensus times to block numbers. Default: `metadata/block_times.bin`. |
+|         Flag         |                                                Description                                                 |
+|----------------------|------------------------------------------------------------------------------------------------------------|
+| `-i` / `--input`     | The CLI-produced `addressBookHistory.json`.                                                                |
+| `-o` / `--output`    | Roster history JSON output. Default: `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json`.  |
+| `--block-times-file` | `block_times.bin` used to translate consensus times to block numbers. Default: `metadata/block_times.bin`. |
 
 The output is a `RangedAddressBookHistory` — an ordered list of `[startBlock, endBlock]` eras, each
 carrying a `NodeAddressBook`. It replaces the single-book `NodeAddressBook` JSON that a Tier-1 BN
@@ -164,12 +164,12 @@ Once bootstrapped, the BN keeps its address-book history current by polling Mirr
 address-book changes and appending eras as they land. Enable it via the RSA-roster plugin config
 (all keys are `roster.bootstrap.rsa.*`):
 
-| Key                                            | Purpose                                                             | Default |
-|------------------------------------------------|---------------------------------------------------------------------|---------|
-| `roster.bootstrap.rsa.mirrorNodeBaseUrl`       | Mirror Node REST endpoint. Empty disables the maintenance loop.     | `""`    |
-| `roster.bootstrap.rsa.mnInitialQueryIntervalMillis`     | First-poll interval.                                                | `5_000` |
-| `roster.bootstrap.rsa.mnSubsequentQueryIntervalMillis`  | Steady-state poll interval.                                         | `60_000`|
-| `roster.bootstrap.rsa.mirrorNodePageSize`      | Page size for the changes query.                                    | `100`   |
+|                          Key                           |                             Purpose                             | Default  |
+|--------------------------------------------------------|-----------------------------------------------------------------|----------|
+| `roster.bootstrap.rsa.mirrorNodeBaseUrl`               | Mirror Node REST endpoint. Empty disables the maintenance loop. | `""`     |
+| `roster.bootstrap.rsa.mnInitialQueryIntervalMillis`    | First-poll interval.                                            | `5_000`  |
+| `roster.bootstrap.rsa.mnSubsequentQueryIntervalMillis` | Steady-state poll interval.                                     | `60_000` |
+| `roster.bootstrap.rsa.mirrorNodePageSize`              | Page size for the changes query.                                | `100`    |
 
 For the SP-BN role, point `mirrorNodeBaseUrl` at the Mirror Node covering the same network as your
 CLI (`https://mainnet.mirrornode.hedera.com`, `https://testnet.mirrornode.hedera.com`, etc.).
@@ -223,18 +223,18 @@ handles staging the wrapped-block zips and streaming them into the pod:
 
 The script (`backfill-wrb-to-bn.sh`) is env-var configurable for non-default deployments:
 
-| Env var               | Meaning                                              | Default                                       |
-|-----------------------|------------------------------------------------------|-----------------------------------------------|
-| `BN_KUBE_CONTEXT`     | `kubectl` context to use.                            | current context                               |
-| `BN_NAMESPACE`        | Namespace of the BN release.                         | `block-node`                                  |
-| `BN_STATEFULSET`      | StatefulSet name.                                    | `block-node-block-node-server`                |
-| `BN_POD`              | Pod name.                                            | `${BN_STATEFULSET}-0`                         |
-| `BN_CONTAINER`        | Container name in the pod.                           | `block-node-server`                           |
-| `HISTORIC_MOUNT_PATH` | On-pod historic dir.                                 | `/opt/hiero/block-node/data/historic`         |
-| `STAGING_DIR`         | Local staging dir.                                   | `/tmp/bn-backfill-<pid>`                      |
-| `CLI_JAR`             | Path to the CLI shadow jar.                          | hunts for `tools-*-all.jar` next to script    |
-| `READY_TIMEOUT`       | Seconds to wait for pod-ready after restart.         | `300`                                         |
-| `SKIP_ROLLOUT`        | `true` to skip the auto-rollout after staging.       | `false`                                       |
+|        Env var        |                    Meaning                     |                  Default                   |
+|-----------------------|------------------------------------------------|--------------------------------------------|
+| `BN_KUBE_CONTEXT`     | `kubectl` context to use.                      | current context                            |
+| `BN_NAMESPACE`        | Namespace of the BN release.                   | `block-node`                               |
+| `BN_STATEFULSET`      | StatefulSet name.                              | `block-node-block-node-server`             |
+| `BN_POD`              | Pod name.                                      | `${BN_STATEFULSET}-0`                      |
+| `BN_CONTAINER`        | Container name in the pod.                     | `block-node-server`                        |
+| `HISTORIC_MOUNT_PATH` | On-pod historic dir.                           | `/opt/hiero/block-node/data/historic`      |
+| `STAGING_DIR`         | Local staging dir.                             | `/tmp/bn-backfill-<pid>`                   |
+| `CLI_JAR`             | Path to the CLI shadow jar.                    | hunts for `tools-*-all.jar` next to script |
+| `READY_TIMEOUT`       | Seconds to wait for pod-ready after restart.   | `300`                                      |
+| `SKIP_ROLLOUT`        | `true` to skip the auto-rollout after staging. | `false`                                    |
 
 What it does, in order:
 
@@ -297,13 +297,13 @@ nohup java -jar tools-*-all.jar --network <network> days live-sequential \
 
 ### Push flags
 
-| Flag                       | Meaning                                                                                                       |
-|----------------------------|---------------------------------------------------------------------------------------------------------------|
-| `--push-enabled`           | Enable push. Without this flag the wrap loop runs as-normal, no push traffic.                                 |
-| `--push-bn-host`           | SP-BN host (cluster-internal DNS, LoadBalancer external IP, or bind-mount address).                           |
-| `--push-bn-port`           | SP-BN's `BlockStreamPublishService` port (publish stream). Standard: `40984`.                                 |
-| `--push-bn-status-port`    | SP-BN's `BlockNodeService` port (status queries). Required in split-port deployments. Standard: `40982`.      |
-| `--push-queue-capacity`    | Backpressure queue depth between the CLI wrap thread and the push worker. Default: `32`.                      |
+|          Flag           |                                                 Meaning                                                  |
+|-------------------------|----------------------------------------------------------------------------------------------------------|
+| `--push-enabled`        | Enable push. Without this flag the wrap loop runs as-normal, no push traffic.                            |
+| `--push-bn-host`        | SP-BN host (cluster-internal DNS, LoadBalancer external IP, or bind-mount address).                      |
+| `--push-bn-port`        | SP-BN's `BlockStreamPublishService` port (publish stream). Standard: `40984`.                            |
+| `--push-bn-status-port` | SP-BN's `BlockNodeService` port (status queries). Required in split-port deployments. Standard: `40982`. |
+| `--push-queue-capacity` | Backpressure queue depth between the CLI wrap thread and the push worker. Default: `32`.                 |
 
 In single-port deployments where all API services share one port, omit `--push-bn-status-port` — it
 defaults to `--push-bn-port`.
@@ -317,7 +317,9 @@ watermark. Startup log will show one of:
 [live-sequential] Live push enabled: publish=<host>:<pub> status=<host>:<stat>
     queueCapacity=<N> BN is empty (will push from block 0)
 ```
+
 or
+
 ```
 [live-sequential] Live push enabled: publish=<host>:<pub> status=<host>:<stat>
     queueCapacity=<N> BN lastAvailableBlock=<N> (blocks <= this are skipped from push)
@@ -384,11 +386,11 @@ table and firewall guidance.
 
 Roster-history-specific metrics (in addition to the standard BN publisher / verification metrics):
 
-| Metric                                | Meaning                                                                     |
-|---------------------------------------|-----------------------------------------------------------------------------|
-| `blocknode:roster_eras_loaded`        | Number of `[startBlock, endBlock]` eras loaded at startup.                  |
-| `blocknode:roster_entries_loaded`     | Total `NodeAddress` entries summed across all eras.                         |
-| `blocknode:roster_load_duration_ms`   | Startup load time in ms.                                                    |
+|               Metric                |                          Meaning                           |
+|-------------------------------------|------------------------------------------------------------|
+| `blocknode:roster_eras_loaded`      | Number of `[startBlock, endBlock]` eras loaded at startup. |
+| `blocknode:roster_entries_loaded`   | Total `NodeAddress` entries summed across all eras.        |
+| `blocknode:roster_load_duration_ms` | Startup load time in ms.                                   |
 
 Sanity checks:
 
@@ -536,34 +538,34 @@ helm upgrade block-node -n block-node --reuse-values \
 
 ### File paths
 
-| Path                                                                | Owner              | Purpose                                                                     |
-|---------------------------------------------------------------------|--------------------|-----------------------------------------------------------------------------|
+|                                Path                                 |       Owner        |                                       Purpose                                       |
+|---------------------------------------------------------------------|--------------------|-------------------------------------------------------------------------------------|
 | `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json` | BN (`app.state.*`) | RSA roster — single-book *or* `RangedAddressBookHistory` JSON; loader auto-detects. |
-| `/opt/hiero/block-node/application-state/tss-parameters.bin`        | BN                 | TSS parameters; managed by the BN, do not hand-edit.                        |
-| `/opt/hiero/block-node/data/historic/`                              | BN                 | On-disk historic archive; target of the bulk-load path.                     |
-| `/mnt/wrb-operations/wrappedBlocks/tss-bootstrap-roster.json`       | CLI                | CLI-produced TSS bootstrap; copy into BN application-state.                 |
-| `wrappedBlocks/addressBookHistory.json`                             | CLI                | CLI-produced address-book history; input to `convert-address-book-history`. |
+| `/opt/hiero/block-node/application-state/tss-parameters.bin`        | BN                 | TSS parameters; managed by the BN, do not hand-edit.                                |
+| `/opt/hiero/block-node/data/historic/`                              | BN                 | On-disk historic archive; target of the bulk-load path.                             |
+| `/mnt/wrb-operations/wrappedBlocks/tss-bootstrap-roster.json`       | CLI                | CLI-produced TSS bootstrap; copy into BN application-state.                         |
+| `wrappedBlocks/addressBookHistory.json`                             | CLI                | CLI-produced address-book history; input to `convert-address-book-history`.         |
 
 ### Ports
 
 Standard split-port deployment (Solo-provisioner defaults):
 
-| Port    | Service                        |
-|---------|--------------------------------|
-| `40980` | `BlockStreamSubscribeService`  |
-| `40981` | `BlockAccessService`           |
-| `40982` | `BlockNodeService` (status)    |
+|  Port   |                   Service                    |
+|---------|----------------------------------------------|
+| `40980` | `BlockStreamSubscribeService`                |
+| `40981` | `BlockAccessService`                         |
+| `40982` | `BlockNodeService` (status)                  |
 | `40983` | Health (`/healthz/readyz`, `/healthz/livez`) |
-| `40984` | `BlockStreamPublishService`    |
+| `40984` | `BlockStreamPublishService`                  |
 
 ### Config keys
 
-| Key                                              | Default                                                             | Purpose                                       |
-|--------------------------------------------------|---------------------------------------------------------------------|-----------------------------------------------|
-| `app.state.rsaBootstrapFilePath`                 | `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json` | RSA / roster-history file path.               |
-| `roster.bootstrap.rsa.mirrorNodeBaseUrl`         | `""`                                                                | Mirror Node base URL; empty disables T6 maintenance. |
-| `roster.bootstrap.rsa.mnInitialQueryIntervalMillis`      | `5000`                                                              | First-poll interval for MN maintenance.       |
-| `roster.bootstrap.rsa.mnSubsequentQueryIntervalMillis`   | `60000`                                                             | Steady-state poll interval for MN maintenance.|
+|                          Key                           |                               Default                               |                       Purpose                        |
+|--------------------------------------------------------|---------------------------------------------------------------------|------------------------------------------------------|
+| `app.state.rsaBootstrapFilePath`                       | `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json` | RSA / roster-history file path.                      |
+| `roster.bootstrap.rsa.mirrorNodeBaseUrl`               | `""`                                                                | Mirror Node base URL; empty disables T6 maintenance. |
+| `roster.bootstrap.rsa.mnInitialQueryIntervalMillis`    | `5000`                                                              | First-poll interval for MN maintenance.              |
+| `roster.bootstrap.rsa.mnSubsequentQueryIntervalMillis` | `60000`                                                             | Steady-state poll interval for MN maintenance.       |
 
 ### Related docs
 
