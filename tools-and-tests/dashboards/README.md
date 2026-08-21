@@ -19,10 +19,17 @@ and rendered into each deployment target, so the copies can't drift.
 
 ## Targets
 
-`render.js` writes the 12 dashboards into:
+`render.js` writes the 16 dashboards into:
 
-- `block-node/app/docker/metrics/dashboards/` — local docker-compose metrics stack.
-- `charts/block-node-server/dashboards/` — the Helm chart (baked into a ConfigMap for the Grafana sidecar).
+- `block-node/app/docker/metrics/dashboards/` — local docker-compose metrics stack, bind-mounted
+  into Grafana's provisioning directory.
+- `charts/block-node-server/dashboards/` — the Helm chart. `grafana-dashboard-configmap.yaml`
+  publishes **every** `*.json` in that tree via `.Files.Glob`, so adding a dashboard needs no chart
+  edit and the chart cannot drift from what was rendered.
+
+Both targets read the committed files directly — there is no render step at deploy time, which is
+why the rendered copies are committed rather than gitignored. They are marked
+`linguist-generated` in `.gitattributes` so they collapse in GitHub diffs.
 
 Each target also carries **hand-maintained extras that are not shared** and are left untouched:
 docker has `block-node-server-logs.json` + `cAdvisor.json`; the chart has `node-exporter-full.json`
