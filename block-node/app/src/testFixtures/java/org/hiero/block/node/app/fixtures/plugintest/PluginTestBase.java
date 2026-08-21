@@ -281,12 +281,24 @@ public abstract class PluginTestBase<
     /**
      * Returns the current value of a metric by its MetricKey.
      *
+     * <p>See {@link TestMetricsExporter#getMetricValue(String)} for the caveat on metrics with dynamic labels.
+     *
      * @param metricKey the MetricKey identifying the metric
      * @return the current long value of the metric
      * @throws IllegalArgumentException if no metric with the given name exists in the registry
      */
     protected long getMetricValue(@NonNull final MetricKey<?> metricKey) {
         return testMetricsExporter.getMetricValue(metricKey.name());
+    }
+
+    /**
+     * Returns the current value of every series of a labeled metric, keyed by its first dynamic label value.
+     *
+     * @param metricKey the MetricKey identifying the metric
+     * @return the current value of each series, keyed by first label value, empty if the metric is not found
+     */
+    protected Map<String, Long> getMetricValuesByLabel(@NonNull final MetricKey<?> metricKey) {
+        return testMetricsExporter.getMetricValuesByLabel(metricKey.name());
     }
 
     /**

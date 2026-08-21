@@ -20,6 +20,7 @@ import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfType;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
@@ -28,6 +29,9 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
+import org.hiero.block.node.stream.subscriber.SubscriberServicePlugin.MetricsHolder;
+import org.hiero.block.node.stream.subscriber.SubscriberServicePlugin.MetricsHolder.SessionMetrics;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -60,6 +64,14 @@ class BlockStreamSubscriberSessionTest {
     private BlockNodeContext blockNodeContext;
     /** Session ready latch for the session. */
     private CountDownLatch sessionReadyLatch;
+    /** Exporter used to read current metric values. */
+    private TestMetricsExporter metricsExporter;
+    /** Metric registry backing the block node context. */
+    private MetricRegistry metricRegistry;
+    /** The subscriber service metrics the sessions under test record to. */
+    private MetricsHolder subscriberMetrics;
+    /** The metrics slot handed to the session under test. */
+    private SessionMetrics sessionMetrics;
 
     /**
      * Environment setup before each test.
@@ -74,6 +86,11 @@ class BlockStreamSubscriberSessionTest {
                 .build();
         defaultSubscriberConfig = configuration.getConfigData(SubscriberConfig.class);
         final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+        metricsExporter = new TestMetricsExporter();
+        metricRegistry =
+                MetricRegistry.builder().setMetricsExporter(metricsExporter).build();
+        subscriberMetrics = MetricsHolder.createMetrics(metricRegistry);
+        sessionMetrics = subscriberMetrics.forSlot(0);
         blockNodeContext = generateContext(configuration, messagingFacility, historicalBlockFacility);
         sessionReadyLatch = new CountDownLatch(1);
     }
@@ -109,7 +126,12 @@ class BlockStreamSubscriberSessionTest {
         void testValidParameters() {
             assertThatNoException()
                     .isThrownBy(() -> new BlockStreamSubscriberSession(
-                            sessionContext, responsePipeline, blockNodeContext, sessionReadyLatch));
+                            sessionContext,
+                            responsePipeline,
+                            blockNodeContext,
+                            sessionReadyLatch,
+                            sessionMetrics,
+                            () -> {}));
         }
 
         /**
@@ -122,7 +144,7 @@ class BlockStreamSubscriberSessionTest {
         void testNullRequest() {
             assertThatNullPointerException()
                     .isThrownBy(() -> new BlockStreamSubscriberSession(
-                            null, responsePipeline, blockNodeContext, sessionReadyLatch));
+                            null, responsePipeline, blockNodeContext, sessionReadyLatch, sessionMetrics, () -> {}));
         }
 
         /**
@@ -135,7 +157,7 @@ class BlockStreamSubscriberSessionTest {
         void testNullResponsePipeline() {
             assertThatNullPointerException()
                     .isThrownBy(() -> new BlockStreamSubscriberSession(
-                            sessionContext, null, blockNodeContext, sessionReadyLatch));
+                            sessionContext, null, blockNodeContext, sessionReadyLatch, sessionMetrics, () -> {}));
         }
 
         /**
@@ -148,7 +170,7 @@ class BlockStreamSubscriberSessionTest {
         void testNullBlockNodeContext() {
             assertThatNullPointerException()
                     .isThrownBy(() -> new BlockStreamSubscriberSession(
-                            sessionContext, responsePipeline, null, sessionReadyLatch));
+                            sessionContext, responsePipeline, null, sessionReadyLatch, sessionMetrics, () -> {}));
         }
 
         /**
@@ -160,8 +182,8 @@ class BlockStreamSubscriberSessionTest {
         @DisplayName("Test Constructor with Null Session Ready Latch")
         void testNullSessionReadyLatch() {
             assertThatNullPointerException()
-                    .isThrownBy(() ->
-                            new BlockStreamSubscriberSession(sessionContext, responsePipeline, blockNodeContext, null));
+                    .isThrownBy(() -> new BlockStreamSubscriberSession(
+                            sessionContext, responsePipeline, blockNodeContext, null, sessionMetrics, () -> {}));
         }
     }
 
@@ -1250,7 +1272,9 @@ class BlockStreamSubscriberSessionTest {
                     SessionContext.create(clientId, request, chunkingContext),
                     chunkingPipeline,
                     chunkingContext,
-                    sessionReadyLatch);
+                    sessionReadyLatch,
+                    sessionMetrics,
+                    () -> {});
 
             // Call the chunking method directly
             session.sendBlockItemsChunked(smallBlock);
@@ -1295,7 +1319,9 @@ class BlockStreamSubscriberSessionTest {
                     SessionContext.create(clientId, request, chunkingContext),
                     chunkingPipeline,
                     chunkingContext,
-                    sessionReadyLatch);
+                    sessionReadyLatch,
+                    sessionMetrics,
+                    () -> {});
 
             // Call the chunking method directly
             session.sendBlockItemsChunked(largeBlock);
@@ -1350,7 +1376,9 @@ class BlockStreamSubscriberSessionTest {
                     SessionContext.create(clientId, request, chunkingContext),
                     chunkingPipeline,
                     chunkingContext,
-                    sessionReadyLatch);
+                    sessionReadyLatch,
+                    sessionMetrics,
+                    () -> {});
 
             // Call the chunking method directly
             session.sendBlockItemsChunked(mixedBlock);
@@ -1398,7 +1426,9 @@ class BlockStreamSubscriberSessionTest {
                     SessionContext.create(clientId, request, chunkingContext),
                     chunkingPipeline,
                     chunkingContext,
-                    sessionReadyLatch);
+                    sessionReadyLatch,
+                    sessionMetrics,
+                    () -> {});
 
             // Call the chunking method directly
             session.sendBlockItemsChunked(emptyBlock);
@@ -1429,7 +1459,7 @@ class BlockStreamSubscriberSessionTest {
             final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility) {
         return new BlockNodeContext(
                 configuration,
-                null,
+                metricRegistry,
                 null,
                 messagingFacility,
                 historicalBlockFacility,
@@ -1452,6 +1482,8 @@ class BlockStreamSubscriberSessionTest {
                 SessionContext.create(clientId, request, blockNodeContext),
                 responsePipeline,
                 blockNodeContext,
-                sessionReadyLatch);
+                sessionReadyLatch,
+                sessionMetrics,
+                () -> {});
     }
 }

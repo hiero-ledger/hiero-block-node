@@ -134,10 +134,31 @@ Observes inbound streams from publishers.
 **Plugin:** `stream-subscriber [block-node-stream-subscriber]`
 Observes outbound streams served to subscribers.
 
-|  Type   |             Name              |              Description              |
-|---------|-------------------------------|---------------------------------------|
-| Gauge   | `subscriber_open_connections` | Connected subscribers                 |
-| Counter | `subscriber_errors`           | Errors while streaming to subscribers |
+|  Type   |               Name                |                                    Description                                     |
+|---------|-----------------------------------|------------------------------------------------------------------------------------|
+| Gauge   | `subscriber_open_connections`     | Connected subscribers                                                              |
+| Counter | `subscriber_errors`               | Errors while streaming to subscribers                                              |
+| Counter | `subscriber_live_send_latency_ns` | Time (ns) live batches waited between reaching a subscriber session and being sent |
+| Counter | `subscriber_live_batches_sent`    | Live batches sent to subscribers, the denominator for the send latency             |
+
+The two send metrics carry a `subscriber` label, one series per concurrent subscriber, so a lagging consumer shows
+up on its own series rather than being averaged into the others. The label value is a slot index, not a client
+identity: it is reused once a session ends, so one series can cover different clients over time. At most 64 sessions
+get a slot of their own; while those are all in use, every further session is labeled `overflow` and shares one
+series, which caps the label at 65 values however many subscribers connect. The plugin logs the client id it hands
+each slot to at `DEBUG` level, which is the only mapping from a slot value back to a client.
+
+Only batches taken from the live stream are measured, timed from the point the messaging facility hands the batch to
+the session, which is before it is put on the session's queue. Time spent blocked on a full queue therefore counts
+towards the latency, so a spike can mean the session is falling behind rather than the client being slow to read.
+Blocks served from history are not measured, because the ingest time of a block read back from storage says nothing
+about send latency.
+
+This bounds how bad the latency can look. Once a session's live queue is nearly full, it drops whole blocks from the
+queue and catches those blocks up from history instead. Dropped batches are never sent, so they are never measured,
+and the blocks that replace them are historical and also unmeasured. A subscriber lagging that hard therefore shows a
+latency that stops climbing rather than one that keeps rising; a session repeatedly falling back to history is
+visible in the logs, not in these metrics.
 
 ---
 
@@ -339,6 +360,7 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 | M        | `hashing_block_time`                       | If value exceeds 2s, otherwise, configure as needed  |
 | M        | `verification_block_time`                  | If value exceeds 20s, otherwise, configure as needed |
 | M        | `files_recent_persistence_time_latency_ns` | If value exceeds 20s, otherwise, configure as needed |
+| M        | `subscriber_live_send_latency_ns`          | If a subscriber's average batch wait exceeds 60ms    |
 
 **Cloud Expanded**: Alerts for metrics regarding expanded cloud storage (single-block S3 uploads)
 

@@ -195,6 +195,34 @@ class SubscriberServicePluginTest {
                     }
 
                     /**
+                     * This test aims to assert that a session served entirely
+                     * from history does not touch the send metrics, which
+                     * only measure batches taken from the live stream.
+                     */
+                    @Test
+                    @DisplayName("Test Subscriber: Historical Only Request Does Not Record Send Metrics")
+                    void testHistoricalOnlyRequestRecordsNoSends() {
+                        // First we create the block and supply it to history only
+                        final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
+                        historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
+                        // Then, we create the request for block 0
+                        final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                                .startBlockNumber(0L)
+                                .endBlockNumber(0L)
+                                .build();
+                        // Send the request
+                        toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
+                        // Wait for responses
+                        awaitResponse(fromPluginBytes, 3); // one with items, end of block, one with success status
+                        // Nothing came from live, so neither send metric may have moved.
+                        // Note getMetricValue ignores labels; the single session here produces only one series.
+                        assertThat(getMetricValue(SubscriberServicePlugin.METRIC_SUBSCRIBER_LIVE_BATCHES_SENT))
+                                .isZero();
+                        assertThat(getMetricValue(SubscriberServicePlugin.METRIC_SUBSCRIBER_LIVE_SEND_LATENCY_NS))
+                                .isZero();
+                    }
+
+                    /**
                      * This test aims to assert that when a valid request for a
                      * single block is sent to the plugin, a response with the
                      * block items is returned, followed by a success status
@@ -838,6 +866,42 @@ class SubscriberServicePluginTest {
                     }
 
                     /**
+                     * This test aims to assert that every live batch sent to a
+                     * subscriber is counted by the send metrics, and that the
+                     * accumulated latency is non-zero.
+                     */
+                    @Test
+                    @DisplayName("Test Subscriber: Live Batches Are Measured By The Send Metrics")
+                    void testLiveBatchesRecordSendLatency() {
+                        // First we create the blocks
+                        final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
+                        // Then, we create the request for live stream
+                        final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                                .startBlockNumber(-1L)
+                                .endBlockNumber(-1L)
+                                .build();
+                        // Send the request
+                        toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
+                        // Disable history to listen to live data so we ensure
+                        // blocks will be supplied from live
+                        historicalBlockFacility.setDisablePlugin();
+                        // Now supply the requested blocks to live ring buffer, one batch each
+                        for (final TestBlock block : blocksZeroToTwo) {
+                            blockMessaging.sendBlockItems(block.asBlockItems());
+                        }
+                        // Wait for responses for block items
+                        awaitResponse(fromPluginBytes, 2 * blocksZeroToTwo.size());
+                        plugin.stop();
+                        // Every live batch sent must have been measured, with a non-zero total latency.
+                        // Note getMetricValue ignores labels, so this only reads one series; it is correct here
+                        // because the single session in this test produces exactly one.
+                        assertThat(getMetricValue(SubscriberServicePlugin.METRIC_SUBSCRIBER_LIVE_BATCHES_SENT))
+                                .isEqualTo(blocksZeroToTwo.size());
+                        assertThat(getMetricValue(SubscriberServicePlugin.METRIC_SUBSCRIBER_LIVE_SEND_LATENCY_NS))
+                                .isPositive();
+                    }
+
+                    /**
                      * This test aims to assert that when a valid request for
                      * live stream is sent to the plugin, a response(s) with the
                      * block items is returned, and items keep streaming
@@ -1224,6 +1288,96 @@ class SubscriberServicePluginTest {
                 fail("Unexpected response type %s."
                         .formatted(subscribeResponse.response().kind()));
             }
+        }
+    }
+
+    /**
+     * Tests for the metric label slots that keep the number of per-subscriber send series bounded.
+     * <p>
+     * This runs on its own fixture because a released slot is only observable across two sessions that run one after
+     * another, which needs the single threaded executor below.
+     */
+    @Nested
+    @DisplayName("Metrics Slot Reuse Tests")
+    class MetricsSlotReuseTests
+            extends GrpcPluginTestBase<SubscriberServicePlugin, ExecutorService, ScheduledBlockingExecutor> {
+        private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
+
+        MetricsSlotReuseTests() {
+            // A single thread, so that a probe task submitted to the executor can only run once the first session's
+            // thread has finished, which is the point at which it has released its slot.
+            super(Executors.newSingleThreadExecutor(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            final SubscriberServicePlugin toTest = new SubscriberServicePlugin();
+            historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
+            start(toTest, toTest.methods().getFirst(), historicalBlockFacility);
+        }
+
+        /**
+         * This test aims to assert that a session which has ended releases its metric label slot, so the next session
+         * to connect is labeled with the same slot rather than a fresh one.
+         */
+        @Test
+        @DisplayName("Test Metrics Slot: Sequential Sessions Reuse The Same Slot")
+        void testSequentialSessionsReuseSlot() throws Exception {
+            // A request for a single block that history already has, so the session ends on its own
+            final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
+            historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(0L)
+                    .build();
+            toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
+            awaitResponse(fromPluginBytes, 3); // one with items, end of block, one with success status
+            // The slot is released as the last thing the session thread does, so wait for that thread to finish
+            testThreadPoolManager.getVirtualThreadExecutor().submit(() -> {}).get();
+            // A second session now has a released slot to take, so it must not create a second series
+            final TestPipeline secondSubscriber = createNewPipeline();
+            secondSubscriber.toPluginPipe().onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
+            awaitResponse(secondSubscriber.fromPluginBytes(), 3);
+            assertThat(getMetricValuesByLabel(SubscriberServicePlugin.METRIC_SUBSCRIBER_LIVE_BATCHES_SENT))
+                    .containsOnlyKeys("0");
+        }
+    }
+
+    /**
+     * Tests that concurrently open sessions are measured separately.
+     * <p>
+     * This runs on its own fixture because both sessions must be able to start, which the single threaded executor
+     * the other cases use does not allow.
+     */
+    @Nested
+    @DisplayName("Metrics Slot Concurrency Tests")
+    class MetricsSlotConcurrencyTests
+            extends GrpcPluginTestBase<SubscriberServicePlugin, ExecutorService, ScheduledBlockingExecutor> {
+        MetricsSlotConcurrencyTests() {
+            super(Executors.newCachedThreadPool(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            final SubscriberServicePlugin toTest = new SubscriberServicePlugin();
+            start(toTest, toTest.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
+        }
+
+        /**
+         * This test aims to assert that sessions open at the same time are labeled with different slots, so that one
+         * lagging subscriber is measured separately from a healthy one.
+         */
+        @Test
+        @DisplayName("Test Metrics Slot: Concurrent Sessions Get Different Slots")
+        void testConcurrentSessionsGetDifferentSlots() {
+            final SubscribeStreamRequest liveRequest = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(-1L)
+                    .endBlockNumber(-1L)
+                    .build();
+            toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(liveRequest));
+            final TestPipeline secondSubscriber = createNewPipeline();
+            secondSubscriber.toPluginPipe().onNext(SubscribeStreamRequest.PROTOBUF.toBytes(liveRequest));
+            // Neither session has ended, so the second one cannot have taken the first one's slot
+            assertThat(getMetricValuesByLabel(SubscriberServicePlugin.METRIC_SUBSCRIBER_LIVE_BATCHES_SENT))
+                    .containsOnlyKeys("0", "1");
+            // A live session that has never seen a block cannot be stopped, so supply one before closing down
+            blockMessaging.sendBlockItems(
+                    TestBlockBuilder.generateBlockWithNumber(0).asBlockItems());
+            awaitResponse(fromPluginBytes, 2); // one with items, one end of block
+            awaitResponse(secondSubscriber.fromPluginBytes(), 2);
+            plugin.stop();
         }
     }
 
