@@ -8,9 +8,9 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
-import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CountDownLatch;
 import javax.inject.Inject;
 import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
@@ -64,7 +64,7 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
         this.metricsService = requireNonNull(metricsService);
         this.consumerConfig = requireNonNull(consumerConfig);
         this.lastKnownStatusesCapacity = blockStreamConfig.lastKnownStatusesCapacity();
-        this.lastKnownStatuses = new ArrayDeque<>(lastKnownStatusesCapacity);
+        this.lastKnownStatuses = new ConcurrentLinkedDeque<>();
     }
 
     @Override

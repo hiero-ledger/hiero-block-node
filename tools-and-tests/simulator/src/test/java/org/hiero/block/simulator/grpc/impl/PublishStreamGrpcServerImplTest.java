@@ -2,6 +2,7 @@
 package org.hiero.block.simulator.grpc.impl;
 
 import static org.hiero.block.simulator.fixtures.TestUtils.findFreePort;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,7 +18,11 @@ import io.grpc.stub.StreamObserver;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.api.protoc.PublishStreamRequest;
@@ -144,6 +149,72 @@ class PublishStreamGrpcServerImplTest {
         List<String> statuses = publishStreamGrpcServer.getLastKnownStatuses();
         assertFalse(statuses.isEmpty());
         assertEquals(3, publishStreamGrpcServer.getProcessedBlocks());
+    }
+
+    /**
+     * Regression test for concurrent access to lastKnownStatuses. The gRPC server thread
+     * appends request statuses while another thread snapshots them via
+     * getLastKnownStatuses(). With a non-thread-safe deque the snapshot can observe a torn
+     * toArray() containing null slots and List.copyOf throws NullPointerException.
+     */
+    @Test
+    void testGetLastKnownStatusesWithConcurrentMutation() throws InterruptedException {
+        final int streamedBlocks = 500;
+        final CountDownLatch completionLatch = new CountDownLatch(1);
+        final AtomicBoolean publishingDone = new AtomicBoolean(false);
+
+        final BlockStreamPublishServiceGrpc.BlockStreamPublishServiceStub stub =
+                BlockStreamPublishServiceGrpc.newStub(channel);
+        final StreamObserver<PublishStreamResponse> responseObserver = new StreamObserver<>() {
+            @Override
+            public void onNext(PublishStreamResponse response) {
+                // No verification needed, the test only exercises concurrent status access
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                completionLatch.countDown();
+            }
+
+            @Override
+            public void onCompleted() {
+                completionLatch.countDown();
+            }
+        };
+
+        final ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            final Future<?> readerFuture = executor.submit(() -> {
+                while (!publishingDone.get()) {
+                    publishStreamGrpcServer.getLastKnownStatuses();
+                }
+                return null;
+            });
+
+            final StreamObserver<PublishStreamRequest> requestObserver = stub.publishBlockStream(responseObserver);
+            for (int i = 0; i < streamedBlocks; i++) {
+                final BlockItem blockItemHeader = BlockItem.newBuilder()
+                        .setBlockHeader(BlockHeader.newBuilder().setNumber(i).build())
+                        .build();
+                final BlockItem blockItemProof = BlockItem.newBuilder()
+                        .setBlockProof(BlockProof.newBuilder().setBlock(i).build())
+                        .build();
+                final BlockItemSet blockItems = BlockItemSet.newBuilder()
+                        .addBlockItems(blockItemHeader)
+                        .addBlockItems(blockItemProof)
+                        .build();
+                requestObserver.onNext(PublishStreamRequest.newBuilder()
+                        .setBlockItems(blockItems)
+                        .build());
+            }
+            requestObserver.onCompleted();
+
+            assertTrue(completionLatch.await(30, TimeUnit.SECONDS));
+            publishingDone.set(true);
+            assertDoesNotThrow(() -> readerFuture.get(30, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

@@ -10,9 +10,9 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
-import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import javax.inject.Inject;
 import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.api.protoc.PublishStreamRequest;
@@ -61,7 +61,7 @@ public class PublishStreamGrpcServerImpl implements PublishStreamGrpcServer {
         this.metricsService = requireNonNull(metricsService);
 
         this.lastKnownStatusesCapacity = blockStreamConfig.lastKnownStatusesCapacity();
-        lastKnownStatuses = new ArrayDeque<>(this.lastKnownStatusesCapacity);
+        lastKnownStatuses = new ConcurrentLinkedDeque<>();
     }
 
     /**

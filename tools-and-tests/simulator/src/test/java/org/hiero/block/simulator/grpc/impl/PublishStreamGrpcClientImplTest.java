@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import com.google.protobuf.ByteString;
@@ -27,7 +29,12 @@ import io.grpc.stub.StreamObserver;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.hiero.block.api.protoc.BlockItemSet;
@@ -411,6 +418,49 @@ class PublishStreamGrpcClientImplTest {
         publishStreamGrpcClient.init();
         Thread.sleep(200);
         assertFalse(server.isShutdown());
+    }
+
+    /**
+     * Regression test for concurrent access to lastKnownStatuses. The gRPC callback thread
+     * appends acknowledgement statuses while another thread snapshots them via
+     * getLastKnownStatuses(). With a non-thread-safe deque the snapshot can observe a torn
+     * toArray() containing null slots and List.copyOf throws NullPointerException.
+     */
+    @Test
+    void testGetLastKnownStatusesWithConcurrentMutation() throws IOException {
+        final int streamedBlocks = 200;
+        final AtomicLong lastAckedBlock = new AtomicLong(-1L);
+        // The observer reports every acknowledgement to the startup data before appending the
+        // status, so the reader can keep snapshotting until the last mutation is in flight.
+        doAnswer(invocation -> {
+                    lastAckedBlock.set(invocation.getArgument(0));
+                    return null;
+                })
+                .when(startupDataMock)
+                .updateLatestAckBlockStartupData(anyLong());
+
+        publishStreamGrpcClient.init();
+        final Consumer<PublishStreamResponse> publishStreamResponseConsumer = response -> {};
+        final ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            final Future<?> writerFuture = executor.submit(() -> {
+                for (int i = 0; i < streamedBlocks; i++) {
+                    publishStreamGrpcClient.streamBlock(constructBlock(i, false), publishStreamResponseConsumer);
+                }
+                return null;
+            });
+            final Future<?> readerFuture = executor.submit(() -> {
+                final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+                while (lastAckedBlock.get() < streamedBlocks - 1 && System.nanoTime() < deadline) {
+                    publishStreamGrpcClient.getLastKnownStatuses();
+                }
+                return null;
+            });
+            assertDoesNotThrow(() -> writerFuture.get(30, TimeUnit.SECONDS));
+            assertDoesNotThrow(() -> readerFuture.get(60, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     private Block constructBlock(long number, boolean withItems) {
