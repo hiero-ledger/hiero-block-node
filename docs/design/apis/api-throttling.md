@@ -366,11 +366,11 @@ sequenceDiagram
 
 Each throttled API's own module declares its per-client settings:
 
-| Property | Meaning |
-|---|---|
-| `ratePerSecond` | Sustained requests (or, for streaming APIs, new session opens) per second allowed for one client |
-| `burstTolerance` | How far ahead of the even-pacing schedule a client's request may arrive and still be admitted |
-| `maxConcurrentPerClient` | Maximum concurrent in-flight calls/sessions for one client on this method |
+|         Property         |                                             Meaning                                              |
+|--------------------------|--------------------------------------------------------------------------------------------------|
+| `ratePerSecond`          | Sustained requests (or, for streaming APIs, new session opens) per second allowed for one client |
+| `burstTolerance`         | How far ahead of the even-pacing schedule a client's request may arrive and still be admitted    |
+| `maxConcurrentPerClient` | Maximum concurrent in-flight calls/sessions for one client on this method                        |
 
 A single shared, node-level configuration record holds one node-wide concurrency ceiling per throttled method
 (`maxConcurrentGlobal`-equivalent), since this represents an allocation of shared node capacity across APIs rather
@@ -383,14 +383,14 @@ by the target deployment's storage characteristics.
 
 ## Metrics
 
-| Metric | Type | Meaning |
-|---|---|---|
-| Admitted calls | Counter, labeled by service/method/weight class | Calls that passed all admission checks |
-| Rejected calls | Counter, labeled by service/method/weight class/reason | Calls rejected, broken down by which check rejected them |
-| Per-client in-flight | Gauge, labeled by service/method | Distinct clients currently holding at least one in-flight call for a method |
-| Node-wide in-flight | Gauge, labeled by service/method | Current node-wide concurrent call count per method |
-| Client-state table size | Gauge | Size of the per-client bookkeeping table, to catch unexpected growth |
-| Block-read bulkhead usage | Gauge (in-use / available) | Current utilization of the shared backend read permit pool |
+|          Metric           |                          Type                          |                                   Meaning                                   |
+|---------------------------|--------------------------------------------------------|-----------------------------------------------------------------------------|
+| Admitted calls            | Counter, labeled by service/method/weight class        | Calls that passed all admission checks                                      |
+| Rejected calls            | Counter, labeled by service/method/weight class/reason | Calls rejected, broken down by which check rejected them                    |
+| Per-client in-flight      | Gauge, labeled by service/method                       | Distinct clients currently holding at least one in-flight call for a method |
+| Node-wide in-flight       | Gauge, labeled by service/method                       | Current node-wide concurrent call count per method                          |
+| Client-state table size   | Gauge                                                  | Size of the per-client bookkeeping table, to catch unexpected growth        |
+| Block-read bulkhead usage | Gauge (in-use / available)                             | Current utilization of the shared backend read permit pool                  |
 
 ## Exceptions
 
