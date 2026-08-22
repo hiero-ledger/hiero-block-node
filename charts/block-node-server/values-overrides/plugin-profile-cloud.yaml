@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Plugin profile for block nodes with cloud storage archiving.
+# No local block-storage plugins: cloud-storage-archive/cloud-storage-expanded read block
+# bytes straight off VerificationNotification.
+plugins:
+  names: "facility-messaging,health,server-status,stream-publisher,stream-subscriber,block-verification,backfill,cloud-storage-archive,cloud-storage-expanded"
