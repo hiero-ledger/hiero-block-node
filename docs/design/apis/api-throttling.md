@@ -28,6 +28,8 @@ per-client rate and concurrency limits to each gRPC API, tuned to how expensive 
 a shared safeguard that protects the block-storage read path from concurrent-read overload regardless of which
 client or API triggered it.
 
+![The problem: no admission control exists today on any read API, and contention can delay the publish path](../../assets/api/api-throttling-problem.svg)
+
 ## Goals
 
 1. Apply per-client rate and concurrency limits to each gRPC API.
@@ -40,6 +42,9 @@ client or API triggered it.
    mechanism to a specific web server implementation.
 5. Favor a small number of simple, well-understood, proven mechanisms (rate limiting, concurrency limiting) over a
    complex adaptive system.
+6. Be performant: admission control must not become a meaningful source of latency or resource consumption itself,
+   and must not compromise the Block Node's own low-latency, high-throughput goals for the path it exists to
+   protect. See [Performance](#performance) under Design.
 
 **Non-goals for this iteration:**
 
@@ -114,7 +119,19 @@ Each plugin owns a small configuration record describing its own per-client limi
 concurrency). Node-wide concurrency ceilings, which represent an allocation of shared node capacity across APIs,
 live in one shared, node-level configuration record.
 
+### How the entities relate
+
+![Class relationships for the new admission-control types, including the pluggable client-key-extraction point](../../assets/api/api-throttling-entities.svg)
+
+The `ClientKeyExtractor` interface is deliberately factored out as its own pluggable type rather than inlined into
+the decorator, specifically so a future authenticated-identity mechanism (an mTLS client certificate, or an API key)
+can be introduced later as a new implementation of this one interface, without changing the admission decorator,
+`ThrottlePolicy`, or any configuration record. `RequestOptions.remoteCertificateChain()` already exists on the
+underlying request options today, unused — it is exactly what a future `TlsCertificateKeyExtractor` would read from.
+
 ## Design
+
+![Overall approach: Component A admits or rejects at the API boundary; Component B protects the shared block-storage read path independent of which API triggered the read; publishBlockStream bypasses both](../../assets/api/api-throttling-architecture.svg)
 
 ### Where admission control attaches
 
@@ -134,6 +151,8 @@ mechanism does not depend on which web server hosts the gRPC service.
 and, if authenticated client identity is introduced later, the caller's certificate chain.
 
 ### Component A — per-client admission gate
+
+![Component A's admission decision order: global concurrency, then per-client concurrency, then the GCRA rate check — first rejection wins](../../assets/api/api-throttling-admission-decision.svg)
 
 For every call, in order — the first check that rejects wins, and no later check runs:
 
@@ -169,6 +188,8 @@ classification happens once, at admission time — a session that starts as a li
 catch up on history is protected by Component B below, not by re-evaluating its weight mid-session.
 
 ### Component B — shared backend block-read bulkhead
+
+![Component B: getBlock and subscriber catch-up reads share one bounded permit pool guarding block storage, independent of client identity](../../assets/api/api-throttling-bulkhead.svg)
 
 Component A limits *admission*: how many requests or sessions a given client is allowed to have outstanding. It says
 nothing about whether the node currently has spare capacity to actually serve them, and that capacity is shared
@@ -218,6 +239,75 @@ unmanaged, this map's key space would grow without bound as new clients connect 
 inside the throttling system itself, the same kind of unbounded resource growth this system exists to prevent.
 Entries are evicted lazily when a stale entry is encountered on the read path, backed by a low-frequency full sweep
 that catches clients who are never looked up again.
+
+### Performance
+
+Admission control must not become a meaningful cost on the request path it protects, and must never add latency or
+resource overhead to the one path that stays fully exempt from it (`publishBlockStream`). The design keeps overhead
+small and bounded by construction:
+
+- **No blocking, no locks.** The GCRA rate check is a single compare-and-swap loop on one `AtomicLong` per client per
+  method; the concurrency checks are reads and atomic increments/decrements on plain counters. None of Component A's
+  checks acquire a lock or perform I/O.
+- **No extra threads, no extra network hops.** The admission decorator runs synchronously, in-process, on the same
+  thread that would have handled the call anyway. It is one additional layer of method dispatch per call, applied
+  once at service-registration time — not a new pipeline stage, background thread, or process boundary.
+- **`publishBlockStream` carries zero added cost.** Because it is fully exempt, no decorator, no counters, and no
+  extra allocation are introduced on the ingest path at all.
+- **Two implementation details are worth calling out explicitly, since they are the parts most likely to erode this
+  if done carelessly:**
+  - **Client-key derivation should happen once per connection, not once per call.** Deriving a key from
+    `RequestOptions.remoteAddress()` on every single unary call (e.g. every `getBlock` request on a connection that
+    is reused for many calls) would allocate a string repeatedly for no new information; the key should be computed
+    once and reused for the life of the underlying connection where possible.
+  - **Content-aware weighing must not require a full protobuf deserialization.** A weigher only needs to read one or
+    two fields (e.g. a block number) to classify a request. It should do a targeted read of that field directly from
+    the wire format, not fully deserialize the request message before the real handler does its own full parse —
+    otherwise every classified call would pay for parsing the request twice.
+- **Acceptance criterion.** This goal should be validated, not assumed: a benchmark comparing per-call latency and
+  allocation with admission control enabled versus disabled on the same hardware belongs in the acceptance tests for
+  the implementation, not just asserted here (see [Acceptance Tests](#acceptance-tests)).
+
+### Extensibility
+
+Two extension points are designed in from the start, since both are anticipated future work:
+
+- **Client identification.** `ClientKeyExtractor` is a small, isolated interface specifically so that authenticated
+  client identity — an API key, or an mTLS client certificate — can replace network-address-based identification
+  later by adding one new implementation, with no change needed to the admission decorator, `ThrottlePolicy`, or any
+  per-plugin configuration. `RequestOptions.remoteCertificateChain()` already exists today, unused, as exactly what
+  a future certificate-based extractor would read.
+- **Additional bulkheads for other shared resources.** `BlockReadBulkhead` is one instance of a general pattern: a
+  bounded, non-client-keyed permit pool guarding a specific shared resource against combined load from every call
+  path that uses it. Nothing in the design ties this pattern to block storage specifically — a future resource with
+  the same shape of problem (several call paths contending for one constrained backend resource) could be protected
+  by a new, independently-named and independently-sized bulkhead instance, following the same shape as
+  `BlockReadBulkhead`, without changing Component A at all.
+
+### Alternatives considered
+
+- **A single combined per-client "weighted cost" system instead of two separate components.** Rejected: it would
+  couple two concerns that change independently — how many clients exist and how they behave has nothing to do with
+  how much backend read capacity the node has — and would make the backend-protection guarantee only as strong as
+  every client's individually configured weight, rather than a hard shared ceiling.
+- **A classic token bucket with a background refill thread, instead of GCRA.** Rejected: GCRA achieves the same
+  smooth rate-limiting behavior with one comparison and one atomic update per call, no background thread, and no
+  per-bucket refill bookkeeping.
+- **Queueing or delaying a call briefly instead of rejecting it immediately when a limit is hit.** Rejected for the
+  client-facing admission decision: a queue is itself a resource that needs its own bound, timeout, and monitoring,
+  which works against keeping this mechanism simple. The one deliberate exception is internal to Component B: a
+  subscriber session catching up on history gets a brief bounded wait rather than being disconnected, because
+  killing a long-lived session over one transient saturation instant is a worse outcome than a short delay, and this
+  wait never affects the admission decision itself.
+- **Node-wide concurrency ceilings owned by each plugin, alongside its per-client settings.** Rejected: a ceiling
+  represents an allocation of the node's total shared capacity across every API, which requires a node-level view no
+  single plugin has on its own. Splitting ownership this way keeps every other per-client setting fully owned by the
+  plugin it governs.
+- **A fully adaptive, self-tuning controller from the start.** Rejected for the initial delivery: it would require
+  an independent controller per API cost tier (since a single latency target does not fit APIs with genuinely
+  different cost profiles), and depends on a clean backlog signal this node does not have a single, unified source
+  of today. Static, well-tuned limits are simpler to build, reason about, and operate, and can be replaced with an
+  adaptive approach later if evidence shows static limits are insufficient.
 
 ## Diagram
 
@@ -326,3 +416,6 @@ produced. `publishBlockStream` is not subject to any admission check and is unaf
 7. Concurrent `getBlock` (historical) and subscriber catch-up traffic together are capped by the shared block-read
    bulkhead's permit count, regardless of how that load is split between the two call paths.
 8. `publishBlockStream` traffic is entirely unaffected by any of the above, at any load level.
+9. A benchmark measuring per-call latency and allocation rate, with admission control enabled versus disabled on the
+   same hardware, shows no meaningful regression on throttled APIs and zero measurable overhead on
+   `publishBlockStream`.
