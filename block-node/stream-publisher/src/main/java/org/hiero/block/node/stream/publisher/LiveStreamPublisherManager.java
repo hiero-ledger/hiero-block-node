@@ -65,6 +65,7 @@ import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.LongCounter;
@@ -403,9 +404,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// facility. Only in cases of failed verification, given that the block
     /// number of the failed block satisfies the conditions of it being
     /// higher than the last persisted and lower than the next unstreamed block,
-    /// we will attempt to handle that failure. That includes allowing
-    /// individual handlers to handle that block, but also scheduling the failed
-    /// block to be resent.
+    /// we will attempt to handle that failure. Failures are classified by
+    /// their failure type: a resend is scheduled for every type, and
+    /// depending on the type the supplying handler's stream is either left
+    /// open or ended with the appropriate end of stream code. A cancelled
+    /// session also warrants a resend, but until @todo(3436) is in place it
+    /// cannot be scheduled accurately, so for now it is only logged. An
+    /// informational failure, meaning the same block was already verified
+    /// successfully within reasonable recency, is handled the same as a
+    /// standard one, except that no resend is scheduled.
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
         final long blockNumber = notification.blockNumber();
@@ -430,23 +437,86 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // the failure of block 5.
             // There is more work to be done so that we will be more accurate,
             // this is captured by @todo(3436).
-            // Completely handling the FailureInfo is captured by @todo(2977).
-            if (notification.failureInfo().failureType() == FailureType.CANCELLED) {
-                LOGGER.log(INFO, "Session for block {0} was cancelled", blockNumber);
-            } else {
-                // Schedule a resend for the block before sending the bad block proof message
-                blocksToResend.add(blockNumber);
-                // Iterate over all handlers and attempt to send the
-                // bad block proof message.
-                for (final PublisherHandler handler : handlers.values()) {
-                    if (handler.handleFailedVerification(blockNumber)) {
-                        // There will always be only one handler that will send the
-                        // bad block proof message. Once we have, we can break.
-                        break;
-                    }
-                }
-            }
+            final FailureInfo failureInfo = notification.failureInfo();
+            final FailureActionResult actionResult = resolveFailureAction(blockNumber, failureInfo);
+            actionResult.handle(blockNumber, failureInfo, blocksToResend, handlers);
         }
+    }
+
+    /// Classifies a verification failure type, logs the failure and resolves
+    /// the operations the manager must perform for it. This is intentionally
+    /// an exhaustive switch expression with no default branch so that adding
+    /// a type to or removing a type from [FailureType] breaks compilation and
+    /// forces this policy to be revisited.
+    ///
+    /// @param blockNumber the block number that failed verification
+    /// @param failureInfo the failure information of the verification
+    /// @return the operations to perform for the failed block
+    private FailureActionResult resolveFailureAction(final long blockNumber, final FailureInfo failureInfo) {
+        return switch (failureInfo.failureType()) {
+            // The proof is proven invalid, a clear publisher fault.
+            case BAD_BLOCK_PROOF -> resendAndEndStream(blockNumber, failureInfo, WARNING, Code.BAD_BLOCK_PROOF);
+            // Possibly transient faults, the block is not proven bad,
+            // a retry may succeed, so the supplying stream stays open.
+            case MISSING_VERIFICATION_DATA, UNABLE_TO_PARSE -> resendOnly(blockNumber, failureInfo);
+            // The block is malformed, but the proof itself is not
+            // proven bad, so the stream ends with a generic error.
+            case MISSING_MANDATORY_FIELD, MISSING_MANDATORY_ITEM, UNSUPPORTED_STREAM_FORMAT ->
+                resendAndEndStream(blockNumber, failureInfo, INFO, Code.ERROR);
+            // Node side faults or capability limitations, the block is
+            // not proven bad, so the stream ends with a generic error.
+            case UNKNOWN_ERROR, UNRECOGNIZED_PROOF_TYPE, UNSUPPORTED_HAPI_VERSION, UNSUPPORTED_ITEM_TYPE ->
+                resendAndEndStream(blockNumber, failureInfo, INFO, Code.ERROR);
+            // A cancelled session also warrants a resend, but it
+            // cannot be reliably attributed to the publisher that
+            // supplied the block, so the resend cannot be scheduled
+            // accurately until @todo(3436) is in place.
+            // This branch should be short-lived.
+            case CANCELLED -> cancelledLogOnly(blockNumber);
+        };
+    }
+
+    /// Logs the given verification failure at the given level and resolves a
+    /// resend for the failed block with the supplying stream ended with the
+    /// given code.
+    ///
+    /// @param blockNumber the block number that failed verification
+    /// @param failureInfo the failure information of the verification
+    /// @param logLevel the level to log the failure at
+    /// @param endStreamCode the end of stream code to send to the supplier
+    /// @return the operations to perform for the failed block
+    private FailureActionResult resendAndEndStream(
+            final long blockNumber,
+            final FailureInfo failureInfo,
+            final System.Logger.Level logLevel,
+            final Code endStreamCode) {
+        LOGGER.log(
+                logLevel,
+                "Verification of block {0} failed with {1}, ending the supplying stream with {2}",
+                blockNumber,
+                failureInfo,
+                endStreamCode);
+        return new FailureActionResult(true, endStreamCode);
+    }
+
+    /// Logs the given verification failure and resolves a resend for the
+    /// failed block with the supplying stream left open.
+    ///
+    /// @param blockNumber the block number that failed verification
+    /// @param failureInfo the failure information of the verification
+    /// @return the operations to perform for the failed block
+    private FailureActionResult resendOnly(final long blockNumber, final FailureInfo failureInfo) {
+        LOGGER.log(INFO, "Verification of block {0} failed with {1}", blockNumber, failureInfo);
+        return new FailureActionResult(true, null);
+    }
+
+    /// Logs the cancelled verification session and resolves no operations.
+    ///
+    /// @param blockNumber the block number whose session was cancelled
+    /// @return the operations to perform for the failed block
+    private FailureActionResult cancelledLogOnly(final long blockNumber) {
+        LOGGER.log(INFO, "Session for block {0} was cancelled", blockNumber);
+        return new FailureActionResult(false, null);
     }
 
     /// {@inheritDoc}
@@ -1445,6 +1515,50 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 return true;
             } else {
                 return false;
+            }
+        }
+    }
+
+    /// The operations the publisher manager must perform for a verification
+    /// failure, as resolved by
+    /// [#resolveFailureAction(long,FailureInfo)].
+    ///
+    /// @param shouldResend true if a resend must be scheduled for the failed
+    /// block
+    /// @param endStreamCode the end of stream code to send to the supplying
+    /// handler, null if the stream stays open
+    private record FailureActionResult(boolean shouldResend, Code endStreamCode) {
+        /// Performs the resolved operations for the given failed block:
+        /// schedules a resend, unless the failure is informational, meaning
+        /// the same block was already verified successfully within reasonable
+        /// recency, and ends the supplying handler's stream when an end of
+        /// stream code is present. The resend is scheduled before the end of
+        /// stream message is sent.
+        ///
+        /// @param blockNumber    the block number that failed verification
+        /// @param failureInfo    the failure information of the verification
+        /// @param blocksToResend the manager's set of blocks scheduled to be resent
+        /// @param handlers       the manager's currently connected publisher handlers
+        private void handle(
+                final long blockNumber,
+                final FailureInfo failureInfo,
+                final ConcurrentSkipListSet<Long> blocksToResend,
+                final ConcurrentNavigableMap<Long, PublisherHandler> handlers) {
+            // An informational failure happened after the same block was
+            // already verified successfully within reasonable recency, so
+            // no resend is scheduled for it.
+            if (shouldResend && !failureInfo.isInformational()) {
+                // Schedule a resend for the block before sending the end of stream message
+                blocksToResend.add(blockNumber);
+            }
+            if (endStreamCode != null) {
+                for (final PublisherHandler handler : handlers.values()) {
+                    if (handler.handleFailedVerification(blockNumber, endStreamCode)) {
+                        // There will always be only one handler that will send the
+                        // end of stream message. Once we have, we can break.
+                        break;
+                    }
+                }
             }
         }
     }
