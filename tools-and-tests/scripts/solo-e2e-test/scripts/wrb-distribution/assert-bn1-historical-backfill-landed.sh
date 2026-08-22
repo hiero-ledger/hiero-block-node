@@ -25,6 +25,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)"
 
+# shellcheck source=../lib/chaos-assertions.sh
+source "${SCRIPT_DIR}/../lib/chaos-assertions.sh"
+
 : "${BN1_GRPC_PORT:=$((40839 + 1))}"
 : "${PROTO_PATH:=${REPO_ROOT}/protobuf-sources/proto}"
 
@@ -52,13 +55,12 @@ status_json=$(grpcurl -plaintext -emit-defaults \
 first_available=$(echo "${status_json}" | jq -r '.firstAvailableBlock // empty' 2>/dev/null || echo "")
 last_available=$(echo "${status_json}" | jq -r '.lastAvailableBlock // empty' 2>/dev/null || echo "")
 
-# An empty BN reports both fields as UINT64_MAX (18446744073709551615), not 0 —
-# 0 means "block 0 is available".
-NO_BLOCKS_SENTINEL="18446744073709551615"
-
 log "BN1 serverStatus: firstAvailableBlock=${first_available} lastAvailableBlock=${last_available}"
 
-if [[ -z "${last_available}" || ! "${last_available}" =~ ^[0-9]+$ || "${last_available}" == "${NO_BLOCKS_SENTINEL}" ]]; then
+# is_valid_block_number rejects the UINT64_MAX no-blocks sentinel (an empty BN reports it
+# for both fields, since 0 means "block 0 is available") plus anything else outside the
+# range bash can compare without wrapping.
+if ! is_valid_block_number "${last_available}"; then
     fail "BN1 still has no blocks after bulk-load + restart (lastAvailableBlock='${last_available}')"
 fi
 if [[ "${first_available}" != "0" ]]; then

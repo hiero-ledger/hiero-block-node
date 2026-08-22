@@ -365,6 +365,16 @@ function execute_clear_block_storage {
     kctl exec "${pod_name}" -n "${NAMESPACE}" -- \
         sh -c "rm -rf /opt/hiero/block-node/data/verification/* 2>/dev/null || true"
 
+    # Clear the persisted block range set. It lives on its own PVC and is reloaded
+    # into the in-memory range set on startup, which the backfill plugin uses as
+    # "blocks this node already has" — leaving it behind makes the restarted node
+    # believe it still holds the blocks whose files were just deleted, so backfill
+    # finds no gap to close. Only this file is removed; the sibling TSS/RSA
+    # bootstrap rosters in the same directory must survive the restart.
+    echo "Clearing persisted block ranges..."
+    kctl exec "${pod_name}" -n "${NAMESPACE}" -- \
+        sh -c "rm -f /opt/hiero/block-node/application-state/block-ranges.json 2>/dev/null || true"
+
     echo "Block storage cleared on $target"
 }
 
@@ -865,8 +875,12 @@ function assert_block_available_single {
     first_block=$(echo "$status_json" | jq -r '.firstAvailableBlock // "null"')
     last_block=$(echo "$status_json" | jq -r '.lastAvailableBlock // "null"')
 
-    if [[ "$first_block" == "null" || "$last_block" == "null" ]]; then
-        echo "${target}: No blocks available"
+    # An empty store reports both fields as the UINT64_MAX sentinel, which wraps to -1 in
+    # bash arithmetic and would make the "$first_block" -gt "$min_block" test below pass for
+    # a node holding no blocks at all. is_valid_block_number rejects the sentinel and any
+    # other value outside the signed-64-bit range. See scripts/lib/chaos-assertions.sh.
+    if ! is_valid_block_number "$first_block" || ! is_valid_block_number "$last_block"; then
+        echo "${target}: No blocks available (firstAvailableBlock=${first_block} lastAvailableBlock=${last_block})"
         return 1
     fi
 
@@ -1097,8 +1111,11 @@ function get_block_count {
 
     block_count=$(echo "$json" | jq -r '.lastAvailableBlock // ""' 2>/dev/null)
 
-    # Return empty if we got nothing valid
-    if [[ -z "$block_count" || "$block_count" == "null" ]]; then
+    # Return empty if we got nothing valid. An empty store reports the UINT64_MAX
+    # sentinel here, which compares equal to itself — without this guard
+    # assert_blocks_increasing would report "Blocks not increasing" for a node that
+    # holds nothing, hiding the real problem behind a plausible-looking failure.
+    if ! is_valid_block_number "$block_count"; then
         echo ""
         return 1
     fi
@@ -1133,7 +1150,7 @@ function assert_blocks_increasing_single {
     done
 
     if [[ -z "$baseline_block" ]]; then
-        echo "${target}: Could not get baseline block count"
+        echo "${target}: Could not get baseline block count (node holds no blocks, or serverStatus unreachable)"
         return 1
     fi
 

@@ -224,7 +224,8 @@ cp .env.example .env
 | `SOLO_SOURCE`            | `npm`                    | Solo install source: `npm` or `git` (see Custom Solo Build)          |
 | `SOLO_GIT_REPO`          | (empty)                  | Fork `owner/repo` when `SOLO_SOURCE=git` (must be approved)          |
 | `SOLO_GIT_REF`           | (empty)                  | Branch/tag/SHA when `SOLO_SOURCE=git`                                |
-| `CN_VERSION`             | `latest`                 | Consensus Node version                                               |
+| `CN_VERSION`             | `main`                   | Consensus Node version (requires `CN_LOCAL_BUILD_PATH`)              |
+| `CN_LOCAL_BUILD_PATH`    | (empty)                  | Built CN `hedera-node/data` dir; required when `CN_VERSION=main`      |
 | `MN_VERSION`             | `latest`                 | Mirror Node version                                                  |
 | `BN_VERSION`             | `latest`                 | Block Node version                                                   |
 | `RELAY_VERSION`          | `latest`                 | Relay version                                                        |
@@ -241,14 +242,57 @@ cp .env.example .env
 
 ### Version Keywords
 
-| Keyword  |                   Resolves To                   |        Notes        |
-|----------|-------------------------------------------------|---------------------|
-| `latest` | Latest GA release from GitHub                   | All components      |
-| `main`   | Current development snapshot                    | **Block Node only** |
-| `rc`     | Latest Release Candidate (tag containing `-rc`) | All components      |
-| `v0.x.y` | Specific version tag                            | All components      |
+| Keyword  |                   Resolves To                   |               Notes                |
+|----------|-------------------------------------------------|------------------------------------|
+| `latest` | Latest GA release from GitHub                   | All components                     |
+| `main`   | Current development snapshot                    | Block Node; CN needs a local build |
+| `rc`     | Latest Release Candidate (tag containing `-rc`) | All components                     |
+| `v0.x.y` | Specific version tag                            | All components                     |
 
-> **Note:** The `main` keyword only works for Block Node. Other components (CN, MN, Relay, TCK) do not publish `main` snapshots.
+> **Note:** `main` resolves straight through for Block Node, which publishes SNAPSHOT images. Mirror Node, Relay and TCK do **not** publish `main` snapshots at all. Consensus Node needs the extra step below.
+
+### Consensus Node from `main` (local build)
+
+**`CN_VERSION` defaults to `main` locally**, because no published CN tag yet carries the fixed
+16-slot block-root hashing rework — a released tag fails verification against a current Block Node
+and Mirror Node. That means a local `task up` requires `CN_LOCAL_BUILD_PATH`; the deploy fails fast
+if it is unset. Pin a released tag (`v0.79.0-alpha.1`, `v0.78.0-rc.2`) if you want to skip the build
+and don't need the new hashing.
+
+CI does the same thing automatically. When the resolved CN version ends in `-SNAPSHOT`,
+`solo-e2e-test.yml` checks out `hiero-ledger/hiero-consensus-node` at `main`, runs
+`./gradlew assemble`, and passes the result as `--cn-local-build-path`. Released tags skip
+the build entirely and fetch the published zip as before, so only SNAPSHOT runs pay the
+build cost.
+
+Solo does not pull the Consensus Node as a container image. `solo consensus node setup` downloads a
+platform build zip from `builds.hedera.com/node/software/<vMAJOR.MINOR>/build-<tag>.zip` and unpacks it
+into the pod's `root-container`. **Only tagged releases are published there**, so `CN_VERSION=main`
+(which resolves to e.g. `0.79.0-SNAPSHOT` from the CN branch's `version.txt`) has no artifact to fetch.
+
+To run an unreleased CN commit, build it locally and point the deploy at the build output. Solo's
+`--local-build-path` skips the download and uploads your jars instead:
+
+```bash
+cd <cn-repo>
+git fetch upstream && git checkout upstream/main
+./gradlew assemble          # populates hedera-node/data/{apps,lib}
+
+cd -                        # back to solo-e2e-test
+task up CN_VERSION=main CN_LOCAL_BUILD_PATH=<cn-repo>/hedera-node/data
+```
+
+`CN_LOCAL_BUILD_PATH` points at the `data` directory itself — Solo validates that it contains `apps/`
+and `lib/`. The release tag is still needed (staging-dir naming, Solo's TSS capability gate) but no
+longer has to match a published build; Solo explicitly tolerates the mismatch for local builds.
+
+`solo-deploy-network.sh` fails fast on both mistakes — a `-SNAPSHOT` `CN_VERSION` with no
+`CN_LOCAL_BUILD_PATH`, and a `CN_LOCAL_BUILD_PATH` that hasn't been built — rather than letting the
+404 surface after the cluster and Block Nodes are already up.
+
+> **Named CI tags don't work.** Tags like `sdpt-pass-00380` on the CN repo are git-only markers: no
+> build zip is published for them, and Solo's `Templates.prepareReleasePrefix` rejects any tag that
+> isn't dotted semver. Use a real pre-release tag (`v0.79.0-alpha.1`, `v0.78.0-rc.2`) or a local build.
 
 ### Command-Line Overrides
 
@@ -428,17 +472,36 @@ Topologies define network configuration. Located in `./topologies/`.
 
 |         Name          | CN | BN | MN | Relay | Explorer |                      Use Case                       |
 |-----------------------|----|----|:--:|:-----:|:--------:|-----------------------------------------------------|
-| `single`              | 1  | 1  | 1  |   1   |    0     | Basic testing, fastest startup                      |
-| `paired-3`            | 3  | 3  | 1  |   1   |    0     | Multi-node testing, each CN->BN pair                |
-| `fan-out-3cn-2bn`     | 3  | 2  | 1  |   1   |    0     | Redundancy testing, all CNs->all BNs                |
-| `3cn-1bn`             | 3  | 1  | 1  |   1   |    0     | Single BN receiving from multiple CNs               |
+| `single`              | 1  | 1  | 1  |   0   |    0     | Basic testing, fastest startup                      |
+| `paired-3`            | 3  | 3  | 1  |   0   |    0     | Multi-node testing, each CN->BN pair                |
+| `fan-out-3cn-2bn`     | 3  | 2  | 1  |   0   |    0     | Redundancy testing, all CNs->all BNs                |
+| `3cn-1bn`             | 3  | 1  | 1  |   0   |    0     | Single BN receiving from multiple CNs               |
 | `minimal`             | 1  | 1  | 0  |   0   |    0     | CN+BN only, no mirror/relay/explorer                |
-| `2cn-2bn-backfill`    | 2  | 2  | 1  |   1   |    0     | Backfill testing, BN recovery after data loss       |
-| `7cn-3bn-distributed` | 7  | 3  | 1  |   1   |    0     | Distributed streaming, grouped CN->BN with backfill |
+| `2cn-2bn-backfill`    | 2  | 2  | 1  |   0   |    0     | Backfill testing, BN recovery after data loss       |
+| `7cn-3bn-distributed` | 7  | 3  | 1  |   0   |    0     | Distributed streaming, grouped CN->BN with backfill |
 | `single-wrb-rsa`      | 1  | 1  | 1  |   0   |    0     | WRB (wrapped record blocks) verified via RSA roster |
 | `3cn-2bn-wrb-rsa`     | 3  | 2  | 1  |   0   |    0     | WRB fan-out verified via RSA roster                 |
 
 See `../network-topology-tool/README.md` for topology schema details.
+
+### Enabling Optional Components
+
+Relay and Explorer are **off in every bundled topology** — none of them define a
+`relay_nodes` or `explorer_nodes` entry. A component is deployed only when its section
+lists at least one node:
+
+```yaml
+relay_nodes:
+  relay-1: {}       # deploys the JSON-RPC Relay
+
+explorer_nodes: {}  # empty (or absent) -> not deployed
+```
+
+> The Relay is off by default because its startup probe (`GET :7546/health/readiness`)
+> has been failing on recent Relay images, leaving the pod at `0/1 Running`. Since
+> `solo relay node add` waits for readiness, a deployed-but-unhealthy Relay aborts
+> `task up` **before** it reaches `task port-forward`, which looks like "port forwards
+> are broken". Enable the Relay only if you actually need JSON-RPC.
 
 ### WRB + RSA Verification Topologies
 
@@ -589,7 +652,7 @@ task test:validate TEST_FILE=tests/basic-load.yaml
 | `tests/basic-load.yaml`              | Basic load test (1000 TPS cap)                      |
 | `tests/high-load.yaml`               | High load test (5000 TPS cap)                       |
 | `tests/node-restart-resilience.yaml` | BN recovery after restart during load               |
-| `tests/full-history-backfill.yaml`   | BN recovery via backfill after simulated outage     |
+| `tests/full-history-backfill.yaml`   | BN backfills history while ingesting live blocks    |
 | `tests/rsa-roster-verification.yaml` | Blocks verified via the RSA roster (WRB topologies) |
 
 ### Test Definition Schema
@@ -638,7 +701,7 @@ assertions:                      # Validations to run after all events
 | `network-status`           | Print network status             | (none)                                                                                            |
 | `sleep`                    | Pause execution                  | `seconds`                                                                                         |
 | `port-forward`             | Refresh port forwards            | (none)                                                                                            |
-| `clear-block-storage`      | Clear all block data on node     | `target`                                                                                          |
+| `clear-block-storage`      | Clear all block data on node (live, archive, verification, and the persisted block-range state) | `target`                                            |
 | `deploy-block-node`        | Deploy new Block Node            | `name`, `backfill_sources`, `greedy`, `chart_version`                                             |
 | `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                                                                   |
 | `inject-latency`           | Apply a NetworkChaos rule        | `name`, `source.kind`, `target.kind`, `latency`, `jitter`, `correlation`, `bidirectional`, `loss` |
@@ -659,6 +722,22 @@ assertions:                      # Validations to run after all events
 | `log-match`               | Generic log-substring check                                      | `grep`, `since_seconds`                                    |
 
 **Note:** The `blocks-increasing` assertion verifies a Block Node is actively receiving blocks. It measures baseline, waits `wait_seconds` (default: 60), verifies increase, retrying up to `max_attempts` (default: 3) times.
+
+**Note:** Entries under `assertions:` all run *after* every event, so they cannot check anything that is only true partway through a run. Time-sensitive checks belong in a `command` event instead — a failing `command` event fails the test just as a failing assertion does. `scripts/backfill/assert-backfill-during-live-stream.sh` and the `scripts/wrb-distribution/assert-*.sh` scripts follow this pattern.
+
+### Backfill With Live Tail (`full-history-backfill`)
+
+`tests/full-history-backfill.yaml` wipes BN1's data and checks that it refills its history from BN2 *while* its Consensus Node keeps streaming live blocks into it, rather than staying blocked until backfill reaches the chain head. Supporting scripts live in `scripts/backfill/`:
+
+|                  Script                   |                                  Purpose                                   |
+|-------------------------------------------|-----------------------------------------------------------------------------|
+| `wait-for-network-height.sh`              | Blocks until the network reaches `MIN_HEIGHT` (default 600) so there is a recoverable gap; returns at once if already past it |
+| `configure-bn-live-tail-backfill.sh`      | Raises the BN's `earliestManagedBlock` to `<chain head> + EMB_OFFSET` and throttles backfill, while the BN is scaled to zero |
+| `assert-backfill-during-live-stream.sh`   | Samples `serverStatusDetail` + `publisher_open_connections` and requires the historical range and the live range to both advance in the same window |
+
+The `earliestManagedBlock` is the hinge. On a store-less start the publisher treats it as its next expected block: left at the default `0` the Block Node answers every offer from the Consensus Node with `BlockNodeBehind`, so live streaming only resumes once backfill has walked the whole chain. Raised above the chain head, the first offered block is accepted instead and everything below it becomes a `HISTORICAL` backfill gap.
+
+If the assertion times out reporting no publisher connection, the network most likely produced blocks past the chosen `earliestManagedBlock` before the pod was ready — re-run with a larger `EMB_OFFSET`.
 
 ### CI Integration
 

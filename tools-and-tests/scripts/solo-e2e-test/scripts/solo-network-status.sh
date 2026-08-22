@@ -26,6 +26,11 @@
 
 set -o pipefail
 
+# is_valid_block_number / NO_BLOCKS_SENTINEL — shared with solo-test-runner.sh so the
+# status table and the assertions agree on what "no blocks" looks like.
+# shellcheck source=lib/chaos-assertions.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/chaos-assertions.sh"
+
 NAMESPACE=""
 TOPOLOGY=""
 TOPOLOGIES_DIR=""
@@ -153,10 +158,14 @@ for BN in ${BLOCK_NODES}; do
     FIRST=$(echo "${STATUS_JSON}" | jq -r '.firstAvailableBlock // "N/A"')
     LAST=$(echo "${STATUS_JSON}" | jq -r '.lastAvailableBlock // "N/A"')
 
-    if [[ "${FIRST}" != "N/A" && "${LAST}" != "N/A" ]]; then
-      output_line "| ${BN} | Block Node | Running | Blocks: ${FIRST} - ${LAST} |"
-    else
+    if [[ "${FIRST}" == "N/A" || "${LAST}" == "N/A" ]]; then
       output_line "| ${BN} | Block Node | Unreachable | - |"
+    elif ! is_valid_block_number "${FIRST}" || ! is_valid_block_number "${LAST}"; then
+      # An empty store reports UINT64_MAX for both fields; printing that as a range
+      # reads like a healthy node holding 18 quintillion blocks.
+      output_line "| ${BN} | Block Node | Running | No blocks |"
+    else
+      output_line "| ${BN} | Block Node | Running | Blocks: ${FIRST} - ${LAST} |"
     fi
   else
     output_line "| ${BN} | Block Node | Unknown | grpcurl not available |"
