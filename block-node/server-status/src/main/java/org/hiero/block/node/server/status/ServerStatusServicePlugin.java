@@ -19,6 +19,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -181,7 +182,13 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // Register this service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(ServerStatusConfig.class).port();
-        serviceBuilder.registerGrpcService(port, this);
+        final ServerStatusThrottleConfig throttleConfig =
+                context.configuration().getConfigData(ServerStatusThrottleConfig.class);
+        final PerClientThrottleSettings throttleSettings = new PerClientThrottleSettings(
+                throttleConfig.ratePerSecond(),
+                throttleConfig.burstTolerance(),
+                throttleConfig.maxConcurrentPerClient());
+        serviceBuilder.registerGrpcService(port, this, throttleSettings);
     }
 
     /**

@@ -20,8 +20,14 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
+import org.hiero.block.node.spi.throttle.ThrottlePolicy;
+import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
+import org.hiero.metrics.core.MetricRegistry;
 
 /// Default implementation of [ServiceBuilder]. That builds HTTP and PBJ GRPC services.
 ///
@@ -40,14 +46,22 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private final ServerConfig serverConfig;
     private final Http2Config http2Config;
     private final SocketOptions socketOptions;
+    private final GlobalThrottleConfig globalThrottleConfig;
+    private final MetricRegistry metricRegistry;
     private WebServerResult generalWebserver;
     private final LinkedHashSet<WebServerResult> additionalWebservers;
 
     public ServiceBuilderImpl(
-            final ServerConfig serverConfig, final Http2Config http2Config, final SocketOptions socketOptions) {
+            final ServerConfig serverConfig,
+            final Http2Config http2Config,
+            final SocketOptions socketOptions,
+            final GlobalThrottleConfig globalThrottleConfig,
+            final MetricRegistry metricRegistry) {
         this.serverConfig = serverConfig;
         this.http2Config = http2Config;
         this.socketOptions = socketOptions;
+        this.globalThrottleConfig = globalThrottleConfig;
+        this.metricRegistry = metricRegistry;
         additionalWebservers = new LinkedHashSet<>();
     }
 
@@ -61,6 +75,35 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     @Override
     public void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service) {
         grpcBuilders.computeIfAbsent(resolve(port), k -> PbjRouting.builder()).service(service);
+    }
+
+    /// {@inheritDoc}
+    ///
+    /// Resolves the node-wide concurrency ceiling for `service` (a small, explicit,
+    /// service-name-keyed lookup — deliberately code, not config, since it's a fixed,
+    /// rarely-changing association, matching how every other plugin's service is wired into this
+    /// class), merges it with `perClientSettings`, and registers the resulting
+    /// [ThrottledServiceInterface] in place of the raw service. Adding a new throttled method
+    /// means adding one field to [GlobalThrottleConfig] and one branch here.
+    @Override
+    public void registerGrpcService(
+            @Nullable Integer port,
+            @NonNull ServiceInterface service,
+            @NonNull PerClientThrottleSettings perClientSettings) {
+        final int maxConcurrentGlobal = resolveGlobalConcurrencyCeiling(service);
+        final ThrottlePolicy policy = ThrottlePolicy.merge(perClientSettings, maxConcurrentGlobal);
+        final ThrottledServiceInterface throttled =
+                new ThrottledServiceInterface(service, policy, new RemoteAddressKeyExtractor(), metricRegistry);
+        registerGrpcService(port, throttled);
+    }
+
+    private int resolveGlobalConcurrencyCeiling(@NonNull final ServiceInterface service) {
+        return switch (service.serviceName()) {
+            case "BlockNodeService" -> globalThrottleConfig.serverStatusMaxConcurrent();
+            default ->
+                throw new IllegalArgumentException(
+                        "No node-wide throttle ceiling configured for service " + service.serviceName());
+        };
     }
 
     /// Returns all HTTP routing builders keyed by port.

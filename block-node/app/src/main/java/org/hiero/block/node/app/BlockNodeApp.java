@@ -57,6 +57,7 @@ import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.app.config.state.ApplicationStateConfig;
@@ -293,7 +294,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .build();
 
         // Create HTTP & GRPC routing builders; null port in plugin registrations resolves to server.port
-        serviceBuilder = new ServiceBuilderImpl(serverConfig, http2Config, socketOptions);
+        final GlobalThrottleConfig globalThrottleConfig = configuration.getConfigData(GlobalThrottleConfig.class);
+        serviceBuilder =
+                new ServiceBuilderImpl(serverConfig, http2Config, socketOptions, globalThrottleConfig, metricRegistry);
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
         for (BlockNodePlugin plugin : loadedPlugins) {

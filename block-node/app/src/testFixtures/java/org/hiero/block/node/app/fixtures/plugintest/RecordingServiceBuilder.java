@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 
 /// A [ServiceBuilder] test fixture that records every call and every input instead of creating
 /// real Helidon web servers. It never opens a socket; it simply captures what a plugin registered so
@@ -61,6 +62,17 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     public record GrpcServiceRegistration(
             @Nullable Integer port, @NonNull ServiceInterface service) {}
 
+    /// A single recorded throttled {@link #registerGrpcService(Integer, ServiceInterface, PerClientThrottleSettings)}
+    /// invocation.
+    ///
+    /// @param port the port exactly as supplied (may be {@code null}, meaning "use the default port")
+    /// @param service the gRPC service supplied
+    /// @param perClientSettings the per-client throttle settings supplied
+    public record ThrottledGrpcServiceRegistration(
+            @Nullable Integer port,
+            @NonNull ServiceInterface service,
+            @NonNull PerClientThrottleSettings perClientSettings) {}
+
     /// A single recorded {@link #registerHttpNewServer} invocation (either overload).
     ///
     /// @param serverNumber the number assigned to this additional server (>= 2)
@@ -91,6 +103,8 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     private final List<HttpServiceRegistration> httpServiceRegistrations = new ArrayList<>();
     /** Every {@link #registerGrpcService} invocation, in call order. */
     private final List<GrpcServiceRegistration> grpcServiceRegistrations = new ArrayList<>();
+    /** Every throttled {@link #registerGrpcService(Integer, ServiceInterface, PerClientThrottleSettings)} invocation. */
+    private final List<ThrottledGrpcServiceRegistration> throttledGrpcServiceRegistrations = new ArrayList<>();
     /** Every two-argument {@link #registerHttpNewServer(TreeMap, CommonSocketValues)} invocation, in call order. */
     private final List<NewServerRegistration> newServerRegistrations = new ArrayList<>();
     /** Every four-argument {@link #registerHttpNewServer(TreeMap, Http2Config, SocketOptions, CommonSocketValues)} invocation. */
@@ -138,6 +152,20 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     /// Records the invocation; does not register anything with a real server.
     @Override
     public void registerGrpcService(@Nullable final Integer port, @NonNull final ServiceInterface service) {
+        grpcServiceRegistrations.add(new GrpcServiceRegistration(port, service));
+    }
+
+    /// {@inheritDoc}
+    /// Records the invocation both as a {@link ThrottledGrpcServiceRegistration} and, so existing
+    /// assertions against {@link #grpcServiceRegistrations()} (and this fixture's port computation
+    /// in {@link #buildGeneralWebServer()}) continue to see it, as a plain {@link GrpcServiceRegistration}
+    /// too. Does not apply any real admission control; it never creates a real server.
+    @Override
+    public void registerGrpcService(
+            @Nullable final Integer port,
+            @NonNull final ServiceInterface service,
+            @NonNull final PerClientThrottleSettings perClientSettings) {
+        throttledGrpcServiceRegistrations.add(new ThrottledGrpcServiceRegistration(port, service, perClientSettings));
         grpcServiceRegistrations.add(new GrpcServiceRegistration(port, service));
     }
 
@@ -229,6 +257,13 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     @NonNull
     public List<GrpcServiceRegistration> grpcServiceRegistrations() {
         return List.copyOf(grpcServiceRegistrations);
+    }
+
+    /// @return an immutable snapshot of every recorded throttled
+    ///     {@link #registerGrpcService(Integer, ServiceInterface, PerClientThrottleSettings)} invocation
+    @NonNull
+    public List<ThrottledGrpcServiceRegistration> throttledGrpcServiceRegistrations() {
+        return List.copyOf(throttledGrpcServiceRegistrations);
     }
 
     /// @return an immutable snapshot of every recorded two-argument
