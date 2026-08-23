@@ -17,6 +17,11 @@ import org.hiero.block.node.base.Loggable;
  *
  * @param serverStatusMaxConcurrent maximum concurrent in-flight {@code serverStatus} /
  *     {@code serverStatusDetail} calls across all clients
+ * @param getBlockLiveMaxConcurrent maximum concurrent in-flight {@code getBlock} calls for a
+ *     live/recent block, across all clients
+ * @param getBlockHistoricalMaxConcurrent maximum concurrent in-flight {@code getBlock} calls for a
+ *     historical/archived block, across all clients — sized with the shared backend block-read
+ *     bulkhead's capacity in mind once it exists (see the design doc's Component B)
  * @param clientStateTtlMinutes how long a throttled service keeps a client's rate/concurrency
  *     state after that client's last call before the entry becomes eligible for eviction; bounds
  *     the throttle's own memory use as new clients are seen over time (see
@@ -28,6 +33,12 @@ import org.hiero.block.node.base.Loggable;
 public record GlobalThrottleConfig(
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(1)
         int serverStatusMaxConcurrent,
+
+        @Loggable @ConfigProperty(defaultValue = "200") @Min(1)
+        int getBlockLiveMaxConcurrent,
+
+        @Loggable @ConfigProperty(defaultValue = "50") @Min(1)
+        int getBlockHistoricalMaxConcurrent,
 
         @Loggable @ConfigProperty(defaultValue = "30") @Min(1)
         int clientStateTtlMinutes,

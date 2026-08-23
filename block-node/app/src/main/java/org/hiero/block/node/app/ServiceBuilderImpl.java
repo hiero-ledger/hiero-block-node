@@ -14,6 +14,7 @@ import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -28,10 +29,14 @@ import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
+import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
+import org.hiero.block.node.spi.throttle.StaleClientSweepable;
 import org.hiero.block.node.spi.throttle.ThrottlePolicy;
 import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
+import org.hiero.block.node.spi.throttle.WeightClass;
+import org.hiero.block.node.spi.throttle.WeightedThrottledServiceInterface;
 import org.hiero.metrics.core.MetricRegistry;
 
 /// Default implementation of [ServiceBuilder]. That builds HTTP and PBJ GRPC services.
@@ -57,8 +62,8 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private WebServerResult generalWebserver;
     private final LinkedHashSet<WebServerResult> additionalWebservers;
 
-    /** Every [ThrottledServiceInterface] this instance has created, for the periodic stale-client sweep. */
-    private final List<ThrottledServiceInterface> throttledServices = new ArrayList<>();
+    /** Every throttled service this instance has created, for the periodic stale-client sweep. */
+    private final List<StaleClientSweepable> throttledServices = new ArrayList<>();
     /** Lazily created on the first throttled registration; runs the stale-client-state sweep. */
     private ScheduledExecutorService clientStateSweepExecutor;
 
@@ -103,7 +108,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
             @Nullable Integer port,
             @NonNull ServiceInterface service,
             @NonNull PerClientThrottleSettings perClientSettings) {
-        final int maxConcurrentGlobal = resolveGlobalConcurrencyCeiling(service);
+        final int maxConcurrentGlobal = resolveGlobalConcurrencyCeiling(service, WeightClass.STANDARD);
         final ThrottlePolicy policy = ThrottlePolicy.merge(perClientSettings, maxConcurrentGlobal);
         final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
                 service,
@@ -116,9 +121,44 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         registerGrpcService(port, throttled);
     }
 
-    private int resolveGlobalConcurrencyCeiling(@NonNull final ServiceInterface service) {
+    /// {@inheritDoc}
+    ///
+    /// Resolves the node-wide concurrency ceiling for each weight class `service` declares (the
+    /// same explicit, service-and-weight-keyed lookup as the single-policy overload), merges each
+    /// with its corresponding entry in `perClientSettingsByWeight`, and registers the resulting
+    /// [WeightedThrottledServiceInterface] in place of the raw service.
+    @Override
+    public void registerGrpcService(
+            @Nullable Integer port,
+            @NonNull ServiceInterface service,
+            @NonNull Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight,
+            @NonNull ContentAwareWeigher weigher) {
+        final Map<WeightClass, ThrottlePolicy> policiesByWeight = new EnumMap<>(WeightClass.class);
+        for (final Map.Entry<WeightClass, PerClientThrottleSettings> entry : perClientSettingsByWeight.entrySet()) {
+            final int maxConcurrentGlobal = resolveGlobalConcurrencyCeiling(service, entry.getKey());
+            policiesByWeight.put(entry.getKey(), ThrottlePolicy.merge(entry.getValue(), maxConcurrentGlobal));
+        }
+        final WeightedThrottledServiceInterface throttled = new WeightedThrottledServiceInterface(
+                service,
+                policiesByWeight,
+                new RemoteAddressKeyExtractor(),
+                weigher,
+                metricRegistry,
+                Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
+        throttledServices.add(throttled);
+        ensureClientStateSweepStarted();
+        registerGrpcService(port, throttled);
+    }
+
+    private int resolveGlobalConcurrencyCeiling(
+            @NonNull final ServiceInterface service, @NonNull final WeightClass weightClass) {
         return switch (service.serviceName()) {
             case "BlockNodeService" -> globalThrottleConfig.serverStatusMaxConcurrent();
+            case "BlockAccessService" ->
+                switch (weightClass) {
+                    case STANDARD -> globalThrottleConfig.getBlockLiveMaxConcurrent();
+                    case HEAVY -> globalThrottleConfig.getBlockHistoricalMaxConcurrent();
+                };
             default ->
                 throw new IllegalArgumentException(
                         "No node-wide throttle ceiling configured for service " + service.serviceName());
@@ -138,7 +178,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         clientStateSweepExecutor.scheduleAtFixedRate(
                 () -> {
                     final long now = System.nanoTime();
-                    for (final ThrottledServiceInterface throttled : throttledServices) {
+                    for (final StaleClientSweepable throttled : throttledServices) {
                         throttled.sweepStaleClients(now);
                     }
                 },

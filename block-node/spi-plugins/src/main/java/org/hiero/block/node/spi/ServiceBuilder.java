@@ -8,9 +8,12 @@ import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.WeightClass;
 
 /// ServiceBuilder is an interface that defines the contract for registering HTTP and gRPC services
 /// with the web server during initialization.
@@ -86,6 +89,29 @@ public interface ServiceBuilder {
             @Nullable Integer port,
             @NonNull ServiceInterface service,
             @NonNull PerClientThrottleSettings perClientSettings);
+
+    /// Registers a gRPC service on the given port, or on the default port if `port` is `null`,
+    /// with per-client rate/concurrency admission control that varies by request content.
+    ///
+    /// Use this overload instead of the single-policy one when a service's methods have more than
+    /// one cost tier (e.g. `getBlock` requests for a live block versus a historical/archived one).
+    /// `weigher` classifies each call once its request content is available (not at registration
+    /// time, and not synchronously inside the service's `open()` — see
+    /// `org.hiero.block.node.spi.throttle.WeightedThrottledServiceInterface` for why), and the
+    /// matching entry in `perClientSettingsByWeight` governs that call. The map must contain an
+    /// entry for [WeightClass#STANDARD], used as the fallback if the weigher ever returns a class
+    /// with no configured entry.
+    ///
+    /// @param port the port number to bind this service to, or `null` to use the default port
+    /// @param service the gRPC service to register and protect
+    /// @param perClientSettingsByWeight this service's per-client rate/concurrency settings, one
+    ///     entry per weight class its weigher can classify a request into
+    /// @param weigher classifies each call's request content into a weight class
+    void registerGrpcService(
+            @Nullable Integer port,
+            @NonNull ServiceInterface service,
+            @NonNull Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight,
+            @NonNull ContentAwareWeigher weigher);
 
     /// Registers a new webserver configured with one or more HTTP services
     /// attached to a set of ports.
