@@ -45,7 +45,7 @@ class ServiceBuilderImplTest {
         final Http2Config http2Config = Http2Config.builder().build();
         final SocketOptions socketOptions = SocketOptions.builder().build();
         ServerConfig testConfig = new ServerConfig(0, 0, 0, PUBLISHER_PORT, 0, 0, 0, 0, false, 0, 0);
-        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 200, 50, 30, 5);
+        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 200, 50, 200, 30, 5);
         serviceBuilder = new ServiceBuilderImpl(
                 testConfig,
                 http2Config,

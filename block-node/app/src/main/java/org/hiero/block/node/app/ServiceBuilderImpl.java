@@ -159,6 +159,9 @@ public class ServiceBuilderImpl implements ServiceBuilder {
                     case STANDARD -> globalThrottleConfig.getBlockLiveMaxConcurrent();
                     case HEAVY -> globalThrottleConfig.getBlockHistoricalMaxConcurrent();
                 };
+            // A subscription is a standing resource for the life of the session, so live and
+            // historical sessions draw from one shared node-wide ceiling rather than two.
+            case "BlockStreamSubscribeService" -> globalThrottleConfig.subscribeMaxConcurrent();
             default ->
                 throw new IllegalArgumentException(
                         "No node-wide throttle ceiling configured for service " + service.serviceName());
