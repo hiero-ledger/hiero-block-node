@@ -10,6 +10,8 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.EnumMap;
+import java.util.Map;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
@@ -21,6 +23,8 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -186,6 +190,25 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         // Register this service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(BlockAccessConfig.class).port();
-        serviceBuilder.registerGrpcService(port, this);
+        final GetBlockLiveThrottleConfig liveThrottleConfig =
+                context.configuration().getConfigData(GetBlockLiveThrottleConfig.class);
+        final GetBlockHistoricalThrottleConfig historicalThrottleConfig =
+                context.configuration().getConfigData(GetBlockHistoricalThrottleConfig.class);
+        final Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight = new EnumMap<>(WeightClass.class);
+        throttleSettingsByWeight.put(
+                WeightClass.STANDARD,
+                new PerClientThrottleSettings(
+                        liveThrottleConfig.ratePerSecond(),
+                        liveThrottleConfig.burstTolerance(),
+                        liveThrottleConfig.maxConcurrentPerClient()));
+        throttleSettingsByWeight.put(
+                WeightClass.HEAVY,
+                new PerClientThrottleSettings(
+                        historicalThrottleConfig.ratePerSecond(),
+                        historicalThrottleConfig.burstTolerance(),
+                        historicalThrottleConfig.maxConcurrentPerClient()));
+        final GetBlockWeigher weigher =
+                new GetBlockWeigher(blockProvider, historicalThrottleConfig.historicalThresholdBlocks());
+        serviceBuilder.registerGrpcService(port, this, throttleSettingsByWeight, weigher);
     }
 }
