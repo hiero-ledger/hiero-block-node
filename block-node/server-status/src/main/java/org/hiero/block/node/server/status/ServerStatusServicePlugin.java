@@ -31,6 +31,7 @@ import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -175,7 +176,13 @@ public class ServerStatusServicePlugin
         // Register this service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(ServerStatusConfig.class).port();
-        serviceBuilder.registerGrpcService(port, this);
+        final ServerStatusThrottleConfig throttleConfig =
+                context.configuration().getConfigData(ServerStatusThrottleConfig.class);
+        final PerClientThrottleSettings throttleSettings = new PerClientThrottleSettings(
+                throttleConfig.ratePerSecond(),
+                throttleConfig.burstTolerance(),
+                throttleConfig.maxConcurrentPerClient());
+        serviceBuilder.registerGrpcService(port, this, throttleSettings);
         context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
     }
 

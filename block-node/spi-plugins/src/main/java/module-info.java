@@ -5,6 +5,7 @@ module org.hiero.block.node.spi {
     exports org.hiero.block.node.spi.historicalblocks;
     exports org.hiero.block.node.spi.module;
     exports org.hiero.block.node.spi.threading;
+    exports org.hiero.block.node.spi.throttle;
     exports org.hiero.block.node.spi;
 
     requires transitive com.hedera.pbj.runtime;

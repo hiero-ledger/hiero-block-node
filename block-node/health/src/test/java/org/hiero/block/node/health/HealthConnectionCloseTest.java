@@ -32,6 +32,7 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -217,6 +218,14 @@ class HealthConnectionCloseTest
 
         @Override
         public void registerGrpcService(@Nullable final Integer port, final ServiceInterface service) {
+            // the health plugin registers no gRPC services
+        }
+
+        @Override
+        public void registerGrpcService(
+                @Nullable final Integer port,
+                final ServiceInterface service,
+                final PerClientThrottleSettings perClientSettings) {
             // the health plugin registers no gRPC services
         }
 

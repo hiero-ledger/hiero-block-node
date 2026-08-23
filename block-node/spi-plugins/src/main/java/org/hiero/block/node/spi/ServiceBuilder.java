@@ -10,6 +10,7 @@ import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
 import java.util.Set;
 import java.util.TreeMap;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 
 /// ServiceBuilder is an interface that defines the contract for registering HTTP and gRPC services
 /// with the web server during initialization.
@@ -70,6 +71,21 @@ public interface ServiceBuilder {
     /// use the default port
     /// @param service the gRPC service to register
     void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service);
+
+    /// Registers a gRPC service on the given port, or on the default port if `port` is `null`,
+    /// with per-client rate and concurrency admission control applied.
+    ///
+    /// The registration point merges `perClientSettings` with the node-wide concurrency ceiling
+    /// for this service (resolved internally) into a full throttle policy before wrapping the
+    /// service. See `docs/design/apis/api-throttling.md` for the full design.
+    ///
+    /// @param port the port number to bind this service to, or `null` to use the default port
+    /// @param service the gRPC service to register and protect
+    /// @param perClientSettings this service's own per-client rate/concurrency settings
+    void registerGrpcService(
+            @Nullable Integer port,
+            @NonNull ServiceInterface service,
+            @NonNull PerClientThrottleSettings perClientSettings);
 
     /// Registers a new webserver configured with one or more HTTP services
     /// attached to a set of ports.
