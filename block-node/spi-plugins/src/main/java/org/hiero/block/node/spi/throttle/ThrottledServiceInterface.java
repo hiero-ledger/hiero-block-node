@@ -8,6 +8,7 @@ import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Flow;
@@ -36,10 +37,17 @@ import org.hiero.metrics.core.MetricRegistry;
 /// outgoing pipeline's completion callbacks reliably fire exactly once when the call actually
 /// ends, for every call shape (unary, streaming, or bidi). See the design doc for the full
 /// reasoning.
+///
+/// Per-client state is bounded: an entry idle for at least `clientStateTtl` is evicted lazily the
+/// next time that client's key is looked up (see [#open]), and — to catch a client that connects
+/// once and is never looked up again — [#sweepStaleClients] provides a backstop a caller is
+/// expected to invoke periodically (see `docs/design/apis/api-throttling.md` §5). An entry with a
+/// call currently in flight is never evicted, however stale its last-seen time.
 public final class ThrottledServiceInterface implements ServiceInterface {
     private final ServiceInterface delegate;
     private final ThrottlePolicy policy;
     private final ClientKeyExtractor keyExtractor;
+    private final long clientStateTtlNanos;
     private final ConcurrentHashMap<String, ClientState> clientStates = new ConcurrentHashMap<>();
     private final AtomicInteger globalInFlight = new AtomicInteger();
 
@@ -55,14 +63,18 @@ public final class ThrottledServiceInterface implements ServiceInterface {
     /// @param policy the resolved per-client + node-wide policy for this service's methods
     /// @param keyExtractor derives the per-client key from each call's request options
     /// @param metricRegistry the registry to register this instance's metrics with
+    /// @param clientStateTtl how long a client's state is kept after its last-seen call before it
+    ///     becomes eligible for eviction (lazily on next lookup, or via [#sweepStaleClients])
     public ThrottledServiceInterface(
             @NonNull final ServiceInterface delegate,
             @NonNull final ThrottlePolicy policy,
             @NonNull final ClientKeyExtractor keyExtractor,
-            @NonNull final MetricRegistry metricRegistry) {
+            @NonNull final MetricRegistry metricRegistry,
+            @NonNull final Duration clientStateTtl) {
         this.delegate = delegate;
         this.policy = policy;
         this.keyExtractor = keyExtractor;
+        this.clientStateTtlNanos = clientStateTtl.toNanos();
 
         final String metricPrefix = "throttle_" + delegate.serviceName();
         admittedCounter = metricRegistry
@@ -123,9 +135,17 @@ public final class ThrottledServiceInterface implements ServiceInterface {
             @NonNull final RequestOptions options,
             @NonNull final Pipeline<? super Bytes> replies) {
         final String clientKey = keyExtractor.extractKey(options);
-        final ClientState state = clientStates.computeIfAbsent(
-                clientKey,
-                ignored -> new ClientState(new GcraLimiter(policy.ratePerSecond(), policy.burstTolerance())));
+        final long now = System.nanoTime();
+        // Atomic per-key compute: either reuse a live/still-fresh entry, or replace a stale,
+        // currently-unused one with a fresh limiter. A client that hasn't been seen in a while
+        // deserves a clean rate-limit history, not one artificially constrained by ancient calls.
+        final ClientState state = clientStates.compute(clientKey, (ignoredKey, existing) -> {
+            if (existing != null && !(isStale(existing, now) && existing.inFlight.get() == 0)) {
+                return existing;
+            }
+            return new ClientState(new GcraLimiter(policy.ratePerSecond(), policy.burstTolerance()));
+        });
+        state.lastSeenNanos = now;
 
         if (globalInFlight.get() >= policy.maxConcurrentGlobal()) {
             rejectedGlobalConcurrencyCounter.increment();
@@ -135,7 +155,7 @@ public final class ThrottledServiceInterface implements ServiceInterface {
             rejectedClientConcurrencyCounter.increment();
             return reject(replies, "per-client concurrency limit reached for " + delegate.serviceName());
         }
-        if (!state.limiter.tryAcquire(System.nanoTime())) {
+        if (!state.limiter.tryAcquire(now)) {
             rejectedRateCounter.increment();
             return reject(replies, "rate limit exceeded for " + delegate.serviceName());
         }
@@ -161,11 +181,38 @@ public final class ThrottledServiceInterface implements ServiceInterface {
         return Pipelines.noop();
     }
 
-    /// Per-client state for one throttled method: the client's own rate limiter and its current
-    /// in-flight call count.
+    /// Removes every client-state entry that has been idle for at least the configured TTL and has
+    /// no call currently in flight. Lazy eviction in [#open] already replaces a stale entry the
+    /// next time that specific client is looked up; this sweep is the backstop for a client that
+    /// connects once and is never looked up again, which lazy eviction alone would never catch. A
+    /// caller (e.g. the code that registers this service) is expected to invoke this periodically,
+    /// at a low frequency — this class does not schedule anything itself.
+    ///
+    /// @param nowNanos the current time from a monotonic clock (e.g. [System#nanoTime()])
+    /// @return the number of entries evicted
+    public int sweepStaleClients(final long nowNanos) {
+        final AtomicInteger evictedCount = new AtomicInteger();
+        clientStates.entrySet().removeIf(entry -> {
+            final ClientState state = entry.getValue();
+            final boolean evict = isStale(state, nowNanos) && state.inFlight.get() == 0;
+            if (evict) {
+                evictedCount.incrementAndGet();
+            }
+            return evict;
+        });
+        return evictedCount.get();
+    }
+
+    private boolean isStale(@NonNull final ClientState state, final long nowNanos) {
+        return nowNanos - state.lastSeenNanos >= clientStateTtlNanos;
+    }
+
+    /// Per-client state for one throttled method: the client's own rate limiter, its current
+    /// in-flight call count, and when it was last seen (for eviction, see [#sweepStaleClients]).
     private static final class ClientState {
         private final GcraLimiter limiter;
         private final AtomicInteger inFlight = new AtomicInteger();
+        private volatile long lastSeenNanos;
 
         private ClientState(final GcraLimiter limiter) {
             this.limiter = limiter;

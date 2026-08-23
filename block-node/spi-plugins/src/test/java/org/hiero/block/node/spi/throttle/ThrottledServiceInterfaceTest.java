@@ -12,6 +12,7 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -163,8 +164,54 @@ class ThrottledServiceInterfaceTest {
         assertEquals(1, secondCallReplies.errors.size());
     }
 
+    @Test
+    @DisplayName("A client idle longer than the TTL gets a fresh rate-limit history on its next call")
+    void lazyEvictionReplacesStaleClientState() throws InterruptedException {
+        // Rate of 1/s with no burst tolerance: an immediate second call from the same client would
+        // normally be rejected by the rate limiter, unless its state was reset by TTL-based eviction.
+        final ThrottledServiceInterface throttled =
+                throttledWith(new ThrottlePolicy(1, 0, 100, 100), Duration.ofMillis(20));
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
+        recordingService.capturedReplies.onComplete(); // free the concurrency slot
+
+        Thread.sleep(50); // exceed the 20ms TTL
+
+        final CapturingPipeline secondCallReplies = new CapturingPipeline();
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), secondCallReplies);
+
+        assertTrue(
+                secondCallReplies.errors.isEmpty(),
+                "a fresh rate limiter after TTL-based eviction should admit this call despite the 1/s rate");
+    }
+
+    @Test
+    @DisplayName("sweepStaleClients evicts idle entries but never one with a call still in flight")
+    void sweepStaleClientsRespectsInFlightCalls() {
+        final ThrottledServiceInterface throttled =
+                throttledWith(new ThrottlePolicy(100, 10, 5, 5), Duration.ofMillis(10));
+
+        // Client A: opens and completes immediately, so it is idle with nothing in flight.
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
+        recordingService.capturedReplies.onComplete();
+
+        // Client B: opens and is deliberately left in flight (never completed).
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.2"), new CapturingPipeline());
+
+        final long farFuture = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        final int evicted = throttled.sweepStaleClients(farFuture);
+
+        assertEquals(1, evicted, "only the idle client should be evicted; the in-flight client must be kept");
+    }
+
     private ThrottledServiceInterface throttledWith(final ThrottlePolicy policy) {
-        return new ThrottledServiceInterface(recordingService, policy, new RemoteAddressKeyExtractor(), metricRegistry);
+        // A TTL far longer than any test could run keeps eviction (covered separately below) out of
+        // the way of every test that isn't specifically exercising it.
+        return throttledWith(policy, Duration.ofDays(1));
+    }
+
+    private ThrottledServiceInterface throttledWith(final ThrottlePolicy policy, final Duration clientStateTtl) {
+        return new ThrottledServiceInterface(
+                recordingService, policy, new RemoteAddressKeyExtractor(), metricRegistry, clientStateTtl);
     }
 
     private static ServiceInterface.RequestOptions optionsFor(final String ipAddress) {

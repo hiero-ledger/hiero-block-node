@@ -22,6 +22,7 @@ import io.helidon.webserver.http2.Http2Config;
 import java.util.Map;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
+import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -44,9 +45,14 @@ class ServiceBuilderImplTest {
         final Http2Config http2Config = Http2Config.builder().build();
         final SocketOptions socketOptions = SocketOptions.builder().build();
         ServerConfig testConfig = new ServerConfig(0, 0, 0, PUBLISHER_PORT, 0, 0, 0, 0, false, 0, 0);
-        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000);
+        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 30, 5);
         serviceBuilder = new ServiceBuilderImpl(
-                testConfig, http2Config, socketOptions, globalThrottleConfig, mock(MetricRegistry.class));
+                testConfig,
+                http2Config,
+                socketOptions,
+                globalThrottleConfig,
+                mock(MetricRegistry.class),
+                mock(ThreadPoolManager.class));
     }
 
     @Test

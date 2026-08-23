@@ -295,8 +295,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
         // Create HTTP & GRPC routing builders; null port in plugin registrations resolves to server.port
         final GlobalThrottleConfig globalThrottleConfig = configuration.getConfigData(GlobalThrottleConfig.class);
-        serviceBuilder =
-                new ServiceBuilderImpl(serverConfig, http2Config, socketOptions, globalThrottleConfig, metricRegistry);
+        serviceBuilder = new ServiceBuilderImpl(
+                serverConfig, http2Config, socketOptions, globalThrottleConfig, metricRegistry, threadPoolManager);
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
         for (BlockNodePlugin plugin : loadedPlugins) {

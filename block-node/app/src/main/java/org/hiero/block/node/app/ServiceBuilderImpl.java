@@ -13,16 +13,21 @@ import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
 import org.hiero.block.node.spi.throttle.ThrottlePolicy;
@@ -48,20 +53,28 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private final SocketOptions socketOptions;
     private final GlobalThrottleConfig globalThrottleConfig;
     private final MetricRegistry metricRegistry;
+    private final ThreadPoolManager threadPoolManager;
     private WebServerResult generalWebserver;
     private final LinkedHashSet<WebServerResult> additionalWebservers;
+
+    /** Every [ThrottledServiceInterface] this instance has created, for the periodic stale-client sweep. */
+    private final List<ThrottledServiceInterface> throttledServices = new ArrayList<>();
+    /** Lazily created on the first throttled registration; runs the stale-client-state sweep. */
+    private ScheduledExecutorService clientStateSweepExecutor;
 
     public ServiceBuilderImpl(
             final ServerConfig serverConfig,
             final Http2Config http2Config,
             final SocketOptions socketOptions,
             final GlobalThrottleConfig globalThrottleConfig,
-            final MetricRegistry metricRegistry) {
+            final MetricRegistry metricRegistry,
+            final ThreadPoolManager threadPoolManager) {
         this.serverConfig = serverConfig;
         this.http2Config = http2Config;
         this.socketOptions = socketOptions;
         this.globalThrottleConfig = globalThrottleConfig;
         this.metricRegistry = metricRegistry;
+        this.threadPoolManager = threadPoolManager;
         additionalWebservers = new LinkedHashSet<>();
     }
 
@@ -92,8 +105,14 @@ public class ServiceBuilderImpl implements ServiceBuilder {
             @NonNull PerClientThrottleSettings perClientSettings) {
         final int maxConcurrentGlobal = resolveGlobalConcurrencyCeiling(service);
         final ThrottlePolicy policy = ThrottlePolicy.merge(perClientSettings, maxConcurrentGlobal);
-        final ThrottledServiceInterface throttled =
-                new ThrottledServiceInterface(service, policy, new RemoteAddressKeyExtractor(), metricRegistry);
+        final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
+                service,
+                policy,
+                new RemoteAddressKeyExtractor(),
+                metricRegistry,
+                Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
+        throttledServices.add(throttled);
+        ensureClientStateSweepStarted();
         registerGrpcService(port, throttled);
     }
 
@@ -104,6 +123,28 @@ public class ServiceBuilderImpl implements ServiceBuilder {
                 throw new IllegalArgumentException(
                         "No node-wide throttle ceiling configured for service " + service.serviceName());
         };
+    }
+
+    /// Starts the periodic stale-client-state sweep the first time it's needed (i.e. the first
+    /// throttled service registration), rather than unconditionally in the constructor — a node
+    /// with no throttled services registers nothing and spawns no sweep thread.
+    private void ensureClientStateSweepStarted() {
+        if (clientStateSweepExecutor != null) {
+            return;
+        }
+        clientStateSweepExecutor = threadPoolManager.createVirtualThreadScheduledExecutor(
+                1, "throttle-client-state-sweep", (thread, throwable) -> {});
+        final long intervalMinutes = globalThrottleConfig.clientStateSweepIntervalMinutes();
+        clientStateSweepExecutor.scheduleAtFixedRate(
+                () -> {
+                    final long now = System.nanoTime();
+                    for (final ThrottledServiceInterface throttled : throttledServices) {
+                        throttled.sweepStaleClients(now);
+                    }
+                },
+                intervalMinutes,
+                intervalMinutes,
+                TimeUnit.MINUTES);
     }
 
     /// Returns all HTTP routing builders keyed by port.
@@ -169,6 +210,9 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         additionalWebservers.parallelStream()
                 .forEach(server -> server.serverCreated().stop());
         generalWebserver.serverCreated().stop();
+        if (clientStateSweepExecutor != null) {
+            clientStateSweepExecutor.shutdownNow();
+        }
     }
 
     @Override

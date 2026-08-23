@@ -17,8 +17,20 @@ import org.hiero.block.node.base.Loggable;
  *
  * @param serverStatusMaxConcurrent maximum concurrent in-flight {@code serverStatus} /
  *     {@code serverStatusDetail} calls across all clients
+ * @param clientStateTtlMinutes how long a throttled service keeps a client's rate/concurrency
+ *     state after that client's last call before the entry becomes eligible for eviction; bounds
+ *     the throttle's own memory use as new clients are seen over time (see
+ *     {@code docs/design/apis/api-throttling.md} §5)
+ * @param clientStateSweepIntervalMinutes how often the backstop sweep for stale, never-looked-up-again
+ *     client entries runs
  */
 @ConfigData("throttle.global")
 public record GlobalThrottleConfig(
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(1)
-        int serverStatusMaxConcurrent) {}
+        int serverStatusMaxConcurrent,
+
+        @Loggable @ConfigProperty(defaultValue = "30") @Min(1)
+        int clientStateTtlMinutes,
+
+        @Loggable @ConfigProperty(defaultValue = "5") @Min(1)
+        int clientStateSweepIntervalMinutes) {}
