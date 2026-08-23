@@ -12,6 +12,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
@@ -31,6 +32,8 @@ import org.hiero.block.internal.SubscribeStreamResponseUnparsed.Builder;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
@@ -70,7 +73,24 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         // register us as a service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(SubscriberConfig.class).port();
-        serviceBuilder.registerGrpcService(port, this);
+        final SubscribeThrottleConfig throttleConfig =
+                context.configuration().getConfigData(SubscribeThrottleConfig.class);
+        final Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight = new EnumMap<>(WeightClass.class);
+        throttleSettingsByWeight.put(
+                WeightClass.STANDARD,
+                new PerClientThrottleSettings(
+                        throttleConfig.liveRatePerSecond(),
+                        throttleConfig.liveBurstTolerance(),
+                        throttleConfig.liveMaxConcurrentPerClient()));
+        throttleSettingsByWeight.put(
+                WeightClass.HEAVY,
+                new PerClientThrottleSettings(
+                        throttleConfig.historicalRatePerSecond(),
+                        throttleConfig.historicalBurstTolerance(),
+                        throttleConfig.historicalMaxConcurrentPerClient()));
+        final SubscribeStreamWeigher weigher = new SubscribeStreamWeigher(
+                context.historicalBlockProvider(), throttleConfig.historicalThresholdBlocks());
+        serviceBuilder.registerGrpcService(port, this, throttleSettingsByWeight, weigher);
     }
 
     @Override

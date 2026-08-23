@@ -16,6 +16,6 @@ public class SubscriberConfigExtension implements ConfigurationExtension {
     @NonNull
     @Override
     public Set<Class<? extends Record>> getConfigDataTypes() {
-        return Set.of(SubscriberConfig.class);
+        return Set.of(SubscriberConfig.class, SubscribeThrottleConfig.class);
     }
 }
