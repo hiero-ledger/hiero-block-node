@@ -97,10 +97,21 @@ function wait_for_mn_ingestion {
 
     local elapsed=0
     while [[ ${elapsed} -lt ${timeout} ]]; do
-        # Check MN logs directly for ingestion success (more reliable than API)
-        local ingestion_count=$(kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
+        # Check MN logs directly for ingestion success (more reliable than API).
+        #
+        # Match .rcd as well as .blk: in rsa-wrb / WRB cutover mode the importer consumes
+        # the record files carried inside wrapped record blocks and logs "items from
+        # <ts>.rcd", never ".blk". Matching only .blk made this wait time out after 360s
+        # against an importer that was ingesting perfectly.
+        #
+        # `grep -c` already prints 0 when nothing matches, and also exits 1 — so a
+        # `|| echo 0` fallback appends a second line and the arithmetic test below dies
+        # with `[[: 0\n0: syntax error in expression`. Let grep's own 0 stand.
+        local ingestion_count
+        ingestion_count=$(kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
             logs deployment/mirror-1-importer --tail=100 2>/dev/null | \
-            grep -c "Successfully processed.*items from.*\.blk" || echo "0")
+            grep -cE "Successfully processed.*items from.*\.(blk|rcd)")
+        ingestion_count="${ingestion_count:-0}"
 
         if [[ "${ingestion_count}" -ge "1" ]]; then
             log "Mirror Node has ingested blocks (found ${ingestion_count} processing messages) ✓"
@@ -322,7 +333,11 @@ function download_record_files_from_minio {
         return $?
     }
 
-    local file_count=$(grep -c '\.rcd' /tmp/minio-listing.txt 2>/dev/null || echo "0")
+    # No `|| echo 0`: grep -c prints 0 and exits 1 on no-match, so the fallback would
+    # append a second line and break the arithmetic below. :-0 covers a missing file.
+    local file_count
+    file_count=$(grep -c '\.rcd' /tmp/minio-listing.txt 2>/dev/null)
+    file_count="${file_count:-0}"
     if [ "${file_count}" -lt 1 ]; then
         log "WARNING: No .rcd files found in MinIO bucket (found ${file_count}), trying CN pod..."
         download_record_files_from_cn "${output_dir}" "${max_files}"
