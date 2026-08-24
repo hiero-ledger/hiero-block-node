@@ -15,8 +15,10 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import io.helidon.common.tls.Tls;
+import io.helidon.http.Method;
 import io.helidon.webclient.api.WebClient;
 import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
+import io.helidon.webclient.http2.Http2Client;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -200,6 +202,59 @@ public class BlockNodeThrottleTests {
         void run();
     }
 
+    /**
+     * Issues one bounded {@code subscribeBlockStream} call and returns the RESOURCE_EXHAUSTED
+     * status the throttle rejected it with, or empty if it was admitted and completed normally.
+     */
+    private static Optional<GrpcStatus> subscribeOnce(
+            final BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient client,
+            final long blockNumber) {
+        final ResponsePipelineUtils<SubscribeStreamResponse> observer = new ResponsePipelineUtils<>();
+        client.subscribeBlockStream(
+                SubscribeStreamRequest.newBuilder()
+                        .startBlockNumber(blockNumber)
+                        .endBlockNumber(blockNumber)
+                        .build(),
+                observer);
+        if (observer.getOnErrorCalls().isEmpty()) {
+            return Optional.empty();
+        }
+        final Throwable error = observer.getOnErrorCalls().getFirst();
+        assertThat(error).isInstanceOf(GrpcException.class);
+        return Optional.of(((GrpcException) error).status());
+    }
+
+    /** Same robustness rationale as {@link #assertEventuallyRejectedByThrottle}, for the subscribe client. */
+    private static void assertEventuallySubscribeRejected(
+            final BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient client,
+            final long blockNumber,
+            final int attempts) {
+        for (int attempt = 0; attempt < attempts; attempt++) {
+            final Optional<GrpcStatus> status = subscribeOnce(client, blockNumber);
+            if (status.isPresent()) {
+                assertThat(status.get()).isEqualTo(GrpcStatus.RESOURCE_EXHAUSTED);
+                return;
+            }
+        }
+        fail("Expected at least one of " + attempts
+                + " rapid back-to-back subscriptions to be rejected by the throttle");
+    }
+
+    /**
+     * Scrapes the node's OpenMetrics HTTP endpoint. This suite's {@code app-test.properties} doesn't
+     * override the exporter's hostname/port, so it binds to the library default ({@code localhost:8888}),
+     * not the production default ({@code app.properties} sets port 16007) — only enablement is overridden.
+     */
+    private static String scrapeMetrics() {
+        final Http2Client http2Client =
+                Http2Client.builder().baseUri("http://localhost:8888").build();
+        try (var response =
+                http2Client.method(Method.create("GET")).path("/metrics").request()) {
+            assertEquals(200, response.status().code());
+            return response.as(String.class);
+        }
+    }
+
     // ==== serverStatus (Phase 1) =========================================================================
 
     @Test
@@ -217,6 +272,33 @@ public class BlockNodeThrottleTests {
             final ServerStatusResponse first = client.serverStatus(SIMPLE_SERVER_STATUS_REQUEST);
             assertNotNull(first);
 
+            assertEventuallyRejectedByThrottle(10, () -> client.serverStatus(SIMPLE_SERVER_STATUS_REQUEST));
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    @DisplayName("serverStatus: burst tolerance admits a bounded number of rapid calls before rejecting")
+    void serverStatusBurstToleranceAdmitsBoundedNumberOfRapidCalls() throws InterruptedException, IOException {
+        final int burstTolerance = 3;
+        final Map<String, String> overrides = new HashMap<>();
+        overrides.put("throttle.serverStatus.ratePerSecond", "1");
+        overrides.put("throttle.serverStatus.burstTolerance", String.valueOf(burstTolerance));
+        overrides.put("throttle.serverStatus.maxConcurrentPerClient", "1000");
+        startApp(overrides);
+
+        final BlockNodeServiceInterface.BlockNodeServiceClient client =
+                new BlockNodeServiceInterface.BlockNodeServiceClient(createGrpcClient(), OPTIONS);
+        try {
+            // burstTolerance pacing intervals of slack means burstTolerance + 1 rapid calls must
+            // all be admitted before the throttle catches up — unlike every other rate-limit test
+            // in this class, which uses burstTolerance=0 and only ever proves a single admit.
+            for (int i = 0; i < burstTolerance + 1; i++) {
+                assertNotNull(client.serverStatus(SIMPLE_SERVER_STATUS_REQUEST));
+            }
+
+            // The burst allowance is now exhausted; further rapid calls must eventually be rejected.
             assertEventuallyRejectedByThrottle(10, () -> client.serverStatus(SIMPLE_SERVER_STATUS_REQUEST));
         } finally {
             client.close();
@@ -255,6 +337,48 @@ public class BlockNodeThrottleTests {
             final BlockResponse liveResponse =
                     client.getBlock(BlockRequest.newBuilder().blockNumber(4L).build());
             assertEquals(BlockResponse.Code.SUCCESS, liveResponse.status());
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    @DisplayName("getBlock: a request exactly at the historical threshold is live; one block further is historical")
+    void getBlockWeigherBoundaryClassifiesExactThresholdAsLiveAndOneBeyondAsHistorical()
+            throws InterruptedException, IOException {
+        final long threshold = 2;
+        final Map<String, String> overrides = new HashMap<>();
+        overrides.put("throttle.getBlockHistorical.ratePerSecond", "1");
+        overrides.put("throttle.getBlockHistorical.burstTolerance", "0");
+        overrides.put("throttle.getBlockHistorical.historicalThresholdBlocks", String.valueOf(threshold));
+        startApp(overrides);
+        final int blockCount = 5;
+        publishBlocks(blockCount); // blocks 0..4; tip is block 4
+        final long tip = blockCount - 1L;
+
+        final BlockAccessServiceInterface.BlockAccessServiceClient client =
+                new BlockAccessServiceInterface.BlockAccessServiceClient(createGrpcClient(), OPTIONS);
+        try {
+            // Exactly at the threshold (distance == threshold): classified STANDARD/live, so the
+            // tight historical rate limit above must not apply — several rapid calls all succeed.
+            final long boundaryBlock = tip - threshold;
+            for (int i = 0; i < 3; i++) {
+                final BlockResponse response = client.getBlock(
+                        BlockRequest.newBuilder().blockNumber(boundaryBlock).build());
+                assertEquals(BlockResponse.Code.SUCCESS, response.status());
+            }
+
+            // One block further behind (distance == threshold + 1): classified HEAVY/historical, so
+            // the tight rate limit does apply.
+            final long beyondThresholdBlock = boundaryBlock - 1;
+            final BlockResponse firstHistorical = client.getBlock(
+                    BlockRequest.newBuilder().blockNumber(beyondThresholdBlock).build());
+            assertEquals(BlockResponse.Code.SUCCESS, firstHistorical.status());
+            assertEventuallyRejectedByThrottle(
+                    10,
+                    () -> client.getBlock(BlockRequest.newBuilder()
+                            .blockNumber(beyondThresholdBlock)
+                            .build()));
         } finally {
             client.close();
         }
@@ -333,6 +457,73 @@ public class BlockNodeThrottleTests {
         }
     }
 
+    @Test
+    @DisplayName("subscribeBlockStream: live and historical subscriptions are rate-limited independently")
+    void subscribeBlockStreamHistoricalAndLiveThrottledIndependently() throws InterruptedException, IOException {
+        final Map<String, String> overrides = new HashMap<>();
+        // The historical tier's rate is exhausted by its first call; the live tier is left generous
+        // so a live subscription right after proves the two tiers don't share throttle state.
+        overrides.put("throttle.subscribe.historicalRatePerSecond", "1");
+        overrides.put("throttle.subscribe.historicalBurstTolerance", "0");
+        overrides.put("throttle.subscribe.historicalThresholdBlocks", "1");
+        overrides.put("throttle.subscribe.liveRatePerSecond", "1000");
+        overrides.put("throttle.subscribe.liveBurstTolerance", "1000");
+        startApp(overrides);
+        publishBlocks(5); // blocks 0..4; tip is block 4
+
+        final BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient client =
+                new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(createGrpcClient(), OPTIONS);
+        try {
+            // block 0 is 4 blocks behind the tip (> threshold of 1) -> HEAVY, first subscription admitted.
+            assertThat(subscribeOnce(client, 0L)).isEmpty();
+
+            // block 1 is also HEAVY, and the historical tier's rate is now exhausted.
+            assertEventuallySubscribeRejected(client, 1L, 10);
+
+            // block 4 (the tip) is 0 blocks behind -> STANDARD/live, unaffected by the HEAVY rejection above.
+            assertThat(subscribeOnce(client, 4L)).isEmpty();
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    @DisplayName(
+            "subscribeBlockStream: a start block exactly at the historical threshold is live; one further is historical")
+    void subscribeBlockStreamWeigherBoundaryClassifiesExactThresholdAsLiveAndOneBeyondAsHistorical()
+            throws InterruptedException, IOException {
+        final long threshold = 2;
+        final Map<String, String> overrides = new HashMap<>();
+        overrides.put("throttle.subscribe.historicalRatePerSecond", "1");
+        overrides.put("throttle.subscribe.historicalBurstTolerance", "0");
+        overrides.put("throttle.subscribe.historicalThresholdBlocks", String.valueOf(threshold));
+        overrides.put("throttle.subscribe.liveRatePerSecond", "1000");
+        overrides.put("throttle.subscribe.liveBurstTolerance", "1000");
+        startApp(overrides);
+        final int blockCount = 5;
+        publishBlocks(blockCount); // blocks 0..4; tip is block 4
+        final long tip = blockCount - 1L;
+
+        final BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient client =
+                new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(createGrpcClient(), OPTIONS);
+        try {
+            // Exactly at the threshold (distance == threshold): classified STANDARD/live, so several
+            // rapid subscriptions all succeed despite the tight historical rate limit above.
+            final long boundaryBlock = tip - threshold;
+            for (int i = 0; i < 3; i++) {
+                assertThat(subscribeOnce(client, boundaryBlock)).isEmpty();
+            }
+
+            // One block further behind (distance == threshold + 1): classified HEAVY/historical, so
+            // the tight rate limit does apply.
+            final long beyondThresholdBlock = boundaryBlock - 1;
+            assertThat(subscribeOnce(client, beyondThresholdBlock)).isEmpty();
+            assertEventuallySubscribeRejected(client, beyondThresholdBlock, 10);
+        } finally {
+            client.close();
+        }
+    }
+
     // TODO: this is the highest-value remaining test for #3532's acceptance criteria (a concurrency
     // permit released exactly once for a session ended normally / cancelled / past its deadline), but
     // needs a deterministic way to know the server has admitted and registered a still-open live
@@ -354,4 +545,39 @@ public class BlockNodeThrottleTests {
     @Test
     @DisplayName("subscribeBlockStream: a concurrency permit is released when the call's deadline is exceeded")
     void subscribeBlockStreamConcurrencyLimitReleasesPermitOnDeadlineExceeded() {}
+
+    // ==== Metrics (Phases 1-4) ============================================================================
+
+    @Test
+    @DisplayName("A throttle rejection and admission are reflected in the OpenMetrics counters")
+    void throttleRejectionAndAdmissionAreReflectedInMetrics() throws InterruptedException, IOException {
+        final Map<String, String> overrides = new HashMap<>();
+        // The suite's app-test.properties disables the OpenMetrics HTTP endpoint by default (to
+        // avoid port conflicts across parallel e2e runs); re-enable it for this test only.
+        overrides.put("metrics.exporter.openmetrics.http.enabled", "true");
+        overrides.put("throttle.serverStatus.ratePerSecond", "1");
+        overrides.put("throttle.serverStatus.burstTolerance", "0");
+        overrides.put("throttle.serverStatus.maxConcurrentPerClient", "1000");
+        startApp(overrides);
+
+        final BlockNodeServiceInterface.BlockNodeServiceClient client =
+                new BlockNodeServiceInterface.BlockNodeServiceClient(createGrpcClient(), OPTIONS);
+        try {
+            assertNotNull(client.serverStatus(SIMPLE_SERVER_STATUS_REQUEST));
+            assertEventuallyRejectedByThrottle(10, () -> client.serverStatus(SIMPLE_SERVER_STATUS_REQUEST));
+        } finally {
+            client.close();
+        }
+
+        // The gRPC response already proves the throttle admitted one call and rejected another; this
+        // proves the *metrics* wiring independently records the same thing, via a different code path
+        // that could silently regress without any other test noticing.
+        final String metrics = scrapeMetrics();
+        assertThat(metrics)
+                .as("expected an admitted-calls counter for BlockNodeService with a nonzero value")
+                .containsPattern("throttle_BlockNodeService_admitted_total\\S*\\s+[1-9]\\d*");
+        assertThat(metrics)
+                .as("expected a rejected-by-rate counter for BlockNodeService with a nonzero value")
+                .containsPattern("throttle_BlockNodeService_rejected_rate_total\\S*\\s+[1-9]\\d*");
+    }
 }
