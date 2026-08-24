@@ -69,11 +69,14 @@ import org.junit.jupiter.api.Test;
  * deterministic instead of racing real-world rate limits.
  * <p>
  * Simple, deterministic scenarios (a rate limit exceeded by two back-to-back calls, or two
- * independently-configured weight classes) are covered here. Scenarios that require holding a call
- * open concurrently with another one (node-wide concurrency ceilings, streaming-permit release on
- * cancellation or deadline) are stubbed with {@link Disabled} and a TODO describing the approach,
- * since they need either an artificially slow {@code HistoricalBlockFacility} or a way to
- * deterministically know the server has admitted a still-open call before firing a second one.
+ * independently-configured weight classes) are covered here, alongside one concurrency-ceiling
+ * scenario for {@code subscribeBlockStream} that holds a session open on a background thread (a
+ * bounded subscription to a not-yet-published block blocks until that block is published, so it can
+ * be cleanly joined afterward — see {@link #subscribeBlockStreamConcurrencyLimitRejectsSecondConcurrentSession}).
+ * Scenarios that would need the same technique but for {@code getBlock} (whose real read path
+ * completes too fast to hold open externally) or a way to force client cancellation/deadline-exceeded
+ * through this harness's gRPC client are stubbed with {@link Disabled} and a TODO describing the
+ * blocker.
  */
 @Tag("api")
 public class BlockNodeThrottleTests {
@@ -165,6 +168,33 @@ public class BlockNodeThrottleTests {
             previousBlockHash = BlockItemBuilderUtils.computeBlockHash(blockNumber, previousBlockHash);
         }
         awaitLatch(ackLatch, "acknowledgement watermark covering blocks 0.." + headBlock);
+        stream.closeConnection();
+        publishClient.close();
+    }
+
+    /**
+     * Publishes one additional block, continuing the chain from {@code previousBlockHash} (see
+     * {@link BlockItemBuilderUtils#computeBlockHash}). Used to complete a bounded subscription that
+     * was deliberately started against a not-yet-published future block, so its background thread
+     * can be joined during test cleanup instead of leaking.
+     */
+    private void publishOneMoreBlock(final long blockNumber, final Bytes previousBlockHash)
+            throws InterruptedException {
+        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publishClient =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> observer = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> stream = publishClient.publishBlockStream(observer);
+        final AtomicReference<CountDownLatch> ackLatch = observer.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
+                        && response.acknowledgement().blockNumber() >= blockNumber);
+        final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber, previousBlockHash);
+        stream.onNext(PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(items).build())
+                .build());
+        stream.onNext(PublishStreamRequest.newBuilder()
+                .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
+                .build());
+        awaitLatch(ackLatch, "acknowledgement for block " + blockNumber);
         stream.closeConnection();
         publishClient.close();
     }
@@ -524,17 +554,72 @@ public class BlockNodeThrottleTests {
         }
     }
 
-    // TODO: this is the highest-value remaining test for #3532's acceptance criteria (a concurrency
-    // permit released exactly once for a session ended normally / cancelled / past its deadline), but
-    // needs a deterministic way to know the server has admitted and registered a still-open live
-    // session (subscribing to a not-yet-published future block, so the session blocks indefinitely)
-    // before firing a second concurrent call from the same client — otherwise the second call could
-    // race ahead of the first one's admission and the test would be flaky. Come back to this with
-    // either a short bounded poll-and-retry or a white-box hook exposing open-session count.
-    @Disabled("needs a deterministic signal that a held-open live session was admitted server-side; see TODO above")
     @Test
     @DisplayName("subscribeBlockStream: the per-client concurrency ceiling rejects a second concurrent live session")
-    void subscribeBlockStreamConcurrencyLimitRejectsSecondConcurrentSession() {}
+    void subscribeBlockStreamConcurrencyLimitRejectsSecondConcurrentSession() throws InterruptedException, IOException {
+        final Map<String, String> overrides = new HashMap<>();
+        overrides.put("throttle.subscribe.liveMaxConcurrentPerClient", "1");
+        // Generous rate/burst so the rejection below is unambiguously the concurrency ceiling, not
+        // a rate-limit coincidence.
+        overrides.put("throttle.subscribe.liveRatePerSecond", "1000");
+        overrides.put("throttle.subscribe.liveBurstTolerance", "1000");
+        startApp(overrides);
+        publishBlocks(1); // block 0 only; tip is block 0
+
+        // Held open on a background thread: a bounded request for a not-yet-published block blocks
+        // indefinitely waiting for it, holding the live tier's one concurrency permit for this
+        // client. Bounded (not open-ended) so publishing the awaited block later lets this thread
+        // complete normally instead of streaming forever with no way to cancel it.
+        final BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient heldOpenClient =
+                new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(createGrpcClient(), OPTIONS);
+        final AtomicReference<Throwable> backgroundFailure = new AtomicReference<>();
+        final Thread heldOpenSubscribeThread = new Thread(
+                () -> {
+                    try {
+                        final ResponsePipelineUtils<SubscribeStreamResponse> observer = new ResponsePipelineUtils<>();
+                        heldOpenClient.subscribeBlockStream(
+                                SubscribeStreamRequest.newBuilder()
+                                        .startBlockNumber(1L)
+                                        .endBlockNumber(1L)
+                                        .build(),
+                                observer);
+                        if (!observer.getOnErrorCalls().isEmpty()) {
+                            throw new AssertionError(
+                                    "held-open session unexpectedly errored: " + observer.getOnErrorCalls());
+                        }
+                    } catch (final Throwable t) {
+                        backgroundFailure.set(t);
+                    }
+                },
+                "held-open-live-subscribe");
+        heldOpenSubscribeThread.start();
+        try {
+            // No competing pressure to keep this short (unlike the GCRA rate-boundary tests): this
+            // is purely waiting for the async admission above to have happened server-side.
+            Thread.sleep(500);
+
+            final BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient client =
+                    new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(
+                            createGrpcClient(), OPTIONS);
+            try {
+                // block 0 is already available and would normally be admitted instantly; the live
+                // tier's one concurrency permit is already held by the session above.
+                assertThat(subscribeOnce(client, 0L)).contains(GrpcStatus.RESOURCE_EXHAUSTED);
+            } finally {
+                client.close();
+            }
+        } finally {
+            // Publish the awaited block so the held-open session completes normally and its thread
+            // can be joined, regardless of whether the assertion above passed or failed.
+            publishOneMoreBlock(1L, BlockItemBuilderUtils.computeBlockHash(0L, null));
+            heldOpenSubscribeThread.join(DEFAULT_AWAIT_TIMEOUT.toMillis());
+            assertThat(heldOpenSubscribeThread.isAlive())
+                    .as("held-open subscribe thread should have completed after publishing the awaited block")
+                    .isFalse();
+            assertThat(backgroundFailure.get()).isNull();
+            heldOpenClient.close();
+        }
+    }
 
     @Disabled("needs a way to force client cancellation mid-stream from this harness; see #3532 acceptance criteria")
     @Test
