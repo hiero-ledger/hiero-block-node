@@ -156,6 +156,11 @@ function deploy_mn_to_bn {
         cat > "${overlay_file}" << EOF
 # Mirror Node connected to Block Node 1 (rsa-wrb / WRB cutover)
 importer:
+  # The default GraalVM-native importer image crashes on startup (missing reflection
+  # hints); the generator applies the same override for every topology.
+  image:
+    registry: gcr.io
+    repository: mirrornode/hedera-mirror-importer
   resources:
     limits:
       cpu: 2000m
@@ -175,9 +180,13 @@ importer:
               firstStage:
                 enabled: true
             enabled: true
+            # BlockNodeProperties expects each node to carry a list of endpoints; the
+            # flat "- host:/port:" form leaves host and port unbound and the importer
+            # dies at startup with "elements [...] were left unbound".
             nodes:
-              - host: ${bn_host}
-                port: 40840
+              - endpoints:
+                  - host: ${bn_host}
+                    port: 40840
             sourceType: BLOCK_NODE
             stream:
               maxStreamResponseSize: 36MB
