@@ -124,8 +124,12 @@ while true; do
 
         if ((connections_after < 1)); then
             last_reason="no publisher connected to ${target_bn} (open connections ${connections_after})"
-        elif ((count_before < 2 || count_after < 2)); then
-            last_reason="${target_bn} does not hold two separate ranges, so there is no open historical gap to close (ranges ${ranges_after})"
+        elif ((count_before < 2)); then
+            # Naming the sample matters: reporting the *after* ranges while complaining about
+            # the *before* one reads as a contradiction when the after-sample does hold a gap.
+            last_reason="${target_bn} held no historical gap at the start of this window, so there was nothing to watch close (ranges ${ranges_before})"
+        elif ((count_after < 2)); then
+            last_reason="${target_bn} no longer holds two separate ranges; the gap either closed or never opened (ranges ${ranges_after})"
         elif [[ "${historical_before}" == "-" || "${historical_after}" == "-" ]]; then
             last_reason="${target_bn} holds no range starting at block 0; backfill has not landed any history yet"
         elif ((historical_after <= historical_before)); then

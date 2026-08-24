@@ -72,15 +72,20 @@ events:
     args:
       script: "${SCRIPT_DIR}/backfill/wait-for-network-height.sh 2"
 
-  - id: clear-bn1-storage
-    type: clear-block-storage
-    description: "Clear all block storage on BN1 (simulate data loss)"
+  # Scale down BEFORE wiping. A running node keeps ingesting live blocks for its whole
+  # termination grace period (30s, ~15 blocks), refilling the storage that was just
+  # emptied — so it restarts holding a partial live range instead of being store-less,
+  # takes its next expected block from that range rather than from earliestManagedBlock,
+  # and answers BlockNodeBehind forever. That is the failure this ordering avoids.
+  - id: scale-down-bn1
+    type: scale-down
+    description: "Scale down BN1 so its storage can be wiped while it is stopped"
     delay: 20
     target: block-node-1
 
-  - id: scale-down-bn1
-    type: scale-down
-    description: "Scale down BN1"
+  - id: clear-bn1-storage
+    type: clear-block-storage
+    description: "Clear all block storage on the stopped BN1 (simulate data loss)"
     delay: 25
     target: block-node-1
 
