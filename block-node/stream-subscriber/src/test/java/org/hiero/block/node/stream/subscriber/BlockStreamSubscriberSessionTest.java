@@ -20,6 +20,7 @@ import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfType;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
@@ -27,7 +28,9 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -46,6 +49,13 @@ class BlockStreamSubscriberSessionTest {
             response -> response.response().kind();
     private static final Function<SubscribeStreamResponseUnparsed, Code> responseStatusExtractor =
             SubscribeStreamResponseUnparsed::status;
+
+    /** A generously-sized bulkhead shared by every {@link SessionContext#create} call in this file. */
+    private static final BlockReadBulkhead TEST_BLOCK_READ_BULKHEAD = new BlockReadBulkhead(
+            1_000,
+            MetricRegistry.builder()
+                    .setMetricsExporter(new TestMetricsExporter())
+                    .build());
 
     // SESSION FIELDS
     /** Client id of the session. */
@@ -97,7 +107,7 @@ class BlockStreamSubscriberSessionTest {
                     .startBlockNumber(-1L)
                     .endBlockNumber(-1L)
                     .build();
-            sessionContext = SessionContext.create(clientId, validRequest, blockNodeContext);
+            sessionContext = SessionContext.create(clientId, validRequest, blockNodeContext, TEST_BLOCK_READ_BULKHEAD);
         }
 
         /**
@@ -1247,7 +1257,7 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(0L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, request, chunkingContext),
+                    SessionContext.create(clientId, request, chunkingContext, TEST_BLOCK_READ_BULKHEAD),
                     chunkingPipeline,
                     chunkingContext,
                     sessionReadyLatch);
@@ -1292,7 +1302,7 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(0L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, request, chunkingContext),
+                    SessionContext.create(clientId, request, chunkingContext, TEST_BLOCK_READ_BULKHEAD),
                     chunkingPipeline,
                     chunkingContext,
                     sessionReadyLatch);
@@ -1347,7 +1357,7 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(0L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, request, chunkingContext),
+                    SessionContext.create(clientId, request, chunkingContext, TEST_BLOCK_READ_BULKHEAD),
                     chunkingPipeline,
                     chunkingContext,
                     sessionReadyLatch);
@@ -1395,7 +1405,7 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(0L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, request, chunkingContext),
+                    SessionContext.create(clientId, request, chunkingContext, TEST_BLOCK_READ_BULKHEAD),
                     chunkingPipeline,
                     chunkingContext,
                     sessionReadyLatch);
@@ -1449,7 +1459,7 @@ class BlockStreamSubscriberSessionTest {
      */
     private BlockStreamSubscriberSession generateSession(final SubscribeStreamRequest request) {
         return new BlockStreamSubscriberSession(
-                SessionContext.create(clientId, request, blockNodeContext),
+                SessionContext.create(clientId, request, blockNodeContext, TEST_BLOCK_READ_BULKHEAD),
                 responsePipeline,
                 blockNodeContext,
                 sessionReadyLatch);

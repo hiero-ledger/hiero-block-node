@@ -25,10 +25,12 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.node.app.config.BlockReadBulkheadConfig;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
+import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
@@ -66,12 +68,15 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private final List<StaleClientSweepable> throttledServices = new ArrayList<>();
     /** Lazily created on the first throttled registration; runs the stale-client-state sweep. */
     private ScheduledExecutorService clientStateSweepExecutor;
+    /** The single, shared block-read bulkhead every plugin's [#blockReadBulkhead] call returns. */
+    private final BlockReadBulkhead blockReadBulkhead;
 
     public ServiceBuilderImpl(
             final ServerConfig serverConfig,
             final Http2Config http2Config,
             final SocketOptions socketOptions,
             final GlobalThrottleConfig globalThrottleConfig,
+            final BlockReadBulkheadConfig blockReadBulkheadConfig,
             final MetricRegistry metricRegistry,
             final ThreadPoolManager threadPoolManager) {
         this.serverConfig = serverConfig;
@@ -80,7 +85,15 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         this.globalThrottleConfig = globalThrottleConfig;
         this.metricRegistry = metricRegistry;
         this.threadPoolManager = threadPoolManager;
+        this.blockReadBulkhead = new BlockReadBulkhead(blockReadBulkheadConfig.permits(), metricRegistry);
         additionalWebservers = new LinkedHashSet<>();
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public BlockReadBulkhead blockReadBulkhead() {
+        return blockReadBulkhead;
     }
 
     /// {@inheritDoc}

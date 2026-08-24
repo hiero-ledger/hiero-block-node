@@ -6,6 +6,8 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 
+import com.hedera.pbj.runtime.grpc.GrpcException;
+import com.hedera.pbj.runtime.grpc.GrpcStatus;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -23,6 +25,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.metrics.LongCounter;
@@ -50,6 +53,8 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block provider */
     private HistoricalBlockFacility blockProvider;
+    /** The shared block-storage read bulkhead (Component B); protects storage independent of client identity */
+    private BlockReadBulkhead blockReadBulkhead;
     /** Counter for the number of requests */
     private LongCounter.Measurement requestCounter;
     /** Counter for the number of responses Success */
@@ -124,19 +129,34 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 responseCounterNotAvailable.increment();
                 return new BlockResponseUnparsed(Code.NOT_AVAILABLE, null);
             }
-            // Retrieve the block
-            try (final BlockAccessor accessor = blockProvider.block(blockNumberToRetrieve)) {
-                if (accessor != null) {
-                    // Use blockUnparsed() to avoid full parsing of block items
-                    final BlockUnparsed block = accessor.blockUnparsed();
-                    if (block != null) {
-                        responseCounterSuccess.increment();
-                        return new BlockResponseUnparsed(Code.SUCCESS, block);
-                    }
-                }
-                responseCounterNotFound.increment();
-                return new BlockResponseUnparsed(Code.NOT_FOUND, null);
+            // Component B: a single, shared, non-client-keyed permit pool guarding every read
+            // against block storage. getBlock is a single request/response exchange, so it
+            // acquires without waiting and rejects immediately if the pool is exhausted, rather
+            // than queuing — see docs/design/apis/api-throttling.md ("Component B").
+            if (!blockReadBulkhead.tryAcquire()) {
+                throw new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED, "block storage read capacity exhausted");
             }
+            try {
+                // Retrieve the block
+                try (final BlockAccessor accessor = blockProvider.block(blockNumberToRetrieve)) {
+                    if (accessor != null) {
+                        // Use blockUnparsed() to avoid full parsing of block items
+                        final BlockUnparsed block = accessor.blockUnparsed();
+                        if (block != null) {
+                            responseCounterSuccess.increment();
+                            return new BlockResponseUnparsed(Code.SUCCESS, block);
+                        }
+                    }
+                    responseCounterNotFound.increment();
+                    return new BlockResponseUnparsed(Code.NOT_FOUND, null);
+                }
+            } finally {
+                blockReadBulkhead.release();
+            }
+        } catch (final GrpcException e) {
+            // Not an internal failure — propagate so the caller sees RESOURCE_EXHAUSTED, rather
+            // than being folded into the generic RuntimeException handling below.
+            throw e;
         } catch (final RuntimeException e) {
             final String message = "Failed to retrieve block number %d.".formatted(request.blockNumber());
             LOGGER.log(ERROR, message, e);
@@ -187,6 +207,8 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 .getOrCreateNotLabeled();
         // Get the block provider
         this.blockProvider = context.historicalBlockProvider();
+        // Component B: the single, shared block-storage read bulkhead
+        this.blockReadBulkhead = serviceBuilder.blockReadBulkhead();
         // Register this service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(BlockAccessConfig.class).port();

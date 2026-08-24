@@ -270,6 +270,21 @@ public class BlockNodeThrottleTests {
     @DisplayName("getBlock: the node-wide concurrency ceiling rejects once saturated")
     void getBlockGlobalConcurrencyCeilingRejectsWhenSaturated() {}
 
+    // ==== Shared block-read bulkhead (Phase 4, Component B) ==============================================
+
+    // TODO: this needs the same controllable slow HistoricalBlockFacility fixture as the stub above, plus
+    // wiring it into both BlockAccessServicePlugin and the subscriber's historical catch-up path at once,
+    // to prove getBlock and a subscriber session draw from and are capped by the *same* shared pool
+    // regardless of how load is split between the two call paths (see docs/design/apis/api-throttling.md,
+    // "Component B"). Real unit/plugin-level coverage of this already exists (BlockReadBulkheadTest,
+    // BlockAccessServicePluginTest#getBlockRejectedWhenBulkheadExhausted,
+    // SubscriberServicePluginTest#testHistoricalReadRetriesWhenBulkheadExhausted) — what's missing here is
+    // specifically the *cross-plugin sharing* proof at full e2e fidelity.
+    @Disabled("needs a controllable slow HistoricalBlockFacility fixture shared across two plugins; see TODO above")
+    @Test
+    @DisplayName("Shared block-read bulkhead: getBlock and subscriber catch-up reads draw from the same pool")
+    void blockReadBulkheadIsSharedAcrossGetBlockAndSubscriberCatchUp() {}
+
     // ==== subscribeBlockStream (Phase 3) =================================================================
 
     @Test

@@ -23,6 +23,7 @@ public class AppConfigExtension implements ConfigurationExtension {
                 WebServerHttp2Config.class,
                 NodeConfig.class,
                 ApplicationStateConfig.class,
-                GlobalThrottleConfig.class);
+                GlobalThrottleConfig.class,
+                BlockReadBulkheadConfig.class);
     }
 }

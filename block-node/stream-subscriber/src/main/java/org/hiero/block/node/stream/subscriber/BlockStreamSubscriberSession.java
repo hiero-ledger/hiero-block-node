@@ -18,6 +18,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -41,6 +42,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 
 /**
  * This class is used to represent a session for a single BlockStream subscriber that has connected to the block node.
@@ -96,6 +98,12 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private static final TimeUnit LIVE_POLL_UNITS = TimeUnit.MILLISECONDS;
     /** The "resolution", in ns, to use for a polling delays. */
     private static final long PARK_DELAY_TIME = 100_000;
+    /**
+     * How long a historical catch-up read waits for a shared block-read bulkhead permit before
+     * giving up on this poll and retrying later, rather than disconnecting the session — see
+     * docs/design/apis/api-throttling.md ("Component B").
+     */
+    private static final Duration HISTORICAL_READ_PERMIT_WAIT = Duration.ofMillis(100);
 
     /** The pipeline to send responses to the client */
     private final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline;
@@ -164,18 +172,21 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             @NonNull String handlerName,
             long clientId,
             long firstRequestedBlock,
-            long lastRequestedBlock) {
+            long lastRequestedBlock,
+            @NonNull BlockReadBulkhead blockReadBulkhead) {
         SessionContext(
                 @NonNull final SubscriberConfig subscriberConfig,
                 @NonNull final String handlerName,
                 final long clientId,
                 final long firstRequestedBlock,
-                final long lastRequestedBlock) {
+                final long lastRequestedBlock,
+                @NonNull final BlockReadBulkhead blockReadBulkhead) {
             this.subscriberConfig = requireNonNull(subscriberConfig);
             this.handlerName = requireNonNull(handlerName);
             this.clientId = clientId;
             this.firstRequestedBlock = firstRequestedBlock;
             this.lastRequestedBlock = lastRequestedBlock;
+            this.blockReadBulkhead = requireNonNull(blockReadBulkhead);
         }
 
         /**
@@ -185,11 +196,17 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         static SessionContext create(
                 final long clientId,
                 @NonNull final SubscribeStreamRequest request,
-                @NonNull final BlockNodeContext context) {
+                @NonNull final BlockNodeContext context,
+                @NonNull final BlockReadBulkhead blockReadBulkhead) {
             final String handlerName = "Live stream client " + clientId;
             final SubscriberConfig subscriberConfig = context.configuration().getConfigData(SubscriberConfig.class);
             return new SessionContext(
-                    subscriberConfig, handlerName, clientId, request.startBlockNumber(), request.endBlockNumber());
+                    subscriberConfig,
+                    handlerName,
+                    clientId,
+                    request.startBlockNumber(),
+                    request.endBlockNumber(),
+                    blockReadBulkhead);
         }
     }
 
@@ -447,39 +464,52 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // Don't send anything from history if this stream is interrupted, has sent
         // every requested block, or we can send the next block from "live".
         while (isHistoryPermitted()) {
-            // We need to send historical blocks.
-            // We will only send one block at a time to keep things "smooth".
-            // Start by getting a block accessor for the next block to send from the historical provider.
-            try (final BlockAccessor nextBlockAccessor =
-                    blockNodeContext.historicalBlockProvider().block(nextBlockToSend.get())) {
-                if (nextBlockAccessor != null) {
-                    // Get raw bytes first - this gives us O(1) size check
-                    final Bytes blockBytes = nextBlockAccessor.blockBytes(BlockAccessor.Format.PROTOBUF);
-                    if (blockBytes == null) {
-                        final String message = "Unable to retrieve historical block {0} for client {1}.";
-                        throw new IllegalStateException(message);
-                    }
-                    final int blockByteSize = (int) blockBytes.length();
-                    final BlockUnparsed block =
-                            standardParse(BlockUnparsed.PROTOBUF, blockBytes, maxProtobufMessageSizeBytes);
-                    // We have retrieved the block to send, so send it.
-                    sendOneFullBlock(block, blockByteSize);
-                    // Trim the queue if necessary, also increment the next block to send.
-                    trimBlockItemQueue(nextBlockToSend.incrementAndGet());
-                } else {
-                    // Only give up if this is an historical block, otherwise just
-                    // go back up and see if live has the block.
-                    if (!(nextBlockToSend.get() < 0 || nextBlockToSend.get() >= getLatestHistoricalBlock())) {
-                        // We cannot get the block needed, something has failed.
-                        // close the stream with an "unavailable" response.
-                        final String message = "Unable to read historical block, nextBlockToSend={0}.";
-                        LOGGER.log(Level.INFO, message, nextBlockToSend);
-                        close(SubscribeStreamResponse.Code.NOT_AVAILABLE);
+            // Component B: a single, shared, non-client-keyed permit pool guarding every read
+            // against block storage. A subscriber session is a standing resource, so unlike
+            // getBlock's immediate rejection, this waits briefly for a permit and, if none becomes
+            // available in time, simply retries on the next poll rather than disconnecting the
+            // session — see docs/design/apis/api-throttling.md ("Component B").
+            if (!sessionContext.blockReadBulkhead.tryAcquire(HISTORICAL_READ_PERMIT_WAIT)) {
+                awaitNewLiveEntries();
+                break;
+            }
+            try {
+                // We need to send historical blocks.
+                // We will only send one block at a time to keep things "smooth".
+                // Start by getting a block accessor for the next block to send from the historical provider.
+                try (final BlockAccessor nextBlockAccessor =
+                        blockNodeContext.historicalBlockProvider().block(nextBlockToSend.get())) {
+                    if (nextBlockAccessor != null) {
+                        // Get raw bytes first - this gives us O(1) size check
+                        final Bytes blockBytes = nextBlockAccessor.blockBytes(BlockAccessor.Format.PROTOBUF);
+                        if (blockBytes == null) {
+                            final String message = "Unable to retrieve historical block {0} for client {1}.";
+                            throw new IllegalStateException(message);
+                        }
+                        final int blockByteSize = (int) blockBytes.length();
+                        final BlockUnparsed block =
+                                standardParse(BlockUnparsed.PROTOBUF, blockBytes, maxProtobufMessageSizeBytes);
+                        // We have retrieved the block to send, so send it.
+                        sendOneFullBlock(block, blockByteSize);
+                        // Trim the queue if necessary, also increment the next block to send.
+                        trimBlockItemQueue(nextBlockToSend.incrementAndGet());
                     } else {
-                        awaitNewLiveEntries();
+                        // Only give up if this is an historical block, otherwise just
+                        // go back up and see if live has the block.
+                        if (!(nextBlockToSend.get() < 0 || nextBlockToSend.get() >= getLatestHistoricalBlock())) {
+                            // We cannot get the block needed, something has failed.
+                            // close the stream with an "unavailable" response.
+                            final String message = "Unable to read historical block, nextBlockToSend={0}.";
+                            LOGGER.log(Level.INFO, message, nextBlockToSend);
+                            close(SubscribeStreamResponse.Code.NOT_AVAILABLE);
+                        } else {
+                            awaitNewLiveEntries();
+                        }
+                        break;
                     }
-                    break;
                 }
+            } finally {
+                sessionContext.blockReadBulkhead.release();
             }
         }
     }
