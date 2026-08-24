@@ -11,6 +11,7 @@ import io.helidon.webserver.http2.Http2Config;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.WeightClass;
@@ -112,6 +113,16 @@ public interface ServiceBuilder {
             @NonNull ServiceInterface service,
             @NonNull Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight,
             @NonNull ContentAwareWeigher weigher);
+
+    /// The single, shared [BlockReadBulkhead] protecting block storage from combined read load
+    /// across every API that reads from it (Component B in `docs/design/apis/api-throttling.md`).
+    /// The same instance is returned on every call, so every plugin that reads block storage on
+    /// behalf of a client request (currently `getBlock` and the subscriber's historical catch-up
+    /// path) shares one bounded pool rather than each having its own.
+    ///
+    /// @return the node's single shared block-read bulkhead
+    @NonNull
+    BlockReadBulkhead blockReadBulkhead();
 
     /// Registers a new webserver configured with one or more HTTP services
     /// attached to a set of ports.

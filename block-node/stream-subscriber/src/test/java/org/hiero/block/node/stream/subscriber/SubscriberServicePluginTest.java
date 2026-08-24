@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.hiero.block.api.SubscribeStreamRequest;
@@ -28,6 +29,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -87,6 +89,45 @@ class SubscriberServicePluginTest {
             final SubscriberServicePlugin toTest = new SubscriberServicePlugin();
             historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             start(toTest, toTest.methods().getFirst(), historicalBlockFacility);
+        }
+
+        /**
+         * This test aims to assert that a subscriber session catching up on historical blocks
+         * retries on the next poll rather than disconnecting when the shared block-read bulkhead
+         * (Component B) has no permit available, and that it proceeds normally once one frees up.
+         */
+        @Test
+        @DisplayName(
+                "Test Subscriber: historical catch-up retries rather than disconnects when the bulkhead is exhausted")
+        void testHistoricalReadRetriesWhenBulkheadExhausted() {
+            final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
+            historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
+
+            final BlockReadBulkhead bulkhead = webserviceBuilder.blockReadBulkhead();
+            for (int i = 0; i < bulkhead.totalPermits(); i++) {
+                assertThat(bulkhead.tryAcquire()).isTrue();
+            }
+            try {
+                final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                        .startBlockNumber(0L)
+                        .endBlockNumber(0L)
+                        .build();
+                toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
+
+                // A few retry cycles' worth of waiting: no response at all yet proves the session is
+                // polling for a permit, not disconnecting (which would produce an error/status response).
+                parkNanos(TimeUnit.MILLISECONDS.toNanos(350));
+                assertThat(fromPluginBytes).isEmpty();
+            } finally {
+                for (int i = 0; i < bulkhead.totalPermits(); i++) {
+                    bulkhead.release();
+                }
+            }
+
+            // Now that a permit is available, the session should complete normally on its next poll.
+            final int expectedResponses = 3; // block items, end of block, success status
+            awaitResponse(fromPluginBytes, expectedResponses);
+            assertThat(fromPluginBytes).hasSize(expectedResponses);
         }
 
         /**
