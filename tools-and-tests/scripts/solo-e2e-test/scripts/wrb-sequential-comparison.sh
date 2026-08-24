@@ -35,8 +35,16 @@ BLOCK_RANGE="0:100"
 MIN_TRANSACTIONS=10
 
 # Mirror Node version used for both MN1 (Solo deployment) and the standalone MN2.
-# Override with MIRROR_NODE_VERSION env var. Use a GA version, not 'main' or 'latest'.
-MIRROR_NODE_VERSION="${MIRROR_NODE_VERSION:-v0.156.0}"
+#
+# Falls back to MN_VERSION, which solo-e2e-test.yml exports with the version
+# resolve-versions.sh actually settled on, so this test does not silently run a different
+# Mirror Node than the rest of the suite. The hardcoded v0.156.0 that used to be the only
+# value here predates the reworked block-root hashing, so against a Consensus Node built
+# from main every block failed with "Previous wrapped record block hash mismatch".
+#
+# Override with MIRROR_NODE_VERSION for a one-off. Use a GA or -rc tag, not 'main' or
+# 'latest' — this is passed straight to `solo mirror node add --mirror-node-version`.
+MIRROR_NODE_VERSION="${MIRROR_NODE_VERSION:-${MN_VERSION:-v0.162.0-rc1}}"
 
 # Work directories
 WORK_DIR="/tmp/wrb-test-$$"
@@ -131,10 +139,22 @@ function deploy_mn_to_bn {
         log "Deploying ${mn_name} connected to block-node-1..."
 
         local overlay_file="/tmp/mn-overlay.yaml"
-        # Generate overlay - disable verification entirely (Solo doesn't support TSS)
+        # This topology declares `mirror_nodes: {}`, so solo-deploy-network.sh generates no
+        # Mirror Node overlay for it and this is the only place the MN gets configured. The
+        # shape below mirrors the rsa-wrb branch of
+        # network-topology-tool/generate-chart-values-config-overlays.sh, which is what the
+        # passing *-wrb-rsa topologies deploy with:
+        #
+        #   - `hiero.mirror.importer`, not `hedera.mirror.importer`. Current Mirror Node reads
+        #     the hiero-prefixed keys; under the old prefix this overlay was ignored, which is
+        #     why the record downloader kept pulling .rcd files despite being disabled here.
+        #   - block.cutover.enabled + firstStage.enabled, plus
+        #     DISABLE_IMPORTER_SPRING_PROFILES. Without the cutover config the importer chains
+        #     Wrapped Record Blocks as if they were plain record files and every block fails
+        #     with "Previous wrapped record block hash mismatch". The Consensus Node emits WRBs
+        #     because the topology sets verification_mode: rsa-wrb.
         cat > "${overlay_file}" << EOF
-# Mirror Node connected to Block Node 1
-# Disable block verification since Solo doesn't generate TSS metadata
+# Mirror Node connected to Block Node 1 (rsa-wrb / WRB cutover)
 importer:
   resources:
     limits:
@@ -143,11 +163,17 @@ importer:
     requests:
       cpu: 500m
       memory: 2Gi
+  env:
+    DISABLE_IMPORTER_SPRING_PROFILES: "true"
   config:
-    hedera:
+    hiero:
       mirror:
         importer:
           block:
+            cutover:
+              enabled: true
+              firstStage:
+                enabled: true
             enabled: true
             nodes:
               - host: ${bn_host}
@@ -155,13 +181,6 @@ importer:
             sourceType: BLOCK_NODE
             stream:
               maxStreamResponseSize: 36MB
-            verification:
-              enabled: false  # Disable all block verification for Solo
-          downloader:
-            record:
-              enabled: false
-            balance:
-              enabled: false
           startBlockNumber: 0
           stream:
             maxSubscribeAttempts: 10

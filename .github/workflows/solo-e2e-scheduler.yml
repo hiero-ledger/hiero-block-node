@@ -348,7 +348,11 @@ jobs:
     needs: configure
     strategy:
       fail-fast: false
-      max-parallel: 1 # Run sequentially to avoid resource contention
+      # Each matrix entry runs on its own GitHub runner with its own Kind cluster, so
+      # parallel deployments do not contend for resources with each other. 3 caps how
+      # many runners (and, since a -SNAPSHOT Consensus Node is built per job, how many
+      # concurrent CN builds) a single scheduler run consumes.
+      max-parallel: 3
       matrix:
         include: ${{ fromJson(needs.configure.outputs.matrix) }}
     uses: ./.github/workflows/solo-e2e-test.yml

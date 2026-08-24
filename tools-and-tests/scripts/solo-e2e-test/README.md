@@ -937,4 +937,13 @@ Tests are validated against topologies before execution. The matrix defines whic
 
 Multiple tests run sequentially on the same deployment, reducing CI time.
 
+Up to **3 deployments run in parallel** within a scheduler run (`max-parallel: 3`). Each matrix
+entry gets its own runner and its own Kind cluster, so they do not contend with one another;
+the cap limits how many runners — and how many concurrent Consensus Node builds, when the
+resolved CN version is a `-SNAPSHOT` — a single run consumes.
+
+> Every topology appears at most once per matrix, which matters: `solo-e2e-test.yml` keys its
+> concurrency group on `topology` with `cancel-in-progress: true`, so two parallel jobs sharing
+> a topology would cancel each other. Keep topologies unique per matrix when adding entries.
+
 Manual trigger: Actions -> "Solo E2E Scheduler" -> "Run workflow"
