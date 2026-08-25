@@ -1,27 +1,55 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Full History Backfill Test (Issue #1712)
+# Full History Backfill Test (Issues #1712, #3053)
 #
-# Tests that a block node can recover via greedy backfill from a peer
-# after losing all local data.
+# Tests that a block node which lost all of its data recovers its history from a
+# peer *while* it ingests live blocks from its Consensus Node, instead of staying
+# blocked until backfill has caught up to the chain head.
 #
 # Scenario:
 #   1. Verify BN1 and BN2 are receiving blocks
-#   2. Clear all block storage on BN1 (simulate data loss)
-#   3. Scale down BN1
-#   4. Wait for gap to form (BN2 continues receiving from CN2)
-#   5. Scale up BN1
-#   6. Verify BN1 backfills all historical blocks from BN2
-#   7. Verify all BNs resume receiving live blocks
+#   2. Wait for the network to produce enough blocks to leave a recoverable gap
+#   3. Clear all block storage on BN1 (simulate data loss)
+#   4. Scale down BN1
+#   5. Wait for gap to form (BN2 continues receiving from CN2)
+#   6. Raise BN1's earliestManagedBlock above the current chain head and throttle
+#      its backfill
+#   7. Scale up BN1
+#   8. Verify BN1 closes its historical gap while live blocks keep arriving
+#   9. Verify all BNs are healthy, hold block 0, and are still receiving blocks
+#
+# Why step 6 is what makes this test different from plain backfill recovery: on a
+# store-less start the publisher treats the earliestManagedBlock as its next
+# expected block. Left at the default 0 it answers every offer from the Consensus
+# Node with BlockNodeBehind, so live streaming only resumes once backfill has
+# walked the whole chain. Raised above the chain head, the first offered block is
+# accepted instead and everything below it becomes a HISTORICAL backfill gap —
+# the concurrency this test exercises. See
+# scripts/backfill/configure-bn-live-tail-backfill.sh for the details.
+#
+# This also means live ingest must land *before* backfill can do anything, and the
+# ordering matters because the topology sets `greedy: false`. Non-greedy backfill
+# caps its scan at the node's own highest stored block (BackfillPlugin
+# #determineEndCap), which is -1 on an empty store, so gap detection bails with
+# "Nothing to backfill". The accepted live blocks are what raise that cap and make
+# the historical gap below them visible. Switching this topology to `greedy: true`
+# would break the test from the other end: it blocks live streaming from the CN
+# after a restart, which is the very thing being asserted here.
+#
+# Note that `delay` is a floor ("don't start before T elapsed"), not a fixed
+# offset — the runner executes events sequentially and blocks on each one. The
+# wait-for-network-height event can hold for several minutes on a young network,
+# after which the remaining delays are already in the past and each event simply
+# runs as soon as the previous one returns.
 #
 # Prerequisites:
 #   - Topology with 2+ BNs and mutual backfill configured
 #
 # Usage:
-#   task test:run TEST_FILE=tests/full-history-backfill.yaml
+#   task test:run TEST_FILE=tests/full-history-backfill.yaml TOPOLOGY=2cn-2bn-backfill
 
 name: full-history-backfill
-description: "Test BN recovery via backfill after data loss (Issue #1712)"
+description: "Test BN recovery via backfill while ingesting live blocks (Issues #1712, #3053)"
 
 events:
   - id: initial-status
@@ -36,59 +64,87 @@ events:
     args:
       target: all
 
-  - id: clear-bn1-storage
-    type: clear-block-storage
-    description: "Clear all block storage on BN1 (simulate data loss)"
+  - id: wait-for-network-height
+    type: command
+    description: "Wait until the network has produced enough blocks to leave a recoverable gap"
     delay: 15
-    target: block-node-1
+    timeout: 2400
+    args:
+      script: "${SCRIPT_DIR}/backfill/wait-for-network-height.sh 2"
 
+  # Scale down BEFORE wiping. A running node keeps ingesting live blocks for its whole
+  # termination grace period (30s, ~15 blocks), refilling the storage that was just
+  # emptied — so it restarts holding a partial live range instead of being store-less,
+  # takes its next expected block from that range rather than from earliestManagedBlock,
+  # and answers BlockNodeBehind forever. That is the failure this ordering avoids.
   - id: scale-down-bn1
     type: scale-down
-    description: "Scale down BN1"
+    description: "Scale down BN1 so its storage can be wiped while it is stopped"
     delay: 20
+    target: block-node-1
+
+  - id: clear-bn1-storage
+    type: clear-block-storage
+    description: "Clear all block storage on the stopped BN1 (simulate data loss)"
+    delay: 25
     target: block-node-1
 
   - id: gap-period
     type: sleep
     description: "Allow gap to form (BN2 continues receiving from CN2)"
-    delay: 25
+    delay: 30
     args:
       seconds: 30
+
+  - id: configure-bn1-live-tail-backfill
+    type: command
+    description: "Raise BN1's earliestManagedBlock above the chain head and throttle its backfill"
+    delay: 65
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/backfill/configure-bn-live-tail-backfill.sh 1 2"
 
   - id: pre-recovery-metrics
     type: print-metrics
     description: "Print BN2 metrics showing blocks accumulated during gap"
-    delay: 60
+    delay: 70
     args:
       target: block-node-2
 
   - id: scale-up-bn1
     type: scale-up
-    description: "Scale up BN1 - should trigger backfill from BN2"
-    delay: 65
+    description: "Scale up BN1 - should resume live ingest and start historical backfill"
+    delay: 75
     target: block-node-1
 
   - id: refresh-ports
     type: port-forward
     description: "Refresh port forwards after BN1 restart"
-    delay: 80
-
-  - id: backfill-wait
-    type: sleep
-    description: "Wait for BN1 to backfill historical blocks from BN2"
     delay: 90
+
+  - id: assert-backfill-during-live-stream
+    type: command
+    description: "Assert BN1 closes its historical gap while live blocks keep arriving"
+    delay: 100
+    timeout: 420
     args:
-      seconds: 240
+      script: "${SCRIPT_DIR}/backfill/assert-backfill-during-live-stream.sh 1"
+
+  # No settling sleep here on purpose. Throttled backfill is still working on the
+  # gap at this point, and the assertions below are all satisfied mid-recovery:
+  # block 0 lands in backfill's first batch, and BN1's live tail keeps advancing
+  # independently of the gap. Waiting for full closure would only add minutes and
+  # push the assertions past the state worth observing.
 
   - id: post-backfill-status
     type: network-status
-    description: "Network status after backfill"
-    delay: 335
+    description: "Network status while BN1 is still backfilling"
+    delay: 520
 
   - id: final-metrics
     type: print-metrics
     description: "Final metrics summary"
-    delay: 340
+    delay: 525
     args:
       target: all
 

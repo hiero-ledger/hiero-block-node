@@ -18,6 +18,35 @@
 #   assert_block_rate_floor     - sugar built on metric scraping
 #   assert_log_match            - log-substring presence (powers backfill-triggered)
 
+# An empty Block Node reports firstAvailableBlock/lastAvailableBlock as UINT64_MAX,
+# not null and not 0 — 0 means "block 0 is available". The field is present and
+# populated, so a `== "null"` check does not catch it.
+NO_BLOCKS_SENTINEL="18446744073709551615"
+
+# is_valid_block_number: true only for a plain decimal that fits in a signed 64-bit
+# integer, which is the range bash arithmetic can compare without wrapping.
+#
+# Any uint64 field out of serverStatus carries this hazard: UINT64_MAX wraps to -1
+# inside `[[ ... -gt ... ]]`, so a naive `[[ "${first}" -gt "${min}" ]]` *passes* for
+# a node holding no blocks at all. Rejecting the whole out-of-range class rather than
+# just the current sentinel value means a future sentinel change cannot silently
+# reintroduce the overflow.
+function is_valid_block_number {
+  local value="${1-}"
+
+  [[ -n "${value}" && "${value}" != "null" ]] || return 1
+  [[ "${value}" =~ ^[0-9]+$ ]] || return 1
+
+  # Compare by length, then lexically. The value may exceed what bash arithmetic can
+  # hold, so it cannot be range-checked numerically here without hitting the very
+  # overflow this guard exists to prevent.
+  local int64_max="9223372036854775807"
+  (( ${#value} < ${#int64_max} )) && return 0
+  (( ${#value} > ${#int64_max} )) && return 1
+  [[ "${value}" > "${int64_max}" ]] && return 1
+  return 0
+}
+
 # compare_numeric: arithmetic comparison via awk (handles floats).
 # Echoes ok/violation line; returns 0 on pass, 1 on fail.
 function compare_numeric {

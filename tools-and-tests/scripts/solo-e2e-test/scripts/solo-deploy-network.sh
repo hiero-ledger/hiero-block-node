@@ -14,6 +14,9 @@
 #   --topology TOPOLOGY        Topology name from topologies/*.yaml (default: single)
 #   --topologies-dir DIR       Directory containing topology files (default: SCRIPT_DIR/topologies)
 #   --cn-version VERSION       Consensus Node version
+#   --cn-local-build-path DIR  Consensus Node `hedera-node/data` directory from a local CN build.
+#                              Required when --cn-version is a -SNAPSHOT (e.g. CN_VERSION=main),
+#                              since builds.hedera.com publishes no SNAPSHOT artifact.
 #   --mn-version VERSION       Mirror Node version
 #   --bn-version VERSION       Block Node version (used for Helm chart version)
 #   --bn-chart-dir DIR         Local charts/ directory to install the Block Node chart from,
@@ -77,6 +80,9 @@ Options:
   --topology TOPOLOGY        Topology name from topologies/*.yaml (default: single)
   --topologies-dir DIR       Directory containing topology files (default: SCRIPT_DIR/topologies)
   --cn-version VERSION       Consensus Node version
+  --cn-local-build-path DIR  Consensus Node 'hedera-node/data' directory from a local CN build.
+                             Required when --cn-version is a -SNAPSHOT (e.g. CN_VERSION=main),
+                             since builds.hedera.com publishes no SNAPSHOT artifact.
   --mn-version VERSION       Mirror Node version
   --bn-version VERSION       Block Node version (used for Helm chart version)
   --bn-chart-dir DIR         Local charts/ directory to install the Block Node chart from,
@@ -113,6 +119,7 @@ CLUSTER_REF=""
 TOPOLOGY="single"
 TOPOLOGIES_DIR="${SCRIPT_DIR}/topologies"
 CN_VERSION=""
+CN_LOCAL_BUILD_PATH=""
 MN_VERSION=""
 BN_VERSION=""
 BN_CHART_DIR=""
@@ -167,6 +174,10 @@ while [[ $# -gt 0 ]]; do
       CN_VERSION="$2"
       shift 2
       ;;
+    --cn-local-build-path)
+      CN_LOCAL_BUILD_PATH="$2"
+      shift 2
+      ;;
     --mn-version)
       MN_VERSION="$2"
       shift 2
@@ -209,6 +220,76 @@ done
 [[ -z "${NAMESPACE}" ]] && fail "ERROR: --namespace is required" 1
 [[ -z "${CLUSTER_REF}" ]] && fail "ERROR: --cluster-ref is required" 1
 
+# Validate the Consensus Node source before any cluster work happens.
+#
+# Solo does not pull the Consensus Node as a container image — `consensus node setup`
+# downloads a platform build zip from
+# builds.hedera.com/node/software/<vMAJOR.MINOR>/build-<release-tag>.zip and unpacks it into
+# the pod's root-container. Only tagged releases are published there, so a -SNAPSHOT release
+# tag (what CN_VERSION=main resolves to, via version.txt on the CN main branch) always 404s.
+#
+# --local-build-path short-circuits that download: Solo uploads the jars from a local CN build
+# instead. That is the only way to run an unreleased CN commit. Solo still needs the release tag
+# for its staging directory and for its TSS capability gate, and it explicitly tolerates a
+# release-tag/build mismatch when a local build path is set.
+function validate_consensus_node_source {
+  if [[ -n "${CN_LOCAL_BUILD_PATH}" ]]; then
+    if [[ ! -d "${CN_LOCAL_BUILD_PATH}" ]]; then
+      fail "ERROR: --cn-local-build-path '${CN_LOCAL_BUILD_PATH}' is not a directory" 1
+    fi
+    # Solo requires the data directory itself, not the repo root.
+    local subdirectory
+    for subdirectory in apps lib; do
+      if [[ ! -d "${CN_LOCAL_BUILD_PATH}/${subdirectory}" ]]; then
+        log_line "ERROR: --cn-local-build-path '%s' has no '%s/' subdirectory." \
+          "${CN_LOCAL_BUILD_PATH}" "${subdirectory}" >&2
+        log_line "It must point at a *built* Consensus Node data directory, e.g. <cn-repo>/hedera-node/data" >&2
+        fail "Build it first: cd <cn-repo> && ./gradlew assemble" 1
+      fi
+    done
+    return 0
+  fi
+
+  if [[ "${CN_VERSION}" == *-SNAPSHOT ]]; then
+    log_line "ERROR: Consensus Node %s has no published build artifact." "${CN_VERSION}" >&2
+    log_line "builds.hedera.com only hosts tagged releases, so 'solo consensus node setup' would" >&2
+    log_line "fail with a 404 after the cluster and Block Nodes are already deployed." >&2
+    log_line "" >&2
+    log_line "To run an unreleased Consensus Node commit, build it locally and point the deploy at it:" >&2
+    log_line "  cd <cn-repo> && ./gradlew assemble" >&2
+    log_line "  task up CN_LOCAL_BUILD_PATH=<cn-repo>/hedera-node/data" >&2
+    fail "Or pin a released tag instead, e.g. CN_VERSION=v0.79.0-alpha.1" 1
+  fi
+}
+
+validate_consensus_node_source
+
+# Decide whether an optional component (mirror/relay/explorer) is deployed.
+#
+# A component is deployed only when the topology lists at least one node for it.
+# `<section> | length` is used instead of `keys | length` because yq errors on a
+# null section — e.g. `relay_nodes:` with every entry commented out — which left
+# the count empty, fell through to the legacy `components.<key> // true` default
+# and silently deployed a component the topology never asked for.
+#
+# The legacy `components.<key>` flag now has to say `true` explicitly to force a
+# component on; no bundled topology uses it.
+function skip_component {
+  local topology_file="${1}"
+  local section="${2}"
+  local legacy_key="${3}"
+
+  local node_count legacy_enabled
+  node_count=$(yq ".${section} | length" "${topology_file}" 2>/dev/null || echo "0")
+  legacy_enabled=$(yq ".components.${legacy_key} // false" "${topology_file}" 2>/dev/null)
+
+  if [[ "${node_count}" -gt 0 || "${legacy_enabled}" == "true" ]]; then
+    echo "false"
+  else
+    echo "true"
+  fi
+}
+
 # Load topology from YAML file
 function load_topology {
   local topology_name="${1}"
@@ -226,52 +307,11 @@ function load_topology {
   # Count block nodes using yq (PR #1834 schema: block_nodes.<id>)
   BN_COUNT=$(yq '.block_nodes | keys | length' "${topology_file}" 2>/dev/null || echo "1")
 
-  # Check for new schema (mirror_nodes, relay_nodes, explorer_nodes sections)
-  # Fall back to components section for backward compatibility
-  local has_mirror_nodes has_relay_nodes has_explorer_nodes
-  has_mirror_nodes=$(yq '.mirror_nodes | keys | length // 0' "${topology_file}" 2>/dev/null)
-  has_relay_nodes=$(yq '.relay_nodes | keys | length // 0' "${topology_file}" 2>/dev/null)
-  has_explorer_nodes=$(yq '.explorer_nodes | keys | length // 0' "${topology_file}" 2>/dev/null)
-
-  SKIP_MIRROR="false"
-  SKIP_RELAY="false"
-  SKIP_EXPLORER="false"
-
-  # New schema: if section exists with nodes, deploy; if section is empty or missing, skip
-  if [[ "${has_mirror_nodes}" -gt 0 ]]; then
-    SKIP_MIRROR="false"
-    log_line "  Mirror Node decision: Deploy (has_mirror_nodes=${has_mirror_nodes})"
-  elif [[ "${has_mirror_nodes}" == "0" ]] && yq -e '.mirror_nodes' "${topology_file}" >/dev/null 2>&1; then
-    # Section exists but empty - skip
-    SKIP_MIRROR="true"
-    log_line "  Mirror Node decision: Skip (mirror_nodes: {} exists but empty)"
-  else
-    # Fall back to components section
-    local mirror_enabled
-    mirror_enabled=$(yq '.components.mirror_node // true' "${topology_file}" 2>/dev/null)
-    [[ "${mirror_enabled}" == "false" ]] && SKIP_MIRROR="true"
-    log_line "  Mirror Node decision: Fallback to components.mirror_node=${mirror_enabled}"
-  fi
-
-  if [[ "${has_relay_nodes}" -gt 0 ]]; then
-    SKIP_RELAY="false"
-  elif [[ "${has_relay_nodes}" == "0" ]] && yq -e '.relay_nodes' "${topology_file}" >/dev/null 2>&1; then
-    SKIP_RELAY="true"
-  else
-    local relay_enabled
-    relay_enabled=$(yq '.components.relay // true' "${topology_file}" 2>/dev/null)
-    [[ "${relay_enabled}" == "false" ]] && SKIP_RELAY="true"
-  fi
-
-  if [[ "${has_explorer_nodes}" -gt 0 ]]; then
-    SKIP_EXPLORER="false"
-  elif [[ "${has_explorer_nodes}" == "0" ]] && yq -e '.explorer_nodes' "${topology_file}" >/dev/null 2>&1; then
-    SKIP_EXPLORER="true"
-  else
-    local explorer_enabled
-    explorer_enabled=$(yq '.components.explorer // true' "${topology_file}" 2>/dev/null)
-    [[ "${explorer_enabled}" == "false" ]] && SKIP_EXPLORER="true"
-  fi
+  # Optional components come from the mirror_nodes/relay_nodes/explorer_nodes
+  # sections, with the legacy components section as an explicit opt-in.
+  SKIP_MIRROR=$(skip_component "${topology_file}" "mirror_nodes" "mirror_node")
+  SKIP_RELAY=$(skip_component "${topology_file}" "relay_nodes" "relay")
+  SKIP_EXPLORER=$(skip_component "${topology_file}" "explorer_nodes" "explorer")
 
   # Read verification mode. "rsa-wrb" switches the deployment to Wrapped Record
   # Blocks verified against the RSA roster, which requires TSS to be disabled.
@@ -689,11 +729,20 @@ function deploy_consensus_nodes {
     ${cn_args} --dev || fail "ERROR: Failed to deploy consensus network" 1
   end_task
 
+  # With --local-build-path Solo uploads the jars from a local CN build instead of
+  # downloading the release zip, which is what makes an unreleased CN commit deployable.
+  local cn_local_build_args=""
+  if [[ -n "${CN_LOCAL_BUILD_PATH}" ]]; then
+    cn_local_build_args="--local-build-path ${CN_LOCAL_BUILD_PATH}"
+    log_line "Using local Consensus Node build: %s" "${CN_LOCAL_BUILD_PATH}"
+  fi
+
   start_task "Setting up consensus nodes"
   # shellcheck disable=SC2086
   solo consensus node setup \
     --node-aliases "${NODE_ALIASES}" \
     --deployment "${DEPLOYMENT}" \
+    ${cn_local_build_args} \
     ${cn_args} || fail "ERROR: Failed to setup consensus nodes" 1
   end_task
 
@@ -897,6 +946,7 @@ function print_summary {
   log_line "Versions:"
   log_line "  Solo CLI:        %s" "$(solo --version 2>/dev/null | grep 'Version' | awk -F': ' '{print $2}' || echo 'unknown')"
   log_line "  CN Version:      %s" "${CN_VERSION:-default}"
+  [[ -n "${CN_LOCAL_BUILD_PATH}" ]] && log_line "  CN Build:        %s (local)" "${CN_LOCAL_BUILD_PATH}"
   log_line "  MN Version:      %s" "${MN_VERSION:-default}"
   log_line "  BN Version:      %s" "${BN_VERSION:-default}"
   if [[ -n "${BN_CHART_DIR}" ]]; then

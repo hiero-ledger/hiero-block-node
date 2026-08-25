@@ -155,6 +155,30 @@ else
 fi
 
 # ----------------------------------------------------------------------------
+echo "[5] is_valid_block_number: rejects the no-blocks sentinel and out-of-range values"
+# Table-driven: one method for the whole equivalence class, per CLAUDE.md.
+# OK = accepted as a real block number, NO = rejected as "no blocks"/malformed.
+for tc in "0 OK" "1 OK" "513 OK" "9223372036854775806 OK" "9223372036854775807 OK" \
+          "18446744073709551615 NO" "9223372036854775808 NO" "99999999999999999999 NO" \
+          "null NO" " NO" "-1 NO" "1.5 NO" "abc NO" "1e9 NO"; do
+    value="${tc% *}"; expected="${tc##* }"
+    if is_valid_block_number "${value}"; then actual=OK; else actual=NO; fi
+    if [[ "${actual}" == "${expected}" ]]; then
+        pass "is_valid_block_number '${value}' => ${expected}"
+    else
+        fail "is_valid_block_number '${value}' => expected ${expected}, got ${actual}"
+    fi
+done
+
+# The regression this guard exists to prevent: the sentinel wraps to -1 in bash
+# arithmetic, so a bare numeric comparison reports an empty node as having blocks.
+if [[ "${NO_BLOCKS_SENTINEL}" -gt 0 ]] 2>/dev/null; then
+    fail "sentinel unexpectedly compares > 0 (bash no longer wraps; guard rationale changed)"
+else
+    pass "sentinel wraps negative in bash arithmetic (guard is load-bearing)"
+fi
+
+# ----------------------------------------------------------------------------
 echo
 echo "RESULT: ${passed} passed, ${failed} failed"
 [[ $failed -eq 0 ]]

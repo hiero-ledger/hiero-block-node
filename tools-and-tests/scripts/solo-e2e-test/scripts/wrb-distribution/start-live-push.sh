@@ -79,7 +79,10 @@ wrapped_dir="${WRB_DIST_WORK_DIR}/wrappedBlocks"
 # Snapshot whatever "push OK" count is already in the log rather than assuming 0, so this
 # stays correct even if LOG_FILE isn't fresh (e.g. re-run in a debug session against a log the
 # short-circuit above left in place).
-initial_push_ok_count=$( grep -cE '\] push OK' "${LOG_FILE}" 2>/dev/null || echo 0 )
+# No `|| echo 0`: grep -c prints 0 and exits 1 on no-match, so the fallback appends a
+# second line and any later arithmetic on this dies with `[[: 0\n0: syntax error`.
+initial_push_ok_count=$( grep -cE '\] push OK' "${LOG_FILE}" 2>/dev/null )
+initial_push_ok_count="${initial_push_ok_count:-0}"
 printf 'initial_push_ok_count=%s\n' "${initial_push_ok_count}" > "${STATE_FILE}"
 
 # Fork the worker into the background and write its PID. Using nohup+setsid so
