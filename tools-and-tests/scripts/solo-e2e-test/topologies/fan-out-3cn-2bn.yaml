@@ -1,14 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 # Fan-out topology: 3 Consensus Nodes, 2 Block Nodes, 1 Mirror Node
 #
-# All Consensus Nodes can stream to all Block Nodes (fan-out pattern).
-# This configuration tests redundancy and failover scenarios where
-# Block Nodes can receive blocks from multiple sources.
-# Block Nodes are peers of each other for gossip.
+# Every Consensus Node lists both Block Nodes, but `block_nodes` is a priority list, not a
+# broadcast list: each CN streams to its first entry and falls back to the second only when
+# that one is unreachable. So in steady state all three CNs publish to BN1 and BN2 has no
+# publisher at all — this exercises failover and peer backfill, not true fan-out.
 #
-# CN1,2,3 → BN1 and BN2 (all CNs to both BNs)
-# BN1 ↔ BN2 (backfill)
-# MN ← BN1, BN2
+# Because BN2 has no publisher it must be able to greedy-backfill. The non-greedy scan
+# window is sized from the local store, so on an empty store it is empty and BN2 would
+# stay empty and silent for the lifetime of the deployment.
+#
+# CN1,2,3 -> BN1 (primary), BN2 (fallback)
+# BN1 <-> BN2 (peer backfill)
+# MN <- BN1, BN2
 #
 # NOTE: grpc_tuning.max_frame_size is set to 8MB to match server.http2.maxFrameSize and handle larger blocks.
 # This can be removed once Block Node v0.27+ is released, as the default
@@ -22,14 +26,14 @@ block_nodes:
     address: block-node-1
     port: 40840
     peers: [block-node-2]
-    greedy: false
+    greedy: true
     grpc_tuning:
       max_frame_size: 8388608  # 8MB to match server.http2.maxFrameSize and handle larger blocks
   block-node-2:
     address: block-node-2
     port: 40840
     peers: [block-node-1]
-    greedy: false
+    greedy: true
     grpc_tuning:
       max_frame_size: 8388608
 

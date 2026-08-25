@@ -77,6 +77,15 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh compare"
 
+  # The extract/wrap/compare steps above run a Gradle build and stream blocks out of the
+  # Block Node on the same runner as the Kind cluster, which is enough to drop the
+  # kubectl port-forwards. Without this the assertions below query a dead forward and
+  # report "No blocks available" against a Block Node that is actually healthy.
+  - id: refresh-ports
+    type: port-forward
+    description: "Re-establish port forwards before asserting"
+    delay: 158
+
   - id: final-status
     type: network-status
     description: "Post-validation network status"
