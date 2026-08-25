@@ -44,6 +44,7 @@ LOCAL_CN_BLOCKS_DIR="${LOCAL_WORK_DIR}/cn-blocks"
 
 MIN_RECORD_FILES=5
 MAX_FILES_TO_EXTRACT=200  # Limit for testing - set to 0 for no limit
+WRAP_OUTPUT_EXCERPT_LINES=200
 
 function kctl {
     kubectl --context "${CONTEXT}" "$@"
@@ -703,6 +704,23 @@ function extract_from_cn {
     return 0
 }
 
+# Echo a bounded excerpt of a captured `blocks wrap` run.
+#
+# The wrap command emits one `[SIGNATURE DEBUG]` line per signature plus carriage-return
+# progress frames, so a full run is hundreds of KB. GitHub Actions gives the runner a
+# non-blocking stdout pipe: writing that much in one go returns EAGAIN part-way through,
+# which under `set -e` aborts the test with a truncated log and no real error. Keep the
+# full output on disk and print only the lines that carry signal.
+function print_wrap_output {
+    local wrap_log="$1"
+
+    log "Wrap output excerpt (full log: ${wrap_log}):"
+    tr '\r' '\n' < "${wrap_log}" \
+        | awk '{ gsub(/\033\[[0-9;]*[A-Za-z]/, ""); print }' \
+        | grep -vE '^\[SIGNATURE DEBUG\]|^\[[= ]*\] +[0-9]+\.[0-9]+%|^$' \
+        | tail -n "${WRAP_OUTPUT_EXCERPT_LINES}" || true
+}
+
 function do_wrap {
     log "Wrapping record files with WRB CLI..."
 
@@ -786,23 +804,23 @@ EOF
     # Using --skip-block-number-validation for Solo test network where blocks don't start from 0
     log "Running blocks wrap command on day archives..."
     local rc=0
-    local wrap_output
-    wrap_output=$(HIERO_NETWORK_CONFIG="${network_config_file}" java -jar "${jar}" blocks wrap \
+    local wrap_log="${LOCAL_WORK_DIR}/wrap-output.log"
+    HIERO_NETWORK_CONFIG="${network_config_file}" java -jar "${jar}" blocks wrap \
         --input-dir "${day_archives_dir}" \
         --output-dir "${LOCAL_WRAPPED_DIR}" \
         --blocktimes-file "${block_times_file}" \
         --day-blocks "${day_blocks_file}" \
         --network other \
-        --skip-block-number-validation 2>&1) || rc=$?
+        --skip-block-number-validation > "${wrap_log}" 2>&1 || rc=$?
 
-    echo "$wrap_output"
+    print_wrap_output "${wrap_log}"
 
     if [[ ${rc} -ne 0 ]]; then
         # Check if this is a block number mismatch error
-        if echo "$wrap_output" | grep -q "Block number mismatch.*computed blockNum 0 != record file block number"; then
+        if grep -q "Block number mismatch.*computed blockNum 0 != record file block number" "${wrap_log}"; then
             # Extract the actual starting block number from the error
             local actual_block_num
-            actual_block_num=$(echo "$wrap_output" | grep -oP "record file block number \K[0-9]+" | head -1)
+            actual_block_num=$(grep -oP "record file block number \K[0-9]+" "${wrap_log}" | head -1)
 
             if [[ -n "$actual_block_num" ]]; then
                 log "Block number mismatch detected. Actual starting block: ${actual_block_num}"
@@ -831,15 +849,16 @@ EOF
 
                 # Retry wrapping with corrected and padded metadata
                 log "Retrying wrap with padded metadata (blocks 0-$((actual_block_num-1)) padded, $((actual_block_num))-$((actual_block_num+199)) actual)..."
-                wrap_output=$(HIERO_NETWORK_CONFIG="${network_config_file}" java -jar "${jar}" blocks wrap \
+                rc=0
+                HIERO_NETWORK_CONFIG="${network_config_file}" java -jar "${jar}" blocks wrap \
                     --input-dir "${day_archives_dir}" \
                     --output-dir "${LOCAL_WRAPPED_DIR}" \
                     --blocktimes-file "${block_times_file}" \
                     --day-blocks "${day_blocks_file}" \
                     --network other \
-                    --skip-block-number-validation 2>&1) || rc=$?
+                    --skip-block-number-validation > "${wrap_log}" 2>&1 || rc=$?
 
-                echo "$wrap_output"
+                print_wrap_output "${wrap_log}"
 
                 if [[ ${rc} -ne 0 ]]; then
                     log "ERROR: Wrapping failed again after metadata correction with exit code ${rc}"
