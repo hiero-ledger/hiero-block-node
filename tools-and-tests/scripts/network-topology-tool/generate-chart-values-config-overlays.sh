@@ -44,6 +44,12 @@ NAMESPACE="solo-network"
 OUTPUT_DIR=""  # Set after parsing topology file if not specified
 VERIFICATION_MODE="tss"  # "tss" (default) or "rsa-wrb" (WRB cutover Mirror Node config)
 
+# Backfill scan interval in ms for peered Block Nodes. The Block Node default is 60000, which is
+# longer than the window most test assertions allow for a peer-fed node to advance, so a node with
+# no publisher of its own looks stalled purely because the next scan has not fired yet. Override
+# per node with `block_nodes.<name>.backfill_scan_interval`.
+DEFAULT_BACKFILL_SCAN_INTERVAL=15000
+
 function fail {
     printf '%s\n' "$1" >&2
     exit "${2-1}"
@@ -190,6 +196,7 @@ function generate_bn_overlay {
   # Build backfill sources array (only when peers are configured)
   local sources=""
   local greedy_mode="false"
+  local scan_interval="${DEFAULT_BACKFILL_SCAN_INTERVAL}"
 
   if [[ "${peer_count}" -gt 0 ]]; then
     local peer_names
@@ -245,6 +252,7 @@ function generate_bn_overlay {
       done <<< "${peer_names}"
 
       greedy_mode=$(yq ".block_nodes[\"${bn_name}\"].greedy // false" "${TOPOLOGY_FILE}" 2>/dev/null)
+      scan_interval=$(yq ".block_nodes[\"${bn_name}\"].backfill_scan_interval // ${DEFAULT_BACKFILL_SCAN_INTERVAL}" "${TOPOLOGY_FILE}" 2>/dev/null)
     fi
   fi
 
@@ -269,6 +277,7 @@ function generate_bn_overlay {
       echo "  config:"
       echo "    BACKFILL_BLOCK_NODE_SOURCES_PATH: \"/opt/hiero/block-node/backfill/block-node-sources.json\""
       echo "    BACKFILL_GREEDY: \"${greedy_mode}\""
+      echo "    BACKFILL_SCAN_INTERVAL: \"${scan_interval}\""
       echo "  backfill:"
       echo "    path: \"/opt/hiero/block-node/backfill\""
       echo "    filename: \"block-node-sources.json\""
