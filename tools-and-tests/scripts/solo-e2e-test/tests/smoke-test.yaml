@@ -46,10 +46,13 @@ assertions:
     args:
       min_block: 0
 
+  # Topologies where a Block Node has no publisher of its own (fan-out-3cn-2bn) feed that node
+  # by peer backfill, which advances on a scan interval rather than continuously. The window has
+  # to outlast one interval or the node reads as stalled between scans.
   - id: all-blocks-increasing
     type: blocks-increasing
     description: "All Block Nodes are receiving new blocks"
     target: all
     args:
-      wait_seconds: 15
-      max_attempts: 2
+      wait_seconds: 20
+      max_attempts: 3
