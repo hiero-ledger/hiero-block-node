@@ -384,11 +384,23 @@ public class UpdateDayListingsCommand implements Runnable {
         updateProgressStatic(day, processedDays, totalDays, startTimeNanos, 50, 100);
 
         // Create writer and write all files
+        int skippedNoMd5 = 0;
         try (DayListingFileWriter writer = new DayListingFileWriter(listingPath, year, month, dayOfMonth)) {
             for (ChainFile chainFile : chainFiles) {
                 final ListingRecordFile recordFile = convertToListingRecordFileStatic(chainFile);
+                if (recordFile == null) {
+                    // GCS composite object with no MD5 exposed (#3546); skip so we don't
+                    // corrupt the listing with a synthetic MD5 or break the writer's
+                    // strict 32-char validation.
+                    skippedNoMd5++;
+                    continue;
+                }
                 writer.writeRecordFile(recordFile);
             }
+        }
+        if (skippedNoMd5 > 0) {
+            System.err.println("[UpdateDayListingsCommand] Skipped " + skippedNoMd5 + " object(s) for " + day
+                    + " with no MD5 (GCS composite objects); listing may be incomplete.");
         }
 
         // Update progress after writing
@@ -397,8 +409,9 @@ public class UpdateDayListingsCommand implements Runnable {
 
     /**
      * Static version of convertToListingRecordFile for use by the static API.
+     * Package-private to allow direct regression tests for the null-MD5 case (#3546).
      */
-    private static ListingRecordFile convertToListingRecordFileStatic(final ChainFile chainFile) {
+    static ListingRecordFile convertToListingRecordFileStatic(final ChainFile chainFile) {
         // Remove "recordstreams/" prefix from path
         final String path = chainFile.path();
         final String relativePath;
@@ -410,16 +423,15 @@ public class UpdateDayListingsCommand implements Runnable {
 
         // Convert MD5 from Base64 to hex. GCS composite objects (created via multipart
         // upload or gcloud storage compose) do not expose an MD5 in object metadata,
-        // so BuckyBucketLister surfaces it as null; write an empty MD5 for those and
-        // let downstream consumers treat empty as "no MD5 available" (see #3546).
+        // so BuckyBucketLister surfaces it as null. ListingRecordFile requires a
+        // 32-char hex MD5 and keys equals/hashCode on it, so we skip these objects
+        // rather than fake a value; the caller filters nulls out and logs (see #3546).
         final String md5Base64 = chainFile.md5();
-        final String md5Hex;
         if (md5Base64 == null || md5Base64.isEmpty()) {
-            md5Hex = "";
-        } else {
-            final byte[] md5Bytes = Base64.getDecoder().decode(md5Base64);
-            md5Hex = HexFormat.of().formatHex(md5Bytes);
+            return null;
         }
+        final byte[] md5Bytes = Base64.getDecoder().decode(md5Base64);
+        final String md5Hex = HexFormat.of().formatHex(md5Bytes);
 
         // Extract timestamp from path
         final java.time.LocalDateTime timestamp =
@@ -660,11 +672,23 @@ public class UpdateDayListingsCommand implements Runnable {
         updateProgress(day, processedDays, totalDays, startTimeNanos, 50, 100);
 
         // Create writer and write all files
+        int skippedNoMd5 = 0;
         try (DayListingFileWriter writer = new DayListingFileWriter(listingPath, year, month, dayOfMonth)) {
             for (ChainFile chainFile : chainFiles) {
                 final ListingRecordFile recordFile = convertToListingRecordFile(chainFile);
+                if (recordFile == null) {
+                    // GCS composite object with no MD5 exposed (#3546); skip so we don't
+                    // corrupt the listing with a synthetic MD5 or break the writer's
+                    // strict 32-char validation.
+                    skippedNoMd5++;
+                    continue;
+                }
                 writer.writeRecordFile(recordFile);
             }
+        }
+        if (skippedNoMd5 > 0) {
+            System.err.println("[UpdateDayListingsCommand] Skipped " + skippedNoMd5 + " object(s) for " + day
+                    + " with no MD5 (GCS composite objects); listing may be incomplete.");
         }
 
         // Update progress after writing
@@ -689,16 +713,15 @@ public class UpdateDayListingsCommand implements Runnable {
 
         // Convert MD5 from Base64 to hex. GCS composite objects (created via multipart
         // upload or gcloud storage compose) do not expose an MD5 in object metadata,
-        // so BuckyBucketLister surfaces it as null; write an empty MD5 for those and
-        // let downstream consumers treat empty as "no MD5 available" (see #3546).
+        // so BuckyBucketLister surfaces it as null. ListingRecordFile requires a
+        // 32-char hex MD5 and keys equals/hashCode on it, so we skip these objects
+        // rather than fake a value; the caller filters nulls out and logs (see #3546).
         final String md5Base64 = chainFile.md5();
-        final String md5Hex;
         if (md5Base64 == null || md5Base64.isEmpty()) {
-            md5Hex = "";
-        } else {
-            final byte[] md5Bytes = Base64.getDecoder().decode(md5Base64);
-            md5Hex = HexFormat.of().formatHex(md5Bytes);
+            return null;
         }
+        final byte[] md5Bytes = Base64.getDecoder().decode(md5Base64);
+        final String md5Hex = HexFormat.of().formatHex(md5Bytes);
 
         // Extract timestamp from path
         final java.time.LocalDateTime timestamp =
