@@ -737,14 +737,22 @@ function execute_clear_latency {
 # Dumps tc qdisc counters and the chaos-mesh ipset from each pod matching the
 # given selector, so a CI run can show whether a bandwidth rule reporting
 # AllInjected=True is actually shaping traffic — not just whether Chaos Mesh
-# believes it applied. Best-effort: app images may lack tc/ipset binaries, in
-# which case the exec failure itself (missing binary vs. real counters) is
-# the useful signal, so failures here don't fail the test.
+# believes it applied. App images have no tc/ipset binaries, so this attaches
+# a netshoot ephemeral container via `kubectl debug --target`, which shares
+# the pod's existing network namespace without requiring host/node access.
+# Best-effort: failures here don't fail the test.
 function dump_bandwidth_chaos_diagnostics {
     local label_key="$1" label_val="$2" instance_name="$3"
     local selector="${label_key}=${label_val}"
     [[ -n "${instance_name}" && "${instance_name}" != "null" ]] && \
         selector="${selector},app.kubernetes.io/instance=${instance_name}"
+
+    local target_container
+    case "${label_key}" in
+        solo.hedera.com/type) target_container="root-container" ;;
+        block-node.hiero.com/type) target_container="block-node-server" ;;
+        *) echo "DIAG: unknown label key '${label_key}', skipping tc/ipset dump"; return 0 ;;
+    esac
 
     local pods
     pods=$(kctl get pod -n "${NAMESPACE}" -l "${selector}" -o jsonpath='{.items[*].metadata.name}')
@@ -752,10 +760,14 @@ function dump_bandwidth_chaos_diagnostics {
 
     local pod
     for pod in ${pods}; do
-        echo "--- DIAG tc qdisc on ${pod} (selector: ${selector}) ---"
-        kctl exec "${pod}" -n "${NAMESPACE}" -- tc -s qdisc show 2>&1 || echo "DIAG: tc exec failed on ${pod}"
+        echo "--- DIAG tc qdisc on ${pod} (selector: ${selector}, target: ${target_container}) ---"
+        kctl debug "${pod}" -n "${NAMESPACE}" --image=nicolaka/netshoot \
+            --target="${target_container}" --quiet -- tc -s qdisc show 2>&1 \
+            || echo "DIAG: tc debug failed on ${pod}"
         echo "--- DIAG ipset on ${pod} ---"
-        kctl exec "${pod}" -n "${NAMESPACE}" -- ipset list 2>&1 || echo "DIAG: ipset exec failed on ${pod}"
+        kctl debug "${pod}" -n "${NAMESPACE}" --image=nicolaka/netshoot \
+            --target="${target_container}" --quiet -- ipset list 2>&1 \
+            || echo "DIAG: ipset debug failed on ${pod}"
     done
 }
 
