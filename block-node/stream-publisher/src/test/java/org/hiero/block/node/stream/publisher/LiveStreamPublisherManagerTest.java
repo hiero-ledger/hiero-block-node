@@ -3646,6 +3646,161 @@ class LiveStreamPublisherManagerTest {
                             assertThat(r.resendBlock().blockNumber()).isEqualTo(0L);
                         });
             }
+
+            /// A handler that wins RESEND(N) via the header path and then stops
+            /// streaming must be reclaimed. Once the live tip advances past
+            /// (resendStartReference + K) via another handler's completions, the
+            /// resend-stall branch of `checkForStalledHandlers` must send
+            /// EndStream(TIMEOUT) to the stuck holder and shut it down. Without
+            /// the reclaim, `activeResendBlocks.first()` clamps every subsequent
+            /// acknowledgement through `correctForResendAndStreaming` and the
+            /// pipeline stops advancing (#2934).
+            @Test
+            @DisplayName("stuck resend holder receives EndStream(TIMEOUT) after live tip advances past K")
+            void testStuckResendHolderReceivesTimeout() {
+                // Handler 2 completes blocks 0 and 1 to advance nextUnstreamed past 1
+                // so handleVerification's failure branch fires for block 1.
+                for (long block = 0L; block <= 1L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler2.onNext(req);
+                    endThisBlock(publisherHandler2, block);
+                }
+                // Block 1 fails verification -> blocksToResend = {1}.
+                toTest.handleVerification(new VerificationNotification(
+                        false,
+                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        1L,
+                        null,
+                        null,
+                        BlockSource.PUBLISHER));
+                // Handler 1 wins the RESEND(1) slot by sending only the header, then goes silent.
+                responsePipeline.clear();
+                sendHeaderOnly(publisherHandler, 1L);
+                // Handler 2 completes blocks 2 and 3. endOfBlock(3) fires the resend-stall
+                // branch: completedBlockNumber(3) > resendStartReference(-1) + K(3) = 2.
+                for (long block = 2L; block <= 3L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler2.onNext(req);
+                    endThisBlock(publisherHandler2, block);
+                }
+                threadPoolManager.scheduledExecutor().executeSerially();
+                assertThat(responsePipeline.getOnNextCalls())
+                        .as("handler 1 (stuck resend holder) must receive EndStream(TIMEOUT)")
+                        .anySatisfy(r -> {
+                            assertThat(r.response().kind())
+                                    .isEqualTo(PublishStreamResponse.ResponseOneOfType.END_STREAM);
+                            assertThat(r.endStream().status())
+                                    .isEqualTo(PublishStreamResponse.EndOfStream.Code.TIMEOUT);
+                        });
+                assertThat(responsePipeline.getOnCompleteCalls().get())
+                        .as("handler 1 must be shut down after resend-stall reclaim")
+                        .isEqualTo(1);
+            }
+
+            /// After a stuck resend slot is reclaimed, the block must be routed
+            /// to another publisher: the endOfBlock() that triggered the reclaim
+            /// must itself return ActionForBlock(RESEND, N) to the completing
+            /// handler so its pipeline receives ResendBlock(N).
+            @Test
+            @DisplayName("reclaimed resend block is offered to another publisher on next endOfBlock")
+            void testReclaimedBlockOfferedToNextPublisher() {
+                for (long block = 0L; block <= 1L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler2.onNext(req);
+                    endThisBlock(publisherHandler2, block);
+                }
+                toTest.handleVerification(new VerificationNotification(
+                        false,
+                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        1L,
+                        null,
+                        null,
+                        BlockSource.PUBLISHER));
+                // Handler 1 wins RESEND(1), goes silent.
+                sendHeaderOnly(publisherHandler, 1L);
+                // Clear pipeline 2 noise from the SKIP responses issued while blocks 2, 3
+                // were streaming past handler 1's silent state.
+                responsePipeline2.clear();
+                // Handler 2 completes blocks 2 and 3. endOfBlock(3) fires the reclaim,
+                // then returns RESEND(1) to handler 2.
+                for (long block = 2L; block <= 3L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler2.onNext(req);
+                    endThisBlock(publisherHandler2, block);
+                }
+                threadPoolManager.scheduledExecutor().executeSerially();
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .as("handler 2 must receive ResendBlock(1) after the reclaim")
+                        .anySatisfy(r -> {
+                            assertThat(r.response().kind())
+                                    .isEqualTo(PublishStreamResponse.ResponseOneOfType.RESEND_BLOCK);
+                            assertThat(r.resendBlock().blockNumber()).isEqualTo(1L);
+                        });
+            }
+
+            /// A resend holder that legitimately completes its block within the
+            /// window must NOT be reclaimed, even if the live tip subsequently
+            /// advances past (resendStartReference + K). The completion clears
+            /// `activeResendBlocks` so `isResendingLive` returns false and the
+            /// new stall branch does not fire. Guards against false-positive
+            /// reclaims that would regress the `isResendingLive` exemption
+            /// protection.
+            @Test
+            @DisplayName("legit resend that completes in time is not reclaimed")
+            void testLegitResendNotReclaimed() {
+                for (long block = 0L; block <= 1L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler2.onNext(req);
+                    endThisBlock(publisherHandler2, block);
+                }
+                toTest.handleVerification(new VerificationNotification(
+                        false,
+                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        1L,
+                        null,
+                        null,
+                        BlockSource.PUBLISHER));
+                // Handler 1 wins RESEND(1) and completes it fully and promptly.
+                responsePipeline.clear();
+                final PublishStreamRequestUnparsed resendBlock1Req = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(TestBlockBuilder.generateBlockWithNumber(1L).asItemSetUnparsed())
+                        .build();
+                publisherHandler.onNext(resendBlock1Req);
+                endThisBlock(publisherHandler, 1L);
+                // Handler 2 then completes blocks 2, 3, 4, 5 — well past K blocks away
+                // from where the (now-completed) resend started. Nothing must fire.
+                for (long block = 2L; block <= 5L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler2.onNext(req);
+                    endThisBlock(publisherHandler2, block);
+                }
+                threadPoolManager.scheduledExecutor().executeSerially();
+                assertThat(responsePipeline.getOnNextCalls())
+                        .as("handler 1 that completed its resend in time must not receive TIMEOUT")
+                        .noneMatch(r -> r.response().kind() == PublishStreamResponse.ResponseOneOfType.END_STREAM
+                                && r.endStream().status() == PublishStreamResponse.EndOfStream.Code.TIMEOUT);
+                assertThat(responsePipeline.getOnCompleteCalls().get())
+                        .as("handler 1 must not be shut down after a legit, timely resend")
+                        .isZero();
+            }
         }
     }
 
