@@ -458,8 +458,8 @@ The plugin never lets an error escape to its callers. Every error condition
 ends in a verification notification, and the plugin keeps running.
 
 - **Invalid start of block.** The first item of a new block is not a header, or
-  the header's number does not match. A failure notification is sent and no
-  session is started.
+  the header's number does not match. A `MISSING_MANDATORY_ITEM` failure
+  notification is sent and no session is started.
 - **Stage failure.** A stage that cannot continue (parse failure, missing item
   or field, bad proof, missing verification data) raises a session failure
   carrying the block number, source, and failure type. The result handling

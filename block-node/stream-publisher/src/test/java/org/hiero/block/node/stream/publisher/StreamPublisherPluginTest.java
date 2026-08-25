@@ -776,24 +776,23 @@ class StreamPublisherPluginTest {
             awaitResend(fromPluginBytes, block1);
         }
 
-        /// This test aims to assert that a failed verification of a malformed block or node limitation type
-        /// ends the supplying stream with the ERROR code and schedules the failed block for a resend. When an
-        /// active publisher finishes its current block, it must receive the ResendBlock message for the failed
-        /// block.
+        /// This test aims to assert that a failed verification of a Block Node fault or capability
+        /// limitation type ends every connected publisher's stream with the ERROR code. No retry against
+        /// this node can succeed for these types, so both publishers, including the one that did not
+        /// supply the failed block, must receive the EndOfStream message, encouraging them to connect to
+        /// a healthy Block Node.
         @ParameterizedTest
         @EnumSource(
                 value = FailureType.class,
                 names = {
-                    "MISSING_MANDATORY_FIELD",
-                    "MISSING_MANDATORY_ITEM",
-                    "UNSUPPORTED_STREAM_FORMAT",
+                    "MISSING_VERIFICATION_DATA",
                     "UNKNOWN_ERROR",
                     "UNRECOGNIZED_PROOF_TYPE",
                     "UNSUPPORTED_HAPI_VERSION",
                     "UNSUPPORTED_ITEM_TYPE"
                 })
-        @DisplayName("Test EndOfStream ERROR and ResendBlock on malformed block and node limitation failure types")
-        void testEndOfStreamErrorAndResendReceived(final FailureType failureType) {
+        @DisplayName("Test EndOfStream ERROR to all publishers on Block Node fault failure types")
+        void testEndAllStreamsOnBlockNodeFaultTypes(final FailureType failureType) {
             // Tell the verification plugin to fail block 1 with the parameterized failure type.
             verificationPlugin.setFailureType(failureType);
             verificationPlugin.failBlocks(1L);
@@ -811,23 +810,29 @@ class StreamPublisherPluginTest {
             sendBlock(toPluginPipe, block2);
             // End block 1, this will trigger the test verification plugin to fail its verification.
             endThisBlock(secondPublisher.toPluginPipe(), block1.number());
-            // Await and ensure the block has failed and the supplying stream is ended with ERROR.
+            // Await and ensure the block has failed and both streams are ended with ERROR, the failure
+            // is a Block Node fault, so it is not attributable to the supplying publisher.
             awaitEndOfStream(secondPublisher.fromPluginBytes(), block1, Code.ERROR);
-            // End block 2, we expect the ResendBlock message because the failed block is scheduled for a resend.
-            endThisBlock(toPluginPipe, block2.number());
-            awaitResend(fromPluginBytes, block1);
+            awaitEndOfStream(fromPluginBytes, block1, Code.ERROR);
         }
 
         /// This test aims to assert that a failed verification of a resend only type keeps the
         /// supplying stream open: no EndOfStream is sent, but the failed block is still scheduled for a
-        /// resend. These are the possibly transient types, where a retry may succeed, and the cancelled
-        /// type, where the complete block was received but the session was cancelled before producing a
-        /// result. When an active publisher finishes its current block, it must receive the ResendBlock
-        /// message for the failed block.
+        /// resend. These are the unparseable or malformed block types, where the block is not proven bad
+        /// and there is no indication of malice, so a retry may succeed, and the cancelled type, where
+        /// the complete block was received but the session was cancelled before producing a result. When
+        /// an active publisher finishes its current block, it must receive the ResendBlock message for
+        /// the failed block.
         @ParameterizedTest
         @EnumSource(
                 value = FailureType.class,
-                names = {"MISSING_VERIFICATION_DATA", "UNABLE_TO_PARSE", "CANCELLED"})
+                names = {
+                    "UNABLE_TO_PARSE",
+                    "MISSING_MANDATORY_FIELD",
+                    "MISSING_MANDATORY_ITEM",
+                    "UNSUPPORTED_STREAM_FORMAT",
+                    "CANCELLED"
+                })
         @DisplayName("Test no EndOfStream but ResendBlock on resend only failure types, stream stays open")
         void testResendOnlyKeepsSupplyingStreamOpen(final FailureType failureType) {
             // Tell the verification plugin to fail block 1 with the parameterized failure type.
@@ -857,27 +862,18 @@ class StreamPublisherPluginTest {
             assertThat(secondPublisher.fromPluginBytes()).isEmpty();
         }
 
-        /// This test aims to assert that an informational failure of a stream ending type is handled the same
-        /// as a standard one, except that no resend is scheduled: the supplying stream is ended with the
-        /// expected code, and when an active publisher finishes its current block, it must receive the
-        /// acknowledgement for that block instead of a ResendBlock message, because no pending resend clamps
-        /// the acknowledgement.
-        @ParameterizedTest
-        @EnumSource(
-                value = FailureType.class,
-                names = {"BAD_BLOCK_PROOF", "UNKNOWN_ERROR"})
-        @DisplayName("Test EndOfStream without ResendBlock on informational failures of stream ending types")
-        void testInformationalEndStreamNoResend(final FailureType failureType) {
-            // Tell the verification plugin to fail block 1 informationally with the parameterized failure type.
-            verificationPlugin.setFailureType(failureType);
+        /// This test aims to assert that an informational failure of type BAD_BLOCK_PROOF is handled the
+        /// same as a standard one, except that no resend is scheduled: the supplying stream is ended with
+        /// the BAD_BLOCK_PROOF code, and when an active publisher finishes its current block, it must
+        /// receive the acknowledgement for that block instead of a ResendBlock message, because no
+        /// pending resend clamps the acknowledgement.
+        @Test
+        @DisplayName("Test EndOfStream without ResendBlock on an informational BAD_BLOCK_PROOF failure")
+        void testInformationalEndStreamNoResend() {
+            // Tell the verification plugin to fail block 1 informationally with a bad proof.
+            verificationPlugin.setFailureType(FailureType.BAD_BLOCK_PROOF);
             verificationPlugin.setFailureInformational(true);
             verificationPlugin.failBlocks(1L);
-            final Code expectedCode;
-            if (failureType == FailureType.BAD_BLOCK_PROOF) {
-                expectedCode = Code.BAD_BLOCK_PROOF;
-            } else {
-                expectedCode = Code.ERROR;
-            }
             // Create a second publisher, the first one is automatically created by the plugin test base
             final TestPipeline secondPublisher = createNewPipeline();
             final List<List<Bytes>> ackReceivers = List.of(fromPluginBytes, secondPublisher.fromPluginBytes());
@@ -893,20 +889,65 @@ class StreamPublisherPluginTest {
             // End block 1, this will trigger the test verification plugin to fail its verification.
             endThisBlock(secondPublisher.toPluginPipe(), block1.number());
             // Await and ensure the block has failed and the supplying stream is ended with the expected code.
-            awaitEndOfStream(secondPublisher.fromPluginBytes(), block1, expectedCode);
+            awaitEndOfStream(secondPublisher.fromPluginBytes(), block1, Code.BAD_BLOCK_PROOF);
             // End block 2. No resend is scheduled for the failed block, so the acknowledgement for block 2
             // must not be clamped and must arrive instead of a ResendBlock message.
             endThisBlock(toPluginPipe, block2.number());
             awaitAcknowledgements(List.of(fromPluginBytes), block2);
         }
 
-        /// This test aims to assert that an informational failure of a possibly transient type produces no
-        /// observable action: no EndOfStream is sent, no resend is scheduled, and both publishers stay open
-        /// and receive the acknowledgement for the next persisted block.
+        /// This test aims to assert that an informational failure of a Block Node fault or capability
+        /// limitation type is handled the same as a standard one. The Block Node fault is present
+        /// regardless of the same block having been verified successfully within reasonable recency, so
+        /// both publishers must still receive the EndOfStream message with the ERROR code.
         @ParameterizedTest
         @EnumSource(
                 value = FailureType.class,
-                names = {"MISSING_VERIFICATION_DATA", "UNABLE_TO_PARSE"})
+                names = {
+                    "MISSING_VERIFICATION_DATA",
+                    "UNKNOWN_ERROR",
+                    "UNRECOGNIZED_PROOF_TYPE",
+                    "UNSUPPORTED_HAPI_VERSION",
+                    "UNSUPPORTED_ITEM_TYPE"
+                })
+        @DisplayName("Test EndOfStream ERROR to all publishers on informational Block Node fault failure types")
+        void testInformationalEndAllStreams(final FailureType failureType) {
+            // Tell the verification plugin to fail block 1 informationally with the parameterized failure type.
+            verificationPlugin.setFailureType(failureType);
+            verificationPlugin.setFailureInformational(true);
+            verificationPlugin.failBlocks(1L);
+            // Create a second publisher, the first one is automatically created by the plugin test base
+            final TestPipeline secondPublisher = createNewPipeline();
+            final List<List<Bytes>> ackReceivers = List.of(fromPluginBytes, secondPublisher.fromPluginBytes());
+            final List<TestBlock> blocks0To2 = TestBlockBuilder.generateBlocksInRange(0, 2);
+            // Stream block 0 successfully so both publishers are acknowledged.
+            streamBlockAndAwaitAcknowledgement(secondPublisher.toPluginPipe(), ackReceivers, blocks0To2.get(0));
+            // Start streaming block 1 from the second publisher, do not end it yet.
+            final TestBlock block1 = blocks0To2.get(1);
+            sendBlock(secondPublisher.toPluginPipe(), block1);
+            // Leave the first publisher mid-block on block 2.
+            final TestBlock block2 = blocks0To2.get(2);
+            sendBlock(toPluginPipe, block2);
+            // End block 1, this will trigger the test verification plugin to fail its verification.
+            endThisBlock(secondPublisher.toPluginPipe(), block1.number());
+            // Await and ensure the block has failed and both streams are ended with ERROR, the failure
+            // is a Block Node fault, so it is not attributable to the supplying publisher.
+            awaitEndOfStream(secondPublisher.fromPluginBytes(), block1, Code.ERROR);
+            awaitEndOfStream(fromPluginBytes, block1, Code.ERROR);
+        }
+
+        /// This test aims to assert that an informational failure of an unparseable or malformed block
+        /// type produces no observable action: no EndOfStream is sent, no resend is scheduled, and both
+        /// publishers stay open and receive the acknowledgement for the next persisted block.
+        @ParameterizedTest
+        @EnumSource(
+                value = FailureType.class,
+                names = {
+                    "UNABLE_TO_PARSE",
+                    "MISSING_MANDATORY_FIELD",
+                    "MISSING_MANDATORY_ITEM",
+                    "UNSUPPORTED_STREAM_FORMAT"
+                })
         @DisplayName("Test no responses at all on informational failures of possibly transient types")
         void testInformationalResendOnlyNoAction(final FailureType failureType) {
             // Tell the verification plugin to fail block 1 informationally with the parameterized failure type.

@@ -1113,7 +1113,7 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(
-                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            FailureInfo.standard(FailureType.MISSING_MANDATORY_ITEM),
                             VerificationNotification::failureInfo)
                     .returns(block0.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
@@ -1139,7 +1139,7 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(
-                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            FailureInfo.standard(FailureType.MISSING_MANDATORY_ITEM),
                             VerificationNotification::failureInfo)
                     .returns(reportedBlockNumber, VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
@@ -1163,7 +1163,7 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(
-                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            FailureInfo.standard(FailureType.MISSING_MANDATORY_ITEM),
                             VerificationNotification::failureInfo)
                     .returns(block0.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.BACKFILL, VerificationNotification::source)
@@ -1190,7 +1190,7 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(
-                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            FailureInfo.standard(FailureType.MISSING_MANDATORY_ITEM),
                             VerificationNotification::failureInfo)
                     .returns(reportedBlockNumber, VerificationNotification::blockNumber)
                     .returns(BlockSource.BACKFILL, VerificationNotification::source)
