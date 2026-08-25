@@ -7,20 +7,21 @@
 # so lag grows monotonically until chaos clears.
 #
 # Design:
-#   - CN→BN1 is capped at 500kbps (direction=to, unidirectional).
-#   - All BN peers→BN1 are also capped at 500kbps so greedy backfill cannot
+#   - CN→BN1 is capped at 100kbps (direction=to, unidirectional).
+#   - All BN peers→BN1 are also capped at 100kbps so greedy backfill cannot
 #     instantly neutralise the ingest cap during chaos.
 #   - BN2 and BN3 receive no throttle — they serve as the reference nodes that
 #     advance at full speed, making the spread measurable.
 #
-# Rate rationale (500kbps starting point):
+# Rate rationale (100kbps, lowered from 500kbps):
 #   In the paired-3 topology each CN streams to its paired BN, so BN1 receives
-#   blocks only from CN1.  At ~0.5 blk/s and ~100 KB/block the raw data rate is
-#   ~50 KB/s = ~400 kbps.  500kbps is just above that threshold: lag builds slowly
-#   and should reach ≥ 5 blocks in the 150 s chaos window.  If blocks are smaller
-#   (< 50 KB) or the actual block rate is lower, no lag may build — in that case
-#   lower the rate to 100kbps and re-run.  Conversely, if blocks are larger the
-#   spread will be much higher; raise min_spread accordingly.
+#   blocks only from CN1.  A 500kbps cap produced 0 block spread in CI (all BNs
+#   at block 176 at peak chaos) — the ingest rate wasn't pushed far enough below
+#   the block production rate to build measurable lag in the 150 s chaos window.
+#   100kbps caps ingest well below the observed production rate so lag builds
+#   reliably and should reach ≥ 5 blocks in the chaos window.  If the spread is
+#   still insufficient, lower further; if blocks are larger the spread will be
+#   much higher — raise min_spread accordingly.
 #   Tune this value based on observed block sizes from test run metrics.
 #
 # Assertions:
@@ -39,7 +40,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag.yaml
 
 name: bandwidth-lag
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (500kbps) — cumulative-lag production failure mode"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (100kbps) — cumulative-lag production failure mode"
 
 events:
   - id: load-start
@@ -53,26 +54,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN→BN1 to 500kbps (direction=to) — forces BN1 ingest below block production rate"
+    description: "Cap CN→BN1 to 100kbps (direction=to) — forces BN1 ingest below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw
       source: { kind: network-node }
       target: { kind: block-node, name: block-node-1 }
-      rate: "500kbps"
+      rate: "100kbps"
       limit: 1000000
       buffer: 10000
       bidirectional: false
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap all BN peers→BN1 to 500kbps (direction=to) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap all BN peers→BN1 to 100kbps (direction=to) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw
       source: { kind: block-node }
       target: { kind: block-node, name: block-node-1 }
-      rate: "500kbps"
+      rate: "100kbps"
       limit: 1000000
       buffer: 10000
       bidirectional: false
