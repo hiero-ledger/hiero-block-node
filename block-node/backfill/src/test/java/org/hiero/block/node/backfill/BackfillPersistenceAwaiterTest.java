@@ -2,8 +2,10 @@
 package org.hiero.block.node.backfill;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -188,8 +190,8 @@ class BackfillPersistenceAwaiterTest {
         }
 
         @Test
-        @DisplayName("should release latch on failed persistence notification")
-        void shouldReleaseLatchOnFailedPersistence() {
+        @DisplayName("should report failure promptly on failed persistence notification")
+        void shouldReportFailureOnFailedPersistence() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -197,9 +199,9 @@ class BackfillPersistenceAwaiterTest {
             // when - persistence failed
             subject.handlePersisted(new PersistedNotification(blockNumber, false, 1, BlockSource.BACKFILL));
 
-            // then - await should still return (latch released)
-            boolean result = subject.awaitPersistence(blockNumber, 100);
-            assertTrue(result);
+            // then - await returns without consuming the timeout, and reports the block as not persisted
+            assertTimeoutPreemptively(
+                    Duration.ofMillis(200), () -> assertFalse(subject.awaitPersistence(blockNumber, 5000)));
         }
 
         @Test
@@ -238,8 +240,8 @@ class BackfillPersistenceAwaiterTest {
     class HandleVerificationTests {
 
         @Test
-        @DisplayName("should release latch on verification failure for fail-fast behavior")
-        void shouldReleaseLatchOnVerificationFailure() {
+        @DisplayName("should report failure promptly on verification failure for fail-fast behavior")
+        void shouldReportFailureOnVerificationFailure() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -253,9 +255,9 @@ class BackfillPersistenceAwaiterTest {
                     null,
                     BlockSource.BACKFILL));
 
-            // then - await should return immediately
-            boolean result = subject.awaitPersistence(blockNumber, 100);
-            assertTrue(result);
+            // then - await returns without consuming the timeout, and reports the block as not persisted
+            assertTimeoutPreemptively(
+                    Duration.ofMillis(200), () -> assertFalse(subject.awaitPersistence(blockNumber, 5000)));
         }
 
         @Test
@@ -272,6 +274,29 @@ class BackfillPersistenceAwaiterTest {
             // then - block should still be pending (waiting for persistence), await times out
             boolean result = subject.awaitPersistence(blockNumber, 50);
             assertFalse(result);
+        }
+
+        @Test
+        @DisplayName("should report success after re-tracking a block that previously failed")
+        void shouldReportSuccessAfterReTrackFollowingFailure() {
+            // given - a block that failed verification and was awaited (which clears its entry)
+            long blockNumber = 100L;
+            subject.trackBlock(blockNumber);
+            subject.handleVerification(new VerificationNotification(
+                    false,
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    blockNumber,
+                    null,
+                    null,
+                    BlockSource.BACKFILL));
+            assertFalse(subject.awaitPersistence(blockNumber, 100));
+
+            // when - the runner re-tracks it for another attempt and it persists this time
+            subject.trackBlock(blockNumber);
+            subject.handlePersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.BACKFILL));
+
+            // then - the stale failure must not leak into the new attempt
+            assertTrue(subject.awaitPersistence(blockNumber, 100));
         }
 
         @Test
@@ -337,6 +362,34 @@ class BackfillPersistenceAwaiterTest {
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS), "Threads should be released");
             assertTrue(thread1Released.get());
             assertTrue(thread2Released.get());
+        }
+
+        @Test
+        @DisplayName("should report failure to a thread released by clear")
+        void shouldReportFailureAfterClear() throws InterruptedException {
+            // given
+            long blockNumber = 100L;
+            subject.trackBlock(blockNumber);
+
+            AtomicBoolean awaitResult = new AtomicBoolean(true);
+            CountDownLatch threadStarted = new CountDownLatch(1);
+            CountDownLatch threadDone = new CountDownLatch(1);
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            executor.submit(() -> {
+                threadStarted.countDown();
+                awaitResult.set(subject.awaitPersistence(blockNumber, 5000));
+                threadDone.countDown();
+            });
+            assertTrue(threadStarted.await(1, TimeUnit.SECONDS), "Thread should start");
+            Thread.sleep(50); // Give the thread time to enter await
+
+            // when - shutdown abandons the block
+            subject.clear();
+
+            // then - the waiter is released, and a block abandoned mid-flight is not persisted
+            assertTrue(threadDone.await(1, TimeUnit.SECONDS), "Thread should be released");
+            assertFalse(awaitResult.get());
+            executor.shutdown();
         }
 
         @Test

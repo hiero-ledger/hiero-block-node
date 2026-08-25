@@ -335,9 +335,8 @@ function execute_node_up {
 
 function execute_port_forward {
     echo "Refreshing port forwards..."
-    # Kill existing port-forwards
-    pkill -f "kubectl.*port-forward.*${NAMESPACE}" 2>/dev/null || true
-    sleep 2
+    # Killing the existing forwards is solo-port-forward.sh's job: it also has to
+    # retire their supervisors, and doing half of that here just races it.
     # Restart port forwards (script only takes --namespace)
     "${SCRIPT_DIR}/solo-port-forward.sh" --namespace "${NAMESPACE}" &
     sleep 10

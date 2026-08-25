@@ -244,14 +244,7 @@ tasks:
   port-forward:stop:
     desc: Stop all port forwards
     cmds:
-      - |
-        echo "Stopping port forwards..."
-        if pkill -f "kubectl port-forward" 2>/dev/null; then
-          echo "  Port forward processes terminated"
-        else
-          echo "  No port forward processes found"
-        fi
-        echo "Port forwards stopped."
+      - '"{{.SCRIPTS_DIR}}/solo-port-forward.sh" --namespace "{{.NAMESPACE}}" --stop'
 
   # ============================================================================
   # Verification

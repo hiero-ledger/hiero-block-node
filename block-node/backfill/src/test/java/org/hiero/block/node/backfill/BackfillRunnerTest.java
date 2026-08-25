@@ -21,12 +21,16 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.LongCounter;
 import org.junit.jupiter.api.BeforeEach;
@@ -210,6 +214,32 @@ class BackfillRunnerTest {
             assertEquals(150L, result.start());
             assertEquals(159L, result.end());
         }
+
+        @Test
+        @DisplayName("should give the genesis block a chunk of its own")
+        void shouldGiveGenesisBlockItsOwnChunk() {
+            // given
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
+            availability.put(nodeConfig, List.of(new LongRange(0, 500)));
+            long batchSize = 10;
+
+            // when - a gap that starts at the genesis block
+            LongRange genesisChunk = BackfillRunner.computeChunk(
+                    new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L), availability, 500L, batchSize);
+
+            // then - block 0 is fetched alone, so its TSS data lands before anything that needs it
+            assertNotNull(genesisChunk);
+            assertEquals(0L, genesisChunk.start());
+            assertEquals(0L, genesisChunk.end());
+
+            // and - the chunk after it spans the full batch size again
+            LongRange nextChunk = BackfillRunner.computeChunk(
+                    new NodeSelectionStrategy.NodeSelection(nodeConfig, 1L), availability, 500L, batchSize);
+            assertNotNull(nextChunk);
+            assertEquals(1L, nextChunk.start());
+            assertEquals(10L, nextChunk.end()); // 1 + 10 - 1
+        }
     }
 
     @Nested
@@ -309,10 +339,9 @@ class BackfillRunnerTest {
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
-                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                    new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(
-                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -355,10 +384,9 @@ class BackfillRunnerTest {
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
-                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                    new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(
-                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -402,10 +430,9 @@ class BackfillRunnerTest {
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
-                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                    new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(
-                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -470,10 +497,9 @@ class BackfillRunnerTest {
 
             // Register a handler that simulates immediate persistence (verification + persist flow)
             messaging.registerBlockNotificationHandler(
-                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                    new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(
-                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
                             // Simulate immediate persistence
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
@@ -510,10 +536,9 @@ class BackfillRunnerTest {
             // Register persistence awaiter and simulate persistence
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
-                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                    new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(
-                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -614,10 +639,9 @@ class BackfillRunnerTest {
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
-                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                    new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(
-                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
                             // Deliver the persisted notification only after the first await's
                             // 100ms timeout has already elapsed, so only a retried (re-tracked)
                             // await can pick it up. 175ms lands comfortably inside the second
@@ -644,6 +668,71 @@ class BackfillRunnerTest {
             // then - eventually persisted via retry, and the block was fetched only once (no
             // duplicate dispatch of a second, independent verification session for it)
             assertEquals(0L, lastSuccessful, "Should succeed once the delayed persistence notification lands");
+            verify(mockFetcher, times(1)).fetchBlocksFromNode(eq(nodeConfig), any());
+        }
+
+        @Test
+        @DisplayName("should not lose a persisted notification that arrives during the retry backoff")
+        void shouldNotLosePersistenceArrivingDuringRetryBackoff() throws Exception {
+            // given - a backoff far longer than the per-block timeout, so the notification lands
+            // while the runner is sleeping between attempts rather than while it is awaiting.
+            // Nothing is listening during that sleep unless the block was re-tracked before it,
+            // and a dropped notification leaves every later attempt waiting on a latch that will
+            // never be released, failing a chunk whose block is actually on disk.
+            BackfillConfiguration retryConfig = BackfillPluginTest.BackfillConfigBuilder.NewBuilder()
+                    .delayBetweenBatches(0)
+                    .perBlockProcessingTimeout(50)
+                    .initialRetryDelay(400)
+                    .maxRetries(3)
+                    .buildRecord();
+            BackfillRunner retrySubject = new BackfillRunner(
+                    mockFetcher,
+                    retryConfig,
+                    messaging,
+                    logger,
+                    mockMetricsHolder,
+                    pendingBackfillBlocks,
+                    persistenceAwaiter);
+
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
+            availability.put(nodeConfig, List.of(new LongRange(0, 0)));
+            BlockUnparsed testBlock = createTestBlock(0L);
+
+            when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L)));
+            when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(testBlock));
+
+            messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
+            messaging.registerBlockNotificationHandler(
+                    new BlockNotificationHandler() {
+                        @Override
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                            // 200ms is past the first attempt's 50ms timeout and well inside the
+                            // 400ms backoff that follows it, so only a block re-tracked before the
+                            // sleep can still receive this.
+                            new Thread(() -> {
+                                        try {
+                                            Thread.sleep(200);
+                                        } catch (InterruptedException ignored) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                        messaging.sendBlockPersisted(new PersistedNotification(
+                                                notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                                    })
+                                    .start();
+                        }
+                    },
+                    false,
+                    "backoff-window-persistence-handler");
+
+            // when
+            long lastSuccessful = retrySubject.run(gap);
+
+            // then
+            assertEquals(0L, lastSuccessful, "Notification delivered during the backoff should still be seen");
             verify(mockFetcher, times(1)).fetchBlocksFromNode(eq(nodeConfig), any());
         }
 
@@ -692,6 +781,86 @@ class BackfillRunnerTest {
             assertEquals(-1L, lastSuccessful, "Should never succeed since block 0 never persists");
             verify(mockFetcher, times(1)).fetchBlocksFromNode(eq(nodeConfig), any());
         }
+
+        @Test
+        @DisplayName("should not advance when a block fails verification")
+        void shouldNotAdvanceWhenVerificationFails() throws Exception {
+            // given - block 10 fails verification, so no persisted notification will ever follow.
+            // A released latch is not the same as a persisted block: the gap must not advance.
+            long lastSuccessful = runSingleBlockGapWithOutcome(
+                    10L,
+                    notification -> messaging.sendBlockVerification(new VerificationNotification(
+                            false,
+                            VerificationNotification.FailureInfo.standard(
+                                    VerificationNotification.FailureType.MISSING_VERIFICATION_DATA),
+                            notification.blockNumber(),
+                            null,
+                            null,
+                            BlockSource.BACKFILL)));
+
+            // then
+            assertEquals(9L, lastSuccessful, "Should return start - 1 when the block failed verification");
+        }
+
+        @Test
+        @DisplayName("should not advance when persistence reports failure")
+        void shouldNotAdvanceWhenPersistenceReportsFailure() throws Exception {
+            // given - block 10's persistence is reported as failed
+            long lastSuccessful = runSingleBlockGapWithOutcome(
+                    10L,
+                    notification -> messaging.sendBlockPersisted(
+                            new PersistedNotification(notification.blockNumber(), false, 1, BlockSource.BACKFILL)));
+
+            // then
+            assertEquals(9L, lastSuccessful, "Should return start - 1 when the block failed to persist");
+        }
+
+        /**
+         * Runs a single-block gap whose only block gets the given outcome published for it as soon as it
+         * is dispatched. TestBlockMessagingFacility dispatches synchronously on the caller's thread, so
+         * the outcome always lands before the runner starts awaiting.
+         */
+        private long runSingleBlockGapWithOutcome(
+                long blockNumber, Consumer<BackfilledBlockNotification> outcomePublisher) throws Exception {
+            BackfillConfiguration singleAttemptConfig = BackfillPluginTest.BackfillConfigBuilder.NewBuilder()
+                    .delayBetweenBatches(0)
+                    .perBlockProcessingTimeout(500)
+                    .maxRetries(1)
+                    .buildRecord();
+            BackfillRunner failureSubject = new BackfillRunner(
+                    mockFetcher,
+                    singleAttemptConfig,
+                    messaging,
+                    logger,
+                    mockMetricsHolder,
+                    pendingBackfillBlocks,
+                    persistenceAwaiter);
+
+            GapDetector.Gap gap =
+                    new GapDetector.Gap(new LongRange(blockNumber, blockNumber), GapDetector.Type.HISTORICAL);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
+            availability.put(nodeConfig, List.of(new LongRange(blockNumber, blockNumber)));
+
+            when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, blockNumber)));
+            when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any()))
+                    .thenReturn(List.of(createTestBlock(blockNumber)));
+
+            messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
+            messaging.registerBlockNotificationHandler(
+                    new BlockNotificationHandler() {
+                        @Override
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                            outcomePublisher.accept(notification);
+                        }
+                    },
+                    false,
+                    "test-failure-handler");
+
+            return failureSubject.run(gap);
+        }
     }
 
     @Nested
@@ -701,28 +870,27 @@ class BackfillRunnerTest {
         @Test
         @DisplayName("should return gap end when all blocks successfully backfilled")
         void shouldReturnGapEndOnFullCompletion() throws Exception {
-            // given
-            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 2), GapDetector.Type.HISTORICAL);
+            // given - a gap clear of block 0, which computeChunk deliberately fetches on its own
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(10, 12), GapDetector.Type.HISTORICAL);
             BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
             Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
-            availability.put(nodeConfig, List.of(new LongRange(0, 2)));
+            availability.put(nodeConfig, List.of(new LongRange(10, 12)));
 
-            BlockUnparsed block0 = createTestBlock(0L);
-            BlockUnparsed block1 = createTestBlock(1L);
-            BlockUnparsed block2 = createTestBlock(2L);
+            BlockUnparsed block10 = createTestBlock(10L);
+            BlockUnparsed block11 = createTestBlock(11L);
+            BlockUnparsed block12 = createTestBlock(12L);
 
             when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
             when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
-                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L)));
-            when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(block0, block1, block2));
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 10L)));
+            when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(block10, block11, block12));
 
             // Register handlers for persistence flow
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
-                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                    new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(
-                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -734,13 +902,15 @@ class BackfillRunnerTest {
             long lastSuccessful = subject.run(gap);
 
             // then
-            assertEquals(2L, lastSuccessful, "Should return gap end (2) on full completion");
+            assertEquals(12L, lastSuccessful, "Should return gap end (12) on full completion");
         }
 
         @Test
         @DisplayName("should return last successful block when gap partially completed")
         void shouldReturnLastSuccessfulBlockOnPartialCompletion() throws Exception {
-            // given - gap 0-9 with batch size 5, first batch (0-4) succeeds, second batch fails
+            // given - gap 10-19 with batch size 5, first batch (10-14) succeeds, second batch fails.
+            // The gap deliberately starts clear of block 0, which computeChunk chunks on its own -
+            // that special case has its own test in ComputeChunkTests.
             // Use custom config with fetchBatchSize=5 so we need two chunks
             BackfillConfiguration smallBatchConfig = BackfillPluginTest.BackfillConfigBuilder.NewBuilder()
                     .delayBetweenBatches(0)
@@ -755,28 +925,28 @@ class BackfillRunnerTest {
                     pendingBackfillBlocks,
                     persistenceAwaiter);
 
-            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 9), GapDetector.Type.HISTORICAL);
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(10, 19), GapDetector.Type.HISTORICAL);
             BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
 
             Map<BlockNodeSourceConfig, List<LongRange>> initialAvailability = new HashMap<>();
-            initialAvailability.put(nodeConfig, List.of(new LongRange(0, 9)));
+            initialAvailability.put(nodeConfig, List.of(new LongRange(10, 19)));
 
             List<BlockUnparsed> firstBatch = List.of(
-                    createTestBlock(0L),
-                    createTestBlock(1L),
-                    createTestBlock(2L),
-                    createTestBlock(3L),
-                    createTestBlock(4L));
+                    createTestBlock(10L),
+                    createTestBlock(11L),
+                    createTestBlock(12L),
+                    createTestBlock(13L),
+                    createTestBlock(14L));
 
             // First getAvailabilityForRange returns initial, second (replan) returns empty
             when(mockFetcher.getAvailabilityForRange(any()))
                     .thenReturn(initialAvailability)
                     .thenReturn(Collections.emptyMap());
-            // First select returns node for block 0, second for block 5
+            // First select returns node for block 10, second for block 15
             when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
-                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L)))
-                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 5L)));
-            // First fetch succeeds with 5 blocks (0-4), second returns empty (simulating failure)
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 10L)))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 15L)));
+            // First fetch succeeds with 5 blocks (10-14), second returns empty (simulating failure)
             when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any()))
                     .thenReturn(firstBatch)
                     .thenReturn(Collections.emptyList());
@@ -784,10 +954,9 @@ class BackfillRunnerTest {
             // Register handlers for persistence flow
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
-                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                    new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(
-                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -798,8 +967,8 @@ class BackfillRunnerTest {
             // when
             long lastSuccessful = smallBatchSubject.run(gap);
 
-            // then - chunk 0-4 succeeded, so lastSuccessfulBlock is 4
-            assertEquals(4L, lastSuccessful, "Should return 4 as last successful block (partial completion)");
+            // then - chunk 10-14 succeeded, so lastSuccessfulBlock is 14
+            assertEquals(14L, lastSuccessful, "Should return 14 as last successful block (partial completion)");
         }
 
         @Test
@@ -841,10 +1010,9 @@ class BackfillRunnerTest {
             // Register handlers for persistence flow
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
-                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                    new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(
-                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -878,10 +1046,9 @@ class BackfillRunnerTest {
             // Register handlers for persistence flow
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
-                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                    new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(
-                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -899,29 +1066,29 @@ class BackfillRunnerTest {
         @Test
         @DisplayName("should report multiple blocks fetched and dispatched")
         void shouldReportMultipleBlocks() throws Exception {
-            // given
-            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 2), GapDetector.Type.HISTORICAL);
+            // given - a gap clear of block 0: the mock replays all three blocks for any chunk, so a
+            // gap that started at 0 would be split into two chunks and count each block twice
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(10, 12), GapDetector.Type.HISTORICAL);
             BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
             Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
-            availability.put(nodeConfig, List.of(new LongRange(0, 2)));
+            availability.put(nodeConfig, List.of(new LongRange(10, 12)));
 
-            BlockUnparsed testBlock0 = createTestBlock(0L);
-            BlockUnparsed testBlock1 = createTestBlock(1L);
-            BlockUnparsed testBlock2 = createTestBlock(2L);
+            BlockUnparsed testBlock10 = createTestBlock(10L);
+            BlockUnparsed testBlock11 = createTestBlock(11L);
+            BlockUnparsed testBlock12 = createTestBlock(12L);
 
             when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
             when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
-                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L)));
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 10L)));
             when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any()))
-                    .thenReturn(List.of(testBlock0, testBlock1, testBlock2));
+                    .thenReturn(List.of(testBlock10, testBlock11, testBlock12));
 
             // Register handlers for persistence flow
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerBlockNotificationHandler(
-                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                    new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(
-                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }

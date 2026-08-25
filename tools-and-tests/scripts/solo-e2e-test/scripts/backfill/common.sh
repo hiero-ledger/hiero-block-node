@@ -20,12 +20,29 @@ bn_grpc_port() { echo $((40839 + $1)); }
 # Read one Prometheus metric from a BN over its port-forward and round it to an
 # integer -- gauges are exported in floating-point form ("612.0"), which bash
 # arithmetic rejects. Prints nothing and returns 1 when the metric is absent.
+# A single read is retried: a port-forward can drop mid-run, and its supervisor
+# needs a moment to bring it back. Without this, one dropped connection aborts a
+# 25-minute test from a one-shot caller.
 read_bn_metric_int() {
-    local bn_index="$1" metric="$2" raw
-    raw=$(curl -s --max-time 5 "http://localhost:$(bn_metrics_port "${bn_index}")/metrics" 2>/dev/null |
-        awk -v m="${metric}" '$1 == m { print $2; exit }')
-    [[ -n "${raw}" ]] || return 1
-    printf "%.0f" "${raw}" 2>/dev/null || return 1
+    local bn_index="$1" metric="$2" body raw attempt max_attempts=3
+    for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+        body=$(curl -s --max-time 5 "http://localhost:$(bn_metrics_port "${bn_index}")/metrics" 2>/dev/null)
+        # Only an unreachable endpoint is worth retrying. One that answers without
+        # the metric is the ordinary "not exported yet" case, which polling callers
+        # handle themselves, so it returns at once instead of costing them 19s.
+        if [[ -n "${body}" ]]; then
+            raw=$(awk -v m="${metric}" '$1 == m { print $2; exit }' <<<"${body}")
+            if [[ -z "${raw}" ]]; then
+                return 1
+            fi
+            printf "%.0f" "${raw}" 2>/dev/null || return 1
+            return 0
+        fi
+        if [[ "${attempt}" -lt "${max_attempts}" ]]; then
+            sleep 2
+        fi
+    done
+    return 1
 }
 
 # Highest block number the given BN has seen on its inbound publisher stream.

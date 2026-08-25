@@ -171,5 +171,8 @@ assertions:
     description: "All Block Nodes receiving live blocks after recovery"
     target: all
     args:
+      # 30s x 2 was exactly backfill.scanInterval (default 60000ms), so a node catching up
+      # via backfill rather than a live stream could exhaust the window inside a single
+      # quiet interval. Give it two full sweeps of headroom.
       wait_seconds: 30
-      max_attempts: 2
+      max_attempts: 4

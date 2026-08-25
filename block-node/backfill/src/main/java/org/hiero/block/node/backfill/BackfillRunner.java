@@ -282,22 +282,21 @@ final class BackfillRunner {
         List<Long> stillPending = blockNumbers;
         for (int attempt = 1; attempt <= config.maxRetries() && !stillPending.isEmpty(); attempt++) {
             stillPending = awaitBlocksPersistence(stillPending, chunk);
-            if (stillPending.isEmpty()) {
-                return true;
-            }
-            if (attempt < config.maxRetries()) {
+            if (!stillPending.isEmpty() && attempt < config.maxRetries()) {
                 final String retryingChunkMsg =
                         "Chunk [{0}] persistence attempt [{1}/{2}] incomplete for [{3}] block(s), continuing to "
                                 + "wait on the same in-flight session(s)";
                 logger.log(DEBUG, retryingChunkMsg, chunk, attempt, config.maxRetries(), stillPending.size());
-                Thread.sleep(Math.max(0, (long) config.initialRetryDelay() * attempt));
                 // awaitPersistence always clears its own bookkeeping entry once it returns (success,
-                // timeout, or interrupt alike), so without re-tracking here the next await call would
-                // immediately report "already persisted or not tracked" for a block that may still
-                // actually be in flight.
+                // failure, timeout, or interrupt alike), so without re-tracking here the next await call
+                // would immediately report "already persisted or not tracked" for a block that may still
+                // actually be in flight. A block that definitively failed is re-tracked too and burns
+                // another perBlockProcessingTimeout on a latch nothing will release; that is accepted,
+                // since giving it its own outcome state costs more than the rare extra wait.
                 for (long blockNumber : stillPending) {
                     persistenceAwaiter.trackBlock(blockNumber);
                 }
+                Thread.sleep(Math.max(0, (long) config.initialRetryDelay() * attempt));
             }
         }
         return stillPending.isEmpty();
@@ -344,7 +343,7 @@ final class BackfillRunner {
         for (long blockNumber : blockNumbers) {
             boolean persisted = persistenceAwaiter.awaitPersistence(blockNumber, config.perBlockProcessingTimeout());
             if (!persisted) {
-                final String persistenceTimedOutMsg = "Block [{0}] persistence timed out, will be re-detected";
+                final String persistenceTimedOutMsg = "Block [{0}] did not persist, will be re-detected";
                 logger.log(INFO, persistenceTimedOutMsg, blockNumber);
                 stillPending.add(blockNumber);
             }
@@ -408,7 +407,11 @@ final class BackfillRunner {
             return null;
         }
 
-        long chunkEnd = Math.min(Math.min(start + batchSize - 1, coveringRange.end()), gapEnd);
+        // The genesis block is the only source of TSS verification data on a node that has none yet, and
+        // it publishes that data during its own hashing stage. Sending it in a chunk of its own means
+        // blocks 1..N are not fetched until it has persisted, so they cannot race the bootstrap and fail
+        // with MISSING_VERIFICATION_DATA. Costs one extra single-block fetch, once per node lifetime.
+        long chunkEnd = start == 0 ? 0 : Math.min(Math.min(start + batchSize - 1, coveringRange.end()), gapEnd);
         return new LongRange(start, chunkEnd);
     }
 
