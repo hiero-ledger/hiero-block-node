@@ -225,7 +225,7 @@ cp .env.example .env
 | `SOLO_GIT_REPO`          | (empty)                  | Fork `owner/repo` when `SOLO_SOURCE=git` (must be approved)          |
 | `SOLO_GIT_REF`           | (empty)                  | Branch/tag/SHA when `SOLO_SOURCE=git`                                |
 | `CN_VERSION`             | `main`                   | Consensus Node version (requires `CN_LOCAL_BUILD_PATH`)              |
-| `CN_LOCAL_BUILD_PATH`    | (empty)                  | Built CN `hedera-node/data` dir; required when `CN_VERSION=main`      |
+| `CN_LOCAL_BUILD_PATH`    | (empty)                  | Built CN `hedera-node/data` dir; required when `CN_VERSION=main`     |
 | `MN_VERSION`             | `latest`                 | Mirror Node version                                                  |
 | `BN_VERSION`             | `latest`                 | Block Node version                                                   |
 | `RELAY_VERSION`          | `latest`                 | Relay version                                                        |
@@ -501,7 +501,8 @@ explorer_nodes: {}  # empty (or absent) -> not deployed
 > has been failing on recent Relay images, leaving the pod at `0/1 Running`. Since
 > `solo relay node add` waits for readiness, a deployed-but-unhealthy Relay aborts
 > `task up` **before** it reaches `task port-forward`, which looks like "port forwards
-> are broken". Enable the Relay only if you actually need JSON-RPC.
+>
+>> are broken". Enable the Relay only if you actually need JSON-RPC.
 
 ### WRB + RSA Verification Topologies
 
@@ -687,25 +688,25 @@ assertions:                      # Validations to run after all events
 
 ### Event Types
 
-|            Type            |           Description            |                                             Arguments                                             |
-|----------------------------|----------------------------------|---------------------------------------------------------------------------------------------------|
-| `command`                  | Run arbitrary script             | `script`                                                                                          |
-| `node-down`                | Scale node to 0 replicas         | `target`                                                                                          |
-| `node-up`                  | Scale node to 1 replica          | `target`                                                                                          |
-| `scale-down`               | Scale down (alias for node-down) | `target`                                                                                          |
-| `scale-up`                 | Scale up (alias for node-up)     | `target`                                                                                          |
-| `restart`                  | Rollout restart node             | `target`                                                                                          |
-| `load-start`               | Start NLG load                   | `test_class`, `concurrency`, `accounts`, `duration`, `max_tps`                                    |
-| `load-stop`                | Stop NLG load                    | `test_class`                                                                                      |
-| `print-metrics`            | Print metrics summary            | `target` (node name or "all")                                                                     |
-| `network-status`           | Print network status             | (none)                                                                                            |
-| `sleep`                    | Pause execution                  | `seconds`                                                                                         |
-| `port-forward`             | Refresh port forwards            | (none)                                                                                            |
-| `clear-block-storage`      | Clear all block data on node (live, archive, verification, and the persisted block-range state) | `target`                                            |
-| `deploy-block-node`        | Deploy new Block Node            | `name`, `backfill_sources`, `greedy`, `chart_version`                                             |
-| `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                                                                   |
-| `inject-latency`           | Apply a NetworkChaos rule        | `name`, `source.kind`, `target.kind`, `latency`, `jitter`, `correlation`, `bidirectional`, `loss` |
-| `clear-latency`            | Remove a NetworkChaos rule       | `name`                                                                                            |
+|            Type            |                                           Description                                           |                                             Arguments                                             |
+|----------------------------|-------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| `command`                  | Run arbitrary script                                                                            | `script`                                                                                          |
+| `node-down`                | Scale node to 0 replicas                                                                        | `target`                                                                                          |
+| `node-up`                  | Scale node to 1 replica                                                                         | `target`                                                                                          |
+| `scale-down`               | Scale down (alias for node-down)                                                                | `target`                                                                                          |
+| `scale-up`                 | Scale up (alias for node-up)                                                                    | `target`                                                                                          |
+| `restart`                  | Rollout restart node                                                                            | `target`                                                                                          |
+| `load-start`               | Start NLG load                                                                                  | `test_class`, `concurrency`, `accounts`, `duration`, `max_tps`                                    |
+| `load-stop`                | Stop NLG load                                                                                   | `test_class`                                                                                      |
+| `print-metrics`            | Print metrics summary                                                                           | `target` (node name or "all")                                                                     |
+| `network-status`           | Print network status                                                                            | (none)                                                                                            |
+| `sleep`                    | Pause execution                                                                                 | `seconds`                                                                                         |
+| `port-forward`             | Refresh port forwards                                                                           | (none)                                                                                            |
+| `clear-block-storage`      | Clear all block data on node (live, archive, verification, and the persisted block-range state) | `target`                                                                                          |
+| `deploy-block-node`        | Deploy new Block Node                                                                           | `name`, `backfill_sources`, `greedy`, `chart_version`                                             |
+| `reconfigure-cn-streaming` | Update CN block-nodes.json                                                                      | `consensus_node`, `block_nodes`                                                                   |
+| `inject-latency`           | Apply a NetworkChaos rule                                                                       | `name`, `source.kind`, `target.kind`, `latency`, `jitter`, `correlation`, `bidirectional`, `loss` |
+| `clear-latency`            | Remove a NetworkChaos rule                                                                      | `name`                                                                                            |
 
 ### Assertion Types
 
@@ -729,11 +730,11 @@ assertions:                      # Validations to run after all events
 
 `tests/full-history-backfill.yaml` wipes BN1's data and checks that it refills its history from BN2 *while* its Consensus Node keeps streaming live blocks into it, rather than staying blocked until backfill reaches the chain head. Supporting scripts live in `scripts/backfill/`:
 
-|                  Script                   |                                  Purpose                                   |
-|-------------------------------------------|-----------------------------------------------------------------------------|
-| `wait-for-network-height.sh`              | Blocks until the network reaches `MIN_HEIGHT` (default 600) so there is a recoverable gap; returns at once if already past it |
-| `configure-bn-live-tail-backfill.sh`      | Raises the BN's `earliestManagedBlock` to `<chain head> + EMB_OFFSET` and throttles backfill, while the BN is scaled to zero |
-| `assert-backfill-during-live-stream.sh`   | Samples `serverStatusDetail` + `publisher_open_connections` and requires the historical range and the live range to both advance in the same window |
+|                 Script                  |                                                                       Purpose                                                                       |
+|-----------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `wait-for-network-height.sh`            | Blocks until the network reaches `MIN_HEIGHT` (default 600) so there is a recoverable gap; returns at once if already past it                       |
+| `configure-bn-live-tail-backfill.sh`    | Raises the BN's `earliestManagedBlock` to `<chain head> + EMB_OFFSET` and throttles backfill, while the BN is scaled to zero                        |
+| `assert-backfill-during-live-stream.sh` | Samples `serverStatusDetail` + `publisher_open_connections` and requires the historical range and the live range to both advance in the same window |
 
 The `earliestManagedBlock` is the hinge. On a store-less start the publisher treats it as its next expected block: left at the default `0` the Block Node answers every offer from the Consensus Node with `BlockNodeBehind`, so live streaming only resumes once backfill has walked the whole chain. Raised above the chain head, the first offered block is accepted instead and everything below it becomes a `HISTORICAL` backfill gap.
 
