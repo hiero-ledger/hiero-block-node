@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 50kbps
+# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 50kbit/s
 #
 # Stress tier of the bandwidth-lag failure mode family.
 # Models near-complete link failure between all CNs and BN1 — e.g. a pod network
@@ -8,14 +8,19 @@
 # that effectively blacks out CN→BN ingest. BN1 is starved to ~12.5% of its
 # normal ingest rate.
 #
+# Rate units — chaos-mesh's bandwidth "rate" field uses "kbit" for kilobits/s
+# and "kbps" for kilobytes/s (8x kbit). See bandwidth-lag.yaml for the CI
+# evidence (tc qdisc dump) that a "kbps" value here would be applied at 8x
+# the intended cap. Use "kbit" explicitly.
+#
 # Design:
-#   - CN→BN1 is capped at 50kbps — BN1 receives blocks at ~12.5% of data rate
-#     (~50 KB/s = 400kbps needed; 50kbps allows only ~6.25 KB/s).
-#   - All BN peers→BN1 are also capped at 50kbps so greedy backfill cannot
+#   - CN→BN1 is capped at 50kbit/s — BN1 receives blocks at ~12.5% of data rate
+#     (~50 KB/s = 400kbit/s needed; 50kbit/s allows only ~6.25 KB/s).
+#   - All BN peers→BN1 are also capped at 50kbit/s so greedy backfill cannot
 #     neutralise the starvation during chaos.
 #   - BN2 and BN3 receive no throttle — they serve as reference nodes.
 #
-# Rate rationale (50kbps):
+# Rate rationale (50kbit/s):
 #   Lag accrues at ~87.5% of the block rate (0.5 blk/s × 87.5% ≈ 0.44 blk/s).
 #   Over the 150s chaos window this produces ~66 blocks of divergence.
 #   This corresponds to a worst-case production outage: all 39 CN streams to BN1
@@ -43,7 +48,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-stress.yaml
 
 name: bandwidth-lag-stress
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (50kbps) — stress/near-complete-failure scenario"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (50kbit/s) — stress/near-complete-failure scenario"
 
 events:
   - id: load-start
@@ -57,26 +62,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN→BN1 to 50kbps — BN1 starved to ~12.5% of block production rate"
+    description: "Cap CN→BN1 to 50kbit/s — BN1 starved to ~12.5% of block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw-stress
       source: { kind: network-node }
       target: { kind: block-node, name: block-node-1 }
-      rate: "50kbps"
+      rate: "50kbit"
       limit: 62500
       buffer: 10000
       bidirectional: false
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap all BN peers→BN1 to 50kbps — prevents greedy backfill from neutralising starvation"
+    description: "Cap all BN peers→BN1 to 50kbit/s — prevents greedy backfill from neutralising starvation"
     delay: 35
     args:
       name: peer-to-bn1-bw-stress
       source: { kind: block-node }
       target: { kind: block-node, name: block-node-1 }
-      rate: "50kbps"
+      rate: "50kbit"
       limit: 62500
       buffer: 10000
       bidirectional: false
@@ -119,7 +124,7 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BNs were at least 30 blocks apart at peak chaos — confirms 50kbps starvation caused massive cumulative lag on BN1"
+    description: "BNs were at least 30 blocks apart at peak chaos — confirms 50kbit/s starvation caused massive cumulative lag on BN1"
     args:
       snapshot_id: peak-chaos-stress
       min_spread: 30

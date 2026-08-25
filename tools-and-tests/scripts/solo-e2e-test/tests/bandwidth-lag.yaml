@@ -7,22 +7,29 @@
 # so lag grows monotonically until chaos clears.
 #
 # Design:
-#   - CN→BN1 is capped at 100kbps (direction=to, unidirectional).
-#   - All BN peers→BN1 are also capped at 100kbps so greedy backfill cannot
+#   - CN→BN1 is capped at 100kbit/s (direction=to, unidirectional).
+#   - All BN peers→BN1 are also capped at 100kbit/s so greedy backfill cannot
 #     instantly neutralise the ingest cap during chaos.
 #   - BN2 and BN3 receive no throttle — they serve as the reference nodes that
 #     advance at full speed, making the spread measurable.
 #
-# Rate rationale (100kbps, lowered from 500kbps):
+# Rate units — chaos-mesh's bandwidth "rate" field uses "kbit" for kilobits/s
+# and "kbps" for kilobytes/s (8x kbit). Earlier revisions of this test used
+# "kbps" values (500, then 100) intending kilobits/s, per networking
+# convention — chaos-mesh instead applied them as kilobytes/s, so the actual
+# cap was always 8x looser than intended (confirmed via tc qdisc dump in CI:
+# "100kbps" produced `rate 800Kbit`). That silently masked every previous
+# tuning attempt with 0 block spread regardless of the configured number.
+# Use the "kbit" suffix explicitly to avoid recreating this mistake.
+#
+# Rate rationale (100kbit/s):
 #   In the paired-3 topology each CN streams to its paired BN, so BN1 receives
-#   blocks only from CN1.  A 500kbps cap produced 0 block spread in CI (all BNs
-#   at block 176 at peak chaos) — the ingest rate wasn't pushed far enough below
-#   the block production rate to build measurable lag in the 150 s chaos window.
-#   100kbps caps ingest well below the observed production rate so lag builds
-#   reliably and should reach ≥ 5 blocks in the chaos window.  If the spread is
-#   still insufficient, lower further; if blocks are larger the spread will be
-#   much higher — raise min_spread accordingly.
-#   Tune this value based on observed block sizes from test run metrics.
+#   blocks only from CN1. 100kbit/s (12.5 KB/s) caps ingest well below the
+#   observed block production rate so lag builds reliably and should reach
+#   ≥ 5 blocks in the 150s chaos window. If the spread is still insufficient,
+#   lower further; if blocks are larger the spread will be much higher — raise
+#   min_spread accordingly. Tune based on observed block sizes from test run
+#   metrics.
 #
 # Assertions:
 #   blocks-diverged  min_spread=5   — conservative; real runs with 100 KB blocks
@@ -40,7 +47,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag.yaml
 
 name: bandwidth-lag
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (100kbps) — cumulative-lag production failure mode"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (100kbit/s) — cumulative-lag production failure mode"
 
 events:
   - id: load-start
@@ -54,26 +61,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN→BN1 to 100kbps (direction=to) — forces BN1 ingest below block production rate"
+    description: "Cap CN→BN1 to 100kbit/s (direction=to) — forces BN1 ingest below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw
       source: { kind: network-node }
       target: { kind: block-node, name: block-node-1 }
-      rate: "100kbps"
+      rate: "100kbit"
       limit: 1000000
       buffer: 10000
       bidirectional: false
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap all BN peers→BN1 to 100kbps (direction=to) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap all BN peers→BN1 to 100kbit/s (direction=to) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw
       source: { kind: block-node }
       target: { kind: block-node, name: block-node-1 }
-      rate: "100kbps"
+      rate: "100kbit"
       limit: 1000000
       buffer: 10000
       bidirectional: false
