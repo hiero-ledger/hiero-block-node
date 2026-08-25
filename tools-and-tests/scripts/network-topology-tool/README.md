@@ -60,6 +60,7 @@ block_nodes:
     address: block-node-1
     port: 40840
     greedy: false  # Enable greedy backfill mode (defaults to false)
+    backfill_scan_interval: 15000  # Backfill scan interval in ms (defaults to 15000)
 
 consensus_nodes:
   node1:
@@ -126,6 +127,7 @@ blockNode:
   config:
     BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
     BACKFILL_GREEDY: "false"  # Value from topology's greedy field
+    BACKFILL_SCAN_INTERVAL: "15000"  # Value from topology's backfill_scan_interval field
   backfill:
     path: "/opt/hiero/block-node/backfill"
     filename: "block-node-sources.json"

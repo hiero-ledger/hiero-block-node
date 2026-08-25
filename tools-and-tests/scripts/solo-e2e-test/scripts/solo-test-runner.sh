@@ -344,28 +344,47 @@ function execute_port_forward {
     echo "Port forwards refreshed"
 }
 
+# Wipe a Block Node's block storage by deleting its live and archive PVCs, which the
+# StatefulSet's volumeClaimTemplates recreate empty on the next scale-up.
+#
+# The node MUST already be scaled to zero. Wiping a running node does not work: it keeps
+# ingesting live blocks from its Consensus Node for the whole termination grace period
+# (30s, ~15 blocks), repopulating the directories that were just emptied. The node then
+# restarts holding a partial live range instead of being store-less, so
+# LiveStreamPublisherManager#initializeBlockNumbers derives its next expected block from
+# that range rather than from earliestManagedBlock, answers BlockNodeBehind to every
+# offer, and never resumes live ingest.
+#
+# `rm -rf` over an exec was also silently ineffective in two of its three paths:
+# data/archive (the mount is data/historic) and data/verification (no such directory).
+# Deleting the claims cannot miss a path.
+#
+# application-state-storage is deliberately left alone — it holds
+# tss-bootstrap-roster.json, without which the node fails every block it is offered.
 function execute_clear_block_storage {
     local target="$1"
     echo "Clearing block storage on $target..."
 
-    local pod_name="${target}-0"
+    local replicas
+    replicas=$(kctl get statefulset "${target}" -n "${NAMESPACE}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "")
+    if [[ "${replicas}" != "0" ]]; then
+        echo "ERROR: ${target} must be scaled to 0 before clearing its storage (replicas='${replicas:-unknown}')." >&2
+        echo "       Wiping a running node leaves it with a partial live range after restart." >&2
+        return 1
+    fi
 
-    # Clear live storage (recent blocks)
-    echo "Clearing live storage..."
-    kctl exec "${pod_name}" -n "${NAMESPACE}" -- \
-        sh -c "rm -rf /opt/hiero/block-node/data/live/* 2>/dev/null || true"
+    local claim
+    for claim in "live-storage-${target}-0" "archive-storage-${target}-0"; do
+        if kctl get pvc "${claim}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+            echo "Deleting PVC ${claim}..."
+            kctl delete pvc "${claim}" -n "${NAMESPACE}" --wait=true ||
+                { echo "ERROR: failed to delete PVC ${claim}" >&2; return 1; }
+        else
+            echo "PVC ${claim} not present, skipping"
+        fi
+    done
 
-    # Clear archive storage (historic blocks)
-    echo "Clearing archive storage..."
-    kctl exec "${pod_name}" -n "${NAMESPACE}" -- \
-        sh -c "rm -rf /opt/hiero/block-node/data/archive/* 2>/dev/null || true"
-
-    # Clear verification state
-    echo "Clearing verification state..."
-    kctl exec "${pod_name}" -n "${NAMESPACE}" -- \
-        sh -c "rm -rf /opt/hiero/block-node/data/verification/* 2>/dev/null || true"
-
-    echo "Block storage cleared on $target"
+    echo "Block storage cleared on $target (application-state preserved)"
 }
 
 function execute_scale_down {
@@ -865,8 +884,12 @@ function assert_block_available_single {
     first_block=$(echo "$status_json" | jq -r '.firstAvailableBlock // "null"')
     last_block=$(echo "$status_json" | jq -r '.lastAvailableBlock // "null"')
 
-    if [[ "$first_block" == "null" || "$last_block" == "null" ]]; then
-        echo "${target}: No blocks available"
+    # An empty store reports both fields as the UINT64_MAX sentinel, which wraps to -1 in
+    # bash arithmetic and would make the "$first_block" -gt "$min_block" test below pass for
+    # a node holding no blocks at all. is_valid_block_number rejects the sentinel and any
+    # other value outside the signed-64-bit range. See scripts/lib/chaos-assertions.sh.
+    if ! is_valid_block_number "$first_block" || ! is_valid_block_number "$last_block"; then
+        echo "${target}: No blocks available (firstAvailableBlock=${first_block} lastAvailableBlock=${last_block})"
         return 1
     fi
 
@@ -1097,8 +1120,11 @@ function get_block_count {
 
     block_count=$(echo "$json" | jq -r '.lastAvailableBlock // ""' 2>/dev/null)
 
-    # Return empty if we got nothing valid
-    if [[ -z "$block_count" || "$block_count" == "null" ]]; then
+    # Return empty if we got nothing valid. An empty store reports the UINT64_MAX
+    # sentinel here, which compares equal to itself — without this guard
+    # assert_blocks_increasing would report "Blocks not increasing" for a node that
+    # holds nothing, hiding the real problem behind a plausible-looking failure.
+    if ! is_valid_block_number "$block_count"; then
         echo ""
         return 1
     fi
@@ -1133,7 +1159,7 @@ function assert_blocks_increasing_single {
     done
 
     if [[ -z "$baseline_block" ]]; then
-        echo "${target}: Could not get baseline block count"
+        echo "${target}: Could not get baseline block count (node holds no blocks, or serverStatus unreachable)"
         return 1
     fi
 

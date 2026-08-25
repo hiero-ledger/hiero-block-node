@@ -5,7 +5,7 @@
 # The Consensus Node streams blocks directly to the Block Node.
 # Mirror Node receives blocks from the Block Node.
 #
-# CN1 → BN1 → MN → Relay, Explorer
+# CN1 -> BN1 -> MN
 
 name: single
 description: "1 Consensus Node, 1 Block Node, 1 Mirror Node (default)"
@@ -24,8 +24,6 @@ mirror_nodes:
   mirror-1:
     block_nodes: [block-node-1]
 
-relay_nodes:
-  # relay-1: {}
+relay_nodes: {}             # Add `relay-1: {}` to enable the JSON-RPC Relay
 
-# explorer_nodes:           # Uncomment to enable Explorer
-#   explorer-1: {}
+explorer_nodes: {}          # Add `explorer-1: {}` to enable the Explorer

@@ -13,6 +13,12 @@
 name: wrb-differential-test
 description: "WRB ingestion test: 1 CN, 1 BN, MN validates block ingestion"
 
+# Deploy with RSA-roster/WRB verification, matching the header above. Without this the
+# deploy defaults to `tss` and the Block Node rejects every block it is sent
+# (verify_failed=84 on the full matrix), so the ingestion test times out against an empty
+# store instead of testing ingestion.
+verification_mode: rsa-wrb
+
 block_nodes:
   block-node-1:
     address: block-node-1

@@ -49,7 +49,14 @@ vars:
   CONTEXT: '{{.CONTEXT | default .CLUSTER_REF}}'
 
   # Version defaults
-  CN_VERSION: '{{.CN_VERSION | default "latest"}}'
+  # 'main' by default: no published CN tag yet carries the fixed 16-slot block-root hashing
+  # rework, so a released tag cannot verify against current BN/MN. 'main' resolves to a
+  # -SNAPSHOT with no published build artifact, so it requires CN_LOCAL_BUILD_PATH below.
+  # CI builds the Consensus Node itself when the resolved version is a -SNAPSHOT.
+  CN_VERSION: '{{.CN_VERSION | default "main"}}'
+  # Path to a built Consensus Node 'hedera-node/data' directory. Required when CN_VERSION
+  # resolves to a -SNAPSHOT (e.g. CN_VERSION=main), which has no published build artifact.
+  CN_LOCAL_BUILD_PATH: '{{.CN_LOCAL_BUILD_PATH | default ""}}'
   MN_VERSION: '{{.MN_VERSION | default "latest"}}'
   BN_VERSION: '{{.BN_VERSION | default "latest"}}'
   BN_CHART_DIR: '{{.BN_CHART_DIR | default ""}}'
@@ -218,6 +225,7 @@ tasks:
           --topology "{{.TOPOLOGY}}" \
           --topologies-dir "{{.TOPOLOGIES_DIR}}" \
           --cn-version "$CN_RESOLVED" \
+          {{if .CN_LOCAL_BUILD_PATH}}--cn-local-build-path "{{.CN_LOCAL_BUILD_PATH}}"{{end}} \
           --mn-version "$MN_RESOLVED" \
           --bn-version "$BN_RESOLVED" \
           {{if .BN_CHART_DIR}}--bn-chart-dir "{{.BN_CHART_DIR}}"{{end}} \
