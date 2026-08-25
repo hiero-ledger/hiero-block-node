@@ -591,6 +591,21 @@ function chaos_resource_name {
     echo "${n:0:63}" | sed 's/-*$//'
 }
 
+# Blocks until a NetworkChaos resource reports AllInjected=True, or fails fast
+# if Chaos Mesh reports it could not be injected. Without this check, a
+# silently-failed injection (e.g. webhook rejection, ipset/chaosd issue) looks
+# identical to "chaos had no observable effect" — this turns that into a
+# clear, immediate error instead of a confusing downstream assertion failure.
+function wait_for_networkchaos_injected {
+    local chaos_name="$1"
+    if ! kctl wait --for=condition=AllInjected "networkchaos/${chaos_name}" \
+            -n chaos-mesh --timeout=30s >/dev/null 2>&1; then
+        echo "ERROR: NetworkChaos '${chaos_name}' did not reach AllInjected within 30s"
+        kctl describe networkchaos -n chaos-mesh "${chaos_name}"
+        return 1
+    fi
+}
+
 function execute_inject_latency {
     local args="$1"
     local name source_kind source_name target_kind target_name latency jitter correlation bidirectional loss
@@ -698,6 +713,8 @@ function execute_inject_latency {
     fi
 
     echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
+
+    wait_for_networkchaos_injected "${chaos_name}"
 }
 
 function execute_clear_latency {
@@ -807,9 +824,14 @@ function execute_inject_bandwidth {
     echo "  selector: ${source_key}=${source_val}${source_name:+,instance=${source_name}}  ->  target: ${target_key}=${target_val}${target_name:+,instance=${target_name}}"
     echo "  bandwidth: ${rate} (limit: ${limit}, buffer: ${buffer}, direction: ${direction})"
 
-    kctl apply -f "${manifest}"
+    if ! kctl apply -f "${manifest}"; then
+        echo "ERROR: Failed to apply NetworkChaos manifest '${chaos_name}'"
+        return 1
+    fi
 
     echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
+
+    wait_for_networkchaos_injected "${chaos_name}"
 }
 
 # ============================================================================
