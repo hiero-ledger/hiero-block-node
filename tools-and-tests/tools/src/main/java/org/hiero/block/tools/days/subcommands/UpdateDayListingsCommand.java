@@ -408,10 +408,18 @@ public class UpdateDayListingsCommand implements Runnable {
             relativePath = path;
         }
 
-        // Convert MD5 from Base64 to hex
+        // Convert MD5 from Base64 to hex. GCS composite objects (created via multipart
+        // upload or gcloud storage compose) do not expose an MD5 in object metadata,
+        // so BuckyBucketLister surfaces it as null; write an empty MD5 for those and
+        // let downstream consumers treat empty as "no MD5 available" (see #3546).
         final String md5Base64 = chainFile.md5();
-        final byte[] md5Bytes = Base64.getDecoder().decode(md5Base64);
-        final String md5Hex = HexFormat.of().formatHex(md5Bytes);
+        final String md5Hex;
+        if (md5Base64 == null || md5Base64.isEmpty()) {
+            md5Hex = "";
+        } else {
+            final byte[] md5Bytes = Base64.getDecoder().decode(md5Base64);
+            md5Hex = HexFormat.of().formatHex(md5Bytes);
+        }
 
         // Extract timestamp from path
         final java.time.LocalDateTime timestamp =
@@ -679,10 +687,18 @@ public class UpdateDayListingsCommand implements Runnable {
             relativePath = path;
         }
 
-        // Convert MD5 from Base64 to hex
+        // Convert MD5 from Base64 to hex. GCS composite objects (created via multipart
+        // upload or gcloud storage compose) do not expose an MD5 in object metadata,
+        // so BuckyBucketLister surfaces it as null; write an empty MD5 for those and
+        // let downstream consumers treat empty as "no MD5 available" (see #3546).
         final String md5Base64 = chainFile.md5();
-        final byte[] md5Bytes = Base64.getDecoder().decode(md5Base64);
-        final String md5Hex = HexFormat.of().formatHex(md5Bytes);
+        final String md5Hex;
+        if (md5Base64 == null || md5Base64.isEmpty()) {
+            md5Hex = "";
+        } else {
+            final byte[] md5Bytes = Base64.getDecoder().decode(md5Base64);
+            md5Hex = HexFormat.of().formatHex(md5Bytes);
+        }
 
         // Extract timestamp from path
         final java.time.LocalDateTime timestamp =
