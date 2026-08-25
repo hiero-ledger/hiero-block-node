@@ -734,6 +734,31 @@ function execute_clear_latency {
     fi
 }
 
+# Dumps tc qdisc counters and the chaos-mesh ipset from each pod matching the
+# given selector, so a CI run can show whether a bandwidth rule reporting
+# AllInjected=True is actually shaping traffic — not just whether Chaos Mesh
+# believes it applied. Best-effort: app images may lack tc/ipset binaries, in
+# which case the exec failure itself (missing binary vs. real counters) is
+# the useful signal, so failures here don't fail the test.
+function dump_bandwidth_chaos_diagnostics {
+    local label_key="$1" label_val="$2" instance_name="$3"
+    local selector="${label_key}=${label_val}"
+    [[ -n "${instance_name}" && "${instance_name}" != "null" ]] && \
+        selector="${selector},app.kubernetes.io/instance=${instance_name}"
+
+    local pods
+    pods=$(kctl get pod -n "${NAMESPACE}" -l "${selector}" -o jsonpath='{.items[*].metadata.name}')
+    [[ -z "${pods}" ]] && { echo "DIAG: no pods matched selector '${selector}' for tc/ipset dump"; return 0; }
+
+    local pod
+    for pod in ${pods}; do
+        echo "--- DIAG tc qdisc on ${pod} (selector: ${selector}) ---"
+        kctl exec "${pod}" -n "${NAMESPACE}" -- tc -s qdisc show 2>&1 || echo "DIAG: tc exec failed on ${pod}"
+        echo "--- DIAG ipset on ${pod} ---"
+        kctl exec "${pod}" -n "${NAMESPACE}" -- ipset list 2>&1 || echo "DIAG: ipset exec failed on ${pod}"
+    done
+}
+
 function execute_inject_bandwidth {
     local args="$1"
     local name source_kind source_name target_kind target_name rate limit buffer bidirectional
@@ -831,7 +856,11 @@ function execute_inject_bandwidth {
 
     echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
 
-    wait_for_networkchaos_injected "${chaos_name}"
+    if ! wait_for_networkchaos_injected "${chaos_name}"; then
+        return 1
+    fi
+
+    dump_bandwidth_chaos_diagnostics "${source_key}" "${source_val}" "${source_name}"
 }
 
 # ============================================================================
