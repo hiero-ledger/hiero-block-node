@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient;
@@ -141,8 +142,15 @@ public class BackfillMultiportSourceTests {
         try (BlockNodeClient client = new BlockNodeClient(
                 source, GRPC_TIMEOUT_MS, false, MAX_INCOMING_BUFFER_SIZE, MAX_PROTOBUF_MESSAGE_SIZE, null)) {
             // Server-status RPC must reach the dedicated status port and report the stored range.
-            final ServerStatusDetailResponse status = client.getBlockNodeServiceClient()
+            final long deadline = System.currentTimeMillis() + 5_000L;
+            ServerStatusDetailResponse status = client.getBlockNodeServiceClient()
                     .serverStatusDetail(ServerStatusRequest.newBuilder().build());
+            // await available ranges to be updated
+            while (status.availableRanges().isEmpty() && System.currentTimeMillis() < deadline) {
+                status = client.getBlockNodeServiceClient()
+                        .serverStatusDetail(ServerStatusRequest.newBuilder().build());
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(50));
+            }
             assertThat(status.availableRanges()).anySatisfy(range -> {
                 assertThat(range.rangeStart()).isEqualTo(0L);
                 assertThat(range.rangeEnd()).isEqualTo((long) LAST_BLOCK_NUMBER);
