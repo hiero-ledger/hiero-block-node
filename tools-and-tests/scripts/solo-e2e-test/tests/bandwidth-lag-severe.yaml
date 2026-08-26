@@ -6,19 +6,9 @@
 # Models a production scenario where ~50% of CN ingest capacity is lost
 # (e.g. 13 of 39 CNs reaching BN1 normally, rest degraded — the DR split case).
 #
-# Rate units — chaos-mesh's bandwidth "rate" field uses "kbit" for kilobits/s
-# and "kbps" for kilobytes/s (8x kbit). See bandwidth-lag.yaml for the CI
-# evidence (tc qdisc dump) that a "kbps" value here would be applied at 8x
-# the intended cap. Use "kbit" explicitly.
-#
-# Target addressing: target: { kind: service, name: block-node-1 }, not a
-# pod-selector target. See bandwidth-lag.yaml for the full explanation and CI
-# evidence (0 bytes in the throttled tc band all test long, across both a
-# pod-selector target and a selector=BN1/direction=from ingress attempt) —
-# CN/BN-peers reach BN1 via its k8s Service, and tc's bandwidth action is
-# egress-only, so the shaping must stay on the sender's egress while the
-# *target* address must be BN1's Service ClusterIP (resolved at runtime via
-# chaos-mesh's externalTargets), not its pod IP.
+# See ../scripts/chaos-templates/README.md for why this test uses "kbit" (not
+# "kbps") and target: { kind: service } (not a pod selector) — both gotchas
+# cost real debugging time and are easy to get wrong when tuning further.
 #
 # Design:
 #   - CN→BN1 is capped at 200kbit/s — BN1 receives blocks at ~50% of the data
@@ -33,6 +23,13 @@
 #   This corresponds to roughly the DR-split scenario: 13 of 39 CNs reaching
 #   BN1, with the remaining 26 CN streams effectively blocked — matching the
 #   13-CN-per-BN DR target from the production traffic profile.
+#
+# Kept at 200kbit/s (not yet run to conclusion) pending investigation into
+# the CN↔BN reconnect deadlock found at bandwidth-lag's 100kbit/s tier — see
+# agent/proposals/solo-chaos-spike/findings/005-cn-bn-reconnect-deadlock-after-bandwidth-starvation.md
+# (local, not committed). If this tier shows the same permanent-stall
+# behavior, blocks-converged/blocks-increasing/block-rate-floor will fail
+# indefinitely rather than just needing more time.
 #
 # Assertions:
 #   blocks-diverged  min_spread=15  — conservative; expect 30+ blocks at 200kbit/s
