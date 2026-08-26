@@ -48,8 +48,18 @@ bn_last_block() {
 
 mn_last_block() {
     local port="$1"
-    curl -s --max-time 10 "http://127.0.0.1:${port}/api/v1/blocks?limit=1&order=desc" 2>/tmp/wrb-dist-cutover.err \
-        | jq -r '.blocks[0].number // empty' 2>/dev/null || true
+    local body
+    body=$(curl -s --max-time 10 "http://127.0.0.1:${port}/api/v1/blocks?limit=1&order=desc" 2>/tmp/wrb-dist-cutover.err) || return 0
+    # Distinguish "server reachable but no blocks yet" (return "0") from
+    # "server not reachable" (return "").  The /api/v1/blocks response is
+    # always a JSON object with a blocks array; an absent or null .blocks[0]
+    # means the importer has not yet ingested block 0, not that the pod is
+    # down.  Treating 0-block nodes as "missing" rather than "behind" prevents
+    # convergence from ever being declared when MN2 is still catching up.
+    if echo "${body}" | jq -e 'has("blocks")' >/dev/null 2>&1; then
+        echo "${body}" | jq -r '.blocks[0].number // "0"' 2>/dev/null || true
+    fi
+    # If jq can't parse the body at all the function returns empty (server error).
 }
 
 names=(block-node-1 block-node-2 block-node-3 mirror-1 mirror-2)

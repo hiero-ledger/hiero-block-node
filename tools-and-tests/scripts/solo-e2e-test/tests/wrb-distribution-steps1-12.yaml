@@ -92,7 +92,10 @@ events:
     type: command
     description: "Fork the live-wrap background worker (polling MinIO + re-wrapping)"
     delay: 200
-    timeout: 60
+    # Generous timeout: start-live-wrap.sh polls for the install ENV_FILE, which
+    # install-and-run-wrb-cli.sh (timeout=1200) writes at the very end. 1300s
+    # gives it the full install window plus overhead for the actual worker fork.
+    timeout: 1300
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/start-live-wrap.sh"
 
@@ -150,7 +153,7 @@ events:
 
   - id: add-mn2
     type: command
-    description: "Step 7: install MN2 v0.157.1 pointing at BN2/BN3 with startBlockNumber=0"
+    description: "Step 7: install MN2 pointing at BN2/BN3 with startBlockNumber=1 (WRB blocks start at 1)"
     delay: 340
     timeout: 600
     args:
@@ -202,7 +205,8 @@ events:
     type: command
     description: "Step 9b: fork the live-push background worker (blocks push, wrappedBlocks -> BN1)"
     delay: 440
-    timeout: 60
+    # Generous: polls for ENV_FILE just like start-live-wrap (see that step's comment).
+    timeout: 1300
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/start-live-push.sh"
 
@@ -233,32 +237,23 @@ events:
       # empty-store bootstrap deadlock applies to BN3.
       script: "BACKFILL_GREEDY=true ${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-backfill.sh 3"
 
-  - id: reconfigure-bn2-roster-bootstrap-rsa
+  - id: reconfigure-bn1-roster-bootstrap-rsa
     type: command
-    description: "Step 10: point BN2 at the Mirror Node for its RSA roster"
-    delay: 472
+    description: "Step 10: point BN1 at the Mirror Node for its RSA roster so live-push accepts pre-upgrade blocks"
+    delay: 478
     timeout: 300
     args:
-      # Blocks 0..N predate the CN's v0.76 TSS upgrade (step 11), so they're RSA-signed --
-      # TssData (from reconfigure-bn-roster-bootstrap-tss.sh, step 11) can never verify
-      # them. Verifying an RSA-signed block needs an "address book era" covering its block
-      # number (RSAProofVerifier), which BN2 only gets from rsa-address-book-history.json,
-      # populated by the roster-bootstrap-rsa plugin. Without this, BackfillPlugin's
-      # live-tail fetch of these blocks from BN1 succeeds at the network level but every
-      # block fails verification with MISSING_VERIFICATION_DATA, forever -- BN1 has the
-      # same empty roster.bootstrap.rsa.* config, so peer-BN query has nothing to serve
-      # either, leaving the Mirror Node as the only viable roster source in this topology.
-      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-roster-bootstrap-rsa.sh 2"
-
-  - id: reconfigure-bn3-roster-bootstrap-rsa
-    type: command
-    description: "Step 10: point BN3 at the Mirror Node for its RSA roster"
-    delay: 476
-    timeout: 300
-    args:
-      # See the RSA roster note on reconfigure-bn2-roster-bootstrap-rsa above -- same
-      # pre-upgrade RSA-signed-block verification gap applies to BN3.
-      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-roster-bootstrap-rsa.sh 3"
+      # BN1 starts with no RSA roster configured (empty roster.bootstrap.rsa.* defaults),
+      # which means RSAProofVerifier returns MISSING_VERIFICATION_DATA for every live-pushed
+      # pre-upgrade block — causing the live-push loop to stall permanently on block ~53 and
+      # never reach the post-upgrade TSS-signed blocks that BN1 CAN accept once TssData is
+      # staged onto it. Giving BN1 a Mirror-Node-sourced RSA roster lets RSA verification
+      # pass for wrapped pre-upgrade blocks (53-66), so live-push can advance BN1's
+      # historical tier all the way to the TSS boundary before TssData lands.
+      # NOTE: BN2/BN3 do NOT use the Mirror Node roster; their RSA keys are seeded
+      # directly from CN pods via seed-bn-rsa-address-book.sh (the Mirror Node returns
+      # Helm-value keys that don't match the actual CN signing keys).
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-roster-bootstrap-rsa.sh 1"
 
   - id: assert-bn-backfill-source
     type: command
@@ -301,21 +296,18 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-bn-roster-bootstrap-tss-source.sh 2 1 && ${SCRIPT_DIR}/wrb-distribution/assert-bn-roster-bootstrap-tss-source.sh 3 1"
 
-  # reconfigure-bn-backfill.sh, reconfigure-bn-roster-bootstrap-rsa.sh, and
-  # reconfigure-bn-roster-bootstrap-tss.sh each either patch BN2's/BN3's
-  # StatefulSet pod template (adding a sources-file volume/mount) or explicitly
-  # restart it (RSA roster's mirrorNodeBaseUrl is a plain ConfigMap value with
-  # no volume to add, so that script triggers its own rollout restart
-  # directly) — three rollouts each, back to back. A `kubectl port-forward
-  # svc/<name>` targets a specific backing pod at connection time, so
-  # add-bn.sh's BN2/BN3 forwards (established long before these rollouts)
-  # silently die once their pods are replaced. Steps 11-12 are the first
-  # things in this suite to grpcurl BN2/BN3 through those ports (all earlier
-  # post-backfill checks used kubectl exec, which doesn't care), so refresh
-  # every port-forward here before relying on any of them.
+  # reconfigure-bn-backfill.sh and reconfigure-bn-roster-bootstrap-tss.sh each
+  # patch BN2's/BN3's StatefulSet pod template (adding a sources-file
+  # volume/mount), triggering two rollouts each, back to back. A
+  # `kubectl port-forward svc/<name>` targets a specific backing pod at
+  # connection time, so add-bn.sh's BN2/BN3 forwards (established long before
+  # these rollouts) silently die once their pods are replaced. Steps 11-12 are
+  # the first things in this suite to grpcurl BN2/BN3 through those ports (all
+  # earlier post-backfill checks used kubectl exec, which doesn't care), so
+  # refresh every port-forward here before relying on any of them.
   - id: refresh-port-forwards-after-backfill-rollout
     type: port-forward
-    description: "Re-forward all BN/MN ports after BN2/BN3's backfill + RSA/TSS roster-bootstrap rollouts"
+    description: "Re-forward all BN/MN ports after BN2/BN3's backfill + TSS roster-bootstrap rollouts"
     delay: 500
 
   # Pre-cutover observation window — prove the wrb-cli live-wrap/live-push
@@ -329,6 +321,60 @@ events:
     delay: 505
     args:
       seconds: 180
+
+  # BN2/BN3 RSA verification fix: extract correct signing keys from CN pods,
+  # write them to BN2/BN3's persistent application-state volume, and restart.
+  #
+  # Root cause (two-part):
+  # 1. Block 17 is the first block where HAPI version >= 0.72.0, switching
+  #    HapiVersionSessionFactory from DummyVerificationSession (always passes)
+  #    to ExtendedMerkleTreeSession (real RSA signature verification). Without
+  #    a pre-seeded rsa-bootstrap-roster.json, addressBookIndex is empty at
+  #    startup and every block 17+ fails with MISSING_VERIFICATION_DATA.
+  # 2. Even when the Mirror Node REST API is used as a roster source
+  #    (reconfigure-bn-roster-bootstrap-rsa.sh), the API returns RSA keys from
+  #    Helm chart values that DO NOT match the actual signing keys written by
+  #    the CN nodes into their record files. Wrong keys → validCount=0 in
+  #    ExtendedMerkleTreeSession.verifyRsaProof → BAD_BLOCK_PROOF for every
+  #    block. BN2/BN3 stay permanently stuck at block 16.
+  #
+  # Fix: extract the actual s-public-*.pem signing keys directly from CN pods,
+  # write them as a legacy NodeAddressBook JSON to each BN's PVC.
+  # BlockNodeApp.loadApplicationState() falls back to the NodeAddressBook parser
+  # (the "addressBooks" field is absent) and wraps the book in a synthetic era
+  # spanning startBlock=0, endBlock=-1, so getAddressBookForBlock(N) returns a
+  # non-null era for every N including block 17 and beyond.
+  - id: seed-bn2-bn3-rsa-address-book
+    type: command
+    description: "Seed correct RSA signing keys onto BN2/BN3's PVC and restart so BackfillPlugin can verify all pre-TSS blocks"
+    delay: 640
+    timeout: 720
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/seed-bn-rsa-address-book.sh 2 3"
+
+  - id: refresh-port-forwards-after-seed-restart
+    type: port-forward
+    description: "Re-forward BN2/BN3 ports after the RSA seed restart"
+    delay: 670
+
+  # Diagnostic: capture the exact failure reason from BN2's (and BN3's) logs for block 17
+  # (the first block where ExtendedMerkleTreeSession / RSA verification applies).
+  # The WARNING message tells us which failure path was hit:
+  #   "No address book era covers block 17"    → rsaKeyByNodeId is empty (seed file not loaded)
+  #   "has no record-file signatures"          → wrapped blocks have empty signature list
+  #                                               (wrap-time address book extraction failed →
+  #                                               WRB used mainnet genesis keys → Solo sigs
+  #                                               rejected at wrap time → empty proof)
+  #   "RSA signature from node 0 failed"       → key loaded but crypto mismatch (wrong key)
+  #   "RSA WRB proof rejected for block 17: 0" → nodeId in sig not in rsaKeyByNodeId
+  # This event never fails the test; it is purely informational.
+  - id: diagnose-bn2-bn3-rsa-verification
+    type: command
+    description: "Diagnostic: show BN2/BN3 ExtendedMerkleTreeSession WARNING messages and seeded address book (never fails)"
+    delay: 672
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/diagnose-bn-rsa-verification.sh 2 3"
 
   - id: assert-live-wrap-produced-new-blocks
     type: command
@@ -346,21 +392,23 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-live-push-produced-new-blocks.sh"
 
-  - id: stop-live-push
-    type: command
-    description: "Tear down the live-push background worker"
-    delay: 695
-    timeout: 60
-    args:
-      script: "${SCRIPT_DIR}/wrb-distribution/stop-live-push.sh"
-
-  - id: stop-live-wrap
-    type: command
-    description: "Tear down the live-wrap background worker"
-    delay: 700
-    timeout: 60
-    args:
-      script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
+  # stop-live-wrap and stop-live-push both moved to just before
+  # assert-cutover-sync (see there for why): every BN restart from here
+  # through step 12 (RSA/TSS roster reconfigures, cn-upgrade-tss,
+  # stage-tss-data-on-bn1) wipes any block only held in the live/un-archived
+  # tier back down to whatever was durably bulk-loaded, and with both loops
+  # already dead there was nothing left to notice and re-feed the gap --
+  # exactly what left BN1/BN2/BN3 stuck at block 99 while MN1 (fed from the
+  # same blocks, but via its own durable DB) sat at 429. Keeping only push
+  # alive (an earlier fix) wasn't enough on its own: push can only re-send
+  # what wrap has already produced, and wrap stopping here permanently
+  # capped BN1/BN2/BN3's ceiling below MN1's own pre-existing block count,
+  # so convergence was structurally impossible regardless of how long push
+  # kept retrying. wrap tolerates TSS-signed post-upgrade records fine --
+  # detect-tss-enablement.sh's own run wraps thousands of them successfully,
+  # it just can't verify their (non-RSA) signatures, which is already
+  # documented elsewhere as cosmetic -- so there's no crash risk in leaving
+  # it running through cn-upgrade-tss like this.
 
   # Step 11 — TSS cutover. Canonical flow (per issue #3125 step 11 and the
   # node-operator runbook), implemented across four scripts:
@@ -490,13 +538,40 @@ events:
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stop-cn-record-production.sh"
 
+  # stop-cn-record-production restarts all 3 CN pods via solo consensus node stop/start —
+  # the same class of k8s churn that killed BN2/BN3 port-forwards after cn-upgrade-tss
+  # (see refresh-port-forwards-after-cn-upgrade above). Without this, assert-cutover-sync
+  # below would see "connection refused" for BN2/BN3 and MN2 for the entire 300s poll
+  # window, making convergence structurally impossible even when all nodes have the
+  # correct blocks.
+  - id: refresh-port-forwards-after-stop-cn-record-production
+    type: port-forward
+    description: "Re-forward all BN/MN ports after stop-cn-record-production's CN restart"
+    delay: 3800
+
   - id: assert-cutover-sync
     type: command
     description: "Step 12: assert BN1/BN2/BN3 and MN1/MN2 converge on the same last-available block"
     delay: 4010
-    timeout: 350
+    timeout: 650
     args:
-      script: "POLL_TIMEOUT=300 ${SCRIPT_DIR}/wrb-distribution/assert-cutover-sync.sh"
+      script: "POLL_TIMEOUT=600 ${SCRIPT_DIR}/wrb-distribution/assert-cutover-sync.sh"
+
+  - id: stop-live-wrap
+    type: command
+    description: "Tear down the live-wrap background worker (kept running through step 12's convergence check -- see the comment right after assert-live-push-produced-new-blocks, above the Step 11 section, for why)"
+    delay: 4012
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
+
+  - id: stop-live-push
+    type: command
+    description: "Tear down the live-push background worker (kept running through step 12's convergence check -- same reason as stop-live-wrap above)"
+    delay: 4015
+    timeout: 60
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/stop-live-push.sh"
 
   - id: final-status
     type: network-status

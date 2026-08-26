@@ -42,10 +42,22 @@
 set -euo pipefail
 
 ENV_FILE="${ENV_FILE:-/tmp/wrb-distribution-step12.env}"
-if [[ -f "${ENV_FILE}" ]]; then
-    # shellcheck disable=SC1090
-    source "${ENV_FILE}"
-fi
+
+# start-live-push fires while install-and-run-wrb-cli.sh may still be running.
+# Poll for ENV_FILE rather than failing immediately.
+PREREQ_WAIT_TIMEOUT="${PREREQ_WAIT_TIMEOUT:-900}"
+prereq_waited=0
+until [[ -f "${ENV_FILE}" ]]; do
+    if (( prereq_waited >= PREREQ_WAIT_TIMEOUT )); then
+        echo "[wrb-dist-push-start] ERROR: timed out after ${PREREQ_WAIT_TIMEOUT}s waiting for ${ENV_FILE}" >&2
+        exit 1
+    fi
+    echo "[wrb-dist-push-start] waiting for install-and-run-wrb-cli.sh to finish (${prereq_waited}s elapsed)..."
+    sleep 10
+    prereq_waited=$(( prereq_waited + 10 ))
+done
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
 
 : "${NAMESPACE:=solo-network}"
 # This worker runs as a plain process on the test runner host, not inside the
@@ -60,7 +72,9 @@ BN1_GRPC_PORT="${BN1_GRPC_PORT:-$((40839 + 1))}"
 : "${CLI_LIB:?CLI_LIB must be set (written by install-and-run-wrb-cli.sh)}"
 
 LIVE_PUSH_POLL_SECONDS="${LIVE_PUSH_POLL_SECONDS:-30}"
-LIVE_PUSH_MAX_CONSECUTIVE_FAILURES="${LIVE_PUSH_MAX_CONSECUTIVE_FAILURES:-5}"
+# High tolerance so transient BN port-forward outages (during the many pod
+# restarts between start-live-push and stop-live-push) don't kill the worker.
+LIVE_PUSH_MAX_CONSECUTIVE_FAILURES="${LIVE_PUSH_MAX_CONSECUTIVE_FAILURES:-50}"
 
 PID_FILE="/tmp/wrb-dist-push.pid"
 LOG_FILE="/tmp/wrb-dist-push.log"
