@@ -8,48 +8,18 @@
 #
 # Design:
 #   - CN→BN1 is capped at 100kbit/s, shaped on the CN sender's own egress
-#     (selector=network-node, direction=to), targeting BN1's k8s Service
-#     rather than its pod IP — see "Target addressing" below.
+#     (direction=to), targeting BN1's k8s Service (target: { kind: service,
+#     name: block-node-1 }) rather than its pod IP.
 #   - All BN peers→BN1 are also capped at 100kbit/s the same way, so greedy
 #     backfill cannot instantly neutralise the ingest cap during chaos.
 #   - BN2 and BN3 receive no throttle — they serve as the reference nodes that
 #     advance at full speed, making the spread measurable.
 #
-# Target addressing: target: { kind: service, name: block-node-1 }, not a
-# pod-selector target. Two failed approaches got us here, both confirmed via
-# tc qdisc dump in CI (0 bytes in the throttled band the entire chaos window,
-# regardless of rate):
-#   1. selector=sender/direction=to with a pod-selector target (BN1's pod
-#      IP): CN/BN-peers reach BN1 via its k8s Service
-#      (block-node-1.<ns>.svc.cluster.local → ClusterIP), not its pod IP
-#      directly. chaos-mesh's tc/ipset rule is installed inside the
-#      *selector* pod's own netns and matches on pod IPs — the packet is
-#      still addressed to the ClusterIP at that point (kube-proxy's DNAT to
-#      the pod IP happens later, on the host side, not inside the sender's
-#      netns), so a pod-IP ipset never matches.
-#   2. selector=BN1/direction=from (shape BN1's own "ingress"): tc's
-#      bandwidth action is always egress-only on the *selector* pod's own
-#      interface — direction only changes which IP field (src vs dst) the
-#      filter matches, not whether shaping is ingress or egress. Filtering
-#      BN1's own egress packets for source=CN is a structurally impossible
-#      match (BN1's outbound packets are always sourced from BN1 itself), so
-#      this also produced 0 bytes.
-#   The fix: keep selector=sender/direction=to (the only combination that
-#   installs a real egress qdisc on the traffic's actual source), but target
-#   BN1's Service ClusterIP directly via chaos-mesh's externalTargets field
-#   (resolved at runtime — see execute_inject_bandwidth's target.kind=service
-#   handling in solo-test-runner.sh) instead of a pod selector. This matches
-#   the packet's real destination address at the point tc/ipset filters it,
-#   before DNAT ever rewrites it to the pod IP.
-#
-# Rate units — chaos-mesh's bandwidth "rate" field uses "kbit" for kilobits/s
-# and "kbps" for kilobytes/s (8x kbit). Earlier revisions of this test used
-# "kbps" values (500, then 100) intending kilobits/s, per networking
-# convention — chaos-mesh instead applied them as kilobytes/s, so the actual
-# cap was always 8x looser than intended (confirmed via tc qdisc dump in CI:
-# "100kbps" produced `rate 800Kbit`). That silently masked every previous
-# tuning attempt with 0 block spread regardless of the configured number.
-# Use the "kbit" suffix explicitly to avoid recreating this mistake.
+# See ../scripts/chaos-templates/README.md for why the bandwidth action needs
+# `target: { kind: service }` (Service-ClusterIP vs. pod-IP addressing),
+# egress-only tc semantics, and the "kbit" vs "kbps" unit distinction — all
+# three cost real debugging time and are easy to get wrong when tuning this
+# test further.
 #
 # Rate rationale (100kbit/s):
 #   In the paired-3 topology each CN streams to its paired BN, so BN1 receives
@@ -59,6 +29,12 @@
 #   lower further; if blocks are larger the spread will be much higher — raise
 #   min_spread accordingly. Tune based on observed block sizes from test run
 #   metrics.
+#
+# Known issue: at this rate, CN's reconnect to BN1 can permanently deadlock
+# after chaos clears (blocks-converged/blocks-increasing/block-rate-floor fail
+# indefinitely, not just slowly) — see
+# agent/proposals/solo-chaos-spike/findings/005-cn-bn-reconnect-deadlock-after-bandwidth-starvation.md
+# (local, not committed) before tightening this further.
 #
 # Assertions:
 #   blocks-diverged  min_spread=5   — conservative; real runs with 100 KB blocks
