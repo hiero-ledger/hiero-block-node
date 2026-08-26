@@ -41,10 +41,23 @@ PYTHON_DIR="${SCRIPT_DIR}/../python"
 # install-and-run-wrb-cli.sh. Each command event runs in its own subshell so
 # we can't rely on an in-memory export from a previous event.
 ENV_FILE="${ENV_FILE:-/tmp/wrb-distribution-step12.env}"
-if [[ -f "${ENV_FILE}" ]]; then
-    # shellcheck disable=SC1090
-    source "${ENV_FILE}"
-fi
+
+# start-live-wrap is fired 5 seconds after install-and-run-wrb-cli.sh begins, but
+# install needs several minutes to build the CLI, download records, and write
+# ENV_FILE. Poll here rather than failing immediately so the timing gap is safe.
+PREREQ_WAIT_TIMEOUT="${PREREQ_WAIT_TIMEOUT:-900}"
+prereq_waited=0
+until [[ -f "${ENV_FILE}" ]]; do
+    if (( prereq_waited >= PREREQ_WAIT_TIMEOUT )); then
+        echo "[wrb-dist-live-start] ERROR: timed out after ${PREREQ_WAIT_TIMEOUT}s waiting for ${ENV_FILE} (install-and-run-wrb-cli.sh may have failed)" >&2
+        exit 1
+    fi
+    echo "[wrb-dist-live-start] waiting for install-and-run-wrb-cli.sh to finish (${prereq_waited}s elapsed)..."
+    sleep 10
+    prereq_waited=$(( prereq_waited + 10 ))
+done
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
 
 : "${NAMESPACE:=solo-network}"
 : "${CONTEXT:=kind-solo-cluster}"
@@ -54,7 +67,11 @@ export NAMESPACE CONTEXT
 : "${CLI_LIB:?CLI_LIB must be set (write by install-and-run-wrb-cli.sh)}"
 
 LIVE_WRAP_POLL_SECONDS="${LIVE_WRAP_POLL_SECONDS:-30}"
-LIVE_WRAP_MAX_CONSECUTIVE_FAILURES="${LIVE_WRAP_MAX_CONSECUTIVE_FAILURES:-5}"
+# A high failure tolerance prevents the worker from exiting due to transient
+# MinIO download outages or k8s churn during the many BN/CN restarts that
+# happen between start-live-wrap and stop-live-wrap. The stop script explicitly
+# kills the worker; the worker should never exit on its own.
+LIVE_WRAP_MAX_CONSECUTIVE_FAILURES="${LIVE_WRAP_MAX_CONSECUTIVE_FAILURES:-50}"
 LIVE_WRAP_MAX_RECORDS_PER_POLL="${LIVE_WRAP_MAX_RECORDS_PER_POLL:-200}"
 
 PID_FILE="/tmp/wrb-dist-live.pid"
