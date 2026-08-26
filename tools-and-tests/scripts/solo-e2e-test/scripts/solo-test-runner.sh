@@ -762,11 +762,11 @@ function dump_bandwidth_chaos_diagnostics {
     for pod in ${pods}; do
         echo "--- DIAG tc qdisc on ${pod} (selector: ${selector}, target: ${target_container}) ---"
         kctl debug "${pod}" -n "${NAMESPACE}" --image=nicolaka/netshoot \
-            --target="${target_container}" -i --quiet -- tc -s qdisc show 2>&1 \
+            --target="${target_container}" -i --quiet -- tc -s qdisc show < /dev/null 2>&1 \
             || echo "DIAG: tc debug failed on ${pod}"
         echo "--- DIAG ipset on ${pod} ---"
         kctl debug "${pod}" -n "${NAMESPACE}" --image=nicolaka/netshoot \
-            --target="${target_container}" --profile=netadmin -i --quiet -- ipset list 2>&1 \
+            --target="${target_container}" --profile=netadmin -i --quiet -- ipset list < /dev/null 2>&1 \
             || echo "DIAG: ipset debug failed on ${pod}"
     done
 }
