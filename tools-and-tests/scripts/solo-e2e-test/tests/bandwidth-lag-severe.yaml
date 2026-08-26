@@ -11,11 +11,14 @@
 # evidence (tc qdisc dump) that a "kbps" value here would be applied at 8x
 # the intended cap. Use "kbit" explicitly.
 #
-# Direction: selector=BN1 / direction=from, not selector=sender / direction=to.
-# See bandwidth-lag.yaml for the full explanation and CI evidence (0 bytes in
-# the throttled tc band all test long) — CN/BN-peers reach BN1 via its k8s
-# Service, so a rule on the sender's egress filtered by dst=BN1's pod IP never
-# matches; installing it on BN1's own ingress, filtered by source IP, does.
+# Target addressing: target: { kind: service, name: block-node-1 }, not a
+# pod-selector target. See bandwidth-lag.yaml for the full explanation and CI
+# evidence (0 bytes in the throttled tc band all test long, across both a
+# pod-selector target and a selector=BN1/direction=from ingress attempt) —
+# CN/BN-peers reach BN1 via its k8s Service, and tc's bandwidth action is
+# egress-only, so the shaping must stay on the sender's egress while the
+# *target* address must be BN1's Service ClusterIP (resolved at runtime via
+# chaos-mesh's externalTargets), not its pod IP.
 #
 # Design:
 #   - CN→BN1 is capped at 200kbit/s — BN1 receives blocks at ~50% of the data
@@ -61,29 +64,29 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN1's ingress from CN to 200kbit/s (selector=block-node-1, direction=from) — BN1 ingest drops to ~50% of block production rate"
+    description: "Cap CN's egress to BN1's Service at 200kbit/s (direction=to, target=service/block-node-1) — BN1 ingest drops to ~50% of block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw-severe
-      source: { kind: block-node, name: block-node-1 }
-      target: { kind: network-node }
+      source: { kind: network-node }
+      target: { kind: service, name: block-node-1 }
       rate: "200kbit"
       limit: 250000
       buffer: 10000
-      direction: from
+      direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN1's ingress from BN peers to 200kbit/s (selector=block-node-1, direction=from) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 200kbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-severe
-      source: { kind: block-node, name: block-node-1 }
-      target: { kind: block-node }
+      source: { kind: block-node }
+      target: { kind: service, name: block-node-1 }
       rate: "200kbit"
       limit: 250000
       buffer: 10000
-      direction: from
+      direction: to
 
   - id: snapshot-peak-chaos
     type: snapshot-block-heights

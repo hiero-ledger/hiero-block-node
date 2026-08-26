@@ -1,7 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # NetworkChaos template — bandwidth throttle injection.
-# Uses tc tbf (token bucket filter) to cap throughput between source and target pods.
+# Uses tc tbf (token bucket filter) to cap throughput leaving the selector
+# pods. TARGET_BLOCK is either a pod-selector `target:` block, or an
+# `externalTargets:` IP list when the packet's real destination (as seen at
+# the point tc/ipset filters it, inside the selector's own netns) is a k8s
+# Service ClusterIP rather than a pod IP — see execute_inject_bandwidth in
+# solo-test-runner.sh for why that distinction matters.
 # Filled at apply time by solo-test-runner.sh via envsubst.
 #
 # Pod-label selectors:
@@ -26,14 +31,7 @@ spec:
     labelSelectors:
       ${SOURCE_LABEL_KEY}: ${SOURCE_LABEL_VALUE}
 ${SOURCE_NAME_FILTER}
-  target:
-    mode: all
-    selector:
-      namespaces:
-        - ${TARGET_NAMESPACE}
-      labelSelectors:
-        ${TARGET_LABEL_KEY}: ${TARGET_LABEL_VALUE}
-${TARGET_NAME_FILTER}
+${TARGET_BLOCK}
   bandwidth:
     rate: '${BANDWIDTH_RATE}'
     limit: ${BANDWIDTH_LIMIT}
