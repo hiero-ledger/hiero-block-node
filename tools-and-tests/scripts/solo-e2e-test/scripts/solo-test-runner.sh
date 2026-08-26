@@ -766,7 +766,7 @@ function dump_bandwidth_chaos_diagnostics {
             || echo "DIAG: tc debug failed on ${pod}"
         echo "--- DIAG ipset on ${pod} ---"
         kctl debug "${pod}" -n "${NAMESPACE}" --image=nicolaka/netshoot \
-            --target="${target_container}" -i --quiet -- ipset list 2>&1 \
+            --target="${target_container}" --profile=netadmin -i --quiet -- ipset list 2>&1 \
             || echo "DIAG: ipset debug failed on ${pod}"
     done
 }
