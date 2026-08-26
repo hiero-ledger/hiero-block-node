@@ -805,30 +805,60 @@ function execute_inject_bandwidth {
         return 1
     fi
 
-    local source_selector target_selector
+    local source_selector
     source_selector=$(chaos_label_selector "$source_kind") || return 1
-    target_selector=$(chaos_label_selector "$target_kind") || return 1
     local source_key="${source_selector%%=*}" source_val="${source_selector#*=}"
-    local target_key="${target_selector%%=*}" target_val="${target_selector#*=}"
-    local source_name_filter="" target_name_filter=""
+    local source_name_filter=""
     local source_dryrun_selector="${source_selector}"
-    local target_dryrun_selector="${target_selector}"
     if [[ -n "${source_name}" && "${source_name}" != "null" ]]; then
         source_dryrun_selector="${source_selector},app.kubernetes.io/instance=${source_name}"
         source_name_filter="      app.kubernetes.io/instance: ${source_name}"
-    fi
-    if [[ -n "${target_name}" && "${target_name}" != "null" ]]; then
-        target_dryrun_selector="${target_selector},app.kubernetes.io/instance=${target_name}"
-        target_name_filter="        app.kubernetes.io/instance: ${target_name}"
     fi
 
     if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
             --selector "${source_dryrun_selector}" --label "source(${source_kind})"; then
         return 1
     fi
-    if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
-            --selector "${target_dryrun_selector}" --label "target(${target_kind})"; then
-        return 1
+
+    # "service" targets resolve to the Service's own ClusterIP and are passed
+    # as chaos-mesh's externalTargets (works only with direction=to), rather
+    # than a pod selector. This exists because the sender's tc/ipset rule is
+    # installed inside its own netns and matches on pod IPs — a packet
+    # addressed to a k8s Service is still addressed to the ClusterIP at that
+    # point (kube-proxy's DNAT to the pod IP happens later, on the host side),
+    # so a pod-IP-based target ipset never matches Service-routed traffic.
+    # Confirmed in CI via tc qdisc dump: 0 bytes in the throttled band all
+    # test long, regardless of rate, direction, or pod-selector correctness.
+    local target_block target_desc
+    if [[ "${target_kind}" == "service" ]]; then
+        [[ -z "${target_name}" || "${target_name}" == "null" ]] && \
+            { echo "ERROR: inject-bandwidth target.kind=service requires args.target.name"; return 1; }
+        local target_cluster_ip
+        target_cluster_ip=$(kctl get svc "${target_name}" -n "${NAMESPACE}" -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+        if [[ -z "${target_cluster_ip}" || "${target_cluster_ip}" == "None" ]]; then
+            echo "ERROR: could not resolve ClusterIP for service '${target_name}' in ns=${NAMESPACE}"
+            return 1
+        fi
+        echo "target(service): resolved '${target_name}' -> externalTargets: ${target_cluster_ip}"
+        target_block=$(printf '  externalTargets:\n    - %s' "${target_cluster_ip}")
+        target_desc="service/${target_name} (externalTargets: ${target_cluster_ip})"
+    else
+        local target_selector
+        target_selector=$(chaos_label_selector "$target_kind") || return 1
+        local target_key="${target_selector%%=*}" target_val="${target_selector#*=}"
+        local target_name_filter=""
+        local target_dryrun_selector="${target_selector}"
+        if [[ -n "${target_name}" && "${target_name}" != "null" ]]; then
+            target_dryrun_selector="${target_selector},app.kubernetes.io/instance=${target_name}"
+            target_name_filter="        app.kubernetes.io/instance: ${target_name}"
+        fi
+        if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
+                --selector "${target_dryrun_selector}" --label "target(${target_kind})"; then
+            return 1
+        fi
+        target_block=$(printf '  target:\n    mode: all\n    selector:\n      namespaces:\n        - %s\n      labelSelectors:\n        %s: %s\n%s' \
+            "${NAMESPACE}" "${target_key}" "${target_val}" "${target_name_filter}")
+        target_desc="${target_key}=${target_val}${target_name:+,instance=${target_name}}"
     fi
 
     local chaos_name direction
@@ -851,9 +881,7 @@ function execute_inject_bandwidth {
     export SOURCE_LABEL_KEY="${source_key}"
     export SOURCE_LABEL_VALUE="${source_val}"
     export SOURCE_NAME_FILTER="${source_name_filter}"
-    export TARGET_LABEL_KEY="${target_key}"
-    export TARGET_LABEL_VALUE="${target_val}"
-    export TARGET_NAME_FILTER="${target_name_filter}"
+    export TARGET_BLOCK="${target_block}"
     export BANDWIDTH_RATE="${rate}"
     export BANDWIDTH_LIMIT="${limit}"
     export BANDWIDTH_BUFFER="${buffer}"
@@ -861,7 +889,7 @@ function execute_inject_bandwidth {
     envsubst < "${CHAOS_TEMPLATE_DIR}/network-bandwidth.yaml.tmpl" > "${manifest}"
 
     echo "Applying NetworkChaos '${chaos_name}'"
-    echo "  selector: ${source_key}=${source_val}${source_name:+,instance=${source_name}}  ->  target: ${target_key}=${target_val}${target_name:+,instance=${target_name}}"
+    echo "  selector: ${source_key}=${source_val}${source_name:+,instance=${source_name}}  ->  target: ${target_desc}"
     echo "  bandwidth: ${rate} (limit: ${limit}, buffer: ${buffer}, direction: ${direction})"
 
     if ! kctl apply -f "${manifest}"; then

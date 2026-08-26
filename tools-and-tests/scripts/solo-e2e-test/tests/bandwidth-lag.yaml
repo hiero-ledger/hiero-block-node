@@ -7,27 +7,40 @@
 # so lag grows monotonically until chaos clears.
 #
 # Design:
-#   - CN→BN1 is capped at 100kbit/s, applied as ingress shaping on BN1 itself
-#     (selector=block-node-1, target=network-node, direction=from).
+#   - CN→BN1 is capped at 100kbit/s, shaped on the CN sender's own egress
+#     (selector=network-node, direction=to), targeting BN1's k8s Service
+#     rather than its pod IP — see "Target addressing" below.
 #   - All BN peers→BN1 are also capped at 100kbit/s the same way, so greedy
 #     backfill cannot instantly neutralise the ingest cap during chaos.
 #   - BN2 and BN3 receive no throttle — they serve as the reference nodes that
 #     advance at full speed, making the spread measurable.
 #
-# Direction: selector=BN1 / direction=from, not the more intuitive
-# selector=sender / direction=to. CN and BN-peers reach BN1 via its k8s
-# Service (block-node-1.<ns>.svc.cluster.local → ClusterIP), not its pod IP
-# directly. chaos-mesh's tc/ipset rule is installed inside the *selector*
-# pod's own netns and matches on pod IPs — a rule on the sender's egress,
-# filtered by dst=BN1's pod IP, never matches because the packet is still
-# addressed to the ClusterIP at that point (DNAT to the pod IP happens later,
-# on the host side). Confirmed in CI: with selector=sender/direction=to, the
-# throttled tc band showed 0 bytes sent for the entire chaos window on every
-# pod, regardless of rate. Installing the rule on BN1's own ingress instead
-# (selector=BN1, direction=from) filters on *source* IP, which survives the
-# Service DNAT (only the destination gets rewritten), so it isn't affected by
-# which address the sender used to reach BN1. See chaos-mesh's own FAQ on
-# ipset vs. Service ClusterIP interaction.
+# Target addressing: target: { kind: service, name: block-node-1 }, not a
+# pod-selector target. Two failed approaches got us here, both confirmed via
+# tc qdisc dump in CI (0 bytes in the throttled band the entire chaos window,
+# regardless of rate):
+#   1. selector=sender/direction=to with a pod-selector target (BN1's pod
+#      IP): CN/BN-peers reach BN1 via its k8s Service
+#      (block-node-1.<ns>.svc.cluster.local → ClusterIP), not its pod IP
+#      directly. chaos-mesh's tc/ipset rule is installed inside the
+#      *selector* pod's own netns and matches on pod IPs — the packet is
+#      still addressed to the ClusterIP at that point (kube-proxy's DNAT to
+#      the pod IP happens later, on the host side, not inside the sender's
+#      netns), so a pod-IP ipset never matches.
+#   2. selector=BN1/direction=from (shape BN1's own "ingress"): tc's
+#      bandwidth action is always egress-only on the *selector* pod's own
+#      interface — direction only changes which IP field (src vs dst) the
+#      filter matches, not whether shaping is ingress or egress. Filtering
+#      BN1's own egress packets for source=CN is a structurally impossible
+#      match (BN1's outbound packets are always sourced from BN1 itself), so
+#      this also produced 0 bytes.
+#   The fix: keep selector=sender/direction=to (the only combination that
+#   installs a real egress qdisc on the traffic's actual source), but target
+#   BN1's Service ClusterIP directly via chaos-mesh's externalTargets field
+#   (resolved at runtime — see execute_inject_bandwidth's target.kind=service
+#   handling in solo-test-runner.sh) instead of a pod selector. This matches
+#   the packet's real destination address at the point tc/ipset filters it,
+#   before DNAT ever rewrites it to the pod IP.
 #
 # Rate units — chaos-mesh's bandwidth "rate" field uses "kbit" for kilobits/s
 # and "kbps" for kilobytes/s (8x kbit). Earlier revisions of this test used
@@ -77,29 +90,29 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN1's ingress from CN to 100kbit/s (selector=block-node-1, direction=from) — forces BN1 ingest below block production rate"
+    description: "Cap CN's egress to BN1's Service at 100kbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw
-      source: { kind: block-node, name: block-node-1 }
-      target: { kind: network-node }
+      source: { kind: network-node }
+      target: { kind: service, name: block-node-1 }
       rate: "100kbit"
       limit: 1000000
       buffer: 10000
-      direction: from
+      direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN1's ingress from BN peers to 100kbit/s (selector=block-node-1, direction=from) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 100kbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw
-      source: { kind: block-node, name: block-node-1 }
-      target: { kind: block-node }
+      source: { kind: block-node }
+      target: { kind: service, name: block-node-1 }
       rate: "100kbit"
       limit: 1000000
       buffer: 10000
-      direction: from
+      direction: to
 
   - id: snapshot-peak-chaos
     type: snapshot-block-heights
