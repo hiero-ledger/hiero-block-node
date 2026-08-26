@@ -215,7 +215,21 @@ public class AddressBookRegistry {
         // Use content equality check instead of reference equality to properly detect duplicates
         // NodeAddressBook has proper equals() implementation that compares content
         if (newAddressBook != null && !newAddressBook.equals(currentBook)) {
-            addressBooks.add(new DatedNodeAddressBook(toTimestamp(blockInstant), newAddressBook));
+            final Timestamp newTs = toTimestamp(blockInstant);
+            final DatedNodeAddressBook lastEntry = addressBooks.getLast();
+            if (lastEntry.blockTimestampOrThrow().equals(newTs)) {
+                // A caller (ToWrappedBlocksCommand's block-0 genesis discovery) may supply a
+                // timestamp identical to the entry it's meant to supersede -- e.g. the network's
+                // founding roster is dated at block 0's own timestamp so it applies to block 0
+                // itself, which coincides exactly with the initial bootstrap/placeholder entry's
+                // timestamp. Appending a second entry at that identical timestamp would leave two
+                // ties in the list, and getAddressBookForBlock()'s binary search does not
+                // guarantee which of two equal-timestamp entries it returns. Replace in place
+                // instead so each timestamp maps to exactly one entry.
+                addressBooks.set(addressBooks.size() - 1, new DatedNodeAddressBook(newTs, newAddressBook));
+            } else {
+                addressBooks.add(new DatedNodeAddressBook(newTs, newAddressBook));
+            }
             return "Address Book Changed, via " + changeSource + ":\n"
                     + addressBookChanges(currentBook, newAddressBook);
         }

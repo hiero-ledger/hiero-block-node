@@ -354,6 +354,24 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
 
             long effectiveHighest = blockRegistry.highestBlockNumberStored();
 
+            // Fast path: nothing new to wrap since the last successful run. Skip the mid-zip
+            // resume delete-and-rewrap below entirely, rather than discarding a perfectly good
+            // zip only to discover moments later (via an empty dayPaths list, further down) that
+            // there was nothing to replace it with. This matters most for a repeatedly-invoked
+            // live-wrap poll loop: without this check, every single poll unconditionally deletes
+            // and fully re-verifies/re-wraps the entire current zip range from scratch, even when
+            // the input hasn't advanced at all since the previous poll.
+            //
+            // Exits 0, not 1: this is a normal, expected steady state (caught up, nothing new
+            // this poll), not a failure -- callers like start-live-wrap.sh count consecutive
+            // non-zero exits and give up on the whole polling loop after enough of them, which a
+            // brief lull in new records should never trigger.
+            if (isNothingNewToWrap(effectiveHighest, blockTimeReader.getMaxBlockNumber())) {
+                System.out.println(Ansi.AUTO.string("@|yellow Nothing new to wrap (already at block " + effectiveHighest
+                        + ", block_times.bin has no blocks beyond it); skipping.|@"));
+                return 0;
+            }
+
             // Mid-zip resume detection: if the watermark is not the last block of its zip
             // range, the partial zip may contain entries written by ZipFileSystem with data
             // descriptors that ZipInputStream cannot read. Back up to the start of that zip
@@ -970,6 +988,20 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
     }
 
     /**
+     * Returns whether there is nothing new to wrap: the registry has already been fully wrapped
+     * up to the highest block number the current {@code block_times.bin} metadata knows about.
+     *
+     * @param effectiveHighest the highest block number already durably wrapped, or {@code -1} if
+     *                         nothing has been wrapped yet
+     * @param maxKnownBlockNumber the highest block number covered by the current run's
+     *                            {@code block_times.bin}
+     * @return {@code true} if wrapping should be skipped entirely this run
+     */
+    static boolean isNothingNewToWrap(long effectiveHighest, long maxKnownBlockNumber) {
+        return effectiveHighest >= 0 && effectiveHighest == maxKnownBlockNumber;
+    }
+
+    /**
      * Load the durable commit watermark from the given file.
      *
      * @param watermarkFile the path to the watermark file
@@ -1149,7 +1181,9 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
      *
      * <p>This is called on the main (Stage 2) thread for each block. Address book changes are
      * stored with a +1ns timestamp offset so they apply to blocks AFTER the current one (since
-     * the current block was signed with the old keys).
+     * the current block was signed with the old keys) -- except at block 0, whose own address
+     * book update IS the network's founding roster and therefore applies starting at block 0
+     * itself; see the comment at the {@code blockNum == 0} check below.
      *
      * @param preVerified the pre-verified block from Stage 1
      * @param blockNum the block number
@@ -1176,9 +1210,19 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                         AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
                 if (!addressBookTxns.isEmpty()) {
                     final Instant blockInstant = preVerified.recordBlock().blockTime();
-                    // +1ns so the new address book applies to blocks AFTER this one
-                    final String changes =
-                            addressBookRegistry.updateAddressBook(blockInstant.plusNanos(1), addressBookTxns);
+                    // Block 0 is the network's own genesis block: whatever roster it establishes
+                    // IS the founding roster, and genesis is signed using those same founding
+                    // keys, so it must take effect starting AT block 0, not one nanosecond after
+                    // -- otherwise genesis is permanently stuck verifying against whatever
+                    // placeholder/bootstrap book preceded it (e.g. a network's genesis resource
+                    // fallback that doesn't match this chain's actual keys) and the reverify
+                    // check below can never trigger for block 0, since no discovery is ever
+                    // dated early enough to look "stale" for it. Every later block's update is a
+                    // genuine on-chain roster change and must NOT retroactively apply to the
+                    // block that announced it (that block was legitimately signed under the OLD
+                    // roster) -- hence +1ns for blockNum > 0.
+                    final Instant effectiveInstant = blockNum == 0 ? blockInstant : blockInstant.plusNanos(1);
+                    final String changes = addressBookRegistry.updateAddressBook(effectiveInstant, addressBookTxns);
                     if (changes != null) {
                         PrettyPrint.clearProgress();
                         System.out.println(Ansi.AUTO.string(
