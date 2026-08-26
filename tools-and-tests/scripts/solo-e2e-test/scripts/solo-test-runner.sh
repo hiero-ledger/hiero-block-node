@@ -773,7 +773,7 @@ function dump_bandwidth_chaos_diagnostics {
 
 function execute_inject_bandwidth {
     local args="$1"
-    local name source_kind source_name target_kind target_name rate limit buffer bidirectional
+    local name source_kind source_name target_kind target_name rate limit buffer bidirectional direction_arg
     name=$(echo "$args" | yq '.name // ""')
     source_kind=$(echo "$args" | yq '.source.kind // ""')
     source_name=$(echo "$args" | yq '.source.name // ""')
@@ -783,6 +783,7 @@ function execute_inject_bandwidth {
     limit=$(echo "$args" | yq '.limit // 1000000')
     buffer=$(echo "$args" | yq '.buffer // 10000')
     bidirectional=$(echo "$args" | yq '.bidirectional // false')
+    direction_arg=$(echo "$args" | yq '.direction // ""')
 
     [[ -z "$name" || "$name" == "null" ]] && { echo "ERROR: inject-bandwidth requires args.name"; return 1; }
     [[ -z "$source_kind" || "$source_kind" == "null" ]] && { echo "ERROR: inject-bandwidth requires args.source.kind"; return 1; }
@@ -833,7 +834,9 @@ function execute_inject_bandwidth {
     local chaos_name direction
     chaos_name=$(chaos_resource_name "${name}")
 
-    if [[ "${bidirectional}" == "true" ]]; then
+    if [[ -n "${direction_arg}" && "${direction_arg}" != "null" ]]; then
+        direction="${direction_arg}"
+    elif [[ "${bidirectional}" == "true" ]]; then
         direction="both"
     else
         direction="to"

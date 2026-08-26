@@ -13,6 +13,12 @@
 # evidence (tc qdisc dump) that a "kbps" value here would be applied at 8x
 # the intended cap. Use "kbit" explicitly.
 #
+# Direction: selector=BN1 / direction=from, not selector=sender / direction=to.
+# See bandwidth-lag.yaml for the full explanation and CI evidence (0 bytes in
+# the throttled tc band all test long) — CN/BN-peers reach BN1 via its k8s
+# Service, so a rule on the sender's egress filtered by dst=BN1's pod IP never
+# matches; installing it on BN1's own ingress, filtered by source IP, does.
+#
 # Design:
 #   - CN→BN1 is capped at 50kbit/s — BN1 receives blocks at ~12.5% of data rate
 #     (~50 KB/s = 400kbit/s needed; 50kbit/s allows only ~6.25 KB/s).
@@ -62,29 +68,29 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN→BN1 to 50kbit/s — BN1 starved to ~12.5% of block production rate"
+    description: "Cap BN1's ingress from CN to 50kbit/s (selector=block-node-1, direction=from) — BN1 starved to ~12.5% of block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw-stress
-      source: { kind: network-node }
-      target: { kind: block-node, name: block-node-1 }
+      source: { kind: block-node, name: block-node-1 }
+      target: { kind: network-node }
       rate: "50kbit"
       limit: 62500
       buffer: 10000
-      bidirectional: false
+      direction: from
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap all BN peers→BN1 to 50kbit/s — prevents greedy backfill from neutralising starvation"
+    description: "Cap BN1's ingress from BN peers to 50kbit/s (selector=block-node-1, direction=from) — prevents greedy backfill from neutralising starvation"
     delay: 35
     args:
       name: peer-to-bn1-bw-stress
-      source: { kind: block-node }
-      target: { kind: block-node, name: block-node-1 }
+      source: { kind: block-node, name: block-node-1 }
+      target: { kind: block-node }
       rate: "50kbit"
       limit: 62500
       buffer: 10000
-      bidirectional: false
+      direction: from
 
   - id: snapshot-peak-chaos
     type: snapshot-block-heights
