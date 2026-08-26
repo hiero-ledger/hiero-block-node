@@ -15,6 +15,7 @@ import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_NODE_BEHIND_SENT;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED;
+import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_DISCONNECTED_OVERSIZE;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_FLOW_CONTROL_INDIVIDUAL_PAUSES;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_RECEIVE_LATENCY_NS;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS;
@@ -120,6 +121,15 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private final AtomicLong messageBudget;
     /// The current configuration for the publisher.
     private final PublisherConfig configuration;
+    /// The maximum cumulative serialized size in bytes accepted for a single
+    /// block across all messages of this publish stream.
+    private final int maxTotalBlockBytes;
+    /// The cumulative serialized size in bytes of all item sets accepted so
+    /// far for the block currently streaming. Only ever incremented from the
+    /// `onNext` handling, which is always called from the same thread; reset
+    /// happens on each block header and in [#resetState()], which may run on
+    /// another thread during shutdown, hence volatile for visibility.
+    private volatile long currentBlockBytes;
     // @todo() remove this (and its usage) and use telemetry or metrics queries instead
     /// The start time in nanos of block being currently streamed
     private long currentStreamingBlockHeaderReceivedTime = System.nanoTime();
@@ -154,6 +164,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         isActive = new AtomicBoolean(true);
         shutdownActive = new AtomicBoolean(false);
         configuration = publisherManager.configuration();
+        maxTotalBlockBytes = publisherManager.maxTotalBlockBytes();
         messageBudget = new AtomicLong(configuration.perHandlerMessageBudget());
     }
 
@@ -676,14 +687,36 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private PublisherRequestResult handleAccept(
             final long blockNumber, final boolean requestContainsHeader, final BlockItemSetUnparsed itemSetUnparsed) {
         if (requestContainsHeader) {
+            currentBlockBytes = 0L;
             final Deque<BlockItemSetUnparsed> newBlockQueue = new ConcurrentLinkedDeque<>();
             currentBlockQueue.set(newBlockQueue);
             publisherManager.registerQueueForBlock(handlerId, newBlockQueue, blockNumber);
         }
-        currentBlockQueue.get().offer(itemSetUnparsed);
-        publisherManager.signalDataReady();
-        metrics.liveBlockItemsReceived.increment(itemSetUnparsed.blockItems().size()); // @todo(1415) add label
-        return new ContinueResult(this);
+        final long newBlockTotalBytes =
+                currentBlockBytes + BlockItemSetUnparsed.PROTOBUF.measureRecord(itemSetUnparsed);
+        currentBlockBytes = newBlockTotalBytes;
+        final PublisherRequestResult result;
+        if (newBlockTotalBytes > maxTotalBlockBytes) {
+            final String message =
+                    "[{0}] Handler {1} disconnecting publisher, block {2} exceeds the cumulative byte ceiling: {3} > {4}";
+            LOGGER.log(
+                    DEBUG,
+                    message,
+                    correlationIdPrefix,
+                    handlerId,
+                    blockNumber,
+                    newBlockTotalBytes,
+                    maxTotalBlockBytes);
+            metrics.disconnectedOversize.increment();
+            result = new SendEndAndShutdownResult(this, Code.INVALID_REQUEST, blockNumber);
+        } else {
+            currentBlockQueue.get().offer(itemSetUnparsed);
+            publisherManager.signalDataReady();
+            metrics.liveBlockItemsReceived.increment(
+                    itemSetUnparsed.blockItems().size()); // @todo(1415) add label
+            result = new ContinueResult(this);
+        }
+        return result;
     }
 
     /// Handle the SKIP action for a block.
@@ -789,12 +822,14 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     // ==== Private Methods ====================================================
 
     /// This method will reset the state of the handler. Block action will be
-    /// set to null, and the current streaming block number will be set to
-    /// {@value BlockNodePlugin#UNKNOWN_BLOCK_NUMBER}.
+    /// set to null, the current streaming block number will be set to
+    /// {@value BlockNodePlugin#UNKNOWN_BLOCK_NUMBER}, and the cumulative
+    /// byte count for the current block will be set to zero.
     private void resetState() {
         blockAction.set(null);
         currentStreamingBlockNumber.set(UNKNOWN_BLOCK_NUMBER);
         currentBlockQueue.set(null);
+        currentBlockBytes = 0L;
     }
 
     /// This method is called when we want to orderly shut down the handler.
@@ -1085,7 +1120,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             LongCounter.Measurement sendResponseFailed,
             LongCounter.Measurement endStreamsReceived,
             LongCounter.Measurement receiveBlockTimeLatencyNs,
-            LongCounter.Measurement flowControlIndividualPauses) {
+            LongCounter.Measurement flowControlIndividualPauses,
+            LongCounter.Measurement disconnectedOversize) {
         /// Factory method.
         /// Creates a new instance of [MetricsHolder] using the provided
         /// [MetricRegistry] instance.
@@ -1141,6 +1177,12 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     .register(LongCounter.builder(METRIC_PUBLISHER_FLOW_CONTROL_INDIVIDUAL_PAUSES)
                             .setDescription("Publisher handler pauses due to per-handler message budget exhaustion"))
                     .getOrCreateNotLabeled();
+            final LongCounter.Measurement disconnectedOversize = metricRegistry
+                    .register(
+                            LongCounter.builder(METRIC_PUBLISHER_DISCONNECTED_OVERSIZE)
+                                    .setDescription(
+                                            "Publishers disconnected because a block exceeded the cumulative per-block byte ceiling"))
+                    .getOrCreateNotLabeled();
 
             return new MetricsHolder(
                     liveBlockItemsReceived,
@@ -1154,7 +1196,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     sendResponseFailed,
                     endStreamsReceived,
                     receiveBlockTimeLatencyNs,
-                    flowControlIndividualPauses);
+                    flowControlIndividualPauses,
+                    disconnectedOversize);
         }
     }
 }

@@ -96,6 +96,12 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     /// @return The plugin configuration data.
     PublisherConfig configuration();
 
+    /// Get the maximum cumulative serialized size in bytes accepted for a
+    /// single block across all messages of a publish stream. Sourced from
+    /// the server configuration `maxMessageSizeBytes`.
+    /// @return the maximum total size in bytes accepted for a single block
+    int maxTotalBlockBytes();
+
     /// The action to take within the PublisherHandler for a block.
     enum BlockAction {
         /// todo(1420) add documentation

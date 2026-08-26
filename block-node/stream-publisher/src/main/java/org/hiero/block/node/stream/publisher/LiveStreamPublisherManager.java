@@ -54,6 +54,7 @@ import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -106,6 +107,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final int maxBlocksBeforeStalled;
     private final long staleResendPruneBuffer;
     private final int duplicateBlockSkipWindow;
+    /// Maximum cumulative serialized size in bytes accepted for a single
+    /// block across all messages of a publish stream.
+    private final int maxTotalBlockBytes;
     private final ScheduledExecutorService scheduledExecutor;
     private volatile ScheduledFuture<Boolean> publisherUnavailabilityTimeoutFuture;
     /// nanoTime of the last penalty-count reset (tumbling window).
@@ -169,6 +173,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         maxBlocksBeforeStalled = publisherConfig.MaxFutureBlocksBeforeStalled();
         staleResendPruneBuffer = publisherConfig.staleResendPruneBuffer();
         duplicateBlockSkipWindow = publisherConfig.duplicateBlockSkipWindow();
+        maxTotalBlockBytes =
+                serverContext.configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes();
         publisherUnavailabilityTimeoutFuture = schedulePublisherUnavailabilityTimeout();
         blockProofs = new ConcurrentSkipListMap<>();
         endBlocksReceived = new ConcurrentSkipListSet<>();
@@ -395,6 +401,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public PublisherConfig configuration() {
         return publisherConfig;
+    }
+
+    @Override
+    public int maxTotalBlockBytes() {
+        return maxTotalBlockBytes;
     }
 
     /// {@inheritDoc}
