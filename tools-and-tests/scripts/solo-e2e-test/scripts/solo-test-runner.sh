@@ -734,43 +734,6 @@ function execute_clear_latency {
     fi
 }
 
-# Dumps tc qdisc counters and the chaos-mesh ipset from each pod matching the
-# given selector, so a CI run can show whether a bandwidth rule reporting
-# AllInjected=True is actually shaping traffic — not just whether Chaos Mesh
-# believes it applied. App images have no tc/ipset binaries, so this attaches
-# a netshoot ephemeral container via `kubectl debug --target`, which shares
-# the pod's existing network namespace without requiring host/node access.
-# Best-effort: failures here don't fail the test.
-function dump_bandwidth_chaos_diagnostics {
-    local label_key="$1" label_val="$2" instance_name="$3"
-    local selector="${label_key}=${label_val}"
-    [[ -n "${instance_name}" && "${instance_name}" != "null" ]] && \
-        selector="${selector},app.kubernetes.io/instance=${instance_name}"
-
-    local target_container
-    case "${label_key}" in
-        solo.hedera.com/type) target_container="root-container" ;;
-        block-node.hiero.com/type) target_container="block-node-server" ;;
-        *) echo "DIAG: unknown label key '${label_key}', skipping tc/ipset dump"; return 0 ;;
-    esac
-
-    local pods
-    pods=$(kctl get pod -n "${NAMESPACE}" -l "${selector}" -o jsonpath='{.items[*].metadata.name}')
-    [[ -z "${pods}" ]] && { echo "DIAG: no pods matched selector '${selector}' for tc/ipset dump"; return 0; }
-
-    local pod
-    for pod in ${pods}; do
-        echo "--- DIAG tc qdisc on ${pod} (selector: ${selector}, target: ${target_container}) ---"
-        kctl debug "${pod}" -n "${NAMESPACE}" --image=nicolaka/netshoot \
-            --target="${target_container}" -i --quiet -- tc -s qdisc show < /dev/null 2>&1 \
-            || echo "DIAG: tc debug failed on ${pod}"
-        echo "--- DIAG ipset on ${pod} ---"
-        kctl debug "${pod}" -n "${NAMESPACE}" --image=nicolaka/netshoot \
-            --target="${target_container}" --profile=netadmin -i --quiet -- ipset list < /dev/null 2>&1 \
-            || echo "DIAG: ipset debug failed on ${pod}"
-    done
-}
-
 function execute_inject_bandwidth {
     local args="$1"
     local name source_kind source_name target_kind target_name rate limit buffer bidirectional direction_arg
@@ -822,13 +785,9 @@ function execute_inject_bandwidth {
 
     # "service" targets resolve to the Service's own ClusterIP and are passed
     # as chaos-mesh's externalTargets (works only with direction=to), rather
-    # than a pod selector. This exists because the sender's tc/ipset rule is
-    # installed inside its own netns and matches on pod IPs — a packet
-    # addressed to a k8s Service is still addressed to the ClusterIP at that
-    # point (kube-proxy's DNAT to the pod IP happens later, on the host side),
-    # so a pod-IP-based target ipset never matches Service-routed traffic.
-    # Confirmed in CI via tc qdisc dump: 0 bytes in the throttled band all
-    # test long, regardless of rate, direction, or pod-selector correctness.
+    # than a pod selector — required whenever the sender reaches the target
+    # via a k8s Service rather than its pod IP directly. See
+    # chaos-templates/README.md ("Targeting a Service") for why.
     local target_block target_desc
     if [[ "${target_kind}" == "service" ]]; then
         [[ -z "${target_name}" || "${target_name}" == "null" ]] && \
@@ -899,11 +858,7 @@ function execute_inject_bandwidth {
 
     echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
 
-    if ! wait_for_networkchaos_injected "${chaos_name}"; then
-        return 1
-    fi
-
-    dump_bandwidth_chaos_diagnostics "${source_key}" "${source_val}" "${source_name}"
+    wait_for_networkchaos_injected "${chaos_name}"
 }
 
 # ============================================================================
