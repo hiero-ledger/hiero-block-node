@@ -53,6 +53,18 @@ ENV_FILE="${ENV_FILE:-/tmp/wrb-distribution-step12.env}"
 log() { echo "[wrb-dist-step12] $*"; }
 fail() { echo "[wrb-dist-step12] ERROR: $*" >&2; exit 1; }
 
+# The live-wrap/live-push background loops (start-live-wrap.sh / start-live-push.sh) also
+# survive `task down`/`task up` -- they're plain host processes, not tied to the Kind
+# cluster -- and each one has its own stale-worker check, but it only runs when ITS OWN
+# event fires later in this run (200s/440s in). Left alone that long, a leftover loop from
+# a previous run keeps polling MinIO (against whatever cluster NAMESPACE/CONTEXT now points
+# at) and writing into this same WORK_DIR, racing directly against the wipe-and-recreate
+# below. Stop both now, before that race window even opens, rather than waiting for their
+# own later start-* events to notice.
+log "Stopping any live-wrap/live-push workers left over from a previous run..."
+"${SCRIPT_DIR}/stop-live-wrap.sh" || true
+"${SCRIPT_DIR}/stop-live-push.sh" || true
+
 # WORK_DIR lives under /tmp and survives `task down`/`task up` (those only tear down the
 # Kind cluster), so records/day-archives/metadata from a previous run's cluster would
 # otherwise sit here indefinitely and get mixed into this run's wrap -- old records signed
@@ -92,10 +104,19 @@ log "CLI built: ${CLI_LIB}"
 # variables (WORK_DIR="/tmp/wrb-test-$$" and WRAPPED_BLOCKS_DIR), which
 # clobber ours. Snapshot our paths, source, then restore them so downstream
 # `${WORK_DIR}/...` interpolations resolve to our directory tree.
+#
+# This also includes SCRIPT_DIR itself -- wrb-sequential-comparison.sh sets
+# its own SCRIPT_DIR (its own file's directory, one level up from
+# wrb-distribution/), and since `source` shares the caller's variable scope,
+# that silently overwrites ours for the rest of this script. Every later
+# "${SCRIPT_DIR}/.." reference (e.g. the extract-solo-ab-and-generate.sh call
+# below) would otherwise resolve one directory too high and fail with "No
+# such file or directory" -- deterministically, on every single run.
 _SAVED_WORK_DIR="${WORK_DIR}"
 _SAVED_RECORDS_DIR="${RECORDS_DIR}"
 _SAVED_DAYS_DIR="${DAYS_DIR}"
 _SAVED_WRAPPED_DIR="${WRAPPED_DIR}"
+_SAVED_SCRIPT_DIR="${SCRIPT_DIR}"
 log "Sourcing record-download helpers from wrb-sequential-comparison.sh..."
 # shellcheck disable=SC1090
 source "${COMPARISON_SCRIPT}"
@@ -103,7 +124,8 @@ WORK_DIR="${_SAVED_WORK_DIR}"
 RECORDS_DIR="${_SAVED_RECORDS_DIR}"
 DAYS_DIR="${_SAVED_DAYS_DIR}"
 WRAPPED_DIR="${_SAVED_WRAPPED_DIR}"
-unset _SAVED_WORK_DIR _SAVED_RECORDS_DIR _SAVED_DAYS_DIR _SAVED_WRAPPED_DIR
+SCRIPT_DIR="${_SAVED_SCRIPT_DIR}"
+unset _SAVED_WORK_DIR _SAVED_RECORDS_DIR _SAVED_DAYS_DIR _SAVED_WRAPPED_DIR _SAVED_SCRIPT_DIR
 
 log "Downloading up to ${MAX_RECORD_FILES} record files from MinIO..."
 download_record_files_from_minio "${RECORDS_DIR}" "${MAX_RECORD_FILES}" \
@@ -131,7 +153,14 @@ for day in ${days}; do
     # COPYFILE_DISABLE=1 prevents macOS tar from adding AppleDouble ("._filename") resource-fork
     # sidecar entries on APFS; those aren't real record files and TarReader chokes on them
     # (misreads their garbage bytes as a record-format version). No-op on Linux CI runners.
-    ( cd "${RECORDS_DIR}" && COPYFILE_DISABLE=1 tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}" )
+    # shopt nullglob prevents the *.rcd_sig glob from expanding to a literal string when
+    # no sig files are present — without it, tar exits 1 on the missing literal filename
+    # and pipefail kills the script (Linux; macOS silently skips it).
+    (
+        shopt -s nullglob
+        cd "${RECORDS_DIR}"
+        COPYFILE_DISABLE=1 tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}"
+    )
 done
 
 log "Generating block_times.bin and day_blocks.json..."

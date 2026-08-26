@@ -68,11 +68,19 @@ log "Last pre-upgrade record file already processed: ${last_pre_upgrade_file}"
 #      the last pre-upgrade one --------------------------------------------
 [[ -f "${COMPARISON_SCRIPT}" ]] || fail "Comparison script not found at ${COMPARISON_SCRIPT}"
 # See install-and-run-wrb-cli.sh's identical comment: sourcing clobbers our
-# WORK_DIR/RECORDS_DIR/etc file-scope vars, so snapshot and restore.
+# WORK_DIR/RECORDS_DIR/etc file-scope vars, so snapshot and restore. This also
+# includes SCRIPT_DIR itself -- wrb-sequential-comparison.sh sets its own
+# SCRIPT_DIR (its own file's directory, one level up from wrb-distribution/),
+# and since `source` shares the caller's variable scope, that silently
+# overwrites ours for the rest of this script. Every later "${SCRIPT_DIR}/.."
+# reference (e.g. the extract-solo-ab-and-generate.sh call below) would
+# otherwise resolve one directory too high and fail with "No such file or
+# directory" -- deterministically, on every single run, not just sometimes.
 _SAVED_WORK_DIR="${WRB_DIST_WORK_DIR}"
 _SAVED_POST_DIR="${POST_UPGRADE_DIR}"
 _SAVED_POST_DAYS_DIR="${POST_UPGRADE_DAYS_DIR}"
 _SAVED_POST_WRAPPED_DIR="${POST_UPGRADE_WRAPPED_DIR}"
+_SAVED_SCRIPT_DIR="${SCRIPT_DIR}"
 log "Sourcing record-download helpers from wrb-sequential-comparison.sh..."
 # shellcheck disable=SC1090
 source "${COMPARISON_SCRIPT}"
@@ -80,94 +88,114 @@ WRB_DIST_WORK_DIR="${_SAVED_WORK_DIR}"
 POST_UPGRADE_DIR="${_SAVED_POST_DIR}"
 POST_UPGRADE_DAYS_DIR="${_SAVED_POST_DAYS_DIR}"
 POST_UPGRADE_WRAPPED_DIR="${_SAVED_POST_WRAPPED_DIR}"
-unset _SAVED_WORK_DIR _SAVED_POST_DIR _SAVED_POST_DAYS_DIR _SAVED_POST_WRAPPED_DIR
+SCRIPT_DIR="${_SAVED_SCRIPT_DIR}"
+unset _SAVED_WORK_DIR _SAVED_POST_DIR _SAVED_POST_DAYS_DIR _SAVED_POST_WRAPPED_DIR _SAVED_SCRIPT_DIR
 
-log "Downloading up to ${POST_UPGRADE_MAX_RECORD_FILES} record files from MinIO..."
-download_record_files_from_minio "${POST_UPGRADE_DIR}" "${POST_UPGRADE_MAX_RECORD_FILES}" \
-    || fail "Failed to download record files from MinIO"
+MAX_DETECT_RETRIES="${MAX_DETECT_RETRIES:-8}"
+RETRY_INTERVAL="${RETRY_INTERVAL:-30}"
+# Set false initially; subsequent loop iterations skip the 120s MinIO wait
+# (already waited on attempt 1 — no need to wait again on retries).
+MINIO_SKIP_INITIAL_WAIT=false
 
-shopt -s nullglob
-gz_files=( "${POST_UPGRADE_DIR}"/*.rcd.gz )
-if (( ${#gz_files[@]} > 0 )); then
-    log "Decompressing ${#gz_files[@]} .rcd.gz files..."
-    gunzip -f "${gz_files[@]}" || true
-fi
-shopt -u nullglob
-
-removed=0
-for f in "${POST_UPGRADE_DIR}"/*.rcd; do
-    [[ -f "${f}" ]] || continue
-    name=$(basename "${f}")
-    if [[ "${name}" < "${last_pre_upgrade_file}" || "${name}" == "${last_pre_upgrade_file}" ]]; then
-        rm -f "${f}" "${f%.rcd}.rcd_sig"
-        removed=$(( removed + 1 ))
+for attempt in $(seq 1 "${MAX_DETECT_RETRIES}"); do
+    if [[ "${attempt}" -gt 1 ]]; then
+        log "Waiting ${RETRY_INTERVAL}s before attempt ${attempt}/${MAX_DETECT_RETRIES}..."
+        sleep "${RETRY_INTERVAL}"
+        MINIO_SKIP_INITIAL_WAIT=true
+        # Re-wipe processing dirs but keep POST_UPGRADE_DIR to accumulate
+        # post-upgrade records across retries (already-downloaded files are
+        # skipped by download_record_files_from_minio's own skip logic).
+        rm -rf "${POST_UPGRADE_DAYS_DIR}" "${POST_UPGRADE_WRAPPED_DIR}"
+        mkdir -p "${POST_UPGRADE_DAYS_DIR}" "${POST_UPGRADE_WRAPPED_DIR}"
     fi
-done
-log "Discarded ${removed} record file(s) already processed before the upgrade"
 
-new_count=$(find "${POST_UPGRADE_DIR}" -maxdepth 1 -name "*.rcd" | wc -l | tr -d ' ')
-(( new_count > 0 )) || fail "No record files at/after ${last_pre_upgrade_file} — CN may not have resumed record production yet after the upgrade"
-log "Have ${new_count} post-upgrade record file(s) to wrap"
+    log "Attempt ${attempt}/${MAX_DETECT_RETRIES}: downloading up to ${POST_UPGRADE_MAX_RECORD_FILES} record files from MinIO..."
+    download_record_files_from_minio "${POST_UPGRADE_DIR}" "${POST_UPGRADE_MAX_RECORD_FILES}" \
+        || log "WARNING: MinIO download had issues on attempt ${attempt}, continuing with what was retrieved"
 
-# ---- Package into day archives + generate metadata (mirrors install-and-run-wrb-cli.sh) ----
-log "Packaging post-upgrade records into day archives..."
-days=$( find "${POST_UPGRADE_DIR}" -name "*.rcd" -exec basename {} \; | cut -d'T' -f1 | sort -u )
-for day in ${days}; do
-    archive="${POST_UPGRADE_DAYS_DIR}/${day}.tar.zstd"
-    log "  ${day}.tar.zstd"
-    # COPYFILE_DISABLE=1 prevents macOS tar from adding AppleDouble ("._filename") resource-fork
-    # sidecar entries on APFS; those aren't real record files and TarReader chokes on them
-    # (misreads their garbage bytes as a record-format version). No-op on Linux CI runners.
-    ( cd "${POST_UPGRADE_DIR}" && COPYFILE_DISABLE=1 tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}" )
-done
+    shopt -s nullglob
+    gz_files=( "${POST_UPGRADE_DIR}"/*.rcd.gz )
+    if (( ${#gz_files[@]} > 0 )); then
+        log "Decompressing ${#gz_files[@]} new .rcd.gz file(s)..."
+        gunzip -f "${gz_files[@]}" || true
+    fi
+    shopt -u nullglob
 
-log "Generating block_times.bin and day_blocks.json for the post-upgrade subset..."
-block_times_file="${WRB_DIST_WORK_DIR}/post-upgrade-block_times.bin"
-day_blocks_file="${WRB_DIST_WORK_DIR}/post-upgrade-day_blocks.json"
+    removed=0
+    for f in "${POST_UPGRADE_DIR}"/*.rcd; do
+        [[ -f "${f}" ]] || continue
+        name=$(basename "${f}")
+        if [[ "${name}" < "${last_pre_upgrade_file}" || "${name}" == "${last_pre_upgrade_file}" ]]; then
+            rm -f "${f}" "${f%.rcd}.rcd_sig"
+            removed=$(( removed + 1 ))
+        fi
+    done
+    if [[ "${removed}" -gt 0 ]]; then
+        log "Discarded ${removed} pre-upgrade record file(s)"
+    fi
 
-# ---- Network config (mirrors install-and-run-wrb-cli.sh, scoped to this subset) ----
-# `head -1` closes its end of the pipe as soon as it has a line, and with
-# ~700 filenames sort's full output can exceed one pipe buffer's worth —
-# sort then gets SIGPIPE mid-write and, under pipefail, kills the script.
-# Draining the rest of sort's output through `cat >/dev/null` avoids that.
-first_record_file=$( find "${POST_UPGRADE_DIR}" -maxdepth 1 -name "*.rcd" | sort | { head -1; cat >/dev/null; } )
-genesis_timestamp=$(basename "${first_record_file}" | sed 's/\(.*\)\.rcd.*/\1/')
-genesis_date=$( echo "${genesis_timestamp}" | cut -d'T' -f1 )
+    new_count=$(find "${POST_UPGRADE_DIR}" -maxdepth 1 -name "*.rcd" | wc -l | tr -d ' ')
+    if (( new_count == 0 )); then
+        log "Attempt ${attempt}/${MAX_DETECT_RETRIES}: no post-upgrade records yet — CN may still be restarting"
+        continue
+    fi
+    log "Attempt ${attempt}/${MAX_DETECT_RETRIES}: have ${new_count} post-upgrade record file(s)"
 
-# genesis_epoch_nanos must be derived from the exact same full-precision
-# genesis_timestamp used in network-other.json below (not a re-truncated,
-# whole-second-only parse of it) — otherwise ToWrappedBlocksCommand's
-# NetworkConfig-derived genesis instant and generate_metadata.py's
-# relative_nanos baseline disagree by up to a second, corrupting every
-# block's recorded time in block_times.bin.
-first_dt=$( echo "${genesis_timestamp}" | sed 's/_/:/g' | sed 's/Z$//' )
-first_seconds_part=$( echo "${first_dt}" | cut -d'.' -f1 )
-first_nanos_part=$( echo "${first_dt}" | cut -d'.' -f2 )
-if date --version >/dev/null 2>&1; then
-    first_seconds=$( date -u -d "${first_seconds_part}Z" +%s 2>/dev/null || echo "0" )
-else
-    first_seconds=$( date -u -j -f "%Y-%m-%dT%H:%M:%S" "${first_seconds_part}" +%s 2>/dev/null || echo "0" )
-fi
-genesis_epoch_nanos=$(( first_seconds * 1000000000 + 10#${first_nanos_part} ))
-python3 "${PYTHON_DIR}/generate_metadata.py" \
-    "${POST_UPGRADE_DIR}" "${block_times_file}" "${day_blocks_file}" "${genesis_epoch_nanos}" \
-    || fail "Failed to generate metadata for post-upgrade subset"
+    # ---- Package into day archives + generate metadata ----
+    log "Packaging post-upgrade records into day archives..."
+    days=$( find "${POST_UPGRADE_DIR}" -name "*.rcd" -exec basename {} \; | cut -d'T' -f1 | sort -u )
+    for day in ${days}; do
+        archive="${POST_UPGRADE_DAYS_DIR}/${day}.tar.zstd"
+        log "  ${day}.tar.zstd"
+        # COPYFILE_DISABLE=1 prevents macOS tar from adding AppleDouble ("._filename") resource-fork
+        # sidecar entries on APFS; those aren't real record files and TarReader chokes on them.
+        # shopt nullglob prevents the *.rcd_sig glob from expanding to a literal string when
+        # no sig files are in MinIO yet — without it, tar exits 1 on the missing literal filename
+        # and pipefail kills the script.
+        (
+            shopt -s nullglob
+            cd "${POST_UPGRADE_DIR}"
+            COPYFILE_DISABLE=1 tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}"
+        )
+    done
 
-# Generate addressBookHistory.json from the Solo consensus node's actual RSA keys (same
-# mechanism wrb-sequential-comparison.sh / install-and-run-wrb-cli.sh use) into
-# POST_UPGRADE_DAYS_DIR. `blocks wrap` auto-detects and loads this from --input-dir if
-# present, taking priority over network-other.json's genesisAddressBookResource below --
-# without it, wrap falls back to the bundled mainnet-genesis-address-book.proto.bin, whose
-# real mainnet keys never match this cluster's own randomly-generated ones, so every
-# signature check fails (cosmetic/non-blocking, but alarming log noise on every run).
-bash "${SCRIPT_DIR}/../extract-solo-ab-and-generate.sh" \
-    "${NAMESPACE}" \
-    "${first_seconds}.${first_nanos_part}" \
-    "${POST_UPGRADE_DAYS_DIR}/addressBookHistory.json" \
-    || log "WARNING: Could not extract address book from CN; wrap will fall back to the mainnet resource (signature checks will fail, harmlessly)"
+    log "Generating block_times.bin and day_blocks.json for the post-upgrade subset..."
+    block_times_file="${WRB_DIST_WORK_DIR}/post-upgrade-block_times.bin"
+    day_blocks_file="${WRB_DIST_WORK_DIR}/post-upgrade-day_blocks.json"
 
-network_config_file="${WRB_DIST_WORK_DIR}/post-upgrade-network-other.json"
-cat > "${network_config_file}" <<EOF
+    # `head -1` closes its end of the pipe early; draining sort's remaining output
+    # through `cat >/dev/null` prevents SIGPIPE from killing the script under pipefail.
+    first_record_file=$( find "${POST_UPGRADE_DIR}" -maxdepth 1 -name "*.rcd" | sort | { head -1; cat >/dev/null; } )
+    genesis_timestamp=$(basename "${first_record_file}" | sed 's/\(.*\)\.rcd.*/\1/')
+    genesis_date=$( echo "${genesis_timestamp}" | cut -d'T' -f1 )
+
+    # genesis_epoch_nanos must be derived from the exact same full-precision genesis_timestamp
+    # used in network-other.json below — otherwise NetworkConfig and generate_metadata.py
+    # disagree by up to a second, corrupting every block's recorded time in block_times.bin.
+    first_dt=$( echo "${genesis_timestamp}" | sed 's/_/:/g' | sed 's/Z$//' )
+    first_seconds_part=$( echo "${first_dt}" | cut -d'.' -f1 )
+    first_nanos_part=$( echo "${first_dt}" | cut -d'.' -f2 )
+    if date --version >/dev/null 2>&1; then
+        first_seconds=$( date -u -d "${first_seconds_part}Z" +%s 2>/dev/null || echo "0" )
+    else
+        first_seconds=$( date -u -j -f "%Y-%m-%dT%H:%M:%S" "${first_seconds_part}" +%s 2>/dev/null || echo "0" )
+    fi
+    genesis_epoch_nanos=$(( first_seconds * 1000000000 + 10#${first_nanos_part} ))
+    if ! python3 "${PYTHON_DIR}/generate_metadata.py" \
+            "${POST_UPGRADE_DIR}" "${block_times_file}" "${day_blocks_file}" "${genesis_epoch_nanos}"; then
+        log "Attempt ${attempt}: generate_metadata failed, will retry"
+        continue
+    fi
+
+    # Generate addressBookHistory.json for wrap's signature verification (cosmetic if missing).
+    bash "${SCRIPT_DIR}/../extract-solo-ab-and-generate.sh" \
+        "${NAMESPACE}" \
+        "${first_seconds}.${first_nanos_part}" \
+        "${POST_UPGRADE_DAYS_DIR}/addressBookHistory.json" \
+        || log "WARNING: Could not extract address book from CN; wrap falls back to mainnet resource (signature checks will fail, harmlessly)"
+
+    network_config_file="${WRB_DIST_WORK_DIR}/post-upgrade-network-other.json"
+    cat > "${network_config_file}" <<EOF
 {
   "networkName": "solo",
   "gcsBucketName": "solo-local",
@@ -182,34 +210,35 @@ cat > "${network_config_file}" <<EOF
 }
 EOF
 
-# ---- Wrap, then validate to trigger TssEnablementValidation ----
-log "Running blocks wrap on the post-upgrade subset..."
-HIERO_NETWORK_CONFIG="${network_config_file}" \
-java -cp "${CLI_LIB}/*" \
-    org.hiero.block.tools.BlockStreamTool blocks wrap \
-        --network other \
-        --input-dir "${POST_UPGRADE_DAYS_DIR}" \
-        --output-dir "${POST_UPGRADE_WRAPPED_DIR}" \
-        --blocktimes-file "${block_times_file}" \
-        --day-blocks "${day_blocks_file}" \
-        --skip-block-number-validation \
-    > /tmp/wrb-dist-post-upgrade-wrap.log 2>&1 \
-    || { tail -40 /tmp/wrb-dist-post-upgrade-wrap.log; fail "wrb-cli wrap failed on post-upgrade subset"; }
+    # ---- Wrap ----
+    log "Attempt ${attempt}: running blocks wrap on ${new_count} post-upgrade record file(s)..."
+    # Initialize wrap_exit before the java command so that `set -e` does not kill
+    # the script on a non-zero java exit before `wrap_exit=$?` can capture it.
+    # The `|| wrap_exit=$?` pattern captures the exit code without triggering set -e,
+    # allowing the wrap log to be dumped and the retry loop to continue.
+    wrap_exit=0
+    HIERO_NETWORK_CONFIG="${network_config_file}" \
+    java -cp "${CLI_LIB}/*" \
+        org.hiero.block.tools.BlockStreamTool blocks wrap \
+            --network other \
+            --input-dir "${POST_UPGRADE_DAYS_DIR}" \
+            --output-dir "${POST_UPGRADE_WRAPPED_DIR}" \
+            --blocktimes-file "${block_times_file}" \
+            --day-blocks "${day_blocks_file}" \
+            --skip-block-number-validation \
+        > /tmp/wrb-dist-post-upgrade-wrap.log 2>&1 || wrap_exit=$?
+    # Always dump the wrap log — this code path is brand-new and a prior run
+    # proved wrap can silently produce far fewer blocks than expected.
+    log "wrap log (attempt ${attempt}, ${new_count} input record file(s)):"
+    sed 's/^/    /' /tmp/wrb-dist-post-upgrade-wrap.log || true
+    if [[ "${wrap_exit}" -ne 0 ]]; then
+        log "Attempt ${attempt}: blocks wrap failed (exit ${wrap_exit}), will retry"
+        continue
+    fi
 
-# Diagnostic visibility even on success: this is a brand-new code path (never
-# exercised against a mid-life-upgrade record subset before), and a prior run
-# proved wrap silently wrote only 1 of 699 expected blocks — a filtered grep
-# of a few keywords wasn't enough to see why, so dump the whole log this time.
-log "wrap log (from ${new_count} input record file(s)):"
-sed 's/^/    /' /tmp/wrb-dist-post-upgrade-wrap.log || true
-
-# wrap organizes output into a nested directory tree (e.g.
-# 000/000/000/000/00/00000s.zip, see install-and-run-wrb-cli.sh's own
-# structure check), so this must search recursively rather than maxdepth 1.
-# Uses python3's zipfile module (always available; `unzip` may not be
-# installed on the runner) to count actual .blk* entries across every zip
-# found, giving a ground-truth count independent of validate's own reporting.
-wrapped_block_count=$(python3 -c "
+    # wrap organizes output into a nested directory tree (e.g. 000/000/000/000/00/00000s.zip),
+    # so this must search recursively.
+    wrapped_block_count=$(python3 -c "
 import sys, zipfile
 from pathlib import Path
 total = 0
@@ -218,25 +247,35 @@ for zip_path in Path(sys.argv[1]).rglob('*.zip'):
         total += sum(1 for n in zf.namelist() if '.blk' in n)
 print(total)
 " "${POST_UPGRADE_WRAPPED_DIR}")
-log "Wrapped output contains ${wrapped_block_count} block entry/entries (expected ~${new_count})"
-if [[ "${wrapped_block_count}" -lt "${new_count}" ]]; then
-    log "WARNING: wrap produced fewer blocks than input record files — see /tmp/wrb-dist-post-upgrade-wrap.log for the full wrap log"
-fi
+    log "Wrapped output: ${wrapped_block_count} block(s) from ${new_count} record file(s)"
+    if [[ "${wrapped_block_count}" -lt "${new_count}" ]]; then
+        log "WARNING: wrap produced fewer blocks than input record files"
+    fi
 
-log "Running blocks validate to trigger TSS enablement detection..."
-java -cp "${CLI_LIB}/*" \
-    org.hiero.block.tools.BlockStreamTool blocks validate \
-        "${POST_UPGRADE_WRAPPED_DIR}" \
-        --no-resume \
-        --skip-signatures \
-        --skip-supply \
-        --validate-balances=false \
-    > /tmp/wrb-dist-post-upgrade-validate.log 2>&1 \
-    || { tail -60 /tmp/wrb-dist-post-upgrade-validate.log; fail "wrb-cli validate failed on post-upgrade subset"; }
+    # ---- Validate ----
+    log "Attempt ${attempt}: running blocks validate to check for TSS enablement..."
+    java -cp "${CLI_LIB}/*" \
+        org.hiero.block.tools.BlockStreamTool blocks validate \
+            "${POST_UPGRADE_WRAPPED_DIR}" \
+            --no-resume \
+            --skip-signatures \
+            --skip-supply \
+            --validate-balances=false \
+        > /tmp/wrb-dist-post-upgrade-validate.log 2>&1 || true
 
-if ! grep -q "TSS ENABLED" /tmp/wrb-dist-post-upgrade-validate.log; then
-    tail -60 /tmp/wrb-dist-post-upgrade-validate.log
-    fail "TSS enablement not detected in the post-upgrade record files — the LedgerIdPublication transaction may not have been produced yet"
+    if grep -q "TSS ENABLED" /tmp/wrb-dist-post-upgrade-validate.log 2>/dev/null; then
+        log "TSS enablement detected on attempt ${attempt}!"
+        break
+    fi
+
+    # Show the last 30 lines so failures are visible without flooding the log.
+    tail -30 /tmp/wrb-dist-post-upgrade-validate.log
+    log "Attempt ${attempt}/${MAX_DETECT_RETRIES}: TSS ENABLED not found — LedgerIdPublication may appear in later post-upgrade records"
+done
+
+if ! grep -q "TSS ENABLED" /tmp/wrb-dist-post-upgrade-validate.log 2>/dev/null; then
+    tail -60 /tmp/wrb-dist-post-upgrade-validate.log 2>/dev/null || true
+    fail "TSS enablement not detected after ${MAX_DETECT_RETRIES} attempt(s) — the LedgerIdPublication transaction may not have been produced yet"
 fi
 
 tss_json_path="${POST_UPGRADE_WRAPPED_DIR}/tss-bootstrap-roster.json"
