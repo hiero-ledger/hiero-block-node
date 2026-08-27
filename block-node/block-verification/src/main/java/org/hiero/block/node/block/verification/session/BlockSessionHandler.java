@@ -142,6 +142,13 @@ public final class BlockSessionHandler {
             }
             local = startNewSession(blockItems, BlockSource.PUBLISHER);
             activePublisherSession.set(local);
+            if (blockItems.isEndOfBlock()) {
+                // the batch carries the complete block, mark it complete before
+                // activation makes the session visible for eviction by the
+                // concurrent backfill thread, so an eviction cancel reports
+                // CANCELLED instead of CANCELLED_INCOMPLETE
+                local.markEndOfBlockReceived();
+            }
             activateSession(local);
         }
         // check if we have an active publisher session, if not, then disregard the items
@@ -165,9 +172,12 @@ public final class BlockSessionHandler {
     /// @param blockItems to process
     private void processBackfilledItems(final BlockItems blockItems) {
         final BlockVerificationSession session = startNewSession(blockItems, BlockSource.BACKFILL);
-        activateSession(session);
-        // a backfilled block always arrives complete in a single batch
+        // a backfilled block always arrives complete in a single batch, mark it
+        // complete before activation makes the session visible for eviction by
+        // the concurrent publisher thread, so an eviction cancel reports
+        // CANCELLED instead of CANCELLED_INCOMPLETE
         session.markEndOfBlockReceived();
+        activateSession(session);
         session.getBlockItemsDeque().offer(blockItems);
     }
 
