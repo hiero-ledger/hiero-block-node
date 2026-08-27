@@ -65,6 +65,7 @@ import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.LongCounter;
@@ -403,9 +404,18 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// facility. Only in cases of failed verification, given that the block
     /// number of the failed block satisfies the conditions of it being
     /// higher than the last persisted and lower than the next unstreamed block,
-    /// we will attempt to handle that failure. That includes allowing
-    /// individual handlers to handle that block, but also scheduling the failed
-    /// block to be resent.
+    /// we will attempt to handle that failure. Failures are classified by
+    /// their failure type into three stream scopes: a proven publisher fault
+    /// ends only the supplying handler's stream, malformed blocks with no
+    /// indication of malice keep all streams open with a resend scheduled,
+    /// and Block Node faults or capability limitations end every publisher
+    /// stream and clear all block tracking, encouraging publishers to
+    /// connect to a healthy Block Node. An incomplete session means the
+    /// block was never fully received, so it is already handled elsewhere
+    /// and no action is taken. An informational failure, meaning the same
+    /// block was already verified successfully within reasonable recency,
+    /// is handled the same as a standard one, except that no resend is
+    /// scheduled.
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
         final long blockNumber = notification.blockNumber();
@@ -418,35 +428,120 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 && blockNumber > lastPersistedBlockNumber.get()
                 && blockNumber < nextUnstreamedBlockNumber.get();
         if (shouldHandle) {
-            // A note for a flaky test fix for #3391 & #3392:
-            // After investigating, we have found out that the new verification
-            // plugin's report of canceled verifications is being picked up
-            // here, but there is no guarantee that we will accurately point to
-            // the actual publisher that has supplied the failed (canceled) block.
-            // This is true because we only see a snapshot of the current activity.
-            // If publisher 1 supplied block 5 that was later canceled, publisher 2
-            // might have started resending block 5, and the current state
-            // of the publisher manager will point a finger to publisher 2 for
-            // the failure of block 5.
-            // There is more work to be done so that we will be more accurate,
-            // this is captured by @todo(3436).
-            // Completely handling the FailureInfo is captured by @todo(2977).
-            if (notification.failureInfo().failureType() == FailureType.CANCELLED) {
-                LOGGER.log(INFO, "Session for block {0} was cancelled", blockNumber);
-            } else {
-                // Schedule a resend for the block before sending the bad block proof message
-                blocksToResend.add(blockNumber);
-                // Iterate over all handlers and attempt to send the
-                // bad block proof message.
-                for (final PublisherHandler handler : handlers.values()) {
-                    if (handler.handleFailedVerification(blockNumber)) {
-                        // There will always be only one handler that will send the
-                        // bad block proof message. Once we have, we can break.
-                        break;
-                    }
-                }
-            }
+            // A scheduled resend goes to all connected publishers, so we do
+            // not care which handler supplied the block that failed. Further
+            // improvements to the actions taken per failure type, like
+            // tailoring the response to the supplying handler, are captured
+            // by @todo(3436).
+            final FailureInfo failureInfo = notification.failureInfo();
+            final FailureActionResult actionResult = resolveFailureAction(blockNumber, failureInfo);
+            actionResult.handle(blockNumber, failureInfo, this);
         }
+    }
+
+    /// Classifies a verification failure type, logs the failure and resolves
+    /// the operations the manager must perform for it. This is intentionally
+    /// an exhaustive switch expression with no default branch so that adding
+    /// a type to or removing a type from [FailureType] breaks compilation and
+    /// forces this policy to be revisited.
+    ///
+    /// @param blockNumber the block number that failed verification
+    /// @param failureInfo the failure information of the verification
+    /// @return the operations to perform for the failed block
+    private FailureActionResult resolveFailureAction(final long blockNumber, final FailureInfo failureInfo) {
+        return switch (failureInfo.failureType()) {
+            // The proof is proven invalid, a clear publisher fault, so the
+            // supplying stream ends with the dedicated code.
+            case BAD_BLOCK_PROOF -> resendAndEndSupplierStream(blockNumber, failureInfo, Code.BAD_BLOCK_PROOF);
+            // The block is unparseable or malformed, but not proven bad and
+            // with no indication of malice; a retry may succeed, so all
+            // streams stay open. Ending a stream sends the publisher through
+            // an expensive reconnect and blacklist loop, which is not worth
+            // it here. Repeated failures from the same source will be
+            // penalized separately, see @todo(3436).
+            case UNABLE_TO_PARSE, MISSING_MANDATORY_FIELD, MISSING_MANDATORY_ITEM, UNSUPPORTED_STREAM_FORMAT ->
+                resendOnly(blockNumber, failureInfo);
+            // Block Node faults or capability limitations: this node cannot
+            // verify the block and the condition is at least locally
+            // persistent, so no retry against this node can succeed. All
+            // publisher streams end to encourage the publishers to connect
+            // to a healthy Block Node. All block tracking is cleared, so no
+            // resend is scheduled.
+            case MISSING_VERIFICATION_DATA,
+                    UNKNOWN_ERROR,
+                    UNRECOGNIZED_PROOF_TYPE,
+                    UNSUPPORTED_HAPI_VERSION,
+                    UNSUPPORTED_ITEM_TYPE -> endAllStreams(blockNumber, failureInfo);
+            // The complete block was received, but the session was cancelled
+            // before producing a result (e.g. evicted from the active sessions
+            // buffer). The publishers consider the block delivered, so nothing
+            // else will supply it and a resend must be scheduled. Resends go
+            // to all publishers, attribution is irrelevant.
+            case CANCELLED -> resendOnly(blockNumber, failureInfo);
+            // The block was never fully received, so it is already handled:
+            // either a resend was already scheduled, or another source is
+            // supplying it. No action is needed.
+            case CANCELLED_INCOMPLETE -> logOnlyNoAction(blockNumber, failureInfo);
+        };
+    }
+
+    /// Logs the given verification failure and resolves a resend for the
+    /// failed block with the supplying stream ended with the given code.
+    ///
+    /// @param blockNumber the block number that failed verification
+    /// @param failureInfo the failure information of the verification
+    /// @param endStreamCode the end of stream code to send to the supplier
+    /// @return the operations to perform for the failed block
+    private FailureActionResult resendAndEndSupplierStream(
+            final long blockNumber, final FailureInfo failureInfo, final Code endStreamCode) {
+        LOGGER.log(
+                WARNING,
+                "Verification of block {0} failed with {1}, ending the supplying stream with {2}",
+                blockNumber,
+                failureInfo,
+                endStreamCode);
+        return new FailureActionResult(true, endStreamCode, FailureActionResult.StreamScope.END_SUPPLIER);
+    }
+
+    /// Logs the given verification failure and resolves ending every
+    /// connected publisher's stream with [Code#ERROR]. This is used for
+    /// Block Node faults and capability limitations, where no retry against
+    /// this node can succeed. No resend is resolved because ending all
+    /// streams also clears all block tracking.
+    ///
+    /// @param blockNumber the block number that failed verification
+    /// @param failureInfo the failure information of the verification
+    /// @return the operations to perform for the failed block
+    private FailureActionResult endAllStreams(final long blockNumber, final FailureInfo failureInfo) {
+        LOGGER.log(
+                WARNING,
+                "Verification of block {0} failed with {1}, a Block Node fault, ending all publisher streams",
+                blockNumber,
+                failureInfo);
+        return new FailureActionResult(false, Code.ERROR, FailureActionResult.StreamScope.END_ALL);
+    }
+
+    /// Logs the given verification failure and resolves a resend for the
+    /// failed block with all streams left open.
+    ///
+    /// @param blockNumber the block number that failed verification
+    /// @param failureInfo the failure information of the verification
+    /// @return the operations to perform for the failed block
+    private FailureActionResult resendOnly(final long blockNumber, final FailureInfo failureInfo) {
+        LOGGER.log(INFO, "Verification of block {0} failed with {1}", blockNumber, failureInfo);
+        return new FailureActionResult(true, null, FailureActionResult.StreamScope.NO_STREAM_ACTION);
+    }
+
+    /// Logs the given verification failure and resolves no operations.
+    /// This is used for failures that require no further action from the
+    /// manager.
+    ///
+    /// @param blockNumber the block number whose session ended with failure
+    /// @param failureInfo the failure information of the verification
+    /// @return the operations to perform for the failed block
+    private FailureActionResult logOnlyNoAction(final long blockNumber, final FailureInfo failureInfo) {
+        LOGGER.log(INFO, "Session for block {0} failed with {1}, no action needed", blockNumber, failureInfo);
+        return new FailureActionResult(false, null, FailureActionResult.StreamScope.NO_STREAM_ACTION);
     }
 
     /// {@inheritDoc}
@@ -512,7 +607,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 }
             } else {
                 if (notification.blockSource() == BlockSource.PUBLISHER) {
-                    endAllHandlersAndClearTracking(blockNumber);
+                    endAllHandlersAndClearTracking(blockNumber, Code.PERSISTENCE_FAILED);
                     // @todo(2240,2236) Mark the publisher plugin _unhealthy_
                     //     when the Health Plugin supports that.
                 }
@@ -532,16 +627,19 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// or Latch would be significantly more costly).
     /// This method does reset the flag in a finally block, however, to ensure
     /// that if an exception is thrown the flag is still cleared.
-    private void endAllHandlersAndClearTracking(final long blockNumber) {
+    ///
+    /// @param blockNumber the block number the failure is proximate to
+    /// @param endStreamCode the end of stream code to send to every handler
+    private void endAllHandlersAndClearTracking(final long blockNumber, final Code endStreamCode) {
         resetIsActive.compareAndSet(false, true);
         try {
             nextUnstreamedBlockNumber.set(blockNumber);
             activeStreamHandlerByBlock.clear();
             Collection<PublisherHandler> handlersToClose = handlers.values();
-            // Notify the handlers that persistence failed.
+            // Notify the handlers of the failure with the given code.
             handlersToClose.parallelStream()
                     .unordered()
-                    .forEach((handler) -> handler.endStreamWithCode(Code.PERSISTENCE_FAILED, true, blockNumber));
+                    .forEach((handler) -> handler.endStreamWithCode(endStreamCode, true, blockNumber));
             // Order matters here. Reordering these can lead to _extremely rare_
             // cases where we get unnecessary errors or a block is scheduled to be
             // resent that was never sent.
@@ -1445,6 +1543,65 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 return true;
             } else {
                 return false;
+            }
+        }
+    }
+
+    /// The operations the publisher manager must perform for a verification
+    /// failure, as resolved by [#resolveFailureAction(long,FailureInfo)].
+    ///
+    /// @param shouldResend true if a resend must be scheduled for the failed
+    /// block
+    /// @param endStreamCode the end of stream code to send when streams end,
+    /// null if the scope is [StreamScope#NO_STREAM_ACTION]
+    /// @param scope the scope of publisher streams to end
+    record FailureActionResult(boolean shouldResend, Code endStreamCode, StreamScope scope) {
+        /// The scope of publisher streams to end for a verification failure.
+        enum StreamScope {
+            /// All streams stay open.
+            NO_STREAM_ACTION,
+            /// Only the stream of the handler that supplied the failed block
+            /// ends; every other stream stays open.
+            END_SUPPLIER,
+            /// Every connected publisher's stream ends and all block tracking
+            /// is cleared.
+            END_ALL
+        }
+
+        /// Performs the resolved operations for the given failed block on
+        /// the given manager. A resend, unless the failure is informational,
+        /// meaning the same block was already verified successfully within
+        /// reasonable recency, is scheduled before any end of stream message
+        /// is sent. Streams then end according to the resolved scope: none,
+        /// only the supplying handler's stream, or every connected
+        /// publisher's stream, the latter also clearing all block tracking.
+        ///
+        /// @param blockNumber the block number that failed verification
+        /// @param failureInfo the failure information of the verification
+        /// @param manager the manager to perform the operations on
+        void handle(final long blockNumber, final FailureInfo failureInfo, final LiveStreamPublisherManager manager) {
+            // An informational failure happened after the same block was
+            // already verified successfully within reasonable recency, so
+            // no resend is scheduled for it.
+            if (shouldResend && !failureInfo.isInformational()) {
+                // Schedule a resend for the block before any end of stream message
+                manager.blocksToResend.add(blockNumber);
+            }
+            switch (scope) {
+                case NO_STREAM_ACTION -> {
+                    // All streams stay open, nothing to end.
+                }
+                case END_SUPPLIER -> {
+                    // Only the handler that supplied the failed block sends
+                    // the end of stream message; every other stream stays
+                    // open.
+                    for (final PublisherHandler handler : manager.handlers.values()) {
+                        if (handler.handleFailedVerification(blockNumber, endStreamCode)) {
+                            break;
+                        }
+                    }
+                }
+                case END_ALL -> manager.endAllHandlersAndClearTracking(blockNumber, endStreamCode);
             }
         }
     }

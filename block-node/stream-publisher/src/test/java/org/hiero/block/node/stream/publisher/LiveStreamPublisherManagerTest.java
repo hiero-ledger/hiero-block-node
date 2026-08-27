@@ -1361,18 +1361,18 @@ class LiveStreamPublisherManagerTest {
                         .containsExactly(block[block.length - 1]);
             }
 
-            // @todo(2977) this test might not be entirely true once we handle failure info
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
-            /// ignores a failed verification of type [FailureType#CANCELLED].
-            /// A cancelled verification session cannot be reliably attributed
-            /// to the publisher that supplied the block, so the manager must
-            /// only log the event. No responses of any kind are expected to be
-            /// sent, even by the handler that supplied the block, and no
-            /// metrics are expected to be updated.
+            /// ignores a failed verification of type [FailureType#CANCELLED_INCOMPLETE].
+            /// An incomplete session means the block was never fully received,
+            /// so it is already handled: either a resend was already scheduled,
+            /// or another source is supplying the block. The manager must only
+            /// log the event. No responses of any kind are expected to be sent,
+            /// even by the handler that supplied the block, and no metrics are
+            /// expected to be updated.
             @Test
-            @DisplayName("handleVerification() ignores CANCELLED failures, no responses of any kind sent")
-            void testHandleVerificationCancelledIgnored() {
+            @DisplayName("handleVerification() ignores CANCELLED_INCOMPLETE failures, no responses of any kind sent")
+            void testHandleVerificationIncompleteIgnored() {
                 // We need to send a request via the publisher handler first,
                 // This will properly update the internal state of the manager
                 // so we can assert correctly. We aim to increment the next
@@ -1392,12 +1392,13 @@ class LiveStreamPublisherManagerTest {
                 // was the next expected block.
                 publisherHandler.onNext(request);
                 endThisBlock(publisherHandler, block.number());
-                // Now, the verification session for the targeted block was
-                // cancelled. We can now build a verification notification with
-                // failed verification of type CANCELLED.
+                // Now, the verification session for the targeted block ended
+                // before the full block was received. We can now build a
+                // verification notification with failed verification of type
+                // CANCELLED_INCOMPLETE.
                 final VerificationNotification notification = new VerificationNotification(
                         false,
-                        FailureInfo.standard(FailureType.CANCELLED),
+                        FailureInfo.standard(FailureType.CANCELLED_INCOMPLETE),
                         block.number(),
                         null,
                         null,
@@ -1424,18 +1425,19 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            // @todo(2977) this test might not be entirely true once we handle failure info
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
             /// does not schedule a resend for a block whose verification failed
-            /// with [FailureType#CANCELLED]. If a resend were scheduled, the
+            /// with [FailureType#CANCELLED_INCOMPLETE]. An incomplete session means the
+            /// block was never fully received, so it is already handled and no
+            /// action is needed. If a resend were scheduled, the
             /// gap detection in handlePersisted() would clamp acknowledgements
-            /// below the cancelled block. We assert that a subsequent persisted
-            /// notification for the cancelled block is acknowledged normally.
+            /// below the incomplete block. We assert that a subsequent persisted
+            /// notification for the incomplete block is acknowledged normally.
             @Test
             @DisplayName(
-                    "handleVerification() does not schedule a resend for a CANCELLED failure, later persistence is acknowledged")
-            void testHandleVerificationCancelledNoResendScheduled() {
+                    "handleVerification() does not schedule a resend for a CANCELLED_INCOMPLETE failure, later persistence is acknowledged")
+            void testHandleVerificationIncompleteNoResendScheduled() {
                 // Establish lastPersisted=0 and advance nextUnstreamed past block 1 so
                 // handleVerification's failure branch fires.
                 assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
@@ -1443,10 +1445,16 @@ class LiveStreamPublisherManagerTest {
                 toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
                 assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
                         .isEqualTo(BlockAction.ACCEPT);
-                // Block 1's verification session is cancelled. The manager must
-                // ignore the notification and must not schedule a resend.
+                // Block 1's verification session ended before the full block
+                // was received. The block is already handled elsewhere, so the
+                // manager must only log the event.
                 toTest.handleVerification(new VerificationNotification(
-                        false, FailureInfo.standard(FailureType.CANCELLED), 1L, null, null, BlockSource.PUBLISHER));
+                        false,
+                        FailureInfo.standard(FailureType.CANCELLED_INCOMPLETE),
+                        1L,
+                        null,
+                        null,
+                        BlockSource.PUBLISHER));
                 // Clear the pipelines because acknowledgements have been sent
                 // due to the persisted notification for block 0.
                 responsePipeline.clear();
@@ -1471,21 +1479,30 @@ class LiveStreamPublisherManagerTest {
                         .returns(1L, acknowledgementBlockNumberExtractor);
             }
 
-            // @todo(2977) this test might not be entirely true once we handle failure info
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
-            /// will handle a failed verification of any type other than
-            /// [FailureType#CANCELLED]. The handler that supplied the failed
-            /// block is expected to send an EndOfStream response with
-            /// [Code#BAD_BLOCK_PROOF] and to shut down.
+            /// will handle a failed verification of a type that indicates a
+            /// Block Node fault or capability limitation by ending every
+            /// connected publisher's stream. No retry against this node can
+            /// succeed for these types, so every registered handler,
+            /// including ones that did not supply the failed block, is
+            /// expected to send an EndOfStream response with [Code#ERROR]
+            /// and to shut down, encouraging the publishers to connect to a
+            /// healthy Block Node. All block tracking is cleared, so no
+            /// resend is expected to be scheduled for the failed block.
             @ParameterizedTest
             @EnumSource(
                     value = FailureType.class,
-                    names = {"CANCELLED"},
-                    mode = EnumSource.Mode.EXCLUDE)
+                    names = {
+                        "MISSING_VERIFICATION_DATA",
+                        "UNKNOWN_ERROR",
+                        "UNRECOGNIZED_PROOF_TYPE",
+                        "UNSUPPORTED_HAPI_VERSION",
+                        "UNSUPPORTED_ITEM_TYPE"
+                    })
             @DisplayName(
-                    "handleVerification() BAD_BLOCK_PROOF response is sent for every failure type other than CANCELLED")
-            void testHandleVerificationNonCancelledFailureTypes(final FailureType failureType) {
+                    "handleVerification() ERROR response is sent to all registered handlers for Block Node fault failure types")
+            void testHandleVerificationEndAllStreamsFailureTypes(final FailureType failureType) {
                 // We need to send a request via the publisher handler first,
                 // This will properly update the internal state of the manager
                 // so we can assert correctly. We aim to increment the next
@@ -1511,8 +1528,233 @@ class LiveStreamPublisherManagerTest {
                         false, FailureInfo.standard(failureType), block.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
-                // Assert that the response pipeline has received a BAD_BLOCK_PROOF response, because the
-                // publisher we used has sent the block that failed verification.
+                // Assert that the supplying handler's pipeline has received
+                // an ERROR response.
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.ERROR, endStreamResponseCodeExtractor)
+                        // below block number in the response is the latest known, -1L because none are stored
+                        .returns(-1L, endStreamBlockNumberExtractor);
+                // Assert that the second handler's pipeline has also received
+                // an ERROR response, even though it did not supply the block
+                // that failed verification.
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.ERROR, endStreamResponseCodeExtractor)
+                        // below block number in the response is the latest known, -1L because none are stored
+                        .returns(-1L, endStreamBlockNumberExtractor);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(2);
+                // As a pre-check, we expect no onComplete calls
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isZero();
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isZero();
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
+                // Assert that both handlers have completed their pipelines
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(1);
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
+                // Assert that no resend was scheduled for the failed block,
+                // all block tracking was cleared: a subsequent persisted
+                // notification for it must be acknowledged normally.
+                toTest.handlePersisted(new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getLatestBlockNumber())
+                        .as("latest known block must advance, no resend is pending for the failed block")
+                        .isEqualTo(block.number());
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// will handle a failed verification of a resend only type by only
+            /// scheduling a resend for the failed block. These are the
+            /// unparseable or malformed block types, where the block is not
+            /// proven bad and there is no indication of malice, so a retry
+            /// may succeed, and the cancelled type, where the complete block
+            /// was received but the session was cancelled before producing a
+            /// result, so the publishers consider the block delivered and
+            /// nothing else will supply it. No end of stream is expected to
+            /// be sent and no handler is expected to be shut down, all
+            /// streams stay open.
+            @ParameterizedTest
+            @EnumSource(
+                    value = FailureType.class,
+                    names = {
+                        "UNABLE_TO_PARSE",
+                        "MISSING_MANDATORY_FIELD",
+                        "MISSING_MANDATORY_ITEM",
+                        "UNSUPPORTED_STREAM_FORMAT",
+                        "CANCELLED"
+                    })
+            @DisplayName("handleVerification() schedules a resend and keeps streams open for resend only failure types")
+            void testHandleVerificationResendOnlyFailureTypes(final FailureType failureType) {
+                // Establish lastPersisted=0 and advance nextUnstreamed past block 1 so
+                // handleVerification's failure branch fires.
+                assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                // Clear the pipelines because acknowledgements have been sent
+                // due to the persisted notification for block 0.
+                responsePipeline.clear();
+                responsePipeline2.clear();
+                // Block 1 fails verification with a resend only type.
+                // The manager must schedule a resend and keep all streams open.
+                toTest.handleVerification(new VerificationNotification(
+                        false, FailureInfo.standard(failureType), 1L, null, null, BlockSource.PUBLISHER));
+                // Assert that no end of stream was sent and no handler was
+                // shut down.
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(0);
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(0);
+                // Block 1 is persisted. Because a resend is pending for it, gap
+                // detection must clamp the acknowledgement below block 1.
+                toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getLatestBlockNumber())
+                        .as("latest known block must stay at block 0, a resend is pending for block 1")
+                        .isEqualTo(0L);
+                // Assert that no acknowledgement was sent for block 1.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnNextCalls()).isEmpty();
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// takes no observable action for an informational failure of a
+            /// type that does not end the supplying stream. An informational
+            /// failure means the same block was already verified successfully
+            /// within reasonable recency, so it is handled the same as a
+            /// standard one, except that no resend is scheduled. For these
+            /// types that leaves nothing to do. No responses of any kind are
+            /// expected to be sent, no resend is expected to be scheduled and
+            /// no metrics are expected to be updated.
+            @ParameterizedTest
+            @EnumSource(
+                    value = FailureType.class,
+                    names = {
+                        "UNABLE_TO_PARSE",
+                        "MISSING_MANDATORY_FIELD",
+                        "MISSING_MANDATORY_ITEM",
+                        "UNSUPPORTED_STREAM_FORMAT",
+                        "CANCELLED",
+                        "CANCELLED_INCOMPLETE"
+                    })
+            @DisplayName(
+                    "handleVerification() takes no action for informational failures of types that do not end the stream")
+            void testHandleVerificationInformationalIgnored(final FailureType failureType) {
+                // We need to send a request via the publisher handler first,
+                // This will properly update the internal state of the manager
+                // so we can assert correctly. We aim to increment the next
+                // unstreamed block number to 1L so we have a gap between
+                // latest persisted (which should be -1L) and next unstreamed.
+                // This is an expected condition during normal operation.
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the publisher handler.
+                // This will update the next unstreamed block number to 1L as
+                // soon as we start streaming, i.e. a handler has queried the
+                // manager for a block action for block 0L and at that point it
+                // was the next expected block.
+                publisherHandler.onNext(request);
+                endThisBlock(publisherHandler, block.number());
+                // The targeted block was already verified successfully within
+                // reasonable recency, so this failure is informational.
+                final VerificationNotification notification = new VerificationNotification(
+                        false,
+                        FailureInfo.informational(failureType),
+                        block.number(),
+                        null,
+                        null,
+                        BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that no shared metrics are updated
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                // Assert that no responses of any kind have been sent.
+                // Notably, the handler that supplied the block must not have
+                // sent an EndOfStream of any kind.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
+                // Assert that no resend was scheduled for the block: a
+                // subsequent persisted notification for it must be
+                // acknowledged normally.
+                // We run the queued messaging forwarder first so that the
+                // in-flight queue does not clamp the acknowledgement.
+                threadPoolManager.executor().executeAsync(1_000L, false);
+                toTest.handlePersisted(new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getLatestBlockNumber())
+                        .as("latest known block must advance, no resend is pending for the block")
+                        .isEqualTo(block.number());
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// handles an informational failure of type
+            /// [FailureType#BAD_BLOCK_PROOF] the same as a standard one,
+            /// except that no resend is scheduled. The handler that supplied
+            /// the failed block is expected to send an EndOfStream response
+            /// with [Code#BAD_BLOCK_PROOF] and to shut down.
+            @Test
+            @DisplayName(
+                    "handleVerification() BAD_BLOCK_PROOF response is sent but no resend is scheduled for an informational bad proof failure")
+            void testHandleVerificationInformationalBadBlockProof() {
+                // We need to send a request via the publisher handler first,
+                // This will properly update the internal state of the manager
+                // so we can assert correctly. We aim to increment the next
+                // unstreamed block number to 1L so we have a gap between
+                // latest persisted (which should be -1L) and next unstreamed.
+                // This is an expected condition during normal operation.
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the publisher handler.
+                publisherHandler.onNext(request);
+                endThisBlock(publisherHandler, block.number());
+                // The targeted block was already verified successfully within
+                // reasonable recency, so this failure is informational.
+                final VerificationNotification notification = new VerificationNotification(
+                        false,
+                        FailureInfo.informational(FailureType.BAD_BLOCK_PROOF),
+                        block.number(),
+                        null,
+                        null,
+                        BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that the response pipeline has received a
+                // BAD_BLOCK_PROOF response, because the publisher we used has
+                // sent the block that failed verification.
                 final List<PublishStreamResponse> onNextCalls = responsePipeline.getOnNextCalls();
                 assertThat(onNextCalls)
                         .hasSize(1)
@@ -1525,20 +1767,101 @@ class LiveStreamPublisherManagerTest {
                 // We expect a shutdown to be scheduled
                 // We need to send any request or trigger any pipeline method
                 // to do the actual shutdown
-                // As a pre-check, we expect no onComplete calls
-                assertThat(responsePipeline.getOnCompleteCalls().get()).isZero();
                 publisherHandler.onNext(request);
                 // Invoke the delayed shutdown so it actually runs
                 threadPoolManager.scheduledExecutor().executeSerially();
-                // Assert that no more responses are sent
-                assertThat(onNextCalls).isEmpty();
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
                         .isEqualTo(1);
-                // Assert no other responses sent
-                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
-                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+                // Assert that no resend was scheduled for the block: a
+                // subsequent persisted notification for it must be
+                // acknowledged normally.
+                // We run the queued messaging forwarder first so that the
+                // in-flight queue does not clamp the acknowledgement.
+                threadPoolManager.executor().executeAsync(1_000L, false);
+                toTest.handlePersisted(new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getLatestBlockNumber())
+                        .as("latest known block must advance, no resend is pending for the block")
+                        .isEqualTo(block.number());
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// handles an informational failure of a Block Node fault or
+            /// capability limitation type the same as a standard one. The
+            /// Block Node fault is present regardless of the same block
+            /// having been verified successfully within reasonable recency,
+            /// so every registered handler is still expected to send an
+            /// EndOfStream response with [Code#ERROR] and to shut down. No
+            /// resend is expected to be scheduled for the failed block.
+            @ParameterizedTest
+            @EnumSource(
+                    value = FailureType.class,
+                    names = {
+                        "MISSING_VERIFICATION_DATA",
+                        "UNKNOWN_ERROR",
+                        "UNRECOGNIZED_PROOF_TYPE",
+                        "UNSUPPORTED_HAPI_VERSION",
+                        "UNSUPPORTED_ITEM_TYPE"
+                    })
+            @DisplayName(
+                    "handleVerification() ERROR response is sent to all registered handlers for informational failures of Block Node fault types")
+            void testHandleVerificationInformationalEndAllStreams(final FailureType failureType) {
+                // We need to send a request via the publisher handler first,
+                // This will properly update the internal state of the manager
+                // so we can assert correctly. We aim to increment the next
+                // unstreamed block number to 1L so we have a gap between
+                // latest persisted (which should be -1L) and next unstreamed.
+                // This is an expected condition during normal operation.
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the publisher handler.
+                publisherHandler.onNext(request);
+                endThisBlock(publisherHandler, block.number());
+                // The targeted block was already verified successfully within
+                // reasonable recency, so this failure is informational.
+                final VerificationNotification notification = new VerificationNotification(
+                        false,
+                        FailureInfo.informational(failureType),
+                        block.number(),
+                        null,
+                        null,
+                        BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that both handlers' pipelines have received an ERROR
+                // response, the Block Node fault ends every publisher stream.
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.ERROR, endStreamResponseCodeExtractor)
+                        // below block number in the response is the latest known, -1L because none are stored
+                        .returns(-1L, endStreamBlockNumberExtractor);
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.ERROR, endStreamResponseCodeExtractor)
+                        // below block number in the response is the latest known, -1L because none are stored
+                        .returns(-1L, endStreamBlockNumberExtractor);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(2);
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(1);
+                // Assert that no resend was scheduled for the block: a
+                // subsequent persisted notification for it must be
+                // acknowledged normally.
+                toTest.handlePersisted(new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getLatestBlockNumber())
+                        .as("latest known block must advance, no resend is pending for the block")
+                        .isEqualTo(block.number());
             }
         }
 

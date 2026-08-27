@@ -10,6 +10,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -49,6 +50,10 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     private final ConcurrentSkipListSet<SessionKey> finishedSessions;
     /// The composite key of the owning session.
     private final SessionKey sessionKey;
+    /// Flag raised by the owning session when the batch ending the block has
+    /// been received, used to discriminate a cancelled complete block from an
+    /// incomplete one.
+    private final AtomicBoolean endOfBlockReceived;
 
     /// Constructor.
     ///
@@ -62,6 +67,8 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     /// @param blockSource the source of the block, must not be null
     /// @param finishedSessions the set to add the session's key to when handled, must not be null
     /// @param sessionKey the composite key of the owning session, must not be null
+    /// @param endOfBlockReceived flag raised by the owning session when the batch ending the
+    ///     block has been received, must not be null
     public SessionResultHandler(
             final BlockNodeContext context,
             final VerificationConfig verificationConfig,
@@ -72,7 +79,8 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
             final long blockNumber,
             final BlockSource blockSource,
             final ConcurrentSkipListSet<SessionKey> finishedSessions,
-            final SessionKey sessionKey) {
+            final SessionKey sessionKey,
+            final AtomicBoolean endOfBlockReceived) {
         this.context = Objects.requireNonNull(context);
         this.verificationConfig = Objects.requireNonNull(verificationConfig);
         this.sessionResultMetrics = Objects.requireNonNull(sessionResultMetrics);
@@ -82,6 +90,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
         this.finishedSessions = Objects.requireNonNull(finishedSessions);
         this.sessionKey = Objects.requireNonNull(sessionKey);
+        this.endOfBlockReceived = Objects.requireNonNull(endOfBlockReceived);
         if (blockNumber < 0) {
             throw new IllegalArgumentException("Block number must be non-negative");
         } else {
@@ -180,7 +189,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
                 case CancellationException ignored ->
                     new VerificationNotification(
                             false,
-                            getFailureInfo(blockNumber, SessionFailureType.CANCELLED),
+                            getFailureInfo(blockNumber, resolveCancellationType()),
                             blockNumber,
                             null,
                             null,
@@ -219,9 +228,16 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         final Throwable cause = ce.getCause();
         if (cause instanceof VerificationSessionFailedException vfe) {
             // instanceof covers null also
+            // A stage reports a plain cancellation when it is stopped before
+            // producing a result. Only the session knows whether the full
+            // block was received, so the refinement happens here.
+            final SessionFailureType reportedFailureType = vfe.getFailureType();
+            final SessionFailureType actualFailureType = reportedFailureType == SessionFailureType.CANCELLED
+                    ? resolveCancellationType()
+                    : reportedFailureType;
             return new VerificationNotification(
                     false,
-                    getFailureInfo(vfe.getBlockNumber(), vfe.getFailureType()),
+                    getFailureInfo(vfe.getBlockNumber(), actualFailureType),
                     vfe.getBlockNumber(),
                     null,
                     null,
@@ -279,6 +295,17 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         if (recentlyVerifiedBlocks.size() > verificationConfig.recentlyVerifiedBlocksBufferSize()) {
             recentlyVerifiedBlocks.pollFirst();
         }
+    }
+
+    /// Resolve the failure type for a session that was stopped before
+    /// producing a result. A cancellation of a complete block means the
+    /// supplier considers the block delivered, while an incomplete block was
+    /// abandoned by the supplier before it ever finished.
+    ///
+    /// @return [SessionFailureType#CANCELLED] when the batch ending the block
+    ///     was received, [SessionFailureType#CANCELLED_INCOMPLETE] otherwise
+    private SessionFailureType resolveCancellationType() {
+        return endOfBlockReceived.get() ? SessionFailureType.CANCELLED : SessionFailureType.CANCELLED_INCOMPLETE;
     }
 
     /// Construct a [FailureInfo] in case of a failed session.

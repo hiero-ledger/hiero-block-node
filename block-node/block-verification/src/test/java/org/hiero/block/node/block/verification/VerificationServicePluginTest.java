@@ -924,6 +924,8 @@ class VerificationServicePluginTest {
         /// This test aims to verify that when the active sessions buffer is full and a new session comes,
         /// the lowest active session will be canceled to make room, so long as the lowest active session is not
         /// the one we just submitted.
+        /// Because the evicted session had already received its complete block, the failure is reported
+        /// with the CANCELLED failure type and not CANCELLED_INCOMPLETE.
         @Test
         @DisplayName(
                 "Active Sessions Buffer - cancel lowest session when buffer full and new submission is not the lowest active session")
@@ -943,6 +945,42 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
+                    .returns(block2.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that when the active sessions buffer is full and the lowest active
+        /// session is evicted while it has not yet received the batch that ends its block, the eviction
+        /// is reported with the CANCELLED_INCOMPLETE failure type and not CANCELLED. Here block 2 is
+        /// supplied by the publisher as a header only batch, so its session never receives the end of
+        /// the block. Blocks 3 and 4 are then supplied as backfilled blocks, which do not supersede the
+        /// live publisher session, filling the buffer and forcing the eviction of the incomplete
+        /// session for block 2.
+        @Test
+        @DisplayName(
+                "Active Sessions Buffer - evicted session that has not received its full block reports CANCELLED_INCOMPLETE")
+        void testEvictIncompleteLowestActiveSessionWhenBufferFullReportsIncomplete()
+                throws IOException, ParseException {
+            final List<ResourceTestWRBBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRBBlocks);
+            final ResourceTestWRBBlock block2 = loadedBlocks.get(2);
+            final ResourceTestWRBBlock block3 = loadedBlocks.get(3);
+            final ResourceTestWRBBlock block4 = loadedBlocks.get(4);
+            updateAddressBook(block2.nodeAddressBook());
+            final BlockItems headerOnly =
+                    new BlockItems(List.of(block2.getHeaderUnparsed()), block2.number(), true, false);
+            plugin.handleBlockItemsReceived(headerOnly);
+            plugin.handleBackfilled(block3.asBackfilledNotification());
+            plugin.handleBackfilled(block4.asBackfilledNotification());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.CANCELLED_INCOMPLETE),
+                            VerificationNotification::failureInfo)
                     .returns(block2.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
@@ -1075,7 +1113,7 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(
-                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            FailureInfo.standard(FailureType.MISSING_MANDATORY_ITEM),
                             VerificationNotification::failureInfo)
                     .returns(block0.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
@@ -1101,7 +1139,7 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(
-                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            FailureInfo.standard(FailureType.MISSING_MANDATORY_ITEM),
                             VerificationNotification::failureInfo)
                     .returns(reportedBlockNumber, VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
@@ -1125,7 +1163,7 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(
-                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            FailureInfo.standard(FailureType.MISSING_MANDATORY_ITEM),
                             VerificationNotification::failureInfo)
                     .returns(block0.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.BACKFILL, VerificationNotification::source)
@@ -1152,7 +1190,7 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(
-                            FailureInfo.standard(FailureType.MISSING_VERIFICATION_DATA),
+                            FailureInfo.standard(FailureType.MISSING_MANDATORY_ITEM),
                             VerificationNotification::failureInfo)
                     .returns(reportedBlockNumber, VerificationNotification::blockNumber)
                     .returns(BlockSource.BACKFILL, VerificationNotification::source)
@@ -1310,11 +1348,13 @@ class VerificationServicePluginTest {
         /// This test aims to assert that when we receive the start of a new block via the Live RB (Publisher Source),
         /// but we have not yet received the last item for the current live publisher session, the current live
         /// publisher session will be canceled and the newly received block will start a new session.
-        /// The block proof type is irrelevant for this test. Also, it is irrelevant which block will be started
-        /// in the middle of current session.
+        /// Here the publisher restarts the same block: the new start carries the same block number as the
+        /// active session. Because the superseded session never received the batch that ends its block, the
+        /// failure is reported with the CANCELLED_INCOMPLETE failure type and not CANCELLED.
+        /// The block proof type is irrelevant for this test.
         @Test
         @DisplayName(
-                "Live RB Ingestion - Cancel Current Live Session When New Block Received While Not Finished Current One")
+                "Live RB Ingestion - Cancel Current Live Session When Same Block Restarted While Not Finished Current One")
         void testLiveRBIngestionCancelLiveSessionWhenNewBlockReceivedAndCurrentNotComplete() {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
                     org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(TssBlockSigner.create())
@@ -1331,7 +1371,49 @@ class VerificationServicePluginTest {
                     .hasSize(1)
                     .first()
                     .returns(false, VerificationNotification::success)
-                    .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
+                    .returns(
+                            FailureInfo.standard(FailureType.CANCELLED_INCOMPLETE),
+                            VerificationNotification::failureInfo)
+                    .returns(genesis.block().number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that when we receive the start of a different block via the Live RB
+        /// (Publisher Source), but we have not yet received the last item for the current live publisher
+        /// session, the current live publisher session will be canceled and the newly received block will
+        /// start a new session. Here the publisher moves on to the next block, abandoning the current one.
+        /// Because the superseded session never received the batch that ends its block, the failure is
+        /// reported with the CANCELLED_INCOMPLETE failure type and not CANCELLED.
+        /// The block proof type is irrelevant for this test.
+        @Test
+        @DisplayName(
+                "Live RB Ingestion - Cancel Current Live Session When Different Block Received While Not Finished Current One")
+        void testLiveRBIngestionCancelLiveSessionWhenDifferentBlockReceivedAndCurrentNotComplete() {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder chain =
+                    org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(TssBlockSigner.create());
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
+                    chain.genesisWithPublication();
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed nextBlock = chain.next(1L);
+            plugin.handleBlockItemsReceived(new BlockItems(
+                    List.of(genesis.block().getHeaderUnparsed()),
+                    genesis.block().number(),
+                    true,
+                    false));
+            plugin.handleBlockItemsReceived(new BlockItems(
+                    List.of(nextBlock.block().getHeaderUnparsed()),
+                    nextBlock.block().number(),
+                    true,
+                    false));
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.CANCELLED_INCOMPLETE),
+                            VerificationNotification::failureInfo)
                     .returns(genesis.block().number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)

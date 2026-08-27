@@ -202,8 +202,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 if (validateStartOfBlock(blockItems)) {
                     sessionHandler.processBlockItems(blockItems, source);
                 } else {
-                    safeSendNotification(
-                            blockItems.blockNumber(), source, SessionFailureType.MISSING_VERIFICATION_DATA);
+                    safeSendNotification(blockItems.blockNumber(), source, SessionFailureType.MISSING_MANDATORY_ITEM);
                 }
             } else {
                 LOGGER.log(INFO, "Received null block items on live items ring buffer");
@@ -239,8 +238,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 if (validateStartOfBlock(blockItems)) {
                     sessionHandler.processBlockItems(blockItems, source);
                 } else {
-                    safeSendNotification(
-                            blockItems.blockNumber(), source, SessionFailureType.MISSING_VERIFICATION_DATA);
+                    safeSendNotification(blockItems.blockNumber(), source, SessionFailureType.MISSING_MANDATORY_ITEM);
                 }
             } else {
                 LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);

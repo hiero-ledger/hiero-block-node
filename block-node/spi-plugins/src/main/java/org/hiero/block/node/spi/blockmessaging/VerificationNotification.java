@@ -53,8 +53,15 @@ public record VerificationNotification(
         /// is not a processable block stream (for example an item that carries more than one
         /// field, or a mandatory once per block item that appears more than once)
         UNSUPPORTED_STREAM_FORMAT,
-        /// This type indicates that the session was cancelled
+        /// This type indicates that the session was cancelled after the
+        /// complete block was received, for example evicted from the active
+        /// sessions buffer or shut down before completing
         CANCELLED,
+        /// This type indicates that the session ended before the full block
+        /// was received, for example the publisher started a new block and
+        /// abandoned the current one, or an incomplete session was cancelled
+        /// for any other reason
+        CANCELLED_INCOMPLETE,
         /// This type indicates that an unknown error occurred
         UNKNOWN_ERROR
     }
