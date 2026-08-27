@@ -100,6 +100,7 @@ start_solo() {
     (
     pushd "../scripts/solo-e2e-test" || return
     echo "TOPOLOGY=minimal" > .env
+    echo "CN_VERSION=latest" > .env
     task up
     if [[ $? -ne 0 ]]; then
         echo "FAILED TO START SOLO"
