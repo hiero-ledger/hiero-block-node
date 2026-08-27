@@ -2908,7 +2908,7 @@ class PublisherHandlerTest {
         /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)]. The
         /// ceiling is sourced from the server configuration
         /// `maxMessageSizeBytes` via
-        /// [StreamPublisherManager#maxTotalBlockBytes()].
+        /// [StreamPublisherManager#serverConfiguration()].
         @Nested
         @DisplayName("Cumulative Block Byte Ceiling Tests")
         class CumulativeBlockByteCeilingTest {

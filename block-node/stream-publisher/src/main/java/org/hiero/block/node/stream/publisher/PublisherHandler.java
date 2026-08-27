@@ -164,7 +164,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         isActive = new AtomicBoolean(true);
         shutdownActive = new AtomicBoolean(false);
         configuration = publisherManager.configuration();
-        maxTotalBlockBytes = publisherManager.maxTotalBlockBytes();
+        maxTotalBlockBytes = publisherManager.serverConfiguration().maxMessageSizeBytes();
         messageBudget = new AtomicLong(configuration.perHandlerMessageBudget());
     }
 
@@ -692,21 +692,13 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             currentBlockQueue.set(newBlockQueue);
             publisherManager.registerQueueForBlock(handlerId, newBlockQueue, blockNumber);
         }
-        final long newBlockTotalBytes =
-                currentBlockBytes + BlockItemSetUnparsed.PROTOBUF.measureRecord(itemSetUnparsed);
-        currentBlockBytes = newBlockTotalBytes;
+        currentBlockBytes += BlockItemSetUnparsed.PROTOBUF.measureRecord(itemSetUnparsed);
         final PublisherRequestResult result;
-        if (newBlockTotalBytes > maxTotalBlockBytes) {
+        if (currentBlockBytes > maxTotalBlockBytes) {
             final String message =
                     "[{0}] Handler {1} disconnecting publisher, block {2} exceeds the cumulative byte ceiling: {3} > {4}";
             LOGGER.log(
-                    DEBUG,
-                    message,
-                    correlationIdPrefix,
-                    handlerId,
-                    blockNumber,
-                    newBlockTotalBytes,
-                    maxTotalBlockBytes);
+                    DEBUG, message, correlationIdPrefix, handlerId, blockNumber, currentBlockBytes, maxTotalBlockBytes);
             metrics.disconnectedOversize.increment();
             result = new SendEndAndShutdownResult(this, Code.INVALID_REQUEST, blockNumber);
         } else {

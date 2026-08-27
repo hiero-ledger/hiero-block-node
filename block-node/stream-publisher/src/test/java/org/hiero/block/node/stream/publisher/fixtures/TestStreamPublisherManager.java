@@ -182,8 +182,8 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     }
 
     @Override
-    public int maxTotalBlockBytes() {
-        return testConfiguration.getConfigData(ServerConfig.class).maxMessageSizeBytes();
+    public ServerConfig serverConfiguration() {
+        return testConfiguration.getConfigData(ServerConfig.class);
     }
 
     @Override

@@ -8,6 +8,7 @@ import java.util.Deque;
 import java.util.concurrent.ScheduledFuture;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.BlockItemSetUnparsed;
+import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 
 /// todo(1420) add documentation
@@ -96,11 +97,9 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     /// @return The plugin configuration data.
     PublisherConfig configuration();
 
-    /// Get the maximum cumulative serialized size in bytes accepted for a
-    /// single block across all messages of a publish stream. Sourced from
-    /// the server configuration `maxMessageSizeBytes`.
-    /// @return the maximum total size in bytes accepted for a single block
-    int maxTotalBlockBytes();
+    /// Get the current configuration of the server.
+    /// @return The server configuration data.
+    ServerConfig serverConfiguration();
 
     /// The action to take within the PublisherHandler for a block.
     enum BlockAction {
