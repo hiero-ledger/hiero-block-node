@@ -13,8 +13,9 @@
 # to take effect.
 #
 # After this point no new record files are produced for wrb-cli to wrap:
-# every BN and MN must get all subsequent blocks purely through the CN -> BN3
-# gRPC stream (step 8) and its downstream backfill/consumption chain
+# every BN and MN must get all subsequent blocks purely through the CN -> BN1
+# gRPC stream (reconfigure-cn-to-push-bn1.sh, which runs first so HapiApp
+# starts with BN1-only config) and its downstream backfill/consumption chain
 # (steps 6-7, 9-10) — see assert-cutover-sync.sh.
 #
 # Reads:

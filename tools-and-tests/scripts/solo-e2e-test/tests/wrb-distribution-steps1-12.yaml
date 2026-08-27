@@ -7,7 +7,7 @@
 # timeline, then layers the TSS cutover and its validation on top:
 #
 #   1-2.  Solo brings up CN+MN, wrb-cli baseline wrap, live-wrap loop forked.
-#   3-5.  Add BN1/BN2/BN3, EMB=0/0/100_000_000, assert per-BN EMB.
+#   3-5.  Add BN1/BN2/BN3, EMB=0/0/0, assert per-BN EMB.
 #   6.    Reconfigure MN1's importer env to also pull live blocks from
 #         BN2/BN3 (bucket source remains as records backup).
 #   7.    Install MN2 v0.157.1 pointing at BN2/BN3 with no bucket reference
@@ -49,9 +49,13 @@
 #         upgrade — never block 0 — meaning that mechanism could never have
 #         worked here regardless of whether backfill itself succeeded.
 #   12.   Stop CN record-file production (stop-cn-record-production.sh,
-#         blockStream.writerMode -> GRPC, simulating the real cutover) and
-#         validate all 3 BNs and both MNs converge on the same
-#         last-available block (assert-cutover-sync.sh).
+#         blockStream.writerMode -> GRPC, simulating the real cutover), then
+#         redirect CN's GRPC stream from BN3 to BN1
+#         (reconfigure-cn-to-push-bn1.sh) so BN1 remains the live Tier-0
+#         receiver — matching the 160-workflow's post-TSS_SIGN architecture.
+#         BN2/BN3 (already configured to backfill from BN1 in step 10) catch
+#         up as BN1 grows, and assert-cutover-sync.sh validates all 5 nodes
+#         (BN1/BN2/BN3/MN1/MN2) converge on the same last-available block.
 #
 # The live-wrap/live-push background workers are stopped BEFORE step 12:
 # once record-file production stops there is nothing new left for wrb-cli to
@@ -119,7 +123,7 @@ events:
 
   - id: add-bn3
     type: command
-    description: "Add BN3 (Tier-1, EMB=100_000_000) via solo block node add and wait for Ready"
+    description: "Add BN3 (Tier-1, EMB=0) via solo block node add and wait for Ready"
     delay: 230
     timeout: 300
     args:
@@ -237,24 +241,6 @@ events:
       # empty-store bootstrap deadlock applies to BN3.
       script: "BACKFILL_GREEDY=true ${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-backfill.sh 3"
 
-  - id: reconfigure-bn1-roster-bootstrap-rsa
-    type: command
-    description: "Step 10: point BN1 at the Mirror Node for its RSA roster so live-push accepts pre-upgrade blocks"
-    delay: 478
-    timeout: 300
-    args:
-      # BN1 starts with no RSA roster configured (empty roster.bootstrap.rsa.* defaults),
-      # which means RSAProofVerifier returns MISSING_VERIFICATION_DATA for every live-pushed
-      # pre-upgrade block — causing the live-push loop to stall permanently on block ~53 and
-      # never reach the post-upgrade TSS-signed blocks that BN1 CAN accept once TssData is
-      # staged onto it. Giving BN1 a Mirror-Node-sourced RSA roster lets RSA verification
-      # pass for wrapped pre-upgrade blocks (53-66), so live-push can advance BN1's
-      # historical tier all the way to the TSS boundary before TssData lands.
-      # NOTE: BN2/BN3 do NOT use the Mirror Node roster; their RSA keys are seeded
-      # directly from CN pods via seed-bn-rsa-address-book.sh (the Mirror Node returns
-      # Helm-value keys that don't match the actual CN signing keys).
-      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-bn-roster-bootstrap-rsa.sh 1"
-
   - id: assert-bn-backfill-source
     type: command
     description: "Assert BN2 and BN3 are both configured to backfill from BN1"
@@ -338,23 +324,31 @@ events:
   #    ExtendedMerkleTreeSession.verifyRsaProof → BAD_BLOCK_PROOF for every
   #    block. BN2/BN3 stay permanently stuck at block 16.
   #
+  # The same key-mismatch problem applies to BN1 for live-push: BN1 starts with
+  # an empty RSA roster (MISSING_VERIFICATION_DATA for blocks 17+) and the Mirror
+  # Node would supply the same wrong Helm keys (confirmed: same failure path as
+  # BN2/BN3, just for the live-push stream rather than backfill). The Mirror Node
+  # reconfigure approach was tried for BN1 (reconfigure-bn-roster-bootstrap-rsa.sh 1)
+  # but it worsened the situation: iter 2+ of live-push all failed with rc=1 after
+  # BN1 restarted with wrong keys. BN1 is now seeded here alongside BN2/BN3.
+  #
   # Fix: extract the actual s-public-*.pem signing keys directly from CN pods,
   # write them as a legacy NodeAddressBook JSON to each BN's PVC.
   # BlockNodeApp.loadApplicationState() falls back to the NodeAddressBook parser
   # (the "addressBooks" field is absent) and wraps the book in a synthetic era
   # spanning startBlock=0, endBlock=-1, so getAddressBookForBlock(N) returns a
   # non-null era for every N including block 17 and beyond.
-  - id: seed-bn2-bn3-rsa-address-book
+  - id: seed-bn1-bn2-bn3-rsa-address-book
     type: command
-    description: "Seed correct RSA signing keys onto BN2/BN3's PVC and restart so BackfillPlugin can verify all pre-TSS blocks"
+    description: "Seed correct RSA signing keys onto BN1/BN2/BN3's PVC and restart so live-push (BN1) and BackfillPlugin (BN2/BN3) can verify all pre-TSS blocks"
     delay: 640
     timeout: 720
     args:
-      script: "${SCRIPT_DIR}/wrb-distribution/seed-bn-rsa-address-book.sh 2 3"
+      script: "${SCRIPT_DIR}/wrb-distribution/seed-bn-rsa-address-book.sh 1 2 3"
 
   - id: refresh-port-forwards-after-seed-restart
     type: port-forward
-    description: "Re-forward BN2/BN3 ports after the RSA seed restart"
+    description: "Re-forward all BN ports after the RSA seed restart (BN1/BN2/BN3 all restarted)"
     delay: 670
 
   # Diagnostic: capture the exact failure reason from BN2's (and BN3's) logs for block 17
@@ -410,19 +404,20 @@ events:
   # documented elsewhere as cosmetic -- so there's no crash risk in leaving
   # it running through cn-upgrade-tss like this.
 
-  # Step 11 — TSS cutover. Canonical flow (per issue #3125 step 11 and the
-  # node-operator runbook), implemented across four scripts:
-  #   1. cn-upgrade-tss.sh: upgrade the 3 CNs to a TSS/WRAPS-native version
-  #      via a real FREEZE_UPGRADE. This is what makes the CN emit a
-  #      LedgerIdPublication transaction into the record stream — NOT an
-  #      automatic BN-side effect. (Block-verification's BlockHasher only
-  #      extracts TssData while processing block number 0, which is designed
-  #      for a network with TSS already active at genesis, not one upgraded
-  #      mid-life like this one — the LedgerIdPublication here lands in
-  #      whatever block the CN produces after the upgrade, not block 0. This
-  #      is why the previous design, which relied on BN2/BN3 backfilling
-  #      block 0 from BN1, could never have worked: block 0 never contained
-  #      the transaction to begin with.)
+  # Step 11 — TSS cutover. Mirrors the 160-workflow's two-phase CN upgrade
+  # (TSS_ENABLE then TSS_SIGN). Canonical flow (per issue #3125 step 11 and the
+  # node-operator runbook), implemented across six scripts:
+  #   1. cn-upgrade-tss.sh v0.76.1 (Phase 1 / TSS_ENABLE): upgrade the 3 CNs
+  #      to v0.76.1, the first GA release with native WRAPS proving key support,
+  #      enabling TSS. This is what makes the CN emit a LedgerIdPublication
+  #      transaction into the record stream — NOT an automatic BN-side effect.
+  #      (Block-verification's BlockHasher only extracts TssData while processing
+  #      block number 0, which is designed for a network with TSS already active
+  #      at genesis, not one upgraded mid-life like this one — the
+  #      LedgerIdPublication here lands in whatever block the CN produces after
+  #      the upgrade, not block 0. This is why the previous design, which relied
+  #      on BN2/BN3 backfilling block 0 from BN1, could never have worked: block
+  #      0 never contained the transaction to begin with.)
   #   2. detect-tss-enablement.sh: wrb-cli downloads the new post-upgrade
   #      record file(s), wraps them, and runs `blocks validate` — which now
   #      has TssEnablementValidation wired in (see ValidateBlocksCommand.java)
@@ -431,33 +426,37 @@ events:
   #      its APP_STATE_TSS_BOOTSTRAP_FILE_PATH and restarts it, so
   #      BlockNodeApp.loadApplicationState() loads it on startup.
   #   4. BN1's serverStatusDetail now reports the staged TssData directly —
-  #      checked first, below. BN2 and BN3 have no such direct path, so they
-  #      pick it up "eventually" via the roster-bootstrap-tss reconfiguration
-  #      done back in step 10 (peer-gossip from BN1) — checked second.
+  #      checked first. BN2 and BN3 have no such direct path, so they pick it
+  #      up "eventually" via the roster-bootstrap-tss reconfiguration done back
+  #      in step 10 (peer-gossip from BN1) — checked second.
+  #   5. cn-upgrade-tss.sh rc (Phase 2 / TSS_SIGN): upgrade the 3 CNs to the
+  #      latest v0.77 RC. The TSS ceremony has already settled (Phase 1 ran it);
+  #      this version operates in steady-state WRAPS-signed block mode.
 
-  - id: cn-upgrade-tss
+  - id: cn-upgrade-tss-enable
     type: command
-    description: "Step 11.1: upgrade the 3 CNs to v0.76.0-rc.7 (TSS/WRAPS-native) via a FREEZE_UPGRADE"
+    description: "Step 11.1 (Phase 1 / TSS_ENABLE): upgrade the 3 CNs to v0.76.1 (WRB + TSS key-generation) via a FREEZE_UPGRADE"
     delay: 720
     # Generous: prepares an upgrade zip, sends+waits on a real FREEZE_UPGRADE
     # transaction, then restarts and re-Readies 3 CN pods.
     timeout: 900
     args:
-      # Pinned to a specific v0.76.0 rc rather than the dynamic "rc" keyword
-      # (which currently resolves to v0.77.0-rc.3, the newest overall rc) —
-      # trying the version issue #3125 step 11 actually calls out.
-      script: "${SCRIPT_DIR}/wrb-distribution/cn-upgrade-tss.sh v0.76.0-rc.7"
+      # v0.76.1 is the first GA release with native WRAPS proving key support
+      # (matching 160-workflow's TSS_ENABLE step). cn-upgrade-tss.sh includes
+      # the SOLO-5068 workaround that labels network ConfigMaps with Helm
+      # ownership metadata before calling `solo consensus network upgrade`.
+      script: "${SCRIPT_DIR}/wrb-distribution/cn-upgrade-tss.sh v0.76.1"
 
-  # cn-upgrade-tss's FREEZE_UPGRADE cycles all 3 CN pods — heavy enough k8s
-  # churn that it can silently kill the long-lived kubectl port-forward
+  # cn-upgrade-tss-enable's FREEZE_UPGRADE cycles all 3 CN pods — heavy enough
+  # k8s churn that it can silently kill the long-lived kubectl port-forward
   # processes targeting BN2/BN3 (same class of issue reconfigure-bn-backfill.sh
   # / reconfigure-bn-roster-bootstrap-tss.sh caused earlier, at step 10 —
   # see refresh-port-forwards-after-backfill-rollout above). Without this,
   # assert-bn2-bn3-tss-data below fails with "connection refused" for the
   # entire poll window, not because TSS data is actually missing.
-  - id: refresh-port-forwards-after-cn-upgrade
+  - id: refresh-port-forwards-after-cn-upgrade-tss-enable
     type: port-forward
-    description: "Re-forward all BN/MN ports after cn-upgrade-tss's FREEZE_UPGRADE cycled all 3 CN pods"
+    description: "Re-forward all BN/MN ports after cn-upgrade-tss-enable's FREEZE_UPGRADE cycled all 3 CN pods"
     delay: 1120
 
   - id: detect-tss-enablement
@@ -467,8 +466,10 @@ events:
     # Generous: download_record_files_from_minio has its own internal 120s
     # wait for the CN to produce+upload post-upgrade record files, plus
     # potentially several hundred individual `mc cat` downloads (one kubectl
-    # exec each), plus wrap + validate over that subset.
-    timeout: 900
+    # exec each), plus wrap + validate over that subset. The TSS ceremony
+    # (hints + history + LedgerIdPublication) can take 15-20 min on a kind
+    # cluster; 20 retries × 60s = 20 min + initial 120s MinIO wait = ~22 min.
+    timeout: 1500
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/detect-tss-enablement.sh"
 
@@ -483,8 +484,8 @@ events:
   # stage-tss-data-on-bn1.sh already re-establishes BN1's own port-forwards as
   # part of its restart, but restarting BN1's statefulset still collaterally
   # kills BN2/BN3's long-lived port-forwards too — same class of issue as
-  # refresh-port-forwards-after-cn-upgrade above, just triggered by a
-  # different pod restart. Without this, assert-bn2-bn3-tss-data AND
+  # refresh-port-forwards-after-cn-upgrade-tss-enable above, just triggered by
+  # a different pod restart. Without this, assert-bn2-bn3-tss-data AND
   # assert-cutover-sync below both fail with "connection refused" for
   # BN2/BN3 (and mirror-2, which depends on them), not missing TSS data or
   # sync divergence.
@@ -527,32 +528,86 @@ events:
     args:
       script: "POLL_TIMEOUT=300 ${SCRIPT_DIR}/wrb-distribution/assert-bn-tss-data.sh 2 3"
 
+  # Phase 2 of the two-phase TSS upgrade (mirrors 160-workflow's TSS_SIGN step):
+  # now that the TSS ceremony has completed (Phase 1 emitted LedgerIdPublication,
+  # detect-tss-enablement.sh extracted it, stage-tss-data-on-bn1.sh staged it,
+  # and BN2/BN3 have synced the TssData), upgrade the CNs to the latest v0.77 RC
+  # for stable WRAPS-signed block production. After this upgrade the CN streams
+  # WRAPS-signed blocks directly over GRPC rather than producing record files for
+  # wrb-cli to wrap — the wrb-cli live-push worker continues until step 12
+  # explicitly retires it (see stop-live-wrap / stop-live-push).
+  - id: cn-upgrade-tss-sign
+    type: command
+    description: "Step 11.5 (Phase 2 / TSS_SIGN): upgrade the 3 CNs to the latest v0.77 RC (stable WRAPS-signed block production) via a FREEZE_UPGRADE"
+    delay: 2600
+    # Generous: same FREEZE_UPGRADE + pod-restart cycle as Phase 1.
+    timeout: 900
+    args:
+      # "rc" resolves dynamically to the latest published RC tag (currently
+      # v0.77.x-rc.N). cn-upgrade-tss.sh applies the same SOLO-5068 ConfigMap
+      # label fix and TSS-enabled application.properties as Phase 1.
+      script: "${SCRIPT_DIR}/wrb-distribution/cn-upgrade-tss.sh rc"
+
+  # Phase 2's FREEZE_UPGRADE cycles all 3 CN pods — same port-forward kill
+  # risk as Phase 1's upgrade; without this refresh, assert-cutover-sync and
+  # stop-cn-record-production's subsequent kubectl calls would see stale
+  # port-forwards for BN2/BN3 and MN2.
+  - id: refresh-port-forwards-after-cn-upgrade-tss-sign
+    type: port-forward
+    description: "Re-forward all BN/MN ports after cn-upgrade-tss-sign's FREEZE_UPGRADE cycled all 3 CN pods"
+    delay: 3600
+
   # Step 12 — CN cutover: stop record-file production and validate every BN
   # and MN converges on the same last-available block.
+
+  # Mirror the 160-workflow's post-TSS_SIGN architecture: redirect CN's GRPC
+  # stream from all-3-BNs (the post-SOLO-5068-fix Helm default after Phase 2's
+  # pod restart) to BN1 only, so BN1 is the Tier-0 live receiver.  In the 160
+  # workflow BN1 receives from CN throughout both the WRB (wrb-cli push) and
+  # GRPC (native post-upgrade) phases.  Without this redirect BN1 stops
+  # receiving new blocks after the wrb-cli live-push path retires and BN2/BN3
+  # can never grow beyond BN1's last pushed block — convergence would be
+  # structurally impossible.  With BN1 as the GRPC target, BN2/BN3 backfill
+  # from BN1 (step 10) as it continues to grow, then MN1/MN2 (consuming from
+  # BN2/BN3) all converge.
+  #
+  # ORDERING: this runs BEFORE stop-cn-record-production (delay 3900) so that
+  # the BN1-only block-nodes.json lands on the pod filesystem before
+  # stop-cn-record-production's `solo consensus node start` boots HapiApp.
+  # HapiApp reads block-nodes.json only at startup; writing the file after
+  # the restart (as we had previously) has no effect because HapiApp does not
+  # dynamically reload that file.
+  - id: reconfigure-cn-to-push-bn1-post-cutover
+    type: command
+    description: "Step 12: redirect CN GRPC stream to BN1 (Tier-0 live receiver post-cutover, matching 160-workflow architecture)"
+    delay: 3700
+    timeout: 120
+    args:
+      script: "${SCRIPT_DIR}/wrb-distribution/reconfigure-cn-to-push-bn1.sh"
 
   - id: stop-cn-record-production
     type: command
     description: "Step 12: set blockStream.writerMode=GRPC on all 3 CNs and restart (simulate cutover)"
-    delay: 3400
+    delay: 3900
     timeout: 600
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stop-cn-record-production.sh"
 
   # stop-cn-record-production restarts all 3 CN pods via solo consensus node stop/start —
-  # the same class of k8s churn that killed BN2/BN3 port-forwards after cn-upgrade-tss
-  # (see refresh-port-forwards-after-cn-upgrade above). Without this, assert-cutover-sync
-  # below would see "connection refused" for BN2/BN3 and MN2 for the entire 300s poll
-  # window, making convergence structurally impossible even when all nodes have the
-  # correct blocks.
+  # the same class of k8s churn that killed BN2/BN3 port-forwards after
+  # cn-upgrade-tss-enable/tss-sign above. Without this, assert-cutover-sync
+  # below would see "connection refused" for BN2/BN3 and MN2 for the entire
+  # 300s poll window, making convergence structurally impossible even when all
+  # nodes have the correct blocks.
   - id: refresh-port-forwards-after-stop-cn-record-production
     type: port-forward
     description: "Re-forward all BN/MN ports after stop-cn-record-production's CN restart"
-    delay: 3800
+    delay: 4100
 
   - id: assert-cutover-sync
     type: command
     description: "Step 12: assert BN1/BN2/BN3 and MN1/MN2 converge on the same last-available block"
-    delay: 4010
+    delay: 4310
     timeout: 650
     args:
       script: "POLL_TIMEOUT=600 ${SCRIPT_DIR}/wrb-distribution/assert-cutover-sync.sh"
@@ -560,7 +615,7 @@ events:
   - id: stop-live-wrap
     type: command
     description: "Tear down the live-wrap background worker (kept running through step 12's convergence check -- see the comment right after assert-live-push-produced-new-blocks, above the Step 11 section, for why)"
-    delay: 4012
+    delay: 4312
     timeout: 60
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stop-live-wrap.sh"
@@ -568,15 +623,15 @@ events:
   - id: stop-live-push
     type: command
     description: "Tear down the live-push background worker (kept running through step 12's convergence check -- same reason as stop-live-wrap above)"
-    delay: 4015
+    delay: 4315
     timeout: 60
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/stop-live-push.sh"
 
   - id: final-status
     type: network-status
-    description: "Post-test network status (should show BN1/BN2/BN3, MN1 + MN2 up, CNs on the upgraded rc)"
-    delay: 4370
+    description: "Post-test network status (should show BN1/BN2/BN3, MN1 + MN2 up, CNs on the upgraded v0.77 RC)"
+    delay: 4670
 
 # BN + MN health is asserted implicitly by:
 #   * add-bn.sh's / add-mn2.sh's kubectl wait --for=condition=Ready
