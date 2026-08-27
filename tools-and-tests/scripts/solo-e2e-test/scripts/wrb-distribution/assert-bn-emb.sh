@@ -8,10 +8,11 @@
 # under overrides/wrb-distribution-step345/. This script confirms each BN
 # actually came up with that value by reading the effective env from the pod.
 #
-# Expected values (per issue #3125):
-#   block-node-1  EMB=0            (Tier-0)
-#   block-node-2  EMB=0            (Tier-1, start-from-genesis)
-#   block-node-3  EMB=100000000    (Tier-1, live-only)
+# Expected values (per issue #3125, updated in slice 6):
+#   block-node-1  EMB=0  (Tier-0, live GRPC receiver post-cutover)
+#   block-node-2  EMB=0  (Tier-1, backfills from BN1)
+#   block-node-3  EMB=0  (Tier-1, backfills from BN1; changed from 100_000_000
+#                          so BN3 can participate in the step-12 convergence check)
 #
 # The env var name on the pod is BLOCK_NODE_EARLIEST_MANAGED_BLOCK, matching
 # the precedent from charts/block-node-server/values-overrides/lfh-values.yaml
@@ -32,7 +33,7 @@ expected_emb() {
     case "$1" in
         block-node-1) echo 0 ;;
         block-node-2) echo 0 ;;
-        block-node-3) echo 100000000 ;;
+        block-node-3) echo 0 ;;
         *) echo "" ;;
     esac
 }
