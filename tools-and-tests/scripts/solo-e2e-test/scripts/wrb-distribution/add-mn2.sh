@@ -92,7 +92,9 @@ log "  Using REST image: ${rest_image}"
 # from 1 onward.
 start_block=1
 if command -v grpcurl >/dev/null 2>&1; then
-    status_json=$(grpcurl -plaintext -d '{}' "localhost:${BN2_GRPC_PORT}" \
+    # Use 127.0.0.1 to avoid IPv6/IPv4 mismatch: kubectl port-forward binds IPv4
+    # only on macOS, but grpcurl resolves "localhost" to [::1] via Go's resolver.
+    status_json=$(grpcurl -plaintext -d '{}' "127.0.0.1:${BN2_GRPC_PORT}" \
         org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null || echo '{}')
     bn_last=$(echo "${status_json}" | jq -r '.lastAvailableBlock // empty' 2>/dev/null || echo "")
     log "  BN2 lastAvailableBlock=${bn_last:-<empty>} at deploy time (MN2 will always start at block ${start_block})"

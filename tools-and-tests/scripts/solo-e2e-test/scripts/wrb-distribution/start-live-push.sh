@@ -109,13 +109,13 @@ fi
 wrapped_dir="${WRB_DIST_WORK_DIR}/wrappedBlocks"
 [[ -d "${wrapped_dir}" ]] || { echo "Missing prerequisite: ${wrapped_dir}" >&2; exit 1; }
 
-# Snapshot whatever "push OK" count is already in the log rather than assuming 0, so this
-# stays correct even if LOG_FILE isn't fresh (e.g. re-run in a debug session against a log the
-# short-circuit above left in place).
-# No `|| echo 0`: grep -c prints 0 and exits 1 on no-match, so the fallback appends a
-# second line and any later arithmetic on this dies with `[[: 0\n0: syntax error`.
-initial_push_ok_count=$( grep -cE '\] push OK' "${LOG_FILE}" 2>/dev/null )
-initial_push_ok_count="${initial_push_ok_count:-0}"
+# Always use 0 as the baseline — the new worker's `nohup > "${LOG_FILE}"` (below) OVERWRITES
+# LOG_FILE at startup, so any content in the old log (e.g. from a stale worker killed above)
+# belongs to the previous run, not this one. Snapshotting the old count and then comparing
+# against the new worker's log would produce a meaningless cross-run comparison: if the old
+# log had 1 "push OK", initial=1, and after the new worker's first successful iteration
+# current=1, the assertion sees 1 > 1 = false and fails even though the worker is healthy.
+initial_push_ok_count=0
 printf 'initial_push_ok_count=%s\n' "${initial_push_ok_count}" > "${STATE_FILE}"
 
 # Fork the worker into the background and write its PID. Using nohup+setsid so

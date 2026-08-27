@@ -6,12 +6,19 @@
 # Consumed by scripts/wrb-distribution/add-bn.sh, which reads `embs.<index>` and renders a
 # chart-values file inline before passing it to `solo block node add`.
 #
-# Values chosen per the issue text:
-#   BN1 (Tier-0)  EMB=0            start from genesis; the wrb-cli push target.
-#   BN2 (Tier-1)  EMB=0            start-from-genesis leaf; will later backfill from BN1.
-#   BN3 (Tier-1)  EMB=100_000_000  live-only leaf; matches the charts/block-node-server/
-#                                  values-overrides/lfh-values.yaml precedent.
+# Values chosen to support the full convergence check in step 12
+# (assert-cutover-sync.sh verifies BN1/BN2/BN3/MN1/MN2 all reach the same
+# last-available block):
+#   BN1 (Tier-0)  EMB=0  start from genesis; live GRPC target post-cutover.
+#   BN2 (Tier-1)  EMB=0  start-from-genesis leaf; backfills from BN1.
+#   BN3 (Tier-1)  EMB=0  start-from-genesis leaf; backfills from BN1.
+#
+# NOTE: BN3 was originally EMB=100_000_000 to test "future live streaming"
+# (step 8 config surface), but that prevented BN3 from ever participating in
+# the convergence check — all test blocks are in the 0–few-thousand range, so
+# BN3 would always report lastAvailableBlock=0 while others were in the
+# hundreds/thousands, making assert-cutover-sync always fail.
 embs:
   "1": "0"
   "2": "0"
-  "3": "100000000"
+  "3": "0"
