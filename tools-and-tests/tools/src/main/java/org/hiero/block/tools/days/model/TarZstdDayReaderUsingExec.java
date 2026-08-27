@@ -349,21 +349,19 @@ public class TarZstdDayReaderUsingExec {
                         "Primary record file not found for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
             }
 
-            // Signature files are optional: the chronologically last group may legitimately be
-            // missing its .rcd_sig (still uploading), and any group may be missing sigs when the
-            // record source (e.g. MinIO) does not store .rcd_sig files at all (e.g. Solo's MinIO
-            // only stores .rcd.gz). Skip the trailing group so the caller can retry once the sig
-            // lands; for non-trailing groups log a warning and wrap without RSA signatures —
-            // TSS-signed blocks don't need RSA sigs, and RSA-signed blocks produce 0 valid sigs
-            // (cosmetically wrong but non-fatal: validation simply reports 0 verified nodes).
+            // Signature files are required: a record file with no RSA signatures cannot be
+            // verified and must not be wrapped. The chronologically last group may legitimately
+            // be missing its .rcd_sig (still uploading) — skip it so the caller can retry once
+            // signatures land. Any other sig-less group is also skipped with a warning.
             if (signatureFiles.isEmpty()) {
                 if (groupIndex == lastGroupIndex) {
                     System.err.println("Skipping incomplete trailing record for baseKey='" + baseKey + "' in dir='"
                             + currentDir + "' (no signature file yet; likely still uploading)");
-                    continue;
+                } else {
+                    System.err.println("WARNING: Skipping record baseKey='" + baseKey + "' in dir='" + currentDir
+                            + "': no RSA signature files found; record cannot be verified");
                 }
-                System.err.println("WARNING: No signature files for baseKey='" + baseKey + "' in dir='" + currentDir
-                        + "'; wrapping without RSA signatures");
+                continue;
             }
 
             // classify other record files (exclude the primary)
