@@ -400,6 +400,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
+      # Fast fixture-based unit tests for the harness's own assertion logic. Runs before
+      # the cluster is built so a broken assertion fails in seconds, not after a deploy.
+      - name: Harness unit tests
+        run: ./tools-and-tests/scripts/solo-e2e-test/scripts/test/run-all.sh
+
       # Setup cluster using shared script
       - name: Cluster setup (Kind + Solo)
         run: |

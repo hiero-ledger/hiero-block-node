@@ -414,6 +414,17 @@ function execute_deploy_blocknode {
     chart_version=$(echo "$args" | yq '.chart_version // ""')
     archive_backend=$(echo "$args" | yq '.archive_backend // ""')
 
+    # Without an explicit version Solo installs its own bundled default block node version,
+    # which is older than the one the network was deployed with. A node replacement test then
+    # silently mixes versions (e.g. BN3 on 0.38.0 backfilling from BN2 on 0.41.0). Match the
+    # already-deployed block nodes instead.
+    if [[ -z "${chart_version}" || "${chart_version}" == "null" ]]; then
+        chart_version=$(helm list -n "${NAMESPACE}" -o json 2>/dev/null |
+            jq -r '.[] | select(.name | startswith("block-node-")) | .chart' |
+            head -1 | sed 's/block-node-server-//')
+        [[ -n "${chart_version}" ]] && echo "Matching deployed block node version: ${chart_version}"
+    fi
+
     echo "Deploying new block node: ${bn_name}..."
 
     # Generate backfill values file
@@ -478,14 +489,21 @@ EOF
     # Build chart version args if specified
     local version_args=""
     if [[ -n "${chart_version}" && "${chart_version}" != "null" ]]; then
-        version_args="--chart-version ${chart_version}"
+        version_args="--block-node-version ${chart_version}"
     fi
 
     # Try Solo CLI first, fall back to Helm if it fails (e.g., when other BNs are down)
+    # --priority-mapping names no real consensus node alias on purpose: without the flag
+    # Solo defaults to "all consensus nodes" and rewrites every CN's block-nodes.json to
+    # include this BN at priority 1 (post-genesis it pushes the file to the CN pods). A
+    # dynamically added BN may not even run stream-publisher (cloud plugin profile), so
+    # CNs must not fail over to it. Tests that DO want CN traffic on a new BN use the
+    # reconfigure-cn-streaming event, which writes block-nodes.json explicitly.
     # shellcheck disable=SC2086
     if ! solo block node add \
         --deployment "${DEPLOYMENT}" \
         --cluster-ref "${cluster_ref}" \
+        --priority-mapping "none=1" \
         ${version_args} \
         -f "${values_file}" \
         ${memory_override_args} \
@@ -831,10 +849,12 @@ function execute_event {
             execute_node_up "$target"
             ;;
         archive-files-exist)
-            local bucket min_files
+            local bucket min_files min_increase record_baseline
             bucket=$(echo "$args" | yq '.bucket // "block-archive-tar"')
             min_files=$(echo "$args" | yq '.min_files // 1')
-            assert_archive_files_exist "$bucket" "$min_files"
+            min_increase=$(echo "$args" | yq '.min_increase // 0')
+            record_baseline=$(echo "$args" | yq '.record_baseline // false')
+            assert_archive_files_exist "$bucket" "$min_files" "$min_increase" "$record_baseline"
             ;;
         deploy-block-node)
             execute_deploy_blocknode "$args"
@@ -1015,11 +1035,8 @@ function assert_node_healthy {
 }
 
 # Single node error check
-# skip_verify_failed=true: tolerate verify_failed (expected during CN restarts), only
-# fail on verify_errors or stream_errors (hard faults).
 function assert_no_errors_single {
     local target="$1"
-    local skip_verify_failed="${2:-false}"
     local port
     port=$(get_bn_metrics_port "$target")
     local metrics
@@ -1039,37 +1056,24 @@ function assert_no_errors_single {
     verify_errors=$(printf "%.0f" "${verify_errors:-0}" 2>/dev/null || echo "0")
     stream_errors=$(printf "%.0f" "${stream_errors:-0}" 2>/dev/null || echo "0")
 
-    local hard_total=$((verify_errors + stream_errors))
-    local soft_note=""
-    if [[ "$skip_verify_failed" == "true" && "$verify_failed" -gt 0 ]]; then
-        soft_note=" (verify_failed=$verify_failed tolerated)"
-    fi
-
-    local check_total
-    if [[ "$skip_verify_failed" == "true" ]]; then
-        check_total=$hard_total
-    else
-        check_total=$((verify_failed + hard_total))
-    fi
-
-    if [[ "$check_total" -gt 0 ]]; then
+    local total=$((verify_failed + verify_errors + stream_errors))
+    if [[ "$total" -gt 0 ]]; then
         echo "${target}: Errors: verify_failed=$verify_failed verify_errors=$verify_errors stream_errors=$stream_errors"
         return 1
     fi
 
-    echo "${target}: 0 errors${soft_note}"
+    echo "${target}: 0 errors"
 }
 
 function assert_no_errors {
     local target="${1:-all}"
-    local skip_verify_failed="${2:-false}"
 
     if [[ "$target" == "all" ]]; then
         local failed=0
         local results=""
         for bn in $(get_all_block_nodes); do
             local result
-            if result=$(assert_no_errors_single "$bn" "$skip_verify_failed"); then
+            if result=$(assert_no_errors_single "$bn"); then
                 results="${results}${result}\n"
             else
                 results="${results}${result}\n"
@@ -1079,7 +1083,7 @@ function assert_no_errors {
         echo -e "${results%\\n}"
         return $failed
     else
-        assert_no_errors_single "$target" "$skip_verify_failed"
+        assert_no_errors_single "$target"
     fi
 }
 
@@ -1392,18 +1396,28 @@ function assert_signature_transition {
     fi
 }
 
-# Check that an S3 archive bucket contains at least min_files files, via a
-# throwaway pod running the aws-cli client against the in-cluster S3 endpoint.
-# Returns 0 if the threshold is met, 1 otherwise.
+# List the object keys of an S3 archive bucket, one per line, via a throwaway pod
+# running the aws-cli client against the in-cluster S3 endpoint.
 #
 # RustFS's own image is a single static binary (no bundled S3 client), unlike the
 # old MinIO image — so this execs aws-cli from a disposable pod rather than
 # kctl-exec'ing into the storage pod itself. Credentials are read from the
 # cloud-storage-creds Secret (same one the block node plugins use) rather
 # than duplicated here.
-function assert_archive_files_exist {
-    local bucket="${1:-block-archive-tar}"
-    local min_files="${2:-1}"
+#
+# Only archive keys are printed: the leading path segments produced by
+# ArchiveKey/SingleBlockStoreTask (e.g. 0000/0000/0000/0000/12.tar). That filter also
+# drops kubectl's own "pod ... deleted" line, which >=1.29 prints to stdout.
+# Keep only archive object keys, dropping foreign objects that share the bucket (e.g. a
+# backup tool's 2026-05-01_21-32-38_... key). Anchored, so it assumes an empty object key
+# prefix -- what the overlay configures; a non-empty prefix needs this relaxed, or every
+# key is dropped and the checks see an empty bucket.
+function filter_archive_keys {
+    grep -E '^([0-9]{1,4}/)+[0-9]+\.'
+}
+
+function list_archive_keys {
+    local bucket="$1"
 
     local access_key secret_key
     access_key=$(kctl get secret cloud-storage-creds -n "${NAMESPACE}" \
@@ -1411,38 +1425,129 @@ function assert_archive_files_exist {
     secret_key=$(kctl get secret cloud-storage-creds -n "${NAMESPACE}" \
         -o jsonpath='{.data.CLOUD_STORAGE_ARCHIVE_SECRET_KEY}' 2>/dev/null | base64 -d)
     if [[ -z "${access_key}" || -z "${secret_key}" ]]; then
-        echo "Archive: cloud-storage-creds secret not found in namespace ${NAMESPACE}"
+        echo "Archive: cloud-storage-creds secret not found in namespace ${NAMESPACE}" >&2
         return 1
     fi
 
     local s3_endpoint="http://rustfs-svc.${NAMESPACE}.svc.cluster.local:9000"
-    local file_count
+    local keys attempt
     # Retry up to 3 times — a brief API server hiccup (e.g. during BN deploy) can
     # return an empty result even when the bucket is healthy.
-    local attempt
     for attempt in 1 2 3; do
         # </dev/null: prevent kubectl -i from consuming stdin of the surrounding
         # while-read-event loop (both share the same pipe when events are processed).
-        # grep: kubectl >=1.29 prints the pod deletion message to stdout; filter it
-        # out by matching only lines that are purely numeric (the wc -l output).
-        file_count=$(kctl run "archive-check-$$-${RANDOM}" -n "${NAMESPACE}" --rm -i --restart=Never \
+        keys=$(kctl run "archive-check-$$-${RANDOM}" -n "${NAMESPACE}" --rm -i --restart=Never \
             --image amazon/aws-cli \
             --env="AWS_ACCESS_KEY_ID=${access_key}" \
             --env="AWS_SECRET_ACCESS_KEY=${secret_key}" \
             --env="AWS_DEFAULT_REGION=us-east-1" \
             --command -- sh -c \
-            "aws --endpoint-url ${s3_endpoint} s3 ls s3://${bucket} --recursive 2>/dev/null | wc -l" \
-            </dev/null 2>/dev/null | grep -oE '^[[:space:]]*[0-9]+[[:space:]]*$' | head -1 | tr -d ' ')
-        [[ -n "${file_count}" && "${file_count}" =~ ^[0-9]+$ ]] && break
+            "aws --endpoint-url ${s3_endpoint} s3 ls s3://${bucket} --recursive 2>/dev/null | awk '{print \$NF}'" \
+            </dev/null 2>/dev/null | filter_archive_keys)
+        [[ -n "${keys}" ]] && break
         [[ $attempt -lt 3 ]] && sleep 5
     done
-    [[ "${file_count}" =~ ^[0-9]+$ ]] || file_count=0
-    if [[ "${file_count}" -ge "${min_files}" ]]; then
-        echo "Archive: ${file_count} file(s) in bucket ${bucket} (need >= ${min_files})"
-        return 0
+    [[ -n "${keys}" ]] && echo "${keys}"
+    return 0
+}
+
+# Check that an S3 archive bucket contains at least min_files files, via a
+# throwaway pod running the aws-cli client against the in-cluster S3 endpoint.
+# Returns 0 if the threshold is met, 1 otherwise.
+#
+# With min_increase > 0 the threshold instead becomes "at least min_increase more files
+# than the recorded baseline for this bucket", proving the archive actually grew rather
+# than just being non-empty. The baseline lives in /tmp (same place the runner keeps its
+# other generated per-run files) and is written ONLY by a check that passes
+# record_baseline=true, so which event sets the bar is explicit in the test file and
+# does not shift when checks are added or reordered.
+function assert_archive_files_exist {
+    local bucket="${1:-block-archive-tar}"
+    local min_files="${2:-1}"
+    local min_increase="${3:-0}"
+    local record_baseline="${4:-false}"
+
+    local keys file_count
+    keys=$(list_archive_keys "${bucket}") || return 1
+    file_count=$(grep -c . <<< "${keys}")
+
+    # Raise the bar to "previous count + min_increase" when growth is what's being asserted.
+    local baseline_file="/tmp/archive-count-${NAMESPACE}-${bucket}"
+    local required="${min_files}"
+    if [[ "${min_increase}" -gt 0 ]]; then
+        local previous
+        previous=$(cat "${baseline_file}" 2>/dev/null)
+        # A missing or corrupt baseline must fail, not silently degrade the growth
+        # assertion into "bucket is non-empty" — which the earlier archiver already satisfies.
+        if [[ ! "${previous}" =~ ^[0-9]+$ ]]; then
+            echo "Archive: no baseline recorded for ${bucket}; min_increase cannot be evaluated"
+            return 1
+        fi
+        required=$((previous + min_increase))
     fi
-    echo "Archive: ${file_count} file(s) in bucket ${bucket} (need >= ${min_files})"
-    return 1
+    if [[ "${record_baseline}" == "true" ]]; then
+        echo "${file_count}" > "${baseline_file}"
+        echo "Archive: recorded baseline ${file_count} for bucket ${bucket}"
+    fi
+
+    echo "Archive: ${file_count} file(s) in bucket ${bucket} (need >= ${required})"
+    [[ "${file_count}" -ge "${required}" ]]
+}
+
+# Check that an S3 archive bucket holds an unbroken run of archive objects, i.e. that the
+# node which took over archiving did not skip the blocks produced while nothing was archiving.
+# It cannot tell a resume from a full re-archive: both leave the bucket gapless.
+#
+# Both key formats encode one number spread over 4-digit path segments:
+#   TAR      0000/0000/0000/0000/12.tar       -> 12  (grouping level 1: blocks 120-129)
+#   expanded 0000/0000/0000/0000/001.blk.zstd -> 1   (block 1)
+# ArchiveKey.format strips the last segment's leading zeros; SingleBlockStoreTask keeps
+# them. Re-padding that segment therefore restores the TAR number and is a no-op for
+# expanded, and consecutive objects then differ by 1 in both buckets.
+#
+# The pad width is NOT configured per test: ArchiveKey zero-pads to 19 digits, drops
+# `groupingLevel` trailing digits and splits the rest into 4-char segments, so the last
+# segment's width follows from the grouping level alone (level 1 -> 2, level 2 -> 1,
+# level 3 -> 4, expanded/level 0 -> 3). Deriving it from ARCHIVE_GROUPING_LEVEL keeps a
+# changed grouping level from silently decoding wrong numbers here -- a wrong pad does
+# not fail loudly, it invents or hides gaps.
+function assert_archive_contiguous {
+    local bucket="${1:-${ARCHIVE_BUCKET}}"
+
+    local level=0
+    [[ "${bucket}" == "${ARCHIVE_BUCKET}" ]] && level="${ARCHIVE_GROUPING_LEVEL}"
+    local pad=$(( (19 - level - 1) % 4 + 1 ))
+
+    local rc=0
+    local keys
+    keys=$(list_archive_keys "${bucket}") || rc=1
+    if [[ ${rc} -eq 0 && -z "${keys}" ]]; then
+        echo "Archive: bucket ${bucket} is empty, nothing archived to check for gaps"
+        rc=1
+    fi
+    if [[ ${rc} -eq 0 ]]; then
+        local numbers first last gaps
+        numbers=$(echo "${keys}" | awk -v pad="${pad}" '
+            {
+                key = $0
+                sub(/\..*$/, "", key)
+                n = split(key, seg, "/")
+                out = ""
+                for (i = 1; i < n; i++) out = out seg[i]
+                out = out sprintf("%0" pad "d", seg[n])
+                sub(/^0+/, "", out)
+                print (out == "" ? "0" : out)
+            }' | sort -n)
+        first=$(echo "${numbers}" | head -1)
+        last=$(echo "${numbers}" | tail -1)
+        gaps=$(echo "${numbers}" | awk 'NR > 1 && $1 != prev + 1 { printf "%s..%s ", prev, $1 } { prev = $1 }')
+        echo "Archive: ${bucket} spans ${first}..${last} in $(grep -c . <<< "${numbers}") object(s)"
+        if [[ -n "${gaps}" ]]; then
+            echo "Archive: gap(s) in ${bucket} between: ${gaps}"
+            rc=1
+        fi
+    fi
+    return ${rc}
 }
 
 # ============================================================================
@@ -1479,9 +1584,7 @@ function run_assertion {
             ;;
         no-errors)
             [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "block-node-1"')
-            local skip_verify_failed
-            skip_verify_failed=$(echo "$args" | yq '.skip_verify_failed // "false"')
-            assert_no_errors "$target" "$skip_verify_failed"
+            assert_no_errors "$target"
             ;;
         blocks-increasing)
             [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
@@ -1557,10 +1660,17 @@ function run_assertion {
             assert_log_match "$target" "$lm_grep" "$lm_since"
             ;;
         archive-files-exist)
-            local bucket min_files
+            local bucket min_files min_increase record_baseline
             bucket=$(echo "$args" | yq '.bucket // "block-archive-tar"')
             min_files=$(echo "$args" | yq '.min_files // 1')
-            assert_archive_files_exist "$bucket" "$min_files"
+            min_increase=$(echo "$args" | yq '.min_increase // 0')
+            record_baseline=$(echo "$args" | yq '.record_baseline // false')
+            assert_archive_files_exist "$bucket" "$min_files" "$min_increase" "$record_baseline"
+            ;;
+        archive-contiguous)
+            local ac_bucket
+            ac_bucket=$(echo "$args" | yq ".bucket // \"${ARCHIVE_BUCKET}\"")
+            assert_archive_contiguous "$ac_bucket"
             ;;
         *)
             echo "Unknown assertion type: $assert_type"

@@ -462,12 +462,19 @@ function generate_bn_priority_mappings {
       done <<< "${bn_list}"
     done <<< "${cn_names}"
 
-    # Write mapping file for this BN
-    if [[ -n "${mapping_entries}" ]]; then
-      local output_file="${output_dir}/bn-${bn_name}-priority-mapping.txt"
-      echo "${mapping_entries}" > "${output_file}"
-      log_line "Generated BN priority mapping: %s" "${output_file}"
+    # No CN routes to this BN (e.g. an archive-only BN fed by backfill). Omitting
+    # --priority-mapping makes Solo fall back to "all consensus nodes", which would
+    # wire every CN to publish here. A mapping naming no real CN alias keeps the BN
+    # out of every CN's block-nodes.json ("Unlisted nodes will not be routed").
+    if [[ -z "${mapping_entries}" ]]; then
+      mapping_entries="none=1"
+      log_line "BN %s is referenced by no consensus node; mapping it to none" "${bn_name}"
     fi
+
+    # Write mapping file for this BN
+    local output_file="${output_dir}/bn-${bn_name}-priority-mapping.txt"
+    echo "${mapping_entries}" > "${output_file}"
+    log_line "Generated BN priority mapping: %s" "${output_file}"
   done <<< "${bn_names}"
 }
 
