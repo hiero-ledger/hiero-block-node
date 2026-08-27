@@ -1,41 +1,34 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 200kbit/s
+# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 7mbit/s
 #
-# Severe tier of the bandwidth-lag failure mode family.
-# Models a production scenario where ~50% of CN ingest capacity is lost
-# (e.g. 13 of 39 CNs reaching BN1 normally, rest degraded — the DR split case).
+# Severe tier of the bandwidth-lag failure mode family: the tightest cap
+# intended to still (barely) avoid the permanent reconnect deadlock in
+# finding 005 below — i.e. the highest constraint before the breaking point,
+# not past it. See bandwidth-lag.yaml (minimal constraint) and
+# bandwidth-lag-stress.yaml (significant but manageable) for the milder tiers.
 #
-# See ../scripts/chaos-templates/README.md for why this test uses "kbit" (not
-# "kbps") and target: { kind: service } (not a pod selector) — both gotchas
+# See ../scripts/chaos-templates/README.md for why this test uses "mbit" (not
+# "mbps") and target: { kind: service } (not a pod selector) — both gotchas
 # cost real debugging time and are easy to get wrong when tuning further.
 #
-# Design:
-#   - CN→BN1 is capped at 200kbit/s — BN1 receives blocks at ~50% of the data
-#     rate (~50 KB/s = 400kbit/s needed; 200kbit/s allows only ~25 KB/s).
-#   - All BN peers→BN1 are also capped at 200kbit/s so greedy backfill cannot
-#     neutralise the ingest cap during chaos.
-#   - BN2 and BN3 receive no throttle — they serve as reference nodes.
+# Rate rationale (7mbit/s): see bandwidth-lag.yaml for the full derivation.
+# In short, a real block was ~2.1 MB and CN's own per-request send timeout is
+# ~2.5s, so a block must transfer at ≥ ~6.8 Mbit/s or CN times out mid-send
+# and resets the connection — the trigger for finding 005's permanent
+# reconnect deadlock. 7mbit/s (~0.7% of a typical ~1 Gbps shared CN NIC) sits
+# just above that floor: a block takes ~2.43s to send, leaving only ~70ms of
+# margin against CN's ~2.5s timeout. This is deliberately the tightest tier —
+# expect it to be the most likely of the three to occasionally brush against
+# the deadlock, which is the point: find where "significant lag, but
+# recovers" turns into "never recovers."
 #
-# Rate rationale (200kbit/s):
-#   Lag accrues at ~50% of the block rate (0.5 blk/s × 50% = 0.25 blk/s).
-#   Over the 150s chaos window this produces ~37 blocks of divergence.
-#   This corresponds to roughly the DR-split scenario: 13 of 39 CNs reaching
-#   BN1, with the remaining 26 CN streams effectively blocked — matching the
-#   13-CN-per-BN DR target from the production traffic profile.
-#
-# Kept at 200kbit/s (not yet run to conclusion) pending investigation into
-# the CN↔BN reconnect deadlock found at bandwidth-lag's 100kbit/s tier — see
+# Known issue this rate is chosen to sit at the edge of, not past:
 # agent/proposals/solo-chaos-spike/findings/005-cn-bn-reconnect-deadlock-after-bandwidth-starvation.md
-# (local, not committed). If this tier shows the same permanent-stall
-# behavior, blocks-converged/blocks-increasing/block-rate-floor will fail
-# indefinitely rather than just needing more time.
-#
-# Assertions:
-#   blocks-diverged  min_spread=15  — conservative; expect 30+ blocks at 200kbit/s
-#                                     with 100 KB blocks at 0.5 blk/s.
-#   blocks-converged tolerance=25   — BN1 has a larger backfill gap to close
-#                                     than in the baseline bandwidth-lag test.
+# (local, not committed) — if this tier reproduces the permanent-stall
+# behavior (blocks-converged/blocks-increasing/block-rate-floor failing
+# indefinitely, not just slowly), that's the breaking point; loosen slightly
+# and re-run rather than assuming a fluke.
 #
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
 #
@@ -47,7 +40,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-severe.yaml
 
 name: bandwidth-lag-severe
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (200kbit/s) — severe cumulative-lag (DR-split analog)"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (7mbit/s) — edge-of-breaking-point tier"
 
 events:
   - id: load-start
@@ -61,27 +54,27 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 200kbit/s (direction=to, target=service/block-node-1) — BN1 ingest drops to ~50% of block production rate"
+    description: "Cap CN's egress to BN1's Service at 7mbit/s (direction=to, target=service/block-node-1) — right at the edge of CN's per-block send timeout"
     delay: 30
     args:
       name: cn-to-bn1-bw-severe
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "200kbit"
-      limit: 250000
+      rate: "7mbit"
+      limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 200kbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 7mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-severe
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "200kbit"
-      limit: 250000
+      rate: "7mbit"
+      limit: 3000000
       buffer: 10000
       direction: to
 
@@ -123,14 +116,14 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BNs were at least 15 blocks apart at peak chaos — confirms 200kbit/s cap caused severe cumulative lag on BN1"
+    description: "BNs were at least 5 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (conservative starting point for this rate; retune against observed spread)"
     args:
       snapshot_id: peak-chaos-severe
-      min_spread: 15
+      min_spread: 5
 
   - id: blocks-converged
     type: blocks-converged
-    description: "All BNs converge to within 25 blocks after bandwidth clears — BN1 closes its larger backfill gap"
+    description: "All BNs converge to within 25 blocks after bandwidth clears — allows extra margin for this tier's thinner timeout safety margin"
     args:
       tolerance_blocks: 25
 

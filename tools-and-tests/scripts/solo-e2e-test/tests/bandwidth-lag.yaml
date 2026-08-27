@@ -7,38 +7,46 @@
 # so lag grows monotonically until chaos clears.
 #
 # Design:
-#   - CN→BN1 is capped at 100kbit/s, shaped on the CN sender's own egress
+#   - CN→BN1 is capped at 15mbit/s, shaped on the CN sender's own egress
 #     (direction=to), targeting BN1's k8s Service (target: { kind: service,
 #     name: block-node-1 }) rather than its pod IP.
-#   - All BN peers→BN1 are also capped at 100kbit/s the same way, so greedy
+#   - All BN peers→BN1 are also capped at 15mbit/s the same way, so greedy
 #     backfill cannot instantly neutralise the ingest cap during chaos.
 #   - BN2 and BN3 receive no throttle — they serve as the reference nodes that
 #     advance at full speed, making the spread measurable.
 #
 # See ../scripts/chaos-templates/README.md for why the bandwidth action needs
 # `target: { kind: service }` (Service-ClusterIP vs. pod-IP addressing),
-# egress-only tc semantics, and the "kbit" vs "kbps" unit distinction — all
-# three cost real debugging time and are easy to get wrong when tuning this
-# test further.
+# egress-only tc semantics, and the "kbit"/"mbit" vs "kbps"/"mbps" unit
+# distinction — all three cost real debugging time and are easy to get wrong
+# when tuning this test further.
 #
-# Rate rationale (100kbit/s):
-#   In the paired-3 topology each CN streams to its paired BN, so BN1 receives
-#   blocks only from CN1. 100kbit/s (12.5 KB/s) caps ingest well below the
-#   observed block production rate so lag builds reliably and should reach
-#   ≥ 5 blocks in the 150s chaos window. If the spread is still insufficient,
-#   lower further; if blocks are larger the spread will be much higher — raise
-#   min_spread accordingly. Tune based on observed block sizes from test run
-#   metrics.
-#
-# Known issue: at this rate, CN's reconnect to BN1 can permanently deadlock
-# after chaos clears (blocks-converged/blocks-increasing/block-rate-floor fail
-# indefinitely, not just slowly) — see
-# agent/proposals/solo-chaos-spike/findings/005-cn-bn-reconnect-deadlock-after-bandwidth-starvation.md
-# (local, not committed) before tightening this further.
+# Rate rationale (15mbit/s — this is the "minimal constraint" tier of the
+# bandwidth-lag family; see -stress and -severe for tighter tiers):
+#   Real block size and CN behavior observed in CI (not the ~100 KB estimate
+#   this test originally assumed) put the actual critical zone in single-digit
+#   Mbit/s, not kbit/s:
+#     - a real block was ~2.1 MB; at 0.5 blk/s that means BN1 needs ≥ ~8.5
+#       Mbit/s sustained just to keep up (block_bytes × 8 × blk_rate).
+#     - CN's own per-request send timeout (~2.5s observed) means a single
+#       ~2.1 MB block must transfer at ≥ ~6.8 Mbit/s or CN times out and
+#       resets the connection outright — the trigger for the permanent
+#       reconnect deadlock described in
+#       agent/proposals/solo-chaos-spike/findings/005-cn-bn-reconnect-deadlock-after-bandwidth-starvation.md
+#       (local, not committed).
+#   Most CNs run on a shared ~1 Gbps NIC, so realistic degraded-bandwidth
+#   scenarios are a small fraction of that link, not the multi-Gbps range.
+#   15mbit/s (~1.5% of a 1 Gbps link) sits comfortably above both floors
+#   above — a real block still sends in ~1.1s, well inside CN's timeout — so
+#   this tier should show a measurable but non-catastrophic, recoverable lag.
+#   Earlier revisions of this test used kbit/s-scale rates (50-500kbit/s); at
+#   any of those, a single block can never transfer within CN's timeout, so
+#   every rate in that range hit the identical reconnect deadlock regardless
+#   of the specific number — see finding 005 above for how that was diagnosed.
 #
 # Assertions:
-#   blocks-diverged  min_spread=5   — conservative; real runs with 100 KB blocks
-#                                     at 0.5 blk/s should exceed this comfortably.
+#   blocks-diverged  min_spread=5   — conservative starting point for this
+#                                     rate; retune against observed spread.
 #   blocks-converged tolerance=10   — BN1 may have a larger gap to close via
 #                                     backfill after chaos clears; allow 10 blocks.
 #
@@ -52,7 +60,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag.yaml
 
 name: bandwidth-lag
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (100kbit/s) — cumulative-lag production failure mode"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (15mbit/s) — cumulative-lag production failure mode (minimal-constraint tier)"
 
 events:
   - id: load-start
@@ -66,27 +74,27 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 100kbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
+    description: "Cap CN's egress to BN1's Service at 15mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "100kbit"
-      limit: 1000000
+      rate: "15mbit"
+      limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 100kbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 15mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "100kbit"
-      limit: 1000000
+      rate: "15mbit"
+      limit: 3000000
       buffer: 10000
       direction: to
 

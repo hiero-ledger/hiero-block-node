@@ -145,11 +145,40 @@ events (keep `limit`/`buffer` proportionate — see each file's own comments)
 and retune `min_spread`/`tolerance_blocks` against what a CI run actually
 observes; these values are empirical, not derived from a formula.
 
-**Known issue affecting recovery assertions:** at 100kbit/s for 150s, the
-consensus-node↔block-node connection can enter a permanent reconnect
-deadlock that doesn't resolve even after the throttle clears — see
+### Picking a rate: the critical zone is single-digit Mbit/s, not kbit/s
+
+It's tempting to reason about a rate purely as "some fraction below the
+sustained block-production rate." That's necessary but not sufficient — CN
+also has a fixed per-request send timeout (~2.5s observed), and if a single
+block can't transfer within that window at all, CN times out mid-send and
+resets the connection outright, which is the trigger for the permanent
+reconnect deadlock described in
 `agent/proposals/solo-chaos-spike/findings/005-cn-bn-reconnect-deadlock-after-bandwidth-starvation.md`
-(local, not committed) for the full root-cause chain. Tune severity with that
-in mind: a cap tight enough to deadlock the connection will fail
-`blocks-converged`/`blocks-increasing`/`block-rate-floor` indefinitely, not
-just slowly.
+(local, not committed). Two floors matter, both derived from a real observed
+block size (~2.1 MB) and block cadence (~0.5 blk/s):
+
+- **Sustained-need floor** (`block_bytes × 8 × block_rate`): ~8.5 Mbit/s —
+  below this, ingest can never keep pace even if every individual send
+  succeeds.
+- **Per-request timeout floor** (`block_bytes × 8 ÷ timeout_s`): ~6.8 Mbit/s —
+  below this, a single block send times out on its own, independent of
+  sustained rate. This is the harder, more dangerous floor: rates below it
+  don't just accumulate lag, they risk never recovering at all.
+
+A rate in the kbit/s range (as every tier originally used) is roughly
+1000x below both floors — every such rate hits the identical outright
+reconnect deadlock, which is why loosening 50kbit/s to 500kbit/s made no
+observable difference. Pick rates that bracket the ~6.8–8.5 Mbit/s zone
+instead: comfortably above it for a "mild, recoverable lag" tier, and
+deliberately just above the per-request floor for a tier meant to sit at the
+edge of breaking. Since most CNs run on a shared NIC of a few Gbps at most
+(commonly ~1 Gbps, shared with other processes), these Mbit/s-scale rates
+are still a small fraction of the link — the "constraint" comes from how
+close the *available* fraction gets to the ~7–8.5 Mbit/s zone, not from the
+absolute number looking large or small in isolation.
+
+**When tuning:** if `blocks-converged`/`blocks-increasing`/`block-rate-floor`
+fail with the block height genuinely frozen (rate reported as exactly
+`0.000/s`, not just low) rather than slowly recovering, that's the permanent
+deadlock, not a slow-recovery case that just needs a longer wait — loosen the
+rate and re-run rather than raising `wait_seconds`/`max_attempts`.

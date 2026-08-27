@@ -1,31 +1,35 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 500kbit/s
+# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 9mbit/s
 #
-# Stress tier of the bandwidth-lag failure mode family.
-# Models a severe (but not total) CN→BN ingest degradation — e.g. a saturated
-# fabric uplink or a cloud AZ routing event.
+# Stress tier of the bandwidth-lag failure mode family: "significant but
+# manageable" — a heavier constraint than the base bandwidth-lag tier, but
+# still meant to recover, not permanently deadlock. See bandwidth-lag-severe
+# for the tier meant to sit at the edge of breaking.
 #
-# See ../scripts/chaos-templates/README.md for why this test uses "kbit" (not
-# "kbps") and target: { kind: service } (not a pod selector) — both gotchas
+# See ../scripts/chaos-templates/README.md for why this test uses "mbit" (not
+# "mbps") and target: { kind: service } (not a pod selector) — both gotchas
 # cost real debugging time and are easy to get wrong when tuning further.
 #
-# Rate: temporarily loosened from 50kbit/s to 500kbit/s. The original 50kbit/s
-# figure assumed ~100 KB blocks; CI showed real blocks running closer to 2 MB,
-# and bandwidth-lag's 100kbit/s tier (an even looser cap than 50kbit/s) was
-# enough to permanently deadlock the CN↔BN1 reconnect (see finding 005 below)
-# rather than just accumulate lag. 500kbit/s is a provisional value to get a
-# runnable, non-guaranteed-failure test while that's investigated — it has
-# not yet been validated against a real block-size/timeout recalculation.
-# Re-tune both the rate and the assertions below once finding 005 is
-# understood well enough to pick a rate deliberately instead of by guess.
+# Rate rationale (9mbit/s): see bandwidth-lag.yaml for the full derivation.
+# In short, a real block was ~2.1 MB and CN's own per-request send timeout is
+# ~2.5s, putting the critical zone at roughly 6.8-8.5 Mbit/s (the rate below
+# which a single block can't transfer within CN's timeout at all, triggering
+# the permanent reconnect deadlock in finding 005 below) — not the kbit/s
+# range this test originally used (every kbit/s-scale rate hits that same
+# deadlock regardless of the specific number). 9mbit/s (~0.9% of a typical
+# ~1 Gbps shared CN NIC) sits just above that floor: a block takes ~1.89s to
+# send, inside CN's ~2.5s timeout but with less margin than the 15mbit/s base
+# tier, so lag should accrue faster and recovery should take longer without
+# guaranteeing the outright deadlock.
 #
-# Known issue this rate is chosen to avoid (not yet confirmed it does):
+# Known issue this rate is chosen to stay above:
 # agent/proposals/solo-chaos-spike/findings/005-cn-bn-reconnect-deadlock-after-bandwidth-starvation.md
-# (local, not committed) — a cap tight enough relative to actual block size
-# vs. CN's per-request send timeout can permanently deadlock the connection,
+# (local, not committed) — a cap tight enough that a single block can't
+# transfer within CN's send timeout can permanently deadlock the connection,
 # so blocks-converged/blocks-increasing/block-rate-floor fail indefinitely
-# rather than just needing more time.
+# rather than just needing more time. Not yet confirmed this rate avoids it —
+# retune based on the next CI run's actual result.
 #
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
 #
@@ -37,7 +41,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-stress.yaml
 
 name: bandwidth-lag-stress
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (500kbit/s) — stress scenario (rate provisional, see file header)"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (9mbit/s) — significant-but-manageable stress tier"
 
 events:
   - id: load-start
@@ -51,27 +55,27 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 500kbit/s (direction=to, target=service/block-node-1, rate provisional — see file header) — degrades BN1's ingest well below block production rate"
+    description: "Cap CN's egress to BN1's Service at 9mbit/s (direction=to, target=service/block-node-1) — degrades BN1's ingest significantly below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw-stress
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "500kbit"
-      limit: 625000
+      rate: "9mbit"
+      limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 500kbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 9mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-stress
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "500kbit"
-      limit: 625000
+      rate: "9mbit"
+      limit: 3000000
       buffer: 10000
       direction: to
 
@@ -113,14 +117,14 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BNs were at least 5 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (conservative and provisional — retune against observed spread once this tier has run to conclusion)"
+    description: "BNs were at least 5 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (conservative starting point for this rate; retune against observed spread)"
     args:
       snapshot_id: peak-chaos-stress
       min_spread: 5
 
   - id: blocks-converged
     type: blocks-converged
-    description: "All BNs converge to within 15 blocks after bandwidth clears — allows BN1 time to close its backfill gap (provisional, see file header)"
+    description: "All BNs converge to within 15 blocks after bandwidth clears — allows BN1 time to close its backfill gap"
     args:
       tolerance_blocks: 15
 
