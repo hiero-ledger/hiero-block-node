@@ -48,6 +48,10 @@ command -v jq >/dev/null 2>&1 || fail "jq not found"
 
 fetch_bn_status_detail_raw() {
     local port="$1"
+    # Use 127.0.0.1 (IPv4) explicitly: kubectl port-forward binds only IPv4
+    # on macOS (127.0.0.1), but grpcurl resolves "localhost" to [::1] (IPv6)
+    # via Go's resolver when the system prefers IPv6. This gives connection
+    # refused even when the port-forward is running correctly.
     # Captured separately from stderr so a connection failure (grpcurl exits
     # non-zero, empty stdout) can be told apart from "reachable but empty
     # response" — both look identical if stderr is discarded.
@@ -55,7 +59,7 @@ fetch_bn_status_detail_raw() {
         -import-path "${PROTO_PATH}" \
         -proto block-node/api/node_service.proto \
         -d '{}' \
-        "localhost:${port}" \
+        "127.0.0.1:${port}" \
         org.hiero.block.api.BlockNodeService/serverStatusDetail
 }
 

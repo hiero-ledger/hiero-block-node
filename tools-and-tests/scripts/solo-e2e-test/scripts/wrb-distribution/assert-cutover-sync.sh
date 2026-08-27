@@ -35,10 +35,13 @@ command -v jq >/dev/null 2>&1 || fail "jq not found"
 bn_last_block() {
     local port="$1"
     local resp
+    # Use 127.0.0.1 (IPv4) explicitly: kubectl port-forward binds only IPv4
+    # on macOS, but grpcurl resolves "localhost" to [::1] (IPv6) via Go's
+    # resolver when the system prefers IPv6, causing connection refused.
     if ! resp=$(grpcurl -plaintext -emit-defaults \
         -import-path "${PROTO_PATH}" \
         -proto block-node/api/node_service.proto \
-        -d '{}' "localhost:${port}" \
+        -d '{}' "127.0.0.1:${port}" \
         org.hiero.block.api.BlockNodeService/serverStatus 2>/tmp/wrb-dist-cutover.err); then
         echo ""
         return
