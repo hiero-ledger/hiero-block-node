@@ -48,6 +48,7 @@ events:
     description: "Start NLG load"
     delay: 0
     args:
+      test_class: HCSLoadTest
       concurrency: 5
       accounts: 10
       duration: 480
@@ -100,6 +101,8 @@ events:
     type: load-stop
     description: "Stop NLG load — extended to allow BN1 backfill of its larger gap"
     delay: 450
+    args:
+      test_class: HCSLoadTest
 
 assertions:
   - id: all-healthy
