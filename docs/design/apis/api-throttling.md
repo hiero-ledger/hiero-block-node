@@ -53,7 +53,14 @@ client or API triggered it.
   repeatedly sends invalid data) is a separate concern.
 - **Authenticated client identity.** No authentication mechanism exists for the read APIs today. Clients are
   identified by network address for now; the identification mechanism is designed to be replaceable without
-  reworking the rest of the system.
+  reworking the rest of the system. Network address is a best-effort signal, not a reliable identity: any L4+
+  router, load balancer, or NAT gateway between a caller and the node can make many independent callers appear
+  as one address (CGNAT, corporate NAT, cloud egress gateways) or let one caller cheaply present many addresses
+  (source-IP rotation on any cloud provider). Per-address limiting therefore reduces the blast radius of the
+  common case (a buggy or greedy single consumer) rather than guaranteeing fairness against a motivated,
+  distributed adversary; the identity-agnostic node-wide ceilings (the global concurrency check in
+  [Component A](#component-a--per-client-admission-gate) and [`BlockReadBulkhead`](#component-b--shared-backend-block-read-bulkhead))
+  are the actual backstop for that threat, and hold regardless of how this per-client signal is defeated.
 - **Fully adaptive / self-tuning rate limiting.** A closed-loop controller that automatically discovers sustainable
   throughput is a reasonable future evolution if static limits prove insufficient, but is materially more complex
   to build and operate, and is not warranted without evidence that static, well-tuned limits fall short.
@@ -94,8 +101,10 @@ arrival time) per key, advanced via compare-and-swap on each admitted request.
 ### `ClientKeyExtractor`
 
 Derives a client key from an incoming call's connection metadata. The default implementation uses the caller's
-remote network address. The interface is designed so an authenticated-identity-based implementation (e.g. from a
-client certificate) can replace it later without changing anything else in the system.
+remote network address. The interface is designed so an authenticated-identity-based implementation (e.g. an mTLS
+client certificate, or an OAuth/bearer-token subject once a token-based auth scheme exists) can replace it later
+without changing anything else in the system — the design deliberately doesn't commit to either as the eventual
+mechanism.
 
 ### `ContentAwareWeigher`
 
