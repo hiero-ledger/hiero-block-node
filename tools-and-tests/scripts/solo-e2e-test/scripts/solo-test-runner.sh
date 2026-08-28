@@ -1577,6 +1577,13 @@ function run_assertion {
             brf_window=$(echo "$args" | yq '.window_seconds // 30')
             assert_block_rate_floor "$target" "$brf_min" "$brf_window"
             ;;
+        avg-block-size-floor)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local absf_min absf_window
+            absf_min=$(echo "$args" | yq '.min_bytes // 0')
+            absf_window=$(echo "$args" | yq '.window_seconds // 30')
+            assert_avg_block_size_floor "$target" "$absf_min" "$absf_window"
+            ;;
         backfill-triggered)
             [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
             local bt_grep bt_since
