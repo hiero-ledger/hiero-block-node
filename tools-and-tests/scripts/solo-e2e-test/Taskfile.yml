@@ -550,6 +550,7 @@ tasks:
     desc: Run bash unit tests for chaos/assertion scripts (no cluster needed)
     cmds:
       - 'bash "{{.SCRIPTS_DIR}}/test/test-chaos-assertions.sh"'
+      - 'bash "{{.SCRIPTS_DIR}}/test/test-execute-load-start.sh"'
 
   # ============================================================================
   # TCK-SDK Tests (matches consensus-node approach: uses latest tags)
