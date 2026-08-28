@@ -205,6 +205,7 @@ function execute_load_start {
     [[ -n "$max_tps" ]] && echo "  Max TPS: $max_tps"
 
     export DEPLOYMENT NAMESPACE
+    export NLG_TEST_TYPE="$test_class"
     export NLG_ARGS="$nlg_args"
     [[ -n "$max_tps" ]] && export NLG_MAX_TPS="$max_tps"
 
