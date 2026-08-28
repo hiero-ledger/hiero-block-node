@@ -77,9 +77,12 @@ rate/concurrency policy applies to it.</dd>
 <dt>Content-aware weigher</dt><dd>A per-API function that inspects a request's content (e.g. the requested block
 number) to classify it into a weight class before admission, rather than relying on a single static weight for the
 whole API.</dd>
-<dt>GCRA (Generic Cell Rate Algorithm)</dt><dd>A leaky-bucket-equivalent rate-limiting algorithm that tracks a single
-"theoretical arrival time" value per limited key, admitting a request only if it isn't arriving too far ahead of the
-evenly-paced schedule that value implies.</dd>
+<dt>Leaky bucket (rate limiter)</dt><dd>The rate-limiting model used per client per method: requests drain from a
+conceptual bucket at a fixed rate, and a request is admitted only if the bucket isn't already full. Implemented here
+via GCRA (Generic Cell Rate Algorithm), a state representation for exactly this model that needs only a single
+"theoretical arrival time" value per limited key — no separate token counter, no background refill — admitting a
+request only if it isn't arriving too far ahead of the evenly-paced schedule that value implies. Used strictly as a
+policer (reject on arrival), not a shaper (delay and re-admit later); see [Alternatives considered](#alternatives-considered).</dd>
 <dt>Bulkhead</dt><dd>A bounded pool of permits that caps how many callers can concurrently use a shared resource,
 independent of who those callers are.</dd>
 <dt>Concurrency permit</dt><dd>A slot representing one in-flight call or session against a limit; acquired on
@@ -95,8 +98,9 @@ per-client concurrency ceiling, and a node-wide concurrency ceiling.
 
 ### `GcraLimiter`
 
-A lock-free rate limiter implementing GCRA, keyed per client. Holds one monotonic-clock timestamp (the theoretical
-arrival time) per key, advanced via compare-and-swap on each admitted request.
+A lock-free leaky-bucket rate limiter, keyed per client, implemented via GCRA. Holds one monotonic-clock timestamp
+(the theoretical arrival time) per key, advanced via compare-and-swap on each admitted request — deliberately not a
+token counter, since that would need the same timestamp anyway (to know when to refill) plus a second field.
 
 ### `ClientKeyExtractor`
 
@@ -169,7 +173,7 @@ For every call, in order — the first check that rejects wins, and no later che
    read of shared state)
 2. **Per-client concurrency check** — has this client already reached its own concurrency ceiling for this method?
    (a pure read of per-client state)
-3. **Rate check (GCRA)** — is this client calling faster than its allowed rate? This check is the only one that
+3. **Rate check (leaky bucket, via GCRA)** — is this client calling faster than its allowed rate? This check is the only one that
    mutates state (it advances the client's theoretical-arrival-time marker), so it deliberately runs last: a call
    that's going to be rejected by a cheaper check must not be allowed to consume a rate-limiting slot first.
 
