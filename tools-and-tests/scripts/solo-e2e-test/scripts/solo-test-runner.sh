@@ -223,6 +223,7 @@ function execute_load_stop {
     echo "Stopping NLG: class=$test_class"
 
     export DEPLOYMENT NAMESPACE
+    export NLG_TEST_TYPE="$test_class"
     "${SCRIPT_DIR}/solo-load-generate.sh" stop
 }
 
