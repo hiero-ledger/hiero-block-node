@@ -31,6 +31,12 @@ import org.hiero.metrics.core.MetricRegistry;
 /// admission decision to its own wrapper pipeline's `onNext`, once the real request bytes are in
 /// hand. If rejected there, the delegate's pipeline never receives `onNext` (or anything else) at
 /// all, so its business logic never runs.
+///
+/// Like [ThrottledServiceInterface], this class is deliberately the only place (besides
+/// [ContentAwareWeigher] implementations, which only parse request bytes) that references PBJ's
+/// `ServiceInterface`/`Pipeline` types — the actual decision logic lives entirely in
+/// [SingleWeightThrottle], which knows nothing about gRPC or how it's attached to a call. Preserve
+/// that split; see [ThrottledServiceInterface]'s class documentation for why.
 public final class WeightedThrottledServiceInterface implements ServiceInterface, StaleClientSweepable {
     private final ServiceInterface delegate;
     private final ClientKeyExtractor keyExtractor;

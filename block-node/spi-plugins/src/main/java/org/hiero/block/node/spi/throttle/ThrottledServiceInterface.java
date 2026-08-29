@@ -18,6 +18,13 @@ import org.hiero.metrics.core.MetricRegistry;
 /// than one cost tier (e.g. `getBlock`'s live-vs-historical distinction), see
 /// [WeightedThrottledServiceInterface] instead — the admission-decision order, eviction, and
 /// permit-lifecycle logic are shared between both via [SingleWeightThrottle].
+///
+/// This class is deliberately the *only* place in the throttle mechanism that references PBJ's
+/// `ServiceInterface`/`Pipeline` types — [SingleWeightThrottle] (and everything it uses:
+/// [GcraLimiter], client-state eviction) takes only a client key and a clock reading, with no
+/// knowledge of gRPC, PBJ, or how it's attached to a call. Preserve that split: if a different
+/// attachment point ever becomes available (e.g. a future PBJ/Helidon interceptor hook), only this
+/// class and [WeightedThrottledServiceInterface] should need to change, not the admission logic.
 public final class ThrottledServiceInterface implements ServiceInterface, StaleClientSweepable {
     private final ServiceInterface delegate;
     private final ClientKeyExtractor keyExtractor;
