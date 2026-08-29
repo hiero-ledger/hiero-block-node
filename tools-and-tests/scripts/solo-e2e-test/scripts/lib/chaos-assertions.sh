@@ -159,8 +159,8 @@ function assert_block_rate_floor {
     fi
 }
 
-# avg-block-size-floor: derives Δbytes/Δblocks from files_recent_total_bytes_stored
-# and files_recent_blocks_written, asserts the average bytes-per-block over the
+# avg-block-size-floor: derives Δbytes/Δblocks from blocknode_files_recent_total_bytes_stored
+# and blocknode_files_recent_blocks_written, asserts the average bytes-per-block over the
 # window is at or above min_bytes. Gives a real, direct block-size number instead
 # of inferring size from the presence/absence of CN-side slow-request warnings.
 # Same "assertions run after all events complete" constraint as block-rate-floor
@@ -168,18 +168,22 @@ function assert_block_rate_floor {
 # block during active chaos. files_recent evicts on its own retention schedule,
 # not expected to trigger inside a single e2e run, so the gauge behaves as an
 # effectively-monotonic running total for the purposes of this Δ.
+# Metric names carry the "blocknode" category prefix (MetricKey.addCategory in
+# BlockNodePlugin.METRICS_CATEGORY) same as blocknode_publisher_highest_block_number_inbound
+# used by block-rate-floor above — the Java-side key strings themselves
+# ("files_recent_total_bytes_stored" etc.) do NOT include it.
 function assert_avg_block_size_floor_single {
     local target="$1" min_bytes="$2" window_seconds="${3:-30}"
     local baseline_bytes baseline_blocks current_bytes current_blocks delta_blocks avg_size
-    baseline_bytes=$(fetch_metric "$target" "files_recent_total_bytes_stored")
-    baseline_blocks=$(fetch_metric "$target" "files_recent_blocks_written")
+    baseline_bytes=$(fetch_metric "$target" "blocknode_files_recent_total_bytes_stored")
+    baseline_blocks=$(fetch_metric "$target" "blocknode_files_recent_blocks_written")
     if [[ -z "$baseline_bytes" || -z "$baseline_blocks" ]]; then
-        echo "${target}: no baseline (files_recent_total_bytes_stored/files_recent_blocks_written unavailable)"
+        echo "${target}: no baseline (blocknode_files_recent_total_bytes_stored/blocknode_files_recent_blocks_written unavailable)"
         return 1
     fi
     sleep "$window_seconds"
-    current_bytes=$(fetch_metric "$target" "files_recent_total_bytes_stored")
-    current_blocks=$(fetch_metric "$target" "files_recent_blocks_written")
+    current_bytes=$(fetch_metric "$target" "blocknode_files_recent_total_bytes_stored")
+    current_blocks=$(fetch_metric "$target" "blocknode_files_recent_blocks_written")
     if [[ -z "$current_bytes" || -z "$current_blocks" ]]; then
         echo "${target}: no current sample after ${window_seconds}s wait"
         return 1
