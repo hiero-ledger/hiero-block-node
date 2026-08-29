@@ -63,7 +63,11 @@ client or API triggered it.
   are the actual backstop for that threat, and hold regardless of how this per-client signal is defeated.
 - **Fully adaptive / self-tuning rate limiting.** A closed-loop controller that automatically discovers sustainable
   throughput is a reasonable future evolution if static limits prove insufficient, but is materially more complex
-  to build and operate, and is not warranted without evidence that static, well-tuned limits fall short.
+  to build and operate, and is not warranted without evidence that static, well-tuned limits fall short. The static
+  *capacity* knobs specifically (node-wide concurrency ceilings, `BlockReadBulkhead` permits) are a plausible
+  exception to this if hardware heterogeneity across deployments makes one hand-tuned default impractical — see the
+  adaptive-bulkhead-sizing follow-up under the throttling epic — but that applies narrowly to capacity sizing, not
+  to per-client policy (rate, burst, per-client concurrency), which stays a static fairness choice by design.
 
 ## Terms
 
@@ -180,6 +184,13 @@ For every call, in order — the first check that rejects wins, and no later che
 If every check passes, the call is admitted: both concurrency counters are incremented, and the real service's
 `open()` is invoked. If any check fails, the call is rejected immediately (see [Exceptions](#exceptions)) and the
 real service method is never invoked.
+
+**Overload prevention vs. single-consumer abuse are different guarantees.** The global concurrency check above,
+and `BlockReadBulkhead` (Component B), are identity-agnostic: they cap total in-flight work regardless of who's
+generating it, so this holds even if every per-client check is defeated (e.g. by IP rotation, per the client-key
+caveat above). This is the real, hard backstop against overload. The per-client concurrency and rate checks, by
+contrast, are a best-effort deterrent for the common case (a buggy or greedy single consumer) — without an
+authenticated identity, they cannot be a guarantee against a motivated, distributed adversary.
 
 **Concurrency-permit lifecycle.** The decorator must release a call's concurrency permit exactly once, whenever the
 call ends — but "the call ends" is not signaled the same way for every RPC shape. The permit must be attached to the
