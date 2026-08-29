@@ -4,13 +4,17 @@
 
 A **special-purpose Block Node** (the "Tier-0" or "SP-BN") is a Block Node co-located with the
 [WRB CLI](wrb-cli-runbook.md) whose sole job is to ingest **Wrapped Record Blocks (WRBs)** produced
-by the CLI and re-serve them (plus TSS data) to Council-operated Tier-1 Block Nodes. The CLI pushes
-blocks into it through the normal Publish API; Tier-1 nodes pull blocks and query TSS through the
-Block Node's standard backfill and status paths.
+by the CLI and re-serve them, along with the **address-book history** they were signed under and
+the **TSS data**, to Council-operated Tier-1 Block Nodes. The CLI pushes blocks into it through the
+normal Publish API; Tier-1 nodes pull blocks, address books, and TSS data through the Block Node's
+standard backfill and status paths.
 
-Unlike a standard Tier-1 BN, the SP-BN must verify **historical** WRBs against the address book that
-was in effect for each block, not just the current one — so it loads a **range-keyed history of
-address books** rather than a single bootstrap roster.
+The address-book history is a first-class serving responsibility, not just a local verification
+concern. Every Tier-1 that reads WRBs from an SP-BN must verify each historical block against the
+address book that was in effect for that block, so it must first fetch the same range-keyed history
+from the SP-BN before it can start reading blocks. The SP-BN both loads its own range-keyed history
+at startup and serves that history to downstream Tier-1s — a standard Tier-1 needs only a single
+current bootstrap roster.
 
 This runbook covers the SP-BN-specific deployment and operational steps. For the CLI-side
 work that feeds the SP-BN, see the [WRB CLI runbook](wrb-cli-runbook.md); for the generic
@@ -65,17 +69,56 @@ local kind).
 
 ## Deployment
 
-Install the `block-node-server` chart from the tag matching your CLI:
+The recommended path is **Solo Provisioner** (`solo-provisioner`), which bootstraps the on-box
+Kubernetes cluster, provisions the PVs, installs the chart, and reconciles configuration changes
+against a persisted state file. Both the previewnet and testnet SP-BNs are deployed and maintained
+this way. Raw Helm is documented in [§ Deploying without Solo Provisioner](#deploying-without-solo-provisioner)
+as a fallback for local `kind` and clusters where Solo Provisioner is not available.
+
+### Prerequisites for the Solo Provisioner path
+
+- `solo-provisioner` installed on the target host (see the [Solo Weaver docs](https://docs.hiero.org/block-node-home/deployment/solo-weaver-single-node-k8s-deployment)).
+- A **provisioner config** YAML (profile, chart reference, storage paths, sizes) — one per
+  network. Example: `~/testnet-lfh-provisioner-config.yaml`.
+- A **chart values overlay** YAML (LFH preset, LoadBalancer, plugin ports). Start from
+  [`charts/block-node-server/values-overrides/lfh-values.yaml`](../../../charts/block-node-server/values-overrides/lfh-values.yaml)
+  and adapt for your network.
+
+The LoadBalancer block in the values overlay **must** set `includePluginPorts: true` so the
+publish (40984), subscribe (40980), block-access (40981), status (40982), and health (40983)
+plugin ports are all exposed alongside the aggregate port (40840). Without it the external LB only
+publishes 40840 and clients pinning individual ports (e.g. LiveSequential's `--push-bn-port`) will
+be unable to reach the BN.
+
+### Install
 
 ```bash
-# From the cloned hiero-block-node repo at the target tag
-helm dependency update ./charts/block-node-server
-helm upgrade --install block-node ./charts/block-node-server \
-  --namespace block-node --create-namespace \
-  --values <your-values.yaml>
+sudo solo-provisioner block node install \
+  -p <profile>                                 \  # e.g. previewnet | testnet | mainnet
+  --config  ~/<network>-lfh-provisioner-config.yaml \
+  --values  ~/<network>-lfh-values.yaml         \
+  --skip-hardware-checks                       \  # only if the box is under the strict quota
+  --non-interactive
 ```
 
-Confirm the pod reaches `1/1 Ready` before doing anything else:
+The provisioner bootstraps the single-node cluster (cri-o, kubelet, kubeadm, cilium, MetalLB,
+helm) on first invocation, then deploys the chart. Subsequent changes to either YAML are applied
+via `reconfigure` rather than reinstall:
+
+```bash
+sudo solo-provisioner block node reconfigure \
+  -p <profile>                                 \
+  --config  ~/<network>-lfh-provisioner-config.yaml \
+  --values  ~/<network>-lfh-values.yaml         \
+  --skip-hardware-checks                       \
+  --non-interactive
+```
+
+`reconfigure` re-runs the helm upgrade with the new values and rolls the pod. It is the correct
+tool for tasks like adding `includePluginPorts: true` after an initial install, or bumping the
+chart version pin.
+
+Confirm the pod reaches `1/1 Ready` before continuing:
 
 ```bash
 kubectl rollout status statefulset/block-node-block-node-server \
@@ -98,6 +141,31 @@ A default install provisions five PVCs (per-pod, via `volumeClaimTemplates`):
 `Retain` reclaim (the default for hand-provisioned PVs) the PV stays with the old data attached
 and refuses to rebind to a freshly-recreated PVC. Wipe file contents with a short-lived pod that
 mounts the existing PVC instead — see the [Wipe recipe](#wipe-recipe) in Troubleshooting.
+
+### Deploying without Solo Provisioner
+
+For local `kind` clusters or environments where Solo Provisioner is not available, the chart can
+be installed directly with Helm. The operator is then responsible for the cluster, PVs, and
+LoadBalancer that Solo Provisioner would otherwise manage.
+
+```bash
+# From the cloned hiero-block-node repo at the target tag
+helm dependency update ./charts/block-node-server
+helm upgrade --install block-node ./charts/block-node-server \
+  --namespace block-node --create-namespace \
+  --values <your-values.yaml>
+```
+
+Confirm the pod reaches `1/1 Ready`:
+
+```bash
+kubectl rollout status statefulset/block-node-block-node-server \
+  -n block-node --timeout=300s
+```
+
+The same `includePluginPorts: true` requirement applies to the values overlay when a
+LoadBalancer is used. All later sections of this runbook (address-book bootstrap, TSS file move,
+backfill, live push) apply unchanged regardless of which deployment path was used.
 
 ---
 
