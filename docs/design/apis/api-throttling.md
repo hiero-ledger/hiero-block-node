@@ -81,12 +81,11 @@ rate/concurrency policy applies to it.</dd>
 <dt>Content-aware weigher</dt><dd>A per-API function that inspects a request's content (e.g. the requested block
 number) to classify it into a weight class before admission, rather than relying on a single static weight for the
 whole API.</dd>
-<dt>Leaky bucket (rate limiter)</dt><dd>The rate-limiting model used per client per method: requests drain from a
-conceptual bucket at a fixed rate, and a request is admitted only if the bucket isn't already full. Implemented here
-via GCRA (Generic Cell Rate Algorithm), a state representation for exactly this model that needs only a single
-"theoretical arrival time" value per limited key — no separate token counter, no background refill — admitting a
-request only if it isn't arriving too far ahead of the evenly-paced schedule that value implies. Used strictly as a
-policer (reject on arrival), not a shaper (delay and re-admit later); see [Alternatives considered](#alternatives-considered).</dd>
+<dt>Leaky bucket (rate limiter)</dt><dd>The rate-limiting model used per client per method: a request adds to a
+conceptual bucket, the bucket drains at a fixed rate, and a request is admitted only if the bucket isn't already
+full. Used strictly as a policer here (reject on arrival), not a shaper (delay and re-admit later); see
+[Alternatives considered](#alternatives-considered). The state representation used to implement this model — GCRA,
+see [`GcraLimiter`](#gcralimiter) — is an implementation choice, not part of the model itself.</dd>
 <dt>Bulkhead</dt><dd>A bounded pool of permits that caps how many callers can concurrently use a shared resource,
 independent of who those callers are.</dd>
 <dt>Concurrency permit</dt><dd>A slot representing one in-flight call or session against a limit; acquired on
