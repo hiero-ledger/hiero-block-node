@@ -48,7 +48,7 @@ events:
     description: "Start NLG load"
     delay: 0
     args:
-      test_class: HCSLoadTest
+      test_class: CryptoTransferLoadTest
       concurrency: 5
       accounts: 10
       duration: 480
@@ -102,7 +102,7 @@ events:
     description: "Stop NLG load — extended to allow BN1 backfill of its larger gap"
     delay: 450
     args:
-      test_class: HCSLoadTest
+      test_class: CryptoTransferLoadTest
 
 assertions:
   - id: all-healthy
