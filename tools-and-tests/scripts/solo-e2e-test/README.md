@@ -719,7 +719,7 @@ assertions:                      # Validations to run after all events
 | `rsa-roster-verification` | Verify blocks accepted via the RSA roster (WRB), no RSA failures | `min_rsa_success`                                          |
 | `metric-threshold`        | Compare any BN Prometheus metric                                 | `metric`, `comparator`, `value`, `samples`, `wait_seconds` |
 | `block-rate-floor`        | Assert Δblocks/Δtime ≥ floor                                     | `min_rate_per_sec`, `window_seconds`                       |
-| `avg-block-size-floor`    | Assert Δ`files_recent_total_bytes_stored`/Δ`files_recent_blocks_written` ≥ floor | `min_bytes`, `window_seconds`              |
+| `avg-block-size-floor`    | Assert Δ`blocknode_files_recent_total_bytes_stored`/Δ`blocknode_files_recent_blocks_written` ≥ floor | `min_bytes`, `window_seconds`  |
 | `backfill-triggered`      | Assert backfill log marker observed                              | `grep` (default `"backfill"`), `since_seconds`             |
 | `log-match`               | Generic log-substring check                                      | `grep`, `since_seconds`                                    |
 

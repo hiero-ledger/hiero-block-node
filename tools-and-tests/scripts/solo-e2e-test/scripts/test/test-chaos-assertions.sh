@@ -138,10 +138,10 @@ BYTES_SEQ_FILE=$(mktemp)
 BLOCKS_SEQ_FILE=$(mktemp)
 function fetch_metric_avg_size_seq {
     local metric="$2" i
-    if [[ "$metric" == "files_recent_total_bytes_stored" ]]; then
+    if [[ "$metric" == "blocknode_files_recent_total_bytes_stored" ]]; then
         i=$(cat "$BYTES_SEQ_FILE"); i=$((i + 1)); echo "$i" > "$BYTES_SEQ_FILE"
         case "$i" in 1) echo "$AVG_SIZE_BYTES_BASELINE" ;; 2) echo "$AVG_SIZE_BYTES_CURRENT" ;; *) echo "" ;; esac
-    elif [[ "$metric" == "files_recent_blocks_written" ]]; then
+    elif [[ "$metric" == "blocknode_files_recent_blocks_written" ]]; then
         i=$(cat "$BLOCKS_SEQ_FILE"); i=$((i + 1)); echo "$i" > "$BLOCKS_SEQ_FILE"
         case "$i" in 1) echo "$AVG_SIZE_BLOCKS_BASELINE" ;; 2) echo "$AVG_SIZE_BLOCKS_CURRENT" ;; *) echo "" ;; esac
     else
