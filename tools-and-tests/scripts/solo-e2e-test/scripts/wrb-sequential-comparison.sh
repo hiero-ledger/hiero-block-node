@@ -385,6 +385,21 @@ function download_record_files_from_minio {
                 continue
             fi
 
+            # For Solo-format sig files, every node directory (record0.0.3/,
+            # record0.0.4/, record0.0.5/) produces an identically-named
+            # timestamp-only .rcd_sig.  If we include all three they collapse
+            # to a single file in the flat output dir (last-node-wins, which is
+            # alphabetically record0.0.5/).  extractNodeAccountNumFromSignaturePath
+            # then hardcodes account-num 3 for timestamp-only names, so the wrap
+            # tool looks up node 0.0.3's key — but the bytes are from node 0.0.5
+            # → verification fails for every block.  Fix: include sig files only
+            # from record0.0.3/ so the surviving copy always belongs to node 3.
+            if [[ "${file_path}" == *.rcd_sig ]] && \
+               [[ "${file_path}" == record0.0.* ]] && \
+               [[ "${file_path}" != record0.0.3/* ]]; then
+                continue
+            fi
+
             wanted_paths+=("${file_path}")
             if [ ${#wanted_paths[@]} -ge ${max_files} ]; then
                 break

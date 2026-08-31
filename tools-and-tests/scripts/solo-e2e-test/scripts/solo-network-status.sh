@@ -135,17 +135,23 @@ output_line ""
 output_line "| Node | Type | Status | Details |"
 output_line "|------|------|--------|---------|"
 
-# Extract block node names from topology file
-# Use grep to find lines like "  block-node-1:" under block_nodes section
-BLOCK_NODES=$(grep -E '^[[:space:]]+block-node-[0-9]+:' "${TOPOLOGY_FILE}" | sed 's/://g' | awk '{print $1}')
-# Fallback to block-node-1 if no block nodes found in topology
+# Discover block nodes: merge topology-file entries with live pod discovery.
+# Block nodes are added dynamically during the test so the deploy-time topology
+# often has "block_nodes: {}" — falling back to just block-node-1 misses BN2/BN3.
+BLOCK_NODES_TOPO=$(grep -E '^[[:space:]]+block-node-[0-9]+:' "${TOPOLOGY_FILE}" | sed 's/://g' | awk '{print $1}')
+BLOCK_NODES_K8S=$(${KUBECTL_CMD} get pods -n "${NAMESPACE}" \
+    --no-headers -o custom-columns='NAME:.metadata.name' 2>/dev/null \
+    | grep -E '^block-node-[0-9]+-0$' | sed 's/-0$//' | sort || true)
+BLOCK_NODES=$(printf '%s\n%s\n' "${BLOCK_NODES_TOPO}" "${BLOCK_NODES_K8S}" \
+    | grep -v '^$' | sort -t- -k3 -n | uniq)
 [[ -z "${BLOCK_NODES}" ]] && BLOCK_NODES="block-node-1"
 
 # Query each block node
-BN_INDEX=0
 for BN in ${BLOCK_NODES}; do
-  PORT=$((40840 + BN_INDEX))
-  BN_INDEX=$((BN_INDEX + 1))
+  # Derive port from the numeric suffix so block-node-2 always maps to 40841
+  # regardless of discovery order.
+  BN_NUM=$(echo "${BN}" | grep -oE '[0-9]+$')
+  PORT=$((40840 + BN_NUM - 1))
 
   # Check if grpcurl is available
   if command -v grpcurl >/dev/null 2>&1; then
@@ -172,8 +178,17 @@ for BN in ${BLOCK_NODES}; do
   fi
 done
 
-# Check consensus nodes via kubectl
-CN_PODS=$(${KUBECTL_CMD} get pods -n "${NAMESPACE}" -l 'app.kubernetes.io/component=network-node' -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+# Check consensus nodes via kubectl.
+# Solo labels network-node pods with "network-node" in their name; try the
+# component label first and fall back to name-based discovery so this works
+# across Solo versions that use different label sets.
+CN_PODS=$(${KUBECTL_CMD} get pods -n "${NAMESPACE}" -l 'app.kubernetes.io/component=network-node' \
+    -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+if [[ -z "${CN_PODS}" ]]; then
+  CN_PODS=$(${KUBECTL_CMD} get pods -n "${NAMESPACE}" --no-headers \
+      -o custom-columns='NAME:.metadata.name' 2>/dev/null \
+      | grep -E '^network-node[0-9]+-' | sort || true)
+fi
 for POD in ${CN_PODS}; do
   STATUS=$(${KUBECTL_CMD} get pod "${POD}" -n "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
   if [[ "${STATUS}" == "Running" ]]; then
@@ -183,25 +198,37 @@ for POD in ${CN_PODS}; do
   fi
 done
 
-# Check mirror node - handle topologies without mirror nodes
+# Check mirror nodes: merge topology-file entries with live pod discovery.
+# MN2 is installed dynamically so it won't be in the deploy-time topology.
+MIRROR_NODES_TOPO=""
 MIRROR_NODES_SECTION=$(grep -E '^mirror_nodes:' "${TOPOLOGY_FILE}" || true)
 if [[ -n "${MIRROR_NODES_SECTION}" ]]; then
-  # Check if mirror_nodes section is empty (like "mirror_nodes: {}")
   MIRROR_EMPTY=$(grep -E '^mirror_nodes:[[:space:]]*\{\}' "${TOPOLOGY_FILE}" || true)
   if [[ -z "${MIRROR_EMPTY}" ]]; then
-    MN_STATUS=$(${KUBECTL_CMD} get pods -n "${NAMESPACE}" -l 'app.kubernetes.io/instance=mirror-1' -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "Not Found")
-    if [[ "${MN_STATUS}" == "Running" ]]; then
-      # Try to get block info from mirror
-      MN_BLOCK=$(curl -s "http://127.0.0.1:5551/api/v1/blocks?limit=1&order=desc" 2>/dev/null | jq -r '.blocks[0].number // "N/A"' 2>/dev/null || echo "N/A")
-      output_line "| mirror-1 | Mirror Node | Running | Last block: ${MN_BLOCK} |"
-    elif [[ "${MN_STATUS}" == "Not Found" ]]; then
-      output_line "| mirror-1 | Mirror Node | Not deployed | - |"
-    else
-      output_line "| mirror-1 | Mirror Node | ${MN_STATUS} | - |"
-    fi
-  else
-    output_line "| mirror-1 | Mirror Node | Not in topology | - |"
+    MIRROR_NODES_TOPO=$(grep -E '^[[:space:]]+mirror-[0-9]+:' "${TOPOLOGY_FILE}" | sed 's/://g' | awk '{print $1}')
   fi
 fi
+MIRROR_NODES_K8S=$(${KUBECTL_CMD} get pods -n "${NAMESPACE}" --no-headers \
+    -o custom-columns='NAME:.metadata.name' 2>/dev/null \
+    | grep -oE '^mirror-[0-9]+' | sort -u || true)
+MIRROR_NODES=$(printf '%s\n%s\n' "${MIRROR_NODES_TOPO}" "${MIRROR_NODES_K8S}" \
+    | grep -v '^$' | sort -t- -k2 -n | uniq)
+
+# Mirror REST API ports: mirror-1 on 5551, mirror-2 on 5552
+for MN in ${MIRROR_NODES}; do
+  MN_NUM=$(echo "${MN}" | grep -oE '[0-9]+$')
+  MN_PORT=$((5550 + MN_NUM))
+  MN_STATUS=$(${KUBECTL_CMD} get pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=${MN}" \
+      -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "Not Found")
+  if [[ "${MN_STATUS}" == "Running" ]]; then
+    MN_BLOCK=$(curl -s "http://127.0.0.1:${MN_PORT}/api/v1/blocks?limit=1&order=desc" 2>/dev/null \
+        | jq -r '.blocks[0].number // "N/A"' 2>/dev/null || echo "N/A")
+    output_line "| ${MN} | Mirror Node | Running | Last block: ${MN_BLOCK} |"
+  elif [[ "${MN_STATUS}" == "Not Found" || -z "${MN_STATUS}" ]]; then
+    output_line "| ${MN} | Mirror Node | Not deployed | - |"
+  else
+    output_line "| ${MN} | Mirror Node | ${MN_STATUS} | - |"
+  fi
+done
 
 output_line ""
