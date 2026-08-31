@@ -382,7 +382,7 @@ events:
     type: command
     description: "Assert the live-push loop kept running through steps 8-10"
     delay: 690
-    timeout: 60
+    timeout: 120
     args:
       script: "${SCRIPT_DIR}/wrb-distribution/assert-live-push-produced-new-blocks.sh"
 

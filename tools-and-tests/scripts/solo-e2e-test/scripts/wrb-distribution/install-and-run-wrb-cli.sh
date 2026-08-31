@@ -210,7 +210,7 @@ bash "${SCRIPT_DIR}/../extract-solo-ab-and-generate.sh" \
     "${NAMESPACE}" \
     "${genesis_ts_seconds}.${genesis_ts_nanos}" \
     "${DAYS_DIR}/addressBookHistory.json" \
-    || log "WARNING: Could not extract address book from CN; wrap will fall back to the mainnet resource (signature checks will fail, harmlessly)"
+    || fail "Could not extract address book from CN — wrapped blocks will have empty RSA proofs and BN will reject them with BAD_BLOCK_PROOF"
 
 network_config_file="${WORK_DIR}/network-other.json"
 cat > "${network_config_file}" <<EOF
