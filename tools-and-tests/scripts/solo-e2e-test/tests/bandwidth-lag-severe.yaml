@@ -1,34 +1,43 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 7mbit/s
+# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 2mbit/s
 #
-# Severe tier of the bandwidth-lag failure mode family: the tightest cap
-# intended to still (barely) avoid the permanent reconnect deadlock in
-# finding 005 below — i.e. the highest constraint before the breaking point,
-# not past it. See bandwidth-lag.yaml (minimal constraint) and
-# bandwidth-lag-stress.yaml (significant but manageable) for the milder tiers.
+# Severe tier of the bandwidth-lag failure mode family: the tightest cap,
+# aimed at actually finding the permanent reconnect deadlock in finding 005
+# below rather than just sitting near it — i.e. the first tier meaningfully
+# probing the breaking point, not assumed to already be at its edge. See
+# bandwidth-lag.yaml (minimal constraint) and bandwidth-lag-stress.yaml
+# (significant but manageable) for the milder tiers.
 #
 # See ../scripts/chaos-templates/README.md for why this test uses "mbit" (not
 # "mbps") and target: { kind: service } (not a pod selector) — both gotchas
 # cost real debugging time and are easy to get wrong when tuning further.
 #
-# Rate rationale (7mbit/s): see bandwidth-lag.yaml for the full derivation.
-# In short, a real block was ~2.1 MB and CN's own per-request send timeout is
-# ~2.5s, so a block must transfer at ≥ ~6.8 Mbit/s or CN times out mid-send
-# and resets the connection — the trigger for finding 005's permanent
-# reconnect deadlock. 7mbit/s (~0.7% of a typical ~1 Gbps shared CN NIC) sits
-# just above that floor: a block takes ~2.43s to send, leaving only ~70ms of
-# margin against CN's ~2.5s timeout. This is deliberately the tightest tier —
-# expect it to be the most likely of the three to occasionally brush against
-# the deadlock, which is the point: find where "significant lag, but
-# recovers" turns into "never recovers."
+# Rate rationale (2mbit/s): see bandwidth-lag.yaml for the full derivation.
+# This tier's old value (7mbit/s) was derived from an assumed ~2.1 MB block
+# and framed as "right at the edge of CN's per-block send timeout." The
+# avg-block-size-floor assertion below now reads the real value directly off
+# BN metrics: two clean CI samples (runs 33265848789, 33269987877) both
+# landed at ~35-40 KB/block — ~55-60x smaller than assumed. Recomputed, the
+# real per-request-timeout floor is ~0.11 Mbit/s and the sustained-need floor
+# is ~0.14 Mbit/s (see bandwidth-lag.yaml), not 6.8-8.5 Mbit/s. That means
+# 7mbit/s was never actually close to making a real block miss CN's timeout —
+# consistent with every severe-tier run on record (6+ runs) fully recovering;
+# this tier never found its claimed edge. 2mbit/s is a first exploratory step
+# into the real, still largely-unexplored transition zone (~0.5-7 Mbit/s: the
+# old kbit/s-scale rates below ~0.5 Mbit/s always deadlocked, 7mbit/s always
+# recovered) — deliberately the tightest of the three retiered tiers, and the
+# most likely to actually surface the permanent-deadlock behavior finding 005
+# describes. If it does, that IS the point: find where "significant lag, but
+# recovers" turns into "never recovers," rather than assume this number is
+# already safely inside "always recovers."
 #
-# Known issue this rate is chosen to sit at the edge of, not past:
+# Known issue this rate is chosen to probe the edge of:
 # agent/proposals/solo-chaos-spike/findings/005-cn-bn-reconnect-deadlock-after-bandwidth-starvation.md
 # (local, not committed) — if this tier reproduces the permanent-stall
 # behavior (blocks-converged/blocks-increasing/block-rate-floor failing
 # indefinitely, not just slowly), that's the breaking point; loosen slightly
-# and re-run rather than assuming a fluke.
+# and re-run to bracket it rather than assuming a fluke.
 #
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
 #
@@ -40,7 +49,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-severe.yaml
 
 name: bandwidth-lag-severe
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (7mbit/s) — edge-of-breaking-point tier"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (2mbit/s) — edge-of-breaking-point tier"
 
 events:
   - id: load-start
@@ -55,26 +64,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 7mbit/s (direction=to, target=service/block-node-1) — right at the edge of CN's per-block send timeout"
+    description: "Cap CN's egress to BN1's Service at 2mbit/s (direction=to, target=service/block-node-1) — probing the real transition zone toward CN's per-block send timeout"
     delay: 30
     args:
       name: cn-to-bn1-bw-severe
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "7mbit"
+      rate: "2mbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 7mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 2mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-severe
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "7mbit"
+      rate: "2mbit"
       limit: 3000000
       buffer: 10000
       direction: to
