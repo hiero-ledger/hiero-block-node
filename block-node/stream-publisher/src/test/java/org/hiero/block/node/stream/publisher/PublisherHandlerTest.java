@@ -8,10 +8,12 @@ import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Flow.Subscription;
@@ -2901,6 +2903,234 @@ class PublisherHandlerTest {
                 endThisBlock(toTest, 0L);
                 assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
+            }
+        }
+
+        /// Tests for the cumulative per-block byte ceiling enforced by
+        /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)]. The
+        /// ceiling is sourced from the server configuration
+        /// `maxMessageSizeBytes` via
+        /// [StreamPublisherManager#serverConfiguration()].
+        @Nested
+        @DisplayName("Cumulative Block Byte Ceiling Tests")
+        class CumulativeBlockByteCeilingTest {
+            /// Thirty megabytes, the per-message payload size from the issue
+            /// acceptance criteria: five such messages exceed the default
+            /// ceiling of 131,072,000 bytes, while four do not.
+            private static final int THIRTY_MEGABYTES = 30 * 1024 * 1024;
+            /// The minimum value allowed for `server.maxMessageSizeBytes`,
+            /// used as a lowered ceiling so tests can breach it cheaply.
+            private static final int LOWERED_CEILING = 1_048_576;
+
+            /// This test aims to assert that the [PublisherHandler] enforces
+            /// the cumulative per-block byte ceiling. We feed five ~30 MB
+            /// messages for the same block (cumulative ~150 MB, above the
+            /// default ceiling of 131,072,000 bytes). The first four messages
+            /// (cumulative ~126 MB) must be accepted and offered to the
+            /// transfer queue with no responses sent. The fifth message pushes
+            /// the cumulative total over the ceiling, so the handler must
+            /// reply with a single EndOfStream with Code INVALID_REQUEST
+            /// carrying the latest known block number, must NOT offer the
+            /// fifth set to the queue, must end the block mid-stream, and must
+            /// close the connection (onComplete) once the delayed shutdown
+            /// runs.
+            @Test
+            @DisplayName(
+                    "Test onNext() ends stream with EndOfStream, Code INVALID_REQUEST when cumulative block bytes exceed the ceiling")
+            void testOversizedBlockEndsStreamWithInvalidRequest() {
+                // Train the manager to return ACCEPT for the block number
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                // Train the manager to return the expected latest block number
+                final long expectedLatestBlockNumber = 10L;
+                manager.setLatestBlockNumber(expectedLatestBlockNumber);
+                // The first message carries the block header, all five are ~30 MB
+                toTest.onNext(requestOf(headerItemSet(0L, THIRTY_MEGABYTES)));
+                for (int i = 0; i < 3; i++) {
+                    toTest.onNext(requestOf(fillerItemSet(THIRTY_MEGABYTES)));
+                }
+                // Assert no responses so far and all four sets offered to the queue
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(manager.getQueueForBlock(0L)).hasSize(4);
+                // The fifth message pushes the cumulative total over the ceiling
+                toTest.onNext(requestOf(fillerItemSet(THIRTY_MEGABYTES)));
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
+                // Assert single response is INVALID_REQUEST with block number
+                // latest known and onComplete is called (shutdown)
+                assertThat(repliesPipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor)
+                        .returns(expectedLatestBlockNumber, endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                // Assert the oversized set was not offered to the queue and the
+                // block ended mid-stream
+                assertThat(manager.getQueueForBlock(0L)).hasSize(4);
+                assertThat(manager.getBlocksEndedMidBlock()).contains(0L);
+                // Assert no other responses sent
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /// This test aims to assert that the [PublisherHandler] updates
+            /// the metrics properly when a publisher is disconnected for
+            /// exceeding the cumulative per-block byte ceiling. We feed five
+            /// ~30 MB messages for the same block (the fifth breaches the
+            /// default ceiling). We expect the oversize-disconnect counter and
+            /// the end-of-stream counter to be incremented exactly once, the
+            /// items-received counter to reflect only the accepted sets (five
+            /// items: header plus filler in the first set, one filler in each
+            /// of the next three sets), and the stream-errors counter to
+            /// remain unchanged.
+            @Test
+            @DisplayName(
+                    "Test onNext() metrics updated when cumulative block bytes exceed the ceiling - EndOfStream, Code INVALID_REQUEST")
+            void testOversizedBlockMetricsUpdated() {
+                // Train the manager to return ACCEPT for the block number
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                manager.setLatestBlockNumber(10L);
+                // The first message carries the block header, all five are ~30 MB
+                toTest.onNext(requestOf(headerItemSet(0L, THIRTY_MEGABYTES)));
+                for (int i = 0; i < 4; i++) {
+                    toTest.onNext(requestOf(fillerItemSet(THIRTY_MEGABYTES)));
+                }
+                // Assert metrics updated
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_DISCONNECTED_OVERSIZE))
+                        .isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(1);
+                // Assert only the four accepted sets counted (2 + 1 + 1 + 1 items)
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(5);
+                // Assert other metrics unchanged
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+            }
+
+            /// This test aims to assert that the cumulative per-block byte
+            /// ceiling check is strictly greater-than: a block whose
+            /// cumulative serialized size lands exactly on the ceiling must
+            /// still be accepted, and only the next byte over the ceiling
+            /// triggers the disconnect. The handler is rebuilt with the
+            /// ceiling lowered to the minimum allowed value. We send a header
+            /// set and a second set sized so the cumulative total measures
+            /// exactly the ceiling, expecting both to be accepted with no
+            /// responses, then a third tiny set, expecting an EndOfStream with
+            /// Code INVALID_REQUEST.
+            @Test
+            @DisplayName("Test onNext() accepts cumulative block bytes exactly at the ceiling, rejects one byte over")
+            void testCumulativeBytesAtCeilingAccepted() {
+                recreateHandlerWithCeiling(LOWERED_CEILING);
+                // Train the manager to return ACCEPT for the block number
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                manager.setLatestBlockNumber(10L);
+                final BlockItemSetUnparsed headerSet = headerItemSet(0L, LOWERED_CEILING / 2);
+                final int headerSetSize = BlockItemSetUnparsed.PROTOBUF.measureRecord(headerSet);
+                // Size the second set so the cumulative total lands exactly on
+                // the ceiling: measure a rough guess, then correct the payload
+                // by the measured difference (framing grows linearly here)
+                final int remaining = LOWERED_CEILING - headerSetSize;
+                final int roughPayload = remaining - 64;
+                final int adjustment =
+                        remaining - BlockItemSetUnparsed.PROTOBUF.measureRecord(fillerItemSet(roughPayload));
+                final BlockItemSetUnparsed secondSet = fillerItemSet(roughPayload + adjustment);
+                assertThat(BlockItemSetUnparsed.PROTOBUF.measureRecord(secondSet))
+                        .isEqualTo(remaining);
+                // Call with both sets, cumulative total exactly at the ceiling
+                toTest.onNext(requestOf(headerSet));
+                toTest.onNext(requestOf(secondSet));
+                // Assert both sets accepted, no responses
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(manager.getQueueForBlock(0L)).hasSize(2);
+                // Any further bytes breach the ceiling
+                toTest.onNext(requestOf(fillerItemSet(1)));
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
+                assertThat(repliesPipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor);
+                assertThat(manager.getQueueForBlock(0L)).hasSize(2);
+            }
+
+            /// This test aims to assert that the cumulative per-block byte
+            /// counter resets when a new block header is received. The handler
+            /// is rebuilt with the ceiling lowered to the minimum allowed
+            /// value. We send a header set of roughly 700 KB for block 0, then
+            /// a header set of roughly 700 KB for block 1. If the counter did
+            /// not reset on the new header, the cumulative total (~1.4 MB)
+            /// would breach the ~1 MB ceiling; since it does reset, both sets
+            /// must be accepted and no responses sent.
+            @Test
+            @DisplayName("Test onNext() resets the cumulative byte counter on a new block header")
+            void testCumulativeCounterResetsOnNewBlockHeader() {
+                recreateHandlerWithCeiling(LOWERED_CEILING);
+                // Train the manager to return ACCEPT for the block numbers
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                manager.setLatestBlockNumber(10L);
+                // Two of these would breach the ceiling if the counter did not reset
+                final int payloadSize = 700_000;
+                toTest.onNext(requestOf(headerItemSet(0L, payloadSize)));
+                // A new header for the next block resets the cumulative counter
+                toTest.onNext(requestOf(headerItemSet(1L, payloadSize)));
+                // Assert both sets accepted, no responses
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(manager.getQueueForBlock(1L)).hasSize(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_DISCONNECTED_OVERSIZE))
+                        .isEqualTo(0);
+            }
+
+            /// Rebuilds the manager and the handler under test with the
+            /// cumulative per-block byte ceiling overridden to the given value.
+            private void recreateHandlerWithCeiling(final int ceiling) {
+                manager = new TestStreamPublisherManager(
+                        new TestBlockMessagingFacility(),
+                        scheduledExecutor,
+                        Map.of("server.maxMessageSizeBytes", String.valueOf(ceiling)));
+                toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager, null);
+                manager.addHandler(toTest);
+            }
+
+            /// Builds an item set whose first item is the block header for the
+            /// given block number, padded with a filler item of the given
+            /// payload size.
+            private BlockItemSetUnparsed headerItemSet(final long blockNumber, final int fillerPayloadSize) {
+                final BlockItemUnparsed header =
+                        TestBlockBuilder.generateBlockWithNumber(blockNumber).getHeaderUnparsed();
+                return BlockItemSetUnparsed.newBuilder()
+                        .blockItems(List.of(header, fillerItem(fillerPayloadSize)))
+                        .build();
+            }
+
+            /// Builds an item set holding a single filler item of the given
+            /// payload size.
+            private BlockItemSetUnparsed fillerItemSet(final int payloadSize) {
+                return BlockItemSetUnparsed.newBuilder()
+                        .blockItems(List.of(fillerItem(payloadSize)))
+                        .build();
+            }
+
+            /// Builds a filler item carrying an opaque payload of the given size.
+            private BlockItemUnparsed fillerItem(final int payloadSize) {
+                return BlockItemUnparsed.newBuilder()
+                        .signedTransaction(Bytes.wrap(new byte[payloadSize]))
+                        .build();
+            }
+
+            /// Wraps the given item set in a publish stream request.
+            private PublishStreamRequestUnparsed requestOf(final BlockItemSetUnparsed itemSet) {
+                return PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
             }
         }
     }

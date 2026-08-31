@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.sendHeaderOnly;
 
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1481,6 +1482,64 @@ class LiveStreamPublisherManagerTest {
 
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// does not schedule a resend for a failed verification whose
+            /// [BlockSource] is [BlockSource#BACKFILL], even for a failure
+            /// type that would schedule one for a publisher supplied block.
+            /// Backfilled blocks are not supplied by the connected publishers,
+            /// so the manager must not respond to them in any way. If a resend
+            /// were scheduled, the gap detection in handlePersisted() would
+            /// clamp acknowledgements below the failed block. We assert that a
+            /// subsequent persisted notification for the block is acknowledged
+            /// normally.
+            @Test
+            @DisplayName(
+                    "handleVerification() does not schedule a resend for a BACKFILL source failure, later persistence is acknowledged")
+            void testHandleVerificationBackfillSourceNoResendScheduled() {
+                // Establish lastPersisted=0 and advance nextUnstreamed past block 1 so
+                // handleVerification's failure branch conditions on the block
+                // number are satisfied and only the source check filters the
+                // notification out.
+                assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                // A backfilled copy of block 1 failed verification with a type
+                // that schedules a resend when the source is a publisher. The
+                // manager must take no action for the backfilled source.
+                toTest.handleVerification(new VerificationNotification(
+                        false,
+                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        1L,
+                        null,
+                        null,
+                        BlockSource.BACKFILL));
+                // Clear the pipelines because acknowledgements have been sent
+                // due to the persisted notification for block 0.
+                responsePipeline.clear();
+                responsePipeline2.clear();
+                // Block 1 is persisted. Because no resend is pending, the
+                // acknowledgement must not be clamped by gap detection.
+                toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getLatestBlockNumber())
+                        .as("lastPersisted must advance to block 1, no resend is pending for it")
+                        .isEqualTo(1L);
+                // Assert that both handlers have received an acknowledgement
+                // for block 1 and nothing else.
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(1L, acknowledgementBlockNumberExtractor);
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(1L, acknowledgementBlockNumberExtractor);
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
             /// will handle a failed verification of a type that indicates a
             /// Block Node fault or capability limitation by ending every
             /// connected publisher's stream. No retry against this node can
@@ -2793,6 +2852,170 @@ class LiveStreamPublisherManagerTest {
                 toTest.registerQueueForBlock(publisherHandlerId, new ConcurrentLinkedDeque<>(), blockNumber);
                 // blockIsEnding for an already-persisted block must not throw.
                 assertThatNoException().isThrownBy(() -> toTest.blockIsEnding(blockNumber, publisherHandlerId));
+            }
+        }
+
+        /// Tests asserting the interaction between the cumulative per-block
+        /// byte ceiling enforced by [PublisherHandler] and the resend
+        /// scheduling in [LiveStreamPublisherManager]. When a publisher is
+        /// disconnected with EndOfStream Code INVALID_REQUEST because a block
+        /// exceeded the ceiling, the block it was streaming must be scheduled
+        /// for resend and requested from another publisher on end of block.
+        @Nested
+        @DisplayName("Cumulative Block Byte Ceiling Resend Tests")
+        class CumulativeBlockByteCeilingResendTests {
+            /// The minimum value allowed for `server.maxMessageSizeBytes`,
+            /// used as a lowered ceiling so tests can breach it cheaply.
+            private static final int LOWERED_CEILING = 1_048_576;
+            /// A payload size such that two payloads breach the lowered
+            /// ceiling while a single one does not.
+            private static final int PAYLOAD_SIZE = 600_000;
+
+            /// Local setup for each test in this class. Here we override the
+            /// original setup that is present and reused from
+            /// [FunctionalityTests]. This is needed because these tests must
+            /// lower the cumulative per-block byte ceiling to the minimum
+            /// allowed value, which requires a fresh context, manager and
+            /// handlers built against the overridden configuration.
+            @BeforeEach
+            void localSetup() {
+                historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
+                threadPoolManager = new TestThreadPoolManager<>(
+                        new BlockingExecutor(new LinkedBlockingQueue<>()),
+                        new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+                messagingFacility = new TestBlockMessagingFacility();
+                final Configuration testConfiguration = TestStreamPublisherManager.createTestConfiguration(
+                        Map.of("server.maxMessageSizeBytes", String.valueOf(LOWERED_CEILING)));
+                final BlockNodeContext context = generateContext(
+                        historicalBlockFacility, threadPoolManager, messagingFacility, testConfiguration);
+                historicalBlockFacility.init(context, null);
+                final MetricRegistry registry = newRegistry();
+                managerMetrics = MetricsHolder.createMetrics(registry);
+                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                sharedHandlerMetrics = PublisherHandler.MetricsHolder.createMetrics(registry);
+                responsePipeline = new TestResponsePipeline();
+                publisherHandler = toTest.addHandler(responsePipeline, sharedHandlerMetrics, null);
+                responsePipeline2 = new TestResponsePipeline();
+                publisherHandler2 = toTest.addHandler(responsePipeline2, sharedHandlerMetrics, "");
+            }
+
+            /// This test aims to assert that when a publisher is disconnected
+            /// with EndOfStream Code INVALID_REQUEST because the block it was
+            /// streaming exceeded the cumulative per-block byte ceiling, the
+            /// offending block is scheduled for resend. Publisher 1 starts
+            /// block 0 with a header message under the ceiling, and publisher
+            /// 2 starts streaming block 1 (the next block in line) validly in
+            /// parallel. Publisher 1 then sends a second message that pushes
+            /// block 0 over the ceiling and must receive a single EndOfStream
+            /// with Code INVALID_REQUEST. When publisher 2 subsequently ends
+            /// block 1, the manager must answer the end of block with a
+            /// RESEND action for block 0, so publisher 2 must receive a
+            /// ResendBlock message for block 0. This is critical: without the
+            /// resend, the disconnected publisher's block would be lost until
+            /// backfill notices the gap.
+            @Test
+            @DisplayName(
+                    "Block ended by an oversize INVALID_REQUEST disconnect is requested for resend from another publisher on end of block")
+            void testOversizeDisconnectSchedulesResendForAnotherPublisher() {
+                // Publisher 1 starts streaming block 0, staying under the ceiling
+                publisherHandler.onNext(requestOf(headerItemSet(0L, PAYLOAD_SIZE)));
+                // Publisher 2 starts streaming block 1, the next block in line, validly
+                final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(1L);
+                publisherHandler2.onNext(block1.asPublishStreamRequestUnparsed());
+                // Publisher 1 pushes block 0 over the ceiling and is disconnected
+                publisherHandler.onNext(requestOf(fillerItemSet(PAYLOAD_SIZE)));
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor);
+                // Publisher 2 has received no responses yet
+                assertThat(responsePipeline2.getOnNextCalls()).isEmpty();
+                // Publisher 2 ends block 1 and must be asked to resend block 0
+                endThisBlock(publisherHandler2, block1.number());
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
+                        .returns(0L, resendBlockNumberExtractor);
+                // Assert the metrics reflect the disconnect and the resend
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_DISCONNECTED_OVERSIZE))
+                        .isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(1);
+            }
+
+            /// This test aims to assert that a block scheduled for resend
+            /// after an oversize INVALID_REQUEST disconnect can actually be
+            /// re-published. The flow of the previous test runs first:
+            /// publisher 1 breaches the ceiling on block 0 and is
+            /// disconnected, publisher 2 ends block 1 and receives a
+            /// ResendBlock message for block 0. Publisher 2 then re-publishes
+            /// block 0 (header message under the ceiling) and ends it. Both
+            /// steps must be accepted silently, so the only response publisher
+            /// 2 ever receives is the single ResendBlock message: the resent
+            /// block header must win ACCEPT and the end of block must not
+            /// produce another action.
+            @Test
+            @DisplayName("Block scheduled for resend after an oversize disconnect is accepted when re-published")
+            void testResendBlockIsAcceptedWhenRepublished() {
+                // Publisher 1 breaches the ceiling on block 0 mid-stream while
+                // publisher 2 validly streams and ends block 1
+                publisherHandler.onNext(requestOf(headerItemSet(0L, PAYLOAD_SIZE)));
+                final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(1L);
+                publisherHandler2.onNext(block1.asPublishStreamRequestUnparsed());
+                publisherHandler.onNext(requestOf(fillerItemSet(PAYLOAD_SIZE)));
+                endThisBlock(publisherHandler2, block1.number());
+                // Publisher 2 has been asked to resend block 0
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
+                        .returns(0L, resendBlockNumberExtractor);
+                // Publisher 2 re-publishes block 0 and ends it
+                publisherHandler2.onNext(requestOf(headerItemSet(0L, PAYLOAD_SIZE)));
+                endThisBlock(publisherHandler2, 0L);
+                // Assert both steps were accepted silently: the ResendBlock
+                // message is still the only response publisher 2 has received
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor);
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isZero();
+                assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
+            }
+
+            /// Builds an item set whose first item is the block header for the
+            /// given block number, padded with a filler item of the given
+            /// payload size.
+            private BlockItemSetUnparsed headerItemSet(final long blockNumber, final int fillerPayloadSize) {
+                final BlockItemUnparsed header =
+                        TestBlockBuilder.generateBlockWithNumber(blockNumber).getHeaderUnparsed();
+                return BlockItemSetUnparsed.newBuilder()
+                        .blockItems(List.of(header, fillerItem(fillerPayloadSize)))
+                        .build();
+            }
+
+            /// Builds an item set holding a single filler item of the given
+            /// payload size.
+            private BlockItemSetUnparsed fillerItemSet(final int payloadSize) {
+                return BlockItemSetUnparsed.newBuilder()
+                        .blockItems(List.of(fillerItem(payloadSize)))
+                        .build();
+            }
+
+            /// Builds a filler item carrying an opaque payload of the given size.
+            private BlockItemUnparsed fillerItem(final int payloadSize) {
+                return BlockItemUnparsed.newBuilder()
+                        .signedTransaction(Bytes.wrap(new byte[payloadSize]))
+                        .build();
+            }
+
+            /// Wraps the given item set in a publish stream request.
+            private PublishStreamRequestUnparsed requestOf(final BlockItemSetUnparsed itemSet) {
+                return PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
             }
         }
 

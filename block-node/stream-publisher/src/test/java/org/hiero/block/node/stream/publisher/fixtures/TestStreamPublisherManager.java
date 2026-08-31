@@ -22,6 +22,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.BlockItemSetUnparsed;
+import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
@@ -64,9 +65,16 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     public TestStreamPublisherManager(
             final TestBlockMessagingFacility testBlockMessagingFacility,
             final ScheduledBlockingExecutor scheduleExecutor) {
+        this(testBlockMessagingFacility, scheduleExecutor, Map.of());
+    }
+
+    public TestStreamPublisherManager(
+            final TestBlockMessagingFacility testBlockMessagingFacility,
+            final ScheduledBlockingExecutor scheduleExecutor,
+            final Map<String, String> configOverrides) {
         this.blockMessagingFacility = Objects.requireNonNull(testBlockMessagingFacility);
         scheduledExecutor = scheduleExecutor;
-        testConfiguration = createTestConfiguration();
+        testConfiguration = createTestConfiguration(configOverrides);
     }
 
     public static Configuration createTestConfiguration() {
@@ -171,6 +179,11 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     @Override
     public PublisherConfig configuration() {
         return testConfiguration.getConfigData(PublisherConfig.class);
+    }
+
+    @Override
+    public ServerConfig serverConfiguration() {
+        return testConfiguration.getConfigData(ServerConfig.class);
     }
 
     @Override
