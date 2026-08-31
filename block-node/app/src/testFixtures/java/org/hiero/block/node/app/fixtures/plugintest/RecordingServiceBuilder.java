@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Stream;
@@ -21,6 +22,7 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.metrics.core.MetricRegistry;
 
@@ -178,40 +180,26 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     }
 
     /// {@inheritDoc}
-    /// Records the invocation; does not register anything with a real server.
+    /// Records the invocation as a plain {@link GrpcServiceRegistration}. If `service` also
+    /// implements [ThrottleSpec], additionally records it as a {@link ThrottledGrpcServiceRegistration}
+    /// (no weigher) or a {@link WeightedThrottledGrpcServiceRegistration} (has a weigher), preserving
+    /// the same two accessor methods this fixture had before throttled registration was folded into
+    /// this one method. Does not apply any real admission control; it never creates a real server.
     @Override
     public void registerGrpcService(@Nullable final Integer port, @NonNull final ServiceInterface service) {
         grpcServiceRegistrations.add(new GrpcServiceRegistration(port, service));
-    }
-
-    /// {@inheritDoc}
-    /// Records the invocation both as a {@link ThrottledGrpcServiceRegistration} and, so existing
-    /// assertions against {@link #grpcServiceRegistrations()} (and this fixture's port computation
-    /// in {@link #buildGeneralWebServer()}) continue to see it, as a plain {@link GrpcServiceRegistration}
-    /// too. Does not apply any real admission control; it never creates a real server.
-    @Override
-    public void registerGrpcService(
-            @Nullable final Integer port,
-            @NonNull final ServiceInterface service,
-            @NonNull final PerClientThrottleSettings perClientSettings) {
-        throttledGrpcServiceRegistrations.add(new ThrottledGrpcServiceRegistration(port, service, perClientSettings));
-        grpcServiceRegistrations.add(new GrpcServiceRegistration(port, service));
-    }
-
-    /// {@inheritDoc}
-    /// Records the invocation both as a {@link WeightedThrottledGrpcServiceRegistration} and, so
-    /// existing assertions against {@link #grpcServiceRegistrations()} continue to see it, as a
-    /// plain {@link GrpcServiceRegistration} too. Does not apply any real admission control; it
-    /// never creates a real server.
-    @Override
-    public void registerGrpcService(
-            @Nullable final Integer port,
-            @NonNull final ServiceInterface service,
-            @NonNull final Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight,
-            @NonNull final ContentAwareWeigher weigher) {
-        weightedThrottledGrpcServiceRegistrations.add(
-                new WeightedThrottledGrpcServiceRegistration(port, service, perClientSettingsByWeight, weigher));
-        grpcServiceRegistrations.add(new GrpcServiceRegistration(port, service));
+        if (service instanceof ThrottleSpec spec) {
+            final Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight =
+                    spec.perClientSettingsByWeight();
+            final Optional<ContentAwareWeigher> weigher = spec.weigher();
+            if (weigher.isPresent()) {
+                weightedThrottledGrpcServiceRegistrations.add(new WeightedThrottledGrpcServiceRegistration(
+                        port, service, perClientSettingsByWeight, weigher.get()));
+            } else {
+                throttledGrpcServiceRegistrations.add(new ThrottledGrpcServiceRegistration(
+                        port, service, perClientSettingsByWeight.get(WeightClass.STANDARD)));
+            }
+        }
     }
 
     /// {@inheritDoc}

@@ -8,13 +8,10 @@ import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
-import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
-import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
-import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
-import org.hiero.block.node.spi.throttle.WeightClass;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
 
 /// ServiceBuilder is an interface that defines the contract for registering HTTP and gRPC services
 /// with the web server during initialization.
@@ -71,48 +68,17 @@ public interface ServiceBuilder {
     /// Registers a gRPC service on the given port, or on the default port
     /// if `port` is `null`. This service is added to the "General" webserver.
     ///
+    /// If `service` also implements [ThrottleSpec], per-client rate/concurrency admission control is
+    /// applied automatically: the registration point merges the spec's settings with the node-wide
+    /// concurrency ceiling for this service (resolved internally) into a full throttle policy before
+    /// wrapping the service. A plugin never chooses between a throttled and unthrottled registration
+    /// call — whether a service is throttled, and how, is entirely a property of the service object
+    /// itself. See `docs/design/apis/api-throttling.md` for the full design.
+    ///
     /// @param port the port number to bind this service to, or `null` to
     /// use the default port
-    /// @param service the gRPC service to register
+    /// @param service the gRPC service to register, optionally also implementing [ThrottleSpec]
     void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service);
-
-    /// Registers a gRPC service on the given port, or on the default port if `port` is `null`,
-    /// with per-client rate and concurrency admission control applied.
-    ///
-    /// The registration point merges `perClientSettings` with the node-wide concurrency ceiling
-    /// for this service (resolved internally) into a full throttle policy before wrapping the
-    /// service. See `docs/design/apis/api-throttling.md` for the full design.
-    ///
-    /// @param port the port number to bind this service to, or `null` to use the default port
-    /// @param service the gRPC service to register and protect
-    /// @param perClientSettings this service's own per-client rate/concurrency settings
-    void registerGrpcService(
-            @Nullable Integer port,
-            @NonNull ServiceInterface service,
-            @NonNull PerClientThrottleSettings perClientSettings);
-
-    /// Registers a gRPC service on the given port, or on the default port if `port` is `null`,
-    /// with per-client rate/concurrency admission control that varies by request content.
-    ///
-    /// Use this overload instead of the single-policy one when a service's methods have more than
-    /// one cost tier (e.g. `getBlock` requests for a live block versus a historical/archived one).
-    /// `weigher` classifies each call once its request content is available (not at registration
-    /// time, and not synchronously inside the service's `open()` — see
-    /// `org.hiero.block.node.spi.throttle.WeightedThrottledServiceInterface` for why), and the
-    /// matching entry in `perClientSettingsByWeight` governs that call. The map must contain an
-    /// entry for [WeightClass#STANDARD], used as the fallback if the weigher ever returns a class
-    /// with no configured entry.
-    ///
-    /// @param port the port number to bind this service to, or `null` to use the default port
-    /// @param service the gRPC service to register and protect
-    /// @param perClientSettingsByWeight this service's per-client rate/concurrency settings, one
-    ///     entry per weight class its weigher can classify a request into
-    /// @param weigher classifies each call's request content into a weight class
-    void registerGrpcService(
-            @Nullable Integer port,
-            @NonNull ServiceInterface service,
-            @NonNull Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight,
-            @NonNull ContentAwareWeigher weigher);
 
     /// The single, shared [BlockReadBulkhead] protecting block storage from combined read load
     /// across every API that reads from it (Component B in `docs/design/apis/api-throttling.md`).

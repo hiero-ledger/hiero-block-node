@@ -10,6 +10,7 @@ import static java.util.Objects.requireNonNull;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.BlockNodeServiceInterface;
@@ -32,6 +33,8 @@ import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
+import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -40,7 +43,7 @@ import org.hiero.metrics.core.MetricRegistry;
  * Plugin that implements the BlockNodeService and provides the 'serverStatus' RPC.
  */
 public class ServerStatusServicePlugin
-        implements BlockNodePlugin, BlockNodeServiceInterface, ApplicationStateNotificationHandler {
+        implements BlockNodePlugin, BlockNodeServiceInterface, ApplicationStateNotificationHandler, ThrottleSpec {
     /** Metric key for the number of server status requests */
     public static final MetricKey<LongCounter> METRIC_SERVER_STATUS_REQUESTS =
             MetricKey.of("server_status_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -67,6 +70,8 @@ public class ServerStatusServicePlugin
     private volatile List<BlockRange> availableBlocks = List.of();
     private volatile TssData tssData = null;
     private volatile RangedAddressBookHistory rangedAddressBookHistory = null;
+    /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight;
 
     /**
      * Handle a request for server status
@@ -178,12 +183,21 @@ public class ServerStatusServicePlugin
                 context.configuration().getConfigData(ServerStatusConfig.class).port();
         final ServerStatusThrottleConfig throttleConfig =
                 context.configuration().getConfigData(ServerStatusThrottleConfig.class);
-        final PerClientThrottleSettings throttleSettings = new PerClientThrottleSettings(
-                throttleConfig.ratePerSecond(),
-                throttleConfig.burstTolerance(),
-                throttleConfig.maxConcurrentPerClient());
-        serviceBuilder.registerGrpcService(port, this, throttleSettings);
+        this.throttleSettingsByWeight = Map.of(
+                WeightClass.STANDARD,
+                new PerClientThrottleSettings(
+                        throttleConfig.ratePerSecond(),
+                        throttleConfig.burstTolerance(),
+                        throttleConfig.maxConcurrentPerClient()));
+        serviceBuilder.registerGrpcService(port, this);
         context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
+        return throttleSettingsByWeight;
     }
 
     @Override
