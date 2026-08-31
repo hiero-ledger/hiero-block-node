@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 9mbit/s
+# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 4mbit/s
 #
 # Stress tier of the bandwidth-lag failure mode family: "significant but
 # manageable" — a heavier constraint than the base bandwidth-lag tier, but
@@ -11,17 +11,20 @@
 # "mbps") and target: { kind: service } (not a pod selector) — both gotchas
 # cost real debugging time and are easy to get wrong when tuning further.
 #
-# Rate rationale (9mbit/s): see bandwidth-lag.yaml for the full derivation.
-# In short, a real block was ~2.1 MB and CN's own per-request send timeout is
-# ~2.5s, putting the critical zone at roughly 6.8-8.5 Mbit/s (the rate below
-# which a single block can't transfer within CN's timeout at all, triggering
-# the permanent reconnect deadlock in finding 005 below) — not the kbit/s
-# range this test originally used (every kbit/s-scale rate hits that same
-# deadlock regardless of the specific number). 9mbit/s (~0.9% of a typical
-# ~1 Gbps shared CN NIC) sits just above that floor: a block takes ~1.89s to
-# send, inside CN's ~2.5s timeout but with less margin than the 15mbit/s base
-# tier, so lag should accrue faster and recovery should take longer without
-# guaranteeing the outright deadlock.
+# Rate rationale (4mbit/s): see bandwidth-lag.yaml for the full derivation.
+# The old 9mbit/s value was derived from an assumed ~2.1 MB block; the
+# avg-block-size-floor assertion now shows a real block is ~35-40 KB, ~55-60x
+# smaller, putting the real per-request-timeout floor at ~0.11 Mbit/s and the
+# sustained-need floor at ~0.14 Mbit/s (see bandwidth-lag.yaml) — not the
+# 6.8-8.5 Mbit/s this tier was originally tuned against. At 9mbit/s (or even
+# the base tier's 10mbit/s) a real block was never at risk of missing CN's
+# send timeout, which is consistent with this tier's history: every run
+# recovered. 4mbit/s is a first exploratory step tighter, still well above
+# the ~0.5 Mbit/s floor below which earlier kbit/s-scale rates always hit the
+# permanent reconnect deadlock (see finding 005 below), but tight enough to
+# meaningfully increase aggregate queuing pressure and give a real data point
+# between the always-recovers 10mbit/s tier and the edge-seeking 2mbit/s
+# severe tier.
 #
 # Known issue this rate is chosen to stay above:
 # agent/proposals/solo-chaos-spike/findings/005-cn-bn-reconnect-deadlock-after-bandwidth-starvation.md
@@ -41,7 +44,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-stress.yaml
 
 name: bandwidth-lag-stress
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (9mbit/s) — significant-but-manageable stress tier"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (4mbit/s) — significant-but-manageable stress tier"
 
 events:
   - id: load-start
@@ -55,26 +58,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 9mbit/s (direction=to, target=service/block-node-1) — degrades BN1's ingest significantly below block production rate"
+    description: "Cap CN's egress to BN1's Service at 4mbit/s (direction=to, target=service/block-node-1) — degrades BN1's ingest significantly below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw-stress
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "9mbit"
+      rate: "4mbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 9mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 4mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-stress
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "9mbit"
+      rate: "4mbit"
       limit: 3000000
       buffer: 10000
       direction: to
