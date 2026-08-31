@@ -39,11 +39,11 @@ function fail { echo "  FAIL  $1"; failed=$((failed+1)); }
 eval "$(sed -n '/^function execute_load_start/,/^}/p' "${RUNNER_SCRIPT}")"
 eval "$(sed -n '/^function execute_load_stop/,/^}/p' "${RUNNER_SCRIPT}")"
 
-# execute_load_stop now shells out to `kctl logs` to capture the NLG pod's
-# stdout before tearing it down; mock it the same way test-chaos-assertions.sh
-# does. The nlg-logs/ dir it creates as a CWD-relative side effect (mirrors
-# bn-logs/mn-logs in the CI workflow) is cleaned up by the trap below.
-function kctl { return 0; }
+# execute_load_stop now copies ~/.solo/logs/rapid-fire*.log into nlg-logs/
+# after stopping the load. The nlg-logs/ dir it creates as a CWD-relative
+# side effect (mirrors bn-logs/mn-logs in the CI workflow) is cleaned up by
+# the trap below; the cp itself no-ops harmlessly since no such file exists
+# in this test's real $HOME.
 
 if ! declare -f execute_load_start >/dev/null; then
     echo "FATAL: could not extract execute_load_start from ${RUNNER_SCRIPT}"

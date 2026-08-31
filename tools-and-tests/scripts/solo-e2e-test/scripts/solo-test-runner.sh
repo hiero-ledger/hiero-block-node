@@ -222,17 +222,22 @@ function execute_load_stop {
     local test_class="${1:-CryptoTransferLoadTest}"
     echo "Stopping NLG: class=$test_class"
 
-    # Capture NLG's own stdout (self-reported TPS, precheck/BUSY errors) before
-    # Solo tears the pod down — once stopped, `kubectl logs` can no longer
-    # reach it, so this must happen before solo-load-generate.sh stop below.
-    mkdir -p nlg-logs
-    kctl logs -n "$NAMESPACE" -l "app.kubernetes.io/name=network-load-generator" \
-        --all-containers --timestamps --prefix --tail=-1 > "nlg-logs/network-load-generator-stdout.log" 2>&1 || \
-        echo "Failed to collect NLG logs (pod may already be gone)" > "nlg-logs/network-load-generator-stdout.log"
-
     export DEPLOYMENT NAMESPACE
     export NLG_TEST_TYPE="$test_class"
     "${SCRIPT_DIR}/solo-load-generate.sh" stop
+
+    # Capture NLG's own self-reported output (TPS, precheck/BUSY rejections)
+    # AFTER stop, not before: `kubectl logs` on the NLG pod only ever shows its
+    # placeholder DONOTSTART container command (confirmed empirically — the
+    # real java process is launched via `kubectl exec` into that pod, which
+    # never becomes the container's own logged stdout, and --quiet-mode
+    # suppresses the exec's live output from this job's log too). The one real
+    # record is the diagnostics file `solo rapid-fire load stop` itself writes
+    # to ~/.solo/logs/rapid-fire-*.log once it detects the process it just
+    # stopped — which only exists *after* the stop call above, not before.
+    mkdir -p nlg-logs
+    cp "${HOME}/.solo/logs/"rapid-fire*.log nlg-logs/ 2>/dev/null || \
+        echo "No rapid-fire log file found under ${HOME}/.solo/logs/ after stop" > "nlg-logs/rapid-fire-log-missing.txt"
 }
 
 function execute_print_metrics {
