@@ -64,10 +64,14 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
         }
 
         /**
-         * @return the latch released once the block's fate is known
+         * Waits until the block's fate is known, or the timeout elapses.
+         *
+         * @param timeoutMs maximum time to wait in milliseconds
+         * @return true if the fate became known before the timeout elapsed
+         * @throws InterruptedException if the wait is interrupted
          */
-        CountDownLatch latch() {
-            return latch;
+        boolean await(final long timeoutMs) throws InterruptedException {
+            return latch.await(timeoutMs, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -116,7 +120,7 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
         final String waitingForBlockMsg = "Waiting for block [{0}] persistence (timeout=[{1}]ms)";
         LOGGER.log(TRACE, waitingForBlockMsg, blockNumber, timeoutMs);
         try {
-            boolean completed = pending.latch().await(timeoutMs, TimeUnit.MILLISECONDS);
+            boolean completed = pending.await(timeoutMs);
             if (completed) {
                 final String persistenceConfirmedMsg = "Block [{0}] persistence resolved, succeeded=[{1}]";
                 LOGGER.log(TRACE, persistenceConfirmedMsg, blockNumber, pending.succeeded());
