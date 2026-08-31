@@ -25,6 +25,15 @@
 #   --tss-enabled true|false   Enable TSS on consensus nodes (default: true)
 #   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
 #   --help                     Show this help message
+#
+# Environment variables:
+#   RECORD_STREAM_LOG_PERIOD_SECONDS   CN's block-cutting cadence in seconds
+#                                       (hedera.recordStream.logPeriod), default: 1.
+#                                       Raise this to accumulate more transactions
+#                                       per block before it's cut, e.g. to reach
+#                                       much larger block sizes for bandwidth-cap
+#                                       testing once real sustained throughput is
+#                                       known.
 
 set -o pipefail
 set +e
@@ -635,12 +644,12 @@ function deploy_block_nodes {
 
 function generate_cn_application_properties {
   local output_file="${1}"
-  cat > "${output_file}" << 'EOF'
+  cat > "${output_file}" << EOF
 hedera.config.version=0
 ledger.id=0x01
 netty.mode=TEST
 contracts.chainId=298
-hedera.recordStream.logPeriod=1
+hedera.recordStream.logPeriod=${RECORD_STREAM_LOG_PERIOD_SECONDS:-1}
 balances.exportPeriodSecs=400
 files.maxSizeKb=2048
 hedera.recordStream.compressFilesOnCreation=true
