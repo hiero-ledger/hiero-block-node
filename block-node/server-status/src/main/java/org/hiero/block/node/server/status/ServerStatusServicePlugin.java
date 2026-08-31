@@ -2,7 +2,6 @@
 package org.hiero.block.node.server.status;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
@@ -255,9 +254,11 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                 nextExpectedBlock);
     }
 
-    /// Logs an uncaught exception escaping the heartbeat thread at `ERROR`.
+    /// Logs an uncaught exception escaping the heartbeat thread at `WARNING`: the heartbeat is a
+    /// best-effort diagnostic signal, so a failed thread degrades observability but is not itself a
+    /// node failure warranting `ERROR`.
     private void onHeartbeatThreadException(final Thread thread, final Throwable throwable) {
-        LOGGER.log(ERROR, "Uncaught exception in server-status heartbeat thread", throwable);
+        LOGGER.log(WARNING, "Uncaught exception in server-status heartbeat thread", throwable);
     }
 
     /**

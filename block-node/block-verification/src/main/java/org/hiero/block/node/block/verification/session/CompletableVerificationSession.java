@@ -2,7 +2,6 @@
 package org.hiero.block.node.block.verification.session;
 
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.WARNING;
 
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -234,7 +233,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
             final String message =
                     "Exception occurred during completion of verification session with id %d for block %d with source %s"
                             .formatted(sessionKey.uniqueId(), blockNumber, blockSource);
-            LOGGER.log(WARNING, message, e);
+            LOGGER.log(INFO, message, e);
             return true;
         }
         return result;

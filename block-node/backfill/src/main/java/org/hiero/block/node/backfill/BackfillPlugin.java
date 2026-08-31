@@ -2,7 +2,6 @@
 package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
@@ -221,7 +220,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // Create platform thread executors via threadPoolManager.
         // Platform threads required because Helidon WebClient HTTP/2 has issues with virtual threads in containers.
         Thread.UncaughtExceptionHandler handler =
-                (thread, e) -> LOGGER.log(ERROR, "Uncaught exception in thread: " + thread.getName(), e);
+                (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
 
         autonomousExecutor =
                 context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillPluginRunner", handler);
@@ -549,7 +548,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                                 new LongRange(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL))) {
                     final String backfillPersistFailedMsg =
                             "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
-                    LOGGER.log(WARNING, backfillPersistFailedMsg, blockNumber);
+                    LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
                 } else {
                     // The live-tail scheduler is unavailable (plugin not yet started) or its queue is full -
                     // most likely because a mass failure (e.g. MISSING_VERIFICATION_DATA while the node is
@@ -581,7 +580,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             LOGGER.log(TRACE, verificationNotificationMsg, notification.blockNumber());
             if (!notification.success()) {
                 final String blockVerificationFailedMsg = "Block verification failed, block=[{0}]";
-                LOGGER.log(WARNING, blockVerificationFailedMsg, notification.blockNumber());
+                LOGGER.log(DEBUG, blockVerificationFailedMsg, notification.blockNumber());
                 metricsHolder.backfillFetchErrors().increment();
                 pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
                 // If a block verification fails, we will backfill it again later on the next gap detection run.
@@ -638,10 +637,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                             "Reset liveTailHighWaterMark to [{0}] after incomplete gap [{1}]";
                     LOGGER.log(INFO, resetHighWaterMarkMsg, lastSuccessfulBlock, gap.range());
                 }
-            } catch (ParseException | InterruptedException e) {
+            } catch (InterruptedException e) {
+                // Genuine cancellation — preserve the interrupt so the executing thread can unwind.
                 Thread.currentThread().interrupt();
-                final String errorExecutingGapMsg = "Error executing gap=[%s]".formatted(gap);
-                LOGGER.log(WARNING, errorExecutingGapMsg, e);
+                LOGGER.log(INFO, "Interrupted while executing gap=[%s]".formatted(gap), e);
+            } catch (ParseException e) {
+                // A parse failure is a task failure, not a cancellation; do not set the interrupt flag.
+                LOGGER.log(INFO, "Error executing gap=[%s]".formatted(gap), e);
             }
         }
     }

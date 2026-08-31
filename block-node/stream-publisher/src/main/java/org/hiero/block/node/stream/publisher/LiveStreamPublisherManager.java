@@ -914,7 +914,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     LOGGER.log(
                             TRACE, "Interrupted while waiting for publisher unavailability timeout task to complete");
                 } catch (final ExecutionException e) {
-                    LOGGER.log(WARNING, "Publisher unavailability timeout task completed exceptionally", e);
+                    LOGGER.log(INFO, "Publisher unavailability timeout task completed exceptionally", e);
                 }
             }
         }
@@ -1134,7 +1134,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 final String formatString = "Queue forwarder task completed normally after forwarding %d blocks.";
                 LOGGER.log(DEBUG, formatString.formatted(blocksForwarded));
             } catch (CancellationException | ExecutionException e) {
-                LOGGER.log(WARNING, "Queue forwarder task completed exceptionally.", e);
+                LOGGER.log(INFO, "Queue forwarder task completed exceptionally.", e);
             } catch (InterruptedException e) {
                 LOGGER.log(DEBUG, "Interrupted retrieving queue forwarder task result.");
             }

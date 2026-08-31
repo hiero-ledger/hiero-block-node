@@ -254,7 +254,7 @@ public class ServerStatusServicePluginTest
     /// Tests that the periodic status heartbeat emits a single INFO line reporting the available
     /// block range, so operators can follow block progression from INFO logs alone.
     @Test
-    @DisplayName("Status heartbeat logs the available block range at INFO")
+    @DisplayName("Status heartbeat emits the available block range")
     void shouldLogStatusHeartbeat() {
         sendBlocks(5);
         final TestLogHandler logHandler = new TestLogHandler();
@@ -268,10 +268,10 @@ public class ServerStatusServicePluginTest
         assertEquals(1, logHandler.countContaining("Status heartbeat"));
     }
 
-    /// Tests that the heartbeat task scheduled by `start()` runs and logs at INFO when the
+    /// Tests that the heartbeat task scheduled by `start()` runs and emits its line when the
     /// executor fires it, exercising the `start()` scheduling path and `runHeartbeat()`.
     @Test
-    @DisplayName("Scheduled heartbeat task runs and logs at INFO")
+    @DisplayName("Scheduled heartbeat task runs and emits its line")
     void shouldRunScheduledHeartbeat() {
         sendBlocks(5);
         final TestLogHandler logHandler = new TestLogHandler();

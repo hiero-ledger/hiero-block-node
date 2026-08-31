@@ -394,7 +394,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         try {
             return standardParse(BlockHeader.PROTOBUF, headerBytes);
         } catch (final ParseException e) {
-            LOGGER.log(WARNING, "Failed to parse block header", e);
+            LOGGER.log(INFO, "Failed to parse block header", e);
             return null;
         }
     }
@@ -517,13 +517,13 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                             }
                         } catch (final IOException e) {
                             // TODO(2235) Report plugin unhealthy if minimal block cannot be deleted
-                            LOGGER.log(WARNING, "Failed to delete zip file: %s".formatted(zipToDelete), e);
+                            LOGGER.log(INFO, "Failed to delete zip file: %s".formatted(zipToDelete), e);
                             zipsDeletedFailedCounter.increment();
                         }
                     }
                 } catch (final IOException e) {
                     // TODO(2235) Report plugin unhealthy if minimal block cannot be determined
-                    LOGGER.log(WARNING, "Failed to determine minimal block to delete.", e);
+                    LOGGER.log(INFO, "Failed to determine minimal block to delete.", e);
                     zipsDeletedFailedCounter.increment();
                     break;
                 }
@@ -627,7 +627,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                             } catch (final IOException e) {
                                 final String message = "Failed to delete staging file for block %d located at %s"
                                         .formatted(blockNumber, path.toFile().getAbsolutePath());
-                                plugin.LOGGER.log(WARNING, message, e);
+                                plugin.LOGGER.log(INFO, message, e);
                             }
                         }
                     }
@@ -705,12 +705,12 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                         Files.delete(file);
                     } catch (IOException e) {
                         final String msg = "Failed to delete work zip file: %s".formatted(file);
-                        plugin.LOGGER.log(WARNING, msg, e);
+                        plugin.LOGGER.log(INFO, msg, e);
                     }
                 });
             } catch (IOException e) {
                 final String msg = "Failed to list work zip files in %s".formatted(plugin.zipWorkRootPath);
-                plugin.LOGGER.log(WARNING, msg, e);
+                plugin.LOGGER.log(INFO, msg, e);
             }
         }
     }
@@ -782,7 +782,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     Files.move(file, newPath);
                     LOGGER.log(INFO, "Renamed old format archive: {0} -> {1}", fileName, newFileName);
                 } catch (final IOException e) {
-                    LOGGER.log(WARNING, "Failed to rename file: %s".formatted(file), e);
+                    LOGGER.log(INFO, "Failed to rename file: %s".formatted(file), e);
                 }
             }
             return CONTINUE;

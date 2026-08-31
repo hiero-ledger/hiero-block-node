@@ -272,7 +272,7 @@ class BackfillFetcherTest {
         }
 
         @Test
-        @DisplayName("logs WARNING when all sources are unreachable")
+        @DisplayName("emits an aggregate log when all sources are unreachable")
         void warnsWhenAllSourcesUnreachable() throws Exception {
             final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
 

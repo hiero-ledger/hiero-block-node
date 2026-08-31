@@ -47,12 +47,12 @@ disabled so it defers to this configuration.
 There is **one config format** (JUL `logging.properties`) with a per-environment copy. Which
 file is live is decided entirely by `-Djava.util.logging.config.file`.
 
-| Environment |                Config file (source of truth)                |                                                      Live path / injection                                                       |                                       Output                                        |
-|-------------|-------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------|
-| Local / jar | `block-node/app/src/main/resources/logging.properties`      | Loaded from classpath at startup                                                                                                 | Console (stderr), coloured                                                          |
-| Docker      | `block-node/app/docker/logging.properties`                  | Mounted at `/opt/hiero/block-node/logs/config/logging.properties`; flag set in `JAVA_TOOL_OPTIONS` by `docker/update-env.sh`     | Console + rotating file `/opt/hiero/block-node/logs/blocknode-%g.log` (5 MB × 5)    |
-| CI          | `block-node/app/docker/ci-logging.properties`               | Same flag mechanism                                                                                                              | Console only                                                                        |
-| Kubernetes  | `charts/block-node-server/values.yaml` → `blockNode.logs.*` | Rendered into a ConfigMap (`configmap-logging.yaml`), mounted at `/opt/hiero/block-node/logs/config`; flag set by `_helpers.tpl` | Console + rotating file on a dedicated `logging` PVC (`/opt/hiero/block-node/logs`) |
+| Environment |                Config file (source of truth)                |                                                      Live path / injection                                                       |                                           Output                                            |
+|-------------|-------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
+| Local / jar | `block-node/app/src/main/resources/logging.properties`      | Loaded from classpath at startup                                                                                                 | Console (stderr), coloured                                                                  |
+| Docker      | `block-node/app/docker/logging.properties`                  | Mounted at `/opt/hiero/block-node/logs/config/logging.properties`; flag set in `JAVA_TOOL_OPTIONS` by `docker/update-env.sh`     | Console + rotating file `/opt/hiero/block-node/logs/blocknode-%g.log` (50 MB × 15 ≈ 750 MB) |
+| CI          | `block-node/app/docker/ci-logging.properties`               | Same flag mechanism                                                                                                              | Console only                                                                                |
+| Kubernetes  | `charts/block-node-server/values.yaml` → `blockNode.logs.*` | Rendered into a ConfigMap (`configmap-logging.yaml`), mounted at `/opt/hiero/block-node/logs/config`; flag set by `_helpers.tpl` | Console + rotating file on a dedicated `logging` PVC (`/opt/hiero/block-node/logs`)         |
 
 ## Level policy (the decision to ratify)
 
@@ -89,6 +89,46 @@ Levels use `System.Logger.Level`, mapped to JUL as: `TRACE→FINEST`, `DEBUG→F
   2. **Per-package DEBUG on demand** — an operator can raise one package/class to `FINE`
      temporarily to get full per-block detail during an incident, then revert (see
      [`docs/block-node/logging.md`](../../block-node/logging.md)).
+
+## Open discrepancy: recoverable failures sit between INFO and WARNING
+
+The review of PR #3308 surfaced a genuine gap in
+[`logging-guidelines.md`](../../logging-guidelines.md) that this project should reconcile
+explicitly. The guidelines define the two ends cleanly but leave the middle ambiguous:
+
+- **WARNING** "almost always triggers a call to the on-call operations engineer … if the
+  triggering event is not sufficient to warrant … alerting the on-call staff, then that event
+  is most likely a `DEBUG` or lower level."
+- **INFO** is "unequivocally useful to an operations engineer," infrequent, and "does not
+  indicate a problem or potential problem."
+
+A large class of events falls between these two: a **recoverable operation failure** — a
+retried S3 upload, a skipped malformed block header, a failed staging-file cleanup, a
+re-queued backfill block. By common sense and general industry best practice these are
+**`WARNING`s**: something *did* go wrong and an operator generally wants to see it, even though
+the system recovered on its own. That is exactly why this PR originally raised them to
+`WARNING`. The tension is that the project's guidelines reserve `WARNING` for on-call-paging
+conditions, and `INFO` is defined as "does not indicate a problem" — so under a literal reading
+of *our* guidelines these recoverable failures fit neither level cleanly.
+
+The maintainer discussion on #3308 chose to resolve the ambiguity toward **`INFO`** for now:
+that keeps `WARNING` strictly on-call-actionable (so a WARNING/SEVERE grep stays a clean "needs
+attention" filter) while still giving log-only operators visibility into recoverable failures.
+This PR follows that consensus and reverts the recoverable caught-exception logs from `WARNING`
+back to `INFO`. Genuine on-call signals are still kept at `WARNING` — *all backfill sources
+unreachable* (aggregate) and an *uncaught exception in the server-status heartbeat thread* — and
+echoes of failures already logged at their origin (the backfill persistence/verification awaiter
+observers, the backfill verification-failed notice) are lowered to `DEBUG` to avoid a second
+signal for the same event.
+
+**Impact / follow-up:** `INFO` for recoverable failures is a deliberate, documented deviation
+from the common-sense/best-practice expectation that a recovered failure is a `WARNING`. It is a
+direct consequence of this project defining `WARNING` narrowly as "pages the on-call engineer";
+teams that treat `WARNING` as the normal home for recovered-but-notable failures would classify
+most of these the other way. `logging-guidelines.md` should be amended to make this explicit —
+either broaden `WARNING` to cover recovered-but-notable failures (the best-practice default), or
+add a fourth category that formally routes recoverable failures to `INFO` — so future reviews
+apply a single rule instead of re-litigating each call site. Tracked as follow-up to #3278.
 
 ## Patterns & conventions (how to do it right)
 

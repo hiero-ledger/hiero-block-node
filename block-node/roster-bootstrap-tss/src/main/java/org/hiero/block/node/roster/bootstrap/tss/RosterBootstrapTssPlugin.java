@@ -120,7 +120,8 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
             try {
                 tssDataFetcher.close();
             } catch (IOException e) {
-                LOGGER.log(WARNING, "Unable to close tssDataFetcher", e);
+                // Cleanup failure during shutdown is not on-call actionable; keep at DEBUG.
+                LOGGER.log(DEBUG, "Unable to close tssDataFetcher", e);
             }
         }
     }

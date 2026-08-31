@@ -40,7 +40,8 @@ rotating file), so they ingest cleanly into Loki, ELK, Splunk, etc.
   its simple name.
 
 In production the rotating log file is written to `/opt/hiero/block-node/logs/blocknode-%g.log`
-(5 MB per file, 5 files retained). In Kubernetes this lives on a dedicated `logging` volume.
+(50 MB per file, 15 files retained ≈ 750 MB of history). In Kubernetes this lives on a dedicated
+`logging` volume.
 
 ## Logs vs. metrics: which one do I use?
 

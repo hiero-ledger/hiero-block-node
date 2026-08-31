@@ -231,7 +231,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             } catch (final RuntimeException e) {
                 // If we reach here, it means that the handler was interrupted or
                 // an unexpected error occurred. We should log the error and shut down.
-                LOGGER.log(WARNING, "[%2$s] Error processing request: %1$s".formatted(e, correlationIdPrefix), e);
+                LOGGER.log(INFO, "[%2$s] Error processing request: %1$s".formatted(e, correlationIdPrefix), e);
                 endStreamWithCode(Code.ERROR, true, 0L);
             }
             // @todo check the current backlog by calling a manager method to

@@ -72,6 +72,8 @@ k6-out/
 # LLM agent files
 .agent/**
 agent/**
-.claude/
+# Ignore only local, per-developer Claude settings; shared .claude/ files (settings.json,
+# commands, skills) remain committable.
+.claude/settings.local.json
 .agents.local/
 

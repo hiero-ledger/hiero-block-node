@@ -122,7 +122,7 @@ final class ApplicationStateUtility {
                     NetworkData.JSON, Bytes.wrap(Files.readAllBytes(path)), MAX_APP_STATE_MESSAGE_SIZE_BYTES);
             return data;
         } catch (ParseException | IOException e) {
-            LOGGER.log(WARNING, "Failed to read network data file %s.".formatted(path), e);
+            LOGGER.log(INFO, "Failed to read network data file %s.".formatted(path), e);
             return NetworkData.DEFAULT;
         }
     }
