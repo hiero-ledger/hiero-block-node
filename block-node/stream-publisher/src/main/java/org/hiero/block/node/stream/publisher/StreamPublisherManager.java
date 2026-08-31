@@ -8,6 +8,7 @@ import java.util.Deque;
 import java.util.concurrent.ScheduledFuture;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.BlockItemSetUnparsed;
+import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 
 /// todo(1420) add documentation
@@ -95,6 +96,10 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     /// Get the current configuration of the publisher plugin.
     /// @return The plugin configuration data.
     PublisherConfig configuration();
+
+    /// Get the current configuration of the server.
+    /// @return The server configuration data.
+    ServerConfig serverConfiguration();
 
     /// The action to take within the PublisherHandler for a block.
     enum BlockAction {

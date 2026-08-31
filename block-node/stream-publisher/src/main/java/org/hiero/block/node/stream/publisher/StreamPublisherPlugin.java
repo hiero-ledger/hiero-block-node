@@ -101,6 +101,8 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     public static final MetricKey<LongCounter> METRIC_PUBLISHER_FLOW_CONTROL_PENALTIES_APPLIED = MetricKey.of(
                     "publisher_flow_control_penalties_applied", LongCounter.class)
             .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_DISCONNECTED_OVERSIZE =
+            MetricKey.of("publisher_disconnected_oversize", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     /// The logger for this class.
     private static final System.Logger LOGGER = System.getLogger(StreamPublisherPlugin.class.getName());
