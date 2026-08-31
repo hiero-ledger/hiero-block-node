@@ -235,6 +235,7 @@ cp .env.example .env
 | `NLG_ARGS`               | `-c 5 -a 10 -tt 300`     | NLG arguments (-c concurrency, -a accounts, -tt duration)            |
 | `NLG_MAX_TPS`            | (empty)                  | Optional max transactions per second                                 |
 | `MIRROR_NODE_PINGER_TPS` | `5`                      | Mirror Node pinger TPS (0 to disable, CI only)                       |
+| `RECORD_STREAM_LOG_PERIOD_SECONDS` | `1`            | CN block-cutting cadence in seconds (`hedera.recordStream.logPeriod`) |
 | `ENABLE_LOCAL_METRICS`   | `false`                  | Enable Prometheus+Grafana stack locally                              |
 | `TEST_FILE`              | `none`                   | Test definition file for `task test:run`                             |
 | `TCK_SDK_DIR`            | `sdk-tck`                | Directory for TCK-SDK repositories                                   |
