@@ -222,6 +222,14 @@ function execute_load_stop {
     local test_class="${1:-CryptoTransferLoadTest}"
     echo "Stopping NLG: class=$test_class"
 
+    # Capture NLG's own stdout (self-reported TPS, precheck/BUSY errors) before
+    # Solo tears the pod down — once stopped, `kubectl logs` can no longer
+    # reach it, so this must happen before solo-load-generate.sh stop below.
+    mkdir -p nlg-logs
+    kctl logs -n "$NAMESPACE" -l "app.kubernetes.io/name=network-load-generator" \
+        --all-containers --timestamps --prefix --tail=-1 > "nlg-logs/network-load-generator-stdout.log" 2>&1 || \
+        echo "Failed to collect NLG logs (pod may already be gone)" > "nlg-logs/network-load-generator-stdout.log"
+
     export DEPLOYMENT NAMESPACE
     export NLG_TEST_TYPE="$test_class"
     "${SCRIPT_DIR}/solo-load-generate.sh" stop

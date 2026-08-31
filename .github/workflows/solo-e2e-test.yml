@@ -1144,6 +1144,15 @@ jobs:
           name: MN-logs-${{ inputs.topology }}
           path: mn-logs/
 
+      - name: Upload NLG Logs
+        if: always()
+        continue-on-error: true
+        id: upload_logs_nlg
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: NLG-logs-${{ inputs.topology }}
+          path: nlg-logs/
+
       - name: Add Logs and Status to Summary
         if: always()
         continue-on-error: true
@@ -1156,6 +1165,7 @@ jobs:
             echo "| Block Node | [BN-logs](${{ steps.upload_logs_bn.outputs.artifact-url }}) |"
             echo "| Mirror Node | [MN-logs](${{ steps.upload_logs_mn.outputs.artifact-url }}) |"
             echo "| Consensus Node | [CN-logs](${{ steps.upload_logs_cn.outputs.artifact-url }}) |"
+            echo "| Load Generator | [NLG-logs](${{ steps.upload_logs_nlg.outputs.artifact-url }}) |"
             echo ""
 
             # Test Results Matrix (if tests were run)
