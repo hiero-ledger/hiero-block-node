@@ -294,6 +294,14 @@ if [[ -z "$RESOLVED_PROTO_DIR" && -n "$BN_VERSION" ]]; then
   RESOLVED_PROTO_DIR="${SCRIPT_DIR}/block-node-protobuf-${BN_VERSION}"
 fi
 
+# If this run downloads and extracts the proto bundle (ensure_proto_dir sets
+# _PROTO_DIR_DOWNLOADED=true), remove it on exit so it doesn't accumulate in
+# the working tree and show up as untracked in git.  Directories that already
+# existed before this run (user-supplied --proto-dir or a cached bundle from a
+# prior --version run) are left untouched.
+_PROTO_DIR_DOWNLOADED=false
+trap '[[ "${_PROTO_DIR_DOWNLOADED}" == "true" ]] && rm -rf "${RESOLVED_PROTO_DIR}"' EXIT
+
 # Validate that every endpoint looks like host:port before hitting the network.
 # Also verifies the port portion is a valid integer in the range 1–65535 so that
 # grpcurl receives well-formed arguments and produces useful error messages.
@@ -489,6 +497,7 @@ ensure_proto_dir() {
     exit 2
   fi
 
+  _PROTO_DIR_DOWNLOADED=true
   log_success "Proto package ready : ${RESOLVED_PROTO_DIR}"
 }
 
