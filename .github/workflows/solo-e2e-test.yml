@@ -81,6 +81,10 @@ on:
         description: "Mirror Node pinger TPS (0 to disable)"
         type: string
         default: "5"
+      record-stream-log-period-seconds:
+        description: "CN record-stream log period in seconds (block-cutting cadence). Production default is 2."
+        type: string
+        default: "1"
       test-definition:
         description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe, bandwidth-lag, bandwidth-lag-severe, bandwidth-lag-stress"
         type: string
@@ -203,6 +207,10 @@ on:
         description: "Mirror Node pinger TPS (0 to disable)"
         required: false
         default: "5"
+      record-stream-log-period-seconds:
+        description: "CN record-stream log period in seconds (block-cutting cadence). Production default is 2."
+        required: false
+        default: "1"
       test-definition:
         description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe, bandwidth-lag, bandwidth-lag-severe, bandwidth-lag-stress"
         required: false
@@ -232,6 +240,9 @@ env:
   # Read by solo-setup-cluster.sh / solo-deploy-network.sh to skip the minimum-version
   # check when a custom fork/branch build is in use.
   SOLO_SOURCE: ${{ inputs.solo-source }}
+  # Read by solo-deploy-network.sh's generate_cn_application_properties to set
+  # hedera.recordStream.logPeriod (the CN block-cutting cadence).
+  RECORD_STREAM_LOG_PERIOD_SECONDS: ${{ inputs.record-stream-log-period-seconds }}
 
 jobs:
   solo-test-deploy:
