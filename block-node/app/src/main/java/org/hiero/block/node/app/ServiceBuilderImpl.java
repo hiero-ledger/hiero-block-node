@@ -21,6 +21,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ScheduledExecutorService;
@@ -36,6 +37,7 @@ import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
 import org.hiero.block.node.spi.throttle.StaleClientSweepable;
 import org.hiero.block.node.spi.throttle.ThrottlePolicy;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
 import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.block.node.spi.throttle.WeightedThrottledServiceInterface;
@@ -103,64 +105,69 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     }
 
     /// {@inheritDoc}
+    ///
+    /// If `service` also implements [ThrottleSpec], resolves the node-wide concurrency ceiling for
+    /// each weight class it declares (a small, explicit, service-and-weight-keyed lookup —
+    /// deliberately code, not config, since it's a fixed, rarely-changing association, matching how
+    /// every other plugin's service is wired into this class), merges each with the spec's
+    /// corresponding per-client settings, and registers the resulting [ThrottledServiceInterface] or
+    /// [WeightedThrottledServiceInterface] in place of the raw service. A spec with no [ThrottleSpec#weigher]
+    /// gets the lighter-weight [ThrottledServiceInterface], which decides admission synchronously
+    /// inside `open()` rather than deferring to `onNext()` — the same latency characteristic a
+    /// single-tier service always had before this method was unified. Adding a new throttled method
+    /// means adding one field to [GlobalThrottleConfig] and one branch in
+    /// [#resolveGlobalConcurrencyCeiling] — nothing here changes.
     @Override
     public void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service) {
-        grpcBuilders.computeIfAbsent(resolve(port), k -> PbjRouting.builder()).service(service);
-    }
-
-    /// {@inheritDoc}
-    ///
-    /// Resolves the node-wide concurrency ceiling for `service` (a small, explicit,
-    /// service-name-keyed lookup — deliberately code, not config, since it's a fixed,
-    /// rarely-changing association, matching how every other plugin's service is wired into this
-    /// class), merges it with `perClientSettings`, and registers the resulting
-    /// [ThrottledServiceInterface] in place of the raw service. Adding a new throttled method
-    /// means adding one field to [GlobalThrottleConfig] and one branch here.
-    @Override
-    public void registerGrpcService(
-            @Nullable Integer port,
-            @NonNull ServiceInterface service,
-            @NonNull PerClientThrottleSettings perClientSettings) {
-        final int maxConcurrentGlobal = resolveGlobalConcurrencyCeiling(service, WeightClass.STANDARD);
-        final ThrottlePolicy policy = ThrottlePolicy.merge(perClientSettings, maxConcurrentGlobal);
-        final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
-                service,
-                policy,
-                new RemoteAddressKeyExtractor(),
-                metricRegistry,
-                Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
-        throttledServices.add(throttled);
-        ensureClientStateSweepStarted();
-        registerGrpcService(port, throttled);
-    }
-
-    /// {@inheritDoc}
-    ///
-    /// Resolves the node-wide concurrency ceiling for each weight class `service` declares (the
-    /// same explicit, service-and-weight-keyed lookup as the single-policy overload), merges each
-    /// with its corresponding entry in `perClientSettingsByWeight`, and registers the resulting
-    /// [WeightedThrottledServiceInterface] in place of the raw service.
-    @Override
-    public void registerGrpcService(
-            @Nullable Integer port,
-            @NonNull ServiceInterface service,
-            @NonNull Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight,
-            @NonNull ContentAwareWeigher weigher) {
-        final Map<WeightClass, ThrottlePolicy> policiesByWeight = new EnumMap<>(WeightClass.class);
-        for (final Map.Entry<WeightClass, PerClientThrottleSettings> entry : perClientSettingsByWeight.entrySet()) {
-            final int maxConcurrentGlobal = resolveGlobalConcurrencyCeiling(service, entry.getKey());
-            policiesByWeight.put(entry.getKey(), ThrottlePolicy.merge(entry.getValue(), maxConcurrentGlobal));
+        if (service instanceof ThrottleSpec spec) {
+            registerThrottledGrpcService(port, service, spec);
+        } else {
+            grpcBuilders
+                    .computeIfAbsent(resolve(port), k -> PbjRouting.builder())
+                    .service(service);
         }
-        final WeightedThrottledServiceInterface throttled = new WeightedThrottledServiceInterface(
-                service,
-                policiesByWeight,
-                new RemoteAddressKeyExtractor(),
-                weigher,
-                metricRegistry,
-                Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
-        throttledServices.add(throttled);
+    }
+
+    private void registerThrottledGrpcService(
+            @Nullable final Integer port, @NonNull final ServiceInterface service, @NonNull final ThrottleSpec spec) {
+        final Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight = spec.perClientSettingsByWeight();
+        final Optional<ContentAwareWeigher> weigher = spec.weigher();
+        final ServiceInterface throttled;
+        if (weigher.isPresent()) {
+            final Map<WeightClass, ThrottlePolicy> policiesByWeight = new EnumMap<>(WeightClass.class);
+            for (final Entry<WeightClass, PerClientThrottleSettings> entry : perClientSettingsByWeight.entrySet()) {
+                final int maxConcurrentGlobal = resolveGlobalConcurrencyCeiling(service, entry.getKey());
+                policiesByWeight.put(entry.getKey(), ThrottlePolicy.merge(entry.getValue(), maxConcurrentGlobal));
+            }
+            final WeightedThrottledServiceInterface weightedThrottled = new WeightedThrottledServiceInterface(
+                    service,
+                    policiesByWeight,
+                    new RemoteAddressKeyExtractor(),
+                    weigher.get(),
+                    metricRegistry,
+                    Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
+            throttledServices.add(weightedThrottled);
+            throttled = weightedThrottled;
+        } else {
+            final PerClientThrottleSettings perClientSettings = perClientSettingsByWeight.get(WeightClass.STANDARD);
+            if (perClientSettings == null) {
+                throw new IllegalArgumentException(
+                        "ThrottleSpec with no weigher must supply WeightClass.STANDARD settings for "
+                                + service.serviceName());
+            }
+            final int maxConcurrentGlobal = resolveGlobalConcurrencyCeiling(service, WeightClass.STANDARD);
+            final ThrottlePolicy policy = ThrottlePolicy.merge(perClientSettings, maxConcurrentGlobal);
+            final ThrottledServiceInterface simpleThrottled = new ThrottledServiceInterface(
+                    service,
+                    policy,
+                    new RemoteAddressKeyExtractor(),
+                    metricRegistry,
+                    Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
+            throttledServices.add(simpleThrottled);
+            throttled = simpleThrottled;
+        }
         ensureClientStateSweepStarted();
-        registerGrpcService(port, throttled);
+        grpcBuilders.computeIfAbsent(resolve(port), k -> PbjRouting.builder()).service(throttled);
     }
 
     private int resolveGlobalConcurrencyCeiling(

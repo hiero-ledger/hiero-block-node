@@ -14,6 +14,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Optional;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
@@ -26,7 +27,9 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
+import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
@@ -35,7 +38,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /**
  * Plugin that implements the BlockAccessService and provides the 'block' RPC.
  */
-public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessServiceInterface {
+public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessServiceInterface, ThrottleSpec {
     /** Metric key for the number of get block requests */
     public static final MetricKey<LongCounter> METRIC_GET_BLOCK_REQUESTS =
             MetricKey.of("get_block_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -55,6 +58,10 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     private HistoricalBlockFacility blockProvider;
     /** The shared block-storage read bulkhead (Component B); protects storage independent of client identity */
     private BlockReadBulkhead blockReadBulkhead;
+    /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight;
+    /** This service's content-aware weigher, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile GetBlockWeigher weigher;
     /** Counter for the number of requests */
     private LongCounter.Measurement requestCounter;
     /** Counter for the number of responses Success */
@@ -216,21 +223,36 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 context.configuration().getConfigData(GetBlockLiveThrottleConfig.class);
         final GetBlockHistoricalThrottleConfig historicalThrottleConfig =
                 context.configuration().getConfigData(GetBlockHistoricalThrottleConfig.class);
-        final Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight = new EnumMap<>(WeightClass.class);
-        throttleSettingsByWeight.put(
+        final Map<WeightClass, PerClientThrottleSettings> resolvedThrottleSettingsByWeight =
+                new EnumMap<>(WeightClass.class);
+        resolvedThrottleSettingsByWeight.put(
                 WeightClass.STANDARD,
                 new PerClientThrottleSettings(
                         liveThrottleConfig.ratePerSecond(),
                         liveThrottleConfig.burstTolerance(),
                         liveThrottleConfig.maxConcurrentPerClient()));
-        throttleSettingsByWeight.put(
+        resolvedThrottleSettingsByWeight.put(
                 WeightClass.HEAVY,
                 new PerClientThrottleSettings(
                         historicalThrottleConfig.ratePerSecond(),
                         historicalThrottleConfig.burstTolerance(),
                         historicalThrottleConfig.maxConcurrentPerClient()));
-        final GetBlockWeigher weigher =
-                new GetBlockWeigher(blockProvider, historicalThrottleConfig.historicalThresholdBlocks());
-        serviceBuilder.registerGrpcService(port, this, throttleSettingsByWeight, weigher);
+        this.throttleSettingsByWeight = resolvedThrottleSettingsByWeight;
+        this.weigher = new GetBlockWeigher(blockProvider, historicalThrottleConfig.historicalThresholdBlocks());
+        serviceBuilder.registerGrpcService(port, this);
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
+        return throttleSettingsByWeight;
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Optional<ContentAwareWeigher> weigher() {
+        return Optional.of(weigher);
     }
 }

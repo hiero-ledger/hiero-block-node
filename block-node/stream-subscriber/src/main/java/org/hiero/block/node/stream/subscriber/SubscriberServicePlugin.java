@@ -14,6 +14,7 @@ import java.lang.System.Logger.Level;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -33,7 +34,9 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
+import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
 import org.hiero.metrics.LongCounter;
@@ -48,7 +51,7 @@ import org.hiero.metrics.core.MetricRegistry;
  * <p>The plugin registers itself with the service builder during initialization and manages
  * the lifecycle of subscriber connections.
  */
-public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubscribeServiceInterface {
+public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubscribeServiceInterface, ThrottleSpec {
     /** Metric key for the number of open subscriber connections */
     public static final MetricKey<LongGauge> METRIC_SUBSCRIBER_OPEN_CONNECTIONS =
             MetricKey.of("subscriber_open_connections", LongGauge.class).addCategory(METRICS_CATEGORY);
@@ -64,6 +67,10 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     private BlockReadBulkhead blockReadBulkhead;
     /** A handler for client requests */
     private SubscribeBlockStreamHandler clientHandler;
+    /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight;
+    /** This service's content-aware weigher, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile SubscribeStreamWeigher weigher;
 
     /*==================== BlockNodePlugin Methods ====================*/
 
@@ -80,22 +87,38 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                 context.configuration().getConfigData(SubscriberConfig.class).port();
         final SubscribeThrottleConfig throttleConfig =
                 context.configuration().getConfigData(SubscribeThrottleConfig.class);
-        final Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight = new EnumMap<>(WeightClass.class);
-        throttleSettingsByWeight.put(
+        final Map<WeightClass, PerClientThrottleSettings> resolvedThrottleSettingsByWeight =
+                new EnumMap<>(WeightClass.class);
+        resolvedThrottleSettingsByWeight.put(
                 WeightClass.STANDARD,
                 new PerClientThrottleSettings(
                         throttleConfig.liveRatePerSecond(),
                         throttleConfig.liveBurstTolerance(),
                         throttleConfig.liveMaxConcurrentPerClient()));
-        throttleSettingsByWeight.put(
+        resolvedThrottleSettingsByWeight.put(
                 WeightClass.HEAVY,
                 new PerClientThrottleSettings(
                         throttleConfig.historicalRatePerSecond(),
                         throttleConfig.historicalBurstTolerance(),
                         throttleConfig.historicalMaxConcurrentPerClient()));
-        final SubscribeStreamWeigher weigher = new SubscribeStreamWeigher(
+        this.throttleSettingsByWeight = resolvedThrottleSettingsByWeight;
+        this.weigher = new SubscribeStreamWeigher(
                 context.historicalBlockProvider(), throttleConfig.historicalThresholdBlocks());
-        serviceBuilder.registerGrpcService(port, this, throttleSettingsByWeight, weigher);
+        serviceBuilder.registerGrpcService(port, this);
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
+        return throttleSettingsByWeight;
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Optional<ContentAwareWeigher> weigher() {
+        return Optional.of(weigher);
     }
 
     @Override
