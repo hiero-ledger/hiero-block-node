@@ -1482,6 +1482,64 @@ class LiveStreamPublisherManagerTest {
 
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// does not schedule a resend for a failed verification whose
+            /// [BlockSource] is [BlockSource#BACKFILL], even for a failure
+            /// type that would schedule one for a publisher supplied block.
+            /// Backfilled blocks are not supplied by the connected publishers,
+            /// so the manager must not respond to them in any way. If a resend
+            /// were scheduled, the gap detection in handlePersisted() would
+            /// clamp acknowledgements below the failed block. We assert that a
+            /// subsequent persisted notification for the block is acknowledged
+            /// normally.
+            @Test
+            @DisplayName(
+                    "handleVerification() does not schedule a resend for a BACKFILL source failure, later persistence is acknowledged")
+            void testHandleVerificationBackfillSourceNoResendScheduled() {
+                // Establish lastPersisted=0 and advance nextUnstreamed past block 1 so
+                // handleVerification's failure branch conditions on the block
+                // number are satisfied and only the source check filters the
+                // notification out.
+                assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                // A backfilled copy of block 1 failed verification with a type
+                // that schedules a resend when the source is a publisher. The
+                // manager must take no action for the backfilled source.
+                toTest.handleVerification(new VerificationNotification(
+                        false,
+                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        1L,
+                        null,
+                        null,
+                        BlockSource.BACKFILL));
+                // Clear the pipelines because acknowledgements have been sent
+                // due to the persisted notification for block 0.
+                responsePipeline.clear();
+                responsePipeline2.clear();
+                // Block 1 is persisted. Because no resend is pending, the
+                // acknowledgement must not be clamped by gap detection.
+                toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getLatestBlockNumber())
+                        .as("lastPersisted must advance to block 1, no resend is pending for it")
+                        .isEqualTo(1L);
+                // Assert that both handlers have received an acknowledgement
+                // for block 1 and nothing else.
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(1L, acknowledgementBlockNumberExtractor);
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(1L, acknowledgementBlockNumberExtractor);
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
             /// will handle a failed verification of a type that indicates a
             /// Block Node fault or capability limitation by ending every
             /// connected publisher's stream. No retry against this node can
