@@ -39,6 +39,12 @@ function fail { echo "  FAIL  $1"; failed=$((failed+1)); }
 eval "$(sed -n '/^function execute_load_start/,/^}/p' "${RUNNER_SCRIPT}")"
 eval "$(sed -n '/^function execute_load_stop/,/^}/p' "${RUNNER_SCRIPT}")"
 
+# execute_load_stop now shells out to `kctl logs` to capture the NLG pod's
+# stdout before tearing it down; mock it the same way test-chaos-assertions.sh
+# does. The nlg-logs/ dir it creates as a CWD-relative side effect (mirrors
+# bn-logs/mn-logs in the CI workflow) is cleaned up by the trap below.
+function kctl { return 0; }
+
 if ! declare -f execute_load_start >/dev/null; then
     echo "FATAL: could not extract execute_load_start from ${RUNNER_SCRIPT}"
     exit 1
@@ -52,7 +58,7 @@ fi
 # sleeps 5s afterward. Mock both: point SCRIPT_DIR at a stub that dumps the
 # environment it received, and no-op the sleep so the test runs instantly.
 mock_dir="$(mktemp -d)"
-trap 'rm -rf "${mock_dir}"' EXIT
+trap 'rm -rf "${mock_dir}" nlg-logs' EXIT
 capture_file="${mock_dir}/captured-env"
 cat > "${mock_dir}/solo-load-generate.sh" <<'EOF'
 #!/usr/bin/env bash
