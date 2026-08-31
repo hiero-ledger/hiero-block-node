@@ -140,7 +140,7 @@ fi
 # Build the final address book JSON
 jq -n \
   --arg seconds "${GENESIS_SECONDS}" \
-  --argjson nanos "${GENESIS_NANOS}" \
+  --argjson nanos "$((10#${GENESIS_NANOS}))" \
   --argjson nodes "${NODES_JSON}" \
   '{
     addressBooks: [
