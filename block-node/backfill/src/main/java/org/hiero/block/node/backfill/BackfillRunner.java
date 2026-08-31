@@ -13,7 +13,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
@@ -277,7 +279,7 @@ final class BackfillRunner {
      * @return {@code true} if every block in the chunk was confirmed persisted within the retry budget
      */
     private boolean sendChunkAndAwaitPersistenceWithRetries(
-            List<BlockUnparsed> blocks, List<Long> blockNumbers, LongRange chunk) throws InterruptedException {
+            List<BlockUnparsed> blocks, List<Long> blockNumbers, LongRange chunk) {
         sendBlocksForPersistence(blocks, blockNumbers, chunk);
         List<Long> stillPending = blockNumbers;
         for (int attempt = 1; attempt <= config.maxRetries() && !stillPending.isEmpty(); attempt++) {
@@ -296,7 +298,8 @@ final class BackfillRunner {
                 for (long blockNumber : stillPending) {
                     persistenceAwaiter.trackBlock(blockNumber);
                 }
-                Thread.sleep(Math.max(0, (long) config.initialRetryDelay() * attempt));
+                LockSupport.parkNanos(
+                        TimeUnit.MILLISECONDS.toNanos(Math.max(0, (long) config.initialRetryDelay() * attempt)));
             }
         }
         return stillPending.isEmpty();
@@ -338,7 +341,7 @@ final class BackfillRunner {
      * @param chunk the range being processed (for logging)
      * @return the subset of {@code blockNumbers} that did not confirm persistence within the timeout
      */
-    private List<Long> awaitBlocksPersistence(List<Long> blockNumbers, LongRange chunk) throws InterruptedException {
+    private List<Long> awaitBlocksPersistence(List<Long> blockNumbers, LongRange chunk) {
         List<Long> stillPending = new ArrayList<>();
         for (long blockNumber : blockNumbers) {
             boolean persisted = persistenceAwaiter.awaitPersistence(blockNumber, config.perBlockProcessingTimeout());

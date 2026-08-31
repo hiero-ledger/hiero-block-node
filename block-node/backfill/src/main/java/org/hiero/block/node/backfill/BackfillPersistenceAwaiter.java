@@ -9,7 +9,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -41,11 +40,36 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
      * The flag is last-write-wins - several persistence plugins can report on the same block, so a
      * late failure can overwrite an earlier success. The worst case is one extra fetch of a block
      * that is idempotent to re-persist, which is cheaper than sticky-success bookkeeping.
-     *
-     * @param latch released once the block's fate is known
-     * @param succeeded whether the block was reported as successfully persisted
      */
-    private record Pending(CountDownLatch latch, AtomicBoolean succeeded) {}
+    private static final class Pending {
+        private final CountDownLatch latch = new CountDownLatch(1);
+        private volatile boolean succeeded = false;
+
+        /**
+         * Records the outcome and releases the latch. The outcome is written first, so a waiter woken
+         * by the latch always sees it.
+         *
+         * @param successful whether the block was reported as successfully persisted
+         */
+        void complete(final boolean successful) {
+            succeeded = successful;
+            latch.countDown();
+        }
+
+        /**
+         * @return whether the block was reported as successfully persisted
+         */
+        boolean succeeded() {
+            return succeeded;
+        }
+
+        /**
+         * @return the latch released once the block's fate is known
+         */
+        CountDownLatch latch() {
+            return latch;
+        }
+    }
 
     /**
      * Map of block numbers to the latch/outcome pair released when the block's fate is known.
@@ -65,7 +89,7 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
         pendingBlocks.computeIfAbsent(blockNumber, k -> {
             final String trackingBlockMsg = "Tracking block [{0}] for persistence";
             LOGGER.log(TRACE, trackingBlockMsg, blockNumber);
-            return new Pending(new CountDownLatch(1), new AtomicBoolean(false));
+            return new Pending();
         });
     }
 
@@ -95,16 +119,12 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
             boolean completed = pending.latch().await(timeoutMs, TimeUnit.MILLISECONDS);
             if (completed) {
                 final String persistenceConfirmedMsg = "Block [{0}] persistence resolved, succeeded=[{1}]";
-                LOGGER.log(
-                        TRACE,
-                        persistenceConfirmedMsg,
-                        blockNumber,
-                        pending.succeeded().get());
+                LOGGER.log(TRACE, persistenceConfirmedMsg, blockNumber, pending.succeeded());
             } else {
                 final String persistenceTimedOutMsg = "Block [{0}] persistence timed out after [{1}]ms";
                 LOGGER.log(DEBUG, persistenceTimedOutMsg, blockNumber, timeoutMs);
             }
-            return completed && pending.succeeded().get();
+            return completed && pending.succeeded();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             final String waitInterruptedMsg = "Block [%s] persistence wait interrupted".formatted(blockNumber);
@@ -139,9 +159,7 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
                 final String persistenceFailedMsg = "Block [{0}] persistence failed";
                 LOGGER.log(INFO, persistenceFailedMsg, blockNumber);
             }
-            // Record the outcome before releasing, so a waiter woken by the latch always sees it.
-            pending.succeeded().set(notification.succeeded());
-            pending.latch().countDown();
+            pending.complete(notification.succeeded());
         }
     }
 
@@ -167,9 +185,7 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
             if (pending != null) {
                 final String verificationFailedMsg = "Block [{0}] verification failed, marking block as not persisted";
                 LOGGER.log(INFO, verificationFailedMsg, blockNumber);
-                // Record the outcome before releasing, so a waiter woken by the latch always sees it.
-                pending.succeeded().set(false);
-                pending.latch().countDown();
+                pending.complete(false);
             }
         }
     }
@@ -179,10 +195,10 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
      * resetting state.
      */
     public void clear() {
-        // Release all waiting threads before clearing. The outcome flag is left as-is (false unless
-        // something already reported success), so a block abandoned by a shutdown reads as not persisted.
+        // Release all waiting threads before clearing. A block abandoned by a shutdown is reported as
+        // not persisted, so it is re-detected and re-fetched on the next run.
         for (Pending pending : pendingBlocks.values()) {
-            pending.latch().countDown();
+            pending.complete(false);
         }
         pendingBlocks.clear();
     }
