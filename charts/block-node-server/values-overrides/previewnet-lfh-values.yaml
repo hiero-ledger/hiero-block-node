@@ -1,0 +1,128 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Helm values override for a previewnet Tier 1 Local-Full-History Block Node
+# deployed on a single GCP e2-standard-16 VM (16 vCPUs, ≥32 GB RAM).
+#
+# Derived from `lfh-values.yaml` (mainnet-shaped), right-sized down for
+# previewnet's per-day block volume and the single-VM shape. See
+# `previewnet-lfh-provisioner-config.yaml` for the paired Solo Provisioner
+# config. Recipe: https://docs.hiero.org/block-node-overview/block-node-hardware-specifications/solo-weaver-single-node-k8s-deployment
+#
+# Key sizing decisions vs the mainnet reference (lfh-values.yaml):
+#   * JVM heap 16 GB (mainnet uses 192 GB). e2-standard-16 has ~32 GB RAM;
+#     leaving ~16 GB for the OS + other pods + PVC page cache.
+#   * Resources 8 CPU / 20 Gi (mainnet uses 24 CPU / 212 Gi).
+#   * loadBalancer enabled + MetalLB address-pool wired to `public-address-pool`
+#     so external subscribers reach the BN at <VM-external-IP>:40840 directly.
+#     Solo Provisioner installs MetalLB during a fresh install; this Service
+#     annotation picks up the pool it configures.
+
+blockNode:
+    config:
+        BACKFILL_GREEDY: "true"
+        BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
+        JAVA_OPTS: "-Xms16G -Xmx16G -XX:+ZGenerational"
+        PROMETHEUS_ENDPOINT_ENABLED: true
+        PROMETHEUS_ENDPOINT_PORT_NUMBER: "16007"
+        ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL: "https://previewnet.mirrornode.hedera.com"
+        SERVER_PORT: "40840"
+        logs:
+            level: "INFO"
+            loggingProperties:
+                org.hiero.block.level: "INFO"
+                java.util.logging.ConsoleHandler.level: "FINEST"
+                java.util.logging.FileHandler.level: "FINEST"
+
+        initContainers:
+            - name: init-storage-dirs
+              image: docker.io/library/busybox:latest
+              command:
+                  - sh
+                  - -c
+                  - |
+                      chown 2000:2000 /application-state-pvc && \
+                      chmod 700 /application-state-pvc && \
+                      chown 2000:2000 /archive-pvc && \
+                      chmod 700 /archive-pvc && \
+                      chown 2000:2000 /live-pvc && \
+                      chmod 700 /live-pvc && \
+                      chown 2000:2000 /logging-pvc && \
+                      chmod 700 /logging-pvc
+              volumeMounts:
+                  - name: application-state-storage
+                    mountPath: /application-state-pvc
+                  - name: archive-storage
+                    mountPath: /archive-pvc
+                  - name: live-storage
+                    mountPath: /live-pvc
+                  - name: logging-storage
+                    mountPath: /logging-pvc
+
+        # PVCs are statically pre-provisioned by Solo Provisioner during
+        # `sudo solo-provisioner block node install` (5 PVs / 5 PVCs at
+        # fixed names, backed by hostPath directories on the VM's disk).
+        # This shape lets us seed the archive directly on the host
+        # filesystem before starting the BN -- see
+        # `tools-and-tests/tools/scripts/backfill-wrb-to-bn.sh --pre-install`
+        # for the seed workflow, which copies (or hard-links, when
+        # source and PV are on the same filesystem) a wrappedBlocks
+        # archive into the archive-storage-pv's host path prior to
+        # first pod start. On BN startup, BlockFileHistoricPlugin
+        # scans that pre-seeded archive and picks up the blocks with
+        # no pod restart or tar-stream overhead.
+        persistence:
+            live:
+                create: false
+                existingClaim: live-storage-pvc
+                subPath: ""
+            archive:
+                create: false
+                existingClaim: archive-storage-pvc
+                subPath: ""
+            logging:
+                create: false
+                existingClaim: logging-storage-pvc
+                subPath: ""
+            applicationState:
+                create: false
+                existingClaim: application-state-storage-pvc
+
+    ports:
+        publisher: 40984    # PRODUCER_PORT     — gRPC, block producers
+        subscriber: 40980   # SUBSCRIBER_PORT   — gRPC, block subscribers
+        blockAccess: 40981  # BLOCK_ACCESS_PORT — gRPC/HTTP, block query API
+        health: 40983       # HEALTH_PORT       — HTTP, /healthz endpoints
+        serverStatus: 40982 # SERVER_STATUS_PORT — HTTP, server-status endpoint
+
+# LoadBalancer enabled: Solo Provisioner installs MetalLB during a fresh
+# install and the previewnet VM has a public IP, so we let external
+# subscribers hit the BN at <VM-external-IP>:40840 directly (no
+# kubectl port-forward needed). The metallb.io/address-pool annotation on
+# service.annotations pairs this Service with MetalLB's public pool.
+#
+# Known limitation on chart 0.37.1 (pinned in the paired provisioner-config
+# file): the LB Service only publishes port 40840, which under the split-
+# port setup below serves plain HTTP rather than gRPC. gRPC endpoints
+# (server-status on 40982, publisher on 40984, subscriber on 40980,
+# block-access on 40981) are reachable only via the in-cluster
+# ClusterIP Service today, i.e. kubectl port-forward for external
+# probing. Chart 0.38.0+ adds `loadBalancer.includePluginPorts: true`
+# which appends the plugin ports to the LB Service; revisit this file
+# once we bump the chart version pin.
+loadBalancer:
+    enabled: true
+    port: "40840"
+    annotations:
+        metallb.io/address-pool: public-address-pool
+
+resources:
+    requests:
+        cpu: "8"
+        memory: "20Gi"
+    limits:
+        cpu: "8"
+        memory: "20Gi"
+
+service:
+    type: ClusterIP
+    port: 40840

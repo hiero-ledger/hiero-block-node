@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Smoke-test-scoped variant of previewnet-lfh-provisioner-config.yaml for a
+# previewnet Tier 1 LFH Block Node deployed on a single VM with only ~1 TB of
+# local storage (below the profile-level 3 TB preflight minimum).
+#
+# Use this WITH `--skip-hardware-checks` for a short-lived smoke test:
+#
+#   sudo solo-provisioner block node install \
+#     -p previewnet \
+#     --config /path/to/previewnet-lfh-provisioner-config-smoketest.yaml \
+#     --values /path/to/previewnet-lfh-values-smoketest.yaml \
+#     --skip-hardware-checks \
+#     --non-interactive
+#
+# Do NOT use for a durable previewnet Tier 1 deployment. The full-history
+# archive will fill this box eventually; provision a proper 3 TB disk and use
+# previewnet-lfh-provisioner-config.yaml for anything real.
+
+profile: previewnet
+
+log:
+    level: info
+    consoleLogging: true
+    fileLogging: false
+
+blockNode:
+    namespace: block-node
+    release: block-node
+    chart: oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server
+    version: "0.37.1"
+
+    storage:
+        # Shrunk for a ~1 TB smoke-test box. Combined footprint ~700 GiB leaves
+        # headroom for OS + Kubernetes state + growth. Adjust downward further
+        # if the box has less.
+        applicationStatePath: /mnt/fast-storage/block-node/application-state
+        applicationStateSize: 10Gi
+        archivePath: /mnt/fast-storage/block-node/archive
+        archiveSize: 600Gi
+        livePath: /mnt/fast-storage/block-node/live
+        liveSize: 50Gi
+        logPath: /mnt/fast-storage/block-node/logs
+        logSize: 10Gi
+        pluginsPath: /mnt/fast-storage/block-node/plugins
+        pluginsSize: 2Gi
