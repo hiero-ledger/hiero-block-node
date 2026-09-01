@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Per-BN earliestManagedBlock for the wrb-distribution-step345 topology (#3125 steps 3-5).
+# Consumed by scripts/wrb-distribution/add-bn.sh, which reads `embs.<index>` and renders a
+# chart-values file inline before passing it to `solo block node add`.
+#
+# Values chosen per the issue text:
+#   BN1 (Tier-0)  EMB=0            start from genesis; the wrb-cli push target.
+#   BN2 (Tier-1)  EMB=0            start-from-genesis leaf; will later backfill from BN1.
+#   BN3 (Tier-1)  EMB=100_000_000  live-only leaf; matches the charts/block-node-server/
+#                                  values-overrides/lfh-values.yaml precedent.
+embs:
+  "1": "0"
+  "2": "0"
+  "3": "100000000"
