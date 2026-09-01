@@ -26,6 +26,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
@@ -85,6 +86,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
  * </ul>
  */
 public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscriberSession> {
+    private static final long FUTURE_BLOCK_WAIT_TIME = 50_000L; // 50 microsesonds
     /** The logger for this class. */
     private final Logger LOGGER = System.getLogger(getClass().getName());
 
@@ -576,8 +578,9 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             } else if (blockItems.isStartOfNewBlock() && blockItems.blockNumber() > nextBlockToSend.get()) {
                 // This block is _future_, so we need to wait, and try to get the next block from history
                 // first, then come back to this block.
-                LOGGER.log(
-                        Level.TRACE, "Retaining future block {0} for client {1}", blockItems.blockNumber(), clientId);
+                // Do nothing here, even a log can result in excessive log output.
+                // Pause very briefly (microseconds) to avoid CPU overload.
+                LockSupport.parkNanos(FUTURE_BLOCK_WAIT_TIME);
             } else {
                 // This is a past or future _partial_ block, so we need to trim the queue.
                 liveBlockQueue.poll(); // discard _this batch only_.
