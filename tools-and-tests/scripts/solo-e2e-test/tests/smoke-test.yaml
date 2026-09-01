@@ -54,5 +54,5 @@ assertions:
     description: "All Block Nodes are receiving new blocks"
     target: all
     args:
-      wait_seconds: 20
-      max_attempts: 3
+      wait_seconds: 15
+      max_attempts: 6

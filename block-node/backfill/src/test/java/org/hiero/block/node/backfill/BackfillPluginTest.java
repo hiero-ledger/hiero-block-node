@@ -3,6 +3,7 @@ package org.hiero.block.node.backfill;
 
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.ParseException;
@@ -688,7 +689,10 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // start block-node with blocks from 0 to 30; on-demand backfill will cover 31 to 50
         start(new BackfillPlugin(), historicalBlockFacility, configOverride);
 
-        final long targetBlock = 40L;
+        // The last block of the gap, and of its chunk: a failed block now also stops its chunk, so
+        // failing an earlier one would strand the rest of the gap until the next autonomous scan.
+        // Failing the last one costs nothing, and BackfillPlugin.handlePersisted re-queues it directly.
+        final long targetBlock = 50L;
         final AtomicBoolean failedOnce = new AtomicBoolean();
         // 20 blocks (31..50) must eventually succeed, including the one that fails its first attempt
         CountDownLatch countDownLatch = new CountDownLatch(20);
@@ -1709,13 +1713,16 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         final String backfillSourcePath = testTempDir + "/backfill-source-mass-failure.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
-        // Fast scan so several cycles happen quickly.
+        // Fast scan so several cycles happen quickly. A single await attempt per block keeps the
+        // chunk's failure cheap: none of these blocks is ever confirmed persisted, so a larger retry
+        // budget would only spend perBlockProcessingTimeout per block per extra attempt.
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
                 .greedy(true)
                 .fetchBatchSize(100)
                 .initialDelay(50)
                 .scanInterval(300)
+                .maxRetries(1)
                 .build();
         // Live-tail queue capacity well below blockCount, so the per-block retries handlePersisted()
         // issues below overflow it for most of them - mirroring a real mass MISSING_VERIFICATION_DATA burst.
@@ -1763,10 +1770,186 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
 
         // The range is still genuinely missing from the store, so a later scan must re-detect and
         // resubmit it (triggering a second fetch of at least one block) rather than treating it as
-        // already handled because of a stale high-water mark.
+        // already handled because of a stale high-water mark. Two independent mechanisms now get it
+        // re-detected: the chunk itself never reports as persisted, so the runner returns
+        // gap.start() - 1 and the GapProcessor pulls the high-water mark back; and, for whichever of
+        // these failures did make it into the tiny live-tail queue, the per-block requeue.
         assertTrue(
                 resubmitFetchLatch.await(10, TimeUnit.SECONDS),
                 "A subsequent scan should re-fetch the still-missing live-tail range after the mass failure");
+    }
+
+    @Test
+    @DisplayName("A block that fails verification is re-fetched by a later gap scan")
+    void testVerificationFailureIsReFetchedByALaterScan() throws InterruptedException {
+        // Peer serves a small range that lands entirely as LIVE_TAIL on an empty store.
+        final int blockCount = 5;
+        final long targetBlock = 2L;
+        final TestBlockNodeServer server = new TestBlockNodeServer(0, getHistoricalBlockFacility(0, blockCount - 1));
+        testBlockNodeServers.add(server);
+        BlockNodeSource backfillSource = BlockNodeSource.newBuilder()
+                .nodes(BlockNodeSourceConfig.newBuilder()
+                        .address("localhost")
+                        .port(server.port())
+                        .priority(1)
+                        .build())
+                .build();
+        final String backfillSourcePath = testTempDir + "/backfill-source-verification-failure.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+
+        // Fast scan so several cycles happen quickly; a single short await keeps the failing block cheap.
+        final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .greedy(true)
+                .initialDelay(50)
+                .scanInterval(300)
+                .maxRetries(1)
+                .perBlockProcessingTimeout(500)
+                .build();
+
+        // Counts how many times each block has been fetched from the peer. A second fetch of the target
+        // block can only happen if a later scan re-detected it - the exact behavior under test.
+        final Map<Long, AtomicInteger> fetchCountsByBlock = new ConcurrentHashMap<>();
+        final CountDownLatch firstFetchLatch = new CountDownLatch(1);
+        final CountDownLatch resubmitFetchLatch = new CountDownLatch(1);
+        // The target block fails verification only on its first fetch, mirroring a node whose TSS data
+        // is not loaded yet; every other block (and the target's later attempts) verifies and persists.
+        final AtomicBoolean targetFailedOnce = new AtomicBoolean();
+        blockMessaging.registerBlockNotificationHandler(
+                new BlockNotificationHandler() {
+                    @Override
+                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                        final long blockNumber = notification.blockNumber();
+                        int fetchCount = fetchCountsByBlock
+                                .computeIfAbsent(blockNumber, b -> new AtomicInteger())
+                                .incrementAndGet();
+                        if (blockNumber == targetBlock) {
+                            if (fetchCount == 1) {
+                                firstFetchLatch.countDown();
+                            } else if (fetchCount == 2) {
+                                resubmitFetchLatch.countDown();
+                            }
+                        }
+                        boolean induceFailure =
+                                blockNumber == targetBlock && targetFailedOnce.compareAndSet(false, true);
+                        blockNodeContext
+                                .blockMessaging()
+                                .sendBlockVerification(new VerificationNotification(
+                                        !induceFailure,
+                                        induceFailure
+                                                ? VerificationNotification.FailureInfo.standard(
+                                                        VerificationNotification.FailureType.MISSING_VERIFICATION_DATA)
+                                                : null,
+                                        blockNumber,
+                                        Bytes.wrap("123"),
+                                        notification.block(),
+                                        BlockSource.BACKFILL));
+                        if (!induceFailure) {
+                            blockNodeContext
+                                    .blockMessaging()
+                                    .sendBlockPersisted(
+                                            new PersistedNotification(blockNumber, true, 10, BlockSource.BACKFILL));
+                        }
+                    }
+                },
+                false,
+                "test-verification-failure-fetch-handler");
+
+        // Empty store: the whole peer range is classified LIVE_TAIL, and nothing is ever added to it,
+        // so the range stays genuinely missing and re-detection is unambiguous.
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
+        assertTrue(firstFetchLatch.await(10, TimeUnit.SECONDS), "First scan should fetch the target block");
+
+        // A verification failure means the block never persisted, so a later scan must re-fetch it
+        // rather than treating the gap as completed.
+        assertTrue(
+                resubmitFetchLatch.await(10, TimeUnit.SECONDS),
+                "A subsequent scan should re-fetch the block that failed verification");
+    }
+
+    @Test
+    @DisplayName("The genesis block is backfilled and persisted before any of its successors is fetched")
+    void testGenesisBlockIsBackfilledBeforeItsSuccessors() throws InterruptedException {
+        // Peer serves a range larger than one chunk would be if block 0 were not special-cased.
+        final int blockCount = 12;
+        final TestBlockNodeServer server = new TestBlockNodeServer(0, getHistoricalBlockFacility(0, blockCount - 1));
+        testBlockNodeServers.add(server);
+        BlockNodeSource backfillSource = BlockNodeSource.newBuilder()
+                .nodes(BlockNodeSourceConfig.newBuilder()
+                        .address("localhost")
+                        .port(server.port())
+                        .priority(1)
+                        .build())
+                .build();
+        final String backfillSourcePath = testTempDir + "/backfill-source-genesis-first.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+
+        final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .greedy(true)
+                .initialDelay(50)
+                .fetchBatchSize(10)
+                .build();
+
+        // Block 0's persistence is deliberately delayed. On a real node, block 0's own hashing stage is
+        // what publishes the TSS data its successors need to verify, so anything fetched alongside it
+        // fails with MISSING_VERIFICATION_DATA. Nothing else may be fetched until block 0 has persisted.
+        final AtomicBoolean genesisPersisted = new AtomicBoolean();
+        final AtomicBoolean successorFetchedTooEarly = new AtomicBoolean();
+        final CountDownLatch successorFetchedLatch = new CountDownLatch(1);
+        blockMessaging.registerBlockNotificationHandler(
+                new BlockNotificationHandler() {
+                    @Override
+                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                        final long blockNumber = notification.blockNumber();
+                        if (blockNumber > 0) {
+                            if (!genesisPersisted.get()) {
+                                successorFetchedTooEarly.set(true);
+                            }
+                            successorFetchedLatch.countDown();
+                        }
+                        blockNodeContext
+                                .blockMessaging()
+                                .sendBlockVerification(new VerificationNotification(
+                                        true,
+                                        null,
+                                        blockNumber,
+                                        Bytes.wrap("123"),
+                                        notification.block(),
+                                        BlockSource.BACKFILL));
+                        if (blockNumber == 0) {
+                            // Confirm block 0 only after a delay, so a successor dispatched in the same
+                            // chunk would be observed before the confirmation rather than after it.
+                            Thread.ofVirtual().start(() -> {
+                                try {
+                                    Thread.sleep(300);
+                                } catch (InterruptedException ignored) {
+                                    Thread.currentThread().interrupt();
+                                }
+                                // Flag before the send it enables, or the runner can win the race.
+                                genesisPersisted.set(true);
+                                blockNodeContext
+                                        .blockMessaging()
+                                        .sendBlockPersisted(
+                                                new PersistedNotification(0L, true, 10, BlockSource.BACKFILL));
+                            });
+                        } else {
+                            blockNodeContext
+                                    .blockMessaging()
+                                    .sendBlockPersisted(
+                                            new PersistedNotification(blockNumber, true, 10, BlockSource.BACKFILL));
+                        }
+                    }
+                },
+                false,
+                "test-genesis-ordering-handler");
+
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
+        assertTrue(
+                successorFetchedLatch.await(15, TimeUnit.SECONDS), "Blocks after the genesis block should be fetched");
+        assertFalse(successorFetchedTooEarly.get(), "No block should be fetched before block 0 has persisted");
     }
 
     private void createTestBlockNodeSourcesFile(BlockNodeSource backfillSource, String configPath) {

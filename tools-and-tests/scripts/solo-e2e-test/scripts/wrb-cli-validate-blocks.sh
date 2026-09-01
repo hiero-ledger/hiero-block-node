@@ -110,7 +110,10 @@ function do_validate {
         --no-resume \
         "${LOCAL_BLOCKS_DIR}/live" 2>&1) || rc=$?
 
-    echo "$output"
+    # A large write hitting EAGAIN on a slow CI stdout pipe must not fail the test:
+    # the status that matters is in rc, and the VALIDATION FAILED check below reads
+    # the variable, not the terminal. printf is for not mangling backslashes.
+    printf '%s\n' "$output" || true
 
     # Clean up extracted blocks
     log "Cleaning up extracted blocks..."
