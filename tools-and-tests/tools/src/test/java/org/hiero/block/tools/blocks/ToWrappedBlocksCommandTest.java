@@ -385,6 +385,39 @@ class ToWrappedBlocksCommandTest {
         }
     }
 
+    // ===== Nothing-new-to-wrap fast-path tests =====
+
+    @Nested
+    @DisplayName("isNothingNewToWrap fast-path guard")
+    class NothingNewToWrapTests {
+
+        @Test
+        @DisplayName("Nothing has been wrapped yet (effectiveHighest == -1) -- never a no-op")
+        void testNoOpFalseWhenNothingWrappedYet() {
+            assertFalse(
+                    ToWrappedBlocksCommand.isNothingNewToWrap(-1, 0),
+                    "Should always attempt to wrap when nothing has been wrapped yet, "
+                            + "even if block_times.bin reports a max of 0");
+        }
+
+        @Test
+        @DisplayName("Already wrapped exactly up to the known max -- is a no-op")
+        void testNoOpTrueWhenCaughtUp() {
+            assertTrue(
+                    ToWrappedBlocksCommand.isNothingNewToWrap(1259, 1259),
+                    "Should skip wrapping when already caught up to the known max block");
+        }
+
+        @Test
+        @DisplayName("Known max is ahead of what's wrapped -- not a no-op")
+        void testNoOpFalseWhenMoreDataAvailable() {
+            assertFalse(
+                    ToWrappedBlocksCommand.isNothingNewToWrap(1259, 1260),
+                    "Should still attempt to wrap when block_times.bin knows about more blocks "
+                            + "than have been wrapped so far");
+        }
+    }
+
     // ===== Hasher state save/load tests =====
 
     @Nested

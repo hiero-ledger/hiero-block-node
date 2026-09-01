@@ -14,7 +14,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Spliterator;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
@@ -87,13 +86,17 @@ public class TarZstdDayReaderUsingExec {
             @Override
             public boolean tryAdvance(Consumer<? super UnparsedRecordBlock> action) {
                 if (action == null) throw new NullPointerException();
-                if (finished) return false;
 
-                // If we already have ready blocks, emit one
+                // Check ready blocks before finished: end-of-input processing (below) can flush
+                // many blocks into `ready` in one tryAdvance call while also setting `finished`,
+                // e.g. for a flat (single-directory) archive where the directory-boundary branch
+                // never fires and everything is buffered until the iterator is exhausted. Checking
+                // `finished` first would silently drop every ready block but the one just returned.
                 if (!ready.isEmpty()) {
                     action.accept(ready.removeFirst());
                     return true;
                 }
+                if (finished) return false;
 
                 while (it.hasNext()) {
                     InMemoryFile f = it.next();
@@ -292,8 +295,14 @@ public class TarZstdDayReaderUsingExec {
             }
         }
 
-        // For each group in byBase, now separate signatureFiles and rcdFiles and build sets
+        // For each group in byBase, now separate signatureFiles and rcdFiles and build sets.
+        // byBase is a LinkedHashMap preserving tar/insertion order, which is chronological for
+        // timestamp-prefixed record files -- so the last entry is always the most recently
+        // produced one.
+        final int lastGroupIndex = byBase.size() - 1;
+        int groupIndex = -1;
         for (Map.Entry<String, List<InMemoryFile>> e : byBase.entrySet()) {
+            groupIndex++;
             String baseKey = e.getKey();
             List<InMemoryFile> files = e.getValue();
 
@@ -340,17 +349,19 @@ public class TarZstdDayReaderUsingExec {
                         "Primary record file not found for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
             }
 
-            // There must be at least one signature file for the group; enforce invariant
+            // Signature files are required: a record file with no RSA signatures cannot be
+            // verified and must not be wrapped. The chronologically last group may legitimately
+            // be missing its .rcd_sig (still uploading) — skip it so the caller can retry once
+            // signatures land. Any other sig-less group is also skipped with a warning.
             if (signatureFiles.isEmpty()) {
-                System.err.println("Missing signature files for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
-                System.err.println(" File set: "
-                        + files.stream()
-                                .map(InMemoryFile::path)
-                                .map(Path::toString)
-                                .collect(Collectors.joining(", ")));
-                for (InMemoryFile f : rcdFiles) System.err.println("    " + f.path());
-                throw new RuntimeException(
-                        "No signature files found for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
+                if (groupIndex == lastGroupIndex) {
+                    System.err.println("Skipping incomplete trailing record for baseKey='" + baseKey + "' in dir='"
+                            + currentDir + "' (no signature file yet; likely still uploading)");
+                } else {
+                    System.err.println("WARNING: Skipping record baseKey='" + baseKey + "' in dir='" + currentDir
+                            + "': no RSA signature files found; record cannot be verified");
+                }
+                continue;
             }
 
             // classify other record files (exclude the primary)

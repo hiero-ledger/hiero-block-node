@@ -146,6 +146,60 @@ public class AddressBookRegistryTest {
     }
 
     /**
+     * Test that an update timestamped identically to the current last entry replaces it in
+     * place rather than appending a duplicate-timestamp entry.
+     *
+     * <p>This is the scenario used by {@code ToWrappedBlocksCommand}'s block-0 genesis discovery:
+     * the network's founding roster is discovered from block 0's own transactions and must apply
+     * starting at block 0's own timestamp (not one nanosecond after, as later on-chain roster
+     * changes do), which is exactly the bootstrap/placeholder entry's own timestamp. Appending a
+     * second entry there would leave two entries tied on the same timestamp, and
+     * {@link AddressBookRegistry#getAddressBookForBlock} (backed by {@code Collections.binarySearch})
+     * does not guarantee which of two equal-timestamp entries it resolves to.
+     */
+    @Test
+    public void testUpdateAtSameTimestampReplacesRatherThanDuplicates() throws Exception {
+        try (var in = new ReadableStreamingData(AddressBookRegistryTest.class.getResourceAsStream(
+                "/2021-06-08T17_35_26.000831000Z-file-102-update-transaction-body.bin"))) {
+            int numOfTransactions = in.readInt();
+            List<TransactionBody> transactionBodies = new ArrayList<>(numOfTransactions);
+            for (int i = 0; i < numOfTransactions; i++) {
+                int len = in.readInt();
+                Bytes tbBytes = in.readBytes(len);
+                transactionBodies.add(standardParse(TransactionBody.PROTOBUF, tbBytes));
+            }
+
+            final AddressBookRegistry addressBookRegistry = new AddressBookRegistry();
+            assertEquals(1, addressBookRegistry.getAddressBookCount(), "Should start with only the bootstrap entry");
+            final NodeAddressBook bootstrapBook = addressBookRegistry.getCurrentAddressBook();
+
+            // Genesis-discovery timestamp: identical to the bootstrap entry's own timestamp.
+            final Instant genesisInstant = Instant.parse(org.hiero.block.tools.config.NetworkConfig.current()
+                    .genesisTimestamp()
+                    .replace('_', ':'));
+
+            final String changes = addressBookRegistry.updateAddressBook(genesisInstant, transactionBodies);
+            assertNotNull(changes, "Should detect changes from the discovered roster");
+
+            // Replaced in place, not appended -- still exactly one entry.
+            assertEquals(
+                    1,
+                    addressBookRegistry.getAddressBookCount(),
+                    "A same-timestamp update should replace the bootstrap entry, not duplicate it");
+
+            // getAddressBookForBlock() at that exact (tied) timestamp must resolve to the NEW
+            // book, not silently keep returning the stale bootstrap one.
+            final NodeAddressBook resolvedBook = addressBookRegistry.getAddressBookForBlock(genesisInstant);
+            assertNotEquals(
+                    bootstrapBook, resolvedBook, "Should resolve to the newly discovered book, not the bootstrap one");
+            assertEquals(
+                    24 - 3,
+                    resolvedBook.nodeAddress().size(),
+                    "Resolved book should be the discovered roster's content");
+        }
+    }
+
+    /**
      * Test that content equality is used, not reference equality.
      * This directly tests the bug where different object references with identical
      * content would be considered different.
