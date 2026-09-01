@@ -82,7 +82,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step89, wrb-distribution-step10, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
         type: string
         default: "none"
     outputs:
@@ -113,12 +113,7 @@ on:
           - 3cn-2bn-wrb-rsa # 3 CN, 2 BN, 1 MN; WRB verified via RSA roster
           - wrb-differential-test # 1 CN, 2 BNs (live + historic), 2 MNs
           - wrb-differential-test-minimal # 1 CN, 2 BNs (live + historic), no MN
-          - wrb-distribution-step12 # WRB Distribution E2E (#3125) — slice 1: 3 CN v0.75 + MN1 v0.157.1, no BN
-          - wrb-distribution-step345 # WRB Distribution E2E (#3125) — slice 3: adds BN1/BN2/BN3 with EMB
-          - wrb-distribution-step67 # WRB Distribution E2E (#3125) — slice 4: MN1 → BN2/BN3 + MN2 from genesis
-          - wrb-distribution-step89 # WRB Distribution E2E (#3125) — slice 5: CN → BN3 + wrb-cli push to BN1
-          - wrb-distribution-step10 # WRB Distribution E2E (#3125) — slice 5: steps 1-10 (CN→BN3 + wrb-cli push to BN1 + BN2/BN3 backfill from BN1)
-          - wrb-distribution-steps1-12 # WRB Distribution E2E (#3125) — slice 6: TSS cutover to v0.76 + CN cutover validation
+          - wrb-distribution-steps1-12 # WRB Distribution E2E (#3125): full steps 1-12
       block-node-version:
         description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.29.0')"
         required: false
@@ -205,7 +200,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
         required: false
         default: "none"
 
