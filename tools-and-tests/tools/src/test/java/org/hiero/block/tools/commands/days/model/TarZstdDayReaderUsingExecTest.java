@@ -88,14 +88,13 @@ public class TarZstdDayReaderUsingExecTest {
     }
 
     /**
-     * A non-trailing record file missing its signature is wrapped with 0 signature files and a
-     * warning rather than throwing — .rcd_sig files may legitimately be absent when the record
-     * source (e.g. Solo's MinIO) does not store them, and TSS-signed blocks do not need RSA sigs.
-     * All records (including the sig-less one) must be returned so downstream callers can decide
-     * how to handle 0-sig blocks.
+     * A non-trailing record file missing its RSA signature is skipped with a warning — a record
+     * without signatures cannot be verified and must not be wrapped. Only the chronologically last
+     * group is a special case (may be mid-upload); all other sig-less groups are dropped so the
+     * returned stream contains only verifiable records.
      */
     @Test
-    public void streamTarZstd_middleRecordMissingSignature_includesRecordWithNoSigs(@TempDir Path tempDir)
+    public void streamTarZstd_middleRecordMissingSignature_skipsRecordWithNoSigs(@TempDir Path tempDir)
             throws Exception {
         assumeTrue(isAvailable("tar"), "Skipping test: tar not available");
         assumeTrue(isAvailable("zstd"), "Skipping test: zstd not available");
@@ -117,9 +116,9 @@ public class TarZstdDayReaderUsingExecTest {
         try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(archive)) {
             final List<UnparsedRecordBlock> blocks = stream.toList();
             assertEquals(
-                    recordCount,
+                    recordCount - 1,
                     blocks.size(),
-                    "streamTarZstd should include all records even when a non-trailing one has no sig file");
+                    "streamTarZstd should skip a non-trailing record that has no sig file");
         }
     }
 
