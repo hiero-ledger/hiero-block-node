@@ -1,0 +1,191 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Archive Backfill Test (Issue #1711)
+#
+# Tests cloud-storage-archive (TAR) and cloud-storage-expanded (.blk.zstd) plugins
+# in a realistic multi-node deployment with node replacement and archiving resumption.
+#
+# Scenario:
+#   1. BN1 archives to RustFS. It takes no stream from a Consensus Node -- it only
+#      backfills from BN2, which receives from CN1 and CN2. Verify both archive buckets fill.
+#   2. Kill BN1 (the archiving node); BN2 keeps receiving from the CNs
+#   3. Deploy BN3 with the same RustFS archive config
+#   4. BN3 backfills from BN2 and resumes archiving to RustFS
+#   5. Verify both buckets grew past the snapshot taken while nothing was archiving
+#
+# Prerequisites:
+#   - Topology 2cn-2bn-archive (deploys RustFS before BN1/BN2)
+#   - plugin-profile-cloud.yaml applied to BN1 and BN3
+#
+# Usage:
+#   task test:run TEST_FILE=tests/archive-backfill.yaml TOPOLOGY=2cn-2bn-archive
+
+name: archive-backfill
+description: "Test cloud-storage-archive and cloud-storage-expanded with node replacement (Issue #1711)"
+
+# BN3 is deployed dynamically at t=190s; declare here so topology validation
+# allows it as an assertion target (bn3-healthy)
+dynamic_targets:
+  - block-node-3
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Verify BN1, BN2, MN healthy"
+    delay: 5
+
+  - id: initial-metrics
+    type: print-metrics
+    description: "Baseline metrics for all block nodes"
+    delay: 10
+    args:
+      target: all
+
+  - id: archive-accumulate
+    type: sleep
+    description: "Wait 90s: BN1 backfills from BN2, then archives; cloud-storage-archive triggers at >= 10 blocks (groupingLevel 1), expanded uploads each block immediately"
+    delay: 15
+    args:
+      seconds: 90
+
+  - id: verify-archive-tar-before
+    type: archive-files-exist
+    description: "TAR bucket has at least 1 file (BN1 cloud-storage-archive running)"
+    delay: 110
+    args:
+      bucket: block-archive-tar
+      min_files: 1
+
+  - id: verify-archive-expanded-before
+    type: archive-files-exist
+    description: "Expanded bucket has at least 1 file (BN1 cloud-storage-expanded running)"
+    delay: 110
+    args:
+      bucket: block-archive-expanded
+      min_files: 1
+
+  - id: pre-kill-status
+    type: network-status
+    description: "Snapshot network status before BN1 goes down"
+    delay: 115
+
+  - id: scale-down-bn1
+    type: scale-down
+    description: "Kill BN1 (archiving node)"
+    delay: 120
+    target: block-node-1
+
+  - id: gap-period
+    type: sleep
+    description: "Wait 60s: BN2 keeps receiving from the CNs; gap forms for BN3 to backfill"
+    delay: 125
+    args:
+      seconds: 60
+
+  # Snapshot the bucket counts with BN1 dead and BN3 not yet up. The final
+  # assertions require growth over this baseline, so any additional file can only
+  # have been written by BN3. record_baseline: true is what stores the count --
+  # no other check writes it, so adding or reordering checks cannot move the bar.
+  - id: archive-baseline-tar
+    type: archive-files-exist
+    description: "Record TAR bucket count while no node is archiving"
+    delay: 185
+    args:
+      bucket: block-archive-tar
+      min_files: 1
+      record_baseline: true
+
+  - id: archive-baseline-expanded
+    type: archive-files-exist
+    description: "Record expanded bucket count while no node is archiving"
+    delay: 185
+    args:
+      bucket: block-archive-expanded
+      min_files: 1
+      record_baseline: true
+
+  - id: deploy-bn3
+    type: deploy-block-node
+    description: "Deploy BN3 with backfill from BN2 and same RustFS archive config"
+    delay: 190
+    args:
+      name: block-node-3
+      backfill_sources: [block-node-2]
+      greedy: true
+      archive_backend: rustfs
+
+  - id: refresh-ports
+    type: port-forward
+    description: "Refresh port-forwards for BN3"
+    delay: 195
+
+  - id: backfill-wait
+    type: sleep
+    description: "Wait 240s for BN3 to backfill from BN2 and archive what it pulls"
+    delay: 200
+    args:
+      seconds: 240
+
+  - id: post-backfill-status
+    type: network-status
+    description: "Network status after backfill — verify BN2 and BN3 healthy"
+    delay: 445
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Final metrics summary"
+    delay: 455
+    args:
+      target: all
+
+assertions:
+  - id: bn2-healthy
+    type: node-healthy
+    description: "BN2 is running (BN1 intentionally killed)"
+    target: block-node-2
+
+  - id: bn3-healthy
+    type: node-healthy
+    description: "BN3 is running after replacement"
+    target: block-node-3
+
+  - id: bn2-has-blocks
+    type: block-available
+    description: "BN2 has blocks"
+    target: block-node-2
+    args:
+      min_block: 0
+
+  - id: no-errors
+    type: no-errors
+    description: "No errors on BN2"
+    target: block-node-2
+
+  - id: cloud-archive-resumed
+    type: archive-files-exist
+    description: "TAR bucket grew since BN1 was killed (BN3 resumed cloud-storage-archive)"
+    args:
+      bucket: block-archive-tar
+      min_increase: 1
+
+  - id: expanded-archive-resumed
+    type: archive-files-exist
+    description: "Expanded bucket grew since BN1 was killed (BN3 resumed cloud-storage-expanded)"
+    args:
+      bucket: block-archive-expanded
+      min_increase: 1
+
+  # Catches skip-ahead, which growth alone would not. Does NOT prove BN3 resumed from BN1's
+  # last block: the cloud profile has no BlockProviderPlugin, so backfill always rescans from
+  # startBlock (0) and a full re-archive rewrites the same keys, also leaving no gap.
+  - id: cloud-archive-no-gap
+    type: archive-contiguous
+    description: "TAR bucket holds an unbroken run of groups (no blocks skipped while BN1 was down)"
+    args:
+      bucket: block-archive-tar
+
+  - id: expanded-archive-no-gap
+    type: archive-contiguous
+    description: "Expanded bucket holds an unbroken run of blocks (no blocks skipped while BN1 was down)"
+    args:
+      bucket: block-archive-expanded

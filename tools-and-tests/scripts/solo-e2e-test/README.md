@@ -703,7 +703,8 @@ assertions:                      # Validations to run after all events
 | `sleep`                    | Pause execution                                                                                 | `seconds`                                                                                         |
 | `port-forward`             | Refresh port forwards                                                                           | (none)                                                                                            |
 | `clear-block-storage`      | Clear all block data on node (live, archive, verification, and the persisted block-range state) | `target`                                                                                          |
-| `deploy-block-node`        | Deploy new Block Node                                                                           | `name`, `backfill_sources`, `greedy`, `chart_version`                                             |
+| `deploy-block-node`        | Deploy new Block Node                                                                           | `name`, `backfill_sources`, `greedy`, `chart_version`, `archive_backend`                          |
+| `archive-files-exist`      | Count objects in an S3 bucket                                                                   | `bucket`, `min_files`, `min_increase`, `record_baseline`                                          |
 | `reconfigure-cn-streaming` | Update CN block-nodes.json                                                                      | `consensus_node`, `block_nodes`                                                                   |
 | `inject-latency`           | Apply a NetworkChaos rule                                                                       | `name`, `source.kind`, `target.kind`, `latency`, `jitter`, `correlation`, `bidirectional`, `loss` |
 | `clear-latency`            | Remove a NetworkChaos rule                                                                      | `name`                                                                                            |
@@ -721,6 +722,10 @@ assertions:                      # Validations to run after all events
 | `block-rate-floor`        | Assert Δblocks/Δtime ≥ floor                                     | `min_rate_per_sec`, `window_seconds`                       |
 | `backfill-triggered`      | Assert backfill log marker observed                              | `grep` (default `"backfill"`), `since_seconds`             |
 | `log-match`               | Generic log-substring check                                      | `grep`, `since_seconds`                                    |
+| `archive-files-exist`     | Verify an S3 archive bucket has (or gained) objects              | `bucket`, `min_files`, `min_increase`                      |
+| `archive-contiguous`      | Verify an archive bucket has no gap in its object run            | `bucket`                                                   |
+
+**Note:** `archive-files-exist` with `min_increase: N` asserts "at least N more objects than the recorded baseline" instead of an absolute count. The baseline is written only by an earlier `archive-files-exist` **event** carrying `record_baseline: true`; with no baseline recorded the assertion fails rather than falling back to an absolute count. `archive-contiguous` derives the object-key segment width from the archive grouping level in `scripts/lib/cloud-storage-overlay.sh`, so it takes no `pad` argument.
 
 **Note:** The `blocks-increasing` assertion verifies a Block Node is actively receiving blocks. It measures baseline, waits `wait_seconds` (default: 60), verifies increase, retrying up to `max_attempts` (default: 3) times.
 
@@ -755,6 +760,8 @@ Run tests via GitHub Actions workflow dispatch:
 3. Add assertions to validate outcomes
 4. Validate with `task test:validate TEST_FILE=tests/my-test.yaml`
 5. Run with `task test:run TEST_FILE=tests/my-test.yaml`
+
+The harness's own assertion logic has fixture-based unit tests that need no cluster: `task test:unit` (or `scripts/test/run-all.sh`). They also run in CI ahead of the cluster build.
 
 See `test-schema.yaml` for the complete schema documentation.
 

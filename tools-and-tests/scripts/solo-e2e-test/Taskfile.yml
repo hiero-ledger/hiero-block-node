@@ -535,6 +535,11 @@ tasks:
           --topologies-dir "{{.TOPOLOGIES_DIR}}" \
           --validate
 
+  test:unit:
+    desc: "Run the harness's own fixture-based unit tests (no cluster needed)"
+    cmds:
+      - "{{.SCRIPTS_DIR}}/test/run-all.sh"
+
   test:list:
     desc: List available test definitions
     cmds:

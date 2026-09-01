@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: Apache-2.0
+# 2 Consensus Nodes, 2 Block Nodes with RustFS cloud-storage archiving on BN1.
+#
+# BN1 runs the cloud-only plugin profile (charts/block-node-server/values-overrides/
+# plugin-profile-cloud.yaml): no stream-publisher, no stream-subscriber and no local
+# block storage. It therefore receives nothing directly from a Consensus Node and
+# serves no downstream client -- its only block source is greedy backfill from BN2,
+# and its only output is the RustFS archive (cloud-storage-archive TAR and
+# cloud-storage-expanded .blk.zstd).
+#
+# CN1, CN2 -> BN2 (live stream)
+# BN1 <- BN2 (greedy backfill)
+# MN <- BN2
+#
+# BN2 deliberately has no peers: BN1 serves no blocks, so there is nothing to backfill from.
+# That leaves BN2 with no sources file, which no-ops its backfill plugin entirely
+# (BackfillPlugin.start), so BN2 cannot repair gaps of its own during this test.
+#
+# NOTE: grpc_tuning.max_frame_size is set to 8MB on BN2 to match server.http2.maxFrameSize
+# and handle larger blocks; it is read by BN1's backfill client, which connects to BN2.
+# This can be removed once Block Node v0.27+ is released, as the default will be increased.
+
+name: 2cn-2bn-archive
+description: "2 CNs streaming to BN2; BN1 backfills from BN2 and archives to RustFS"
+
+s3_nodes:
+  rustfs-1:
+    buckets: [block-archive-tar, block-archive-expanded]
+    port: 9000
+
+block_nodes:
+  block-node-1:
+    address: block-node-1
+    port: 40840
+    peers: [block-node-2]
+    # No live stream reaches BN1, so backfill must pull the whole history greedily.
+    greedy: true
+    archive:
+      backend: rustfs
+      node: rustfs-1
+  block-node-2:
+    address: block-node-2
+    port: 40840
+    greedy: false  # greedy=true blocks live streaming from CN after restart (BN bug workaround)
+    grpc_tuning:
+      max_frame_size: 8388608
+
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-2]
+  node2:
+    block_nodes: [block-node-2]
+
+mirror_nodes:
+  mirror-1:
+    block_nodes: [block-node-2]
+
+# No relay and no explorer: this test drives nothing through JSON-RPC or the UI, and
+# skipping both leaves memory headroom on Kind for BN3, which is deployed mid-test.
+# The empty maps matter -- a key with only a commented-out entry, or an omitted key,
+# parses as null, which the deploy script's skip check misses, and the component gets
+# deployed anyway. Use `relay_nodes: {relay-1: {}}` to enable one.
+relay_nodes: {}
+explorer_nodes: {}
