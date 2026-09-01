@@ -12,22 +12,23 @@ for developers, SDK integrators, and contributors to get a Block Node running on
 
 One `./gradlew` command starts the following Docker Compose stack:
 
-|  Service   |       Port        |                                Purpose                                 |
-|------------|-------------------|------------------------------------------------------------------------|
-| Block Node | `40840` / `16007` | gRPC APIs on `40840`; Prometheus metrics on `16007`                    |
-| Prometheus | ephemeral         | Scrapes Block Node metrics; no fixed host port - use Grafana at `3000` |
-| Grafana    | `3000`            | Pre-provisioned dashboards                                             |
-| Loki       | `3100`            | Log aggregation                                                        |
-| Promtail   | -                 | Log shipping from Docker to Loki                                       |
-| cAdvisor   | `8081`            | Container resource metrics                                             |
+|  Service   |            Port             |                                    Purpose                                    |
+|------------|-----------------------------|-------------------------------------------------------------------------------|
+| Block Node | `40840` / `16007` / `40983` | gRPC APIs on `40840`; Prometheus metrics on `16007`; health (HTTP) on `40983` |
+| Prometheus | ephemeral                   | Scrapes Block Node metrics; no fixed host port - use Grafana at `3000`        |
+| Grafana    | `3000`                      | Pre-provisioned dashboards                                                    |
+| Loki       | `3100`                      | Log aggregation                                                               |
+| Promtail   | -                           | Log shipping from Docker to Loki                                              |
+| cAdvisor   | `8081`                      | Container resource metrics                                                    |
 
 ## Prerequisites
 
 - **Docker 24+** with Docker Compose v2 - verify with `docker compose version`
-- **Java 21 or later** to run Gradle - verify with `java --version`. Gradle provisions JDK 25
+  - You may also use **Podman 1.5+** _optionally_ with Podman Compose v1.6+ - verify with `podman compose version`
+- **Java 25 or later** to run Gradle - verify with `java --version`. Gradle provisions JDK 25
   for compilation automatically via toolchains.
 - **Git**
-- Ports `40840`, `16007`, `3000`, and `3100` must be free on your machine
+- Ports `40840`, `40983`, `16007`, `3000`, and `3100` must be free on your machine
 
 Optional, for the verification steps in Step 3:
 
