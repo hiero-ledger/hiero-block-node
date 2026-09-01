@@ -76,7 +76,7 @@ class ConsolidationTask implements Callable<UploadResult> {
                 }
                 doCompleteMultipartUpload(s3, finalKey, uploadId, etags);
             } catch (S3ResponseException | IOException e) {
-                LOGGER.log(INFO, "Consolidation failed for key {0}", finalKey, e);
+                LOGGER.log(INFO, "Consolidation failed for key %s".formatted(finalKey), e);
                 S3UploadUtils.abortQuietly(s3, finalKey, uploadId);
                 throw e;
             }

@@ -185,7 +185,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                     totalBytesStored.addAndGet(Files.size(blockFilePath));
                 }
             } catch (IOException e) {
-                LOGGER.log(INFO, "Failed to get size of block file for block " + blockNumber, e);
+                LOGGER.log(INFO, "Failed to get size of block file for block %s".formatted(blockNumber), e);
             }
         });
     }

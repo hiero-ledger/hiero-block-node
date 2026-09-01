@@ -296,8 +296,8 @@ blockNode:
     level: "INFO"
     configMountPath: "/opt/hiero/block-node/logs/config"
     loggingProperties:
-      # logs for Block Node components FINE (DEBUG) temporarily while testing is ongoing
-      org.hiero.block.level: "FINE"
+      # Block Node components log at INFO in production; raise a package/class here to debug
+      org.hiero.block.level: "INFO"
       io.helidon.level: "INFO"
       io.helidon.webserver.level: "INFO"
       io.helidon.webserver.access.level: "INFO"
@@ -309,8 +309,9 @@ blockNode:
       java.util.logging.ConsoleHandler.formatter: "java.util.logging.SimpleFormatter"
       java.util.logging.FileHandler.pattern: "/opt/hiero/block-node/logs/blocknode-%g.log"
       java.util.logging.FileHandler.append: "true"
-      java.util.logging.FileHandler.limit: "5000000"
-      java.util.logging.FileHandler.count: "5"
+      # 50 MB x 15 files = ~750 MB of on-disk log history, within the logging volume (blockNode.persistence.logging.size).
+      java.util.logging.FileHandler.limit: "50000000"
+      java.util.logging.FileHandler.count: "15"
       java.util.logging.FileHandler.level: "FINEST"
       java.util.logging.FileHandler.formatter: "java.util.logging.SimpleFormatter"
       # Override the chatty HTTP server internals

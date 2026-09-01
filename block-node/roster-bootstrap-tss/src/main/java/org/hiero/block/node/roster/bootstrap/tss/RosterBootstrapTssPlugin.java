@@ -103,7 +103,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         final String parseFailedMsg =
                 "Failed to read/parse block node sources from path: [%s], TssBootstrapPlugin will not query any peers"
                         .formatted(sourcesPath);
-        LOGGER.log(INFO, parseFailedMsg);
+        LOGGER.log(WARNING, parseFailedMsg);
         return null;
     }
 
@@ -120,7 +120,8 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
             try {
                 tssDataFetcher.close();
             } catch (IOException e) {
-                LOGGER.log(INFO, "Unable to close tssDataFetcher: {0}", e);
+                // Cleanup failure during shutdown is not on-call actionable; keep at DEBUG.
+                LOGGER.log(DEBUG, "Unable to close tssDataFetcher", e);
             }
         }
     }

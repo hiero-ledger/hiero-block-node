@@ -2,7 +2,6 @@
 package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -160,8 +159,11 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
                 final String receivedConfirmationMsg = "Received persistence confirmation for block [{0}]";
                 LOGGER.log(TRACE, receivedConfirmationMsg, blockNumber);
             } else {
+                // The persistence failure originates in (and is logged by) the persistence layer; this is
+                // only the backfill awaiter observing the notification, so keep it at DEBUG to avoid a
+                // duplicate on-call signal for an event already reported at its source.
                 final String persistenceFailedMsg = "Block [{0}] persistence failed";
-                LOGGER.log(INFO, persistenceFailedMsg, blockNumber);
+                LOGGER.log(DEBUG, persistenceFailedMsg, blockNumber);
             }
             pending.complete(notification.succeeded());
         }
@@ -187,8 +189,9 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
             long blockNumber = notification.blockNumber();
             Pending pending = pendingBlocks.get(blockNumber);
             if (pending != null) {
+                // Echo of a failure already logged at its origin; keep at DEBUG to avoid a duplicate signal.
                 final String verificationFailedMsg = "Block [{0}] verification failed, marking block as not persisted";
-                LOGGER.log(INFO, verificationFailedMsg, blockNumber);
+                LOGGER.log(DEBUG, verificationFailedMsg, blockNumber);
                 pending.complete(false);
             }
         }

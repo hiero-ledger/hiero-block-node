@@ -157,7 +157,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // Validate block node sources configuration
         final String sourcesPath = backfillConfiguration.blockNodeSourcesPath();
         if (sourcesPath == null || sourcesPath.isBlank()) {
-            LOGGER.log(DEBUG, "No block node sources path configured, backfill will not run");
+            LOGGER.log(INFO, "No block node sources path configured, backfill will not run");
             return;
         }
 
@@ -277,8 +277,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             GapProcessor gapProcessor = new GapProcessor(runner, schedulerName);
             return new BackfillTaskScheduler(executor, gapProcessor, queueCapacity, fetcher, persistenceAwaiter);
         } catch (RuntimeException e) {
+            // TODO: a scheduler-creation failure leaves the plugin degraded; mark it unhealthy via the
+            // health facility once that is available.
             final String createSchedulerFailedMsg = "Failed to create scheduler: [%s]".formatted(e.getMessage());
-            LOGGER.log(INFO, createSchedulerFailedMsg, e);
+            LOGGER.log(WARNING, createSchedulerFailedMsg, e);
             return null;
         }
     }
@@ -296,14 +298,14 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             try {
                 historicalScheduler.close();
             } catch (RuntimeException e) {
-                LOGGER.log(INFO, "Error closing historicalScheduler: " + e.getMessage(), e);
+                LOGGER.log(DEBUG, "Error closing historicalScheduler", e);
             }
         }
         if (liveTailScheduler != null) {
             try {
                 liveTailScheduler.close();
             } catch (RuntimeException e) {
-                LOGGER.log(INFO, "Error closing liveTailScheduler: " + e.getMessage(), e);
+                LOGGER.log(DEBUG, "Error closing liveTailScheduler", e);
             }
         }
         if (autonomousFetcher != null) {
@@ -580,7 +582,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             LOGGER.log(TRACE, verificationNotificationMsg, notification.blockNumber());
             if (!notification.success()) {
                 final String blockVerificationFailedMsg = "Block verification failed, block=[{0}]";
-                LOGGER.log(INFO, blockVerificationFailedMsg, notification.blockNumber());
+                LOGGER.log(DEBUG, blockVerificationFailedMsg, notification.blockNumber());
                 metricsHolder.backfillFetchErrors().increment();
                 pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
                 // If a block verification fails, we will backfill it again later on the next gap detection run.
@@ -637,10 +639,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                             "Reset liveTailHighWaterMark to [{0}] after incomplete gap [{1}]";
                     LOGGER.log(INFO, resetHighWaterMarkMsg, lastSuccessfulBlock, gap.range());
                 }
-            } catch (ParseException | InterruptedException e) {
+            } catch (InterruptedException e) {
+                // Genuine cancellation — preserve the interrupt so the executing thread can unwind.
                 Thread.currentThread().interrupt();
-                final String errorExecutingGapMsg = "Error executing gap=[%s]".formatted(gap);
-                LOGGER.log(INFO, errorExecutingGapMsg, e);
+                LOGGER.log(INFO, "Interrupted while executing gap=[%s]".formatted(gap), e);
+            } catch (ParseException e) {
+                // A parse failure is a task failure, not a cancellation; do not set the interrupt flag.
+                LOGGER.log(INFO, "Error executing gap=[%s]".formatted(gap), e);
             }
         }
     }

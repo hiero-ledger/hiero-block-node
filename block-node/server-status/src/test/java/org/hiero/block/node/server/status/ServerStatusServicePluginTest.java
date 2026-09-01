@@ -12,12 +12,14 @@ import com.hedera.pbj.runtime.ParseException;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.logging.Logger;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
+import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.junit.jupiter.api.BeforeEach;
@@ -247,6 +249,71 @@ public class ServerStatusServicePluginTest
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.firstAvailableBlock());
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.lastAvailableBlock());
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.nextExpectedBlock());
+    }
+
+    /// Tests that the periodic status heartbeat emits a single INFO line reporting the available
+    /// block range, so operators can follow block progression from INFO logs alone.
+    @Test
+    @DisplayName("Status heartbeat emits the available block range")
+    void shouldLogStatusHeartbeat() {
+        sendBlocks(5);
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger julLogger = Logger.getLogger(ServerStatusServicePlugin.class.getName());
+        julLogger.addHandler(logHandler);
+        try {
+            plugin.logStatusHeartbeat();
+        } finally {
+            julLogger.removeHandler(logHandler);
+        }
+        assertEquals(1, logHandler.countContaining("Status heartbeat"));
+    }
+
+    /// Tests that the heartbeat task scheduled by `start()` runs and emits its line when the
+    /// executor fires it, exercising the `start()` scheduling path and `runHeartbeat()`.
+    @Test
+    @DisplayName("Scheduled heartbeat task runs and emits its line")
+    void shouldRunScheduledHeartbeat() {
+        sendBlocks(5);
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger julLogger = Logger.getLogger(ServerStatusServicePlugin.class.getName());
+        julLogger.addHandler(logHandler);
+        try {
+            // start() (run during setup) scheduled the heartbeat on the test executor; fire it now.
+            ((ScheduledBlockingExecutor) testThreadPoolManager.scheduledExecutor()).executeSerially();
+        } finally {
+            julLogger.removeHandler(logHandler);
+        }
+        assertTrue(logHandler.countContaining("Status heartbeat") >= 1);
+    }
+
+    /// Tests that `stop()` shuts down the heartbeat scheduler.
+    @Test
+    @DisplayName("stop() shuts down the heartbeat scheduler")
+    void shouldStopHeartbeatScheduler() {
+        plugin.stop();
+        assertTrue(testThreadPoolManager.scheduledExecutor().isShutdown());
+    }
+
+    /// Tests that a heartbeat period of `0` disables the heartbeat: `start()` logs the disabled
+    /// message and schedules nothing, and `stop()` is a safe no-op.
+    @Test
+    @DisplayName("Heartbeat disabled when heartbeatPeriodSeconds <= 0")
+    void shouldDisableHeartbeatWhenPeriodNotPositive() {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger julLogger = Logger.getLogger(ServerStatusServicePlugin.class.getName());
+        julLogger.addHandler(logHandler);
+        try {
+            start(
+                    localPlugin,
+                    localPlugin.methods().getFirst(),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    Map.of("server.status.heartbeatPeriodSeconds", "0"));
+            localPlugin.stop();
+        } finally {
+            julLogger.removeHandler(logHandler);
+        }
+        assertEquals(1, logHandler.countContaining("Server status heartbeat disabled"));
     }
 
     /**

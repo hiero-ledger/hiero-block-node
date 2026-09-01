@@ -17,6 +17,7 @@ module org.hiero.block.node.server.status {
     requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
+    requires java.logging;
 
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 

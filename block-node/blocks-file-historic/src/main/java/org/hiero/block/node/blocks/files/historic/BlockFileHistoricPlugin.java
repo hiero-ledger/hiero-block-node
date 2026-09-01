@@ -782,7 +782,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     Files.move(file, newPath);
                     LOGGER.log(INFO, "Renamed old format archive: {0} -> {1}", fileName, newFileName);
                 } catch (final IOException e) {
-                    LOGGER.log(INFO, "Failed to rename file: {0}", file, e);
+                    LOGGER.log(INFO, "Failed to rename file: %s".formatted(file), e);
                 }
             }
             return CONTINUE;
