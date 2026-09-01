@@ -265,7 +265,7 @@ class LiveStreamPublisherManagerTest {
                         100L, 99L, 97L, 96L, 95L,
                     })
             @DisplayName(
-                    "getActionForBlock() returns SKIP when the provided block number is a duplicate within the skip window and previous action is NULL")
+                    "getActionForBlock() returns SKIP_AND_ACK when the provided block number is a duplicate within the skip window and previous action is NULL")
             void testGetActionNullPreviousActionDuplicateWithinSkipWindow(final long blockNumber) {
                 // lastPersistedBlock = 100, default duplicateBlockSkipWindow = 5.
                 // Block numbers 95..100 all sit at distance <= 5 and must return SKIP.
@@ -275,7 +275,7 @@ class LiveStreamPublisherManagerTest {
                 historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
                 toTest.handlePersisted(new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.PUBLISHER));
                 final BlockAction actual = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
-                assertThat(actual).isEqualTo(BlockAction.SKIP);
+                assertThat(actual).isEqualTo(BlockAction.SKIP_AND_ACK);
             }
 
             /// This test aims to assert that the
@@ -2753,11 +2753,12 @@ class LiveStreamPublisherManagerTest {
             /// > In order for a handler to start streaming a block, it must pass through the manager.
             /// The manager does not allow two or more publishers to stream the same block simultaneously.
             /// When the duplicate falls within the default `producer.duplicateBlockSkipWindow`,
-            /// the manager answers with [PublishStreamResponse.SkipBlock] instead of closing the
+            /// the manager answers with [PublishStreamResponse.SkipBlock] followed by
+            /// [PublishStreamResponse.BlockAcknowledgement] instead of closing the
             /// stream so the publisher can fast-forward.
             @Test
             @DisplayName(
-                    "Test blockIsEnding() when receiving premature header for same publisher, skip if block is already being acknowledged within the skip window")
+                    "Test blockIsEnding() when receiving premature header for same publisher, skip-and-ack if block is already being acknowledged within the skip window")
             void testBlockIsEndingWhenReceivingPrematureHeaderSamePublisherDifferentBlockDuplicate() {
                 // First, we need to build and stream the next block in line
                 final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
@@ -2820,11 +2821,14 @@ class LiveStreamPublisherManagerTest {
                 // Block 0 is a duplicate (already persisted) and sits at distance 0 from the
                 // last persisted block, which is well within the default duplicateBlockSkipWindow,
                 // so the manager answers with SkipBlock rather than closing the stream.
+                assertThat(responsePipeline.getOnNextCalls()).hasSize(2);
                 assertThat(responsePipeline.getOnNextCalls())
-                        .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
                         .returns(block0.number(), skipBlockNumberExtractor);
+                assertThat(responsePipeline.getOnNextCalls())
+                        .last()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor);
             }
 
             /// Verifies that [LiveStreamPublisherManager#blockIsEnding(long, long)]

@@ -67,7 +67,6 @@ import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
-import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
@@ -261,7 +260,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 case END_ERROR, END_DUPLICATE ->
                     // This should not happen because the Handler should have shut down.
                     BlockAction.END_ERROR;
-                case SKIP, RESEND, SEND_BEHIND ->
+                case SKIP, SKIP_AND_ACK, RESEND, SEND_BEHIND ->
                     // This should not happen because the Handler should have reset the previous action.
                     BlockAction.END_ERROR;
             };
@@ -995,7 +994,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // ending the stream so a slightly-behind publisher can fast-forward without
             // reconnecting.
             if ((lastPersisted - blockNumber) <= duplicateBlockSkipWindow) {
-                return BlockAction.SKIP;
+                return BlockAction.SKIP_AND_ACK;
             }
             return BlockAction.END_DUPLICATE;
         } else if (blockNumber < nextUnstreamed) {
