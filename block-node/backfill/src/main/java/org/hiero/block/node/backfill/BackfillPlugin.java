@@ -277,6 +277,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             GapProcessor gapProcessor = new GapProcessor(runner, schedulerName);
             return new BackfillTaskScheduler(executor, gapProcessor, queueCapacity, fetcher, persistenceAwaiter);
         } catch (RuntimeException e) {
+            // TODO: a scheduler-creation failure leaves the plugin degraded; mark it unhealthy via the
+            // health facility once that is available.
             final String createSchedulerFailedMsg = "Failed to create scheduler: [%s]".formatted(e.getMessage());
             LOGGER.log(WARNING, createSchedulerFailedMsg, e);
             return null;

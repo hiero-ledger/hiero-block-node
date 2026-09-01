@@ -64,7 +64,7 @@ by per-block INFO logs. Use logs to confirm startup/config and to find problems:
 |---------------------------------------|-------------------------------------------------------|
 | `Status heartbeat`                    | Liveness and block progression (`newestBlock` rising) |
 | `Started BlockNode Server`            | Startup completed                                     |
-| `VerificationServicePlugin` (WARNING) | Signature or proof verification failures              |
+| `VerificationServicePlugin` (WARNING) | Verification session failures                         |
 | `SEVERE` / `WARNING`                  | Any failure needing attention                         |
 
 For per-block ingest detail, temporarily raise `org.hiero.block.node.stream.publisher` to
