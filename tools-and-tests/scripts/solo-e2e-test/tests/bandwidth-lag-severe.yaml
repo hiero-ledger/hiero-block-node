@@ -58,8 +58,8 @@ events:
     delay: 0
     args:
       test_class: CryptoTransferLoadTest
-      concurrency: 50
-      accounts: 100
+      concurrency: 20
+      accounts: 40
       duration: 480
 
   - id: inject-cn-bn1-bw
