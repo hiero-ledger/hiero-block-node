@@ -658,13 +658,18 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             // Distance-zero duplicates fall inside the configured duplicateBlockSkipWindow, so
             // the publisher is told to skip the block rather than having its stream closed.
+            assertThat(fromPluginBytes).hasSize(2);
             assertThat(fromPluginBytes)
-                    .hasSize(1)
                     .first()
                     .extracting(bytesToPublishStreamResponseMapper)
                     .isNotNull()
                     .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
                     .returns(0L, skipBlockNumberExtractor);
+            assertThat(fromPluginBytes)
+                    .last()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor);
         }
 
         /// This test aims to verify that once a block has been streamed to the
@@ -710,17 +715,19 @@ class StreamPublisherPluginTest {
             awaitPluginResponses(1);
             // Distance-zero duplicates fall inside the configured duplicateBlockSkipWindow, so
             // the publisher is told to skip the block rather than having its stream closed.
+            assertThat(fromPluginBytes).hasSize(2);
             assertThat(fromPluginBytes)
-                    .hasSize(1)
                     .first()
                     .extracting(bytesToPublishStreamResponseMapper)
                     .isNotNull()
                     .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
                     .returns(0L, skipBlockNumberExtractor);
+            assertThat(fromPluginBytes)
+                    .last()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor);
         }
-
-        // @todo(1693) add tests:
-        //    - add e2e test cases to test plan
     }
 
     /// Tests for failed block verification

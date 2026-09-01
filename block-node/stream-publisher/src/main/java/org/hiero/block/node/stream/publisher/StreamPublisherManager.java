@@ -107,6 +107,9 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
         ACCEPT,
         /// todo(1420) add documentation
         SKIP,
+        /// Send a SKIP followed by an ACKNOWLEDGE for a block that is already
+        /// persisted, but recent enough to be within the "soft duplicate" window.
+        SKIP_AND_ACK,
         /// todo(1420) add documentation
         RESEND,
         /// todo(1420) add documentation

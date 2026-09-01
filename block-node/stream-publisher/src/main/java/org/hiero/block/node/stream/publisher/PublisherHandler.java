@@ -281,26 +281,36 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         // if there are several blocks "behind" that acknowledgement.
         // The publishers expect that acknowledgement for block N implicitly
         // acknowledges all blocks up to and including N.
+        if (baseSendBlockAcknowledgement(blockToAcknowledge)) {
+            // if response was sent successfully, we can remove
+            // all unacknowledged blocks that are less than or equal to the
+            // new last acknowledged block number.
+            unacknowledgedStreamedBlocks.headSet(blockToAcknowledge, true).clear();
+        }
+    }
+
+    private boolean baseSendBlockAcknowledgement(final long blockToAcknowledge) {
         final BlockAcknowledgement ack = BlockAcknowledgement.newBuilder()
                 .blockNumber(blockToAcknowledge)
                 .build();
         final PublishStreamResponse response =
                 PublishStreamResponse.newBuilder().acknowledgement(ack).build();
-        if (sendResponse(response)) {
-            // if response was sent successfully, we can remove
-            // all unacknowledged blocks that are less than or equal to the
-            // new last acknowledged block number.
-            unacknowledgedStreamedBlocks.headSet(blockToAcknowledge, true).clear();
+        final boolean success = sendResponse(response);
+        if (success) {
             metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
-            final long ackTime = System.nanoTime();
-            LOGGER.log(TRACE, LATENCY_END_METRIC_MESSAGE, blockToAcknowledge, ackTime, handlerId, correlationIdPrefix);
-            final String ackTraceEndMessage = "[{2}] Sent acknowledgement for block {0,number,#} from handler {1}";
-            LOGGER.log(TRACE, ackTraceEndMessage, blockToAcknowledge, handlerId, correlationIdPrefix);
+            if (LOGGER.isLoggable(TRACE)) {
+                final long ackTime = System.nanoTime();
+                LOGGER.log(
+                        TRACE, LATENCY_END_METRIC_MESSAGE, blockToAcknowledge, ackTime, handlerId, correlationIdPrefix);
+                final String ackTraceEndMessage = "[{2}] Sent acknowledgement for block {0,number,#} from handler {1}";
+                LOGGER.log(TRACE, ackTraceEndMessage, blockToAcknowledge, handlerId, correlationIdPrefix);
+            }
         } else {
             // Here, we must end immediately, because if we failed to send, then
             // we will never get another `onNext`.
             checkMidBlockAndShutdown(currentStreamingBlockNumber.get(), false);
         }
+        return success;
     }
 
     /// This method must be called when a verification fails for a given block.
@@ -478,6 +488,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         return switch (actionFromPublisher) {
             case ACCEPT -> handleAccept(blockNumber, requestContainsHeader, itemSetUnparsed);
             case SKIP -> handleSkip(blockNumber);
+            case SKIP_AND_ACK -> handleSkipAndAck(blockNumber);
             case RESEND -> {
                 final String errorMessage =
                         "[{0}] Handler {1} unexpectedly received the block action {2} as an action for new header/block in progress";
@@ -564,7 +575,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 // If we get a resend, we must handle it
                 case RESEND -> handleResend(actionForBlock.blockNumber());
                 // These cases are not expected to be returned
-                case SKIP, SEND_BEHIND, END_DUPLICATE, END_ERROR ->
+                case SKIP, SKIP_AND_ACK, SEND_BEHIND, END_DUPLICATE, END_ERROR ->
                     unexpectedActionForEndOfBlock(actionForBlock, currentStreamingNumber);
             };
         }
@@ -718,9 +729,16 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 DEBUG, "[{0}] Handler {1} is sending SKIP for block {2}", correlationIdPrefix, handlerId, blockNumber);
         // If the action is SKIP, we need to send a skip response
         // to the publisher and not propagate the items.
-        final SkipBlock skipBlock =
-                SkipBlock.newBuilder().blockNumber(blockNumber).build();
-        return new SkipBlockResult(this, skipBlock, currentStreamingBlockNumber.get());
+        return new SkipBlockResult(this, blockNumber, currentStreamingBlockNumber.get());
+    }
+
+    /// Handle the SKIP_AND_ACK action for a block.
+    private PublisherRequestResult handleSkipAndAck(final long blockNumber) {
+        LOGGER.log(
+                DEBUG, "[{0}] Handler {1} is sending SKIP for block {2}", correlationIdPrefix, handlerId, blockNumber);
+        // If the action is SKIP, we need to send a skip response
+        // to the publisher and not propagate the items.
+        return new SkipAckBlockResult(this, blockNumber, currentStreamingBlockNumber.get());
     }
 
     /// Handle the RESEND action for a block.
@@ -955,29 +973,67 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     /// not successful.
     private static final class SkipBlockResult extends PublisherRequestResultBase {
         private final SkipBlock skipBlockResponse;
-        private final long currentStreamingNumber;
+        private final long currentWhenSkipped;
 
         private SkipBlockResult(
                 @NonNull final PublisherHandler handler,
-                @NonNull final SkipBlock skipBlockResponse,
+                @NonNull final long skipBlock,
                 final long currentStreamingNumber) {
             super(handler);
-            this.skipBlockResponse = Objects.requireNonNull(skipBlockResponse);
-            this.currentStreamingNumber = currentStreamingNumber;
+            skipBlockResponse = SkipBlock.newBuilder().blockNumber(skipBlock).build();
+            currentWhenSkipped = currentStreamingNumber;
         }
 
         @Override
         public void handle() {
-            final PublishStreamResponse response = PublishStreamResponse.newBuilder()
-                    .skipBlock(skipBlockResponse)
-                    .build();
-            if (handler.sendResponse(response)) {
-                handler.metrics.blockSkipsSent.increment(); // @todo(1415) add label
-                handler.resetState();
-            } else {
-                // Connection is broken, and we failed to send a message.
-                // Close the connection and let the client reconnect.
-                handler.checkMidBlockAndShutdown(currentStreamingNumber, false);
+            handler.sendSkipForBlock(skipBlockResponse, currentWhenSkipped);
+        }
+    }
+
+    /// Send a skip block response, returning success or failure.
+    /// @param skipBlockResponse a Skip Block response object to send
+    /// @param currentWhenSkipped the current stream _when the skip was
+    ///     detected_, the current value _may_ have subsequently changed,
+    ///     though it is very unlikely.
+    /// @return true if the send succeeds, false if the call failed and shutdown
+    ///     was requested instead.
+    private boolean sendSkipForBlock(final SkipBlock skipBlockResponse, final long currentWhenSkipped) {
+        final PublishStreamResponse response =
+                PublishStreamResponse.newBuilder().skipBlock(skipBlockResponse).build();
+        boolean success = sendResponse(response);
+        if (success) {
+            metrics.blockSkipsSent.increment(); // @todo(1415) add label
+            resetState();
+        } else {
+            // Connection is broken, and we failed to send a message.
+            // Close the connection and let the client reconnect.
+            checkMidBlockAndShutdown(currentWhenSkipped, false);
+        }
+        return success;
+    }
+
+    /// This type of result aims to send a [SkipBlock] to the publisher, sends
+    /// an ACKNOWLEDGEMENT for the latest _persisted_ block and then
+    /// reset the state. The handler will be closed if sending the response is
+    /// not successful.
+    private static final class SkipAckBlockResult extends PublisherRequestResultBase {
+        private final SkipBlock skipBlockResponse;
+        private final long currentWhenSkipped;
+        private final StreamPublisherManager publisherManager;
+
+        private SkipAckBlockResult(
+                @NonNull final PublisherHandler handler, @NonNull final long skipBlock, final long currentStreamBlock) {
+            super(handler);
+            publisherManager = handler.publisherManager;
+            skipBlockResponse = SkipBlock.newBuilder().blockNumber(skipBlock).build();
+            currentWhenSkipped = currentStreamBlock;
+        }
+
+        @Override
+        public void handle() {
+            if (handler.sendSkipForBlock(skipBlockResponse, currentWhenSkipped)) {
+                // send acknowledgement, but don't clear queues
+                handler.baseSendBlockAcknowledgement(publisherManager.getLatestBlockNumber());
             }
         }
     }
