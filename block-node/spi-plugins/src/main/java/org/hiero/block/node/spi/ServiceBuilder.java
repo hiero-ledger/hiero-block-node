@@ -10,6 +10,8 @@ import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
 import java.util.Set;
 import java.util.TreeMap;
+import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
 
 /// ServiceBuilder is an interface that defines the contract for registering HTTP and gRPC services
 /// with the web server during initialization.
@@ -66,10 +68,27 @@ public interface ServiceBuilder {
     /// Registers a gRPC service on the given port, or on the default port
     /// if `port` is `null`. This service is added to the "General" webserver.
     ///
+    /// If `service` also implements [ThrottleSpec], per-client rate/concurrency admission control is
+    /// applied automatically: the registration point merges the spec's settings with the node-wide
+    /// concurrency ceiling for this service (resolved internally) into a full throttle policy before
+    /// wrapping the service. A plugin never chooses between a throttled and unthrottled registration
+    /// call — whether a service is throttled, and how, is entirely a property of the service object
+    /// itself. See `docs/design/apis/api-throttling.md` for the full design.
+    ///
     /// @param port the port number to bind this service to, or `null` to
     /// use the default port
-    /// @param service the gRPC service to register
+    /// @param service the gRPC service to register, optionally also implementing [ThrottleSpec]
     void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service);
+
+    /// The single, shared [BlockReadBulkhead] protecting block storage from combined read load
+    /// across every API that reads from it (Component B in `docs/design/apis/api-throttling.md`).
+    /// The same instance is returned on every call, so every plugin that reads block storage on
+    /// behalf of a client request (currently `getBlock` and the subscriber's historical catch-up
+    /// path) shares one bounded pool rather than each having its own.
+    ///
+    /// @return the node's single shared block-read bulkhead
+    @NonNull
+    BlockReadBulkhead blockReadBulkhead();
 
     /// Registers a new webserver configured with one or more HTTP services
     /// attached to a set of ports.

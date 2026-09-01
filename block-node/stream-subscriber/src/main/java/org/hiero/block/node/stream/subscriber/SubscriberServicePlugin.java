@@ -12,7 +12,9 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -31,6 +33,11 @@ import org.hiero.block.internal.SubscribeStreamResponseUnparsed.Builder;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
+import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
+import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
@@ -44,7 +51,7 @@ import org.hiero.metrics.core.MetricRegistry;
  * <p>The plugin registers itself with the service builder during initialization and manages
  * the lifecycle of subscriber connections.
  */
-public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubscribeServiceInterface {
+public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubscribeServiceInterface, ThrottleSpec {
     /** Metric key for the number of open subscriber connections */
     public static final MetricKey<LongGauge> METRIC_SUBSCRIBER_OPEN_CONNECTIONS =
             MetricKey.of("subscriber_open_connections", LongGauge.class).addCategory(METRICS_CATEGORY);
@@ -56,8 +63,14 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context, used to provide access to facilities */
     private BlockNodeContext context;
+    /** The shared block-storage read bulkhead (Component B); protects storage independent of client identity */
+    private BlockReadBulkhead blockReadBulkhead;
     /** A handler for client requests */
     private SubscribeBlockStreamHandler clientHandler;
+    /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight;
+    /** This service's content-aware weigher, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile SubscribeStreamWeigher weigher;
 
     /*==================== BlockNodePlugin Methods ====================*/
 
@@ -67,16 +80,51 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = requireNonNull(context);
+        // Component B: the single, shared block-storage read bulkhead
+        this.blockReadBulkhead = serviceBuilder.blockReadBulkhead();
         // register us as a service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(SubscriberConfig.class).port();
+        final SubscribeThrottleConfig throttleConfig =
+                context.configuration().getConfigData(SubscribeThrottleConfig.class);
+        final Map<WeightClass, PerClientThrottleSettings> resolvedThrottleSettingsByWeight =
+                new EnumMap<>(WeightClass.class);
+        resolvedThrottleSettingsByWeight.put(
+                WeightClass.STANDARD,
+                new PerClientThrottleSettings(
+                        throttleConfig.liveRatePerSecond(),
+                        throttleConfig.liveBurstTolerance(),
+                        throttleConfig.liveMaxConcurrentPerClient()));
+        resolvedThrottleSettingsByWeight.put(
+                WeightClass.HEAVY,
+                new PerClientThrottleSettings(
+                        throttleConfig.historicalRatePerSecond(),
+                        throttleConfig.historicalBurstTolerance(),
+                        throttleConfig.historicalMaxConcurrentPerClient()));
+        this.throttleSettingsByWeight = resolvedThrottleSettingsByWeight;
+        this.weigher = new SubscribeStreamWeigher(
+                context.historicalBlockProvider(), throttleConfig.historicalThresholdBlocks());
         serviceBuilder.registerGrpcService(port, this);
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
+        return throttleSettingsByWeight;
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Optional<ContentAwareWeigher> weigher() {
+        return Optional.of(weigher);
     }
 
     @Override
     public void start() {
         // Create the client handler and wait for it to start and reach a ready state.
-        clientHandler = new SubscribeBlockStreamHandler(context);
+        clientHandler = new SubscribeBlockStreamHandler(context, blockReadBulkhead);
     }
 
     @Override
@@ -137,6 +185,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         private final AtomicLong nextClientId = new AtomicLong(0);
         /** A context that applies to the pipeline this handler supports. */
         private final BlockNodeContext context;
+        /** The shared block-storage read bulkhead handed to each session this handler creates */
+        private final BlockReadBulkhead blockReadBulkhead;
         /** Set of open client sessions */
         private volatile Map<Long, BlockStreamSubscriberSession> openSessions;
         // Metrics
@@ -148,8 +198,10 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         private final ExecutorService virtualThreadExecutor;
         private volatile CompletionService<BlockStreamSubscriberSession> streamSessions;
 
-        private SubscribeBlockStreamHandler(@NonNull final BlockNodeContext context) {
+        private SubscribeBlockStreamHandler(
+                @NonNull final BlockNodeContext context, @NonNull final BlockReadBulkhead blockReadBulkhead) {
             this.context = requireNonNull(context);
+            this.blockReadBulkhead = requireNonNull(blockReadBulkhead);
             openSessions = new ConcurrentSkipListMap<>();
             virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
             streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
@@ -207,7 +259,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             final CompletionService<BlockStreamSubscriberSession> streams = streamSessions;
             final Map<Long, BlockStreamSubscriberSession> sessions = openSessions;
             if (streams != null && sessions != null) {
-                final SessionContext sessionContext = SessionContext.create(clientId, request, context);
+                final SessionContext sessionContext =
+                        SessionContext.create(clientId, request, context, blockReadBulkhead);
                 final BlockStreamSubscriberSession blockStreamSession =
                         new BlockStreamSubscriberSession(sessionContext, responsePipeline, context, sessionReadyLatch);
                 streams.submit(blockStreamSession);

@@ -7,6 +7,7 @@ import static java.util.Objects.requireNonNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
@@ -19,6 +20,9 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
+import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -26,7 +30,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /**
  * Plugin that implements the BlockNodeService and provides the 'serverStatus' RPC.
  */
-public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServiceInterface {
+public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServiceInterface, ThrottleSpec {
     /** Metric key for the number of server status requests */
     public static final MetricKey<LongCounter> METRIC_SERVER_STATUS_REQUESTS =
             MetricKey.of("server_status_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -46,6 +50,8 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     private LongCounter.Measurement requestStatusCounter;
     /** Counter for the number of detail requests */
     private LongCounter.Measurement requestDetailCounter;
+    /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight;
 
     /**
      * Handle a request for server status
@@ -181,7 +187,22 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // Register this service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(ServerStatusConfig.class).port();
+        final ServerStatusThrottleConfig throttleConfig =
+                context.configuration().getConfigData(ServerStatusThrottleConfig.class);
+        this.throttleSettingsByWeight = Map.of(
+                WeightClass.STANDARD,
+                new PerClientThrottleSettings(
+                        throttleConfig.ratePerSecond(),
+                        throttleConfig.burstTolerance(),
+                        throttleConfig.maxConcurrentPerClient()));
         serviceBuilder.registerGrpcService(port, this);
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
+        return throttleSettingsByWeight;
     }
 
     /**
