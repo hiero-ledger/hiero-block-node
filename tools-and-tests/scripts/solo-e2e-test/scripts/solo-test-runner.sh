@@ -1000,15 +1000,32 @@ function assert_block_available {
     fi
 }
 
+# Restart counts from before the test, keyed by node name. Pods on a long-lived
+# cluster may already carry restarts, so node-healthy asserts on the delta.
+declare -A BASELINE_RESTARTS=()
+
+function get_restart_count {
+    local target="$1" count
+    count=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
+        -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null)
+    echo "${count:-0}"
+}
+
+function snapshot_restart_counts {
+    local bn
+    for bn in $(get_all_block_nodes); do
+        BASELINE_RESTARTS["$bn"]=$(get_restart_count "$bn")
+    done
+}
+
 # Single node health check
 function assert_node_healthy_single {
     local target="$1"
     local status restart_count
     status=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
         -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
-    restart_count=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
-        -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null)
-    restart_count="${restart_count:-0}"
+    # Nodes deployed mid-test have no baseline; they start from 0 by definition.
+    restart_count=$(( $(get_restart_count "$target") - ${BASELINE_RESTARTS[$target]:-0} ))
 
     if [[ -z "$status" ]]; then
         echo "${target}: Pod not found"
@@ -1024,7 +1041,7 @@ function assert_node_healthy_single {
         local term_reason
         term_reason=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
             -o jsonpath='{.items[0].status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null)
-        echo "${target}: Running but restarted ${restart_count}x (last: ${term_reason:-unknown})"
+        echo "${target}: Running but restarted ${restart_count}x during test (last: ${term_reason:-unknown})"
         return 1
     fi
 
@@ -1982,6 +1999,8 @@ function main {
         echo "ERROR: Namespace '${NAMESPACE}' not found"
         exit 1
     fi
+
+    snapshot_restart_counts
 
     echo "=== Executing Events ==="
     echo ""
