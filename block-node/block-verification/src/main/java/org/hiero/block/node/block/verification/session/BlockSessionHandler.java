@@ -123,7 +123,7 @@ public final class BlockSessionHandler {
                 }
             }
         }
-        updateActiveSessionsMetric();
+        sessionHandlerMetrics.verificationActiveSessions().set(activeSessions.size());
     }
 
     /// Process the reception of live blocks from the publisher. Publisher supplied [BlockItems] can only
@@ -232,11 +232,6 @@ public final class BlockSessionHandler {
                 activePublisherSession.compareAndSet(removed, null);
             }
         }
-        updateActiveSessionsMetric();
-    }
-
-    /// Update the active sessions gauge with the current size of the active sessions buffer.
-    private void updateActiveSessionsMetric() {
         sessionHandlerMetrics.verificationActiveSessions().set(activeSessions.size());
     }
 }
