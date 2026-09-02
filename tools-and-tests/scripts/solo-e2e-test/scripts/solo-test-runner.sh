@@ -1768,8 +1768,6 @@ function run_events {
 
     log INFO "Executing $event_count events sequentially"
 
-    # Truncate the results file so a previous run that crashed before its own
-    # rm -f can't inflate EVENTS_COMPLETED/EVENTS_FAILED for this run.
     rm -f /tmp/solo-test-results-$$
 
     # Get events sorted by delay
