@@ -123,6 +123,7 @@ public final class BlockSessionHandler {
                 }
             }
         }
+        sessionHandlerMetrics.verificationActiveSessions().set(activeSessions.size());
     }
 
     /// Process the reception of live blocks from the publisher. Publisher supplied [BlockItems] can only
@@ -231,5 +232,6 @@ public final class BlockSessionHandler {
                 activePublisherSession.compareAndSet(removed, null);
             }
         }
+        sessionHandlerMetrics.verificationActiveSessions().set(activeSessions.size());
     }
 }
