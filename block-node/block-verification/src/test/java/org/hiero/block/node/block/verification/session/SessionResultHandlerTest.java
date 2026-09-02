@@ -25,8 +25,8 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureT
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 
 /// Tests for the [SessionResultHandler].
@@ -75,65 +75,62 @@ class SessionResultHandlerTest {
     @Nested
     @DisplayName("Cancellation Classification Tests")
     class CancellationClassificationTests {
-        /// This test aims to assert that when the session's stage chain is
-        /// cancelled directly (the handler receives a [CancellationException])
-        /// and the batch ending the block was never received, the handler
-        /// reports a failure of type [FailureType#CANCELLED_INCOMPLETE].
-        @Test
-        @DisplayName("accept() reports CANCELLED_INCOMPLETE on CancellationException when end of block not received")
-        void testCancellationExceptionIncompleteBlock() {
-            toTest.accept(null, new CancellationException());
-            assertSingleFailureOfType(FailureType.CANCELLED_INCOMPLETE);
-        }
-
-        /// This test aims to assert that when the session's stage chain is
-        /// cancelled directly (the handler receives a [CancellationException])
-        /// and the batch ending the block was received, the handler reports a
-        /// failure of type [FailureType#CANCELLED].
-        @Test
-        @DisplayName("accept() reports CANCELLED on CancellationException when end of block received")
-        void testCancellationExceptionCompleteBlock() {
-            endOfBlockReceived.set(true);
-            toTest.accept(null, new CancellationException());
-            assertSingleFailureOfType(FailureType.CANCELLED);
-        }
-
-        /// This test aims to assert that when a stage reports a plain
-        /// cancellation (a [VerificationSessionFailedException] of type
-        /// [SessionFailureType#CANCELLED], reachable when a stage is
-        /// interrupted without the chain itself being cancelled, e.g. on an
-        /// executor shutdown) and the batch ending the block was never
-        /// received, the handler refines the failure to
-        /// [FailureType#CANCELLED_INCOMPLETE].
-        @Test
-        @DisplayName(
-                "accept() refines a stage-reported CANCELLED to CANCELLED_INCOMPLETE when end of block not received")
-        void testStageCancellationIncompleteBlock() {
-            toTest.accept(null, stageCancellation());
-            assertSingleFailureOfType(FailureType.CANCELLED_INCOMPLETE);
-        }
-
-        /// This test aims to assert that when a stage reports a plain
-        /// cancellation (a [VerificationSessionFailedException] of type
-        /// [SessionFailureType#CANCELLED], reachable when a stage is
-        /// interrupted without the chain itself being cancelled, e.g. on an
-        /// executor shutdown) and the batch ending the block was received,
-        /// the handler keeps the failure as [FailureType#CANCELLED].
-        @Test
-        @DisplayName("accept() keeps a stage-reported CANCELLED when end of block received")
-        void testStageCancellationCompleteBlock() {
-            endOfBlockReceived.set(true);
-            toTest.accept(null, stageCancellation());
-            assertSingleFailureOfType(FailureType.CANCELLED);
-        }
-
-        /// This test aims to assert that the refinement applies only to
-        /// stage-reported cancellations: a stage failure of any other type is
-        /// reported as is, regardless of whether the batch ending the block
-        /// was received.
+        /// This test aims to assert that when the session's stage chain is cancelled
+        /// directly (the handler receives a [CancellationException]), the reported
+        /// failure type is resolved purely from whether the batch ending the block
+        /// was received: [FailureType#CANCELLED] when it was, so the supplier
+        /// considers the block delivered, and [FailureType#CANCELLED_INCOMPLETE]
+        /// when it was not, so the block was abandoned before it ever finished.
+        /// Both values of the end of block flag are exercised.
         @ParameterizedTest
-        @EnumSource(value = SessionFailureType.class, names = "CANCELLED", mode = EnumSource.Mode.EXCLUDE)
-        @DisplayName("accept() does not refine stage failures of other types")
+        @CsvSource({"true, CANCELLED", "false, CANCELLED_INCOMPLETE"})
+        @DisplayName("accept() resolves the type of a direct cancellation from the end of block flag")
+        void testDirectCancellationResolution(final boolean isEndOfBlockReceived, final FailureType expectedType) {
+            endOfBlockReceived.set(isEndOfBlockReceived);
+            toTest.accept(null, new CancellationException());
+            assertSingleFailureOfType(expectedType);
+        }
+
+        /// This test aims to assert that the handler is the sole authority on the
+        /// cancellation type. When a stage reports a cancellation (a
+        /// [VerificationSessionFailedException] of either cancellation type,
+        /// reachable when a stage is interrupted without the chain itself being
+        /// cancelled, e.g. on an executor shutdown), the reported type is never
+        /// trusted as is: for every combination of reported cancellation type and
+        /// end of block flag, the resulting type is resolved purely from whether the
+        /// batch ending the block was received, [FailureType#CANCELLED] when it was
+        /// and [FailureType#CANCELLED_INCOMPLETE] when it was not. All four
+        /// combinations are exercised.
+        @ParameterizedTest
+        @CsvSource({
+            "CANCELLED, true, CANCELLED",
+            "CANCELLED, false, CANCELLED_INCOMPLETE",
+            "CANCELLED_INCOMPLETE, true, CANCELLED",
+            "CANCELLED_INCOMPLETE, false, CANCELLED_INCOMPLETE"
+        })
+        @DisplayName("accept() resolves the type of a stage-reported cancellation from the end of block flag")
+        void testStageCancellationResolution(
+                final SessionFailureType reportedType,
+                final boolean isEndOfBlockReceived,
+                final FailureType expectedType) {
+            endOfBlockReceived.set(isEndOfBlockReceived);
+            toTest.accept(
+                    null,
+                    new CompletionException(
+                            new VerificationSessionFailedException(BLOCK_NUMBER, reportedType, BlockSource.PUBLISHER)));
+            assertSingleFailureOfType(expectedType);
+        }
+
+        /// This test aims to assert that the resolution applies only to
+        /// stage-reported cancellations: a stage failure of any non-cancellation
+        /// type is reported as is, regardless of whether the batch ending the
+        /// block was received.
+        @ParameterizedTest
+        @EnumSource(
+                value = SessionFailureType.class,
+                names = {"CANCELLED", "CANCELLED_INCOMPLETE"},
+                mode = EnumSource.Mode.EXCLUDE)
+        @DisplayName("accept() does not refine stage failures of non-cancellation types")
         void testOtherStageFailureNotRefined(final SessionFailureType failureType) {
             endOfBlockReceived.set(true);
             toTest.accept(
@@ -141,13 +138,6 @@ class SessionResultHandlerTest {
                     new CompletionException(
                             new VerificationSessionFailedException(BLOCK_NUMBER, failureType, BlockSource.PUBLISHER)));
             assertSingleFailureOfType(failureType.asFailureType());
-        }
-
-        /// Builds the throwable the handler receives when a stage reports a
-        /// plain cancellation.
-        private CompletionException stageCancellation() {
-            return new CompletionException(new VerificationSessionFailedException(
-                    BLOCK_NUMBER, SessionFailureType.CANCELLED, BlockSource.PUBLISHER));
         }
 
         /// Asserts that exactly one failure notification was sent, carrying

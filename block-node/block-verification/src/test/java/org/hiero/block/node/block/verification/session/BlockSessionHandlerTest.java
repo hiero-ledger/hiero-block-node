@@ -23,6 +23,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /// Tests for the [BlockSessionHandler].
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Test;
 class BlockSessionHandlerTest {
     private BlockingExecutor executor;
     private ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions;
+    private MetricsHolder metrics;
     private BlockSessionHandler toTest;
 
     /// Setup before each test.
@@ -37,7 +39,7 @@ class BlockSessionHandlerTest {
     void setUp() {
         final BlockNodeContext context =
                 new BlockNodeContext(null, null, null, null, null, null, null, null, null, null, null, null, null);
-        final MetricsHolder metrics = MetricsHolder.create(TestUtils.createMetrics());
+        metrics = MetricsHolder.create(TestUtils.createMetrics());
         final TestConfigurationBuilder configBuilder = new TestConfigurationBuilder();
         final VerificationConfig verificationConfig = configBuilder
                 .withConfigDataType(VerificationConfig.class)
@@ -124,5 +126,64 @@ class BlockSessionHandlerTest {
         assertThat(activeSessions)
                 .hasSize(3)
                 .containsKeys(new SessionKey(2, 2), new SessionKey(3, 1), new SessionKey(4, 0));
+    }
+
+    /// Tests for the gauge that reflects the live size of the active sessions buffer.
+    @Nested
+    @DisplayName("Active Sessions Gauge Tests")
+    class ActiveSessionsGaugeTests {
+        /// This test aims to assert that the active sessions gauge grows together with
+        /// the active sessions buffer while new sessions are activated and the buffer
+        /// limit is not yet reached.
+        @Test
+        @DisplayName("gauge grows as new sessions are activated")
+        void testGaugeGrowsWithActivatedSessions() {
+            // Create two blocks, matching the buffer size configured in setup
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 3);
+            // Supply the first block and assert the gauge reflects one active session
+            toTest.processBlockItems(blocks.get(0).asBlockItems(), BlockSource.PUBLISHER);
+            assertThat(currentGaugeValue()).isEqualTo(1L);
+            // Supply the second block and assert the gauge reflects two active sessions
+            toTest.processBlockItems(blocks.get(1).asBlockItems(), BlockSource.PUBLISHER);
+            assertThat(currentGaugeValue()).isEqualTo(2L);
+        }
+
+        /// This test aims to assert that the active sessions gauge stays at the buffer
+        /// limit when the buffer is full and a new session evicts the lowest active
+        /// session, mirroring the actual size of the active sessions buffer.
+        @Test
+        @DisplayName("gauge stays at buffer size when a new session evicts the lowest active session")
+        void testGaugeStaysAtBufferSizeOnEviction() {
+            // Create three blocks, one more than the buffer size configured in setup
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 4);
+            // Supply blocks in order so the third activation evicts the lowest session
+            toTest.processBlockItems(blocks.get(0).asBlockItems(), BlockSource.PUBLISHER);
+            toTest.processBlockItems(blocks.get(1).asBlockItems(), BlockSource.PUBLISHER);
+            toTest.processBlockItems(blocks.get(2).asBlockItems(), BlockSource.PUBLISHER);
+            // Assert the gauge matches the buffer, capped at the configured size
+            assertThat(currentGaugeValue()).isEqualTo(2L).isEqualTo(activeSessions.size());
+        }
+
+        /// This test aims to assert that the active sessions gauge reflects a buffer
+        /// grown beyond the configured limit when the lowest active session is the one
+        /// that was just activated, since in that case no session is evicted.
+        @Test
+        @DisplayName("gauge reflects overfull buffer when the lowest active session is the last activated")
+        void testGaugeReflectsOverfullBufferWhenLowestIsLastActivated() {
+            // Create three blocks, one more than the buffer size configured in setup
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 4);
+            // Supply blocks in reverse order so the lowest session is always the last
+            // activated and no eviction happens
+            toTest.processBlockItems(blocks.get(2).asBlockItems(), BlockSource.PUBLISHER);
+            toTest.processBlockItems(blocks.get(1).asBlockItems(), BlockSource.PUBLISHER);
+            toTest.processBlockItems(blocks.get(0).asBlockItems(), BlockSource.PUBLISHER);
+            // Assert the gauge matches the overfull buffer
+            assertThat(currentGaugeValue()).isEqualTo(3L).isEqualTo(activeSessions.size());
+        }
+
+        /// Reads the current value of the active sessions gauge.
+        private long currentGaugeValue() {
+            return metrics.sessionHandlerMetrics().verificationActiveSessions().get();
+        }
     }
 }

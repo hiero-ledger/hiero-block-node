@@ -30,6 +30,13 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureT
 public final class SessionResultHandler implements BiConsumer<BlockVerificationResult, Throwable> {
     /// Logger for the handler.
     private static final Logger LOGGER = System.getLogger(SessionResultHandler.class.getName());
+    /// Message format for the informational log emitted for every cancelled session.
+    private static final String CANCELLED_SESSION_MESSAGE =
+            "Session for block {0} with source {1} was cancelled with type {2}";
+    /// Message format for the warning log emitted for every session that failed
+    /// with anything other than a cancellation.
+    private static final String EXCEPTIONAL_SESSION_COMPLETION_MESSAGE =
+            "Session for block %d with source %s completed exceptionally";
     /// The block node context, for access to messaging.
     private final BlockNodeContext context;
     /// The configuration for verification, source of the buffer sizes.
@@ -167,47 +174,30 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     /// Handle a failed result. A failure notification carrying the appropriate
     /// failure type is sent, the failed metric is incremented, and a bad block
     /// dump is attempted when block items were captured at the failure site.
+    /// Cancellations, whether observed as a direct cancellation of the stage
+    /// chain or reported by a stage as a failure of a cancellation type, are
+    /// expected lifecycle events and are logged at INFO; every other failure is
+    /// logged at WARNING.
     ///
     /// @param throwable the failure to handle
     /// @return `true` if the reported failure type was [FailureType#UNKNOWN_ERROR]
     private boolean handleThrowable(final Throwable throwable) {
-        final String message =
-                "Session for block %d with source %s completed exceptionally".formatted(blockNumber, blockSource);
-        final SemanticVersion hapiVersion;
-        final List<BlockItemUnparsed> blockItems;
-        if (throwable instanceof CompletionException ce
-                && ce.getCause() instanceof VerificationSessionFailedException vfe) {
-            hapiVersion = vfe.getHapiVersion();
-            blockItems = vfe.getBlockItems();
-        } else {
-            hapiVersion = null;
-            blockItems = null;
-        }
+        SemanticVersion hapiVersion = null;
+        List<BlockItemUnparsed> blockItems = null;
         VerificationNotification notification = null;
         try {
             notification = switch (throwable) {
-                case CancellationException ignored ->
-                    new VerificationNotification(
-                            false,
-                            getFailureInfo(blockNumber, resolveCancellationType()),
-                            blockNumber,
-                            null,
-                            null,
-                            blockSource);
+                case CancellationException ignored -> processCancellation();
                 case CompletionException ce -> {
-                    LOGGER.log(Level.WARNING, message, ce.getCause() != null ? ce.getCause() : ce);
-                    yield processCompletionException(ce);
+                    if (ce.getCause() instanceof VerificationSessionFailedException vfe) {
+                        hapiVersion = vfe.getHapiVersion();
+                        blockItems = vfe.getBlockItems();
+                        yield processVerificationSessionFailedCompletion(vfe);
+                    } else {
+                        yield processUnknownExceptionalCompletion(ce);
+                    }
                 }
-                default -> {
-                    LOGGER.log(Level.WARNING, message, throwable);
-                    yield new VerificationNotification(
-                            false,
-                            getFailureInfo(blockNumber, SessionFailureType.UNKNOWN_ERROR),
-                            blockNumber,
-                            null,
-                            null,
-                            blockSource);
-                }
+                default -> processUnknownExceptionalCompletion(throwable);
             };
             safeSendNotification(notification);
             sessionResultMetrics.verificationBlocksFailed().increment();
@@ -219,38 +209,63 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         return notification.failureInfo().failureType() == FailureType.UNKNOWN_ERROR;
     }
 
-    /// Process a completion exception case.
+    /// Process a session that was stopped before producing a result, regardless of
+    /// whether the stop was observed as a direct cancellation of the stage chain or
+    /// reported by a stage as a failure of a cancellation type. A reported type is
+    /// never trusted as is: only the owning session knows whether the batch ending
+    /// the block was received, so this handler always resolves the type itself (see
+    /// [#resolveCancellationType()]). A cancellation is an expected lifecycle event,
+    /// e.g. an eviction from a full active sessions buffer, so it is logged at INFO.
     ///
-    /// @param ce the completion exception wrapping the actual cause
-    /// @return a failure notification carrying the failure type of the cause, or
-    ///     [SessionFailureType#UNKNOWN_ERROR] when the cause is not a known failure
-    private VerificationNotification processCompletionException(final CompletionException ce) {
-        final Throwable cause = ce.getCause();
-        if (cause instanceof VerificationSessionFailedException vfe) {
-            // instanceof covers null also
-            // A stage reports a plain cancellation when it is stopped before
-            // producing a result. Only the session knows whether the full
-            // block was received, so the refinement happens here.
-            final SessionFailureType reportedFailureType = vfe.getFailureType();
-            final SessionFailureType actualFailureType = reportedFailureType == SessionFailureType.CANCELLED
-                    ? resolveCancellationType()
-                    : reportedFailureType;
+    /// @return a failure notification carrying the resolved cancellation type
+    private VerificationNotification processCancellation() {
+        final SessionFailureType cancellationType = resolveCancellationType();
+        LOGGER.log(Level.INFO, CANCELLED_SESSION_MESSAGE, blockNumber, blockSource, cancellationType);
+        return new VerificationNotification(
+                false, getFailureInfo(blockNumber, cancellationType), blockNumber, null, null, blockSource);
+    }
+
+    /// Process a session that failed with a known failure type, reported by one of
+    /// its stages. Failures of a cancellation type are routed to
+    /// [#processCancellation()]; any other known failure is logged at WARNING and
+    /// reported with the failure type exactly as the stage supplied it.
+    ///
+    /// @param vfe the failure reported by the stage
+    /// @return a failure notification carrying the resolved failure type
+    private VerificationNotification processVerificationSessionFailedCompletion(
+            final VerificationSessionFailedException vfe) {
+        if (vfe.getFailureType() == SessionFailureType.CANCELLED
+                || vfe.getFailureType() == SessionFailureType.CANCELLED_INCOMPLETE) {
+            return processCancellation();
+        } else {
+            final String message = EXCEPTIONAL_SESSION_COMPLETION_MESSAGE.formatted(blockNumber, blockSource);
+            LOGGER.log(Level.WARNING, message, vfe);
             return new VerificationNotification(
                     false,
-                    getFailureInfo(vfe.getBlockNumber(), actualFailureType),
+                    getFailureInfo(vfe.getBlockNumber(), vfe.getFailureType()),
                     vfe.getBlockNumber(),
                     null,
                     null,
                     vfe.getBlockSource());
-        } else {
-            return new VerificationNotification(
-                    false,
-                    getFailureInfo(blockNumber, SessionFailureType.UNKNOWN_ERROR),
-                    blockNumber,
-                    null,
-                    null,
-                    blockSource);
         }
+    }
+
+    /// Process a session that completed with an unexpected throwable carrying no
+    /// known failure type. The throwable is logged at WARNING and the failure is
+    /// reported as [SessionFailureType#UNKNOWN_ERROR].
+    ///
+    /// @param throwable the unexpected throwable the session completed with
+    /// @return a failure notification carrying the unknown error failure type
+    private VerificationNotification processUnknownExceptionalCompletion(final Throwable throwable) {
+        final String message = EXCEPTIONAL_SESSION_COMPLETION_MESSAGE.formatted(blockNumber, blockSource);
+        LOGGER.log(Level.WARNING, message, throwable);
+        return new VerificationNotification(
+                false,
+                getFailureInfo(blockNumber, SessionFailureType.UNKNOWN_ERROR),
+                blockNumber,
+                null,
+                null,
+                blockSource);
     }
 
     /// Handle a successful verification result. A success notification is sent,
