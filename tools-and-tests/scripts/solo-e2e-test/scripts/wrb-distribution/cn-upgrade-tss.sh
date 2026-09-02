@@ -21,9 +21,9 @@
 # real off->on transition to observe, matching a pre-TSS mainnet/testnet being
 # upgraded for the first time — TSS is NOT already active before this step.
 # `solo consensus network upgrade` has no --tss flag (unlike `network deploy`),
-# so this generates its own application.properties override (mirroring
-# generate_cn_application_properties's TSS-on branch line for line, since
-# --application-properties replaces the whole file rather than merging) and
+# so this generates its own application.properties override via the shared
+# generate_cn_application_properties (lib/cn-application-properties.sh), since
+# --application-properties replaces the whole file rather than merging, and
 # passes it via --application-properties, which is what actually flips
 # tss.hintsEnabled/tss.historyEnabled/tss.wrapsEnabled to true on this upgrade.
 #
@@ -50,6 +50,8 @@
 #   READY_TIMEOUT       (default 300)
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 : "${NAMESPACE:=solo-network}"
 : "${CLUSTER_REFERENCE:=kind-solo-cluster}"
@@ -119,55 +121,15 @@ ensure_wraps_keys_cached() {
 
 # `solo consensus network upgrade` has no --tss flag (unlike `network deploy`),
 # and --application-properties replaces the whole file rather than merging
-# with whatever is already deployed. So to actually flip TSS on as part of
-# this upgrade, generate a full override matching solo-deploy-network.sh's
-# generate_cn_application_properties TSS-on branch line for line — duplicated
-# here for the same standalone-script reason as ensure_wraps_keys_cached
-# above. Any settings NOT reflected here would silently fall back to Solo's
-# own template defaults on this upgrade, so keep this in sync with that
-# function if either changes.
-generate_tss_enable_application_properties() {
-    local output_file="$1"
-    cat > "${output_file}" << 'EOF'
-hedera.config.version=0
-ledger.id=0x01
-netty.mode=TEST
-contracts.chainId=298
-hedera.recordStream.logPeriod=1
-balances.exportPeriodSecs=400
-files.maxSizeKb=2048
-hedera.recordStream.compressFilesOnCreation=true
-balances.compressOnCreation=true
-contracts.maxNumWithHapiSigsAccess=0
-autoRenew.targetTypes=
-nodes.gossipFqdnRestricted=false
-hedera.profiles.active=TEST
-nodes.updateAccountIdAllowed=true
-blockStream.streamMode=BOTH
-# TODO: we can remove this after we no longer need less than v0.59.x
-networkAdmin.exportCandidateRoster=true
-# for v0.59+, write the network.json file when you freeze the network
-networkAdmin.diskNetworkExport=ONLY_FREEZE_BLOCK
-hedera.realm=0
-hedera.shard=0
-nodes.webProxyEndpointsEnabled=true
-nodes.nodeRewardsEnabled=false
-
-blockStream.writerMode=FILE_AND_GRPC
-
-blockNode.connectionStallThresholdMillis=5000
-
-tss.hintsEnabled=true
-tss.historyEnabled=true
-tss.forceMockSignatures=false
-tss.wrapsEnabled=true
-
-blockStream.streamWrappedRecordBlocks=false
-EOF
-}
+# with whatever is already deployed. Use the shared generator from
+# lib/cn-application-properties.sh with TSS on and WRB streaming off, so
+# this upgrade produces exactly the same properties file as a
+# solo-deploy-network.sh TSS-on deploy would.
+# shellcheck source=../lib/cn-application-properties.sh
+source "${SCRIPT_DIR}/../lib/cn-application-properties.sh"
 
 TSS_ENABLE_PROPERTIES_FILE="${TMPDIR:-/tmp}/wrb-dist-cn-upgrade-tss-application.properties"
-generate_tss_enable_application_properties "${TSS_ENABLE_PROPERTIES_FILE}"
+TSS_ENABLED=true WRB_RSA=false generate_cn_application_properties "${TSS_ENABLE_PROPERTIES_FILE}"
 
 ensure_wraps_keys_cached
 
