@@ -220,7 +220,8 @@ public class BlockNodeAPITests {
      * Scenarios covered:
      * 1. Mimicking CN and publishing a new genesis block to BN and confirming acknowledgement response
      * 2. Publishing a duplicate genesis block within the default producer.duplicateBlockSkipWindow
-     *    and confirming the server answers with SkipBlock while keeping the stream open
+     *    and confirming the server answers with SkipBlock followed by an acknowledgement of the
+     *    latest block, while keeping the stream open
      * 3. Requesting server status to confirm block 0 is reflected in status
      * 4. Requesting genesis block via getBlock to confirm block is stored and retrievable
      * 5. Mimicking MN and subscribing to block stream from block 0 and confirming receipt of block 0
@@ -263,16 +264,20 @@ public class BlockNodeAPITests {
         // ==== Scenario 2: Publish duplicate genesis block within the skip window and confirm SkipBlock response ===
         // Block 0 is at distance 0 from the last persisted block, which is well within the default
         // producer.duplicateBlockSkipWindow, so the server answers with SkipBlock and keeps the stream open
-        // instead of closing the connection.
-        final AtomicReference<CountDownLatch> duplicateSkipLatch = responseObserver.setAndGetOnNextLatch(1);
+        // instead of closing the connection. The skip is followed by an acknowledgement of the latest
+        // persisted block, so the publisher learns where the node actually is (#3552).
+        final AtomicReference<CountDownLatch> duplicateSkipLatch = responseObserver.setAndGetOnNextLatch(2);
         requestStream.onNext(request);
 
-        awaitLatch(duplicateSkipLatch, "duplicate block skip response");
-        assertThat(responseObserver.getOnNextCalls())
-                .hasSize(2)
-                .last()
+        awaitLatch(duplicateSkipLatch, "duplicate block skip and acknowledgement responses");
+        assertThat(responseObserver.getOnNextCalls()).hasSize(3);
+        assertThat(responseObserver.getOnNextCalls().get(1))
                 .returns(PublishStreamResponse.ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
                 .returns(blockNumber, skipBlockNumberExtractor);
+        assertThat(responseObserver.getOnNextCalls())
+                .last()
+                .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                .returns(blockNumber, acknowledgementBlockNumberExtractor);
         // Stream stays open: no onComplete / onError, no end-stream calls.
         assertThat(responseObserver.getOnErrorCalls()).isEmpty();
         assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(0);
@@ -461,8 +466,8 @@ public class BlockNodeAPITests {
      * within the window of the last persisted block, and with EndOfStream(DUPLICATE_BLOCK) for
      * duplicates that fall outside the window. The default window of 5 is exercised here:
      * 1. Publish blocks 0..19 (so lastPersisted=19, window=5).
-     * 2. Republish block 19 on the same stream (distance 0) and assert a SkipBlock response, with
-     *    the stream remaining open.
+     * 2. Republish block 19 on the same stream (distance 0) and assert a SkipBlock response followed
+     *    by an acknowledgement of the latest persisted block, with the stream remaining open.
      * 3. On a fresh stream, republish block 0 (distance 19, outside the window) and assert the
      *    server closes the stream with EndOfStream(DUPLICATE_BLOCK).
      */
@@ -516,19 +521,25 @@ public class BlockNodeAPITests {
         assertThat(statusAfterPublish.lastAvailableBlock()).isEqualTo(headBlock);
 
         // ==== Step 2: Republish head block (distance 0, within window) and expect SkipBlock ====
-        final AtomicReference<CountDownLatch> skipLatch = primaryObserver.setAndGetOnNextLatch(1);
+        // The skip is followed by an acknowledgement of the latest persisted block (#3552), so two
+        // responses are expected here, not one.
+        final AtomicReference<CountDownLatch> skipLatch = primaryObserver.setAndGetOnNextLatch(2);
         final PublishStreamRequest headBlockRequest = PublishStreamRequest.newBuilder()
                 .blockItems(BlockItemSet.newBuilder().blockItems(headBlockItems).build())
                 .build();
         primaryStream.onNext(headBlockRequest);
 
-        awaitLatch(skipLatch, "skip response for in-window duplicate");
+        awaitLatch(skipLatch, "skip and acknowledgement responses for in-window duplicate");
         // No response count assertion: the number of step 1 acknowledgements is nondeterministic
-        // under watermark coalescing (#3401), so only the latest response is deterministic.
-        assertThat(primaryObserver.getOnNextCalls())
-                .last()
+        // under watermark coalescing (#3401), so only the last two responses are deterministic.
+        final List<PublishStreamResponse> primaryResponses = primaryObserver.getOnNextCalls();
+        assertThat(primaryResponses.get(primaryResponses.size() - 2))
                 .returns(PublishStreamResponse.ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
                 .returns(headBlock, skipBlockNumberExtractor);
+        assertThat(primaryResponses)
+                .last()
+                .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                .returns(headBlock, acknowledgementBlockNumberExtractor);
         // Stream must stay open for an in-window duplicate.
         assertThat(primaryObserver.getOnErrorCalls()).isEmpty();
         assertThat(primaryObserver.getOnCompleteCalls().get()).isEqualTo(0);
