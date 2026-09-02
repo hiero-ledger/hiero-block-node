@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.model;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -88,15 +90,14 @@ public class TarZstdDayReaderUsingExecTest {
     }
 
     /**
-     * A non-trailing record file missing its signature is wrapped with 0 signature files and a
-     * warning rather than throwing — .rcd_sig files may legitimately be absent when the record
-     * source (e.g. Solo's MinIO) does not store them, and TSS-signed blocks do not need RSA sigs.
-     * All records (including the sig-less one) must be returned so downstream callers can decide
-     * how to handle 0-sig blocks.
+     * A non-trailing record file missing its signature is _not_ wrapped with 0 signature files and a
+     * warning rather than throwing — .rcd_sig files must not be absent when the record
+     * source (e.g. Solo's MinIO) does not store them, WRBs are not TSS-signed blocks.
+     * All _valid_ records (excluding the sig-less one) must be returned.
      */
     @Test
-    public void streamTarZstd_middleRecordMissingSignature_includesRecordWithNoSigs(@TempDir Path tempDir)
-            throws Exception {
+    public void streamTarZstd_middleRecordMissingSignature_excludesRecordWithNoSigs(@TempDir Path tempDir)
+            throws IOException, InterruptedException {
         assumeTrue(isAvailable("tar"), "Skipping test: tar not available");
         assumeTrue(isAvailable("zstd"), "Skipping test: zstd not available");
 
@@ -112,14 +113,15 @@ public class TarZstdDayReaderUsingExecTest {
             }
         }
 
+        assertThat(Files.list(dayDir).count()).isGreaterThanOrEqualTo(recordCount);
         final Path archive = buildFlatTarZstd(dayDir, tempDir.resolve("2026-08-03.tar.zstd"));
 
         try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(archive)) {
             final List<UnparsedRecordBlock> blocks = stream.toList();
             assertEquals(
-                    recordCount,
+                    recordCount - 1,
                     blocks.size(),
-                    "streamTarZstd should include all records even when a non-trailing one has no sig file");
+                    "streamTarZstd should include all records except when the record has no sig file");
         }
     }
 
@@ -128,7 +130,7 @@ public class TarZstdDayReaderUsingExecTest {
      * {@code tar -cf - *.rcd *.rcd_sig | zstd -T0 > archive}, run from within the day directory so
      * entries are flat (no subdirectory prefix).
      */
-    private static Path buildFlatTarZstd(Path dayDir, Path archive) throws Exception {
+    private static Path buildFlatTarZstd(Path dayDir, Path archive) throws IOException, InterruptedException {
         final ProcessBuilder pb = new ProcessBuilder(
                 "sh", "-c", "tar -cf - *.rcd *.rcd_sig | zstd -T0 > '" + archive.toAbsolutePath() + "'");
         pb.directory(dayDir.toFile());

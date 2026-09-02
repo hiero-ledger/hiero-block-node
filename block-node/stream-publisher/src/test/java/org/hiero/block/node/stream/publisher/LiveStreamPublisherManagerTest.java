@@ -4,8 +4,8 @@ package org.hiero.block.node.stream.publisher;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
-import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
-import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.sendHeaderOnly;
+import static org.hiero.block.node.stream.publisher.PublishApiUtility.endThisBlock;
+import static org.hiero.block.node.stream.publisher.PublishApiUtility.sendHeaderOnly;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
@@ -3669,13 +3669,13 @@ class LiveStreamPublisherManagerTest {
                     endThisBlock(publisherHandler2, block);
                 }
                 // Block 1 fails verification -> blocksToResend = {1}.
+                // CANCELLED is used deliberately: it schedules a resend with
+                // NO_STREAM_ACTION, so handler 2 (which supplied block 1) keeps
+                // its stream and can go on to advance the live tip. A supplier
+                // fault such as BAD_BLOCK_PROOF would end handler 2's stream
+                // and there would be nothing left to trigger the reclaim.
                 toTest.handleVerification(new VerificationNotification(
-                        false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
-                        1L,
-                        null,
-                        null,
-                        BlockSource.PUBLISHER));
+                        false, FailureInfo.standard(FailureType.CANCELLED), 1L, null, null, BlockSource.PUBLISHER));
                 // Handler 1 wins the RESEND(1) slot by sending only the header, then goes silent.
                 responsePipeline.clear();
                 sendHeaderOnly(publisherHandler, 1L);
@@ -3718,17 +3718,15 @@ class LiveStreamPublisherManagerTest {
                     publisherHandler2.onNext(req);
                     endThisBlock(publisherHandler2, block);
                 }
+                // CANCELLED schedules the resend without ending any stream, so
+                // handler 2 stays connected to advance the live tip; see
+                // testStuckResendHolderReceivesTimeout for the full reasoning.
                 toTest.handleVerification(new VerificationNotification(
-                        false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
-                        1L,
-                        null,
-                        null,
-                        BlockSource.PUBLISHER));
+                        false, FailureInfo.standard(FailureType.CANCELLED), 1L, null, null, BlockSource.PUBLISHER));
                 // Handler 1 wins RESEND(1), goes silent.
                 sendHeaderOnly(publisherHandler, 1L);
-                // Clear pipeline 2 noise from the SKIP responses issued while blocks 2, 3
-                // were streaming past handler 1's silent state.
+                // Start from a clean pipeline 2 so the only responses examined are
+                // the ones produced while blocks 2 and 3 stream.
                 responsePipeline2.clear();
                 // Handler 2 completes blocks 2 and 3. endOfBlock(3) fires the reclaim,
                 // then returns RESEND(1) to handler 2.
@@ -3768,13 +3766,11 @@ class LiveStreamPublisherManagerTest {
                     publisherHandler2.onNext(req);
                     endThisBlock(publisherHandler2, block);
                 }
+                // CANCELLED schedules the resend without ending any stream, so
+                // handler 2 stays connected to advance the live tip; see
+                // testStuckResendHolderReceivesTimeout for the full reasoning.
                 toTest.handleVerification(new VerificationNotification(
-                        false,
-                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
-                        1L,
-                        null,
-                        null,
-                        BlockSource.PUBLISHER));
+                        false, FailureInfo.standard(FailureType.CANCELLED), 1L, null, null, BlockSource.PUBLISHER));
                 // Handler 1 wins RESEND(1) and completes it fully and promptly.
                 responsePipeline.clear();
                 final PublishStreamRequestUnparsed resendBlock1Req = PublishStreamRequestUnparsed.newBuilder()

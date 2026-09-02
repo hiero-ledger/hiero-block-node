@@ -5,7 +5,7 @@ import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
-import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
+import static org.hiero.block.node.stream.publisher.PublishApiUtility.endThisBlock;
 
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;

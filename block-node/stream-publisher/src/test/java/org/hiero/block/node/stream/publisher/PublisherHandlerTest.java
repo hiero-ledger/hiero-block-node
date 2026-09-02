@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
-import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
+import static org.hiero.block.node.stream.publisher.PublishApiUtility.endThisBlock;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;

@@ -2,8 +2,8 @@
 package org.hiero.block.node.stream.publisher;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
-import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.sendHeaderOnly;
+import static org.hiero.block.node.stream.publisher.PublishApiUtility.endThisBlock;
+import static org.hiero.block.node.stream.publisher.PublishApiUtility.sendHeaderOnly;
 
 import com.swirlds.config.api.Configuration;
 import java.util.ArrayList;
