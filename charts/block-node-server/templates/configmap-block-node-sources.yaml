@@ -9,7 +9,8 @@ data:
       "nodes": [
         {{- range $index, $node := .Values.blockNode.backfill.sources }}
         {{- if $index }},{{ end }}
-        { "address": "{{ $node.address }}", "port": {{ $node.port }}, "priority": {{ $node.priority }}{{ if $node.statusPort }}, "status_port": {{ $node.statusPort }}{{ end }}{{ if $node.subscribePort }}, "subscribe_port": {{ $node.subscribePort }}{{ end }} }
+        {{- /* port and priority default to 0 so omitting them still renders valid JSON; port 0 means "use subscribePort/statusPort only" */}}
+        { "address": "{{ $node.address }}", "port": {{ $node.port | default 0 }}, "priority": {{ $node.priority | default 0 }}{{ if $node.statusPort }}, "status_port": {{ $node.statusPort }}{{ end }}{{ if $node.subscribePort }}, "subscribe_port": {{ $node.subscribePort }}{{ end }} }
         {{- end }}
       ]
     }

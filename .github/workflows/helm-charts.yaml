@@ -97,6 +97,78 @@ jobs:
         if: steps.install-needed.outputs.needed == 'true'
         run: ${CGEXEC} ct install --config ct.yaml --all
 
+  backfill-sources-render-test:
+    timeout-minutes: 10
+    name: Backfill Sources ConfigMap Render Test
+    runs-on: hl-bn-lin-md
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Check if render test is needed
+        id: render-needed
+        run: |
+          changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
+          if echo "$changed_files" | grep -qE "^charts/"; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "Chart files changed - will run backfill sources render test"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "No chart changes - skipping backfill sources render test"
+          fi
+
+      - name: Set up Helm
+        if: steps.render-needed.outputs.needed == 'true'
+        uses: Azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.14.4
+
+      - name: Update chart dependencies
+        if: steps.render-needed.outputs.needed == 'true'
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm dependency update charts/block-node-server
+
+      - name: Render backfill sources ConfigMap
+        if: steps.render-needed.outputs.needed == 'true'
+        run: |
+          helm template backfill-render-test charts/block-node-server \
+            --values charts/block-node-server/ci/backfill/backfill-optional-ports-values.yaml \
+            --show-only templates/configmap-block-node-sources.yaml \
+            | sed -n '/block-node-sources.json: |/,$p' | sed '1d;s/^    //' > rendered-sources.json
+          cat rendered-sources.json
+
+      - name: Verify rendered sources are valid JSON
+        if: steps.render-needed.outputs.needed == 'true'
+        run: |
+          if ! jq -e . rendered-sources.json > /dev/null; then
+            echo "::error::block-node-sources.json is not valid JSON - a source field rendered without a fallback"
+            exit 1
+          fi
+
+      - name: Verify omitted port and priority render as 0
+        if: steps.render-needed.outputs.needed == 'true'
+        run: |
+          if ! jq -e '
+            (.nodes | length) == 3
+            and (.nodes[0] | .address == "split-ports.example.com" and .port == 0 and .priority == 1
+                  and .subscribe_port == 40980 and .status_port == 40982)
+            and (.nodes[1] | .address == "no-priority.example.com" and .port == 40840 and .priority == 0)
+            and (.nodes[2] | .address == "all-fields.example.com" and .port == 40840 and .priority == 2
+                  and .subscribe_port == 40980 and .status_port == 40982)
+          ' rendered-sources.json > /dev/null; then
+            echo "::error::rendered sources do not match the expected values for omitted port/priority"
+            exit 1
+          fi
+
   multi-port-install-test:
     timeout-minutes: 20
     name: Multi-Port Plugin Install Test

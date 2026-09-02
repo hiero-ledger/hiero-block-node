@@ -340,6 +340,8 @@ blockNode:
     #   - address: "source-block-node-helm-chart.default.svc.cluster.local"
     #     port: 40840
     #     priority: 1
+    # port and priority both default to 0 when omitted; omit port only when subscribePort and
+    # statusPort are set, since those override port for their respective RPCs.
 
 kubepromstack:
   enabled: false
