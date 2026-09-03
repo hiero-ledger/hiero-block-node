@@ -79,6 +79,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             "[{0}] Stall detected: handler {1} has not completed block {2}, another handler completed block {3}";
     private static final String BLOCK_ABANDONED_LOG_MESSAGE =
             "[{0}] Replacement persistence detected: handler {1} has not completed block {2}, but a different source persisted the same block {3}";
+    private static final String RESEND_STALL_LOG_MESSAGE =
+            "[{0}] Resend stall detected: handler {1} won RESEND slot for block {2} but the live tip advanced past the configured limit while streaming; last completion seen was block {3}. Reclaiming the slot.";
     /// Limit the maximum scheduled threads to 12, more than that is almost certainly excessive.
     private static final int MAX_SCHEDULE_THREADS = 12;
     /// Value assigned as a Handler message budget when that handler is being paused
@@ -139,7 +141,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentSkipListMap<Long, BlockItemUnparsed> blockProofs;
     private final ConcurrentSkipListSet<Long> endBlocksReceived;
     private final ConcurrentSkipListSet<Long> blocksToResend;
-    private final ConcurrentSkipListSet<Long> activeResendBlocks;
+    private final ConcurrentSkipListMap<Long, Long> activeResendBlocks;
     /// Flow state per handler ID; created in addHandler, removed in removeHandler.
     private final ConcurrentSkipListMap<Long, HandlerFlowState> handlerFlowState;
     /// Maps block number to the ID of the handler that currently holds ACCEPT for that block.
@@ -177,7 +179,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         blockProofs = new ConcurrentSkipListMap<>();
         endBlocksReceived = new ConcurrentSkipListSet<>();
         blocksToResend = new ConcurrentSkipListSet<>();
-        activeResendBlocks = new ConcurrentSkipListSet<>();
+        activeResendBlocks = new ConcurrentSkipListMap<>();
         activeStreamHandlerByBlock = new ConcurrentSkipListMap<>();
         handlerFlowState = new ConcurrentSkipListMap<>();
         initializeBlockNumbers(serverContext);
@@ -647,7 +649,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // Use block number + 1 as a default if something isn't set, because we'll reduce by one later.
         final long defaultValue = blockNumber + 1;
         final long earliestInFlight = queueByBlockMap.isEmpty() ? defaultValue : queueByBlockMap.firstKey();
-        final long activeResend = activeResendBlocks.isEmpty() ? defaultValue : activeResendBlocks.first();
+        final long activeResend = activeResendBlocks.isEmpty() ? defaultValue : activeResendBlocks.firstKey();
         final long scheduledResend = blocksToResend.isEmpty() ? defaultValue : blocksToResend.first();
         final long earliestResend = Math.min(activeResend, scheduledResend);
         final long earliestKnownGap = Math.min(earliestInFlight, earliestResend);
@@ -790,6 +792,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // This thread won the CAS — execute the stall action.
                 endStalledBlock(completedBlockNumber, handlerId, candidateBlock, STALL_DETECTED_LOG_MESSAGE);
                 blocksToResend.add(candidateBlock);
+            } else if (isResendingLive(candidateBlock)
+                    && activeResendBlocks.containsKey(candidateBlock)
+                    && completedBlockNumber > activeResendBlocks.get(candidateBlock) + maxBlocksBeforeStalled
+                    && activeStreamHandlerByBlock.remove(candidateBlock, handlerId)) {
+                activeResendBlocks.remove(candidateBlock);
+                endStalledBlock(completedBlockNumber, handlerId, candidateBlock, RESEND_STALL_LOG_MESSAGE);
+                blocksToResend.add(candidateBlock);
             }
         }
     }
@@ -829,7 +838,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     ///     this block node.
     ///
     private boolean isResendingLive(final long candidateBlock) {
-        return activeResendBlocks.contains(candidateBlock) && candidateBlock > lastPersistedBlockNumber.get();
+        return activeResendBlocks.containsKey(candidateBlock) && candidateBlock > lastPersistedBlockNumber.get();
     }
 
     /// todo(1420) add documentation
@@ -981,7 +990,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // Track the block as actively resending so gap detection in correctForResendAndStreaming
                 // and stall detection in isResendingLive can see it. The set is cleared by endOfBlock /
                 // blockIsEnding on completion, and by handleVerification on failed re-verification.
-                activeResendBlocks.add(blockNumber);
+                activeResendBlocks.put(blockNumber, lastPersistedBlockNumber.get());
                 return BlockAction.ACCEPT;
             } else {
                 return BlockAction.SKIP;
