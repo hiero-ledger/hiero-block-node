@@ -2,15 +2,15 @@
 package org.hiero.block.node.spi.blockmessaging;
 
 /**
- * Interface for handling context update notifications. Plugins that need to react to changes in
- * node-level state (TSS data, address book history, stored blocks, or available blocks) implement
- * this interface and register via
- * {@link BlockMessagingFacility#registerContextNotificationHandler}.
+ * Interface for handling application state update notifications. Plugins that need to react to
+ * changes in node-level state (TSS data, address book history, stored blocks, or available blocks)
+ * implement this interface and register via
+ * {@link BlockMessagingFacility#registerApplicationStateNotificationHandler}.
  *
  * <p>Each registered handler runs on its own dedicated thread. All handler methods have no-op
  * default implementations so that implementors only override the notifications they care about.
  */
-public interface ContextNotificationHandler extends GatingHandler {
+public interface ApplicationStateNotificationHandler extends GatingHandler {
 
     /**
      * Handle a TSS data update notification. Always called on the handler's own messaging thread.

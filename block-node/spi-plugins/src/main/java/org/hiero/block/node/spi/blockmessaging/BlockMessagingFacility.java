@@ -157,8 +157,8 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
      * @param handlerName         the name of the handler, used for thread name and logging
      */
-    void registerContextNotificationHandler(
-            ContextNotificationHandler handler, boolean cpuIntensiveHandler, String handlerName);
+    void registerApplicationStateNotificationHandler(
+            ApplicationStateNotificationHandler handler, boolean cpuIntensiveHandler, String handlerName);
 
     /**
      * Use this method to dynamically unregister a context notification handler. The handler will no longer be called
@@ -167,5 +167,5 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      *
      * @param handler the context notification handler to unregister
      */
-    void unregisterContextNotificationHandler(ContextNotificationHandler handler);
+    void unregisterApplicationStateNotificationHandler(ApplicationStateNotificationHandler handler);
 }

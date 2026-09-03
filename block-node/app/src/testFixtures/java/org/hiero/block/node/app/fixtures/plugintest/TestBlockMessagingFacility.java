@@ -11,13 +11,13 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.RejectedExecutionException;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
+import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
-import org.hiero.block.node.spi.blockmessaging.ContextNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -47,8 +47,8 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     /** set of block notification handlers */
     private final Set<BlockNotificationHandler> blockNotificationHandlers =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
-    /** set of context notification handlers */
-    private final Set<ContextNotificationHandler> contextNotificationHandlers =
+    /** set of application state notification handlers */
+    private final Set<ApplicationStateNotificationHandler> applicationStateNotificationHandlers =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
     /** list of all sent TSS data update notifications */
     private final List<TssDataNotification> sentTssDataNotifications = new CopyOnWriteArrayList<>();
@@ -153,12 +153,12 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     }
 
     /**
-     * Get the number of context notification handlers registered.
+     * Get the number of application state notification handlers registered.
      *
-     * @return the number of context notification handlers
+     * @return the number of application state notification handlers
      */
-    public int getContextNotificationHandlerCount() {
-        return contextNotificationHandlers.size();
+    public int getApplicationStateNotificationHandlerCount() {
+        return applicationStateNotificationHandlers.size();
     }
 
     /**
@@ -371,7 +371,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     @Override
     public void sendTssDataUpdate(final TssDataNotification notification) {
         sentTssDataNotifications.add(notification);
-        for (final ContextNotificationHandler handler : contextNotificationHandlers) {
+        for (final ApplicationStateNotificationHandler handler : applicationStateNotificationHandlers) {
             handler.handleTssDataUpdate(notification);
         }
     }
@@ -382,7 +382,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     @Override
     public void sendAddressBookHistoryUpdate(final AddressBookHistoryNotification notification) {
         sentAddressBookHistoryNotifications.add(notification);
-        for (final ContextNotificationHandler handler : contextNotificationHandlers) {
+        for (final ApplicationStateNotificationHandler handler : applicationStateNotificationHandlers) {
             handler.handleAddressBookHistoryUpdate(notification);
         }
     }
@@ -393,7 +393,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     @Override
     public void sendStoredBlocksUpdate(final StoredBlocksNotification notification) {
         sentStoredBlocksNotifications.add(notification);
-        for (final ContextNotificationHandler handler : contextNotificationHandlers) {
+        for (final ApplicationStateNotificationHandler handler : applicationStateNotificationHandlers) {
             handler.handleStoredBlocksUpdate(notification);
         }
     }
@@ -404,7 +404,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     @Override
     public void sendAvailableBlocksUpdate(final AvailableBlocksNotification notification) {
         sentAvailableBlocksNotifications.add(notification);
-        for (final ContextNotificationHandler handler : contextNotificationHandlers) {
+        for (final ApplicationStateNotificationHandler handler : applicationStateNotificationHandlers) {
             handler.handleAvailableBlocksUpdate(notification);
         }
     }
@@ -413,17 +413,19 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public void registerContextNotificationHandler(
-            final ContextNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
-        contextNotificationHandlers.add(handler);
+    public void registerApplicationStateNotificationHandler(
+            final ApplicationStateNotificationHandler handler,
+            final boolean cpuIntensiveHandler,
+            final String handlerName) {
+        applicationStateNotificationHandlers.add(handler);
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public void unregisterContextNotificationHandler(final ContextNotificationHandler handler) {
-        contextNotificationHandlers.remove(handler);
+    public void unregisterApplicationStateNotificationHandler(final ApplicationStateNotificationHandler handler) {
+        applicationStateNotificationHandlers.remove(handler);
     }
 
     private void logNotification(final Record notification) {
