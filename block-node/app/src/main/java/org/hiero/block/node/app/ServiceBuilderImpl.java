@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app;
 
+import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.WARNING;
+
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
@@ -36,6 +39,7 @@ import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
 import org.hiero.block.node.spi.throttle.StaleClientSweepable;
+import org.hiero.block.node.spi.throttle.ThrottleExempt;
 import org.hiero.block.node.spi.throttle.ThrottlePolicy;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
@@ -52,6 +56,8 @@ import org.hiero.metrics.core.MetricRegistry;
 /// A `null` port in any registration call resolves to the default port supplied at
 /// construction time (typically `server.port`).
 public class ServiceBuilderImpl implements ServiceBuilder {
+    private static final System.Logger LOGGER = System.getLogger(ServiceBuilderImpl.class.getName());
+
     /** Per-port HTTP routing builders. */
     private final Map<Integer, HttpRouting.Builder> httpBuilders = new HashMap<>();
     /** Per-port PBJ gRPC routing builders. */
@@ -106,22 +112,38 @@ public class ServiceBuilderImpl implements ServiceBuilder {
 
     /// {@inheritDoc}
     ///
-    /// If `service` also implements [ThrottleSpec], resolves the node-wide concurrency ceiling for
-    /// each weight class it declares (a small, explicit, service-and-weight-keyed lookup —
-    /// deliberately code, not config, since it's a fixed, rarely-changing association, matching how
-    /// every other plugin's service is wired into this class), merges each with the spec's
-    /// corresponding per-client settings, and registers the resulting [ThrottledServiceInterface] or
-    /// [WeightedThrottledServiceInterface] in place of the raw service. A spec with no [ThrottleSpec#weigher]
-    /// gets the lighter-weight [ThrottledServiceInterface], which decides admission synchronously
-    /// inside `open()` rather than deferring to `onNext()` — the same latency characteristic a
-    /// single-tier service always had before this method was unified. Adding a new throttled method
-    /// means adding one field to [GlobalThrottleConfig] and one branch in
-    /// [#resolveGlobalConcurrencyCeiling] — nothing here changes.
+    /// Every registration is logged once, at startup, as one of throttled ([ThrottleSpec]), exempt
+    /// ([ThrottleExempt]), or neither — the last case logs a warning, since an admission-control gap
+    /// is far more likely to be an oversight than a deliberate choice, and nothing else here would
+    /// otherwise make that omission visible.
+    ///
+    /// If `service` also implements [ThrottleSpec], merges its per-weight-class per-client settings
+    /// with its own reported [ThrottleSpec#globalConcurrencyCeilings], and registers the resulting
+    /// [ThrottledServiceInterface] or [WeightedThrottledServiceInterface] in place of the raw service.
+    /// A spec with no [ThrottleSpec#weigher] gets the lighter-weight [ThrottledServiceInterface], which
+    /// decides admission synchronously inside `open()` rather than deferring to `onNext()` — the same
+    /// latency characteristic a single-tier service always had before this method was unified. Adding
+    /// a new throttled method means the plugin implementing [ThrottleSpec] end to end, including its
+    /// own [ThrottleSpec#globalConcurrencyCeilings] lookup against the centrally-owned
+    /// [GlobalThrottleConfig] — nothing in this class needs to change.
     @Override
     public void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service) {
         if (service instanceof ThrottleSpec spec) {
+            LOGGER.log(INFO, "Registered gRPC service {0}: throttled", service.serviceName());
             registerThrottledGrpcService(port, service, spec);
         } else {
+            if (service instanceof ThrottleExempt) {
+                LOGGER.log(
+                        INFO,
+                        "Registered gRPC service {0}: exempt (deliberately not throttled)",
+                        service.serviceName());
+            } else {
+                LOGGER.log(
+                        WARNING,
+                        "Registered gRPC service {0}: NOT throttled, and not marked exempt via ThrottleExempt — "
+                                + "confirm this is intentional",
+                        service.serviceName());
+            }
             grpcBuilders
                     .computeIfAbsent(resolve(port), k -> PbjRouting.builder())
                     .service(service);
@@ -131,12 +153,14 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private void registerThrottledGrpcService(
             @Nullable final Integer port, @NonNull final ServiceInterface service, @NonNull final ThrottleSpec spec) {
         final Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight = spec.perClientSettingsByWeight();
+        final Map<WeightClass, Integer> globalConcurrencyCeilings = spec.globalConcurrencyCeilings();
         final Optional<ContentAwareWeigher> weigher = spec.weigher();
         final ServiceInterface throttled;
         if (weigher.isPresent()) {
             final Map<WeightClass, ThrottlePolicy> policiesByWeight = new EnumMap<>(WeightClass.class);
             for (final Entry<WeightClass, PerClientThrottleSettings> entry : perClientSettingsByWeight.entrySet()) {
-                final int maxConcurrentGlobal = resolveGlobalConcurrencyCeiling(service, entry.getKey());
+                final int maxConcurrentGlobal =
+                        requireGlobalCeiling(service, entry.getKey(), globalConcurrencyCeilings);
                 policiesByWeight.put(entry.getKey(), ThrottlePolicy.merge(entry.getValue(), maxConcurrentGlobal));
             }
             final WeightedThrottledServiceInterface weightedThrottled = new WeightedThrottledServiceInterface(
@@ -155,7 +179,8 @@ public class ServiceBuilderImpl implements ServiceBuilder {
                         "ThrottleSpec with no weigher must supply WeightClass.STANDARD settings for "
                                 + service.serviceName());
             }
-            final int maxConcurrentGlobal = resolveGlobalConcurrencyCeiling(service, WeightClass.STANDARD);
+            final int maxConcurrentGlobal =
+                    requireGlobalCeiling(service, WeightClass.STANDARD, globalConcurrencyCeilings);
             final ThrottlePolicy policy = ThrottlePolicy.merge(perClientSettings, maxConcurrentGlobal);
             final ThrottledServiceInterface simpleThrottled = new ThrottledServiceInterface(
                     service,
@@ -170,22 +195,20 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         grpcBuilders.computeIfAbsent(resolve(port), k -> PbjRouting.builder()).service(throttled);
     }
 
-    private int resolveGlobalConcurrencyCeiling(
-            @NonNull final ServiceInterface service, @NonNull final WeightClass weightClass) {
-        return switch (service.serviceName()) {
-            case "BlockNodeService" -> globalThrottleConfig.serverStatusMaxConcurrent();
-            case "BlockAccessService" ->
-                switch (weightClass) {
-                    case STANDARD -> globalThrottleConfig.getBlockLiveMaxConcurrent();
-                    case HEAVY -> globalThrottleConfig.getBlockHistoricalMaxConcurrent();
-                };
-            // A subscription is a standing resource for the life of the session, so live and
-            // historical sessions draw from one shared node-wide ceiling rather than two.
-            case "BlockStreamSubscribeService" -> globalThrottleConfig.subscribeMaxConcurrent();
-            default ->
-                throw new IllegalArgumentException(
-                        "No node-wide throttle ceiling configured for service " + service.serviceName());
-        };
+    /// Looks up one weight class's node-wide ceiling from a [ThrottleSpec]'s own reported map,
+    /// failing clearly if the spec's [ThrottleSpec#globalConcurrencyCeilings] doesn't cover a weight
+    /// class its own [ThrottleSpec#perClientSettingsByWeight] declares — a plugin-authoring mistake,
+    /// not something this class can resolve on the plugin's behalf.
+    private static int requireGlobalCeiling(
+            @NonNull final ServiceInterface service,
+            @NonNull final WeightClass weightClass,
+            @NonNull final Map<WeightClass, Integer> globalConcurrencyCeilings) {
+        final Integer ceiling = globalConcurrencyCeilings.get(weightClass);
+        if (ceiling == null) {
+            throw new IllegalArgumentException("ThrottleSpec for " + service.serviceName()
+                    + " has no globalConcurrencyCeilings entry for weight class " + weightClass);
+        }
+        return ceiling;
     }
 
     /// Starts the periodic stale-client-state sweep the first time it's needed (i.e. the first

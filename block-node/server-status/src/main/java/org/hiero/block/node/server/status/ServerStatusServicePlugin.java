@@ -13,6 +13,7 @@ import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -52,6 +53,8 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     private LongCounter.Measurement requestDetailCounter;
     /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
     private volatile Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight;
+    /** This service's node-wide concurrency ceiling, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<WeightClass, Integer> globalConcurrencyCeilingsByWeight;
 
     /**
      * Handle a request for server status
@@ -195,6 +198,10 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                         throttleConfig.ratePerSecond(),
                         throttleConfig.burstTolerance(),
                         throttleConfig.maxConcurrentPerClient()));
+        final GlobalThrottleConfig globalThrottleConfig =
+                context.configuration().getConfigData(GlobalThrottleConfig.class);
+        this.globalConcurrencyCeilingsByWeight =
+                Map.of(WeightClass.STANDARD, globalThrottleConfig.serverStatusMaxConcurrent());
         serviceBuilder.registerGrpcService(port, this);
     }
 
@@ -203,6 +210,13 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     @Override
     public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
         return throttleSettingsByWeight;
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<WeightClass, Integer> globalConcurrencyCeilings() {
+        return globalConcurrencyCeilingsByWeight;
     }
 
     /**

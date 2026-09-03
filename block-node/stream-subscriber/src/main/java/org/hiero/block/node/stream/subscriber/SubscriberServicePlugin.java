@@ -30,6 +30,7 @@ import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.Builder;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -69,6 +70,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     private SubscribeBlockStreamHandler clientHandler;
     /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
     private volatile Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight;
+    /** This service's node-wide concurrency ceiling, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<WeightClass, Integer> globalConcurrencyCeilingsByWeight;
     /** This service's content-aware weigher, computed once in {@link #init}; see {@link ThrottleSpec}. */
     private volatile SubscribeStreamWeigher weigher;
 
@@ -102,6 +105,13 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                         throttleConfig.historicalBurstTolerance(),
                         throttleConfig.historicalMaxConcurrentPerClient()));
         this.throttleSettingsByWeight = resolvedThrottleSettingsByWeight;
+        // A subscription is a standing resource for the life of the session, so live and historical
+        // sessions draw from one shared node-wide ceiling rather than two.
+        final GlobalThrottleConfig globalThrottleConfig =
+                context.configuration().getConfigData(GlobalThrottleConfig.class);
+        this.globalConcurrencyCeilingsByWeight = Map.of(
+                WeightClass.STANDARD, globalThrottleConfig.subscribeMaxConcurrent(),
+                WeightClass.HEAVY, globalThrottleConfig.subscribeMaxConcurrent());
         this.weigher = new SubscribeStreamWeigher(
                 context.historicalBlockProvider(), throttleConfig.historicalThresholdBlocks());
         serviceBuilder.registerGrpcService(port, this);
@@ -112,6 +122,13 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     @Override
     public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
         return throttleSettingsByWeight;
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<WeightClass, Integer> globalConcurrencyCeilings() {
+        return globalConcurrencyCeilingsByWeight;
     }
 
     /// {@inheritDoc}
