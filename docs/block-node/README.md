@@ -20,7 +20,7 @@ downstream applications to access block and state information.
 
 ## Quickstart
 
-Refer to the [Quickstart](quickstart.md) for a quick guide on how to get started with the application.
+Refer to the [Quickstart](docker-compose-quickstart.md) for a quick guide on how to get started with the application.
 
 ## High-Level Architecture
 
