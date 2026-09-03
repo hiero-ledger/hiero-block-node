@@ -263,8 +263,8 @@ Tracks the count and byte data size regarding single block uploads
 | Counter | `cloud_expanded_total_upload_bytes`    | Total compressed bytes successfully uploaded.                                                                                                                     |
 | Counter | `cloud_expanded_upload_latency_ns`     | Total time in nanoseconds for upload.                                                                                                                             |
 | Gauge   | `cloud_expanded_pending_retry_blocks`  | Current count of blocks buffered in memory and awaiting a background retry upload.                                                                                |
-| Counter | `cloud_expanded_retry_success_total`   | Blocks recovered by a later background retry after an initial upload failure.                                                                                     |
-| Counter | `cloud_expanded_retry_exhausted_total` | Blocks dropped after exhausting all retry attempts, evicted from the retry buffer to make room for a newer failure, or still buffered when the plugin shuts down. |
+| Counter | `cloud_expanded_retry_success`         | Blocks recovered by a later background retry after an initial upload failure.                                                                                     |
+| Counter | `cloud_expanded_retry_exhausted`       | Blocks dropped after exhausting all retry attempts, evicted from the retry buffer to make room for a newer failure, or still buffered when the plugin shuts down. |
 
 ---
 

@@ -9,26 +9,24 @@ import org.hiero.block.node.base.Loggable;
 /// Configuration for the expanded cloud storage plugin.
 ///
 /// ## Required fields
-/// `endpointUrl`, `bucketName`, and `regionName` must all be explicitly set by the operator.
-/// A blank value for any of them is a misconfiguration. The plugin logs a WARNING for each
-/// blank required field at initialisation time and skips all uploads until the values are
-/// corrected and the node is restarted. This soft-disabled behaviour is temporary — once the
-/// block node supports plugin-level health reporting, a missing required field will cause the
-/// plugin to report unhealthy rather than silently skipping uploads.
+/// `endpointUrl`, `bucketName`, `regionName`, `accessKey`, and `secretKey` must all be
+/// explicitly set by the operator. The underlying bucky `S3Client` rejects a blank value for
+/// any of them, so the plugin cannot create a client and skips all uploads until the values
+/// are corrected and the node is restarted.
 ///
-/// ## Credential options
-/// Three credential strategies are supported, in priority order:
+/// Each blank required field is reported as a WARNING naming the property (never its value)
+/// during `init()`. This soft-disabled behaviour is temporary: once the block node supports
+/// plugin-level health reporting, a missing required field will cause the plugin to report
+/// unhealthy rather than silently skipping uploads.
 ///
-/// 1. **Config properties** — set `cloud.storage.expanded.accessKey` and
-///    `cloud.storage.expanded.secretKey` directly. Swirlds Config supports
-///    environment-variable substitution: use `${CLOUD_EXPANDED_ACCESS_KEY}` in the value
-///    to avoid embedding credentials in config files on disk.
-/// 2. **Environment variables** — if `accessKey` and `secretKey` are blank,
-///    the underlying S3 client falls back to the standard chain:
-///    `CLOUD_EXPANDED_ACCESS_KEY` / `CLOUD_EXPANDED_SECRET_KEY`.
-/// 3. **IAM / instance role** — leave both fields blank and attach an IAM role with
-///    `s3:PutObject` on the bucket. This is the recommended approach for
-///    cloud-native (EC2 / ECS / GKE Workload Identity) deployments.
+/// ## Supplying credentials
+/// `accessKey` and `secretKey` can be set directly in a config file, or supplied through the
+/// environment. The block node maps every config property to an environment variable name
+/// automatically (MicroProfile style), so `cloud.storage.expanded.accessKey` is settable as
+/// `CLOUD_STORAGE_EXPANDED_ACCESS_KEY` and `cloud.storage.expanded.secretKey` as
+/// `CLOUD_STORAGE_EXPANDED_SECRET_KEY`. Preferring the environment keeps credentials out of
+/// config files on disk. The S3 client has no credential-chain or IAM instance-role support:
+/// these two values are the only way to authenticate.
 ///
 /// @param endpointUrl          S3-compatible endpoint URL (e.g. `https://s3.amazonaws.com/`).
 ///                             Required; must not be blank.
@@ -42,24 +40,26 @@ import org.hiero.block.node.base.Loggable;
 ///                             move objects to archive tiers.
 /// @param regionName           AWS / S3-compatible region name (e.g. `us-east-1`). Required;
 ///                             must not be blank.
-/// @param accessKey            S3 access key; not logged. Leave blank to use environment
-///                             variables or IAM instance role.
-/// @param secretKey            S3 secret key; not logged. Leave blank to use environment
-///                             variables or IAM instance role.
+/// @param accessKey            S3 access key; not logged. Required; must not be blank.
+/// @param secretKey            S3 secret key; not logged. Required; must not be blank.
 /// @param uploadTimeoutSeconds maximum seconds to wait for in-flight uploads during
 ///                             `stop()` before treating them as failed. Default: 60.
 /// @param retryEnabled         whether failed uploads are held in memory and retried in the
 ///                             background instead of being reported as failed immediately.
 ///                             Blocks are never written to local disk; a process restart loses
 ///                             any not-yet-recovered retry. Default: `true`.
-/// @param retryIntervalSeconds fixed interval, in seconds, at which the background retry tick
-///                             re-attempts every currently-buffered block that isn't already
-///                             in flight.
+/// @param retryIntervalSeconds serves two purposes: the fixed period of the background retry
+///                             tick, and the backoff applied to a block after each failed
+///                             attempt. Each tick re-attempts every buffered block whose
+///                             backoff has elapsed and that isn't already in flight.
+///                             Default: 10.
 /// @param retryMaxAgeSeconds   maximum time, in seconds, a block may remain buffered for retry
 ///                             before it is dropped and reported as a terminal failure.
+///                             Default: 60.
 /// @param retryMaxPendingBlocks maximum number of blocks held in the in-memory retry buffer at
-///                             once; a failure that would exceed this cap is reported as a
-///                             terminal failure immediately instead of being buffered.
+///                             once. A new failure arriving at capacity evicts the
+///                             longest-buffered block, which is then reported as a terminal
+///                             failure, and the new block takes its place. Default: 30.
 // spotless:off - long annotations on record components must stay on one line
 @ConfigData("cloud.storage.expanded")
 public record ExpandedCloudStorageConfig(

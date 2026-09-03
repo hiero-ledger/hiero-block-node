@@ -127,20 +127,23 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 
 #### Available Plugins
 
-|         Plugin         |                                      Description                                       |
-|------------------------|----------------------------------------------------------------------------------------|
-| `facility-messaging`   | Core messaging facility for inter-plugin communication (required)                      |
-| `health`               | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)                           |
-| `server-status`        | Server status API and metrics                                                          |
-| `block-access-service` | gRPC API for block queries                                                             |
-| `stream-publisher`     | Publishes blocks to downstream subscribers                                             |
-| `stream-subscriber`    | Subscribes to upstream block streams                                                   |
-| `verification`         | Cryptographic verification of blocks                                                   |
-| `block-verification`   | Cryptographic verification of blocks (rewrite, mutually exclusive with `verification`) |
-| `blocks-file-recent`   | Local storage for recent/live blocks                                                   |
-| `blocks-file-historic` | Local storage for historical blocks                                                    |
-| `backfill`             | Fetches missing historical blocks from other nodes                                     |
-| `s3-archive`           | Archives blocks to S3-compatible storage                                               |
+|          Plugin          |                                           Description                                           |
+|--------------------------|-------------------------------------------------------------------------------------------------|
+| `facility-messaging`     | Core messaging facility for inter-plugin communication (required)                               |
+| `health`                 | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)                                    |
+| `server-status`          | Server status API and metrics                                                                   |
+| `block-access-service`   | gRPC API for block queries                                                                      |
+| `stream-publisher`       | Publishes blocks to downstream subscribers                                                      |
+| `stream-subscriber`      | Subscribes to upstream block streams                                                            |
+| `verification`           | Cryptographic verification of blocks                                                            |
+| `block-verification`     | Cryptographic verification of blocks (rewrite, mutually exclusive with `verification`)          |
+| `blocks-file-recent`     | Local storage for recent/live blocks                                                            |
+| `blocks-file-historic`   | Local storage for historical blocks                                                             |
+| `backfill`               | Fetches missing historical blocks from other nodes                                              |
+| `cloud-storage-archive`  | Archives blocks to S3-compatible storage, grouped into tar files                                |
+| `cloud-storage-expanded` | Uploads blocks to S3-compatible storage, one object per block                                   |
+| `roster-bootstrap-rsa`   | Loads the RSA address-book history at startup, fetching it from a peer or Mirror Node if absent |
+| `roster-bootstrap-tss`   | Obtains the latest TSS data (ledger ID, WRAPS verification key) and publishes it to the node    |
 
 #### Pre-defined Profiles
 
@@ -153,17 +156,20 @@ Installs the solo-dev docker image that contains all the plugins.
 ##### plugin-profile-all.yaml
 
 Full functionality for development and testing.
-* `facility-messaging`
+* `backfill`
 * `block-access-service`
-* `health`
-* `server-status`
-* `stream-publisher`
-* `stream-subscriber`
 * `block-verification`
 * `blocks-file-historic`
 * `blocks-file-recent`
-* `backfill`
-* `s3-archive`
+* `cloud-storage-archive`
+* `cloud-storage-expanded`
+* `facility-messaging`
+* `health`
+* `roster-bootstrap-rsa`
+* `roster-bootstrap-tss`
+* `server-status`
+* `stream-publisher`
+* `stream-subscriber`
 
 ##### plugin-profile-minimal.yaml
 
@@ -176,30 +182,45 @@ Minimal functional node for development and testing.
 ##### plugin-profile-lfh.yaml
 
 Local File History - stores all blocks on local persistent volumes (same as default).
-* `facility-messaging`
+* `backfill`
 * `block-access-service`
-* `health`
-* `server-status`
-* `stream-publisher`
-* `stream-subscriber`
 * `block-verification`
 * `blocks-file-historic`
 * `blocks-file-recent`
-* `backfill`
-
-##### plugin-profile-rfh.yaml
-
-Remote File History - stores blocks in S3-compatible storage.
 * `facility-messaging`
-* `block-access-service`
 * `health`
+* `roster-bootstrap-rsa`
+* `roster-bootstrap-tss`
 * `server-status`
 * `stream-publisher`
 * `stream-subscriber`
-* `block-verification`
-* `blocks-file-recent`
+
+##### plugin-profile-rfh.yaml
+
+Remote File History - stores blocks in S3-compatible storage. No local block-storage plugins,
+and no `block-access-service`, `stream-publisher` or `stream-subscriber`.
 * `backfill`
-* `s3-archive`
+* `block-verification`
+* `cloud-storage-archive`
+* `cloud-storage-expanded`
+* `facility-messaging`
+* `health`
+* `roster-bootstrap-rsa`
+* `roster-bootstrap-tss`
+* `server-status`
+
+##### plugin-profile-cloud.yaml
+
+Cloud storage archiving only. No local block-storage plugins, and no
+`stream-publisher`/`stream-subscriber`: such a node takes no live stream from a Consensus Node
+and serves no downstream client, so blocks arrive solely via backfill.
+* `facility-messaging`
+* `health`
+* `server-status`
+* `block-verification`
+* `backfill`
+* `cloud-storage-archive`
+* `cloud-storage-expanded`
 
 Deploy with a profile:
 

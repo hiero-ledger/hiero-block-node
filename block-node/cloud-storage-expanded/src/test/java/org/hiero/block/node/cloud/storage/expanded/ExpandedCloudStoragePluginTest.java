@@ -26,10 +26,12 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
+import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
@@ -405,6 +407,40 @@ class ExpandedCloudStoragePluginTest
                         3_600,
                         200),
                 "blank regionName must not throw");
+    }
+
+    @Test
+    @DisplayName("init() names a blank accessKey in a WARNING without logging its value")
+    void blankAccessKeyIsReportedByInit() {
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger pluginLogger = Logger.getLogger(ExpandedCloudStoragePlugin.class.getName());
+        pluginLogger.addHandler(logHandler);
+        try {
+            // accessKey is left at its "" default; every other required field is populated, so the
+            // only blank-field WARNING that may appear is the one under test.
+            start(
+                    new ExpandedCloudStoragePlugin(new CapturingS3Client()),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    Map.of(
+                            "cloud.storage.expanded.retryEnabled", "false",
+                            "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                            "cloud.storage.expanded.bucketName", "test-bucket",
+                            "cloud.storage.expanded.regionName", "us-east-1",
+                            "cloud.storage.expanded.secretKey", "super-secret"));
+
+            assertEquals(
+                    1,
+                    logHandler.countContaining(
+                            "cloud.storage.expanded.accessKey is blank; S3 uploads will be skipped until configured."),
+                    "A blank accessKey must be reported by name during init()");
+            assertEquals(
+                    0,
+                    logHandler.countContaining("cloud.storage.expanded.secretKey is blank"),
+                    "A populated secretKey must not be reported as blank");
+            assertEquals(0, logHandler.countContaining("super-secret"), "Credential values must never be logged");
+        } finally {
+            pluginLogger.removeHandler(logHandler);
+        }
     }
 
     @Test
