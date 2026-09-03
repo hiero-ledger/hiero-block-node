@@ -20,6 +20,7 @@ import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
 import org.hiero.block.internal.BlockResponseUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -59,6 +60,8 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     private BlockReadBulkhead blockReadBulkhead;
     /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
     private volatile Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight;
+    /** This service's node-wide concurrency ceiling, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<WeightClass, Integer> globalConcurrencyCeilingsByWeight;
     /** This service's content-aware weigher, computed once in {@link #init}; see {@link ThrottleSpec}. */
     private volatile GetBlockWeigher weigher;
     /** Counter for the number of requests */
@@ -237,6 +240,14 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                         historicalThrottleConfig.burstTolerance(),
                         historicalThrottleConfig.maxConcurrentPerClient()));
         this.throttleSettingsByWeight = resolvedThrottleSettingsByWeight;
+        final GlobalThrottleConfig globalThrottleConfig =
+                context.configuration().getConfigData(GlobalThrottleConfig.class);
+        final Map<WeightClass, Integer> resolvedGlobalConcurrencyCeilingsByWeight = new EnumMap<>(WeightClass.class);
+        resolvedGlobalConcurrencyCeilingsByWeight.put(
+                WeightClass.STANDARD, globalThrottleConfig.getBlockLiveMaxConcurrent());
+        resolvedGlobalConcurrencyCeilingsByWeight.put(
+                WeightClass.HEAVY, globalThrottleConfig.getBlockHistoricalMaxConcurrent());
+        this.globalConcurrencyCeilingsByWeight = resolvedGlobalConcurrencyCeilingsByWeight;
         this.weigher = new GetBlockWeigher(blockProvider, historicalThrottleConfig.historicalThresholdBlocks());
         serviceBuilder.registerGrpcService(port, this);
     }
@@ -246,6 +257,13 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     @Override
     public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
         return throttleSettingsByWeight;
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<WeightClass, Integer> globalConcurrencyCeilings() {
+        return globalConcurrencyCeilingsByWeight;
     }
 
     /// {@inheritDoc}

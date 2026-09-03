@@ -25,6 +25,21 @@ public interface ThrottleSpec {
     @NonNull
     Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight();
 
+    /// This service's node-wide concurrency ceiling, one entry per key in
+    /// [#perClientSettingsByWeight]. A ceiling here represents an allocation of the node's total
+    /// shared capacity across every throttled API — the plugin doesn't choose this number itself, it
+    /// reads it from the centrally-owned, node-level config (`GlobalThrottleConfig` in the `app`
+    /// module) and reports it here, the same way it already reads its own per-client settings from
+    /// its own config record. Two or more weight classes may share the same ceiling value (e.g. a
+    /// standing session resource that draws from one shared budget regardless of classification) —
+    /// see `docs/design/apis/api-throttling.md` ("Configuration ownership") for the full rationale
+    /// on why this stays centrally owned rather than becoming a per-plugin config value.
+    ///
+    /// @return the per-weight-class node-wide ceiling map; never empty, same key set as
+    ///     [#perClientSettingsByWeight]
+    @NonNull
+    Map<WeightClass, Integer> globalConcurrencyCeilings();
+
     /// Classifies each call's request content into a weight class, once its content is available.
     /// Empty for a service with a single cost tier — every call is then treated as
     /// [WeightClass#STANDARD], decided synchronously at admission time rather than deferred until
