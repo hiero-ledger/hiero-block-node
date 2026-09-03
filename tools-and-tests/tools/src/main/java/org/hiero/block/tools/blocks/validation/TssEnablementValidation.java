@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import static org.hiero.block.node.base.ParseHelper.standardParse;
+import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractBlockInstant;
+import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractRecordFileBytes;
+import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractTransactionBody;
 import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_MESSAGE_SIZE;
 
 import com.hedera.hapi.block.stream.RecordFileItem;
-import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.Transaction;
-import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.streams.RecordStreamFile;
 import com.hedera.hapi.streams.RecordStreamItem;
@@ -18,7 +17,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.days.model.TssEnablementRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
@@ -131,38 +129,6 @@ public final class TssEnablementValidation implements BlockValidation {
                 }
             }
         }
-    }
-
-    private static TransactionBody extractTransactionBody(final Transaction t) throws ParseException {
-        if (t.hasBody()) {
-            return t.body();
-        } else if (t.bodyBytes().length() > 0) {
-            return standardParse(TransactionBody.PROTOBUF, t.bodyBytes());
-        } else if (t.signedTransactionBytes().length() > 0) {
-            final SignedTransaction st = standardParse(SignedTransaction.PROTOBUF, t.signedTransactionBytes());
-            return standardParse(TransactionBody.PROTOBUF, st.bodyBytes());
-        }
-        return null;
-    }
-
-    private static Instant extractBlockInstant(final BlockUnparsed block) throws ParseException {
-        for (final BlockItemUnparsed item : block.blockItems()) {
-            if (item.hasBlockHeader()) {
-                final BlockHeader header = standardParse(BlockHeader.PROTOBUF, item.blockHeaderOrThrow());
-                final Timestamp ts = header.blockTimestampOrThrow();
-                return Instant.ofEpochSecond(ts.seconds(), ts.nanos());
-            }
-        }
-        return null;
-    }
-
-    private static Bytes extractRecordFileBytes(final BlockUnparsed block) {
-        for (final BlockItemUnparsed item : block.blockItems()) {
-            if (item.hasRecordFile()) {
-                return item.recordFileOrThrow();
-            }
-        }
-        return null;
     }
 
     @Override

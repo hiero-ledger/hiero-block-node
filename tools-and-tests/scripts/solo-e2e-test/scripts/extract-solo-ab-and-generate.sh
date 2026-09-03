@@ -48,21 +48,31 @@ for POD_NAME in ${ALL_PODS}; do
 
     echo "[solo-ab]   Detected node number: ${NODE_NUM}"
     NODE_ACCOUNT_ID=$((NODE_NUM + 2))
+    # Solo's pod names are 1-indexed (network-node1/2/3) but Hedera's real
+    # nodeId is 0-indexed -- confirmed against this same cluster's own native
+    # address book via /api/v1/network/nodes: "network-node1" has
+    # node_account_id=0.0.3 and node_id=0, not node_id=1. Using NODE_NUM
+    # directly here produced an address book with no entry for node id 0,
+    # so any block signed by the actual first node (id 0) couldn't be
+    # resolved by anything that bootstraps from this file (e.g. Mirror
+    # Node's BlockStreamVerifier: "No consensus node exists for node id 0").
+    NODE_ID=$((NODE_NUM - 1))
 
     # Try to list keys directory
     echo "[solo-ab]   Listing keys directory..."
     kubectl exec -n "${NAMESPACE}" "${POD_NAME}" -- \
         ls -la /opt/hgcapp/services-hedera/HapiApp2.0/data/keys/ 2>/dev/null | head -20 || echo "  (could not list)"
 
-    # Try multiple possible key file names (try agreement key first, then signing key)
+    # Try multiple possible key file names (try signing key first — record-file
+    # signatures are produced with the signing key, not the agreement key).
     RSA_KEY=""
     for key_file in \
-        "a-public-node${NODE_NUM}.pem" \
-        "a-public-node${NODE_ACCOUNT_ID}.pem" \
-        "a-public.pem" \
         "s-public-node${NODE_NUM}.pem" \
         "s-public-node${NODE_ACCOUNT_ID}.pem" \
         "s-public.pem" \
+        "a-public-node${NODE_NUM}.pem" \
+        "a-public-node${NODE_ACCOUNT_ID}.pem" \
+        "a-public.pem" \
         "public.pem"
     do
         # Extract PEM cert, then extract just the public key (SubjectPublicKeyInfo)
@@ -98,7 +108,7 @@ for POD_NAME in ${ALL_PODS}; do
 
     # Add node to JSON array
     NODE_JSON=$(jq -n \
-        --arg nodeId "${NODE_NUM}" \
+        --arg nodeId "${NODE_ID}" \
         --arg accountNum "${NODE_ACCOUNT_ID}" \
         --arg rsaKey "${RSA_KEY}" \
         '{
@@ -113,7 +123,7 @@ for POD_NAME in ${ALL_PODS}; do
 
     jq --argjson node "${NODE_JSON}" '. + [$node]' "${TEMP_NODES_FILE}" > "${TEMP_NODES_FILE}.tmp"
     mv "${TEMP_NODES_FILE}.tmp" "${TEMP_NODES_FILE}"
-    echo "[solo-ab]   ✓ Added node ${NODE_NUM}"
+    echo "[solo-ab]   ✓ Added node ${NODE_ID} (0.0.${NODE_ACCOUNT_ID})"
 done
 
 NODES_JSON=$(cat "${TEMP_NODES_FILE}")
@@ -130,7 +140,7 @@ fi
 # Build the final address book JSON
 jq -n \
   --arg seconds "${GENESIS_SECONDS}" \
-  --argjson nanos "${GENESIS_NANOS}" \
+  --argjson nanos "$((10#${GENESIS_NANOS}))" \
   --argjson nodes "${NODES_JSON}" \
   '{
     addressBooks: [
