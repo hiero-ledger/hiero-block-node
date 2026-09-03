@@ -5,9 +5,21 @@
 A **special-purpose Block Node** (the "Tier-0" or "SP-BN") is a Block Node co-located with the
 [WRB CLI](wrb-cli-runbook.md) whose sole job is to ingest **Wrapped Record Blocks (WRBs)** produced
 by the CLI and re-serve them, along with the **address-book history** they were signed under and
-the **TSS data**, to Council-operated Tier-1 Block Nodes. The CLI pushes blocks into it through the
-normal Publish API; Tier-1 nodes pull blocks, address books, and TSS data through the Block Node's
-standard backfill and status paths.
+the **TSS data**, to Council-operated Tier-1 Block Nodes.
+
+The CLI feeds the SP-BN through two ingest paths that cover different block ranges:
+
+- **Historical backfill** — the bulk of the archive is loaded directly onto the SP-BN's `archive`
+  PV without going through the gRPC Publish API. The CLI's `blocks bulk-load` command (or a `tar`
+  stream over `kubectl exec`) copies wrapped-block zips into the on-pod historic directory, and
+  `BlockFileHistoricPlugin` picks them up on the next pod start. This is how the majority of
+  blocks arrive on a fresh SP-BN.
+- **Live push** — once the archive is caught up, the CLI's `days live-sequential --push-enabled`
+  streams newly-wrapped blocks over the normal Publish API. This carries the tail-of-chain going
+  forward.
+
+Tier-1 nodes pull blocks, address books, and TSS data through the Block Node's standard
+backfill and status paths.
 
 The address-book history is a first-class serving responsibility, not just a local verification
 concern. Every Tier-1 that reads WRBs from an SP-BN must verify each historical block against the
@@ -46,12 +58,11 @@ local kind).
 
 - A running Kubernetes cluster reachable via `kubectl` (Solo/GKE, kind, on-prem, etc.).
 - `kubectl` and `helm` on your PATH, current context pointed at the target cluster.
-- The `hiero-block-node` repo cloned at a **release tag that matches the BN image tag** you plan to
-  deploy. This runbook is written for `v0.40.1` and later; earlier releases pre-date the ranged
-  address-book history loader described below.
-- A CLI shadow jar built from the same repo (`./gradlew :tools:shadowJar` →
-  `tools-and-tests/tools/build/libs/tools-*-all.jar`) so that the CLI's wrap output format matches
-  what the BN understands.
+- The **CLI shaded jar** for a release **at or after `v0.40.1`** — earlier releases pre-date the
+  ranged address-book history loader described below. Download `block-stream-tools-<tag>.jar` from
+  the [Block Node release page](https://github.com/hiero-ledger/hiero-block-node/releases); no repo
+  clone or Gradle build is required. Pick a tag that matches (or trails) the chart / image tag you
+  plan to deploy — the CLI's wrap output format must be understood by the BN.
 - Address-book history JSON produced by the CLI's `mirror generateAddressBook*` command (see
   [wrb-cli-runbook.md § Generate Address Book History](wrb-cli-runbook.md#1-generate-address-book-history)).
 - A directory of wrapped-block zips produced by the CLI's `blocks wrap` /
