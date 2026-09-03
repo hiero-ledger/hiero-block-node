@@ -60,6 +60,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             MetricKey.of("backfill_gaps_detected", LongCounter.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_BACKFILL_GAPS_SUBMITTED =
             MetricKey.of("backfill_gaps_submitted", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_BACKFILL_GAPS_DISCARDED =
+            MetricKey.of("backfill_gaps_discarded", LongCounter.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_BACKFILL_BLOCKS_FETCHED =
             MetricKey.of("backfill_blocks_fetched", LongCounter.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_BACKFILL_BLOCKS_BACKFILLED =
@@ -462,7 +464,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     /// Submits a gap to the appropriate scheduler, applying live-tail deduplication and the historical
     /// in-progress guard.
     ///
-    /// @return `true` if the gap was submitted to a scheduler, `false` if it was skipped
+    /// @return `true` if the gap was accepted by a scheduler, `false` if it was skipped or discarded
     private boolean scheduleGap(GapDetector.Gap gap) {
         if (gap.range().size() <= 0) {
             return false;
@@ -507,8 +509,23 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // Submit the (possibly adjusted) gap to the appropriate scheduler
         final String submittingGapMsg = "Submitting gap type=[{0}] range=[{1}] to scheduler";
         LOGGER.log(DEBUG, submittingGapMsg, effectiveGap.type(), effectiveGap.range());
-        submitGap(effectiveGap);
-        return true;
+        final boolean submitted = submitGap(effectiveGap);
+        if (!submitted) {
+            metricsHolder.backfillGapsDiscarded().increment();
+            if (effectiveGap.type() == GapDetector.Type.LIVE_TAIL) {
+                // The scheduler queue was full and the gap was discarded, but the high-water mark was
+                // already advanced past it above. Without a rollback the discarded range would look
+                // permanently "handled": every later detection of it would be trimmed to start after the
+                // mark and the blocks would never be scheduled again until a restart. Pull the mark back
+                // down so the next periodic detectAndScheduleGaps scan re-detects and re-submits it.
+                final long discardedGapStart = effectiveGap.range().start();
+                liveTailHighWaterMark.updateAndGet(current -> Math.min(current, discardedGapStart - 1));
+            }
+            final String discardedGapMsg =
+                    "Gap type=[{0}] range=[{1}] discarded (scheduler queue full), will be re-detected";
+            LOGGER.log(INFO, discardedGapMsg, effectiveGap.type(), effectiveGap.range());
+        }
+        return submitted;
     }
 
     /**
@@ -521,6 +538,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         BackfillTaskScheduler scheduler =
                 (gap.type() == GapDetector.Type.HISTORICAL) ? historicalScheduler : liveTailScheduler;
         return scheduler.submit(gap);
+    }
+
+    // Package-private for test visibility
+    long liveTailHighWaterMark() {
+        return liveTailHighWaterMark.get();
     }
 
     // Package-private for test visibility
@@ -552,6 +574,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                             "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
                     LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
                 } else {
+                    // Count the discard only when a scheduler existed and rejected the retry; before
+                    // start() there is no queue to be full.
+                    if (liveTailScheduler != null) {
+                        metricsHolder.backfillGapsDiscarded().increment();
+                    }
                     // The live-tail scheduler is unavailable (plugin not yet started) or its queue is full -
                     // most likely because a mass failure (e.g. MISSING_VERIFICATION_DATA while the node is
                     // still loading TSS data) is overwhelming it with individual retries. The high-water mark
@@ -658,6 +685,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     public record MetricsHolder(
             LongCounter.Measurement backfillGapsDetected,
             LongCounter.Measurement backfillGapsSubmitted,
+            LongCounter.Measurement backfillGapsDiscarded,
             LongCounter.Measurement backfillFetchedBlocks,
             LongCounter.Measurement backfillBlocksBackfilled,
             LongCounter.Measurement backfillFetchErrors,
@@ -692,6 +720,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                                     LongCounter.builder(METRIC_BACKFILL_GAPS_SUBMITTED)
                                             .setDescription(
                                                     "Number of detected gaps actually submitted for backfill (excludes gaps currently throttled by backoff or already in-flight)."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(
+                                    LongCounter.builder(METRIC_BACKFILL_GAPS_DISCARDED)
+                                            .setDescription(
+                                                    "Number of gaps discarded because the backfill scheduler queue was full; discarded ranges are re-detected by a later scan."))
                             .getOrCreateNotLabeled(),
                     metricRegistry
                             .register(LongCounter.builder(METRIC_BACKFILL_BLOCKS_FETCHED)

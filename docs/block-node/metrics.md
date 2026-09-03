@@ -242,6 +242,7 @@ Provides metrics related to the [backfill](./glossary.md#backfill) process, incl
 |---------|---------------------------------|-------------------------------------------------------------------------------------------------------------------------|
 | Counter | `backfill_gaps_detected`        | Total number of gaps detected during a scan (includes gaps re-detected while throttled by backoff)                      |
 | Counter | `backfill_gaps_submitted`       | Total number of detected gaps actually submitted for backfill (excludes gaps throttled by backoff or already in-flight) |
+| Counter | `backfill_gaps_discarded`       | Total number of gaps discarded because the backfill scheduler queue was full (discarded ranges are re-detected later)   |
 | Counter | `backfill_blocks_fetched`       | Total number of blocks fetched during backfill                                                                          |
 | Counter | `backfill_blocks_backfilled`    | Total number of blocks successfully backfilled                                                                          |
 | Counter | `backfill_fetch_errors`         | Total number of errors encountered while fetching blocks                                                                |

@@ -1779,6 +1779,102 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 "A subsequent scan should re-fetch the still-missing live-tail range after the mass failure");
     }
 
+    /**
+     * This test aims to assert that a live-tail gap discarded at initial submission time, because the
+     * live-tail scheduler queue is full, does not permanently advance the live-tail high-water mark past
+     * the discarded range. The plugin must roll the mark back to just before the discarded range and count
+     * the discard in the backfill_gaps_discarded metric, so that a later detection of the same range is
+     * submitted again (instead of being trimmed away as already handled) and its blocks are eventually
+     * fetched. This is the exact failure observed in the BNCE convergence runs: with a queue of capacity
+     * ten and a busy worker, five consecutive one-minute deltas were dropped and the node was permanently
+     * stuck until a restart cleared the in-memory mark.
+     */
+    @Test
+    @DisplayName("A live-tail gap dropped by a full scheduler queue is re-submitted after re-detection")
+    void testLiveTailGapDroppedAtSubmissionIsReDetected() throws InterruptedException {
+        // Peer serves a range that lands entirely as LIVE_TAIL on an empty store.
+        final int blockCount = 15;
+        final TestBlockNodeServer server = new TestBlockNodeServer(0, getHistoricalBlockFacility(0, blockCount - 1));
+        testBlockNodeServers.add(server);
+        final BlockNodeSource backfillSource = BlockNodeSource.newBuilder()
+                .nodes(BlockNodeSourceConfig.newBuilder()
+                        .address("localhost")
+                        .port(server.port())
+                        .priority(1)
+                        .build())
+                .build();
+        final String backfillSourcePath = testTempDir + "/backfill-source-dropped-gap.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+
+        // The autonomous scan is effectively disabled (huge initial delay); every submission in this test
+        // is driven deterministically through handleNewestBlockKnownToNetwork. Short per-block awaits keep
+        // the worker's busy window per gap small but still wide enough to submit into a full queue.
+        final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .greedy(true)
+                .initialDelay(600_000)
+                .scanInterval(600_000)
+                .maxRetries(1)
+                .perBlockProcessingTimeout(500)
+                .delayBetweenBatches(100)
+                .build();
+        // Capacity one: the first gap occupies the worker, the second gap occupies the single queue slot,
+        // and the third gap must be discarded by the full queue.
+        configOverride.put("backfill.liveTailQueueCapacity", "1");
+
+        // No verification or persistence is ever confirmed, so the store stays empty for the whole test
+        // and every fetch is observable purely through BackfilledBlockNotifications.
+        final CountDownLatch firstFetchLatch = new CountDownLatch(1);
+        final CountDownLatch droppedRangeFetchedLatch = new CountDownLatch(1);
+        blockMessaging.registerBlockNotificationHandler(
+                new BlockNotificationHandler() {
+                    @Override
+                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                        firstFetchLatch.countDown();
+                        if (notification.blockNumber() >= 10) {
+                            droppedRangeFetchedLatch.countDown();
+                        }
+                    }
+                },
+                false,
+                "test-dropped-gap-fetch-handler");
+
+        // Empty store: the whole peer range is classified LIVE_TAIL.
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
+        // Gap covering blocks 0 to 4: accepted and immediately polled by the worker, leaving the queue
+        // empty. The first fetch proves the worker is now busy inside the gap's per-block persistence awaits.
+        plugin.handleNewestBlockKnownToNetwork(new NewestBlockKnownToNetworkNotification(4));
+        assertTrue(firstFetchLatch.await(10, TimeUnit.SECONDS), "The worker should start fetching the first gap");
+
+        // Gap covering blocks 5 to 9: accepted into the single queue slot while the worker is busy. The
+        // high-water mark now covers everything up to block 9.
+        plugin.handleNewestBlockKnownToNetwork(new NewestBlockKnownToNetworkNotification(9));
+        assertEquals(9, plugin.liveTailHighWaterMark(), "The accepted gap should advance the high-water mark");
+
+        // Gap covering blocks 10 to 14: the queue is full, so the scheduler discards it. The high-water mark must be
+        // rolled back to just before the discarded range and the discard must be counted, otherwise the
+        // range would be trimmed away from every future detection until a restart.
+        plugin.handleNewestBlockKnownToNetwork(new NewestBlockKnownToNetworkNotification(14));
+        assertEquals(
+                9,
+                plugin.liveTailHighWaterMark(),
+                "A discarded gap must not leave the high-water mark advanced past it");
+        assertEquals(
+                1,
+                getMetricValue(BackfillPlugin.METRIC_BACKFILL_GAPS_DISCARDED),
+                "The discarded gap should be counted");
+
+        // The range 10..14 is still genuinely missing, so re-detections must eventually re-submit it once
+        // the queue has room again. Repeated newest-block notifications model the periodic re-detection.
+        boolean droppedRangeFetched = false;
+        for (int attempt = 0; attempt < 40 && !droppedRangeFetched; attempt++) {
+            plugin.handleNewestBlockKnownToNetwork(new NewestBlockKnownToNetworkNotification(14));
+            droppedRangeFetched = droppedRangeFetchedLatch.await(500, TimeUnit.MILLISECONDS);
+        }
+        assertTrue(droppedRangeFetched, "The discarded range should be re-submitted and fetched after re-detection");
+    }
+
     @Test
     @DisplayName("A block that fails verification is re-fetched by a later gap scan")
     void testVerificationFailureIsReFetchedByALaterScan() throws InterruptedException {
