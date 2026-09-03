@@ -14,7 +14,7 @@ Complete all steps in this section before every upgrade, regardless of release.
 
 ### Confirm Block Node health
 
-Before upgrading, confirm the Block Node is healthy. Do not upgrade an unhealthy node - an in-progress failure becomes a stuck rollout.
+Complete the following checks before upgrading. Do not proceed if any check fails - an in-progress failure becomes a stuck rollout.
 
 1. List all pods and confirm the Block Node pod is `Running` with all containers ready:
 
@@ -98,7 +98,7 @@ kubectl -n block-node exec $BN_POD -c block-node-server -- df -h \
 
 ### Confirm provisioner version
 
-Upgrade Solo Provisioner to the latest release before upgrading the Block Node. Your Hashgraph PoC will confirm the supported provisioner version for the cohort.
+Check the installed Solo Provisioner version and upgrade if it is behind the target release. Your Hashgraph PoC will confirm the supported version for the cohort.
 
 1. Check the installed version:
 
@@ -306,12 +306,13 @@ During the initial mainnet WRB cutover, the wrapped record block history may not
 
 If you are directed by your Hashgraph PoC to configure a specific backfill source:
 
-1. Update your Helm values overlay with the backfill source path, `BLOCK_NODE_EARLIEST_MANAGED_BLOCK` set to `"0"` (so the BN manages from genesis), a `startBlock` of `"0"`, and a `fetchBatchSize` of `"100"` for faster throughput. Apply the change:
+> **Note:** Do not set `BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "0"`. The general rule for all BN configuration is: if you want the default value, do not configure the setting. The default behavior (no entry in your values) already requires all blocks from genesis. Explicitly setting the value to `"0"` prevents correct behavior in a genesis network.
+
+1. Update your Helm values overlay with the backfill source path, a `startBlock` of `"0"`, and a `fetchBatchSize` of `"100"` for faster throughput. Apply the change:
 
    ```yaml
    config:
      BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/config/block-node-sources.json"
-     BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "0"
      BACKFILL_START_BLOCK: "0"
      BACKFILL_FETCH_BATCH_SIZE: "100"
    ```
