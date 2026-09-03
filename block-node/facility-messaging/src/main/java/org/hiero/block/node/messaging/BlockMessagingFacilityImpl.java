@@ -23,13 +23,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
+import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
-import org.hiero.block.node.spi.blockmessaging.ContextNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.GatingHandler;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
@@ -228,12 +228,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private final Map<BlockNotificationHandler, BatchEventProcessor<BlockNotificationRingEvent>>
             blockNotificationHandlerToEventProcessor = new HashMap<>();
 
-    /** Map of context notification handlers to their threads. So that we can stop them */
-    private final Map<ContextNotificationHandler, Thread> contextNotificationHandlerToThread = new HashMap<>();
+    /** Map of application state notification handlers to their threads. So that we can stop them */
+    private final Map<ApplicationStateNotificationHandler, Thread> applicationStateNotificationHandlerToThread =
+            new HashMap<>();
 
-    /** Map of context notification handlers to their event processors. So that we can stop them */
-    private final Map<ContextNotificationHandler, BatchEventProcessor<BlockNotificationRingEvent>>
-            contextNotificationHandlerToEventProcessor = new HashMap<>();
+    /** Map of application state notification handlers to their event processors. So that we can stop them */
+    private final Map<ApplicationStateNotificationHandler, BatchEventProcessor<BlockNotificationRingEvent>>
+            applicationStateNotificationHandlerToEventProcessor = new HashMap<>();
 
     /**
      * List of pre-registered block item handlers, that were registered before the service started. These will be added
@@ -249,11 +250,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             new ArrayList<>();
 
     /**
-     * List of pre-registered context notification handlers, that were registered before the service started. These
+     * List of pre-registered application state notification handlers, that were registered before the service started. These
      * will be added when the service is started and the list cleared
      */
-    private final List<PreRegisteredContextNotificationHandler> preRegisteredContextNotificationHandlers =
-            new ArrayList<>();
+    private final List<PreRegisteredApplicationStateNotificationHandler>
+            preRegisteredApplicationStateNotificationHandlers = new ArrayList<>();
 
     private ExecutorService messageForwarder;
 
@@ -358,7 +359,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         metricRegistry
                 .register(ObservableGauge.builder(METRIC_MESSAGING_NO_OF_NOTIFICATION_LISTENERS)
                         .setDescription("Active notification listeners"))
-                .observe(() -> blockNotificationHandlerToThread.size() + contextNotificationHandlerToThread.size());
+                .observe(() ->
+                        blockNotificationHandlerToThread.size() + applicationStateNotificationHandlerToThread.size());
 
         metricRegistry
                 .register(ObservableGauge.builder(METRIC_MESSAGING_ITEM_QUEUE_PERCENT_USED)
@@ -613,8 +615,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public synchronized void registerContextNotificationHandler(
-            final ContextNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
+    public synchronized void registerApplicationStateNotificationHandler(
+            final ApplicationStateNotificationHandler handler,
+            final boolean cpuIntensiveHandler,
+            final String handlerName) {
         final InformedEventHandler<BlockNotificationRingEvent> informedEventHandler =
                 (event, sequence, endOfBatch, percentageBehindRingHead) -> {
                     if (event.getTssDataNotification() != null) {
@@ -635,15 +639,15 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     handlerName,
                     blockNotificationDisruptor.getRingBuffer(),
                     informedEventHandler,
-                    contextNotificationHandlerToEventProcessor,
-                    contextNotificationHandlerToThread);
+                    applicationStateNotificationHandlerToEventProcessor,
+                    applicationStateNotificationHandlerToThread);
         } else {
-            preRegisteredContextNotificationHandlers.add(new PreRegisteredContextNotificationHandler(
+            preRegisteredApplicationStateNotificationHandlers.add(new PreRegisteredApplicationStateNotificationHandler(
                     handler, informedEventHandler, cpuIntensiveHandler, handlerName));
         }
         LOGGER.log(
                 DEBUG,
-                "Registering context notification handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                "Registering application state notification handler: {0}, cpuIntensive: {1}, handlerName: {2}",
                 handler.getClass().getSimpleName(),
                 cpuIntensiveHandler,
                 handlerName);
@@ -653,12 +657,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public synchronized void unregisterContextNotificationHandler(final ContextNotificationHandler handler) {
+    public synchronized void unregisterApplicationStateNotificationHandler(
+            final ApplicationStateNotificationHandler handler) {
         unregisterHandler(
                 handler,
                 blockNotificationDisruptor.getRingBuffer(),
-                contextNotificationHandlerToEventProcessor,
-                contextNotificationHandlerToThread);
+                applicationStateNotificationHandlerToEventProcessor,
+                applicationStateNotificationHandlerToThread);
     }
 
     /**
@@ -755,16 +760,16 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     blockNotificationHandlerToEventProcessor,
                     blockNotificationHandlerToThread);
         }
-        // register all the pre-registered context notification handlers
-        for (var preRegisteredHandler : preRegisteredContextNotificationHandlers) {
+        // register all the pre-registered application state notification handlers
+        for (var preRegisteredHandler : preRegisteredApplicationStateNotificationHandlers) {
             registerHandler(
                     preRegisteredHandler.handler(),
                     preRegisteredHandler.cpuIntensiveHandler(),
                     preRegisteredHandler.handlerName(),
                     blockNotificationDisruptor.getRingBuffer(),
                     preRegisteredHandler.informedHandler(),
-                    contextNotificationHandlerToEventProcessor,
-                    contextNotificationHandlerToThread);
+                    applicationStateNotificationHandlerToEventProcessor,
+                    applicationStateNotificationHandlerToThread);
         }
 
         // log successful start
@@ -799,7 +804,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             eventHandler.halt();
         }
         // Stop all the context notification event handlers
-        for (var eventHandler : contextNotificationHandlerToEventProcessor.values()) {
+        for (var eventHandler : applicationStateNotificationHandlerToEventProcessor.values()) {
             blockNotificationDisruptor.getRingBuffer().removeGatingSequence(eventHandler.getSequence());
             eventHandler.halt();
         }
@@ -812,10 +817,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             // log the stopping of the thread
             LOGGER.log(DEBUG, "Stopped block notification handler thread: {0}", thread.getName());
         }
-        // Stop all the context notification handler threads
-        for (Thread thread : contextNotificationHandlerToThread.values()) {
+        // Stop all the application state notification handler threads
+        for (Thread thread : applicationStateNotificationHandlerToThread.values()) {
             thread.interrupt();
-            LOGGER.log(DEBUG, "Stopped context notification handler thread: {0}", thread.getName());
+            LOGGER.log(DEBUG, "Stopped application state notification handler thread: {0}", thread.getName());
         }
         messageForwarder.shutdown();
     }
@@ -962,15 +967,15 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             String handlerName) {}
 
     /**
-     * Record for pre-registered context notification handlers.
+     * Record for pre-registered application state notification handlers.
      *
-     * @param handler the context notification handler
+     * @param handler the application state notification handler
      * @param informedHandler the informed event handler
      * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
      * @param handlerName the name of the handler, used for thread name and logging
      */
-    private record PreRegisteredContextNotificationHandler(
-            ContextNotificationHandler handler,
+    private record PreRegisteredApplicationStateNotificationHandler(
+            ApplicationStateNotificationHandler handler,
             InformedEventHandler<BlockNotificationRingEvent> informedHandler,
             boolean cpuIntensiveHandler,
             String handlerName) {}
