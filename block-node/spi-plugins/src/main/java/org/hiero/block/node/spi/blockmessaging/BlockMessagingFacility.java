@@ -124,7 +124,7 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      *
      * @param notification the TSS data update notification to send
      */
-    void sendTssDataUpdate(TssDataNotification notification);
+    void sendTssDataUpdate(final TssDataNotification notification);
 
     /**
      * Use this method to send an address book history update notification to all registered context notification
@@ -132,21 +132,21 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      *
      * @param notification the address book history update notification to send
      */
-    void sendAddressBookHistoryUpdate(AddressBookHistoryNotification notification);
+    void sendAddressBookHistoryUpdate(final AddressBookHistoryNotification notification);
 
     /**
      * Use this method to send a stored blocks update notification to all registered context notification handlers.
      *
      * @param notification the stored blocks update notification to send
      */
-    void sendStoredBlocksUpdate(StoredBlocksNotification notification);
+    void sendStoredBlocksUpdate(final StoredBlocksNotification notification);
 
     /**
      * Use this method to send an available blocks update notification to all registered context notification handlers.
      *
      * @param notification the available blocks update notification to send
      */
-    void sendAvailableBlocksUpdate(AvailableBlocksNotification notification);
+    void sendAvailableBlocksUpdate(final AvailableBlocksNotification notification);
 
     /**
      * Use this method to register a context notification handler. The handler will be called when node-level state
