@@ -6,15 +6,42 @@ Define and validate Hiero network topologies for testing and deployment.
 
 Topologies are defined in YAML following `network-topology.schema.yaml`. The schema supports:
 
-|      Section      | Required |                      Description                      |
-|-------------------|----------|-------------------------------------------------------|
-| `name`            | Yes      | Topology identifier                                   |
-| `description`     | No       | Human-readable description                            |
-| `block_nodes`     | Yes      | Block nodes that receive streams from consensus nodes |
-| `consensus_nodes` | Yes      | Consensus nodes that produce block streams            |
-| `mirror_nodes`    | No       | Mirror nodes that subscribe to block nodes            |
-| `relay_nodes`     | No       | JSON-RPC relay nodes that connect to mirror nodes     |
-| `explorer_nodes`  | No       | Explorer UI nodes that display data from mirror nodes |
+|       Section       | Required |                           Description                            |
+|---------------------|----------|------------------------------------------------------------------|
+| `name`              | Yes      | Topology identifier                                              |
+| `description`       | No       | Human-readable description                                       |
+| `block_nodes`       | Yes      | Block nodes that receive streams from consensus nodes            |
+| `consensus_nodes`   | Yes      | Consensus nodes that produce block streams                       |
+| `mirror_nodes`      | No       | Mirror nodes that subscribe to block nodes                       |
+| `relay_nodes`       | No       | JSON-RPC relay nodes that connect to mirror nodes                |
+| `explorer_nodes`    | No       | Explorer UI nodes that display data from mirror nodes            |
+| `s3_nodes`          | No       | S3-compatible storage (RustFS) that archiving BNs upload to      |
+| `verification_mode` | No       | `tss` (default) or `rsa-wrb` for Wrapped Record Block topologies |
+
+### Block Node Fields
+
+Each entry under `block_nodes` accepts:
+
+|          Field           | Required |                                              Description                                              |
+|--------------------------|----------|-------------------------------------------------------------------------------------------------------|
+| `address`                | Yes      | Service name used for in-cluster DNS                                                                  |
+| `port`                   | Yes      | gRPC port (40840 in every bundled topology)                                                           |
+| `peers`                  | No       | Other BNs this node backfills from, in priority order                                                 |
+| `greedy`                 | No       | Greedy backfill mode, i.e. pull all history rather than only fill gaps (default false)                |
+| `backfill_scan_interval` | No       | Gap-scan interval in ms (default 15000)                                                               |
+| `grpc_tuning`            | No       | Web-client tuning read off the **peer** entry by whoever backfills from it (see below)                |
+| `plugin_ports`           | No       | Per-plugin port overrides; camelCase keys matching `blockNode.ports` in the chart                     |
+| `flavor`                 | No       | Shipped plugin profile: `minimal`, `lfh`, `rfh` or `all` (see below)                                  |
+| `archive`                | No       | `backend: rustfs` plus `node:`, a key in `s3_nodes`; requires a flavor with the cloud-storage plugins |
+
+`flavor` replaces the chart's `plugins.names` with
+`charts/block-node-server/values-overrides/plugin-profile-<flavor>.yaml`. `rfh` and `minimal` run
+no `stream-publisher`/`stream-subscriber`, so such a node must not be listed under any consensus
+or mirror node. See `../solo-e2e-test/README.md` ("Block Node Plugin Flavors") for the full
+operational caveats.
+
+`grpc_tuning` is read from the entry of the node being connected **to**: to widen the frames a
+backfill client uses, set it on the peer it pulls from, not on the client itself.
 
 ## Node References
 
@@ -61,6 +88,20 @@ block_nodes:
     port: 40840
     greedy: false  # Enable greedy backfill mode (defaults to false)
     backfill_scan_interval: 15000  # Backfill scan interval in ms (defaults to 15000)
+  block-node-2:
+    address: block-node-2
+    port: 40840
+    flavor: rfh          # cloud-only profile: no local storage, no publisher/subscriber
+    peers: [block-node-1]
+    greedy: true
+    archive:
+      backend: rustfs
+      node: rustfs-1
+
+s3_nodes:
+  rustfs-1:
+    buckets: [block-archive-tar, block-archive-expanded]
+    port: 9000
 
 consensus_nodes:
   node1:

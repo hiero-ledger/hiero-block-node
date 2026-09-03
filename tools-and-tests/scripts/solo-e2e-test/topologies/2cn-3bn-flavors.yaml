@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: Apache-2.0
+# 2 Consensus Nodes, 3 Block Nodes exercising the lfh, minimal, and all plugin flavors.
+#
+# BN1: lfh flavor -- chart-default plugin set; receives live stream from CN1, serves MN.
+# BN2: minimal flavor -- only facility-messaging, block-access-service, health, server-status
+#      plugins; no stream-publisher, no stream-subscriber, no backfill, no block provider.
+#      Fully inert by design -- it can never receive a block by any path.
+# BN3: all flavor -- lfh + cloud-storage-archive + cloud-storage-expanded; receives live
+#      stream from CN2; BN1 <-> BN3 (backfill); archives to RustFS.
+#
+# Why block-node-2 appears in no CN and no MN list:
+#   minimal has no stream-publisher plugin, so CNs cannot write to it, and no
+#   stream-subscriber plugin, so MNs cannot subscribe from it.  Wiring it to anything
+#   would cause the deploy to fail or produce dangling references.  The value of the
+#   topology is proving that a 4-plugin minimal BN starts and stays healthy with zero
+#   block data flowing through it.
+#
+# NOTE: grpc_tuning.max_frame_size is set to 8MB on the streaming BNs to match
+# server.http2.maxFrameSize and handle larger blocks.
+# This can be removed once Block Node v0.27+ is released.
+
+name: 2cn-3bn-flavors
+description: "2 CNs, 3 BNs exercising the lfh, minimal and all plugin flavors"
+
+s3_nodes:
+  rustfs-1:
+    buckets: [block-archive-tar, block-archive-expanded]
+    port: 9000
+
+block_nodes:
+  block-node-1:                 # lfh: chart-default plugin set; CN1 primary, serves MN
+    address: block-node-1
+    port: 40840
+    flavor: lfh
+    peers: [block-node-3]
+    greedy: false
+    grpc_tuning:
+      max_frame_size: 8388608
+  block-node-2:                 # minimal: no publisher/subscriber/backfill/provider - fully inert
+    address: block-node-2
+    port: 40840
+    flavor: minimal             # no peers, no CN, no MN by design
+  block-node-3:                 # all: lfh + cloud-storage-archive/expanded; CN2 primary
+    address: block-node-3
+    port: 40840
+    flavor: all
+    peers: [block-node-1]
+    greedy: false
+    archive:
+      backend: rustfs
+      node: rustfs-1
+    grpc_tuning:
+      max_frame_size: 8388608
+
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-1]     # MUST NOT list block-node-2 -- it has no stream-publisher
+  node2:
+    block_nodes: [block-node-3]     # MUST NOT list block-node-2 -- it has no stream-publisher
+
+mirror_nodes:
+  mirror-1:
+    block_nodes: [block-node-1, block-node-3]   # MUST NOT list block-node-2 -- no stream-subscriber
+
+relay_nodes: {}
+explorer_nodes: {}

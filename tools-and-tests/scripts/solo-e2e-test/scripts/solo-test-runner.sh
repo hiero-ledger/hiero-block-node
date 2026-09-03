@@ -405,13 +405,22 @@ function execute_scale_down {
 
 function execute_deploy_blocknode {
     local args="$1"
-    local bn_name bn_sources greedy chart_version archive_backend
+    local bn_name bn_sources greedy chart_version archive_backend flavor
 
     bn_name=$(echo "$args" | yq '.name // "block-node-3"')
     bn_sources=$(echo "$args" | yq '.backfill_sources // []')
     greedy=$(echo "$args" | yq '.greedy // true')
     chart_version=$(echo "$args" | yq '.chart_version // ""')
     archive_backend=$(echo "$args" | yq '.archive_backend // ""')
+    [[ "${archive_backend}" == "null" ]] && archive_backend=""
+    if [[ -n "${archive_backend}" && "${archive_backend}" != "rustfs" ]]; then
+        echo "ERROR: ${bn_name} has unknown archive_backend: '${archive_backend}' -- only 'rustfs' is supported"
+        return 1
+    fi
+    # Same vocabulary as a topology's flavor: -- names a shipped plugin-profile-<flavor>.yaml.
+    # Defaults to rfh for an archiving node, the profile that persists only to cloud storage.
+    flavor=$(echo "$args" | yq '.flavor // ""')
+    [[ -z "${flavor}" || "${flavor}" == "null" ]] && [[ -n "${archive_backend}" ]] && flavor="rfh"
 
     # Without an explicit version Solo installs its own bundled default block node version,
     # which is older than the one the network was deployed with. A node replacement test then
@@ -452,6 +461,9 @@ blockNode:
   config:
     BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
     BACKFILL_GREEDY: "${greedy}"
+    # Same file feeds roster-bootstrap-tss, so a node deployed with the RFH profile can
+    # fetch a public key from its backfill peers; without it every block fails verification.
+    ROSTER_BOOTSTRAP_TSS_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
   backfill:
     path: "/opt/hiero/block-node/backfill"
     filename: "block-node-sources.json"
@@ -470,14 +482,28 @@ EOF
         memory_override_args="-f ${memory_override}"
     fi
 
+    # Apply the named plugin profile, mirroring how solo-deploy-network.sh handles flavor:.
+    local flavor_args=""
+    if [[ -n "${flavor}" && "${flavor}" != "null" ]]; then
+        local plugin_profile="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-${flavor}.yaml"
+        if [[ ! -f "${plugin_profile}" ]]; then
+            echo "ERROR: Unknown BN flavor '${flavor}' for ${bn_name}: ${plugin_profile} not found"
+            return 1
+        fi
+        flavor_args="-f ${plugin_profile}"
+    fi
+
     # Generate cloud-storage archive overlay when archive_backend: rustfs is requested.
-    # plugin-profile-cloud.yaml sets plugins.names; the overlay sets env vars + storage.
+    # The flavor profile sets plugins.names; this overlay sets env vars + storage.
     local archive_overlay_args=""
     if [[ "${archive_backend}" == "rustfs" ]]; then
+        if [[ -z "${flavor_args}" ]] || ! grep -q "cloud-storage-archive" "${plugin_profile}"; then
+            echo "ERROR: ${bn_name} has archive_backend: ${archive_backend} but flavor '${flavor:-<unset>}' does not enable the cloud-storage plugins -- use a flavor (e.g. rfh, all) that includes cloud-storage-archive"
+            return 1
+        fi
         local cloud_overlay="/tmp/bn-${bn_name}-cloud-archive.yaml"
         generate_s3_archive_overlay "${cloud_overlay}"
-        local plugin_profile="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-cloud.yaml"
-        archive_overlay_args="-f ${plugin_profile} -f ${cloud_overlay}"
+        archive_overlay_args="-f ${cloud_overlay}"
     fi
 
     # Get cluster ref from context
@@ -495,7 +521,7 @@ EOF
     # --priority-mapping names no real consensus node alias on purpose: without the flag
     # Solo defaults to "all consensus nodes" and rewrites every CN's block-nodes.json to
     # include this BN at priority 1 (post-genesis it pushes the file to the CN pods). A
-    # dynamically added BN may not even run stream-publisher (cloud plugin profile), so
+    # dynamically added BN may not even run stream-publisher (the rfh profile does not), so
     # CNs must not fail over to it. Tests that DO want CN traffic on a new BN use the
     # reconfigure-cn-streaming event, which writes block-nodes.json explicitly.
     # shellcheck disable=SC2086
@@ -506,6 +532,7 @@ EOF
         ${version_args} \
         -f "${values_file}" \
         ${memory_override_args} \
+        ${flavor_args} \
         ${archive_overlay_args} \
         --quiet-mode 2>&1; then
 
@@ -537,6 +564,7 @@ EOF
                 --namespace "${NAMESPACE}" \
                 -f "${values_file}" \
                 ${memory_override_args} \
+                ${flavor_args} \
                 ${archive_overlay_args} \
                 --wait --timeout 5m
         else
@@ -547,6 +575,7 @@ EOF
                 --namespace "${NAMESPACE}" \
                 -f "${values_file}" \
                 ${memory_override_args} \
+                ${flavor_args} \
                 ${archive_overlay_args} \
                 --wait --timeout 5m
         fi
@@ -1036,6 +1065,7 @@ function assert_node_healthy {
 # Single node error check
 function assert_no_errors_single {
     local target="$1"
+    local max_verify_failed="${2:-0}"
     local port
     port=$(get_bn_metrics_port "$target")
     local metrics
@@ -1055,24 +1085,32 @@ function assert_no_errors_single {
     verify_errors=$(printf "%.0f" "${verify_errors:-0}" 2>/dev/null || echo "0")
     stream_errors=$(printf "%.0f" "${stream_errors:-0}" 2>/dev/null || echo "0")
 
-    local total=$((verify_failed + verify_errors + stream_errors))
-    if [[ "$total" -gt 0 ]]; then
-        echo "${target}: Errors: verify_failed=$verify_failed verify_errors=$verify_errors stream_errors=$stream_errors"
+    # TSS key material takes ~100 blocks to stabilise after a fresh network start, so
+    # early blocks can legitimately fail verification. Flavors that assert during warm-up
+    # set max_verify_failed to a warm-up-sized budget: enough to absorb those, low enough
+    # that a node failing every block still fails the assertion.
+    if [[ $((verify_errors + stream_errors)) -gt 0 || "$verify_failed" -gt "$max_verify_failed" ]]; then
+        echo "${target}: Errors: verify_failed=$verify_failed (max ${max_verify_failed}) verify_errors=$verify_errors stream_errors=$stream_errors"
         return 1
     fi
 
-    echo "${target}: 0 errors"
+    if [[ "$verify_failed" -gt 0 ]]; then
+        echo "${target}: 0 hard errors (verify_failed=$verify_failed within budget of ${max_verify_failed})"
+    else
+        echo "${target}: 0 errors"
+    fi
 }
 
 function assert_no_errors {
     local target="${1:-all}"
+    local max_verify_failed="${2:-0}"
 
     if [[ "$target" == "all" ]]; then
         local failed=0
         local results=""
         for bn in $(get_all_block_nodes); do
             local result
-            if result=$(assert_no_errors_single "$bn"); then
+            if result=$(assert_no_errors_single "$bn" "$max_verify_failed"); then
                 results="${results}${result}\n"
             else
                 results="${results}${result}\n"
@@ -1082,7 +1120,7 @@ function assert_no_errors {
         echo -e "${results%\\n}"
         return $failed
     else
-        assert_no_errors_single "$target"
+        assert_no_errors_single "$target" "$max_verify_failed"
     fi
 }
 
@@ -1583,7 +1621,9 @@ function run_assertion {
             ;;
         no-errors)
             [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "block-node-1"')
-            assert_no_errors "$target"
+            local max_verify_failed
+            max_verify_failed=$(echo "$args" | yq '.max_verify_failed // 0')
+            assert_no_errors "$target" "$max_verify_failed"
             ;;
         blocks-increasing)
             [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
