@@ -834,7 +834,9 @@ function execute_event {
             local script
             script=$(echo "$args" | yq '.script // ""')
             echo "Executing: $script"
-            eval "$script"
+            # Subshell so an `exit` in the script fails just this event. Unguarded it
+            # would terminate run_events' pipeline and silently skip every later event.
+            ( eval "$script" )
             ;;
         clear-block-storage)
             [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // ""')
@@ -1000,9 +1002,10 @@ function assert_block_available {
     fi
 }
 
-# Restart counts from before the test, keyed by node name. Pods on a long-lived
-# cluster may already carry restarts, so node-healthy asserts on the delta.
-declare -A BASELINE_RESTARTS=()
+# Restart counts from before the test, as "name=count" lines. Pods on a long-lived
+# cluster may already carry restarts, so node-healthy asserts on the delta. Kept as a
+# plain string rather than an associative array so macOS's bash 3.2 works too.
+BASELINE_RESTARTS=""
 
 function get_restart_count {
     local target="$1" count
@@ -1013,9 +1016,19 @@ function get_restart_count {
 
 function snapshot_restart_counts {
     local bn
+    BASELINE_RESTARTS=""
     for bn in $(get_all_block_nodes); do
-        BASELINE_RESTARTS["$bn"]=$(get_restart_count "$bn")
+        BASELINE_RESTARTS="${BASELINE_RESTARTS}${bn}=$(get_restart_count "$bn")
+"
     done
+}
+
+# Nodes deployed mid-test have no baseline; they start from 0 by definition.
+function get_baseline_restart_count {
+    local target="$1" line
+    line=$(printf '%s' "${BASELINE_RESTARTS}" | grep -m1 "^${target}=" || true)
+    line="${line#*=}"
+    echo "${line:-0}"
 }
 
 # Single node health check
@@ -1024,8 +1037,7 @@ function assert_node_healthy_single {
     local status restart_count
     status=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
         -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
-    # Nodes deployed mid-test have no baseline; they start from 0 by definition.
-    restart_count=$(( $(get_restart_count "$target") - ${BASELINE_RESTARTS[$target]:-0} ))
+    restart_count=$(( $(get_restart_count "$target") - $(get_baseline_restart_count "$target") ))
 
     if [[ -z "$status" ]]; then
         echo "${target}: Pod not found"
