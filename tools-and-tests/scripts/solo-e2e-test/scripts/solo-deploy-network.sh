@@ -574,14 +574,6 @@ function deploy_block_nodes {
       log_line "  Applying BN memory override for block-node-${i}"
     fi
 
-    # Temporary diagnostic override for the finding-008 reconnect-storm
-    # investigation: bumps org.hiero.block logging to FINEST. Remove once done.
-    local bn_debug_logging_overlay="${SCRIPT_DIR}/../overrides/bn-debug-logging.yaml"
-    if [[ -f "${bn_debug_logging_overlay}" ]]; then
-      overlay_args="${overlay_args} -f ${bn_debug_logging_overlay}"
-      log_line "  Applying BN debug-logging override for block-node-${i}"
-    fi
-
     # Per-topology, per-BN static overlay (checked-in). Mirrors the bn-memory
     # pattern above but scoped to the current topology so tests can set BN
     # env vars (e.g. BLOCK_NODE_EARLIEST_MANAGED_BLOCK) without teaching the
