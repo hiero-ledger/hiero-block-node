@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 4mbit/s (bandwidth-sweep probe, see finding 008)
+# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 5.5mbit/s (bandwidth-sweep probe, see finding 008)
 #
 # Severe tier of the bandwidth-lag failure mode family: the tightest cap,
 # aimed at actually finding the permanent reconnect deadlock in finding 005
@@ -49,7 +49,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-severe.yaml
 
 name: bandwidth-lag-severe
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (4mbit/s) — bandwidth-sweep probe, bisecting between confirmed-pass 7mbit and confirmed-fail 2mbit (finding 008)"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (5.5mbit/s) — bandwidth-sweep probe, bisecting between confirmed-pass 7mbit and confirmed-soft-fail 4mbit (finding 008)"
 
 events:
   - id: load-start
@@ -64,26 +64,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 4mbit/s (direction=to, target=service/block-node-1) — bandwidth-sweep probe (finding 008)"
+    description: "Cap CN's egress to BN1's Service at 5.5mbit/s (direction=to, target=service/block-node-1) — bandwidth-sweep probe (finding 008)"
     delay: 30
     args:
       name: cn-to-bn1-bw-severe
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "4mbit"
+      rate: "5.5mbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 4mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 5.5mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-severe
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "4mbit"
+      rate: "5.5mbit"
       limit: 3000000
       buffer: 10000
       direction: to
