@@ -159,7 +159,7 @@ jobs:
               # Quick validation - single topology smoke test + backfill test
               MATRIX='[
                 {"topology":"single","tests":"smoke-test,tss-signature-transition,wrb-cli-hash-validation,wrb-cli-wrapping-validation"},
-                {"topology":"2cn-2bn-backfill","tests":"full-history-backfill,tss-signature-transition"},
+                {"topology":"2cn-2bn-backfill","tests":"tss-signature-transition,full-history-backfill"},
                 {"topology":"single-wrb-rsa","tests":"smoke-test,rsa-roster-verification"},
                 {"topology":"wrb-differential-test","tests":"wrb-differential-test"}
               ]'
@@ -171,8 +171,8 @@ jobs:
                 {"topology":"paired-3","tests":"smoke-test,basic-load,tss-signature-transition"},
                 {"topology":"3cn-1bn","tests":"smoke-test,tss-signature-transition"},
                 {"topology":"fan-out-3cn-2bn","tests":"smoke-test,tss-signature-transition"},
-                {"topology":"2cn-2bn-backfill","tests":"full-history-backfill,tss-signature-transition"},
-                {"topology":"2cn-2bn-archive","tests":"archive-backfill,tss-signature-transition"},
+                {"topology":"2cn-2bn-backfill","tests":"tss-signature-transition,full-history-backfill"},
+                {"topology":"2cn-2bn-archive","tests":"tss-signature-transition,archive-backfill"},
                 {"topology":"7cn-3bn-distributed","tests":"smoke-test,tss-signature-transition"},
                 {"topology":"single-wrb-rsa","tests":"smoke-test,rsa-roster-verification"},
                 {"topology":"3cn-2bn-wrb-rsa","tests":"smoke-test,rsa-roster-verification"},

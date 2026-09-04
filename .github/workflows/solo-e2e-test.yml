@@ -440,6 +440,7 @@ jobs:
 
       # Deploy network using shared script
       - name: Deploy network
+        timeout-minutes: 20
         env:
           # Empty unless the Consensus Node was built from source above, in which case Solo
           # is pointed at those jars instead of downloading a (nonexistent) SNAPSHOT zip.
@@ -596,6 +597,7 @@ jobs:
       # Run each test definition sequentially on the same deployment
       - name: Run Test Definitions
         id: tests_end
+        timeout-minutes: 75
         if: ${{ inputs.test-definition != 'none' && inputs.test-definition != '' }}
         run: |
           TESTS_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/tests"
