@@ -1,0 +1,12 @@
+# Temporary diagnostic override for the finding-008 reconnect-storm investigation
+# (see agent/proposals/solo-chaos-spike/findings/008-*.md). Bumps org.hiero.block
+# logging past the default FINE to FINEST, to get maximum visibility into which
+# PublisherHandler branch produces INVALID_REQUEST during the TSS Schnorr->WRAPS
+# transition-block reconnect churn.
+#
+# Applied as the final `-f` values-file in solo-deploy-network.sh, so it
+# overrides the chart defaults. Remove once the investigation concludes.
+logs:
+  level: "FINEST"
+  loggingProperties:
+    org.hiero.block.level: "FINEST"
