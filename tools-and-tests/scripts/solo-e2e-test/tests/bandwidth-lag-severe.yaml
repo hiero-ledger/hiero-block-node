@@ -49,7 +49,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-severe.yaml
 
 name: bandwidth-lag-severe
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (7mbit/s) — bandwidth-sweep probe, confirmation run #1 of 3 at 7mbit, the last confirmed-pass point (see finding 008 sweep table)"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (7mbit/s) — bandwidth-sweep probe, confirmation run #2 of 3 at 7mbit -- run #1 (33880870773) FAILED, contradicting the historical pass (see finding 008 sweep table)"
 
 events:
   - id: load-start
