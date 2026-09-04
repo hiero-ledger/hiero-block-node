@@ -43,6 +43,40 @@ STEP=50
 # before the data flood kills the port-forward. Rejected blocks are treated as
 # NOT_AVAILABLE, which the binary search handles correctly.
 MAX_MSG_SIZE=10000000
+# Per-call wall-clock ceiling for grpcurl. A Service whose pods are gone still
+# accepts a kubectl port-forward connection and then stalls forever, so without
+# this a single call can block the whole script past the max_block*2
+# deadline before check_hard_timeout gets a chance to run. 60s is well clear of a legitimate
+# fetch: observed blocks are ~40KB, the largest seen 983.9KB, and MAX_MSG_SIZE
+# caps a download at 10MB. On expiry grpcurl reports "context deadline
+# exceeded", which the CONNECTION_ERROR pattern below already handles.
+MAX_CALL_SECONDS=60
+
+# Hard timeout: max_block * 2s (block production interval).
+# If max_block=1000, timeout=2000s (~33 min). 0 means no timeout.
+if [[ "$MAX_BLOCK" -gt 0 ]]; then
+  HARD_TIMEOUT=$(( MAX_BLOCK * 2 ))
+else
+  HARD_TIMEOUT=0
+fi
+START_TIME=$(date +%s)
+
+# Checked from get_sig_type_safe (every gRPC call site: scan loop, binary
+# search, lower-bound search, print_result) rather than only between scan
+# iterations, so post-detection work can't run unbounded past the deadline.
+function check_hard_timeout {
+  [[ "$HARD_TIMEOUT" -gt 0 ]] || return 0
+  local elapsed=$(( $(date +%s) - START_TIME ))
+  if [[ "$elapsed" -ge "$HARD_TIMEOUT" ]]; then
+    echo "" >&2
+    echo "=== Signature Transition ===" >&2
+    echo "  Status: WRAPS NOT DETECTED" >&2
+    echo "  Hard timeout: ${HARD_TIMEOUT}s elapsed (max_block=${MAX_BLOCK} * 2s)" >&2
+    # set -e doesn't reliably cross nested $(...) layers; signal the top-level script.
+    kill -TERM "$$"
+    exit 1
+  fi
+}
 
 if ! command -v grpcurl &>/dev/null; then
   echo "ERROR: grpcurl not found" >&2
@@ -62,6 +96,7 @@ function get_sig_type {
   raw=$(cd "${PROTO_DIR}" && grpcurl -plaintext -import-path . \
     -proto "block-node/api/block_access_service.proto" \
     -max-msg-sz "${MAX_MSG_SIZE}" \
+    -max-time "${MAX_CALL_SECONDS}" \
     -d "{\"block_number\": ${block_number}}" \
     "${BN_ENDPOINT}" org.hiero.block.api.BlockAccessService/getBlock 2>&1) || true
 
@@ -138,6 +173,7 @@ print(f'{sig_bytes} {binary_size}')
 #   3. If retry also fails (oversized block crashing port-forward), returns NOT_AVAILABLE
 # Without PORT_FORWARD_CMD, CONNECTION_ERROR is returned as-is for the caller to handle.
 function get_sig_type_safe {
+  check_hard_timeout
   local block_number="$1"
   local result
   result=$(get_sig_type "${block_number}")
@@ -243,15 +279,6 @@ function print_result {
   format_block_line "$((transition_block + 1))" "$next_result"
 }
 
-# Hard timeout: max_block * 2s (block production interval).
-# If max_block=1000, timeout=2000s (~33 min). 0 means no timeout.
-if [[ "$MAX_BLOCK" -gt 0 ]]; then
-  HARD_TIMEOUT=$(( MAX_BLOCK * 2 ))
-else
-  HARD_TIMEOUT=0
-fi
-START_TIME=$(date +%s)
-
 # Main: scan every STEP blocks
 echo "Scanning for WRAPS signature (every ${STEP} blocks)..."
 block=0
@@ -265,18 +292,6 @@ while true; do
     echo "  Status: WRAPS NOT DETECTED"
     echo "  Max block limit: ${MAX_BLOCK}"
     exit 1
-  fi
-
-  # Enforce hard wall-clock timeout
-  if [[ "$HARD_TIMEOUT" -gt 0 ]]; then
-    local_elapsed=$(( $(date +%s) - START_TIME ))
-    if [[ "$local_elapsed" -ge "$HARD_TIMEOUT" ]]; then
-      echo ""
-      echo "=== Signature Transition ==="
-      echo "  Status: WRAPS NOT DETECTED"
-      echo "  Hard timeout: ${HARD_TIMEOUT}s elapsed (max_block=${MAX_BLOCK} * 2s)"
-      exit 1
-    fi
   fi
 
   result=$(get_sig_type_safe "$block")
@@ -302,7 +317,7 @@ while true; do
     printf "."
     sleep 5
     # Block production is every ~2s. Wait patiently — the block will be produced.
-    # Only max_block (checked at top of loop) limits how long we wait.
+    # max_block and the hard wall-clock timeout are what bound the wait.
     block=$(( block - STEP ))
     continue
   fi

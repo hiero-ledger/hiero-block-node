@@ -39,6 +39,15 @@ OUTPUT_MODE="console"
 VALIDATE_ONLY=false
 DEPLOYMENT="${DEPLOYMENT:-deployment-solo}"
 
+# Slack added on top of monitor-block-proofs.sh's own max_block*2 deadline when
+# assert_signature_transition wraps it in `timeout`. monitor-block-proofs.sh
+# checks its own deadline before every gRPC call, so the worst-case overshoot
+# before its deadline fires is one call plus its port-forward retry chain
+# (2x MAX_CALL_SECONDS + 2x3s sleep, ~126s); 180s covers that with room to
+# spare, so the script's own deadline normally fires first, keeping its more
+# informative output. Env-overridable so the unit suite can bound it tightly.
+SIGNATURE_TRANSITION_GRACE_SECONDS="${SIGNATURE_TRANSITION_GRACE_SECONDS:-180}"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -1380,8 +1389,12 @@ function assert_signature_transition {
     fi
 
     local pf_cmd="${SCRIPT_DIR}/solo-port-forward.sh --namespace ${NAMESPACE}"
-    local output
-    if output=$("$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" "${pf_cmd}" 2>&1); then
+    local output status
+    local hard_timeout=0
+    if [[ "$max_block" -gt 0 ]]; then
+        hard_timeout=$(( max_block * 2 + SIGNATURE_TRANSITION_GRACE_SECONDS ))
+    fi
+    if output=$(timeout --foreground "${hard_timeout}" "$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" "${pf_cmd}" 2>&1); then
         local transition_block transition_summary
         transition_summary=$(echo "${output}" | grep -A 10 "=== Signature Transition ===")
         transition_block=$(echo "${transition_summary}" | grep "First WRAPS block:" | awk '{print $NF}')
@@ -1389,8 +1402,13 @@ function assert_signature_transition {
         echo "${transition_summary}"
         return 0
     else
+        status=$?
         echo "${output}" >&2
-        echo "${target}: WRAPS not detected within ${max_block} blocks"
+        if [[ "${status}" -eq 124 ]]; then
+            echo "${target}: monitor-block-proofs.sh exceeded ${hard_timeout}s and was killed"
+        else
+            echo "${target}: WRAPS not detected within ${max_block} blocks (exit ${status})"
+        fi
         return 1
     fi
 }
