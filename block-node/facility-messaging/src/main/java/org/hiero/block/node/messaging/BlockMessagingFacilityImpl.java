@@ -22,6 +22,9 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
+import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -32,6 +35,8 @@ import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotifica
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
+import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
@@ -70,6 +75,22 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     public static final MetricKey<LongCounter> METRIC_MESSAGING_PUBLISHER_STATUS_UPDATE_NOTIFICATIONS = MetricKey.of(
                     "messaging_publisher_status_update_notifications", LongCounter.class)
             .addCategory(METRICS_CATEGORY);
+    /** Metric key for TSS data update notifications sent */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_TSS_DATA_UPDATE_NOTIFICATIONS = MetricKey.of(
+                    "messaging_tss_data_update_notifications", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    /** Metric key for address book history update notifications sent */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_ADDRESS_BOOK_HISTORY_UPDATE_NOTIFICATIONS =
+            MetricKey.of("messaging_address_book_history_update_notifications", LongCounter.class)
+                    .addCategory(METRICS_CATEGORY);
+    /** Metric key for stored blocks update notifications sent */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_STORED_BLOCKS_UPDATE_NOTIFICATIONS = MetricKey.of(
+                    "messaging_stored_blocks_update_notifications", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    /** Metric key for available blocks update notifications sent */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_AVAILABLE_BLOCKS_UPDATE_NOTIFICATIONS = MetricKey.of(
+                    "messaging_available_blocks_update_notifications", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
     /** Metric key for the number of active item listeners */
     public static final MetricKey<ObservableGauge> METRIC_MESSAGING_NO_OF_ITEM_LISTENERS = MetricKey.of(
                     "messaging_no_of_item_listeners", ObservableGauge.class)
@@ -100,6 +121,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private LongCounter.Measurement newestBlockKnownToNetworkNotificationsCounter;
     /** Counter for publisher status update notifications sent */
     private LongCounter.Measurement publisherStatusUpdateNotificationsCounter;
+    /** Counter for TSS data update notifications sent */
+    private LongCounter.Measurement tssDataUpdateNotificationsCounter;
+    /** Counter for address book history update notifications sent */
+    private LongCounter.Measurement addressBookHistoryUpdateNotificationsCounter;
+    /** Counter for stored blocks update notifications sent */
+    private LongCounter.Measurement storedBlocksUpdateNotificationsCounter;
+    /** Counter for available blocks update notifications sent */
+    private LongCounter.Measurement availableBlocksUpdateNotificationsCounter;
 
     /**
      * The thread factory used to create the virtual threads for the disruptor. Virtual threads are daemon threads by
@@ -199,6 +228,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private final Map<BlockNotificationHandler, BatchEventProcessor<BlockNotificationRingEvent>>
             blockNotificationHandlerToEventProcessor = new HashMap<>();
 
+    /** Map of application state notification handlers to their threads. So that we can stop them */
+    private final Map<ApplicationStateNotificationHandler, Thread> applicationStateNotificationHandlerToThread =
+            new HashMap<>();
+
+    /** Map of application state notification handlers to their event processors. So that we can stop them */
+    private final Map<ApplicationStateNotificationHandler, BatchEventProcessor<BlockNotificationRingEvent>>
+            applicationStateNotificationHandlerToEventProcessor = new HashMap<>();
+
     /**
      * List of pre-registered block item handlers, that were registered before the service started. These will be added
      * when the service is started and the list cleared
@@ -211,6 +248,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     private final List<PreRegisteredBlockNotificationHandler> preRegisteredBlockNotificationHandlers =
             new ArrayList<>();
+
+    /**
+     * List of pre-registered application state notification handlers, that were registered before the service started. These
+     * will be added when the service is started and the list cleared
+     */
+    private final List<PreRegisteredApplicationStateNotificationHandler>
+            preRegisteredApplicationStateNotificationHandlers = new ArrayList<>();
 
     private ExecutorService messageForwarder;
 
@@ -286,6 +330,26 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         .setDescription("Notifications issued for publisher status updates"))
                 .getOrCreateNotLabeled();
 
+        tssDataUpdateNotificationsCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_TSS_DATA_UPDATE_NOTIFICATIONS)
+                        .setDescription("TSS data update notifications sent"))
+                .getOrCreateNotLabeled();
+
+        addressBookHistoryUpdateNotificationsCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_ADDRESS_BOOK_HISTORY_UPDATE_NOTIFICATIONS)
+                        .setDescription("Address book history update notifications sent"))
+                .getOrCreateNotLabeled();
+
+        storedBlocksUpdateNotificationsCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_STORED_BLOCKS_UPDATE_NOTIFICATIONS)
+                        .setDescription("Stored blocks update notifications sent"))
+                .getOrCreateNotLabeled();
+
+        availableBlocksUpdateNotificationsCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_AVAILABLE_BLOCKS_UPDATE_NOTIFICATIONS)
+                        .setDescription("Available blocks update notifications sent"))
+                .getOrCreateNotLabeled();
+
         // Initialize gauges
         metricRegistry
                 .register(ObservableGauge.builder(METRIC_MESSAGING_NO_OF_ITEM_LISTENERS)
@@ -295,7 +359,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         metricRegistry
                 .register(ObservableGauge.builder(METRIC_MESSAGING_NO_OF_NOTIFICATION_LISTENERS)
                         .setDescription("Active notification listeners"))
-                .observe(blockNotificationHandlerToThread::size);
+                .observe(() ->
+                        blockNotificationHandlerToThread.size() + applicationStateNotificationHandlerToThread.size());
 
         metricRegistry
                 .register(ObservableGauge.builder(METRIC_MESSAGING_ITEM_QUEUE_PERCENT_USED)
@@ -502,6 +567,109 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
+    public void sendTssDataUpdate(final TssDataNotification notification) {
+        messageForwarder.submit(() -> {
+            LOGGER.log(DEBUG, "Sending TSS data update notification");
+            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            tssDataUpdateNotificationsCounter.increment();
+        });
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void sendAddressBookHistoryUpdate(final AddressBookHistoryNotification notification) {
+        messageForwarder.submit(() -> {
+            LOGGER.log(DEBUG, "Sending address book history update notification");
+            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            addressBookHistoryUpdateNotificationsCounter.increment();
+        });
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void sendStoredBlocksUpdate(final StoredBlocksNotification notification) {
+        messageForwarder.submit(() -> {
+            LOGGER.log(DEBUG, "Sending stored blocks update notification");
+            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            storedBlocksUpdateNotificationsCounter.increment();
+        });
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void sendAvailableBlocksUpdate(final AvailableBlocksNotification notification) {
+        messageForwarder.submit(() -> {
+            LOGGER.log(DEBUG, "Sending available blocks update notification");
+            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            availableBlocksUpdateNotificationsCounter.increment();
+        });
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public synchronized void registerApplicationStateNotificationHandler(
+            final ApplicationStateNotificationHandler handler,
+            final boolean cpuIntensiveHandler,
+            final String handlerName) {
+        final InformedEventHandler<BlockNotificationRingEvent> informedEventHandler =
+                (event, sequence, endOfBatch, percentageBehindRingHead) -> {
+                    if (event.getTssDataNotification() != null) {
+                        handler.handleTssDataUpdate(event.getTssDataNotification());
+                    } else if (event.getAddressBookHistoryNotification() != null) {
+                        handler.handleAddressBookHistoryUpdate(event.getAddressBookHistoryNotification());
+                    } else if (event.getStoredBlocksNotification() != null) {
+                        handler.handleStoredBlocksUpdate(event.getStoredBlocksNotification());
+                    } else if (event.getAvailableBlocksNotification() != null) {
+                        handler.handleAvailableBlocksUpdate(event.getAvailableBlocksNotification());
+                    }
+                    // Block-stream notification types on the same ring buffer are silently ignored.
+                };
+        if (blockNotificationDisruptor.hasStarted()) {
+            registerHandler(
+                    handler,
+                    cpuIntensiveHandler,
+                    handlerName,
+                    blockNotificationDisruptor.getRingBuffer(),
+                    informedEventHandler,
+                    applicationStateNotificationHandlerToEventProcessor,
+                    applicationStateNotificationHandlerToThread);
+        } else {
+            preRegisteredApplicationStateNotificationHandlers.add(new PreRegisteredApplicationStateNotificationHandler(
+                    handler, informedEventHandler, cpuIntensiveHandler, handlerName));
+        }
+        LOGGER.log(
+                DEBUG,
+                "Registering application state notification handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                handler.getClass().getSimpleName(),
+                cpuIntensiveHandler,
+                handlerName);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public synchronized void unregisterApplicationStateNotificationHandler(
+            final ApplicationStateNotificationHandler handler) {
+        unregisterHandler(
+                handler,
+                blockNotificationDisruptor.getRingBuffer(),
+                applicationStateNotificationHandlerToEventProcessor,
+                applicationStateNotificationHandlerToThread);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public synchronized void registerBlockNotificationHandler(
             final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
         final InformedEventHandler<BlockNotificationRingEvent> informedEventHandler =
@@ -517,7 +685,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         handler.handleNewestBlockKnownToNetwork(event.getNewestBlockKnownToNetworkNotification());
                     } else if (event.getPublisherStatusUpdateNotification() != null) {
                         handler.handlePublisherStatusUpdate(event.getPublisherStatusUpdateNotification());
-                    } else {
+                    } else if (event.getTssDataNotification() == null
+                            && event.getAddressBookHistoryNotification() == null
+                            && event.getStoredBlocksNotification() == null
+                            && event.getAvailableBlocksNotification() == null) {
+                        // Context notification types are silently ignored; only log when truly empty.
                         LOGGER.log(Level.INFO, "Received an event with no notification set");
                     }
                 };
@@ -588,6 +760,17 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     blockNotificationHandlerToEventProcessor,
                     blockNotificationHandlerToThread);
         }
+        // register all the pre-registered application state notification handlers
+        for (var preRegisteredHandler : preRegisteredApplicationStateNotificationHandlers) {
+            registerHandler(
+                    preRegisteredHandler.handler(),
+                    preRegisteredHandler.cpuIntensiveHandler(),
+                    preRegisteredHandler.handlerName(),
+                    blockNotificationDisruptor.getRingBuffer(),
+                    preRegisteredHandler.informedHandler(),
+                    applicationStateNotificationHandlerToEventProcessor,
+                    applicationStateNotificationHandlerToThread);
+        }
 
         // log successful start
         if (LOGGER.isLoggable(DEBUG)) {
@@ -620,6 +803,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             blockNotificationDisruptor.getRingBuffer().removeGatingSequence(eventHandler.getSequence());
             eventHandler.halt();
         }
+        // Stop all the context notification event handlers
+        for (var eventHandler : applicationStateNotificationHandlerToEventProcessor.values()) {
+            blockNotificationDisruptor.getRingBuffer().removeGatingSequence(eventHandler.getSequence());
+            eventHandler.halt();
+        }
         // Shuts down all the threads handling events.
         blockItemDisruptor.shutdown();
         blockNotificationDisruptor.shutdown();
@@ -628,6 +816,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             thread.interrupt();
             // log the stopping of the thread
             LOGGER.log(DEBUG, "Stopped block notification handler thread: {0}", thread.getName());
+        }
+        // Stop all the application state notification handler threads
+        for (Thread thread : applicationStateNotificationHandlerToThread.values()) {
+            thread.interrupt();
+            LOGGER.log(DEBUG, "Stopped application state notification handler thread: {0}", thread.getName());
         }
         messageForwarder.shutdown();
     }
@@ -769,6 +962,20 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     private record PreRegisteredBlockNotificationHandler(
             BlockNotificationHandler handler,
+            InformedEventHandler<BlockNotificationRingEvent> informedHandler,
+            boolean cpuIntensiveHandler,
+            String handlerName) {}
+
+    /**
+     * Record for pre-registered application state notification handlers.
+     *
+     * @param handler the application state notification handler
+     * @param informedHandler the informed event handler
+     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
+     * @param handlerName the name of the handler, used for thread name and logging
+     */
+    private record PreRegisteredApplicationStateNotificationHandler(
+            ApplicationStateNotificationHandler handler,
             InformedEventHandler<BlockNotificationRingEvent> informedHandler,
             boolean cpuIntensiveHandler,
             String handlerName) {}
