@@ -14,7 +14,7 @@ Complete all steps in this section before every upgrade, regardless of release.
 
 ### Confirm Block Node health
 
-Before upgrading, confirm the Block Node is healthy. Do not upgrade an unhealthy node — an in-progress failure becomes a stuck rollout.
+Before upgrading, confirm the Block Node is healthy. Do not upgrade an unhealthy node - an in-progress failure becomes a stuck rollout.
 
 1. List all pods and confirm the Block Node pod is `Running` with all containers ready:
 
@@ -44,7 +44,7 @@ Before upgrading, confirm the Block Node is healthy. Do not upgrade an unhealthy
      org.hiero.block.api.BlockNodeService/serverStatus
    ```
 
-   Record `firstAvailableBlock` and `lastAvailableBlock`. Both should be sensible block numbers — not `18446744073709551615` (the sentinel for "no blocks yet") — if the Block Node has been ingesting. For instructions on downloading the protobuf bundle into `~/bn-proto`, see [Connecting a Mirror Node to a Block Node](./connecting-a-mirror-node-to-a-block-node.md).
+   Record `firstAvailableBlock` and `lastAvailableBlock`. Both should be sensible block numbers - not `18446744073709551615` (the sentinel for "no blocks yet") - if the Block Node has been ingesting. For instructions on downloading the protobuf bundle into `~/bn-proto`, see [Connecting a Mirror Node to a Block Node](./connecting-a-mirror-node-to-a-block-node.md).
 
 3. Confirm Alloy telemetry is shipping (if configured):
 
@@ -77,7 +77,7 @@ The Block Node uses five persistent volumes. Confirm each is mounted and has ade
 | `archive`      | `blockNode.persistence.archive.mountPath` (default `/opt/hiero/block-node/data/historic`)     | 90 TB              | Compressed historic block archive                                                       |
 | `verification` | `blockNode.persistence.verification.mountPath` (default `/opt/hiero/block-node/verification`) | 50 GB              | Block hash state and verification data                                                  |
 | `logging`      | `blockNode.persistence.logging.mountPath` (default `/opt/hiero/block-node/logs`)              | 100 GB             | Application logs                                                                        |
-| `plugins`      | `blockNode.persistence.plugins`                                                               | —                  | Plugin JARs; always mounted but may contain no JARs until plugins are explicitly loaded |
+| `plugins`      | `blockNode.persistence.plugins`                                                               | -                  | Plugin JARs; always mounted but may contain no JARs until plugins are explicitly loaded |
 
 > Note: The exact mount paths depend on your Helm values. Run `helm -n block-node get values <release-name>` to inspect your installation's overrides.
 >
@@ -98,7 +98,7 @@ kubectl -n block-node exec $BN_POD -c block-node-server -- df -h \
 
 ### Confirm provisioner version
 
-Upgrade Solo Provisioner to the latest release before upgrading the Block Node. Your Hashgraph PoC will confirm the supported provisioner version for the cohort.
+Upgrade Solo Provisioner to the latest release before upgrading the Block Node. Check the [Solo Provisioner releases page](https://github.com/hashgraph/solo-weaver/releases) for the latest supported version.
 
 1. Check the installed version:
 
@@ -126,7 +126,7 @@ Before the upgrade, confirm you have current copies of the following files store
 
 |          Artifact           |                                                         Location on host                                                         |                                              Why it is irreplaceable                                               |
 |-----------------------------|----------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
-| `block-node-values.yaml`    | `/etc/solo-provisioner/block-node-values.yaml`                                                                                   | Cohort-specific Helm overlay generated once at handoff                                                             |
+| `block-node-values.yaml`    | `/etc/solo-provisioner/block-node-values.yaml`                                                                                   | Operator-specific Helm values overlay for this deployment                                                          |
 | `rsa-bootstrap-roster.json` | Default: `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json` (configurable via `app.state.rsaBootstrapFilePath`) | RSA public-key roster for WRB proof verification; only needed when not using Mirror Node auto-fetch for the roster |
 
 ---
@@ -139,9 +139,9 @@ Complete the subsection below that matches the upgrade you are preparing for. Fu
 
 ### WRB streaming cutover prep
 
-**Applies to:** the Consensus Node release that activates Wrapped Record Block (WRB) streaming — currently scheduled for CN release 0.75.0. The exact release may change if release testing surfaces a blocker; your Hashgraph PoC will confirm the target release before the maintenance window.
+**Applies to:** the Consensus Node release that activates Wrapped Record Block (WRB) streaming - currently scheduled for CN release 0.75.0. The exact release may change if release testing surfaces a blocker; monitor the [hiero-consensus-node releases](https://github.com/hiero-ledger/hiero-consensus-node/releases) and network announcements for the confirmed target release.
 
-For the full network cutover timeline — phases, CN-side WRB catch-up, [TSS](../glossary.md#tss-hintsts) ceremony, and [Jumpstart Data](../glossary.md#jumpstart-data) — see [Cutover Process and Timeline](../Cutover-Process.md).
+For the full network cutover timeline - phases, CN-side WRB catch-up, [TSS](../glossary.md#tss-hintsts) ceremony, and [Jumpstart Data](../glossary.md#jumpstart-data) - see [Cutover Process and Timeline](../Cutover-Process.md).
 
 **What is changing:** from the cutover release onwards, Consensus Nodes begin producing Wrapped Recordfile Blocks with aggregated RSA signature Block Proofs. The production of Record files uploaded to S3 storage will continue until the cutover to TSS and Block Streams in a later release. Any preview blocks stored by the Block Node before the cutover are invalid and must be discarded before the BN can receive and store authoritative WRB history. Do not skip the reset step even if the BN appears to be functioning normally.
 
@@ -151,7 +151,7 @@ Complete the [common pre-upgrade checks](#common-pre-upgrade-checks) first, then
 
 #### Clear the block store (preview-blocks reset)
 
-> **Caution:** This operation is destructive and cannot be undone. It scales the StatefulSet to 0, clears all files from the `live`, `archive`, `verification`, and `logging` storage directories, then scales back up to 1. All block data on this node is lost. Do not run this step until your Hashgraph PoC has confirmed the maintenance window is open and your off-host artifact backups are current.
+> **Caution:** This operation is destructive and cannot be undone. It scales the StatefulSet to 0, clears all files from the `live`, `archive`, `verification`, and `logging` storage directories, then scales back up to 1. All block data on this node is lost. Do not run this step until the maintenance window is confirmed open and your off-host artifact backups are current.
 
 ```bash
 sudo solo-provisioner block node reset --profile=mainnet
@@ -193,7 +193,7 @@ grpcurl -plaintext -emit-defaults \
 
   Both values at `18446744073709551615` confirm the store is empty and the Block Node is ready to backfill.
 
-If the reset fails, run the following to diagnose the issue and share the output with your Hashgraph PoC:
+If the reset fails, run the following to diagnose the issue. Attach this output when opening a support ticket:
 
 ```bash
 sudo head /opt/solo/weaver/logs/solo-provisioner.log
@@ -207,16 +207,16 @@ The `roster-bootstrap-rsa` plugin must be included in your Block Node's plugin l
 
 **Enable the plugin**
 
-Add `roster-bootstrap-rsa` to your plugin list in `block-node-values.yaml`. Append it to your existing `plugins.names` value — the example below shows the full plugin list used for [LFH](../glossary.md#local-full-history-lfh) nodes on previewnet, provided for reference:
+Add `roster-bootstrap-rsa` to your plugin list in `block-node-values.yaml`. Append it to your existing `plugins.names` value - the example below shows the full plugin list used for [LFH](../glossary.md#local-full-history-lfh) nodes on previewnet, provided for reference:
 
 ```yaml
 plugins:
   names: facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill,roster-bootstrap-rsa,roster-bootstrap-tss
 ```
 
-**Mirror Node auto-fetch (mainnet cohort default)**
+**Mirror Node auto-fetch**
 
-When `ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL` is set in your `block-node-values.yaml`, the plugin fetches the roster from the Mirror Node REST API at startup and caches it locally. After `block node reset`, the cached copy is cleared along with the rest of the storage directories and is automatically re-fetched on the next pod start — no manual intervention is needed. Before the cutover window, confirm outbound connectivity to the Mirror Node is available from the BN host.
+When `ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL` is set in your `block-node-values.yaml`, the plugin fetches the roster from the Mirror Node REST API at startup and caches it locally. After `block node reset`, the cached copy is cleared along with the rest of the storage directories and is automatically re-fetched on the next pod start - no manual intervention is needed. Before the cutover window, confirm outbound connectivity to the Mirror Node is available from the BN host.
 
 Set the URL in your Helm values overlay:
 
@@ -233,13 +233,13 @@ Mirror Node base URLs by network:
 | Testnet    | `https://testnet.mirrornode.hedera.com`        |
 | Previewnet | `https://previewnet.mirrornode.hedera.com`     |
 
-> Note: If the Mirror Node is unreachable, the plugin polls indefinitely — every 5 seconds until the first roster is fetched, then every 60 seconds for periodic refresh. Both intervals are configurable. WRB proof verification is non-functional until the roster is available.
+> Note: If the Mirror Node is unreachable, the plugin polls indefinitely - every 5 seconds until the first roster is fetched, then every 60 seconds for periodic refresh. Both intervals are configurable. WRB proof verification is non-functional until the roster is available.
 
 **Peer Block Node query**
 
 All Tier 1 Block Nodes should have at least one peer Block Node source configured; more than one is recommended for redundancy. When `roster.bootstrap.rsa.blockNodeSourcesPath` is set, the plugin queries configured peer Block Nodes via gRPC to retrieve the roster. This runs concurrently with the Mirror Node query; whichever responds first provides the initial roster. The peer BN query follows the same two-phase polling schedule (5-second initial interval, 60-second subsequent interval, both configurable).
 
-This is the **same file** referenced by `BACKFILL_BLOCK_NODE_SOURCES_PATH` — configuring it once serves both the roster-bootstrap-rsa plugin and the backfill plugin. Set the path in your Helm values overlay:
+This is the **same file** referenced by `BACKFILL_BLOCK_NODE_SOURCES_PATH` - configuring it once serves both the roster-bootstrap-rsa plugin and the backfill plugin. Set the path in your Helm values overlay:
 
 ```yaml
 config:
@@ -257,20 +257,22 @@ The file format is a JSON object with a `nodes` array:
 }
 ```
 
-Configure this file via your Helm chart's ConfigMap or values override mechanism. Use the endpoints provided by your Hashgraph PoC.
+Configure this file via your Helm chart's ConfigMap or values override mechanism. Use the endpoints for your peer Block Nodes.
 
 **Manual file (alternative)**
 
-If `ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL` is not configured, the plugin reads the roster from `app.state.rsaBootstrapFilePath` (default: `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json`). The file is delivered as part of the cohort package by your Hashgraph PoC. After `block node reset`, confirm the file is still present and non-empty:
+If `ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL` is not configured, the plugin reads the roster from `app.state.rsaBootstrapFilePath` (default: `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json`). After `block node reset`, confirm the file is still present and non-empty:
+
+> Note: For production networks with a running Mirror Node, the roster file is fetched automatically - no manual file delivery is needed. For test environments without a Mirror Node, obtain a `genesis-network.json` file from the Consensus Node and convert it using the script at `tools-and-tests/scripts/node-operations/genesis-network-to-bn-rsa-roster.sh`.
 
 ```bash
 kubectl -n block-node exec $BN_POD -c block-node-server -- \
-  ls -lh /opt/hiero/block-node/node/rsa-bootstrap-roster.json
+  ls -lh /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json
 ```
 
-- **If the file is missing after reset:** re-deliver it from your off-host backup using the mechanism in your cohort's `block-node-values.yaml`.
+- **If the file is missing after reset:** re-deliver it from your off-host backup using the mechanism defined in your Helm values overlay.
 
-In either case, confirm the roster loaded cleanly after the pod starts by querying `serverStatusDetail` — the response should contain a non-empty `rosterHash` field:
+In either case, confirm the roster loaded cleanly after the pod starts by querying `serverStatusDetail` - the response should contain a non-empty `nodeAddressBook` field:
 
 ```bash
 grpcurl -plaintext -emit-defaults \
@@ -281,15 +283,15 @@ grpcurl -plaintext -emit-defaults \
   org.hiero.block.api.BlockNodeService/serverStatusDetail
 ```
 
-- **Expected:** the response includes a non-empty `rosterHash` field, confirming the RSA roster is loaded and active.
+- **Expected:** the response includes a non-empty `nodeAddressBook` field, confirming the RSA roster is loaded and active.
 
 #### Configure backfill sources (if required)
 
-After the block store reset, the BN backfills WRB history automatically as long as other Block Nodes on the network already hold the relevant block range. All Tier 1 operators should have at least one Block Node source configured for both backfill and peer roster queries. **Most operators do not need to manually configure a specific backfill source** — once peer Block Nodes are advertising history on the network, the backfill plugin discovers them through the normal backfill path.
+After the block store reset, the BN backfills WRB history automatically as long as other Block Nodes on the network already hold the relevant block range. All Tier 1 operators should have at least one Block Node source configured for both backfill and peer roster queries. **Most operators do not need to manually configure a specific backfill source** - once peer Block Nodes are advertising history on the network, the backfill plugin discovers them through the normal backfill path.
 
 **Enable greedy backfill**
 
-Hashgraph recommends enabling greedy backfill on all Tier 1 Block Nodes for the WRB cutover. With greedy [backfill](../glossary.md#backfill) enabled, the BN proactively retrieves blocks beyond the latest acknowledged block, preventing the node from falling too far behind during the initial catch-up period.
+For the WRB cutover, enable greedy backfill on all Tier 1 Block Nodes. With greedy [backfill](../glossary.md#backfill) enabled, the BN proactively retrieves blocks beyond the latest acknowledged block, preventing the node from falling too far behind during the initial catch-up period.
 
 In your Helm values overlay, set `BACKFILL_GREEDY` to `"true"`, apply the change, and confirm:
 
@@ -300,11 +302,11 @@ helm -n block-node get values <release-name> | grep BACKFILL_GREEDY
 
 - **Expected:** `BACKFILL_GREEDY: "true"`
 
-**Edge case — bootstrapping from genesis when no public BN holds the history yet:**
+**Edge case - bootstrapping from genesis when no public BN holds the history yet:**
 
-During the initial mainnet WRB cutover, the wrapped record block history may not yet be available from public Block Nodes. In this case, a special-purpose Block Node holding the offline-wrapped WRBs serves as a temporary backfill source. Operators who need access to this node will receive the endpoint and connection details through a separate operator communication channel — it is not published in this document.
+During the initial mainnet WRB cutover, the wrapped record block history may not yet be available from public Block Nodes. In this case, a special-purpose Block Node holding the offline-wrapped WRBs serves as a temporary backfill source. Operators who need access to this node will receive the endpoint and connection details through a separate operator communication channel - it is not published in this document.
 
-If you are directed by your Hashgraph PoC to configure a specific backfill source:
+If you need to configure a specific backfill source:
 
 1. Update your Helm values overlay with the backfill source path, `BLOCK_NODE_EARLIEST_MANAGED_BLOCK` set to `"0"` (so the BN manages from genesis), a `startBlock` of `"0"`, and a `fetchBatchSize` of `"100"` for faster throughput. Apply the change:
 
@@ -320,13 +322,13 @@ If you are directed by your Hashgraph PoC to configure a specific backfill sourc
    helm -n block-node upgrade <release-name> <chart> -f block-node-values.yaml
    helm -n block-node get values <release-name> | grep -i backfill
    ```
-2. The `block-node-sources.json` file format is a JSON object with a `nodes` array. Configure the file via your Helm chart's ConfigMap or values override mechanism. Use the hostname and port provided by your Hashgraph PoC:
+2. The `block-node-sources.json` file format is a JSON object with a `nodes` array. Configure the file via your Helm chart's ConfigMap or values override mechanism:
 
    ```json
    {
      "nodes": [
        {
-         "address": "<host-provided-by-hashgraph-poc>",
+         "address": "<peer-block-node-host>",
          "port": 40980,
          "priority": 1
        }
@@ -336,7 +338,7 @@ If you are directed by your Hashgraph PoC to configure a specific backfill sourc
 
    > Note: Even when backfilling from a special-purpose BN, all blocks are cryptographically verified by the BN's verification plugin before they are stored. Block legitimacy is confirmed regardless of the backfill source.
 
-3. Monitor backfill progress by querying `serverStatus` — `lastAvailableBlock` should increase steadily as blocks are fetched and verified:
+3. Monitor backfill progress by querying `serverStatus` - `lastAvailableBlock` should increase steadily as blocks are fetched and verified:
 
    ```bash
    grpcurl -plaintext -emit-defaults \
@@ -351,13 +353,13 @@ If you are directed by your Hashgraph PoC to configure a specific backfill sourc
 
 #### Configure TSS bootstrap (if TSS is enabled)
 
-If your network has TSS enabled, the Block Node needs TSS data to verify blocks. On a fresh genesis network, block 0 carries all TSS data and the Block Node ingests it automatically — no bootstrap file is needed. On a non-genesis network (for example, a node joining an already-running network or being restored after a reset post-cutover), you must supply the TSS data before startup.
+If your network has TSS enabled, the Block Node needs TSS data to verify blocks. On a fresh genesis network, block 0 carries all TSS data and the Block Node ingests it automatically - no bootstrap file is needed. On a non-genesis network (for example, a node joining an already-running network or being restored after a reset post-cutover), you must supply the TSS data before startup.
 
 Two options are supported in parallel; whichever resolves first takes effect:
 
 **Bootstrap file**
 
-Set `app.state.tssBootstrapFilePath` (default: `/opt/hiero/block-node/application-state/tss-bootstrap-roster.json`) to the path of a JSON file containing the TSS data. The file is generated by the WRB CLI during cutover. Deliver it using the same mechanism as the RSA bootstrap file — your Hashgraph PoC will provide it for the mainnet cohort.
+Set `app.state.tssBootstrapFilePath` (default: `/opt/hiero/block-node/application-state/tss-bootstrap-roster.json`) to the path of a JSON file containing the TSS data. The file is generated by the WRB CLI during the cutover process and must be present on the Block Node host before startup.
 
 The file format:
 
@@ -376,7 +378,7 @@ The file format:
 }
 ```
 
-> Note: The values above are placeholders. Your Hashgraph PoC provides the actual base64-encoded values for your network.
+> Note: The values above are placeholders. Obtain the actual base64-encoded values from the WRB CLI output for your network.
 
 **Peer Block Node query**
 
@@ -410,7 +412,7 @@ Set `roster.bootstrap.tss.blockNodeSourcesPath` (default: `""`) to the path of a
 }
 ```
 
-After the Block Node starts, confirm TSS data loaded by querying `serverStatusDetail` — the response should include a non-empty `tssData` field:
+After the Block Node starts, confirm TSS data loaded by querying `serverStatusDetail` - the response should include a non-empty `tssData` field:
 
 ```bash
 grpcurl -plaintext -emit-defaults \
@@ -440,7 +442,7 @@ After completing all applicable checks, confirm the BN is ready before the maint
 | Backfill active (WRB only, if configured) | `kubectl -n block-node logs $BN_POD -c block-node-server \| grep -i backfill` | Fetching or completed (if `BACKFILL_BLOCK_NODE_SOURCES_PATH` is set) |
 | Alloy shipping                            | `kubectl -n grafana-alloy get pods`                                           | `1/1 Running`                                                        |
 
-If any check fails, resolve the issue and confirm readiness with your Hashgraph PoC before the maintenance window opens.
+If any check fails, resolve the issue before the maintenance window opens.
 
 ---
 
@@ -452,7 +454,7 @@ If any check fails, resolve the issue and confirm readiness with your Hashgraph 
 | `solo-provisioner block node check` fails with "profile flag is required"              | `--profile` flag missing                                             | Always pass `--profile=mainnet`.                                                                                                                                                                                                                                                          |
 | `block node reset` exits with "permission denied"                                      | Command run without `sudo`                                           | Prefix with `sudo`.                                                                                                                                                                                                                                                                       |
 | Pod stuck in `0/1` or init containers running after reset                              | Init containers setting up storage and resolving plugins             | Allow 2-5 minutes. Run `kubectl -n block-node describe pod $BN_POD` to see init-container status.                                                                                                                                                                                         |
-| RSA roster missing or not loaded after reset                                           | Mirror Node unreachable, or file missing (file-based delivery)       | If using Mirror Node auto-fetch, confirm `ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL` is set and the Mirror Node is reachable — the roster is re-fetched automatically on pod start. If using file-based delivery, re-deliver from off-host backup.                                        |
+| RSA roster missing or not loaded after reset                                           | Mirror Node unreachable, or file missing (file-based delivery)       | If using Mirror Node auto-fetch, confirm `ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL` is set and the Mirror Node is reachable - the roster is re-fetched automatically on pod start. If using file-based delivery, re-deliver from off-host backup.                                        |
 | Backfill not starting                                                                  | `backfill.blockNodeSourcesPath` is blank or points to a missing file | Confirm `BACKFILL_BLOCK_NODE_SOURCES_PATH` is set and the referenced JSON file exists in the pod.                                                                                                                                                                                         |
 | `firstAvailableBlock` still shows old block numbers after reset                        | Reset did not complete successfully                                  | Check `sudo head /opt/solo/weaver/logs/solo-provisioner.log` for the step that failed.                                                                                                                                                                                                    |
 | `grpcurl` returns `connection refused` on port 40982 (or configured serverStatus port) | Block Node is not yet listening                                      | Wait for the pod to reach `1/1 Running`; confirm `SERVER_STATUS_PORT` in the Block Node configuration.                                                                                                                                                                                    |
