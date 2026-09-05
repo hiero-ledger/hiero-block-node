@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 7mbit/s (bandwidth-sweep probe, see finding 008)
+# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 2mbit/s (bandwidth-sweep probe, see finding 008)
 #
 # Severe tier of the bandwidth-lag failure mode family: the tightest cap,
 # aimed at actually finding the permanent reconnect deadlock in finding 005
@@ -21,7 +21,7 @@
 # landed at ~35-40 KB/block — ~55-60x smaller than assumed. Recomputed, the
 # real per-request-timeout floor is ~0.11 Mbit/s and the sustained-need floor
 # is ~0.14 Mbit/s (see bandwidth-lag.yaml), not 6.8-8.5 Mbit/s. That means
-# 7mbit/s was never actually close to making a real block miss CN's timeout —
+# 2mbit/s was never actually close to making a real block miss CN's timeout —
 # consistent with every severe-tier run on record (6+ runs) fully recovering;
 # this tier never found its claimed edge. 2mbit/s is a first exploratory step
 # into the real, still largely-unexplored transition zone (~0.5-7 Mbit/s: the
@@ -49,7 +49,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-severe.yaml
 
 name: bandwidth-lag-severe
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (7mbit/s) — bandwidth-sweep probe, confirmation run #3 of 3 at 7mbit -- runs #1 (33880870773) and #2 (33885297404) both FAILED with identical ~45s storm shape (see finding 008 sweep table)"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (2mbit/s) — validating the SERVER_MAX_MESSAGE_SIZE_BYTES workaround fix (finding 009) at the tightest tested rate"
 
 events:
   - id: load-start
@@ -64,26 +64,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 7mbit/s (direction=to, target=service/block-node-1) — bandwidth-sweep probe (finding 008)"
+    description: "Cap CN's egress to BN1's Service at 2mbit/s (direction=to, target=service/block-node-1) — bandwidth-sweep probe (finding 008)"
     delay: 30
     args:
       name: cn-to-bn1-bw-severe
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "7mbit"
+      rate: "2mbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 7mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 2mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-severe
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "7mbit"
+      rate: "2mbit"
       limit: 3000000
       buffer: 10000
       direction: to
