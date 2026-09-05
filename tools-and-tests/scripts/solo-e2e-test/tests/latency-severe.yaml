@@ -4,8 +4,8 @@
 #
 # Three-tier per-BN latency gradient (full production-failure reproduction):
 #
-#   BN1  — "very far"  : CN↔BN1 8000 ms ± 2000 ms + 75% loss (corr 75%), BN1→BN 4000 ms (direction=to)
-#   BN2  — "mid-range" : CN↔BN2 4000 ms ± 1000 ms + 40% loss (corr 50%), BN2→BN 2000 ms (direction=to)
+#   BN1  — "very far"  : CN↔BN1 5000 ms ± 1500 ms + 75% loss (corr 75%), BN1→BN 2500 ms (direction=to)
+#   BN2  — "mid-range" : CN↔BN2 2500 ms ± 750 ms  + 40% loss (corr 50%), BN2→BN 1000 ms (direction=to)
 #   BN3  — "local"     : no CN↔BN or BN→BN chaos  (fastest, reference node)
 #   CNs  — global      : CN↔CN 1000 ms ± 250 ms, corr 75%  (bidirectional)
 #
@@ -67,55 +67,55 @@ events:
 
   - id: inject-cn-bn1
     type: inject-latency
-    description: "Inject CN↔BN1 8000ms ± 2000ms + 75% loss (corr 75%) — BN1 very-far tier (production failure mode)"
+    description: "Inject CN↔BN1 5000ms ± 1500ms + 75% loss (corr 75%) — BN1 very-far tier (production failure mode)"
     delay: 35
     args:
       name: cn-to-bn1
       source: { kind: network-node }
       target: { kind: block-node, name: block-node-1 }
-      latency: 8000ms
-      jitter: 2000ms
+      latency: 5000ms
+      jitter: 1500ms
       correlation: "75"
       bidirectional: true
       loss: "75%"
 
   - id: inject-cn-bn2
     type: inject-latency
-    description: "Inject CN↔BN2 4000ms ± 1000ms + 40% loss (corr 50%) — BN2 mid-range tier"
+    description: "Inject CN↔BN2 2500ms ± 750ms + 40% loss (corr 50%) — BN2 mid-range tier"
     delay: 40
     args:
       name: cn-to-bn2
       source: { kind: network-node }
       target: { kind: block-node, name: block-node-2 }
-      latency: 4000ms
-      jitter: 1000ms
+      latency: 2500ms
+      jitter: 750ms
       correlation: "50"
       bidirectional: true
       loss: "40%"
 
   - id: inject-bn1-bn
     type: inject-latency
-    description: "Inject BN1→BN peers 4000ms ± 1000ms (direction=to) — BN1 peer latency"
+    description: "Inject BN1→BN peers 2500ms ± 750ms (direction=to) — BN1 peer latency"
     delay: 45
     args:
       name: bn1-to-bn
       source: { kind: block-node, name: block-node-1 }
       target: { kind: block-node }
-      latency: 4000ms
-      jitter: 1000ms
+      latency: 2500ms
+      jitter: 750ms
       correlation: "75"
       bidirectional: false
 
   - id: inject-bn2-bn
     type: inject-latency
-    description: "Inject BN2→BN peers 2000ms ± 500ms (direction=to) — BN2 peer latency"
+    description: "Inject BN2→BN peers 1000ms ± 250ms (direction=to) — BN2 peer latency"
     delay: 50
     args:
       name: bn2-to-bn
       source: { kind: block-node, name: block-node-2 }
       target: { kind: block-node }
-      latency: 2000ms
-      jitter: 500ms
+      latency: 1000ms
+      jitter: 250ms
       correlation: "75"
       bidirectional: false
 
@@ -175,29 +175,29 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BNs were at least 3 blocks apart at peak chaos — confirms the three-tier latency gradient caused measurable divergence (8000ms base → ~4 block lag; 75% correlated loss bursts push it higher)"
+    description: "BNs were at least 2 blocks apart at peak chaos — confirms the three-tier latency gradient caused measurable divergence (5000ms base → ~2.5 block lag; 75% correlated loss bursts push it higher)"
     args:
       snapshot_id: peak-chaos
-      min_spread: 3
+      min_spread: 2
 
   - id: blocks-converged
     type: blocks-converged
-    description: "All BNs within 150 blocks of each other after latency clears — at severe tier the CN↔BN1 stream may die; tolerance is wide enough to detect a completely frozen node while accepting normal catchup lag"
+    description: "All BNs converge to within 5 blocks of each other after latency clears — proves CN↔BN streams survived across the full gradient and all nodes caught up"
     args:
-      tolerance_blocks: 150
+      tolerance_blocks: 5
 
   - id: blocks-increasing
     type: blocks-increasing
-    description: "Block production continues on reference node (BN3) after latency clears — BN1 stream may not recover at this severity tier"
-    target: block-node-3
+    description: "Block production recovers on all BNs after latency clears"
+    target: all
     args:
       wait_seconds: 60
       max_attempts: 5
 
   - id: block-rate-floor
     type: block-rate-floor
-    description: "Post-chaos block rate on reference node (BN3) is ≥ 0.1 blk/s — confirms network liveness even if BN1 stream was severed"
-    target: block-node-3
+    description: "Post-chaos block rate recovers to ≥ 0.1 blk/s on all BNs"
+    target: all
     args:
       min_rate_per_sec: 0.1
       window_seconds: 30

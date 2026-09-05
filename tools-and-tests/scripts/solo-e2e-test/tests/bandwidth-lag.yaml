@@ -1,0 +1,190 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Bandwidth-Lag — CN→BN1 + BN-Peers→BN1 Throughput Cap
+#
+# Reproduces the cumulative-lag production failure mode that tc-netem latency
+# tests cannot exercise: BN1's ingest rate drops below the block production rate
+# so lag grows monotonically until chaos clears.
+#
+# Design:
+#   - CN→BN1 is capped at 10mbit/s, shaped on the CN sender's own egress
+#     (direction=to), targeting BN1's k8s Service (target: { kind: service,
+#     name: block-node-1 }) rather than its pod IP.
+#   - All BN peers→BN1 are also capped at 10mbit/s the same way, so greedy
+#     backfill cannot instantly neutralise the ingest cap during chaos.
+#   - BN2 and BN3 receive no throttle — they serve as the reference nodes that
+#     advance at full speed, making the spread measurable.
+#
+# See ../scripts/chaos-templates/README.md for why the bandwidth action needs
+# `target: { kind: service }` (Service-ClusterIP vs. pod-IP addressing),
+# egress-only tc semantics, and the "kbit"/"mbit" vs "kbps"/"mbps" unit
+# distinction — all three cost real debugging time and are easy to get wrong
+# when tuning this test further.
+#
+# Rate rationale (10mbit/s — this is the "minimal constraint" tier of the
+# bandwidth-lag family; see -stress and -severe for tighter tiers):
+#   Block-size history: this test originally assumed ~100 KB blocks, then was
+#   revised to an assumed ~2.1 MB based on early CI observation. Neither
+#   assumption was measured directly — the avg-block-size-floor assertion
+#   (in bandwidth-lag-severe.yaml) now reads the real value straight off BN
+#   metrics (files_recent_total_bytes_stored / files_recent_blocks_written_total),
+#   and two clean CI samples (runs 33265848789, 33269987877) both landed at
+#   ~35-40 KB/block — ~55-60x smaller than the ~2.1 MB the 15/9/7mbit/s tiers
+#   below were originally derived from. Recomputing with the real number, at
+#   0.5 blk/s and CN's ~2.5s per-request send timeout:
+#     - sustained-need floor = block_bytes × 8 × blk_rate ≈ 35KB × 8 × 0.5
+#       ≈ 0.14 Mbit/s
+#     - per-request timeout floor = block_bytes × 8 ÷ timeout_s ≈ 35KB × 8 ÷ 2.5
+#       ≈ 0.11 Mbit/s
+#   The old 15/9/7mbit/s tiers sat 50-100x above these real floors — none of
+#   them could ever make a single block miss CN's send timeout, which is why
+#   every bandwidth-lag-severe run on record (6+ runs) fully recovered
+#   (blocks-converged always passed): the tier never actually reached "the
+#   edge of breaking point" its rationale claimed. The divergence these tiers
+#   do produce (9-26 blocks, reliably) comes from aggregate queuing across the
+#   CN + peer streams sharing one capped pipe, not a single block timing out.
+#   Earlier revisions of this test used kbit/s-scale rates (50-500kbit/s) and
+#   those ALWAYS hit a permanent CN<->BN reconnect deadlock (BN rejects a
+#   resumed stream as out-of-range and neither side re-syncs to a valid
+#   resume point), regardless of the specific value in that range — so the
+#   real, still largely-unexplored transition zone sits somewhere between ~0.5 Mbit/s
+#   (always deadlocks) and ~7 Mbit/s (always recovers). This retier
+#   (10/4/1 mbit/s for lag/stress/severe) is a first exploratory step into
+#   that zone: still comfortably above the 0.5mbit/s always-deadlocks floor,
+#   but meaningfully tighter than the old 15/9/7mbit/s values so severe in
+#   particular has a real chance of finding where recovery starts to fail.
+#   Caveat: the ~35-40 KB numbers above were measured under a fairly light
+#   load (~5 NLG clients, 10 accounts, CryptoTransferLoadTest, 5 TPS
+#   mirror-pinger) at logPeriod=1s. A separate effort is investigating how to
+#   drive much higher TPS and/or bigger-payload transaction types during the
+#   chaos window itself — if that lands, real block sizes (and therefore
+#   these tier rates) will likely change again and need re-tuning. Treat the
+#   10/4/1mbit/s values here as the current best estimate for today's load
+#   profile, not a final answer.
+#
+# Assertions:
+#   blocks-diverged  min_spread=5   — conservative starting point for this
+#                                     rate; retune against observed spread.
+#   blocks-converged tolerance=10   — BN1 may have a larger gap to close via
+#                                     backfill after chaos clears; allow 10 blocks.
+#
+# Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
+#
+# Pre-req:
+#   task up TOPOLOGY=paired-3
+#   CHAOS_ENABLED=true task chaos:install
+#
+# Usage:
+#   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag.yaml
+
+name: bandwidth-lag
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (10mbit/s) — cumulative-lag production failure mode (minimal-constraint tier)"
+
+events:
+  - id: load-start
+    type: load-start
+    description: "Start NLG load"
+    delay: 0
+    args:
+      concurrency: 5
+      accounts: 10
+      duration: 480
+
+  - id: inject-cn-bn1-bw
+    type: inject-bandwidth
+    description: "Cap CN's egress to BN1's Service at 10mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
+    delay: 30
+    args:
+      name: cn-to-bn1-bw
+      source: { kind: network-node }
+      target: { kind: service, name: block-node-1 }
+      rate: "10mbit"
+      limit: 3000000
+      buffer: 10000
+      direction: to
+
+  - id: inject-peer-bn1-bw
+    type: inject-bandwidth
+    description: "Cap BN-peers' egress to BN1's Service at 10mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    delay: 35
+    args:
+      name: peer-to-bn1-bw
+      source: { kind: block-node }
+      target: { kind: service, name: block-node-1 }
+      rate: "10mbit"
+      limit: 3000000
+      buffer: 10000
+      direction: to
+
+  - id: snapshot-peak-chaos
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights at peak chaos (≈150s into chaos window)"
+    delay: 180
+    args: { snapshot_id: peak-chaos }
+
+  - id: clear-cn-bn1-bw
+    type: clear-bandwidth
+    description: "Clear CN→BN1 bandwidth cap"
+    delay: 330
+    args: { name: cn-to-bn1-bw }
+
+  - id: clear-peer-bn1-bw
+    type: clear-bandwidth
+    description: "Clear BN peers→BN1 bandwidth cap"
+    delay: 335
+    args: { name: peer-to-bn1-bw }
+
+  - id: load-stop
+    type: load-stop
+    description: "Stop NLG load"
+    delay: 420
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All BNs survive bandwidth throttle and stay/return healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All BNs still have blocks after chaos"
+    target: all
+    args:
+      min_block: 0
+
+  - id: blocks-diverged
+    type: blocks-diverged
+    description: "BNs were at least 5 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (conservative; tune min_spread upward once observed block sizes are known)"
+    args:
+      snapshot_id: peak-chaos
+      min_spread: 5
+
+  - id: blocks-converged
+    type: blocks-converged
+    description: "All BNs converge to within 10 blocks after bandwidth clears — allows BN1 time to close its backfill gap"
+    args:
+      tolerance_blocks: 10
+
+  - id: blocks-increasing
+    type: blocks-increasing
+    description: "Block production recovers on all BNs after bandwidth clears"
+    target: all
+    args:
+      wait_seconds: 60
+      max_attempts: 5
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Post-chaos block rate recovers to ≥ 0.1 blk/s on all BNs"
+    target: all
+    args:
+      min_rate_per_sec: 0.1
+      window_seconds: 30
+
+  - id: avg-block-size
+    type: avg-block-size-floor
+    description: "Real avg bytes/block from files_recent_total_bytes_stored ÷ files_recent_blocks_written over the recovery window (diagnostic: min_bytes is a sanity floor, not a tuned expectation — read the printed value to see whether this load's blocks are actually big enough to stress the bandwidth cap)"
+    target: all
+    args:
+      min_bytes: 1000
+      window_seconds: 30

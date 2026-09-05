@@ -1,0 +1,167 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 1mbit/s
+#
+# Severe tier of the bandwidth-lag failure mode family: the tightest cap,
+# aimed at genuinely probing a permanent CN<->BN reconnect deadlock (BN
+# rejects a resumed stream as out-of-range and neither side re-syncs to a
+# valid resume point) rather than just sitting near it. See bandwidth-lag.yaml
+# (minimal constraint, 10mbit/s) and bandwidth-lag-stress.yaml (significant
+# but manageable, 4mbit/s) for the milder tiers.
+#
+# See ../scripts/chaos-templates/README.md for why this test uses "mbit" (not
+# "mbps") and target: { kind: service } (not a pod selector) — both gotchas
+# cost real debugging time and are easy to get wrong when tuning further.
+#
+# Rate rationale (1mbit/s): real steady-state block size is ~35 KB/block
+# (measured directly off BN's files_recent_* metrics), giving a sustained-need
+# floor of ~0.14 Mbit/s and a per-request-timeout floor of ~0.11 Mbit/s — both
+# far below any rate in this tier family. The actual breaking point in this
+# family is the permanent reconnect deadlock described above, historically
+# triggered below ~0.5 Mbit/s and never triggered at >=7 Mbit/s. 1mbit/s sits
+# deliberately inside that still-largely-unexplored 0.5-7 Mbit/s zone, closer
+# to the deadlock floor than bandwidth-lag-stress.yaml's 4mbit/s, to actually
+# probe the edge rather than assume a rate is already safely inside "always
+# recovers."
+#
+# Separately: this topology also exercises the TSS Schnorr->WRAPS signature
+# transition block (a one-time ~63 MB block, unrelated to the steady-state
+# size above). That block used to reliably fail here regardless of bandwidth
+# rate, root-caused to Solo's --block-node-tss-overlay hardcoding
+# SERVER_MAX_MESSAGE_SIZE_BYTES to 36 MiB (sized for the WRAPS item alone, not
+# a whole block's cumulative bytes, which hiero-block-node now enforces --
+# see PublisherHandler's cumulative-byte-ceiling check). Fixed upstream in
+# https://github.com/hiero-ledger/solo/pull/5941; worked around here via
+# ../overrides/bn-memory.yaml (SERVER_MAX_MESSAGE_SIZE_BYTES override) until
+# that's picked up by this harness's Solo version. This tier's rate is
+# unrelated to that fix -- don't remove the workaround without confirming
+# solo#5941 is live here first.
+#
+# If this tier reproduces the permanent-stall behavior (blocks-converged/
+# blocks-increasing/block-rate-floor failing indefinitely, not just slowly),
+# that's the deadlock edge; loosen slightly and re-run to bracket it rather
+# than assuming a fluke.
+#
+# Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
+#
+# Pre-req:
+#   task up TOPOLOGY=paired-3
+#   CHAOS_ENABLED=true task chaos:install
+#
+# Usage:
+#   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-severe.yaml
+
+name: bandwidth-lag-severe
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (1mbit/s) — edge-of-breaking-point tier, probing toward the permanent CN<->BN reconnect-deadlock floor"
+
+events:
+  - id: load-start
+    type: load-start
+    description: "Start NLG load"
+    delay: 0
+    args:
+      test_class: CryptoTransferLoadTest
+      concurrency: 5
+      accounts: 10
+      duration: 480
+
+  - id: inject-cn-bn1-bw
+    type: inject-bandwidth
+    description: "Cap CN's egress to BN1's Service at 1mbit/s (direction=to, target=service/block-node-1) — edge-of-breaking-point tier"
+    delay: 30
+    args:
+      name: cn-to-bn1-bw-severe
+      source: { kind: network-node }
+      target: { kind: service, name: block-node-1 }
+      rate: "1mbit"
+      limit: 3000000
+      buffer: 10000
+      direction: to
+
+  - id: inject-peer-bn1-bw
+    type: inject-bandwidth
+    description: "Cap BN-peers' egress to BN1's Service at 1mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    delay: 35
+    args:
+      name: peer-to-bn1-bw-severe
+      source: { kind: block-node }
+      target: { kind: service, name: block-node-1 }
+      rate: "1mbit"
+      limit: 3000000
+      buffer: 10000
+      direction: to
+
+  - id: snapshot-peak-chaos
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights at peak chaos (≈150s into chaos window)"
+    delay: 180
+    args: { snapshot_id: peak-chaos-severe }
+
+  - id: clear-cn-bn1-bw
+    type: clear-bandwidth
+    description: "Clear CN→BN1 bandwidth cap"
+    delay: 330
+    args: { name: cn-to-bn1-bw-severe }
+
+  - id: clear-peer-bn1-bw
+    type: clear-bandwidth
+    description: "Clear BN peers→BN1 bandwidth cap"
+    delay: 335
+    args: { name: peer-to-bn1-bw-severe }
+
+  - id: load-stop
+    type: load-stop
+    description: "Stop NLG load — extended to allow BN1 backfill of its larger gap"
+    delay: 450
+    args:
+      test_class: CryptoTransferLoadTest
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All BNs survive bandwidth throttle and stay/return healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All BNs still have blocks after chaos"
+    target: all
+    args:
+      min_block: 0
+
+  - id: blocks-diverged
+    type: blocks-diverged
+    description: "BNs were at least 5 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (conservative starting point for this rate; retune against observed spread)"
+    args:
+      snapshot_id: peak-chaos-severe
+      min_spread: 5
+
+  - id: blocks-converged
+    type: blocks-converged
+    description: "All BNs converge to within 25 blocks after bandwidth clears — allows extra margin for this tier's thinner timeout safety margin"
+    args:
+      tolerance_blocks: 25
+
+  - id: blocks-increasing
+    type: blocks-increasing
+    description: "Block production recovers on all BNs after bandwidth clears"
+    target: all
+    args:
+      wait_seconds: 90
+      max_attempts: 5
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Post-chaos block rate recovers to ≥ 0.1 blk/s on all BNs"
+    target: all
+    args:
+      min_rate_per_sec: 0.1
+      window_seconds: 30
+
+  - id: avg-block-size
+    type: avg-block-size-floor
+    description: "Real avg bytes/block from files_recent_total_bytes_stored ÷ files_recent_blocks_written over the recovery window (diagnostic: min_bytes is a sanity floor, not a tuned expectation — read the printed value to see whether this load's blocks are actually big enough to stress the bandwidth cap)"
+    target: all
+    args:
+      min_bytes: 1000
+      window_seconds: 30

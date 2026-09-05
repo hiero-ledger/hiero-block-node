@@ -5,8 +5,9 @@
 # solo-test-runner.sh:
 #   - compare_numeric (helper)
 #   - assert_metric_threshold (primitive)
-#   - assert_block_rate_floor  (sugar)
-#   - assert_log_match         (used by backfill-triggered)
+#   - assert_block_rate_floor       (sugar)
+#   - assert_avg_block_size_floor   (sugar)
+#   - assert_log_match              (used by backfill-triggered)
 #
 # Runs without a cluster: overrides fetch_metric / fetch_pod_logs to serve
 # pre-recorded fixtures. Exit 0 on all-pass, 1 on any failure.
@@ -132,7 +133,65 @@ fi
 rm -f "$COUNTER_FILE"
 
 # ----------------------------------------------------------------------------
-echo "[4] assert_log_match (powers backfill-triggered): pattern present / absent"
+echo "[4] assert_avg_block_size_floor: derives Δbytes/Δblocks, compares to floor"
+BYTES_SEQ_FILE=$(mktemp)
+BLOCKS_SEQ_FILE=$(mktemp)
+function fetch_metric_avg_size_seq {
+    local metric="$2" i
+    if [[ "$metric" == "blocknode_files_recent_total_bytes_stored" ]]; then
+        i=$(cat "$BYTES_SEQ_FILE"); i=$((i + 1)); echo "$i" > "$BYTES_SEQ_FILE"
+        case "$i" in 1) echo "$AVG_SIZE_BYTES_BASELINE" ;; 2) echo "$AVG_SIZE_BYTES_CURRENT" ;; *) echo "" ;; esac
+    elif [[ "$metric" == "blocknode_files_recent_blocks_written_total" ]]; then
+        i=$(cat "$BLOCKS_SEQ_FILE"); i=$((i + 1)); echo "$i" > "$BLOCKS_SEQ_FILE"
+        case "$i" in 1) echo "$AVG_SIZE_BLOCKS_BASELINE" ;; 2) echo "$AVG_SIZE_BLOCKS_CURRENT" ;; *) echo "" ;; esac
+    else
+        echo ""
+    fi
+}
+
+# Green: 10 blocks written, 2,000,000 bytes added -> avg 200000B/block >= 100000B floor
+echo 0 > "$BYTES_SEQ_FILE"; echo 0 > "$BLOCKS_SEQ_FILE"
+AVG_SIZE_BYTES_BASELINE=1000000; AVG_SIZE_BYTES_CURRENT=3000000
+AVG_SIZE_BLOCKS_BASELINE=50; AVG_SIZE_BLOCKS_CURRENT=60
+function fetch_metric { fetch_metric_avg_size_seq "$1" "$2"; }
+if assert_avg_block_size_floor "block-node-1" "100000" "1" >/dev/null 2>&1; then
+    pass "avg-block-size-floor green (200000B/block >= 100000B floor)"
+else
+    fail "avg-block-size-floor green"
+fi
+
+# Red: small blocks -> 20000B/block < 100000B floor
+echo 0 > "$BYTES_SEQ_FILE"; echo 0 > "$BLOCKS_SEQ_FILE"
+AVG_SIZE_BYTES_BASELINE=1000000; AVG_SIZE_BYTES_CURRENT=1200000
+AVG_SIZE_BLOCKS_BASELINE=50; AVG_SIZE_BLOCKS_CURRENT=60
+if ! assert_avg_block_size_floor "block-node-1" "100000" "1" >/dev/null 2>&1; then
+    pass "avg-block-size-floor red (20000B/block < 100000B floor)"
+else
+    fail "avg-block-size-floor red"
+fi
+
+# No blocks written during the window -> must fail cleanly, not divide by zero
+echo 0 > "$BYTES_SEQ_FILE"; echo 0 > "$BLOCKS_SEQ_FILE"
+AVG_SIZE_BYTES_BASELINE=1000000; AVG_SIZE_BYTES_CURRENT=1000000
+AVG_SIZE_BLOCKS_BASELINE=50; AVG_SIZE_BLOCKS_CURRENT=50
+if ! assert_avg_block_size_floor "block-node-1" "1" "1" >/dev/null 2>&1; then
+    pass "avg-block-size-floor red (zero blocks written, avoids divide-by-zero)"
+else
+    fail "avg-block-size-floor should fail when no blocks were written"
+fi
+
+# Baseline missing
+function fetch_metric { echo ""; }
+if ! assert_avg_block_size_floor "block-node-1" "1" "1" >/dev/null 2>&1; then
+    pass "avg-block-size-floor red (no baseline available)"
+else
+    fail "avg-block-size-floor missing baseline should fail"
+fi
+
+rm -f "$BYTES_SEQ_FILE" "$BLOCKS_SEQ_FILE"
+
+# ----------------------------------------------------------------------------
+echo "[5] assert_log_match (powers backfill-triggered): pattern present / absent"
 function fetch_pod_logs { cat "${FIXTURES}/sample-logs-with-backfill.txt"; }
 if assert_log_match "block-node-1" "Received backfill" 300 >/dev/null 2>&1; then
     pass "log-match green ('Received backfill' present, 3 hits)"
@@ -155,7 +214,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-echo "[5] is_valid_block_number: rejects the no-blocks sentinel and out-of-range values"
+echo "[6] is_valid_block_number: rejects the no-blocks sentinel and out-of-range values"
 # Table-driven: one method for the whole equivalence class, per CLAUDE.md.
 # OK = accepted as a real block number, NO = rejected as "no blocks"/malformed.
 for tc in "0 OK" "1 OK" "513 OK" "9223372036854775806 OK" "9223372036854775807 OK" \

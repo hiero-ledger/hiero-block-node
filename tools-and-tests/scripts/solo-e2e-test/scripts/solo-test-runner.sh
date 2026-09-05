@@ -208,6 +208,7 @@ function execute_load_start {
     [[ -n "$max_tps" ]] && echo "  Max TPS: $max_tps"
 
     export DEPLOYMENT NAMESPACE
+    export NLG_TEST_TYPE="$test_class"
     export NLG_ARGS="$nlg_args"
     [[ -n "$max_tps" ]] && export NLG_MAX_TPS="$max_tps"
 
@@ -225,7 +226,21 @@ function execute_load_stop {
     echo "Stopping NLG: class=$test_class"
 
     export DEPLOYMENT NAMESPACE
+    export NLG_TEST_TYPE="$test_class"
     "${SCRIPT_DIR}/solo-load-generate.sh" stop
+
+    # Capture NLG's own self-reported output (TPS, precheck/BUSY rejections)
+    # AFTER stop, not before: `kubectl logs` on the NLG pod only ever shows its
+    # placeholder DONOTSTART container command (confirmed empirically — the
+    # real java process is launched via `kubectl exec` into that pod, which
+    # never becomes the container's own logged stdout, and --quiet-mode
+    # suppresses the exec's live output from this job's log too). The one real
+    # record is the diagnostics file `solo rapid-fire load stop` itself writes
+    # to ~/.solo/logs/rapid-fire-*.log once it detects the process it just
+    # stopped — which only exists *after* the stop call above, not before.
+    mkdir -p nlg-logs
+    cp "${HOME}/.solo/logs/"rapid-fire*.log nlg-logs/ 2>/dev/null || \
+        echo "No rapid-fire log file found under ${HOME}/.solo/logs/ after stop" > "nlg-logs/rapid-fire-log-missing.txt"
 }
 
 function execute_print_metrics {
@@ -641,7 +656,22 @@ function chaos_slug {
 function chaos_resource_name {
     local scenario_name="$1"
     local n="$(chaos_slug "${TEST_NAME}")--$(chaos_slug "${scenario_name}")"
-    echo "${n:0:63}"
+    echo "${n:0:63}" | sed 's/-*$//'
+}
+
+# Blocks until a NetworkChaos resource reports AllInjected=True, or fails fast
+# if Chaos Mesh reports it could not be injected. Without this check, a
+# silently-failed injection (e.g. webhook rejection, ipset/chaosd issue) looks
+# identical to "chaos had no observable effect" — this turns that into a
+# clear, immediate error instead of a confusing downstream assertion failure.
+function wait_for_networkchaos_injected {
+    local chaos_name="$1"
+    if ! kctl wait --for=condition=AllInjected "networkchaos/${chaos_name}" \
+            -n chaos-mesh --timeout=30s >/dev/null 2>&1; then
+        echo "ERROR: NetworkChaos '${chaos_name}' did not reach AllInjected within 30s"
+        kctl describe networkchaos -n chaos-mesh "${chaos_name}"
+        return 1
+    fi
 }
 
 function execute_inject_latency {
@@ -655,7 +685,7 @@ function execute_inject_latency {
     latency=$(echo "$args" | yq '.latency // "0ms"')
     jitter=$(echo "$args" | yq '.jitter // "0ms"')
     correlation=$(echo "$args" | yq '.correlation // "0"')
-    bidirectional=$(echo "$args" | yq '.bidirectional // true')
+    bidirectional=$(echo "$args" | yq 'if has("bidirectional") then .bidirectional else true end')
     loss=$(echo "$args" | yq '.loss // ""')
     loss="${loss//%/}"  # Chaos Mesh expects plain numeric string, not "50%"
 
@@ -751,6 +781,8 @@ function execute_inject_latency {
     fi
 
     echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
+
+    wait_for_networkchaos_injected "${chaos_name}"
 }
 
 function execute_clear_latency {
@@ -768,6 +800,133 @@ function execute_clear_latency {
         grep -vx "${chaos_name}" "${CHAOS_ACTIVE_FILE}" > "${CHAOS_ACTIVE_FILE}.new" 2>/dev/null || true
         mv -f "${CHAOS_ACTIVE_FILE}.new" "${CHAOS_ACTIVE_FILE}" 2>/dev/null || true
     fi
+}
+
+function execute_inject_bandwidth {
+    local args="$1"
+    local name source_kind source_name target_kind target_name rate limit buffer bidirectional direction_arg
+    name=$(echo "$args" | yq '.name // ""')
+    source_kind=$(echo "$args" | yq '.source.kind // ""')
+    source_name=$(echo "$args" | yq '.source.name // ""')
+    target_kind=$(echo "$args" | yq '.target.kind // ""')
+    target_name=$(echo "$args" | yq '.target.name // ""')
+    rate=$(echo "$args" | yq '.rate // "1mbps"')
+    limit=$(echo "$args" | yq '.limit // 1000000')
+    buffer=$(echo "$args" | yq '.buffer // 10000')
+    bidirectional=$(echo "$args" | yq '.bidirectional // false')
+    direction_arg=$(echo "$args" | yq '.direction // ""')
+
+    [[ -z "$name" || "$name" == "null" ]] && { echo "ERROR: inject-bandwidth requires args.name"; return 1; }
+    [[ -z "$source_kind" || "$source_kind" == "null" ]] && { echo "ERROR: inject-bandwidth requires args.source.kind"; return 1; }
+    [[ -z "$target_kind" || "$target_kind" == "null" ]] && { echo "ERROR: inject-bandwidth requires args.target.kind"; return 1; }
+
+    # Retry the CRD check — kubectl can return non-zero transiently after
+    # Chaos Mesh install (CRD propagation lag) or under cluster API-server load.
+    local crd_attempts=0
+    local crd_max=6
+    while [[ $crd_attempts -lt $crd_max ]]; do
+        if kctl api-resources --api-group=chaos-mesh.org -o name 2>/dev/null | grep -q networkchaos; then
+            break
+        fi
+        crd_attempts=$((crd_attempts + 1))
+        [[ $crd_attempts -lt $crd_max ]] && sleep 2
+    done
+    if [[ $crd_attempts -ge $crd_max ]]; then
+        echo "ERROR: Chaos Mesh CRDs not present after ${crd_max} retries. Run: CHAOS_ENABLED=true task chaos:install"
+        return 1
+    fi
+
+    local source_selector
+    source_selector=$(chaos_label_selector "$source_kind") || return 1
+    local source_key="${source_selector%%=*}" source_val="${source_selector#*=}"
+    local source_name_filter=""
+    local source_dryrun_selector="${source_selector}"
+    if [[ -n "${source_name}" && "${source_name}" != "null" ]]; then
+        source_dryrun_selector="${source_selector},app.kubernetes.io/instance=${source_name}"
+        source_name_filter="      app.kubernetes.io/instance: ${source_name}"
+    fi
+
+    if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
+            --selector "${source_dryrun_selector}" --label "source(${source_kind})"; then
+        return 1
+    fi
+
+    # "service" targets resolve to the Service's own ClusterIP and are passed
+    # as chaos-mesh's externalTargets (works only with direction=to), rather
+    # than a pod selector — required whenever the sender reaches the target
+    # via a k8s Service rather than its pod IP directly. See
+    # chaos-templates/README.md ("Targeting a Service") for why.
+    local target_block target_desc
+    if [[ "${target_kind}" == "service" ]]; then
+        [[ -z "${target_name}" || "${target_name}" == "null" ]] && \
+            { echo "ERROR: inject-bandwidth target.kind=service requires args.target.name"; return 1; }
+        local target_cluster_ip
+        target_cluster_ip=$(kctl get svc "${target_name}" -n "${NAMESPACE}" -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+        if [[ -z "${target_cluster_ip}" || "${target_cluster_ip}" == "None" ]]; then
+            echo "ERROR: could not resolve ClusterIP for service '${target_name}' in ns=${NAMESPACE}"
+            return 1
+        fi
+        echo "target(service): resolved '${target_name}' -> externalTargets: ${target_cluster_ip}"
+        target_block=$(printf '  externalTargets:\n    - %s' "${target_cluster_ip}")
+        target_desc="service/${target_name} (externalTargets: ${target_cluster_ip})"
+    else
+        local target_selector
+        target_selector=$(chaos_label_selector "$target_kind") || return 1
+        local target_key="${target_selector%%=*}" target_val="${target_selector#*=}"
+        local target_name_filter=""
+        local target_dryrun_selector="${target_selector}"
+        if [[ -n "${target_name}" && "${target_name}" != "null" ]]; then
+            target_dryrun_selector="${target_selector},app.kubernetes.io/instance=${target_name}"
+            target_name_filter="        app.kubernetes.io/instance: ${target_name}"
+        fi
+        if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
+                --selector "${target_dryrun_selector}" --label "target(${target_kind})"; then
+            return 1
+        fi
+        target_block=$(printf '  target:\n    mode: all\n    selector:\n      namespaces:\n        - %s\n      labelSelectors:\n        %s: %s\n%s' \
+            "${NAMESPACE}" "${target_key}" "${target_val}" "${target_name_filter}")
+        target_desc="${target_key}=${target_val}${target_name:+,instance=${target_name}}"
+    fi
+
+    local chaos_name direction
+    chaos_name=$(chaos_resource_name "${name}")
+
+    if [[ -n "${direction_arg}" && "${direction_arg}" != "null" ]]; then
+        direction="${direction_arg}"
+    elif [[ "${bidirectional}" == "true" ]]; then
+        direction="both"
+    else
+        direction="to"
+    fi
+
+    local manifest="/tmp/${chaos_name}.yaml"
+    export CHAOS_NAME="${chaos_name}"
+    export TEST_ID="$(chaos_slug "${TEST_NAME}")"
+    export SCENARIO_ID="$(chaos_slug "${name}")"
+    export DIRECTION="${direction}"
+    export TARGET_NAMESPACE="${NAMESPACE}"
+    export SOURCE_LABEL_KEY="${source_key}"
+    export SOURCE_LABEL_VALUE="${source_val}"
+    export SOURCE_NAME_FILTER="${source_name_filter}"
+    export TARGET_BLOCK="${target_block}"
+    export BANDWIDTH_RATE="${rate}"
+    export BANDWIDTH_LIMIT="${limit}"
+    export BANDWIDTH_BUFFER="${buffer}"
+
+    envsubst < "${CHAOS_TEMPLATE_DIR}/network-bandwidth.yaml.tmpl" > "${manifest}"
+
+    echo "Applying NetworkChaos '${chaos_name}'"
+    echo "  selector: ${source_key}=${source_val}${source_name:+,instance=${source_name}}  ->  target: ${target_desc}"
+    echo "  bandwidth: ${rate} (limit: ${limit}, buffer: ${buffer}, direction: ${direction})"
+
+    if ! kctl apply -f "${manifest}"; then
+        echo "ERROR: Failed to apply NetworkChaos manifest '${chaos_name}'"
+        return 1
+    fi
+
+    echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
+
+    wait_for_networkchaos_injected "${chaos_name}"
 }
 
 # ============================================================================
@@ -865,6 +1024,12 @@ function execute_event {
             execute_inject_latency "$args"
             ;;
         clear-latency)
+            execute_clear_latency "$args"
+            ;;
+        inject-bandwidth)
+            execute_inject_bandwidth "$args"
+            ;;
+        clear-bandwidth)
             execute_clear_latency "$args"
             ;;
         *)
@@ -1639,6 +1804,13 @@ function run_assertion {
             brf_min=$(echo "$args" | yq '.min_rate_per_sec // 0')
             brf_window=$(echo "$args" | yq '.window_seconds // 30')
             assert_block_rate_floor "$target" "$brf_min" "$brf_window"
+            ;;
+        avg-block-size-floor)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local absf_min absf_window
+            absf_min=$(echo "$args" | yq '.min_bytes // 0')
+            absf_window=$(echo "$args" | yq '.window_seconds // 30')
+            assert_avg_block_size_floor "$target" "$absf_min" "$absf_window"
             ;;
         backfill-triggered)
             [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')

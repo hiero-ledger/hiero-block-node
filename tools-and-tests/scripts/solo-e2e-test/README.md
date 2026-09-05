@@ -235,6 +235,7 @@ cp .env.example .env
 | `NLG_ARGS`               | `-c 5 -a 10 -tt 300`     | NLG arguments (-c concurrency, -a accounts, -tt duration)            |
 | `NLG_MAX_TPS`            | (empty)                  | Optional max transactions per second                                 |
 | `MIRROR_NODE_PINGER_TPS` | `5`                      | Mirror Node pinger TPS (0 to disable, CI only)                       |
+| `RECORD_STREAM_LOG_PERIOD_SECONDS` | `1`            | CN block-cutting cadence in seconds (`hedera.recordStream.logPeriod`) |
 | `ENABLE_LOCAL_METRICS`   | `false`                  | Enable Prometheus+Grafana stack locally                              |
 | `TEST_FILE`              | `none`                   | Test definition file for `task test:run`                             |
 | `TCK_SDK_DIR`            | `sdk-tck`                | Directory for TCK-SDK repositories                                   |
@@ -720,6 +721,7 @@ assertions:                      # Validations to run after all events
 | `rsa-roster-verification` | Verify blocks accepted via the RSA roster (WRB), no RSA failures | `min_rsa_success`                                          |
 | `metric-threshold`        | Compare any BN Prometheus metric                                 | `metric`, `comparator`, `value`, `samples`, `wait_seconds` |
 | `block-rate-floor`        | Assert Δblocks/Δtime ≥ floor                                     | `min_rate_per_sec`, `window_seconds`                       |
+| `avg-block-size-floor`    | Assert Δ`blocknode_files_recent_total_bytes_stored`/Δ`blocknode_files_recent_blocks_written_total` ≥ floor | `min_bytes`, `window_seconds`  |
 | `backfill-triggered`      | Assert backfill log marker observed                              | `grep` (default `"backfill"`), `since_seconds`             |
 | `log-match`               | Generic log-substring check                                      | `grep`, `since_seconds`                                    |
 | `archive-files-exist`     | Verify an S3 archive bucket has (or gained) objects              | `bucket`, `min_files`, `min_increase`                      |

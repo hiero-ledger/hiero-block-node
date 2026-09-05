@@ -81,8 +81,12 @@ on:
         description: "Mirror Node pinger TPS (0 to disable)"
         type: string
         default: "5"
+      record-stream-log-period-seconds:
+        description: "CN record-stream log period in seconds (block-cutting cadence). Production default is 2."
+        type: string
+        default: "1"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe, bandwidth-lag, bandwidth-lag-severe, bandwidth-lag-stress"
         type: string
         default: "none"
     outputs:
@@ -203,8 +207,12 @@ on:
         description: "Mirror Node pinger TPS (0 to disable)"
         required: false
         default: "5"
+      record-stream-log-period-seconds:
+        description: "CN record-stream log period in seconds (block-cutting cadence). Production default is 2."
+        required: false
+        default: "1"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe, bandwidth-lag, bandwidth-lag-severe, bandwidth-lag-stress"
         required: false
         default: "none"
 
@@ -232,6 +240,9 @@ env:
   # Read by solo-setup-cluster.sh / solo-deploy-network.sh to skip the minimum-version
   # check when a custom fork/branch build is in use.
   SOLO_SOURCE: ${{ inputs.solo-source }}
+  # Read by solo-deploy-network.sh's generate_cn_application_properties to set
+  # hedera.recordStream.logPeriod (the CN block-cutting cadence).
+  RECORD_STREAM_LOG_PERIOD_SECONDS: ${{ inputs.record-stream-log-period-seconds }}
 
 jobs:
   solo-test-deploy:
@@ -585,7 +596,7 @@ jobs:
       # Chaos Mesh CRDs in the cluster. solo-test-runner only checks for the CRDs (it does not install them),
       # so install Chaos Mesh when a chaos/latency test is selected. No-op for every other run.
       - name: Install Chaos Mesh (chaos/latency tests only)
-        if: ${{ contains(inputs.test-definition, 'chaos') || contains(inputs.test-definition, 'latency') }}
+        if: ${{ contains(inputs.test-definition, 'chaos') || contains(inputs.test-definition, 'latency') || contains(inputs.test-definition, 'bandwidth') }}
         run: |
           if kubectl api-resources --api-group=chaos-mesh.org -o name 2>/dev/null | grep -q networkchaos; then
             echo "Chaos Mesh CRDs already present, skipping install"
@@ -1149,6 +1160,15 @@ jobs:
           name: MN-logs-${{ inputs.topology }}
           path: mn-logs/
 
+      - name: Upload NLG Logs
+        if: always()
+        continue-on-error: true
+        id: upload_logs_nlg
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: NLG-logs-${{ inputs.topology }}
+          path: nlg-logs/
+
       - name: Add Logs and Status to Summary
         if: always()
         continue-on-error: true
@@ -1161,6 +1181,7 @@ jobs:
             echo "| Block Node | [BN-logs](${{ steps.upload_logs_bn.outputs.artifact-url }}) |"
             echo "| Mirror Node | [MN-logs](${{ steps.upload_logs_mn.outputs.artifact-url }}) |"
             echo "| Consensus Node | [CN-logs](${{ steps.upload_logs_cn.outputs.artifact-url }}) |"
+            echo "| Load Generator | [NLG-logs](${{ steps.upload_logs_nlg.outputs.artifact-url }}) |"
             echo ""
 
             # Test Results Matrix (if tests were run)
