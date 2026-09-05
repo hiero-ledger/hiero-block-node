@@ -146,3 +146,11 @@ assertions:
     args:
       min_rate_per_sec: 0.1
       window_seconds: 30
+
+  - id: avg-block-size
+    type: avg-block-size-floor
+    description: "Real avg bytes/block from files_recent_total_bytes_stored ÷ files_recent_blocks_written over the recovery window (diagnostic: min_bytes is a sanity floor, not a tuned expectation — read the printed value to see whether this load's blocks are actually big enough to stress the bandwidth cap)"
+    target: all
+    args:
+      min_bytes: 1000
+      window_seconds: 30
