@@ -20,3 +20,9 @@ resources:
 blockNode:
   config:
     JAVA_OPTS: '-Xms8G -Xmx16G -XX:MaxDirectMemorySize=2G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+    # Solo's --block-node-tss-overlay hardcodes this to 37748736 (36 MiB),
+    # sized only for a single WRAPS item, not a whole block's cumulative
+    # bytes (PR #3555 enforces the latter) -- rejects the real ~63MB TSS
+    # transition block. Restores BN's own chart default. Fixed upstream in
+    # solo#5941; remove once that's released and picked up here.
+    SERVER_MAX_MESSAGE_SIZE_BYTES: "131072000"
