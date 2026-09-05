@@ -20,19 +20,19 @@
 # the base tier's 10mbit/s) a real block was never at risk of missing CN's
 # send timeout, which is consistent with this tier's history: every run
 # recovered. 4mbit/s is a first exploratory step tighter, still well above
-# the ~0.5 Mbit/s floor below which earlier kbit/s-scale rates always hit the
-# permanent reconnect deadlock (see finding 005 below), but tight enough to
-# meaningfully increase aggregate queuing pressure and give a real data point
-# between the always-recovers 10mbit/s tier and the edge-seeking 2mbit/s
-# severe tier.
+# the ~0.5 Mbit/s floor below which earlier kbit/s-scale rates always hit a
+# permanent CN<->BN reconnect deadlock (BN rejects a resumed stream as
+# out-of-range and neither side re-syncs to a valid resume point), but tight
+# enough to meaningfully increase aggregate queuing pressure and give a real
+# data point between the always-recovers 10mbit/s tier and the edge-seeking
+# 1mbit/s severe tier.
 #
-# Known issue this rate is chosen to stay above:
-# agent/proposals/solo-chaos-spike/findings/005-cn-bn-reconnect-deadlock-after-bandwidth-starvation.md
-# (local, not committed) — a cap tight enough that a single block can't
-# transfer within CN's send timeout can permanently deadlock the connection,
-# so blocks-converged/blocks-increasing/block-rate-floor fail indefinitely
-# rather than just needing more time. Not yet confirmed this rate avoids it —
-# retune based on the next CI run's actual result.
+# Known issue this rate is chosen to stay above: a bandwidth cap tight enough
+# that a single block can't transfer within CN's send timeout can permanently
+# deadlock the connection, so blocks-converged/blocks-increasing/
+# block-rate-floor fail indefinitely rather than just needing more time. Not
+# yet confirmed this rate avoids it — retune based on the next CI run's
+# actual result.
 #
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
 #

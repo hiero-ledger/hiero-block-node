@@ -44,11 +44,12 @@
 #   do produce (9-26 blocks, reliably) comes from aggregate queuing across the
 #   CN + peer streams sharing one capped pipe, not a single block timing out.
 #   Earlier revisions of this test used kbit/s-scale rates (50-500kbit/s) and
-#   those ALWAYS hit the permanent reconnect deadlock in finding 005 below,
-#   regardless of the specific value in that range — so the real, still
-#   largely-unexplored transition zone sits somewhere between ~0.5 Mbit/s
+#   those ALWAYS hit a permanent CN<->BN reconnect deadlock (BN rejects a
+#   resumed stream as out-of-range and neither side re-syncs to a valid
+#   resume point), regardless of the specific value in that range — so the
+#   real, still largely-unexplored transition zone sits somewhere between ~0.5 Mbit/s
 #   (always deadlocks) and ~7 Mbit/s (always recovers). This retier
-#   (10/4/2 mbit/s for lag/stress/severe) is a first exploratory step into
+#   (10/4/1 mbit/s for lag/stress/severe) is a first exploratory step into
 #   that zone: still comfortably above the 0.5mbit/s always-deadlocks floor,
 #   but meaningfully tighter than the old 15/9/7mbit/s values so severe in
 #   particular has a real chance of finding where recovery starts to fail.
@@ -58,7 +59,7 @@
 #   drive much higher TPS and/or bigger-payload transaction types during the
 #   chaos window itself — if that lands, real block sizes (and therefore
 #   these tier rates) will likely change again and need re-tuning. Treat the
-#   10/4/2mbit/s values here as the current best estimate for today's load
+#   10/4/1mbit/s values here as the current best estimate for today's load
 #   profile, not a final answer.
 #
 # Assertions:
