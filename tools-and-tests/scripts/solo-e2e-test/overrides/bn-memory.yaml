@@ -26,3 +26,11 @@ blockNode:
     # transition block. Restores BN's own chart default. Fixed upstream in
     # solo#5941; remove once that's released and picked up here.
     SERVER_MAX_MESSAGE_SIZE_BYTES: "131072000"
+  # Temporary: bumps org.hiero.block logging to FINEST to correlate per-block
+  # write timing (live vs. backfill) for the base-tier avg-block-size
+  # investigation. `logs` is a sibling of `config`, not nested under it.
+  # Remove once done.
+  logs:
+    level: "INFO"
+    loggingProperties:
+      org.hiero.block.level: "FINEST"
