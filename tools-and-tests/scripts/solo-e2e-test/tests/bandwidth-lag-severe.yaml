@@ -160,7 +160,7 @@ assertions:
 
   - id: avg-block-size
     type: avg-block-size-floor
-    description: "Real avg bytes/block from files_recent_total_bytes_stored ÷ files_recent_blocks_written over the recovery window (diagnostic: min_bytes is a sanity floor, not a tuned expectation — read the printed value to see whether this load's blocks are actually big enough to stress the bandwidth cap)"
+    description: "Real avg bytes/block from files_recent_total_bytes_stored ÷ files_recent_blocks_written over the recovery window (diagnostic: min_bytes is a sanity floor, not a tuned expectation. Block size varies by TSS phase: steady-state blocks run small (~35KB), the one-time Schnorr->WRAPS transition block is a large single-item outlier (tens of MB, uncompressed), and every block after that carries a compressed TSS proof and runs meaningfully bigger than pre-transition steady-state (measured ~870-930KB/block) -- a big jump in the printed value after the transition is expected, not a red flag)"
     target: all
     args:
       min_bytes: 1000
