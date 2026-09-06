@@ -27,7 +27,7 @@
 #   were calibrated against a ~35-40 KB/block measurement that turned out to
 #   be ~2000x smaller than real content at production scale. A real block
 #   sample (10k-TPS network, well after genesis -- i.e. steady-state
-#   "z"-phase: post-TSS-transition, compressed proof, not the one-time
+#   post-TSS-transition steady state: compressed proof, not the one-time
 #   transition block itself) measures 69,323,814 bytes uncompressed. Since
 #   CN does not compress bytes on the wire today (planned for a future
 #   release, ~v0.79), that uncompressed figure is the wire-relevant size.
@@ -42,12 +42,12 @@
 #   well-provisioned link, not an edge case. See bandwidth-lag-stress.yaml
 #   (300mbit/s, production's own "viable" cutoff) and bandwidth-lag-severe.yaml
 #   (150mbit/s, below production's own "too low" cutoff -- structurally
-#   cannot sustain live z-phase ingest) for the tighter tiers.
+#   cannot sustain live post-transition-scale ingest) for the tighter tiers.
 #   Important caveat: this test's own NLG-generated content is still light-load
 #   (concurrency/accounts below), so its actual block size stays far below the
-#   real z sample used to derive this rate -- these rates constrain real
+#   real post-transition block sample used to derive this rate -- these rates constrain real
 #   mainnet-scale content, not what this specific test run currently produces.
-#   Getting real z-sized content flowing through this test (rather than just
+#   Getting real post-transition-sized content flowing through this test (rather than just
 #   documenting the target rate) is a separate, in-progress effort.
 #
 # Assertions:

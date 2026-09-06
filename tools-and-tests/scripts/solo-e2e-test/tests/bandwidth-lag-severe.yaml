@@ -18,13 +18,13 @@
 # and the light-load-vs-real-content history this supersedes (old tiers:
 # 7/2/1 mbit/s, all derived from a ~35-40 KB/block measurement that turned
 # out to be ~2000x smaller than real production content). Using a real block
-# sample (10k-TPS network, steady-state "z"-phase, post-TSS-transition):
+# sample (10k-TPS network, post-TSS-transition steady state (compressed proof)):
 # 69,323,814 bytes uncompressed, wire-relevant since CN doesn't compress on
 # the wire today. Sustained-need floor at 0.5 blk/s: ~277.3 Mbit/s. 150mbit/s
 # is below production's own actual "too low" routing cutoff (<225 Mbit/s,
 # from a separate network-measurement effort) -- only ~0.54x of the 277.3
-# Mbit/s floor, meaning BN structurally cannot keep up with live z-phase
-# ingest at this rate. This is a genuinely real-world-grounded "this link is
+# Mbit/s floor, meaning BN structurally cannot keep up with live
+# post-transition-scale ingest at this rate. This is a genuinely real-world-grounded "this link is
 # inadequate" scenario, not a synthetic edge probe.
 #
 # Note this is a DIFFERENT mechanism than the permanent CN<->BN reconnect
@@ -49,9 +49,9 @@
 # solo#5941 is live here first.
 #
 # Important caveat: this test's own NLG-generated content is still light-load,
-# so its actual block size stays far below the real z sample used to derive
+# so its actual block size stays far below the real post-transition block sample used to derive
 # this rate -- this rate constrains real mainnet-scale content, not what this
-# specific test run currently produces. Getting real z-sized content flowing
+# specific test run currently produces. Getting real post-transition-sized content flowing
 # through this test is a separate, in-progress effort.
 #
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
@@ -79,7 +79,7 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 150mbit/s (direction=to, target=service/block-node-1) — below production's real-world 'too low' cutoff, structurally insufficient for live z-phase content"
+    description: "Cap CN's egress to BN1's Service at 150mbit/s (direction=to, target=service/block-node-1) — below production's real-world 'too low' cutoff, structurally insufficient for real post-transition-scale content"
     delay: 30
     args:
       name: cn-to-bn1-bw-severe
