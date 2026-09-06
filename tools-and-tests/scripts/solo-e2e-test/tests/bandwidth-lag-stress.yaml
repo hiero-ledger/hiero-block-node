@@ -1,38 +1,38 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 4mbit/s
+# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 300mbit/s
 #
-# Stress tier of the bandwidth-lag failure mode family: "significant but
-# manageable" — a heavier constraint than the base bandwidth-lag tier, but
-# still meant to recover, not permanently deadlock. See bandwidth-lag-severe
-# for the tier meant to sit at the edge of breaking.
+# Stress tier of the bandwidth-lag failure mode family: "right at production's
+# own edge of viable" — a heavier constraint than the base bandwidth-lag
+# tier, but still meant to mostly recover, with real measurable strain. See
+# bandwidth-lag-severe for the tier meant to sit below production's own
+# "too low to use" cutoff.
 #
 # See ../scripts/chaos-templates/README.md for why this test uses "mbit" (not
 # "mbps") and target: { kind: service } (not a pod selector) — both gotchas
 # cost real debugging time and are easy to get wrong when tuning further.
 #
-# Rate rationale (4mbit/s): see bandwidth-lag.yaml for the full derivation.
-# The old 9mbit/s value was derived from an assumed ~2.1 MB block; the
-# avg-block-size-floor assertion now shows a real block is ~35-40 KB, ~55-60x
-# smaller, putting the real per-request-timeout floor at ~0.11 Mbit/s and the
-# sustained-need floor at ~0.14 Mbit/s (see bandwidth-lag.yaml) — not the
-# 6.8-8.5 Mbit/s this tier was originally tuned against. At 9mbit/s (or even
-# the base tier's 10mbit/s) a real block was never at risk of missing CN's
-# send timeout, which is consistent with this tier's history: every run
-# recovered. 4mbit/s is a first exploratory step tighter, still well above
-# the ~0.5 Mbit/s floor below which earlier kbit/s-scale rates always hit a
-# permanent CN<->BN reconnect deadlock (BN rejects a resumed stream as
-# out-of-range and neither side re-syncs to a valid resume point), but tight
-# enough to meaningfully increase aggregate queuing pressure and give a real
-# data point between the always-recovers 10mbit/s tier and the edge-seeking
-# 1mbit/s severe tier.
+# Rate rationale (300mbit/s): see bandwidth-lag.yaml for the full derivation
+# and the light-load-vs-real-content history this supersedes (old tiers:
+# 9mbit/s, then 4mbit/s -- both derived from a ~35-40 KB/block measurement
+# that turned out to be ~2000x smaller than real production content).
+# Using a real block sample (10k-TPS network, steady-state "z"-phase,
+# post-TSS-transition): 69,323,814 bytes uncompressed, wire-relevant since CN
+# doesn't compress on the wire today. Sustained-need floor at 0.5 blk/s:
+# ~277.3 Mbit/s -- the first time this floor has landed in the same range as
+# real observed CN<->BN link bandwidths. 300mbit/s is not an arbitrary
+# midpoint -- it is production's own actual routing-viability cutoff
+# (a separate network-measurement effort found >300 Mbit/s used as "viable"
+# and <225 Mbit/s as "too low" when deciding real BN failover paths). That
+# gives only ~1.08x margin above the 277.3 Mbit/s floor -- thin but real,
+# genuinely testing "does BN survive right at the edge of what production
+# itself considers an acceptable link," not a synthetic midpoint.
 #
-# Known issue this rate is chosen to stay above: a bandwidth cap tight enough
-# that a single block can't transfer within CN's send timeout can permanently
-# deadlock the connection, so blocks-converged/blocks-increasing/
-# block-rate-floor fail indefinitely rather than just needing more time. Not
-# yet confirmed this rate avoids it — retune based on the next CI run's
-# actual result.
+# Important caveat: this test's own NLG-generated content is still light-load,
+# so its actual block size stays far below the real z sample used to derive
+# this rate -- this rate constrains real mainnet-scale content, not what this
+# specific test run currently produces. Getting real z-sized content flowing
+# through this test is a separate, in-progress effort.
 #
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
 #
@@ -44,7 +44,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-stress.yaml
 
 name: bandwidth-lag-stress
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (4mbit/s) — significant-but-manageable stress tier"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (300mbit/s) — significant-but-manageable stress tier"
 
 events:
   - id: load-start
@@ -58,26 +58,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 4mbit/s (direction=to, target=service/block-node-1) — degrades BN1's ingest significantly below block production rate"
+    description: "Cap CN's egress to BN1's Service at 300mbit/s (direction=to, target=service/block-node-1) — degrades BN1's ingest significantly below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw-stress
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "4mbit"
+      rate: "300mbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 4mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 300mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-stress
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "4mbit"
+      rate: "300mbit"
       limit: 3000000
       buffer: 10000
       direction: to
