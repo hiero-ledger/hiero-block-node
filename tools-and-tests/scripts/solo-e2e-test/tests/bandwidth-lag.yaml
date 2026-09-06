@@ -7,10 +7,10 @@
 # so lag grows monotonically until chaos clears.
 #
 # Design:
-#   - CN→BN1 is capped at 10mbit/s, shaped on the CN sender's own egress
+#   - CN→BN1 is capped at 500mbit/s, shaped on the CN sender's own egress
 #     (direction=to), targeting BN1's k8s Service (target: { kind: service,
 #     name: block-node-1 }) rather than its pod IP.
-#   - All BN peers→BN1 are also capped at 10mbit/s the same way, so greedy
+#   - All BN peers→BN1 are also capped at 500mbit/s the same way, so greedy
 #     backfill cannot instantly neutralise the ingest cap during chaos.
 #   - BN2 and BN3 receive no throttle — they serve as the reference nodes that
 #     advance at full speed, making the spread measurable.
@@ -21,46 +21,34 @@
 # distinction — all three cost real debugging time and are easy to get wrong
 # when tuning this test further.
 #
-# Rate rationale (10mbit/s — this is the "minimal constraint" tier of the
+# Rate rationale (500mbit/s -- "healthy real-world link" tier of the
 # bandwidth-lag family; see -stress and -severe for tighter tiers):
-#   Block-size history: this test originally assumed ~100 KB blocks, then was
-#   revised to an assumed ~2.1 MB based on early CI observation. Neither
-#   assumption was measured directly — the avg-block-size-floor assertion
-#   (in bandwidth-lag-severe.yaml) now reads the real value straight off BN
-#   metrics (files_recent_total_bytes_stored / files_recent_blocks_written_total),
-#   and two clean CI samples (runs 33265848789, 33269987877) both landed at
-#   ~35-40 KB/block — ~55-60x smaller than the ~2.1 MB the 15/9/7mbit/s tiers
-#   below were originally derived from. Recomputing with the real number, at
-#   0.5 blk/s and CN's ~2.5s per-request send timeout:
-#     - sustained-need floor = block_bytes × 8 × blk_rate ≈ 35KB × 8 × 0.5
-#       ≈ 0.14 Mbit/s
-#     - per-request timeout floor = block_bytes × 8 ÷ timeout_s ≈ 35KB × 8 ÷ 2.5
-#       ≈ 0.11 Mbit/s
-#   The old 15/9/7mbit/s tiers sat 50-100x above these real floors — none of
-#   them could ever make a single block miss CN's send timeout, which is why
-#   every bandwidth-lag-severe run on record (6+ runs) fully recovered
-#   (blocks-converged always passed): the tier never actually reached "the
-#   edge of breaking point" its rationale claimed. The divergence these tiers
-#   do produce (9-26 blocks, reliably) comes from aggregate queuing across the
-#   CN + peer streams sharing one capped pipe, not a single block timing out.
-#   Earlier revisions of this test used kbit/s-scale rates (50-500kbit/s) and
-#   those ALWAYS hit a permanent CN<->BN reconnect deadlock (BN rejects a
-#   resumed stream as out-of-range and neither side re-syncs to a valid
-#   resume point), regardless of the specific value in that range — so the
-#   real, still largely-unexplored transition zone sits somewhere between ~0.5 Mbit/s
-#   (always deadlocks) and ~7 Mbit/s (always recovers). This retier
-#   (10/4/1 mbit/s for lag/stress/severe) is a first exploratory step into
-#   that zone: still comfortably above the 0.5mbit/s always-deadlocks floor,
-#   but meaningfully tighter than the old 15/9/7mbit/s values so severe in
-#   particular has a real chance of finding where recovery starts to fail.
-#   Caveat: the ~35-40 KB numbers above were measured under a fairly light
-#   load (~5 NLG clients, 10 accounts, CryptoTransferLoadTest, 5 TPS
-#   mirror-pinger) at logPeriod=1s. A separate effort is investigating how to
-#   drive much higher TPS and/or bigger-payload transaction types during the
-#   chaos window itself — if that lands, real block sizes (and therefore
-#   these tier rates) will likely change again and need re-tuning. Treat the
-#   10/4/1mbit/s values here as the current best estimate for today's load
-#   profile, not a final answer.
+#   Superseding the earlier light-load-derived tiers (10/4/1 mbit/s), which
+#   were calibrated against a ~35-40 KB/block measurement that turned out to
+#   be ~2000x smaller than real content at production scale. A real block
+#   sample (10k-TPS network, well after genesis -- i.e. steady-state
+#   "z"-phase: post-TSS-transition, compressed proof, not the one-time
+#   transition block itself) measures 69,323,814 bytes uncompressed. Since
+#   CN does not compress bytes on the wire today (planned for a future
+#   release, ~v0.79), that uncompressed figure is the wire-relevant size.
+#   At 0.5 blk/s: sustained-need floor = 69,323,814 x 8 x 0.5 ~= 277.3 Mbit/s
+#   -- the first time this floor has landed in the same range as real
+#   observed CN<->BN link bandwidths (a separate network-measurement effort
+#   found 150-510 Mbit/s typical cross-region, 53-156 Mbit/s worst-case real
+#   outliers, and >300/<225 Mbit/s as the actual production cutoffs used to
+#   decide whether a link is viable for BN routing).
+#   500mbit/s sits at the high end of that "typical, healthy" range -- ~1.8x
+#   margin above the 277.3 Mbit/s floor -- deliberately representing a
+#   well-provisioned link, not an edge case. See bandwidth-lag-stress.yaml
+#   (300mbit/s, production's own "viable" cutoff) and bandwidth-lag-severe.yaml
+#   (150mbit/s, below production's own "too low" cutoff -- structurally
+#   cannot sustain live z-phase ingest) for the tighter tiers.
+#   Important caveat: this test's own NLG-generated content is still light-load
+#   (concurrency/accounts below), so its actual block size stays far below the
+#   real z sample used to derive this rate -- these rates constrain real
+#   mainnet-scale content, not what this specific test run currently produces.
+#   Getting real z-sized content flowing through this test (rather than just
+#   documenting the target rate) is a separate, in-progress effort.
 #
 # Assertions:
 #   blocks-diverged  min_spread=5   — conservative starting point for this
@@ -78,7 +66,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag.yaml
 
 name: bandwidth-lag
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (10mbit/s) — cumulative-lag production failure mode (minimal-constraint tier)"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (500mbit/s) — cumulative-lag production failure mode (minimal-constraint tier)"
 
 events:
   - id: load-start
@@ -92,26 +80,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 10mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
+    description: "Cap CN's egress to BN1's Service at 500mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "10mbit"
+      rate: "500mbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 10mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 500mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "10mbit"
+      rate: "500mbit"
       limit: 3000000
       buffer: 10000
       direction: to

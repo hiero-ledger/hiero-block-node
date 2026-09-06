@@ -1,28 +1,39 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 1mbit/s
+# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 150mbit/s
 #
-# Severe tier of the bandwidth-lag failure mode family: the tightest cap,
-# aimed at genuinely probing a permanent CN<->BN reconnect deadlock (BN
-# rejects a resumed stream as out-of-range and neither side re-syncs to a
-# valid resume point) rather than just sitting near it. See bandwidth-lag.yaml
-# (minimal constraint, 10mbit/s) and bandwidth-lag-stress.yaml (significant
-# but manageable, 4mbit/s) for the milder tiers.
+# Severe tier of the bandwidth-lag failure mode family: below production's own
+# "too low to use" cutoff -- a link real production routing logic would
+# refuse to use, genuinely testing what happens when BN's ingest link is
+# structurally insufficient for real mainnet-scale content. See
+# bandwidth-lag.yaml (healthy real-world link, 500mbit/s) and
+# bandwidth-lag-stress.yaml (production's own "viable" cutoff, 300mbit/s) for
+# the milder tiers.
 #
 # See ../scripts/chaos-templates/README.md for why this test uses "mbit" (not
 # "mbps") and target: { kind: service } (not a pod selector) — both gotchas
 # cost real debugging time and are easy to get wrong when tuning further.
 #
-# Rate rationale (1mbit/s): real steady-state block size is ~35 KB/block
-# (measured directly off BN's files_recent_* metrics), giving a sustained-need
-# floor of ~0.14 Mbit/s and a per-request-timeout floor of ~0.11 Mbit/s — both
-# far below any rate in this tier family. The actual breaking point in this
-# family is the permanent reconnect deadlock described above, historically
-# triggered below ~0.5 Mbit/s and never triggered at >=7 Mbit/s. 1mbit/s sits
-# deliberately inside that still-largely-unexplored 0.5-7 Mbit/s zone, closer
-# to the deadlock floor than bandwidth-lag-stress.yaml's 4mbit/s, to actually
-# probe the edge rather than assume a rate is already safely inside "always
-# recovers."
+# Rate rationale (150mbit/s): see bandwidth-lag.yaml for the full derivation
+# and the light-load-vs-real-content history this supersedes (old tiers:
+# 7/2/1 mbit/s, all derived from a ~35-40 KB/block measurement that turned
+# out to be ~2000x smaller than real production content). Using a real block
+# sample (10k-TPS network, steady-state "z"-phase, post-TSS-transition):
+# 69,323,814 bytes uncompressed, wire-relevant since CN doesn't compress on
+# the wire today. Sustained-need floor at 0.5 blk/s: ~277.3 Mbit/s. 150mbit/s
+# is below production's own actual "too low" routing cutoff (<225 Mbit/s,
+# from a separate network-measurement effort) -- only ~0.54x of the 277.3
+# Mbit/s floor, meaning BN structurally cannot keep up with live z-phase
+# ingest at this rate. This is a genuinely real-world-grounded "this link is
+# inadequate" scenario, not a synthetic edge probe.
+#
+# Note this is a DIFFERENT mechanism than the permanent CN<->BN reconnect
+# deadlock (BN rejects a resumed stream as out-of-range and neither side
+# re-syncs to a valid resume point) documented in earlier revisions of this
+# tier -- that deadlock was only ever triggered at kbit/s-scale rates
+# (below ~0.5 Mbit/s), far below anything in this tier family post-retune.
+# This tier now tests sustained cumulative lag under a real-world-inadequate
+# link, not that separate low-rate deadlock.
 #
 # Separately: this topology also exercises the TSS Schnorr->WRAPS signature
 # transition block (a one-time ~63 MB block, unrelated to the steady-state
@@ -37,10 +48,11 @@
 # unrelated to that fix -- don't remove the workaround without confirming
 # solo#5941 is live here first.
 #
-# If this tier reproduces the permanent-stall behavior (blocks-converged/
-# blocks-increasing/block-rate-floor failing indefinitely, not just slowly),
-# that's the deadlock edge; loosen slightly and re-run to bracket it rather
-# than assuming a fluke.
+# Important caveat: this test's own NLG-generated content is still light-load,
+# so its actual block size stays far below the real z sample used to derive
+# this rate -- this rate constrains real mainnet-scale content, not what this
+# specific test run currently produces. Getting real z-sized content flowing
+# through this test is a separate, in-progress effort.
 #
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
 #
@@ -52,7 +64,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-severe.yaml
 
 name: bandwidth-lag-severe
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (1mbit/s) — edge-of-breaking-point tier, probing toward the permanent CN<->BN reconnect-deadlock floor"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (150mbit/s) — below production's own real-world 'too low to use' cutoff"
 
 events:
   - id: load-start
@@ -67,26 +79,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 1mbit/s (direction=to, target=service/block-node-1) — edge-of-breaking-point tier"
+    description: "Cap CN's egress to BN1's Service at 150mbit/s (direction=to, target=service/block-node-1) — below production's real-world 'too low' cutoff, structurally insufficient for live z-phase content"
     delay: 30
     args:
       name: cn-to-bn1-bw-severe
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "1mbit"
+      rate: "150mbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 1mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 150mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-severe
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "1mbit"
+      rate: "150mbit"
       limit: 3000000
       buffer: 10000
       direction: to
