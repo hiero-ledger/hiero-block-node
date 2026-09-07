@@ -71,12 +71,13 @@ description: "CN→BN1 + BN-peers→BN1 bandwidth cap (500mbit/s) — cumulative
 events:
   - id: load-start
     type: load-start
-    description: "Start NLG load"
+    description: "Start NLG load with max_tps set explicitly: NLG's real throughput ceiling is one of two JVM properties -- -Dbenchmark.maxtps (this --max-tps flag, fully controllable) or the unexposed -Dbenchmark.tps AdaptiveQueue default (20000, no solo flag or chart value reaches it, own real-time self-scaling not independently verified). Setting max_tps forces the simple RateLimitedQueue path instead, to test whether that changes real block size"
     delay: 0
     args:
       concurrency: 5
       accounts: 10
       duration: 480
+      max_tps: 11000
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
