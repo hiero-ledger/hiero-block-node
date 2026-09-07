@@ -1,0 +1,123 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# NLG-vs-Mirror-Node TPS Validation (no chaos)
+#
+# Ground-truths the ~6,000-6,200 TPS CryptoTransferLoadTest ceiling measured
+# throughout this branch's NLG-throughput investigation (see
+# nlg-mixed-throughput-ceiling.yaml and nlg-dual-type-throughput-ceiling.yaml)
+# against a source that isn't NLG's own self-report or BN's own counters:
+# Mirror Node's REST API, which only ever records what a Consensus Node
+# actually finalized and a Block Node actually stored.
+#
+# This directly follows up on a re-examination of finding 006's "~50x gap
+# between submitted and landed" claim: that claim's ~35KB/block number came
+# from avg-block-size-floor, which by construction only ever samples the
+# post-load-stop recovery window (assertions run after all events complete),
+# not the active-load window it was compared against a 6,000 TPS submission
+# rate for. Re-checking with BN's own mid-load `print-metrics` counters
+# (Block Items Received) already suggested no real gap (~17,000-18,000
+# items/sec against ~6,000 TPS reported, ~2.85 items/txn -- consistent with
+# the real block-item schema: signed_transaction + transaction_result +
+# state_changes per plain crypto transfer, no transaction_output). This test
+# adds the more authoritative check: Mirror Node's own transaction count per
+# block, queried while NLG is actively loading, not after.
+#
+# mirror-block-tx-count (new event type, wired into solo-test-runner.sh this
+# session) queries /api/v1/blocks?limit=1&order=desc on Mirror Node's REST
+# port and logs .blocks[0].count -- the real transaction count Mirror Node
+# recorded for the most recent block at the moment the event fires. Placed
+# alongside print-metrics checkpoints at the same delays so the two can be
+# cross-referenced: Mirror's per-block count x block-rate should land in the
+# same range as BN's own Block Items Received delta (after dividing out the
+# ~2.85 items/txn ratio) and NLG's self-reported TPS.
+#
+# Single NLG process only (CryptoTransferLoadTest) -- deliberately avoids the
+# dual-process Solo CLI lease-contention problem still open in
+# nlg-dual-type-throughput-ceiling.yaml, since that's a separate question
+# from "is the self-reported ceiling real."
+#
+# Prerequisites:
+#   - Any topology deployed (task up) -- paired-3 is sufficient, no chaos needed
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/nlg-mirror-node-tps-validation.yaml
+
+name: nlg-mirror-node-tps-validation
+description: "CryptoTransferLoadTest ceiling cross-checked against Mirror Node's own transaction counts, no chaos"
+
+events:
+  - id: start-crypto-transfer
+    type: load-start
+    description: "Start CryptoTransferLoadTest (accounts=10, same as every prior ceiling measurement on this branch)"
+    delay: 10
+    args:
+      test_class: CryptoTransferLoadTest
+      concurrency: 50
+      accounts: 10
+      duration: 900
+
+  - id: mirror-check-1
+    type: mirror-block-tx-count
+    description: "Mirror Node's real transaction count for the most recent block, ~5 minutes into the load window"
+    delay: 300
+
+  - id: bn-metrics-1
+    type: print-metrics
+    description: "BN's own cumulative Block Items Received/Blocks Stored at the same point, for cross-reference"
+    delay: 300
+
+  - id: mirror-check-2
+    type: mirror-block-tx-count
+    description: "Mirror Node's real transaction count for the most recent block, ~10 minutes into the load window"
+    delay: 600
+
+  - id: bn-metrics-2
+    type: print-metrics
+    description: "BN's own cumulative Block Items Received/Blocks Stored at the same point, for cross-reference"
+    delay: 600
+
+  - id: mirror-check-3
+    type: mirror-block-tx-count
+    description: "Mirror Node's real transaction count for the most recent block, near the end of the load window"
+    delay: 840
+
+  - id: bn-metrics-3
+    type: print-metrics
+    description: "BN's own cumulative Block Items Received/Blocks Stored at the same point, for cross-reference"
+    delay: 840
+
+  - id: stop-crypto-transfer
+    type: load-stop
+    description: "Stop CryptoTransferLoadTest"
+    delay: 910
+    args:
+      test_class: CryptoTransferLoadTest
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Print final metrics after stop"
+    delay: 970
+
+assertions:
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors"
+    target: all
+
+  - id: all-blocks-increasing
+    type: blocks-increasing
+    description: "All Block Nodes are receiving new blocks"
+    target: all
