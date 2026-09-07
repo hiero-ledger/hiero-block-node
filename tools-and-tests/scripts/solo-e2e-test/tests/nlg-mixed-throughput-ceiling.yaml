@@ -29,13 +29,27 @@
 # accounts=10 shared across all 5 concurrent transaction types produced only
 # ~35KB/block (the known pre-transition/light-load baseline) and zero
 # CN-side BUSY/THROTTLED_AT_CONSENSUS log entries -- i.e. submitted volume
-# never got close to any CN throttle, most likely because 10 accounts under
-# 5 simultaneous job types hit heavy account/nonce contention long before
-# any network-side constraint mattered. `-T 10` in extra_args pins nTokens
-# (and therefore NFT mint count, which defaults to nTokens x 10 and would
-# otherwise scale with accounts) back down to what the first run already
-# validated as fast (~10s to mint 100 NFTs), so raising accounts doesn't
-# also blow up one-time setup time.
+# never got close to any CN throttle. A second run at accounts=3000 changed
+# nothing -- account contention was ruled out. The actual reason both runs
+# were inconclusive: only HeliSwapJob (of the 5 concurrent job types) logs
+# periodic progress to NLG's own stdout; CryptoTransferJob/NftTransferJob/
+# MessageSendJob/SmartContractJob are all silent there, so there was never
+# any real visibility into whether 4 of 5 types were doing anything at all.
+# `-T 10` in extra_args pins nTokens (and therefore NFT mint count, which
+# defaults to nTokens x 10 and would otherwise scale with accounts) back down
+# to a fast setup regardless of the accounts value.
+#
+# mirror-tx-distribution (new event type) sidesteps NLG's silent-job-type
+# problem entirely: it queries Mirror Node's own transaction records and
+# tallies them by HAPI transaction type, independent of what NLG itself
+# logs. Placed alongside the existing print-metrics checkpoints, well inside
+# the active load window (not after load-stop -- avg-block-size-floor and
+# block-rate-floor below only ever sample the post-stop recovery window and
+# should not be read as evidence about the loaded state, see the handoff).
+# Caveat: both fungible and NFT transfers report as CRYPTOTRANSFER, and both
+# SmartContractJob and HeliSwapJob calls report as CONTRACTCALL -- this
+# confirms which HAPI transaction types are landing, not which of the 5 NLG
+# job classes produced each one.
 #
 # Prerequisites:
 #   - Any topology deployed (task up) -- paired-3 is sufficient, no chaos needed
@@ -69,10 +83,24 @@ events:
     description: "Print metrics once setup should be complete and all 5 types should be running concurrently"
     delay: 480
 
+  - id: mid-tx-distribution
+    type: mirror-tx-distribution
+    description: "Ground-truth which HAPI transaction types are actually landing on-chain, mid-load"
+    delay: 490
+    args:
+      limit: 100
+
   - id: late-metrics
     type: print-metrics
     description: "Print metrics near the end of the concurrent-load window"
     delay: 780
+
+  - id: late-tx-distribution
+    type: mirror-tx-distribution
+    description: "Ground-truth which HAPI transaction types are actually landing on-chain, near the end of the load window"
+    delay: 790
+    args:
+      limit: 100
 
   - id: stop-load
     type: load-stop
