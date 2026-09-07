@@ -307,10 +307,19 @@ function execute_mirror_block_tx_count {
 # actually landing on-chain when NLG runs multiple types concurrently and its
 # own job classes don't all self-report (see nlg-mixed-throughput-ceiling.yaml
 # and finding 5e in the handoff: 4 of 5 LongevityLoadTest job types are
-# silent). Note: both fungible and NFT transfers report as CRYPTOTRANSFER,
-# and both SmartContractJob and HeliSwapJob calls report as CONTRACTCALL --
+# silent). Note: both fungible and NFT transfers report as CRYPTOTRANSFER --
 # this distinguishes HAPI-level transaction types, not which NLG job class
 # produced them.
+#
+# Caveat (confirmed empirically, see finding 5n/5o in the handoff): a fixed
+# record-count sample ("most recent N") is only representative when traffic
+# across types is roughly even. If one type dominates (e.g. HeliSwapJob
+# running at ~300 TPS via ETHEREUMTRANSACTION), "most recent 100" spans a
+# tiny slice of real time (100/300 = ~0.3s) entirely owned by whichever type
+# has the highest instantaneous rate -- any lower-frequency type has almost
+# no chance of appearing regardless of whether it's genuinely running.
+# Prefer execute_mirror_tx_presence below when traffic is expected to be
+# unevenly distributed across types.
 function execute_mirror_tx_distribution {
     local port="${1:-5551}"
     local limit="${2:-100}"
@@ -322,6 +331,36 @@ function execute_mirror_tx_distribution {
             | sort | uniq -c | sort -rn | awk '{printf "%s=%s ", $2, $1}')
     fi
     echo "Mirror Node tx distribution (port ${port}, sample=${limit}): ${dist:-unavailable}"
+}
+
+# Checks per-type presence (not proportion) of each given HAPI transaction
+# type within a real time window -- immune to the sampling-skew problem
+# above, since each type is queried independently via Mirror Node's own
+# transactiontype filter rather than competing for slots in a single
+# fixed-size "most recent N" sample. Answers "did this type land at all in
+# this window," regardless of how much any other type dominates.
+function execute_mirror_tx_presence {
+    local port="${1:-5551}"
+    local window_seconds="${2:-60}"
+    local types="${3:-CRYPTOTRANSFER,CONSENSUSSUBMITMESSAGE,CONTRACTCALL,ETHEREUMTRANSACTION}"
+    local since
+    since=$(( $(date +%s) - window_seconds ))
+    local result=""
+    local IFS=','
+    for tx_type in $types; do
+        local response count
+        response=$(curl -s "http://localhost:${port}/api/v1/transactions?transactiontype=${tx_type}&timestamp=gte:${since}.0&limit=1")
+        count=0
+        if [[ -n "$response" ]]; then
+            count=$(echo "$response" | jq -r '.transactions | length' 2>/dev/null || echo 0)
+        fi
+        if [[ "${count:-0}" -gt 0 ]]; then
+            result="${result}${tx_type}=present "
+        else
+            result="${result}${tx_type}=absent "
+        fi
+    done
+    echo "Mirror Node tx type presence (port ${port}, window=${window_seconds}s): ${result}"
 }
 
 function execute_network_status {
@@ -1026,6 +1065,13 @@ function execute_event {
             mirror_dist_port=$(echo "$args" | yq '.port // 5551')
             mirror_dist_limit=$(echo "$args" | yq '.limit // 100')
             execute_mirror_tx_distribution "$mirror_dist_port" "$mirror_dist_limit"
+            ;;
+        mirror-tx-presence)
+            local mirror_pres_port mirror_pres_window mirror_pres_types
+            mirror_pres_port=$(echo "$args" | yq '.port // 5551')
+            mirror_pres_window=$(echo "$args" | yq '.window_seconds // 60')
+            mirror_pres_types=$(echo "$args" | yq '.types // ["CRYPTOTRANSFER","CONSENSUSSUBMITMESSAGE","CONTRACTCALL","ETHEREUMTRANSACTION"] | join(",")')
+            execute_mirror_tx_presence "$mirror_pres_port" "$mirror_pres_window" "$mirror_pres_types"
             ;;
         network-status)
             execute_network_status
