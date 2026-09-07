@@ -66,6 +66,7 @@ cat > "${mock_dir}/solo-load-generate.sh" <<'EOF'
   echo "NLG_TEST_TYPE=${NLG_TEST_TYPE:-<unset>}"
   echo "NLG_ARGS=${NLG_ARGS:-<unset>}"
   echo "NLG_MAX_TPS=${NLG_MAX_TPS:-<unset>}"
+  echo "NLG_JAVA_HEAP=${NLG_JAVA_HEAP:-<unset>}"
 } > "${CAPTURE_FILE}"
 EOF
 chmod +x "${mock_dir}/solo-load-generate.sh"
@@ -81,7 +82,7 @@ for tc in \
     # shellcheck disable=SC2086
     eval "set -- $tc"
     test_class=$1; concurrency=$2; accounts=$3; duration=$4; max_tps=$5; extra_args=$6; expected=$7
-    unset NLG_TEST_TYPE NLG_ARGS NLG_MAX_TPS
+    unset NLG_TEST_TYPE NLG_ARGS NLG_MAX_TPS NLG_JAVA_HEAP
     SCRIPT_DIR="${mock_dir}" execute_load_start "$test_class" "$concurrency" "$accounts" "$duration" "$max_tps" "$extra_args" >/dev/null
     wait
     got="$(grep '^NLG_TEST_TYPE=' "${capture_file}" | cut -d= -f2)"
@@ -96,7 +97,7 @@ done
 
 # ----------------------------------------------------------------------------
 echo "[2] execute_load_start still builds NLG_ARGS and NLG_MAX_TPS correctly"
-unset NLG_TEST_TYPE NLG_ARGS NLG_MAX_TPS
+unset NLG_TEST_TYPE NLG_ARGS NLG_MAX_TPS NLG_JAVA_HEAP
 SCRIPT_DIR="${mock_dir}" execute_load_start "HCSLoadTest" 7 20 90 250 "--extra flag" >/dev/null
 wait
 args_got="$(grep '^NLG_ARGS=' "${capture_file}" | cut -d= -f2-)"
@@ -114,7 +115,29 @@ fi
 rm -f "${capture_file}"
 
 # ----------------------------------------------------------------------------
-echo "[3] execute_load_stop exports NLG_TEST_TYPE from its test_class arg"
+echo "[3] execute_load_start exports NLG_JAVA_HEAP only when java_heap is provided"
+for tc in \
+    "HCSLoadTest 5 10 60 '' '' 4 4" \
+    "HCSLoadTest 5 10 60 '' '' '' '<unset>'" \
+  ; do
+    # shellcheck disable=SC2086
+    eval "set -- $tc"
+    test_class=$1; concurrency=$2; accounts=$3; duration=$4; max_tps=$5; extra_args=$6; java_heap=$7; expected=$8
+    unset NLG_TEST_TYPE NLG_ARGS NLG_MAX_TPS NLG_JAVA_HEAP
+    SCRIPT_DIR="${mock_dir}" execute_load_start "$test_class" "$concurrency" "$accounts" "$duration" "$max_tps" "$extra_args" "$java_heap" >/dev/null
+    wait
+    got="$(grep '^NLG_JAVA_HEAP=' "${capture_file}" | cut -d= -f2)"
+    label="java_heap='${java_heap:-<default>}'"
+    if [[ "${got}" == "${expected}" ]]; then
+        pass "${label} -> NLG_JAVA_HEAP=${expected}"
+    else
+        fail "${label} -> expected NLG_JAVA_HEAP=${expected}, got '${got}'"
+    fi
+    rm -f "${capture_file}"
+done
+
+# ----------------------------------------------------------------------------
+echo "[4] execute_load_stop exports NLG_TEST_TYPE from its test_class arg"
 for tc in \
     "HCSLoadTest HCSLoadTest" \
     "'' CryptoTransferLoadTest" \
@@ -122,7 +145,7 @@ for tc in \
     # shellcheck disable=SC2086
     eval "set -- $tc"
     test_class=$1; expected=$2
-    unset NLG_TEST_TYPE NLG_ARGS NLG_MAX_TPS
+    unset NLG_TEST_TYPE NLG_ARGS NLG_MAX_TPS NLG_JAVA_HEAP
     SCRIPT_DIR="${mock_dir}" execute_load_stop "$test_class" >/dev/null
     got="$(grep '^NLG_TEST_TYPE=' "${capture_file}" | cut -d= -f2)"
     label="test_class='${test_class:-<default>}'"
