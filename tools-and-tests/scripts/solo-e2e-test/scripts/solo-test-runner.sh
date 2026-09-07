@@ -271,6 +271,24 @@ function execute_print_metrics {
     fi
 }
 
+# Ground-truth transaction count for a real block, straight from Mirror Node's
+# own REST API -- not inferred from NLG's self-reported TPS or BN's block-item
+# counters. Queries the most recent block at the moment this event fires, so
+# placing it inside an active NLG load window (not after load-stop) is what
+# makes the result meaningful.
+function execute_mirror_block_tx_count {
+    local port="${1:-5551}"
+    local response
+    response=$(curl -s "http://localhost:${port}/api/v1/blocks?limit=1&order=desc")
+    local number="unavailable" count="unavailable" timestamp="unavailable"
+    if [[ -n "$response" ]]; then
+        number=$(echo "$response" | jq -r '.blocks[0].number // "unavailable"' 2>/dev/null || echo "unavailable")
+        count=$(echo "$response" | jq -r '.blocks[0].count // "unavailable"' 2>/dev/null || echo "unavailable")
+        timestamp=$(echo "$response" | jq -r '.blocks[0].timestamp.from // "unavailable"' 2>/dev/null || echo "unavailable")
+    fi
+    echo "Mirror Node block (port ${port}): number=${number} count=${count} timestamp=${timestamp}"
+}
+
 function execute_network_status {
     "${SCRIPT_DIR}/solo-network-status.sh" \
         --namespace "${NAMESPACE}" \
@@ -962,6 +980,11 @@ function execute_event {
             metrics_target=$(echo "$args" | yq '.target // "all"')
             [[ -n "$target" && "$target" != "null" ]] && metrics_target="$target"
             execute_print_metrics "$metrics_target"
+            ;;
+        mirror-block-tx-count)
+            local mirror_port
+            mirror_port=$(echo "$args" | yq '.port // 5551')
+            execute_mirror_block_tx_count "$mirror_port"
             ;;
         network-status)
             execute_network_status
