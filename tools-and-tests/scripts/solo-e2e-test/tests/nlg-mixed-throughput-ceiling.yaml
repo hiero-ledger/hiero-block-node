@@ -23,8 +23,19 @@
 # per-job throttle -- it's gated only by client concurrency. concurrency is
 # bumped well above the other tests' usual 5 (already bracketed safe up to
 # 100+ with no effect on the throughput ceiling) purely to shorten this
-# fixed setup cost; accounts is kept small since NFT/token setup scales with
-# it but the topic count does not.
+# fixed setup cost.
+#
+# accounts is bumped well past the other tests' usual 10: a first run at
+# accounts=10 shared across all 5 concurrent transaction types produced only
+# ~35KB/block (the known pre-transition/light-load baseline) and zero
+# CN-side BUSY/THROTTLED_AT_CONSENSUS log entries -- i.e. submitted volume
+# never got close to any CN throttle, most likely because 10 accounts under
+# 5 simultaneous job types hit heavy account/nonce contention long before
+# any network-side constraint mattered. `-T 10` in extra_args pins nTokens
+# (and therefore NFT mint count, which defaults to nTokens x 10 and would
+# otherwise scale with accounts) back down to what the first run already
+# validated as fast (~10s to mint 100 NFTs), so raising accounts doesn't
+# also blow up one-time setup time.
 #
 # Prerequisites:
 #   - Any topology deployed (task up) -- paired-3 is sufficient, no chaos needed
@@ -44,8 +55,9 @@ events:
     args:
       test_class: LongevityLoadTest
       concurrency: 50
-      accounts: 10
+      accounts: 3000
       duration: 900
+      extra_args: "-T 10"
 
   - id: setup-window-metrics
     type: print-metrics
