@@ -137,7 +137,28 @@ for tc in \
 done
 
 # ----------------------------------------------------------------------------
-echo "[4] execute_load_stop exports NLG_TEST_TYPE from its test_class arg"
+echo "[4] execute_load_start surfaces a fast background failure instead of reporting silent success"
+fail_dir="$(mktemp -d)"
+cat > "${fail_dir}/solo-load-generate.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 7
+EOF
+chmod +x "${fail_dir}/solo-load-generate.sh"
+unset NLG_TEST_TYPE NLG_ARGS NLG_MAX_TPS NLG_JAVA_HEAP
+# The no-op `sleep` mock above would race execute_load_start's own internal
+# `sleep 5` against the backgrounded mock script actually exiting -- use the
+# real sleep for this one assertion so the exit-code check is deterministic.
+unset -f sleep
+output="$(SCRIPT_DIR="${fail_dir}" execute_load_start "HCSLoadTest" 5 10 60)"
+if [[ "${output}" == *"WARNING: NLG start for HCSLoadTest exited early (code 7)"* ]]; then
+    pass "fast-failing background job -> WARNING with real exit code surfaced"
+else
+    fail "expected a WARNING mentioning exit code 7, got: ${output}"
+fi
+rm -rf "${fail_dir}"
+
+# ----------------------------------------------------------------------------
+echo "[5] execute_load_stop exports NLG_TEST_TYPE from its test_class arg"
 for tc in \
     "HCSLoadTest HCSLoadTest" \
     "'' CryptoTransferLoadTest" \
