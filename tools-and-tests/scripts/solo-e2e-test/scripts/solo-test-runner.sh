@@ -222,6 +222,19 @@ function execute_load_start {
 
     # Brief wait for Solo to initialize
     sleep 5
+
+    # A fast failure (e.g. Solo CLI lease contention when starting a second
+    # concurrent NLG process too soon after a first -- see finding 5f in the
+    # handoff) exits within this window. This event previously always
+    # reported PASS regardless, since the background job's own exit code was
+    # never checked. A slow failure (crash mid-run, well past this window)
+    # still won't be caught here -- this only catches failures fast enough to
+    # exit before the brief wait above ends.
+    if ! kill -0 "$pid" 2>/dev/null; then
+        wait "$pid"
+        local exit_code=$?
+        echo "WARNING: NLG start for $test_class exited early (code $exit_code) -- it likely never started successfully. Check nlg-logs for the reason (e.g. Solo CLI lease contention)."
+    fi
 }
 
 function execute_load_stop {
@@ -287,6 +300,28 @@ function execute_mirror_block_tx_count {
         timestamp=$(echo "$response" | jq -r '.blocks[0].timestamp.from // "unavailable"' 2>/dev/null || echo "unavailable")
     fi
     echo "Mirror Node block (port ${port}): number=${number} count=${count} timestamp=${timestamp}"
+}
+
+# Samples the most recent transactions from Mirror Node and tallies them by
+# HAPI transaction type (.name) -- confirms which transaction types are
+# actually landing on-chain when NLG runs multiple types concurrently and its
+# own job classes don't all self-report (see nlg-mixed-throughput-ceiling.yaml
+# and finding 5e in the handoff: 4 of 5 LongevityLoadTest job types are
+# silent). Note: both fungible and NFT transfers report as CRYPTOTRANSFER,
+# and both SmartContractJob and HeliSwapJob calls report as CONTRACTCALL --
+# this distinguishes HAPI-level transaction types, not which NLG job class
+# produced them.
+function execute_mirror_tx_distribution {
+    local port="${1:-5551}"
+    local limit="${2:-100}"
+    local response
+    response=$(curl -s "http://localhost:${port}/api/v1/transactions?limit=${limit}&order=desc")
+    local dist=""
+    if [[ -n "$response" ]]; then
+        dist=$(echo "$response" | jq -r '.transactions[]?.name // empty' 2>/dev/null \
+            | sort | uniq -c | sort -rn | awk '{printf "%s=%s ", $2, $1}')
+    fi
+    echo "Mirror Node tx distribution (port ${port}, sample=${limit}): ${dist:-unavailable}"
 }
 
 function execute_network_status {
@@ -985,6 +1020,12 @@ function execute_event {
             local mirror_port
             mirror_port=$(echo "$args" | yq '.port // 5551')
             execute_mirror_block_tx_count "$mirror_port"
+            ;;
+        mirror-tx-distribution)
+            local mirror_dist_port mirror_dist_limit
+            mirror_dist_port=$(echo "$args" | yq '.port // 5551')
+            mirror_dist_limit=$(echo "$args" | yq '.limit // 100')
+            execute_mirror_tx_distribution "$mirror_dist_port" "$mirror_dist_limit"
             ;;
         network-status)
             execute_network_status
