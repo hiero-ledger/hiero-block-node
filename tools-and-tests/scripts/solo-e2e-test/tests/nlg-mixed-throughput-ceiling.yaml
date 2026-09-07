@@ -1,0 +1,114 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# NLG Mixed-Throughput Ceiling Probe (no chaos)
+#
+# Isolates one question: is NLG's observed ~6,000-6,500 TPS ceiling with
+# CryptoTransferLoadTest alone caused by a per-transaction-type CN throttle
+# (CRYPTO_TRANSFER resolved to min{3500.00 tps} per node after the deployed
+# network's 3-way topology split), or by CN's raw receive capacity?
+#
+# LongevityLoadTest runs 5 transaction types concurrently in one process,
+# each with its own independent throttle set in the NLG jar itself (not
+# tunable via solo flags): CryptoTransfer@5000tps, NftTransfer@3000tps,
+# MessageSend (ConsensusSubmitMessage/HCS)@2000tps, SmartContract@50tps,
+# HeliSwap@300tps. If the ceiling is per-type throttling, aggregate accepted
+# TPS across all 5 types should rise well past the CryptoTransfer-only
+# ceiling. If it's CN's raw receive capacity, the aggregate ceiling should
+# stay roughly the same regardless of mix.
+#
+# Setup-cost caveat: LongevityLoadTest hardcodes nTopics=100000 in its own
+# source, with no solo flag or NLG arg able to override it (solo only passes
+# --args through as CryptoTransferLoadTest-style positional args, which this
+# class does not read a topic-count override from). Topic creation has no
+# per-job throttle -- it's gated only by client concurrency. concurrency is
+# bumped well above the other tests' usual 5 (already bracketed safe up to
+# 100+ with no effect on the throughput ceiling) purely to shorten this
+# fixed setup cost; accounts is kept small since NFT/token setup scales with
+# it but the topic count does not.
+#
+# Prerequisites:
+#   - Any topology deployed (task up) -- paired-3 is sufficient, no chaos needed
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/nlg-mixed-throughput-ceiling.yaml
+
+name: nlg-mixed-throughput-ceiling
+description: "LongevityLoadTest (5 concurrent tx types) throughput ceiling probe, no chaos"
+
+events:
+  - id: start-load
+    type: load-start
+    description: "Start LongevityLoadTest: 5 concurrent tx types, each with its own hardcoded per-type throttle; concurrency raised to shorten the fixed 100k-topic setup cost"
+    delay: 10
+    args:
+      test_class: LongevityLoadTest
+      concurrency: 50
+      accounts: 10
+      duration: 900
+
+  - id: setup-window-metrics
+    type: print-metrics
+    description: "Print metrics while topic/token/NFT/contract setup is likely still running"
+    delay: 180
+
+  - id: mid-metrics
+    type: print-metrics
+    description: "Print metrics once setup should be complete and all 5 types should be running concurrently"
+    delay: 480
+
+  - id: late-metrics
+    type: print-metrics
+    description: "Print metrics near the end of the concurrent-load window"
+    delay: 780
+
+  - id: stop-load
+    type: load-stop
+    description: "Stop load generation (cleanup)"
+    delay: 960
+    args:
+      test_class: LongevityLoadTest
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Print final metrics"
+    delay: 1020
+
+assertions:
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors"
+    target: all
+
+  - id: all-blocks-increasing
+    type: blocks-increasing
+    description: "All Block Nodes are receiving new blocks"
+    target: all
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Block rate stays >= 0.1 blk/s across the mixed-type load window"
+    target: all
+    args:
+      min_rate_per_sec: 0.1
+      window_seconds: 30
+
+  - id: avg-block-size
+    type: avg-block-size-floor
+    description: "Real avg bytes/block over the recovery window -- diagnostic signal for how much of the 5-type aggregate TPS is actually landing in blocks vs. accepted-at-submission only (min_bytes is a sanity floor, not a tuned expectation)"
+    target: all
+    args:
+      min_bytes: 1000
+      window_seconds: 30
