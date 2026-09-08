@@ -339,6 +339,15 @@ class StreamPublisherPluginTest {
         }
 
         private void activatePlugin(final long earliestManagedBlock) {
+            activatePlugin(earliestManagedBlock, List.of());
+        }
+
+        /**
+         * Like {@link #activatePlugin(long)} but delivers stored blocks to the plugin via
+         * {@link #replaceStoredBlocks} between {@code init()} and {@code start()}, mirroring
+         * how {@code BlockNodeApp} broadcasts ASF state before starting plugins.
+         */
+        private void activatePlugin(final long earliestManagedBlock, final List<BlockRange> initialStoredBlocks) {
             final StreamPublisherPlugin toTest = new StreamPublisherPlugin();
             // Pin the duplicate-block skip window to its minimum so duplicates more than one
             // block behind still produce EndOfStream(DUPLICATE_BLOCK), preserving the legacy
@@ -349,8 +358,24 @@ class StreamPublisherPluginTest {
                     Map.entry("block.node.earliestManagedBlock", Long.toString(earliestManagedBlock)),
                     Map.entry("producer.duplicateBlockSkipWindow", "1"));
             final List<BlockNodePlugin> additionalPlugins = List.of(verificationPlugin);
-            start(toTest, toTest.methods().getFirst(), historicalBlockFacility, additionalPlugins, configOverrides);
-            // Assert that the earliest managed block is set to 10
+            if (initialStoredBlocks.isEmpty()) {
+                start(toTest, toTest.methods().getFirst(), historicalBlockFacility, additionalPlugins, configOverrides);
+            } else {
+                // Split init/start so stored blocks can be delivered between the two phases.
+                doInit(toTest, historicalBlockFacility, additionalPlugins, configOverrides, Map.of());
+                replaceStoredBlocks(initialStoredBlocks);
+                doStart();
+                method = toTest.methods().getFirst();
+                if (webserviceBuilder instanceof RecordingServiceBuilder recordingBuilder
+                        && !recordingBuilder.grpcServiceRegistrations().isEmpty()) {
+                    serviceInterface = recordingBuilder
+                            .grpcServiceRegistrations()
+                            .getLast()
+                            .service();
+                }
+                setupNewPipelines();
+            }
+            // Assert that the earliest managed block is set correctly.
             final long earliestManagedBlockFromConfig = blockNodeContext
                     .configuration()
                     .getConfigData(NodeConfig.class)
@@ -450,8 +475,7 @@ class StreamPublisherPluginTest {
             }
             // Mirrors production, where BlockNodeApp merges availableBlocks into storedBlocks
             // before a plugin ever sees the context.
-            storedBlocks = List.of(new BlockRange(earliestPersistedBlock, expectedLatestPersistedBlock));
-            activatePlugin(10L);
+            activatePlugin(10L, List.of(new BlockRange(earliestPersistedBlock, expectedLatestPersistedBlock)));
             // Assert that the historical block facility has blocks 3-5
             assertThat(blockNodeContext
                             .historicalBlockProvider()
@@ -499,8 +523,7 @@ class StreamPublisherPluginTest {
             }
             // Mirrors production, where BlockNodeApp merges availableBlocks into storedBlocks
             // before a plugin ever sees the context.
-            storedBlocks = List.of(new BlockRange(earliestPersistedBlock, latestPersistedBlock));
-            activatePlugin(10L);
+            activatePlugin(10L, List.of(new BlockRange(earliestPersistedBlock, latestPersistedBlock)));
             // Assert that the historical block facility has blocks 0-5
             assertThat(blockNodeContext
                             .historicalBlockProvider()
@@ -542,9 +565,9 @@ class StreamPublisherPluginTest {
             historicalBlockFacility.handleBlockItemsReceived(block10.asBlockItems(), false);
             // Mirrors production, where BlockNodeApp merges availableBlocks into storedBlocks
             // before a plugin ever sees the context.
-            storedBlocks =
-                    List.of(new BlockRange(expectedLatestPersistedBlockNumber, expectedLatestPersistedBlockNumber));
-            activatePlugin(10L);
+            activatePlugin(
+                    10L,
+                    List.of(new BlockRange(expectedLatestPersistedBlockNumber, expectedLatestPersistedBlockNumber)));
             // Assert that the historical block facility has block 10
             assertThat(blockNodeContext
                             .historicalBlockProvider()
@@ -1095,10 +1118,10 @@ class StreamPublisherPluginTest {
         }
     }
 
-    /// Verifies [StreamPublisherPlugin] reacts to `onContextUpdate()` so the publisher
-    /// watermark is seeded from the stored-block range delivered after `init()`, not the
-    /// stale context captured at `init()` time. Drives `init()` -> `onContextUpdate()` ->
-    /// `start()` via [#doInit] and [#replaceStoredBlocks], mirroring production startup order.
+    /// Verifies [StreamPublisherPlugin] reacts to [StoredBlocksNotification] so the publisher
+    /// watermark is seeded from the stored-block range delivered after `init()`. Drives
+    /// `init()` -> [#replaceStoredBlocks] -> `start()` via [#doInit] and [#replaceStoredBlocks],
+    /// mirroring production startup order.
     @Nested
     @DisplayName("Plugin Tests ASF Watermark Seeding")
     class PluginTestsAsfWatermarkSeeding
@@ -1132,7 +1155,8 @@ class StreamPublisherPluginTest {
         /// 11 is rejected as a duplicate carrying watermark 50. If the update was missed,
         /// the watermark stays at 10 and block 11 is accepted as the next expected block.
         @Test
-        @DisplayName("start() seeds watermark from ASF stored blocks delivered via onContextUpdate before start()")
+        @DisplayName(
+                "start() seeds watermark from ASF stored blocks delivered via StoredBlocksNotification before start()")
         void testWatermarkSeedsFromStoredBlocksDeliveredBeforeStart() {
             final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
             availableBlocks.add(0, 10);

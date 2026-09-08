@@ -13,6 +13,8 @@ import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.ApplicationStateFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
@@ -103,6 +105,9 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
 
     @Override
     public void addStoredBlockRange(final LongRange blockRange) {}
+
+    @Override
+    public void updateAvailableBlocks(final BlockProviderPlugin provider, final BlockRangeSet availableBlocks) {}
 
     @Override
     public NetworkData knownPublishers() {

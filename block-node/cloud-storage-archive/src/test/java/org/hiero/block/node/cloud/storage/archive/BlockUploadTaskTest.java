@@ -43,6 +43,8 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
@@ -831,5 +833,8 @@ class BlockUploadTaskTest {
 
         @Override
         public void updateBackfillSources(NetworkData sources) {}
+
+        @Override
+        public void updateAvailableBlocks(BlockProviderPlugin provider, BlockRangeSet availableBlocks) {}
     }
 }
