@@ -9,7 +9,6 @@ import static org.hiero.block.node.stream.publisher.PublishApiUtility.sendHeader
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -93,7 +92,8 @@ class LiveStreamPublisherManagerTest {
         @DisplayName("Constructor does not throw any exceptions with valid arguments")
         void testValidArguments() {
             assertThatNoException()
-                    .isThrownBy(() -> new LiveStreamPublisherManager(generateContext(), generateManagerMetrics()));
+                    .isThrownBy(() ->
+                            new LiveStreamPublisherManager(generateContext(), generateManagerMetrics(), List.of()));
         }
 
         /// This test aims to assert that the constructor of
@@ -104,7 +104,7 @@ class LiveStreamPublisherManagerTest {
         @DisplayName("Constructor throws NPE when provided with null context")
         void testNullContext() {
             assertThatNullPointerException()
-                    .isThrownBy(() -> new LiveStreamPublisherManager(null, generateManagerMetrics()));
+                    .isThrownBy(() -> new LiveStreamPublisherManager(null, generateManagerMetrics(), List.of()));
         }
 
         /// This test aims to assert that the constructor of
@@ -114,7 +114,8 @@ class LiveStreamPublisherManagerTest {
         @Test
         @DisplayName("Constructor throws NPE when provided with null metrics")
         void testNullMetrics() {
-            assertThatNullPointerException().isThrownBy(() -> new LiveStreamPublisherManager(generateContext(), null));
+            assertThatNullPointerException()
+                    .isThrownBy(() -> new LiveStreamPublisherManager(generateContext(), null, List.of()));
         }
     }
 
@@ -183,7 +184,7 @@ class LiveStreamPublisherManagerTest {
             final MetricRegistry registry = newRegistry();
             managerMetrics = MetricsHolder.createMetrics(registry);
             // Create the LiveStreamPublisherManager instance to test.
-            toTest = new LiveStreamPublisherManager(context, managerMetrics);
+            toTest = new LiveStreamPublisherManager(context, managerMetrics, List.of());
             // We need to explicitly register the manager as a notification handler
             // The manager does not register itself.
             context.blockMessaging()
@@ -443,7 +444,7 @@ class LiveStreamPublisherManagerTest {
                         generateContext(embHistorical, threadPoolManager, messagingFacility, embConfig);
                 embHistorical.init(embContext, null);
                 final LiveStreamPublisherManager embManager =
-                        new LiveStreamPublisherManager(embContext, generateManagerMetrics());
+                        new LiveStreamPublisherManager(embContext, generateManagerMetrics(), List.of());
                 final TestResponsePipeline<PublishStreamResponse> embPipeline = new TestResponsePipeline<>();
                 embManager.addHandler(embPipeline, sharedHandlerMetrics, null);
                 final long embHandlerId = 0L; // first handler registered on the fresh manager
@@ -473,12 +474,9 @@ class LiveStreamPublisherManagerTest {
                 final BlockNodeContext baseContext =
                         generateContext(localHistorical, threadPoolManager, messagingFacility);
                 localHistorical.init(baseContext, null);
-                final BlockNodeContext contextWithStoredBlocks = new BlockNodeContext.Builder(baseContext)
-                        .storedBlocks(List.of(new BlockRange(0L, 50L)))
-                        .build();
 
-                final LiveStreamPublisherManager seededManager =
-                        new LiveStreamPublisherManager(contextWithStoredBlocks, generateManagerMetrics());
+                final LiveStreamPublisherManager seededManager = new LiveStreamPublisherManager(
+                        baseContext, generateManagerMetrics(), List.of(new BlockRange(0L, 50L)));
 
                 assertThat(seededManager.getLatestBlockNumber()).isEqualTo(50L);
                 assertThat(seededManager.getNextUnstreamed()).isEqualTo(51L);
@@ -495,12 +493,9 @@ class LiveStreamPublisherManagerTest {
                 final BlockNodeContext baseContext =
                         generateContext(localHistorical, threadPoolManager, messagingFacility);
                 localHistorical.init(baseContext, null);
-                final BlockNodeContext contextWithStoredBlocks = new BlockNodeContext.Builder(baseContext)
-                        .storedBlocks(List.of(new BlockRange(0L, 50L)))
-                        .build();
 
-                final LiveStreamPublisherManager seededManager =
-                        new LiveStreamPublisherManager(contextWithStoredBlocks, generateManagerMetrics());
+                final LiveStreamPublisherManager seededManager = new LiveStreamPublisherManager(
+                        baseContext, generateManagerMetrics(), List.of(new BlockRange(0L, 50L)));
 
                 assertThat(seededManager.getLatestBlockNumber()).isEqualTo(50L);
                 assertThat(seededManager.getNextUnstreamed()).isEqualTo(51L);
@@ -509,12 +504,8 @@ class LiveStreamPublisherManagerTest {
             @Test
             @DisplayName("initializeBlockNumbers treats a null storedBlocks() as no known blocks")
             void treatsNullStoredBlocksAsNoKnownBlocks() {
-                final BlockNodeContext contextWithNullStoredBlocks = new BlockNodeContext.Builder(generateContext())
-                        .storedBlocks(null)
-                        .build();
-
                 final LiveStreamPublisherManager seededManager =
-                        new LiveStreamPublisherManager(contextWithNullStoredBlocks, generateManagerMetrics());
+                        new LiveStreamPublisherManager(generateContext(), generateManagerMetrics(), null);
 
                 assertThat(seededManager.getLatestBlockNumber()).isEqualTo(-1L);
                 assertThat(seededManager.getNextUnstreamed()).isEqualTo(0L);
@@ -571,12 +562,10 @@ class LiveStreamPublisherManagerTest {
                 // Construct a new LiveStreamPublisherManager with the local historical block facility.
                 // Mirrors production, where BlockNodeApp merges availableBlocks into storedBlocks
                 // before a plugin ever sees the context.
-                final BlockNodeContext context = new BlockNodeContext.Builder(
-                                generateContext(localHistoricalBlockFacility))
-                        .storedBlocks(List.of(new BlockRange(block.number(), block.number())))
-                        .build();
-                final LiveStreamPublisherManager localToTest =
-                        new LiveStreamPublisherManager(context, generateManagerMetrics());
+                final LiveStreamPublisherManager localToTest = new LiveStreamPublisherManager(
+                        generateContext(localHistoricalBlockFacility),
+                        generateManagerMetrics(),
+                        List.of(new BlockRange(block.number(), block.number())));
                 // After construction, the latest block number should be the one we just persisted.
                 // Call
                 final long actual = localToTest.getLatestBlockNumber();
@@ -2895,7 +2884,7 @@ class LiveStreamPublisherManagerTest {
                 historicalBlockFacility.init(context, null);
                 final MetricRegistry registry = newRegistry();
                 managerMetrics = MetricsHolder.createMetrics(registry);
-                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                toTest = new LiveStreamPublisherManager(context, managerMetrics, List.of());
                 sharedHandlerMetrics = PublisherHandler.MetricsHolder.createMetrics(registry);
                 responsePipeline = new TestResponsePipeline();
                 publisherHandler = toTest.addHandler(responsePipeline, sharedHandlerMetrics, null);
@@ -3067,7 +3056,7 @@ class LiveStreamPublisherManagerTest {
                         messagingFacility.getSentPublisherStatusUpdateNotifications();
                 assertThat(notificationsPreCheck).isEmpty();
                 // Create the LiveStreamPublisherManager instance to test, this also starts the timeout future.
-                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                toTest = new LiveStreamPublisherManager(context, managerMetrics, List.of());
                 // Sleep
                 final long configuredTimeoutMillis = testPublisherConfig.publisherUnavailabilityTimeout() * 1_000L;
                 // Give enough time for a notification to be sent, i.e. wait for timeout + 100ms buffer.
@@ -3096,7 +3085,7 @@ class LiveStreamPublisherManagerTest {
                         messagingFacility.getSentPublisherStatusUpdateNotifications();
                 assertThat(notificationsPreCheck).isEmpty();
                 // Create the LiveStreamPublisherManager instance to test, this also starts the timeout future.
-                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                toTest = new LiveStreamPublisherManager(context, managerMetrics, List.of());
                 // Add a new handler to simulate an active publisher.
                 toTest.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics, null);
                 // Convert the configured timeout to milliseconds.
@@ -3127,7 +3116,7 @@ class LiveStreamPublisherManagerTest {
                         messagingFacility.getSentPublisherStatusUpdateNotifications();
                 assertThat(notificationsPreCheck).isEmpty();
                 // Create the LiveStreamPublisherManager instance to test, this also starts the timeout future.
-                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                toTest = new LiveStreamPublisherManager(context, managerMetrics, List.of());
                 // Add a new handler to simulate an active publisher.
                 final long activeHandlerId = toTest.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics, "")
                         .getId();
@@ -3177,7 +3166,7 @@ class LiveStreamPublisherManagerTest {
                         messagingFacility.getSentPublisherStatusUpdateNotifications();
                 assertThat(notificationsPreCheck).isEmpty();
                 // Create the LiveStreamPublisherManager instance to test, this also starts the timeout future.
-                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                toTest = new LiveStreamPublisherManager(context, managerMetrics, List.of());
                 // Convert the configured timeout to milliseconds.
                 final long configuredTimeoutMillis = testPublisherConfig.publisherUnavailabilityTimeout() * 1_000L;
                 // Sleep for triple the configured timeout and some buffer to ensure that multiple timeout notifications
@@ -3212,7 +3201,7 @@ class LiveStreamPublisherManagerTest {
                         generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
                 managerMetrics = generateManagerMetrics();
                 // Create the LiveStreamPublisherManager instance to test.
-                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                toTest = new LiveStreamPublisherManager(context, managerMetrics, List.of());
             }
 
             /// This test aims to assert that registering a new handler
@@ -3855,11 +3844,7 @@ class LiveStreamPublisherManagerTest {
                 testApplicationState,
                 serviceLoader,
                 threadPoolManager,
-                null,
-                null,
-                null,
-                new ArrayList<>(),
-                new ArrayList<>());
+                null);
     }
 
     /// This method generates a [MetricsHolder] instance with default

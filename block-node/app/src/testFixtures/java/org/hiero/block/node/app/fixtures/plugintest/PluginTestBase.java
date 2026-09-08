@@ -31,9 +31,15 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
+import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
+import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.health.HealthFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
@@ -83,6 +89,8 @@ public abstract class PluginTestBase<
     protected List<BlockRange> storedBlocks = List.of();
     protected List<BlockRange> availableBlocks = List.of();
     protected volatile long nextExpectedBlock = -1L;
+    /** Current address book history, updated via {@link #updateAddressBookHistory}. */
+    protected volatile RangedAddressBookHistory currentAddressBookHistory;
 
     protected PluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
         testThreadPoolManager = new TestThreadPoolManager<>(executorService, scheduledExecutorService);
@@ -216,11 +224,7 @@ public abstract class PluginTestBase<
                 this,
                 new ServiceLoaderFunction(),
                 testThreadPoolManager,
-                buildBlockNodeVersions(),
-                null,
-                null,
-                storedBlocks,
-                availableBlocks);
+                buildBlockNodeVersions());
         final ServiceBuilder testServiceBuilder = createServiceBuilder();
         // initialize the block messaging facility
         historicalBlockFacility.init(blockNodeContext, testServiceBuilder);
@@ -320,31 +324,30 @@ public abstract class PluginTestBase<
      */
     @Override
     public void updateTssData(TssData tssData) {
-        blockNodeContext =
-                new BlockNodeContext.Builder(blockNodeContext).tssData(tssData).build();
-        plugin.onContextUpdate(blockNodeContext);
+        blockMessaging.sendTssDataUpdate(new TssDataNotification(tssData));
     }
 
     public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
-        blockNodeContext = new BlockNodeContext.Builder(blockNodeContext)
-                .nodeAddressBook(nodeAddressBook)
+        final RangedAddressBookHistory history = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(org.hiero.block.api.RangedNodeAddressBook.newBuilder()
+                        .addressBook(nodeAddressBook)
+                        .startBlock(0)
+                        .endBlock(-1)
+                        .build()))
                 .build();
-        plugin.onContextUpdate(blockNodeContext);
-        return true;
+        return updateAddressBookHistory(history);
     }
 
     @Override
     public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
-        blockNodeContext = new BlockNodeContext.Builder(blockNodeContext)
-                .rangedAddressBookHistory(history)
-                .build();
-        plugin.onContextUpdate(blockNodeContext);
+        this.currentAddressBookHistory = history;
+        blockMessaging.sendAddressBookHistoryUpdate(new AddressBookHistoryNotification(history));
         return true;
     }
 
     @Override
     public NodeAddressBook getAddressBookForBlock(long blockNum) {
-        final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+        final RangedAddressBookHistory history = currentAddressBookHistory;
         if (history == null) {
             return null;
         }
@@ -373,48 +376,19 @@ public abstract class PluginTestBase<
 
     public void replaceAvailableBlocks(final List<BlockRange> availableBlocks) {
         this.availableBlocks = Objects.requireNonNull(availableBlocks);
-        blockNodeContext = new BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                blockNodeContext.tssData(),
-                blockNodeContext.rangedAddressBookHistory(),
-                blockNodeContext.storedBlocks(),
-                availableBlocks);
-        plugin.onContextUpdate(blockNodeContext);
+        blockMessaging.sendAvailableBlocksUpdate(new AvailableBlocksNotification(availableBlocks));
     }
 
     public void replaceStoredBlocks(final List<BlockRange> storedBlocks) {
         this.storedBlocks = Objects.requireNonNull(storedBlocks);
-        blockNodeContext = new BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                blockNodeContext.tssData(),
-                blockNodeContext.rangedAddressBookHistory(),
-                storedBlocks,
-                blockNodeContext.availableBlocks());
-        plugin.onContextUpdate(blockNodeContext);
+        blockMessaging.sendStoredBlocksUpdate(new StoredBlocksNotification(storedBlocks));
     }
 
     /**
-     * Records a stored-block range and delivers the merged stored+available context to the plugin via
-     * {@link BlockNodePlugin#onContextUpdate}, mirroring how {@code BlockNodeApp} merges the two sets
-     * when the Application State facility detects a change. Use this (instead of touching
-     * {@link #appStoredBlocks} directly) when a test needs the plugin to observe a stored-block update
-     * after {@link #doStart} has been called.
+     * Records a stored-block range and delivers the merged stored+available notification to the plugin,
+     * mirroring how {@code BlockNodeApp} dispatches a {@code StoredBlocksNotification} whenever stored
+     * blocks change. Use this (instead of touching {@link #appStoredBlocks} directly) when a test needs
+     * the plugin to observe a stored-block update after {@link #doStart} has been called.
      *
      * @param blockRange the contiguous range of block numbers being reported as stored
      */
@@ -424,12 +398,12 @@ public abstract class PluginTestBase<
     }
 
     /**
-     * Recomputes the merged stored+available context from the current {@link #appStoredBlocks} and the
-     * active {@link HistoricalBlockFacility}'s available blocks, and delivers it to the plugin via
-     * {@link BlockNodePlugin#onContextUpdate}. Mirrors how {@code BlockNodeApp}'s Application State
-     * facility periodically re-merges the two sets in production. Call this after directly mutating the
-     * historical block facility's available blocks (e.g. via block items sent through the test
-     * messaging facility) so the plugin observes the change without waiting for a real scanner tick.
+     * Recomputes the merged stored+available ranges from the current {@link #appStoredBlocks} and the
+     * active {@link HistoricalBlockFacility}'s available blocks, and dispatches the corresponding
+     * notifications. Mirrors how {@code BlockNodeApp}'s update methods re-merge the two sets and
+     * dispatch directly on change. Call this after directly mutating the historical block facility's
+     * available blocks (e.g. via block items sent through the test messaging facility) so the plugin
+     * observes the change without waiting for a real notification.
      */
     protected void refreshContext() {
         final ConcurrentLongRangeSet merged = new ConcurrentLongRangeSet();
@@ -438,10 +412,13 @@ public abstract class PluginTestBase<
         final List<BlockRange> mergedRanges = merged.streamRanges()
                 .map(r -> new BlockRange(r.start(), r.end()))
                 .toList();
-        blockNodeContext = new BlockNodeContext.Builder(blockNodeContext)
-                .storedBlocks(mergedRanges)
-                .build();
-        plugin.onContextUpdate(blockNodeContext);
+        final List<BlockRange> available = activeHistoricalBlockFacility
+                .availableBlocks()
+                .streamRanges()
+                .map(r -> new BlockRange(r.start(), r.end()))
+                .toList();
+        blockMessaging.sendStoredBlocksUpdate(new StoredBlocksNotification(mergedRanges));
+        blockMessaging.sendAvailableBlocksUpdate(new AvailableBlocksNotification(available));
     }
 
     @Override
@@ -467,5 +444,10 @@ public abstract class PluginTestBase<
     @Override
     public void updateBackfillSources(NetworkData sources) {
         // Do nothing
+    }
+
+    @Override
+    public void updateAvailableBlocks(final BlockProviderPlugin provider, final BlockRangeSet availableBlocks) {
+        // No-op for test base; use replaceAvailableBlocks to simulate updates.
     }
 }

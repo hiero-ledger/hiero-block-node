@@ -28,9 +28,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
@@ -50,7 +48,12 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
+import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
+import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.health.HealthFacility.State;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
@@ -210,7 +213,7 @@ class BlockNodeAppTest {
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
             @Override
             protected void startPlugins(List<BlockNodePlugin> plugins) {
-                for (BlockNodePlugin plugin : loadedPlugins) {
+                for (BlockNodePlugin plugin : plugins) {
                     plugin.start();
                 }
             }
@@ -319,64 +322,82 @@ class BlockNodeAppTest {
         assertEquals(State.SHUTTING_DOWN, blockNodeApp.blockNodeState());
     }
 
-    private static class TestPlugin implements BlockNodePlugin {
-        private final AtomicInteger contextUpdated = new AtomicInteger(0);
+    private static class TestPlugin implements BlockNodePlugin, ApplicationStateNotificationHandler {
+        private final AtomicInteger notificationCount = new AtomicInteger(0);
         private volatile CountDownLatch latch = new CountDownLatch(0);
-        private final BlockingQueue<BlockNodeContext> contextUpdates = new LinkedBlockingQueue<>();
 
-        private volatile BlockNodeContext context = null;
+        @Override
+        public String name() {
+            return "TestPlugin";
+        }
 
-        /** Call before the action under test to set how many `onContextUpdate` calls are expected. */
+        volatile TssData lastTssData;
+        volatile RangedAddressBookHistory lastAddressBookHistory;
+        volatile List<BlockRange> lastStoredBlocks;
+        volatile List<BlockRange> lastAvailableBlocks;
+
+        /** Call before the action under test to set how many notifications are expected. */
         void expectContextUpdates(final int count) {
+            notificationCount.set(0);
             latch = new CountDownLatch(count);
         }
 
         /**
-         * Blocks until `onContextUpdate` has been called the expected number of times, or the
-         * timeout elapses (in which case the test fails).
+         * Blocks until the expected number of notifications arrived, or the timeout elapses.
          */
         void awaitContextUpdates(final long timeoutSeconds) throws InterruptedException {
             assertTrue(
                     latch.await(timeoutSeconds, TimeUnit.SECONDS),
-                    "onContextUpdate was not called within " + timeoutSeconds + "s");
+                    "ApplicationStateNotificationHandler was not called within " + timeoutSeconds + "s");
         }
 
         /**
-         * Blocks until a delivered context satisfies the given condition, or the timeout elapses.
-         * Drains delivered updates from a queue rather than assuming a specific number of updates
-         * will occur — updates can coalesce when several state changes land before the scanner's
-         * next tick.
+         * Blocks until stored blocks satisfy the condition, or the timeout elapses.
          *
-         * @return the first satisfying context, or {@code null} if the timeout elapses first
+         * @return the stored blocks list when condition is met, or last known value if timeout elapses
          */
-        BlockNodeContext awaitContext(final long timeoutSeconds, final Predicate<BlockNodeContext> condition)
+        List<BlockRange> awaitStoredBlocks(final long timeoutSeconds, final Predicate<List<BlockRange>> condition)
                 throws InterruptedException {
-            final long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
-            BlockNodeContext delivered;
-            // poll() treats a zero/negative timeout as "don't wait" and returns null immediately, so no
-            // separate deadline check is needed before it — this also sidesteps any ambiguity between
-            // ">" and ">=" for a near-zero remaining duration.
-            while ((delivered = contextUpdates.poll(deadlineNanos - System.nanoTime(), TimeUnit.NANOSECONDS)) != null) {
-                if (condition.test(delivered)) {
-                    return delivered;
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+            while (System.nanoTime() < deadline) {
+                final List<BlockRange> current = lastStoredBlocks;
+                if (current != null && condition.test(current)) {
+                    return current;
                 }
+                Thread.sleep(50);
             }
-            return null;
+            return lastStoredBlocks;
         }
 
         int getContextUpdated() {
-            return contextUpdated.get();
-        }
-
-        BlockNodeContext getContext() {
-            return context;
+            return notificationCount.get();
         }
 
         @Override
-        public void onContextUpdate(final BlockNodeContext context) {
-            this.context = context;
-            contextUpdated.incrementAndGet();
-            contextUpdates.add(context);
+        public void handleTssDataUpdate(final TssDataNotification notification) {
+            lastTssData = notification.tssData();
+            notificationCount.incrementAndGet();
+            latch.countDown();
+        }
+
+        @Override
+        public void handleAddressBookHistoryUpdate(final AddressBookHistoryNotification notification) {
+            lastAddressBookHistory = notification.rangedAddressBookHistory();
+            notificationCount.incrementAndGet();
+            latch.countDown();
+        }
+
+        @Override
+        public void handleStoredBlocksUpdate(final StoredBlocksNotification notification) {
+            lastStoredBlocks = notification.storedBlocks();
+            notificationCount.incrementAndGet();
+            latch.countDown();
+        }
+
+        @Override
+        public void handleAvailableBlocksUpdate(final AvailableBlocksNotification notification) {
+            lastAvailableBlocks = notification.availableBlocks();
+            notificationCount.incrementAndGet();
             latch.countDown();
         }
     }
@@ -391,10 +412,14 @@ class BlockNodeAppTest {
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
         final TestPlugin testPlugin = new TestPlugin();
 
-        // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
+        // startApplicationStateFacility starts the messaging facility internally
         blockNodeApp.startApplicationStateFacility();
 
         blockNodeApp.loadedPlugins.add(testPlugin);
+        blockNodeApp
+                .blockNodeContext
+                .blockMessaging()
+                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
         testPlugin.expectContextUpdates(1);
 
         blockNodeApp.updateTssData(null);
@@ -403,7 +428,7 @@ class BlockNodeAppTest {
         TssData tssData =
                 buildTssData(Bytes.fromHex("040506"), Bytes.fromHex("010203"), 1, 2, Bytes.fromHex("070809"), 100, 50);
         blockNodeApp.updateTssData(tssData);
-        // wait for the ApplicationStateFacility scanner to pick up the update
+        // wait for the direct-dispatch notification to arrive
         testPlugin.awaitContextUpdates(5);
 
         assertEquals(1, testPlugin.getContextUpdated());
@@ -429,10 +454,11 @@ class BlockNodeAppTest {
         Files.deleteIfExists(appStateDataFilePath);
         Files.createFile(appStateDataFilePath);
 
-        // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
         blockNodeApp.startApplicationStateFacility();
 
-        assertNull(blockNodeApp.blockNodeContext.tssData());
+        assertNull(blockNodeApp.currentTssData);
+
+        blockNodeApp.stopApplicationStateFacility();
     }
 
     /**
@@ -443,11 +469,15 @@ class BlockNodeAppTest {
     void testApplicationStateFacilityPersistence() throws IOException, InterruptedException {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
-        // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
+        // startApplicationStateFacility starts the messaging facility internally
         blockNodeApp.startApplicationStateFacility();
-        // Register a test plugin so we can await the scanner's onContextUpdate callback.
+        // Register a test plugin so we can await the direct-dispatch notification.
         final TestPlugin testPlugin = new TestPlugin();
         blockNodeApp.loadedPlugins.add(testPlugin);
+        blockNodeApp
+                .blockNodeContext
+                .blockMessaging()
+                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
         testPlugin.expectContextUpdates(1);
         // update the tssData which should persist to disk
         TssData tssData =
@@ -458,11 +488,10 @@ class BlockNodeAppTest {
 
         // create a new BlockNodeApp which will load the persisted TssData
         final BlockNodeApp blockNodeApp2 = new BlockNodeApp(serviceLoaderFunction, false);
-        // startApplicationStateFacility loads state synchronously before the scheduler starts,
-        // so no additional waiting is needed after this call.
+        // startApplicationStateFacility starts messaging facility, loads state, dispatches directly
         blockNodeApp2.startApplicationStateFacility();
 
-        TssData tssData1 = blockNodeApp2.blockNodeContext.tssData();
+        TssData tssData1 = blockNodeApp2.currentTssData;
         assertNotNull(tssData1);
         assertEquals(tssData.ledgerId(), tssData1.ledgerId());
         assertEquals(tssData.wrapsVerificationKey(), tssData1.wrapsVerificationKey());
@@ -474,9 +503,7 @@ class BlockNodeAppTest {
         assertEquals(roster.weight(), roster1.weight());
         assertEquals(roster.schnorrPublicKey(), roster1.schnorrPublicKey());
 
-        // stop the ApplicationStateFacility manually as shutdown() is not being called
         blockNodeApp2.stopApplicationStateFacility();
-        // stop the ApplicationStateFacility manually as shutdown() is not being called
         blockNodeApp.stopApplicationStateFacility();
     }
 
@@ -496,7 +523,7 @@ class BlockNodeAppTest {
 
         app.startApplicationStateFacility();
 
-        assertNull(app.blockNodeContext.nodeAddressBook(), "Missing RSA file must leave address book null");
+        assertNull(app.currentAddressBookHistory, "Missing RSA file must leave address book null");
         app.stopApplicationStateFacility();
     }
 
@@ -540,7 +567,7 @@ class BlockNodeAppTest {
 
         app.startApplicationStateFacility();
 
-        final RangedAddressBookHistory loaded = app.blockNodeContext.rangedAddressBookHistory();
+        final RangedAddressBookHistory loaded = app.currentAddressBookHistory;
         assertNotNull(loaded, "History file must populate nodeAddressBookHistory");
         assertEquals(2, loaded.addressBooks().size(), "Two eras must be loaded");
         app.stopApplicationStateFacility();
@@ -581,7 +608,7 @@ class BlockNodeAppTest {
         createRsaBootstrapFile(app);
         app.startApplicationStateFacility();
 
-        final RangedAddressBookHistory history = app.blockNodeContext.rangedAddressBookHistory();
+        final RangedAddressBookHistory history = app.currentAddressBookHistory;
         assertNotNull(history, "Single-book must be wrapped into a history");
         assertEquals(1, history.addressBooks().size(), "Wrapped history must have exactly one era");
         assertEquals(0L, history.addressBooks().getFirst().startBlock());
@@ -643,8 +670,12 @@ class BlockNodeAppTest {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
         final TestPlugin testPlugin = new TestPlugin();
+        // startApplicationStateFacility starts the messaging facility internally
         app.startApplicationStateFacility();
         app.loadedPlugins.add(testPlugin);
+        app.blockNodeContext
+                .blockMessaging()
+                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
 
         // Seed the context with a one-era history (startBlock=100)
         final RangedAddressBookHistory initial = RangedAddressBookHistory.newBuilder()
@@ -681,8 +712,8 @@ class BlockNodeAppTest {
         // Give the scanner a moment to process (or confirm it doesn't)
         Thread.sleep(200);
 
-        // Context must still hold the initial history
-        final RangedAddressBookHistory ctx = app.blockNodeContext.rangedAddressBookHistory();
+        // App must still hold the initial history
+        final RangedAddressBookHistory ctx = app.currentAddressBookHistory;
         assertNotNull(ctx);
         assertEquals(
                 1L,
@@ -713,8 +744,12 @@ class BlockNodeAppTest {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
         final TestPlugin testPlugin = new TestPlugin();
+        // startApplicationStateFacility starts the messaging facility internally
         app.startApplicationStateFacility();
         app.loadedPlugins.add(testPlugin);
+        app.blockNodeContext
+                .blockMessaging()
+                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
 
         // Seed with startBlock=100
         final RangedAddressBookHistory v1 = RangedAddressBookHistory.newBuilder()
@@ -761,7 +796,7 @@ class BlockNodeAppTest {
         app.updateAddressBookHistory(v2);
         testPlugin.awaitContextUpdates(5);
 
-        final RangedAddressBookHistory ctx = app.blockNodeContext.rangedAddressBookHistory();
+        final RangedAddressBookHistory ctx = app.currentAddressBookHistory;
         assertNotNull(ctx);
         assertEquals(2, ctx.addressBooks().size());
         assertEquals(200L, ctx.addressBooks().getLast().startBlock());
@@ -953,19 +988,26 @@ class BlockNodeAppTest {
      * not maintained as a separate field in BlockNodeApp.
      */
     @Test
-    @DisplayName("context.availableBlocks() is derived from the historical block facility")
+    @DisplayName("availableBlocks notification is derived from the historical block facility")
     void testAvailableBlocksInContextComesFromHistoricalFacility() throws InterruptedException {
         final TestPlugin testPlugin = new TestPlugin();
+        blockNodeApp
+                .blockNodeContext
+                .blockMessaging()
+                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
         blockNodeApp.loadedPlugins.add(testPlugin);
         testPlugin.expectContextUpdates(1);
 
+        // startApplicationStateFacility starts the messaging facility and loads state.
+        // Available-blocks notifications are now dispatched only when a provider calls
+        // updateAvailableBlocks, not at startup — simulate that here.
         blockNodeApp.startApplicationStateFacility();
+        blockNodeApp.updateAvailableBlocks(providerPlugin1, providerPlugin1.availableBlocks());
 
         testPlugin.awaitContextUpdates(5);
 
-        final BlockNodeContext context = testPlugin.getContext();
-        assertNotNull(context);
-        final List<BlockRange> available = context.availableBlocks();
+        assertNotNull(testPlugin.lastAvailableBlocks);
+        final List<BlockRange> available = testPlugin.lastAvailableBlocks;
         assertEquals(2, available.size());
         assertEquals(0L, available.get(0).rangeStart());
         assertEquals(10L, available.get(0).rangeEnd());
@@ -1032,34 +1074,38 @@ class BlockNodeAppTest {
     }
 
     /**
-     * Test block node ranges from onContextUpdate()
+     * Test block node ranges from StoredBlocksNotification.
      */
     @Test
-    @DisplayName("Test that block node ranges are received via onContextUpdate()")
+    @DisplayName("Test that block node ranges are received via StoredBlocksNotification")
     void testBlockRangesTriggerOnContextUpdate() throws Exception {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
         final TestPlugin testPlugin = new TestPlugin();
 
         createRsaBootstrapFile(blockNodeApp);
-        // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
+        // startApplicationStateFacility starts the messaging facility internally
         blockNodeApp.startApplicationStateFacility();
+        blockNodeApp
+                .blockNodeContext
+                .blockMessaging()
+                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
         blockNodeApp.loadedPlugins.add(testPlugin);
         blockNodeApp.addStoredBlockRange(new LongRange(0, 999));
         blockNodeApp.addStoredBlockRange(new LongRange(1000, 1049));
 
-        // The scanner delivers context updates asynchronously and may coalesce both writes into a
-        // single update, so wait on the merged content rather than a specific update count.
-        final BlockNodeContext context = testPlugin.awaitContext(
+        // addStoredBlockRange dispatches notifications directly; wait on merged content to handle
+        // both the intermediate and final notification.
+        final List<BlockRange> storedBlocks = testPlugin.awaitStoredBlocks(
                 15,
-                ctx -> !ctx.storedBlocks().isEmpty()
-                        && ctx.storedBlocks().getFirst().rangeStart() == 0L
-                        && ctx.storedBlocks().getFirst().rangeEnd() == 1049L);
+                blocks -> !blocks.isEmpty()
+                        && blocks.getFirst().rangeStart() == 0L
+                        && blocks.getFirst().rangeEnd() == 1049L);
 
-        assertNotNull(context, "onContextUpdate did not deliver the merged stored range within the timeout");
-        final BlockRange storedBlocks = context.storedBlocks().getFirst();
-        assertEquals(0L, storedBlocks.rangeStart());
-        assertEquals(1049L, storedBlocks.rangeEnd());
+        assertNotNull(
+                storedBlocks, "StoredBlocksNotification did not deliver the merged stored range within the timeout");
+        assertEquals(0L, storedBlocks.getFirst().rangeStart());
+        assertEquals(1049L, storedBlocks.getFirst().rangeEnd());
 
         // stop the ApplicationStateFacility manually as blockNodeApp.shutdown() is not being called
         blockNodeApp.stopApplicationStateFacility();

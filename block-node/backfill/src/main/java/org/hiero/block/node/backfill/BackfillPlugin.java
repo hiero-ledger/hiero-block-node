@@ -31,10 +31,12 @@ import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.LongCounter;
@@ -48,7 +50,7 @@ import org.hiero.metrics.core.MetricRegistry;
  * It runs periodically to ensure that all historical blocks are available for
  * historical blocks, and on-demand for live blocks.
  */
-public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler {
+public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler, ApplicationStateNotificationHandler {
 
     public static final MetricKey<ObservableGauge> METRIC_BACKFILL_STATUS =
             MetricKey.of("backfill_status", ObservableGauge.class).addCategory(METRICS_CATEGORY);
@@ -103,7 +105,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     // range whose persistence later fails en masse must remain eligible for the periodic scan to rediscover.
     private final AtomicLong liveTailHighWaterMark = new AtomicLong(-1);
 
-    // Cached stored+available snapshot delivered by the last onContextUpdate() call. The Application
+    // Cached stored+available snapshot delivered by the last StoredBlocksNotification. The Application
     // State facility already folds availableBlocks() into storedBlocks whenever either changes, so this
     // alone is the source of truth for "blocks this node already has" — no separate live availableBlocks()
     // read is needed here. A fresh set replaces this reference on each update rather than being mutated
@@ -191,15 +193,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         // Register the service
         context.blockMessaging().registerBlockNotificationHandler(this, false, "BackfillPlugin");
+        context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
-    public void onContextUpdate(BlockNodeContext context) {
+    public void handleStoredBlocksUpdate(final StoredBlocksNotification notification) {
         final ConcurrentLongRangeSet updated = new ConcurrentLongRangeSet();
-        for (final BlockRange range : context.storedBlocks()) {
+        for (final BlockRange range : notification.storedBlocks()) {
             updated.add(range.rangeStart(), range.rangeEnd());
         }
         knownBlockRanges = updated;
@@ -342,13 +342,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         LOGGER.log(TRACE, "Detecting gaps in blocks");
 
         // 1. Get the blocks this node already has: the cached stored+available snapshot from the last
-        //    onContextUpdate() unioned with a live availableBlocks() read. The Application State
-        //    facility's own periodic merge normally makes the cache alone sufficient, but its scan is
-        //    on a separate schedule and can (rarely) observe a transient/incomplete snapshot of the
-        //    underlying facility right as it's queried; re-checking the live set here is a cheap
-        //    guard against acting on such a stale snapshot. Folding in stored — not just available —
-        //    prevents re-backfilling blocks that have been evicted from a volatile tier (e.g. by the
-        //    recent-tier retention policy) but were already stored.
+        //    StoredBlocksNotification unioned with a live availableBlocks() read. The Application State
+        //    facility dispatches StoredBlocksNotification directly on change, so the cache is normally
+        //    current, but re-checking the live set here guards against any transient/incomplete snapshot
+        //    seen right as the facility updates. Folding in stored — not just available — prevents
+        //    re-backfilling blocks that have been evicted from a volatile tier (e.g. by the recent-tier
+        //    retention policy) but were already stored.
         ConcurrentLongRangeSet knownBlocks = new ConcurrentLongRangeSet();
         knownBlocks.addAll(knownBlockRanges);
         knownBlocks.addAll(context.historicalBlockProvider().availableBlocks());

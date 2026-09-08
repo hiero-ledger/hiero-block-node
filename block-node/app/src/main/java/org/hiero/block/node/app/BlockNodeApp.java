@@ -3,7 +3,6 @@ package org.hiero.block.node.app;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
@@ -40,7 +39,6 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -65,12 +63,16 @@ import org.hiero.block.node.app.logging.ConfigLogger;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
-import org.hiero.block.node.spi.BlockNodeContext.Builder;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
+import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
+import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.health.HealthFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
@@ -138,15 +140,20 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     /// The block node context. It is marked as volatile for thread safety.
     /// It is written by the scheduled scanner thread, read by plugin threads.
-    /// Plugins should take care to make a copy of the BlockNodeContext before
-    /// they use it so that they get a consistent BlockNodeContext
     volatile BlockNodeContext blockNodeContext;
+    /// The current TSS data. Updated by [#updateTssData], readable by tests and plugins that
+    /// prefer direct field access over ApplicationStateNotificationHandler.
+    volatile TssData currentTssData;
+    /// The current RSA address-book history. Updated by [#updateAddressBookHistory].
+    volatile RangedAddressBookHistory currentAddressBookHistory;
+    /// The latest merged stored-blocks list (stored ConcurrentLongRangeSet merged with available
+    /// blocks). Updated by [#addStoredBlockRange] and [#updateAvailableBlocks].
+    volatile List<BlockRange> currentStoredBlocks = List.of();
+    /// The current available-blocks list (union across all providers). Updated by
+    /// [#updateAvailableBlocks] and [#startApplicationStateFacility].
+    volatile List<BlockRange> currentAvailableBlocks = List.of();
     /// list of all loaded plugins. Package so accessible for testing.
     final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
-    /// Create a ConcurrentLinkedQueue to hold TssData updates
-    private final ConcurrentLinkedQueue<TssData> tssDataUpdates = new ConcurrentLinkedQueue<>();
-    /// Pending address book history loaded at startup; consumed by the first checkForApplicationStateUpdates run.
-    private final AtomicReference<RangedAddressBookHistory> pendingAddressBookHistory = new AtomicReference<>();
     /// Cached O(log n) index built from the current address book history; rebuilt whenever history changes.
     private volatile NavigableMap<Long, RangedNodeAddressBook> addressBookIndex = new TreeMap<>();
     /// Blocks reported as stored by plugins that do not serve them for retrieval
@@ -266,11 +273,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 this,
                 serviceLoader,
                 threadPoolManager,
-                versionInfo(loadedPlugins),
-                null,
-                null,
-                new ArrayList<>(),
-                new ArrayList<>());
+                versionInfo(loadedPlugins));
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Http2 Config more info at
         // https://helidon.io/docs/v4/apidocs/io.helidon.webserver.http2/io/helidon/webserver/http2/Http2Config.html
@@ -341,10 +344,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// Starts the block node server. This method initializes all the plugins, starts the web server,
     /// and starts the metrics.
     public void start() {
-        // start the ApplicationStateFacility
+        // startApplicationStateFacility starts the messaging facility (loadedPlugins.get(0)) and
+        // loads persisted state, dispatching initial notifications directly.
         startApplicationStateFacility();
-        // start the plugins
-        startPlugins(loadedPlugins);
+        // Start the remaining plugins; the messaging facility (index 0) is already running.
+        startPlugins(loadedPlugins.subList(1, loadedPlugins.size()));
         // mark the server as started
         state.set(State.RUNNING);
         serviceBuilder.startAll();
@@ -381,8 +385,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             // wait for the shutdown delay
             LockSupport.parkNanos(serverConfig.shutdownDelayMillis() * 1_000_000L);
             serviceBuilder.stopAll();
-            // Stop all the facilities &  plugins
-            for (BlockNodePlugin plugin : loadedPlugins) {
+            // Stop remaining plugins; messaging facility (index 0) already stopped by stopApplicationStateFacility.
+            for (BlockNodePlugin plugin : loadedPlugins.subList(1, loadedPlugins.size())) {
                 LOGGER.log(INFO, "\t{0}", plugin.name());
                 plugin.stop();
             }
@@ -418,21 +422,28 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     // -------------------- Application State Facility -------------------- //
 
-    /// Allow plugins to update the TssData for this BlockNodeApp.
-    /// Uses a concurrentList to capture all TssData updates between scans.
-    /// The ApplicationStateFacility scans for updates on a separate
-    /// thread and will process any TssData updates that are newer than
-    /// the current TssData.
+    /// {@inheritDoc}
     ///
-    /// @param tssData The TssData to be updated on the \`BlockNodeContext\`
+    /// Persists and dispatches the update immediately if the supplied data is newer than the
+    /// currently stored value. Last-write-wins when the caller supplies data with a lower
+    /// {@code validFromBlock} than what is already stored.
     @Override
     public void updateTssData(TssData tssData) {
-        if (tssData != null) tssDataUpdates.add(tssData);
+        if (tssData == null) return;
+        if (currentTssData != null && tssData.validFromBlock() <= currentTssData.validFromBlock()) return;
+        persistTssData(tssData);
+        currentTssData = tssData;
+        blockNodeContext.blockMessaging().sendTssDataUpdate(new TssDataNotification(tssData));
     }
 
     @Override
     public void addStoredBlockRange(LongRange blockRange) {
         storedBlocks.add(blockRange);
+        final List<BlockRange> newStored = mergeRanges(storedBlocks, historicalBlockFacility.availableBlocks());
+        if (!newStored.equals(currentStoredBlocks)) {
+            currentStoredBlocks = newStored;
+            blockNodeContext.blockMessaging().sendStoredBlocksUpdate(new StoredBlocksNotification(newStored));
+        }
     }
 
     @Override
@@ -470,18 +481,37 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         nextExpectedBlock = updatedExpectedBlock;
     }
 
-    /// Stages the supplied {@link RangedAddressBookHistory} for the next
-    /// {@code checkForApplicationStateUpdates} scan tick. Last-write-wins if called multiple times
-    /// before the next tick.
+    /// {@inheritDoc}
+    ///
+    /// Persists, indexes, and dispatches the update immediately if the supplied history is newer
+    /// than the currently stored value.
     ///
     /// @param history the history to store; must not be {@code null}
-    /// @return {@code true} if queued, {@code false} if equal to the currently stored value
+    /// @return {@code true} if accepted and dispatched, {@code false} if rejected
     @Override
     public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
-        if (history == null || history.equals(blockNodeContext.rangedAddressBookHistory())) return false;
-        pendingAddressBookHistory.set(history);
+        if (history == null || history.equals(currentAddressBookHistory)) return false;
+        if (!isNewerHistory(history, currentAddressBookHistory)) return false;
+        persistNodeAddressBookHistory(history);
+        addressBookIndex = AddressBookHistoryLookup.buildIndex(history);
+        currentAddressBookHistory = history;
         updateKnownPublishersFromAddressBook(history);
+        blockNodeContext.blockMessaging().sendAddressBookHistoryUpdate(new AddressBookHistoryNotification(history));
         return true;
+    }
+
+    @Override
+    public void updateAvailableBlocks(final BlockProviderPlugin provider, final BlockRangeSet availableBlocks) {
+        final List<BlockRange> newAvailable = toBlockRange(historicalBlockFacility.availableBlocks());
+        final List<BlockRange> newStored = mergeRanges(storedBlocks, historicalBlockFacility.availableBlocks());
+        if (!newAvailable.equals(currentAvailableBlocks)) {
+            currentAvailableBlocks = newAvailable;
+            blockNodeContext.blockMessaging().sendAvailableBlocksUpdate(new AvailableBlocksNotification(newAvailable));
+        }
+        if (!newStored.equals(currentStoredBlocks)) {
+            currentStoredBlocks = newStored;
+            blockNodeContext.blockMessaging().sendStoredBlocksUpdate(new StoredBlocksNotification(newStored));
+        }
     }
 
     /// Rebuilds the set of known publisher connections from the newest era in the supplied
@@ -533,22 +563,24 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /// Starts the ApplicationStateFacility.
-    /// The thread will be used to check if there are any TssData updates to process.
+    ///
+    /// Starts the messaging facility first so that the update methods called during
+    /// {@link #loadApplicationState} can dispatch notifications immediately. Then schedules
+    /// a periodic task that only handles the block-range persist-interval check (all live-update
+    /// dispatching is now done directly in the update methods).
     void startApplicationStateFacility() {
-        // ==== LOAD APPLICATION STATE =================================================================================
+        // Start the messaging facility first so update methods can dispatch notifications immediately.
+        loadedPlugins.get(0).start();
+
+        // Load persisted state; update methods (updateTssData, updateAddressBookHistory, etc.)
+        // dispatch notifications directly as each datum is loaded.
         loadApplicationState(blockNodeContext.configuration());
 
-        // Flush any state loaded from disk (TssData queue + pending address book) into blockNodeContext
-        // synchronously now, so plugins see the correct context when startPlugins() is called next.
-        checkForApplicationStateUpdates();
-
-        // Create thread executors via threadPoolManager.
+        // Schedule periodic persist-interval check only (state-change dispatching is direct now).
         applicationStateExecutor = blockNodeContext
                 .threadPoolManager()
                 .createVirtualThreadScheduledExecutor(
                         1, "ApplicationStateScanner", ApplicationStateUtility::uncaughtExceptionHandler);
-
-        // Schedule periodic check for live updates from running plugins.
         applicationStateExecutor.scheduleAtFixedRate(
                 this::checkForApplicationStateUpdates,
                 appStateConfig.updateInitialDelay(),
@@ -556,25 +588,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 TimeUnit.MILLISECONDS);
     }
 
+    /// Periodically persists block ranges when the running total crosses a boundary.
+    ///
+    /// All state-change notifications (TSS, address book, available/stored blocks) are now
+    /// dispatched directly inside the corresponding update methods; this method only handles
+    /// the interval-triggered persist of block ranges.
     private void checkForApplicationStateUpdates() {
-        // get any TssData update
-        TssData tssData = getPendingTssData();
-        if (tssData != null) {
-            persistTssData(tssData);
-        }
-
-        final RangedAddressBookHistory addressBookHistory = pendingAddressBookHistory.getAndSet(null);
-        if (addressBookHistory != null) {
-            persistNodeAddressBookHistory(addressBookHistory);
-            addressBookIndex = AddressBookHistoryLookup.buildIndex(addressBookHistory);
-        }
-
-        if (updateBlockNodeContext(
-                tssData, addressBookHistory, storedBlocks, historicalBlockFacility.availableBlocks())) {
-            loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
-        }
-
-        // Persist block ranges whenever the running total crosses a BLOCK_RANGE_PERSIST_INTERVAL boundary.
         final long current = storedBlocks.size();
         if (current / BLOCK_RANGE_PERSIST_INTERVAL > lastPersistedBlockCount / BLOCK_RANGE_PERSIST_INTERVAL) {
             persistBlockRanges();
@@ -594,83 +613,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 Thread.currentThread().interrupt();
             }
         }
-        // check for any pending Tss or Rsa updates and persist them.
-        checkForApplicationStateUpdates();
-        // calling persistBlockRanges separately so that it persists wherever it is.
+        // Persist all block ranges at shutdown regardless of threshold.
         persistBlockRanges();
-    }
-
-    /// Get the latest TssData to update.
-    ///
-    /// @return The TssData to update or null if no updates pending.
-    private TssData getPendingTssData() {
-        boolean updated = false;
-        TssData currTssData = blockNodeContext.tssData();
-        TssData tssData = tssDataUpdates.poll();
-        while (tssData != null) {
-            if (currTssData == null || tssData.validFromBlock() > currTssData.validFromBlock()) {
-                updated = true;
-                currTssData = tssData;
-            }
-            tssData = tssDataUpdates.poll();
-        }
-        return updated ? currTssData : null;
-    }
-
-    /// Update the BlockNodeContext if any of the provided state values differ from what is
-    /// currently stored. TssData is considered changed if non-null and its {@code validFromBlock}
-    /// is greater than the current value. NodeAddressBook and RangedAddressBookHistory are
-    /// considered changed if non-null.
-    ///
-    /// @param tssData the TssData to consider; may be null
-    /// @param addressBookHistory the RangedAddressBookHistory to consider; may be null
-    /// @return {@code true} if the BlockNodeContext was updated
-    private boolean updateBlockNodeContext(
-            TssData tssData,
-            RangedAddressBookHistory addressBookHistory,
-            BlockRangeSet storedBlocks,
-            BlockRangeSet availableBlocks) {
-        BlockNodeContext context = blockNodeContext;
-
-        // Discard addressBookHistory if it is not strictly newer than the one already in context.
-        if (addressBookHistory != null && !isNewerHistory(addressBookHistory, context.rangedAddressBookHistory())) {
-            addressBookHistory = null;
-        }
-
-        List<BlockRange> storedBlockRange = mergeRanges(storedBlocks, availableBlocks);
-        List<BlockRange> availableBlockRange = toBlockRange(availableBlocks);
-
-        if (tssData == null
-                && addressBookHistory == null
-                && storedBlockRange.hashCode() == context.storedBlocks().hashCode()
-                && availableBlockRange.hashCode() == context.availableBlocks().hashCode()
-                && storedBlockRange.equals(context.storedBlocks())
-                && availableBlockRange.equals(context.availableBlocks())) {
-            return false;
-        }
-
-        Builder builder = new Builder(context);
-        if (tssData != null) {
-            builder.tssData(tssData);
-        }
-
-        if (addressBookHistory != null) {
-            builder.rangedAddressBookHistory(addressBookHistory);
-        }
-
-        if (availableBlockRange.hashCode() != context.availableBlocks().hashCode()
-                || !availableBlockRange.equals(context.availableBlocks())) {
-            builder.availableBlocks(availableBlockRange);
-        }
-        if (storedBlockRange.hashCode() != context.storedBlocks().hashCode()
-                || !storedBlockRange.equals(context.storedBlocks())) {
-            builder.storedBlocks(storedBlockRange);
-        }
-
-        LOGGER.log(TRACE, "BlockNodeContext updated");
-        // update the BlockNodeContext
-        blockNodeContext = builder.build();
-        return true;
+        // Stop the messaging facility that was started in startApplicationStateFacility.
+        loadedPlugins.get(0).stop();
     }
 
     /// Persist the TssData
@@ -794,14 +740,14 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                                         .endBlock(-1L)
                                         .build()))
                                 .build();
-                        pendingAddressBookHistory.set(wrapped);
+                        updateAddressBookHistory(wrapped);
                     } else {
                         // @todo(3321) This is bad design. This entire method uses
                         //     exceptions as flow control, and we need to fix that.
                         throw new IllegalStateException("Address book is not valid");
                     }
                 } else {
-                    pendingAddressBookHistory.set(history);
+                    updateAddressBookHistory(history);
                 }
             } catch (IOException e) {
                 throw new IllegalStateException("Failed to read RSA address book history file: " + historyFilePath, e);
