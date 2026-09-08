@@ -62,10 +62,10 @@ description: "CN→BN1 + BN-peers→BN1 bandwidth cap (300mbit/s) — cumulative
 events:
   - id: load-start
     type: load-start
-    description: "Start NLG load with max_tps set explicitly: NLG's real throughput ceiling is one of two JVM properties -- -Dbenchmark.maxtps (this --max-tps flag, fully controllable) or the unexposed -Dbenchmark.tps AdaptiveQueue default (20000, no solo flag or chart value reaches it, own real-time self-scaling not independently verified). Setting max_tps forces the simple RateLimitedQueue path instead, to test whether that changes real block size"
+    description: "Start NLG load (concurrency=50, confirmed to reach this harness's real ~6,000 TPS ceiling; max_tps=11000 forces RateLimitedQueue over AdaptiveQueue -- confirmed no effect on the ceiling either way, kept for memory headroom)"
     delay: 0
     args:
-      concurrency: 5
+      concurrency: 50
       accounts: 10
       duration: 480
       max_tps: 11000

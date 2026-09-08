@@ -43,7 +43,7 @@ events:
     description: "Start NLG load"
     delay: 0
     args:
-      concurrency: 5
+      concurrency: 50
       accounts: 10
       duration: 540
 

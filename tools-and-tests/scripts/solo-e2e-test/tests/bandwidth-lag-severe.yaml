@@ -57,7 +57,7 @@ events:
     delay: 0
     args:
       test_class: CryptoTransferLoadTest
-      concurrency: 5
+      concurrency: 50
       accounts: 10
       duration: 480
 
