@@ -31,7 +31,7 @@
 # bytes/block. Re-derived from that observed number instead: floor at the
 # observed ~0.467 blk/s = 867,673 x 8 x 0.467 ~= 3.24 Mbit/s. 6mbit/s
 # preserves the same ~1.8x margin as every prior derivation. See -stress
-# (3.5mbit/s, ~1.08x) and -severe (1.75mbit/s, ~0.54x).
+# (3500kbit/s, ~1.08x) and -severe (1750kbit/s, ~0.54x).
 #
 # Assertions:
 #   blocks-diverged  min_spread=5   — conservative starting point for this
