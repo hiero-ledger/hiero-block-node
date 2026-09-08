@@ -25,9 +25,11 @@
 #                     instead of failing immediately (max 3 restarts).
 #
 # Exit codes:
-#   0  WRAPS transition found
+#   0  WRAPS transition found (including a hard-timeout hit after WRAPS was observed:
+#      the transition is real, only its exact block number went unnarrowed)
 #   1  max-block reached without WRAPS, or error
 #   2  connection error with no port-forward-cmd provided
+#   3  hard wall-clock timeout (max_block*2) hit before WRAPS was ever observed
 
 set -euo pipefail
 
@@ -36,7 +38,9 @@ BN_ENDPOINT="${2:-localhost:40840}"
 MAX_BLOCK="${3:-0}"
 PORT_FORWARD_CMD="${4:-}"
 
-STEP=50
+# Scan stride. Env-overridable so the unit suite can pair a tiny max_block with a
+# stride small enough to enter the scan loop at all; production always uses 50.
+STEP="${MONITOR_BLOCK_STEP:-50}"
 # Max gRPC message size to accept. Normal blocks are ~40KB; the TSS genesis
 # block can be ~100MB. Downloading 100MB through kubectl port-forward crashes
 # the SPDY tunnel. A 10MB limit rejects oversized blocks early (via RST_STREAM)
@@ -61,6 +65,20 @@ else
 fi
 START_TIME=$(date +%s)
 
+# Set once WRAPS is observed. Everything after that only sharpens the reported
+# block number, so a deadline hit with this set is imprecision, not a failure.
+WRAPS_SEEN_BLOCK=""
+
+# Without a trap the TERM from check_hard_timeout exits 143, indistinguishable
+# from any other abnormal death. 3 names the self-imposed deadline.
+function on_hard_timeout {
+  if [[ -n "${WRAPS_SEEN_BLOCK}" ]]; then
+    exit 0
+  fi
+  exit 3
+}
+trap on_hard_timeout TERM
+
 # Checked from get_sig_type_safe (every gRPC call site: scan loop, binary
 # search, lower-bound search, print_result) rather than only between scan
 # iterations, so post-detection work can't run unbounded past the deadline.
@@ -70,9 +88,15 @@ function check_hard_timeout {
   if [[ "$elapsed" -ge "$HARD_TIMEOUT" ]]; then
     echo "" >&2
     echo "=== Signature Transition ===" >&2
-    echo "  Status: WRAPS NOT DETECTED" >&2
-    echo "  Hard timeout: ${HARD_TIMEOUT}s elapsed (max_block=${MAX_BLOCK} * 2s)" >&2
+    if [[ -n "${WRAPS_SEEN_BLOCK}" ]]; then
+      echo "  First WRAPS block: ${WRAPS_SEEN_BLOCK}" >&2
+      echo "  (upper bound only: exact transition block not narrowed, ${HARD_TIMEOUT}s deadline hit during binary search)" >&2
+    else
+      echo "  Status: WRAPS NOT DETECTED" >&2
+      echo "  Hard timeout: ${HARD_TIMEOUT}s elapsed (max_block=${MAX_BLOCK} * 2s)" >&2
+    fi
     # set -e doesn't reliably cross nested $(...) layers; signal the top-level script.
+    # The exit below lets the enclosing $(...) finish so the parent can run its trap.
     kill -TERM "$$"
     exit 1
   fi
@@ -331,6 +355,8 @@ while true; do
   echo "  Block ${block}: ${sig_type} (sig: ${sig_bytes} bytes, block: $(format_size "$block_size"))"
 
   if [[ "$sig_type" == "WRAPS" ]]; then
+    # Record it before narrowing: from here on the assertion is already satisfied.
+    WRAPS_SEEN_BLOCK=$block
     echo "  WRAPS detected, binary searching for exact transition..."
     low=$(find_schnorr_lower_bound "$block")
     transition=$(binary_search_transition "$low" "$block")

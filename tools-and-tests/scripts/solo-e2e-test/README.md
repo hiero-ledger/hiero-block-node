@@ -97,6 +97,7 @@ task down
 | Task               | [taskfile.dev](https://taskfile.dev/installation/)                                      |
 | yq                 | [github.com/mikefarah/yq](https://github.com/mikefarah/yq#install)                      |
 | grpcurl (optional) | [github.com/fullstorydev/grpcurl](https://github.com/fullstorydev/grpcurl#installation) |
+| timeout (optional) | GNU coreutils; on macOS `brew install coreutils` provides `gtimeout`                    |
 
 ```bash
 task check  # Verify all installed

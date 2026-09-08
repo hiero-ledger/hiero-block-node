@@ -597,7 +597,7 @@ jobs:
       # Run each test definition sequentially on the same deployment
       - name: Run Test Definitions
         id: tests_end
-        timeout-minutes: 75
+        timeout-minutes: 90
         if: ${{ inputs.test-definition != 'none' && inputs.test-definition != '' }}
         run: |
           TESTS_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/tests"

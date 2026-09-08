@@ -48,6 +48,11 @@ DEPLOYMENT="${DEPLOYMENT:-deployment-solo}"
 # informative output. Env-overridable so the unit suite can bound it tightly.
 SIGNATURE_TRANSITION_GRACE_SECONDS="${SIGNATURE_TRANSITION_GRACE_SECONDS:-180}"
 
+# Stock macOS ships neither `timeout` nor `gtimeout`. It is only a backstop here --
+# the monitor enforces its own max_block*2 deadline -- so wrap only when present.
+# Set it empty (not unset) to exercise the unwrapped path on a machine that has it.
+TIMEOUT_BIN="${TIMEOUT_BIN-$(command -v timeout || command -v gtimeout || true)}"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -284,17 +289,8 @@ function execute_snapshot_block_heights {
     : > "${snapshot_file}"
 
     for bn in $(get_all_block_nodes); do
-        local port
-        port=$(get_bn_grpc_port "$bn")
-        local import_args="-import-path ${PROTO_PATH}"
-        local status_json last_block
-        # shellcheck disable=SC2086
-        status_json=$(grpcurl -plaintext -emit-defaults \
-            ${import_args} \
-            -proto block-node/api/node_service.proto \
-            -d '{}' "localhost:${port}" \
-            org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
-        last_block=$(echo "$status_json" | jq -r '.lastAvailableBlock // "0"' 2>/dev/null)
+        local last_block
+        last_block=$(bn_server_status "$bn" | jq -r '.lastAvailableBlock // "0"' 2>/dev/null)
         last_block=${last_block:-0}
         echo "${bn}=${last_block}" >> "${snapshot_file}"
         echo "  ${bn}: lastBlock=${last_block}"
@@ -928,27 +924,36 @@ function get_bn_grpc_port {
     echo $((40839 + node_num))
 }
 
+# Fetch a Block Node's serverStatus as JSON. Prints nothing if the call fails; callers
+# supply their own jq default and decide what an absent field means.
+#
+# -max-time for the same reason monitor-block-proofs.sh sets it: a Service whose pods are
+# gone still accepts a kubectl port-forward connection and then stalls forever, so an
+# unbounded call here hangs the caller indefinitely.
+function bn_server_status {
+    local target="$1"
+    local port
+    port=$(get_bn_grpc_port "$target")
+
+    grpcurl -plaintext -emit-defaults -max-time 30 \
+        -import-path "${PROTO_PATH}" \
+        -proto block-node/api/node_service.proto \
+        -d '{}' "localhost:${port}" \
+        org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null
+}
+
 # Single node block availability check
 function assert_block_available_single {
     local target="$1"
     local min_block="${2:-0}"
     local max_block_gte="${3:-0}"
-    local port
-    port=$(get_bn_grpc_port "$target")
 
     if ! validate_proto_path "${target}"; then
         return 1
     fi
 
-    local import_args="-import-path ${PROTO_PATH}"
-
     local status_json
-    # shellcheck disable=SC2086  # Intentional word splitting for import path argument
-    status_json=$(grpcurl -plaintext -emit-defaults \
-        ${import_args} \
-        -proto block-node/api/node_service.proto \
-        -d '{}' "localhost:${port}" \
-        org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
+    status_json=$(bn_server_status "$target")
 
     local first_block last_block
     first_block=$(echo "$status_json" | jq -r '.firstAvailableBlock // "null"')
@@ -1171,24 +1176,14 @@ function assert_rsa_roster_verification {
 # Helper to get block count from a node with error handling
 function get_block_count {
     local target="$1"
-    local port
-    port=$(get_bn_grpc_port "$target")
 
     if ! validate_proto_path >/dev/null 2>&1; then
         echo ""
         return 1
     fi
 
-    local import_args="-import-path ${PROTO_PATH}"
-    local json block_count
-
-    json=$(grpcurl -plaintext -emit-defaults \
-        ${import_args} \
-        -proto block-node/api/node_service.proto \
-        -d '{}' "localhost:${port}" \
-        org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
-
-    block_count=$(echo "$json" | jq -r '.lastAvailableBlock // ""' 2>/dev/null)
+    local block_count
+    block_count=$(bn_server_status "$target" | jq -r '.lastAvailableBlock // ""' 2>/dev/null)
 
     # Return empty if we got nothing valid. An empty store reports the UINT64_MAX
     # sentinel here, which compares equal to itself — without this guard
@@ -1306,17 +1301,8 @@ function assert_blocks_converged {
     local failed=0
 
     for bn in $(get_all_block_nodes); do
-        local port
-        port=$(get_bn_grpc_port "$bn")
-        local import_args="-import-path ${PROTO_PATH}"
-        local status_json last_block
-        # shellcheck disable=SC2086
-        status_json=$(grpcurl -plaintext -emit-defaults \
-            ${import_args} \
-            -proto block-node/api/node_service.proto \
-            -d '{}' "localhost:${port}" \
-            org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
-        last_block=$(echo "$status_json" | jq -r '.lastAvailableBlock // "0"' 2>/dev/null)
+        local last_block
+        last_block=$(bn_server_status "$bn" | jq -r '.lastAvailableBlock // "0"' 2>/dev/null)
         last_block=${last_block:-0}
         results="${results}${bn}: lastBlock=${last_block}\n"
         [[ "${last_block}" -lt "${min_last}" ]] && min_last="${last_block}"
@@ -1382,6 +1368,15 @@ function assert_signature_transition {
         return 1
     fi
 
+    # A node that holds no blocks -- scaled down, or one that never receives a live stream --
+    # cannot satisfy this assertion, and the monitor would wait out its whole max_block * 2
+    # deadline discovering that. Ask serverStatus first and fail in seconds instead.
+    local availability
+    if ! availability=$(assert_block_available_single "$target"); then
+        echo "${availability}"
+        return 1
+    fi
+
     local script="${SCRIPT_DIR}/monitor-block-proofs.sh"
     if [[ ! -x "$script" ]]; then
         echo "${target}: monitor-block-proofs.sh not found at ${script}"
@@ -1389,12 +1384,31 @@ function assert_signature_transition {
     fi
 
     local pf_cmd="${SCRIPT_DIR}/solo-port-forward.sh --namespace ${NAMESPACE}"
-    local output status
+    local output
+    local status=0
+    local monitor_deadline=0
     local hard_timeout=0
     if [[ "$max_block" -gt 0 ]]; then
-        hard_timeout=$(( max_block * 2 + SIGNATURE_TRANSITION_GRACE_SECONDS ))
+        monitor_deadline=$(( max_block * 2 ))
+        hard_timeout=$(( monitor_deadline + SIGNATURE_TRANSITION_GRACE_SECONDS ))
     fi
-    if output=$(timeout --foreground "${hard_timeout}" "$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" "${pf_cmd}" 2>&1); then
+
+    # Output goes to a file, not a command substitution: a leaked descendant holding
+    # stdout would keep the substitution open long after `timeout` killed the monitor.
+    local out_file
+    out_file=$(mktemp)
+    if [[ -n "${TIMEOUT_BIN}" ]]; then
+        "${TIMEOUT_BIN}" --foreground "${hard_timeout}" \
+            "$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" "${pf_cmd}" \
+            >"${out_file}" 2>&1 || status=$?
+    else
+        "$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" "${pf_cmd}" \
+            >"${out_file}" 2>&1 || status=$?
+    fi
+    output=$(cat "${out_file}")
+    rm -f "${out_file}"
+
+    if [[ "${status}" -eq 0 ]]; then
         local transition_block transition_summary
         transition_summary=$(echo "${output}" | grep -A 10 "=== Signature Transition ===")
         transition_block=$(echo "${transition_summary}" | grep "First WRAPS block:" | awk '{print $NF}')
@@ -1402,10 +1416,11 @@ function assert_signature_transition {
         echo "${transition_summary}"
         return 0
     else
-        status=$?
         echo "${output}" >&2
-        if [[ "${status}" -eq 124 ]]; then
-            echo "${target}: monitor-block-proofs.sh exceeded ${hard_timeout}s and was killed"
+        if [[ "${status}" -eq 3 ]]; then
+            echo "${target}: monitor-block-proofs.sh hit its own ${monitor_deadline}s deadline (max_block * 2)"
+        elif [[ "${status}" -eq 124 ]]; then
+            echo "${target}: monitor-block-proofs.sh exceeded ${hard_timeout}s and was killed by the wrapper"
         else
             echo "${target}: WRAPS not detected within ${max_block} blocks (exit ${status})"
         fi

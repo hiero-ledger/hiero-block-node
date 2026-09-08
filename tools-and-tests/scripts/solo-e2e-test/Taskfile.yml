@@ -114,6 +114,9 @@ tasks:
         echo "  Solo: $(solo --version)"
         echo "  yq: $(yq --version)"
         command -v pnpm >/dev/null 2>&1 && echo "  pnpm: $(pnpm --version)" || echo "  pnpm: not installed (needed for TCK tests)"
+        command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1 \
+          && echo "  timeout: $(command -v timeout || command -v gtimeout)" \
+          || echo "  timeout: not installed (some 'task test:unit' scenarios skip; macOS: brew install coreutils)"
     silent: true
 
   solo:install:

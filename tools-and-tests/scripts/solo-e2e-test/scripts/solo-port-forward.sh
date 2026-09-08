@@ -132,7 +132,7 @@ pf() {
         [[ -f "${PF_KEEPALIVE_FILE}" ]] || break
         sleep 2
       done
-    done ) 2>/dev/null &
+    done ) >/dev/null 2>&1 &
 }
 
 # Stop any previous generation of forwards and their supervisors before starting
