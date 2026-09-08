@@ -94,6 +94,13 @@ events:
     delay: 180
     args: { snapshot_id: peak-chaos }
 
+  - id: mid-tx-presence
+    type: mirror-tx-presence
+    description: "Per-type presence over a real 100s window, mid-chaos -- confirms whether Mirror Node Monitor's pinger scenario (CONSENSUSSUBMITMESSAGE) is actually landing transactions, independent of avg-block-size (which is dominated by TSS-phase measurement-window timing, not content mix)"
+    delay: 200
+    args:
+      window_seconds: 100
+
   - id: clear-cn-bn1-bw
     type: clear-bandwidth
     description: "Clear CN→BN1 bandwidth cap"
