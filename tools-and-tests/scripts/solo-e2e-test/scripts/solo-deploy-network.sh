@@ -854,6 +854,39 @@ function apply_cn_block_nodes_configs {
   done <<< "${config_files}"
 }
 
+# Enable Mirror Node Monitor's pinger scenario (ConsensusSubmitMessage traffic) at a
+# configurable TPS via MIRROR_NODE_PINGER_TPS (0 disables it). Solo's own `--pinger` flag
+# silently no-ops this for mirror-node-version >= 0.152.0 -- its hasMirrorNodeMemoryImprovements
+# gate in mirror-node.ts skips the monitor.enabled/pinger.tps --set flags entirely past that
+# version, and the chart's own base values default monitor.enabled to false. Confirmed via
+# source read after MIRROR_NODE_PINGER_TPS showed zero effect (mirror-tx-presence: absent) at
+# TPS=100 and TPS=1000 on this harness's resolved v0.162.0. Applied here via values-file
+# instead, which Solo merges before that (skipped, for this version) conditional block, so it
+# isn't fought or overridden. chartNamespace is "hiero" for mirror-node-version >= 0.130.0
+# (POST_HIERO_MIGRATION_MIRROR_NODE_VERSION) -- this harness's resolved versions are always
+# past that boundary too.
+function generate_mirror_monitor_overlay {
+  local output_file="$1"
+  local tps="${MIRROR_NODE_PINGER_TPS:-5}"
+  local enabled="true"
+  if [[ "${tps}" -eq 0 ]]; then
+    enabled="false"
+  fi
+  cat > "${output_file}" << EOF
+monitor:
+  enabled: ${enabled}
+  config:
+    hiero:
+      mirror:
+        monitor:
+          publish:
+            scenarios:
+              pinger:
+                tps: ${tps}
+EOF
+  echo "Generated mirror monitor overlay (pinger.tps=${tps}, enabled=${enabled})"
+}
+
 function deploy_mirror_node {
   log_line ""
   log_line "deploy_mirror_node called with SKIP_MIRROR=${SKIP_MIRROR}"
@@ -903,6 +936,10 @@ function deploy_mirror_node {
       # chart defaults so downstream test-def events can patch it.
       log_line "  No overlay for Mirror Node ${i} (topology has no MN→BN wiring); installing with chart defaults."
     fi
+
+    local mn_monitor_overlay="${OVERLAY_DIR}/mn-monitor-${i}-override.yaml"
+    generate_mirror_monitor_overlay "${mn_monitor_overlay}"
+    overlay_arg="${overlay_arg} -f ${mn_monitor_overlay}"
 
     start_task "Deploying Mirror Node ${i}"
     # shellcheck disable=SC2086
