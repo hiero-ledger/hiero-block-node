@@ -10,7 +10,6 @@ import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleRo
 
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
@@ -1428,19 +1427,7 @@ class BlockStreamSubscriberSessionTest {
             final TestBlockMessagingFacility messagingFacility,
             final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility) {
         return new BlockNodeContext(
-                configuration,
-                null,
-                null,
-                messagingFacility,
-                historicalBlockFacility,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                new ArrayList<>(),
-                new ArrayList<>());
+                configuration, null, null, messagingFacility, historicalBlockFacility, null, null, null, null);
     }
 
     /**

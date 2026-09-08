@@ -119,6 +119,8 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The configuration for this plugin. */
     private FilesRecentConfig config;
+    /** The block node context. */
+    private BlockNodeContext context;
     /** The block messaging facility. */
     private BlockMessagingFacility blockMessaging;
     /** The set of available blocks. */
@@ -153,6 +155,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
      */
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
+        this.context = context;
         this.config = context.configuration().getConfigData(FilesRecentConfig.class);
         blockRetentionThreshold = config.blockRetentionThreshold();
         this.blockMessaging = context.blockMessaging();
@@ -188,6 +191,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                 LOGGER.log(INFO, "Failed to get size of block file for block %s".formatted(blockNumber), e);
             }
         });
+        context.applicationStateFacility().updateAvailableBlocks(this, availableBlocks);
     }
 
     /**
@@ -411,6 +415,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             LOGGER.log(DEBUG, "Wrote verified block {0} to file {1}", blockNumber, verifiedBlockPath.toAbsolutePath());
             // update the oldest and newest verified block numbers
             availableBlocks.add(blockNumber);
+            context.applicationStateFacility().updateAvailableBlocks(this, availableBlocks);
             // Increment blocks written counter
             blocksWrittenCounter.increment();
             return true;
@@ -481,6 +486,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                 LOGGER.log(INFO, DELETE_MESSAGE.formatted("File missing", blockFilePath));
             }
             availableBlocks.remove(blockNumber);
+            context.applicationStateFacility().updateAvailableBlocks(this, availableBlocks);
             blocksDeletedCounter.increment();
             totalBytesStored.addAndGet(-fileSize);
         } catch (final IOException e) {

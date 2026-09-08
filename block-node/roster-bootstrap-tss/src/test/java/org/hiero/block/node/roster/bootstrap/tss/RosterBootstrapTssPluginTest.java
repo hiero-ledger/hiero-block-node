@@ -22,7 +22,7 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
-import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -188,9 +188,10 @@ public class RosterBootstrapTssPluginTest
         }
 
         @Override
-        public void onContextUpdate(BlockNodeContext context) {
+        public void handleTssDataUpdate(final TssDataNotification notification) {
+            super.handleTssDataUpdate(notification);
             contextUpdated[0]++;
-            tssData[0] = context.tssData();
+            tssData[0] = notification.tssData();
             latch.countDown();
         }
     }

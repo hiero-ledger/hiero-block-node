@@ -5,6 +5,8 @@ import com.hedera.hapi.node.base.NodeAddressBook;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
@@ -13,24 +15,25 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
  * */
 public interface ApplicationStateFacility {
     /**
-     * Used by plugins to update the TssData for this application. i.e. `TssBootstrapPlugin`, and `VerificationPlugin`
-     * The update will be forwarded to all plugins using the BlockNodePlugin.onContextUpdate() of the plugins
+     * Used by plugins to update the TssData for this application. i.e. {@code TssBootstrapPlugin}, and
+     * {@code VerificationPlugin}. The update will be forwarded to all registered
+     * {@link org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler} instances.
      *
-     * @param tssData - The TssData to be updated on the `BlockNodeContext`
-     * */
+     * @param tssData the TssData to update
+     */
     void updateTssData(TssData tssData);
 
     /**
      * Used by plugins to update the block-number-keyed RSA address book history for this
      * application. When present, the history takes precedence over the single
      * {@code NodeAddressBook} for historical WRB verification. The update will be forwarded to
-     * all plugins using {@link BlockNodePlugin#onContextUpdate(BlockNodeContext)}.
+     * all registered {@link org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler}
+     * instances.
      *
      * <p>The default implementation is a no-op that returns {@code false}. Implementations that
      * support the history file (i.e. {@code BlockNodeApp}) override this method.
      *
-     * @param history the {@code RangedAddressBookHistory} to store in the BlockNodeContext;
-     *     must not be {@code null}
+     * @param history the {@code RangedAddressBookHistory} to store; must not be {@code null}
      * @return {@code true} if the history is queued for update, {@code false} if it was not
      *     (e.g. equal to the currently stored value or implementation does not support history)
      */
@@ -112,4 +115,14 @@ public interface ApplicationStateFacility {
      * @param updatedExpectedBlock The new value for the next expected block.
      */
     void updateExpectedBlock(final long updatedExpectedBlock);
+
+    /**
+     * Used by block provider plugins to report their current set of available blocks.
+     * BlockNodeApp maintains a per-provider map and recomputes the union on each call;
+     * if the union changed it updates the context snapshot and sends notifications.
+     *
+     * @param provider the provider plugin reporting its available blocks
+     * @param availableBlocks the full current set of blocks available from this provider
+     */
+    void updateAvailableBlocks(BlockProviderPlugin provider, BlockRangeSet availableBlocks);
 }

@@ -3,12 +3,10 @@ package org.hiero.block.node.app.fixtures;
 
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
-import java.util.ArrayList;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
 import org.hiero.block.api.BlockNodeVersions;
-import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
@@ -59,8 +57,6 @@ public class TestUtils {
         final TestApplicationStateFacility applicationStateFacility = new TestApplicationStateFacility();
         final ServiceLoaderFunction serviceLoader = new ServiceLoaderFunction();
         final BlockNodeVersions blockNodeVersions = BlockNodeVersions.DEFAULT;
-        final ArrayList<BlockRange> storedBlocks = new ArrayList<>();
-        final ArrayList<BlockRange> availableBlocks = new ArrayList<>();
         return new BlockNodeContext(
                 configuration,
                 metrics,
@@ -70,10 +66,6 @@ public class TestUtils {
                 applicationStateFacility,
                 serviceLoader,
                 threadPoolManager,
-                blockNodeVersions,
-                null,
-                null,
-                storedBlocks,
-                availableBlocks);
+                blockNodeVersions);
     }
 }
