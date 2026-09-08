@@ -865,6 +865,19 @@ function apply_cn_block_nodes_configs {
 # isn't fought or overridden. chartNamespace is "hiero" for mirror-node-version >= 0.130.0
 # (POST_HIERO_MIGRATION_MIRROR_NODE_VERSION) -- this harness's resolved versions are always
 # past that boundary too.
+#
+# Also overrides the pinger scenario's `type`: Solo's own bundled defaults (mirror-node-values.yaml)
+# hardcode `type: CRYPTO_TRANSFER` for pinger, NOT the monitor app's own real default
+# (CONSENSUS_SUBMIT_MESSAGE, confirmed in hiero-mirror-node's monitor/src/main/resources/
+# application.yml) -- so even with monitor now correctly enabled, it would submit CryptoTransfer,
+# indistinguishable from NLG's own traffic. `properties.topicId: ${topic.ping}` is the app's own
+# built-in auto-bootstrap expression (ExpressionConverterImpl): it submits a real
+# ConsensusCreateTopicTransaction on first use and caches the resulting topic ID, no manual topic
+# pre-creation needed. `messageSize: 1024` matches BNCE's real production pinger config
+# (bnce_deploy_auxiliary_services.sh). Solo's own crypto-transfer-specific properties
+# (amount/senderAccountId/recipientAccountId/transferTypes) still get deep-merged in from its
+# lower-priority values file alongside these, but ConsensusSubmitMessageTransactionSupplier simply
+# doesn't declare those fields, so they're harmlessly ignored by Spring's relaxed property binding.
 function generate_mirror_monitor_overlay {
   local output_file="$1"
   local tps="${MIRROR_NODE_PINGER_TPS:-5}"
@@ -883,6 +896,10 @@ monitor:
             scenarios:
               pinger:
                 tps: ${tps}
+                type: CONSENSUS_SUBMIT_MESSAGE
+                properties:
+                  topicId: "\${topic.ping}"
+                  messageSize: 1024
 EOF
   echo "Generated mirror monitor overlay (pinger.tps=${tps}, enabled=${enabled})"
 }

@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# Regression check for generate_mirror_monitor_overlay's TPS/enabled logic in
-# solo-deploy-network.sh. Solo's own `--pinger` flag silently no-ops the
+# Regression check for generate_mirror_monitor_overlay's TPS/enabled/scenario-type logic
+# in solo-deploy-network.sh. Solo's own `--pinger` flag silently no-ops the
 # monitor.enabled/pinger.tps wiring for mirror-node-version >= 0.152.0 (its
 # hasMirrorNodeMemoryImprovements gate skips those --set flags entirely past
 # that version) -- this function bypasses that via a values-file override
 # instead. Confirmed via a real CI run that MIRROR_NODE_PINGER_TPS had zero
-# effect (mirror-tx-presence: absent) at TPS=100/1000 before this fix.
+# effect (mirror-tx-presence: absent) at TPS=100/1000 before this fix. Also
+# overrides pinger's `type` (Solo's own bundled defaults hardcode CRYPTO_TRANSFER,
+# not the monitor app's real CONSENSUS_SUBMIT_MESSAGE default) -- without this,
+# even a healthy, correctly-enabled monitor would submit traffic
+# indistinguishable from NLG's own CryptoTransfer.
 #
 # Runs without a cluster: extracts the function via sed (same approach as
 # test-execute-load-start.sh) and writes to a real temp file, then parses it
@@ -76,6 +80,18 @@ if yq '.' "${tmpfile}" >/dev/null 2>&1; then
     pass "output is valid YAML"
 else
     fail "output is not valid YAML"
+fi
+
+# ----------------------------------------------------------------------------
+echo "[5] generate_mirror_monitor_overlay overrides pinger's type to CONSENSUS_SUBMIT_MESSAGE with a real topicId/messageSize"
+generate_mirror_monitor_overlay "${tmpfile}" >/dev/null
+scenario_type="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios.pinger.type' "${tmpfile}")"
+topic_id="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios.pinger.properties.topicId' "${tmpfile}")"
+message_size="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios.pinger.properties.messageSize' "${tmpfile}")"
+if [[ "${scenario_type}" == "CONSENSUS_SUBMIT_MESSAGE" && "${topic_id}" == '${topic.ping}' && "${message_size}" == "1024" ]]; then
+    pass "type=CONSENSUS_SUBMIT_MESSAGE, topicId=\${topic.ping} (auto-bootstrap expression), messageSize=1024"
+else
+    fail "expected type=CONSENSUS_SUBMIT_MESSAGE topicId=\${topic.ping} messageSize=1024, got type=${scenario_type} topicId=${topic_id} messageSize=${message_size}"
 fi
 
 echo
