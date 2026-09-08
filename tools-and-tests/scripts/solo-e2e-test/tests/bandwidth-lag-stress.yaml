@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 3.5mbit/s
+# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 3500kbit/s
 #
 # Stress tier of the bandwidth-lag failure mode family: a heavier constraint
 # than the base bandwidth-lag tier, but still meant to mostly recover, with
@@ -10,13 +10,13 @@
 # "mbps") and target: { kind: service } (not a pod selector) — both gotchas
 # cost real debugging time and are easy to get wrong when tuning further.
 #
-# Rate rationale (3.5mbit/s): see bandwidth-lag.yaml for the full derivation
+# Rate rationale (3500kbit/s): see bandwidth-lag.yaml for the full derivation
 # -- re-derived from this harness's actually-observed block size (~868 KB/
 # block, confirmed real via a run at the previous 300mbit/s rate that showed
 # zero divergence despite reaching ~6,000 TPS) rather than a projection
 # scaled from the real 10k-TPS reference network's content, which turned out
 # to overestimate this harness's own bytes/block by ~48x (content mix, not
-# just TPS, drives real block size). Floor ~3.24 Mbit/s; 3.5mbit/s preserves
+# just TPS, drives real block size). Floor ~3.24 Mbit/s; 3500kbit/s preserves
 # the same ~1.08x margin as every prior derivation.
 #
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
@@ -29,7 +29,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-stress.yaml
 
 name: bandwidth-lag-stress
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (3.5mbit/s) — significant-but-manageable stress tier"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (3500kbit/s) — significant-but-manageable stress tier"
 
 events:
   - id: load-start
@@ -43,26 +43,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 3.5mbit/s (direction=to, target=service/block-node-1) — degrades BN1's ingest significantly below block production rate"
+    description: "Cap CN's egress to BN1's Service at 3500kbit/s (direction=to, target=service/block-node-1) — degrades BN1's ingest significantly below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw-stress
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "3.5mbit"
+      rate: "3500kbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 3.5mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 3500kbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-stress
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "3.5mbit"
+      rate: "3500kbit"
       limit: 3000000
       buffer: 10000
       direction: to

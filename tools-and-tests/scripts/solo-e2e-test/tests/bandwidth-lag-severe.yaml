@@ -1,21 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 1.75mbit/s
+# Bandwidth-Lag Severe — CN→BN1 + BN-Peers→BN1 Throughput Cap at 1750kbit/s
 #
 # Severe tier of the bandwidth-lag family: structurally insufficient link.
-# See bandwidth-lag.yaml (6mbit/s) and bandwidth-lag-stress.yaml (3.5mbit/s)
+# See bandwidth-lag.yaml (6mbit/s) and bandwidth-lag-stress.yaml (3500kbit/s)
 # for the milder tiers, and for the full rate-derivation rationale.
 #
 # See ../scripts/chaos-templates/README.md for why this test uses "mbit" (not
 # "mbps") and target: { kind: service } (not a pod selector) — both gotchas
 # cost real debugging time and are easy to get wrong when tuning further.
 #
-# Rate rationale (1.75mbit/s): re-derived from this harness's
+# Rate rationale (1750kbit/s): re-derived from this harness's
 # actually-observed block size (~868 KB/block, confirmed real at the
 # previous 300mbit/s base-tier rate, which showed zero divergence despite
 # reaching ~6,000 TPS -- the original 10k-TPS-reference-scaled projection
 # overestimated this harness's own bytes/block by ~48x). Floor ~3.24 Mbit/s;
-# 1.75mbit/s preserves the original tier's ~0.54x margin below it -- BN
+# 1750kbit/s preserves the original tier's ~0.54x margin below it -- BN
 # structurally cannot keep up with this tier's ingest, by design. See
 # bandwidth-lag.yaml's caveat for what this derivation does/doesn't prove.
 #
@@ -48,7 +48,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-severe.yaml
 
 name: bandwidth-lag-severe
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (1.75mbit/s) — structurally insufficient tier, re-derived from observed block size"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (1750kbit/s) — structurally insufficient tier, re-derived from observed block size"
 
 events:
   - id: load-start
@@ -63,26 +63,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 1.75mbit/s (direction=to, target=service/block-node-1) — structurally insufficient for real post-transition-scale content"
+    description: "Cap CN's egress to BN1's Service at 1750kbit/s (direction=to, target=service/block-node-1) — structurally insufficient for real post-transition-scale content"
     delay: 30
     args:
       name: cn-to-bn1-bw-severe
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "1.75mbit"
+      rate: "1750kbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 1.75mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 1750kbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-severe
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "1.75mbit"
+      rate: "1750kbit"
       limit: 3000000
       buffer: 10000
       direction: to
