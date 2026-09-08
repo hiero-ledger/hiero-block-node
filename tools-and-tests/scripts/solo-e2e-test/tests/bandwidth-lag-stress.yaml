@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 300mbit/s
+# Bandwidth-Lag Stress — CN→BN1 + BN-Peers→BN1 Throughput Cap at 180mbit/s
 #
 # Stress tier of the bandwidth-lag failure mode family: "right at production's
 # own edge of viable" — a heavier constraint than the base bandwidth-lag
@@ -12,27 +12,18 @@
 # "mbps") and target: { kind: service } (not a pod selector) — both gotchas
 # cost real debugging time and are easy to get wrong when tuning further.
 #
-# Rate rationale (300mbit/s): see bandwidth-lag.yaml for the full derivation
-# and the light-load-vs-real-content history this supersedes (old tiers:
-# 9mbit/s, then 4mbit/s -- both derived from a ~35-40 KB/block measurement
-# that turned out to be ~2000x smaller than real production content).
-# Using a real block sample (10k-TPS network, post-TSS-transition steady
-# state, compressed proof): 69,323,814 bytes uncompressed, wire-relevant since CN
-# doesn't compress on the wire today. Sustained-need floor at 0.5 blk/s:
-# ~277.3 Mbit/s -- the first time this floor has landed in the same range as
-# real observed CN<->BN link bandwidths. 300mbit/s is not an arbitrary
-# midpoint -- it is production's own actual routing-viability cutoff
-# (a separate network-measurement effort found >300 Mbit/s used as "viable"
-# and <225 Mbit/s as "too low" when deciding real BN failover paths). That
-# gives only ~1.08x margin above the 277.3 Mbit/s floor -- thin but real,
-# genuinely testing "does BN survive right at the edge of what production
-# itself considers an acceptable link," not a synthetic midpoint.
+# Rate rationale (180mbit/s): see bandwidth-lag.yaml for the full derivation.
+# Real 10k-TPS block sample (50/50 CryptoTransfer/HCS mix): 69,323,814 bytes
+# uncompressed. Scaled by this harness's confirmed ~6,000 TPS ceiling (0.6 =
+# 6,000/10,000): projected block size ~41.6 MB, floor ~166.4 Mbit/s.
+# 180mbit/s preserves the original 300mbit/s rate's ~1.08x margin over the
+# un-scaled 277.3 Mbit/s floor (300mbit/s was originally production's own
+# >300/<225 Mbit/s viability cutoff -- that absolute correspondence no
+# longer holds after scaling, only the relative margin does).
 #
-# Important caveat: this test's own NLG-generated content is still light-load,
-# so its actual block size stays far below the real post-transition block sample used to derive
-# this rate -- this rate constrains real mainnet-scale content, not what this
-# specific test run currently produces. Getting real post-transition-sized content flowing
-# through this test is a separate, in-progress effort.
+# Caveat: this preserves relative margin at achievable scale, not real
+# 10k-TPS byte volume -- see bandwidth-lag.yaml's caveat for the full
+# explanation and the deprioritized real-block-replay alternative.
 #
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
 #
@@ -44,7 +35,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag-stress.yaml
 
 name: bandwidth-lag-stress
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (300mbit/s) — significant-but-manageable stress tier"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (180mbit/s) — significant-but-manageable stress tier"
 
 events:
   - id: load-start
@@ -58,26 +49,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 300mbit/s (direction=to, target=service/block-node-1) — degrades BN1's ingest significantly below block production rate"
+    description: "Cap CN's egress to BN1's Service at 180mbit/s (direction=to, target=service/block-node-1) — degrades BN1's ingest significantly below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw-stress
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "300mbit"
+      rate: "180mbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 300mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 180mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw-stress
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "300mbit"
+      rate: "180mbit"
       limit: 3000000
       buffer: 10000
       direction: to
