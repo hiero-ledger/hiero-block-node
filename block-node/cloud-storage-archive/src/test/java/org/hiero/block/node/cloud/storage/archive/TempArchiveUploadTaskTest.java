@@ -37,6 +37,8 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
@@ -712,5 +714,8 @@ class TempArchiveUploadTaskTest {
 
         @Override
         public void updateBackfillSources(final NetworkData sources) {}
+
+        @Override
+        public void updateAvailableBlocks(BlockProviderPlugin provider, BlockRangeSet availableBlocks) {}
     }
 }

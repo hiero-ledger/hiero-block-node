@@ -24,12 +24,15 @@ import org.hiero.block.node.block.verification.session.SessionFailureType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 
@@ -44,7 +47,8 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureI
 ///
 /// This plugin is effectively the implementation of the verification component
 /// design as specified in the design documentation.
-public final class VerificationServicePlugin implements BlockNodePlugin, BlockItemHandler, BlockNotificationHandler {
+public final class VerificationServicePlugin
+        implements BlockNodePlugin, BlockItemHandler, BlockNotificationHandler, ApplicationStateNotificationHandler {
     /// Logger for the plugin.
     private static final System.Logger LOGGER = System.getLogger(VerificationServicePlugin.class.getName());
     /// The last successfully verified block.
@@ -98,6 +102,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 new ConcurrentSkipListMap<>(),
                 executor,
                 badBlockDumper);
+        context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
     }
 
     /// Uncaught exception handler method handle for verification pool.
@@ -137,21 +142,21 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
         badBlockDumper.stop();
     }
 
-    /// {@inheritDoc}
-    /// ---
-    /// Receive application state updates.
-    /// _NOTE_: we are expected to receive an update right after [#init(BlockNodeContext, ServiceBuilder)]
-    /// and just before [#start()]. If any initial data is available, we will see it before starting.
-    /// This is also an important assumption for setting the last verified block initially.
     @Override
-    public void onContextUpdate(final BlockNodeContext updatedContext) {
+    public void handleTssDataUpdate(final TssDataNotification notification) {
         try {
-            if (updatedContext != null) {
-                verificationDataProvider.safeUpdateTssData(updatedContext.tssData(), false);
-                updateLastVerifiedBlock(updatedContext.storedBlocks());
-            }
+            verificationDataProvider.safeUpdateTssData(notification.tssData(), false);
         } catch (final RuntimeException e) {
-            LOGGER.log(INFO, "onContextUpdate failed", e);
+            LOGGER.log(INFO, "handleTssDataUpdate failed", e);
+        }
+    }
+
+    @Override
+    public void handleStoredBlocksUpdate(final StoredBlocksNotification notification) {
+        try {
+            updateLastVerifiedBlock(notification.storedBlocks());
+        } catch (final RuntimeException e) {
+            LOGGER.log(INFO, "handleStoredBlocksUpdate failed", e);
         }
     }
 
@@ -170,7 +175,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 localLastVerified = lastVerifiedBlock.get();
             }
             if (updateHappened) {
-                final String message = "onContextUpdate received, updated last verified block to {0}";
+                final String message = "StoredBlocksNotification received, updated last verified block to {0}";
                 LOGGER.log(INFO, message, lastVerifiedBlock.get());
             }
         }

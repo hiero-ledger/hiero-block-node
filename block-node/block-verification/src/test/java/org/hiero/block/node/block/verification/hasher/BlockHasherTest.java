@@ -90,19 +90,7 @@ class BlockHasherTest {
         metricsRegistry = TestUtils.createMetrics();
         metrics = MetricsHolder.create(metricsRegistry);
         context = new BlockNodeContext(
-                null,
-                metricsRegistry,
-                null,
-                null,
-                null,
-                new TestApplicationStateFacility(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null);
+                null, metricsRegistry, null, null, null, new TestApplicationStateFacility(), null, null, null);
         verificationDataProvider = new VerificationDataProvider(context);
     }
 

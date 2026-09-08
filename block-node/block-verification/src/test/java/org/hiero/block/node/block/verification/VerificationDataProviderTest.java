@@ -23,8 +23,8 @@ class VerificationDataProviderTest {
     @BeforeEach
     void setUp() {
         stateFacility = new TestApplicationStateFacility();
-        final BlockNodeContext context = new BlockNodeContext(
-                null, null, null, null, null, stateFacility, null, null, null, null, null, null, null);
+        final BlockNodeContext context =
+                new BlockNodeContext(null, null, null, null, null, stateFacility, null, null, null);
         provider = new VerificationDataProvider(context);
     }
 
