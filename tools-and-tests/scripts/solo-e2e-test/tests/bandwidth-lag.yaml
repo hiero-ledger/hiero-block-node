@@ -7,10 +7,10 @@
 # so lag grows monotonically until chaos clears.
 #
 # Design:
-#   - CN→BN1 is capped at 300mbit/s, shaped on the CN sender's own egress
+#   - CN→BN1 is capped at 6mbit/s, shaped on the CN sender's own egress
 #     (direction=to), targeting BN1's k8s Service (target: { kind: service,
 #     name: block-node-1 }) rather than its pod IP.
-#   - All BN peers→BN1 are also capped at 300mbit/s the same way, so greedy
+#   - All BN peers→BN1 are also capped at 6mbit/s the same way, so greedy
 #     backfill cannot instantly neutralise the ingest cap during chaos.
 #   - BN2 and BN3 receive no throttle — they serve as the reference nodes that
 #     advance at full speed, making the spread measurable.
@@ -21,25 +21,17 @@
 # distinction — all three cost real debugging time and are easy to get wrong
 # when tuning this test further.
 #
-# Rate rationale (300mbit/s -- "healthy real-world link" tier; see -stress
-# and -severe for tighter tiers):
-#   Real 10k-TPS block sample (block #100000, post-TSS-transition, confirmed
-#   via that network's Mirror Node to be a 50/50 CryptoTransfer/HCS mix):
-#   69,323,814 bytes uncompressed (wire-relevant -- CN doesn't compress on
-#   the wire yet). This harness's own NLG load has a confirmed, repeatable
-#   ~6,000 TPS ceiling (shared CI-runner hardware limit, not NLG/CN/topology
-#   -- handoff.md 5h/5k/5l), so all three tiers are scaled by 6,000/10,000 =
-#   0.6: projected block size = 69,323,814 x 0.6 ~= 41.6 MB. Floor at 0.5
-#   blk/s = 41.6MB x 8 x 0.5 ~= 166.4 Mbit/s. 300mbit/s preserves the
-#   original 500mbit/s rate's ~1.8x margin over the un-scaled 277.3 Mbit/s
-#   floor. See -stress (180mbit/s, ~1.08x) and -severe (90mbit/s, ~0.54x).
-#
-#   Caveat: this preserves relative margin at achievable scale, not real
-#   10k-TPS byte volume -- a pass shows the lag/recovery mechanism works,
-#   not that BN handles full mainnet-scale content (GC/serialization cost
-#   isn't necessarily scale-invariant). Direct replay of real block content
-#   was scoped, deprioritized in favor of moving chaos work to a real
-#   network -- see block-replay-scoping.md / chaos-mesh-real-network-handoff.md.
+# Rate rationale (6mbit/s -- "healthy real-world link" tier; see -stress
+# and -severe for tighter tiers): previously scaled proportionally from a
+# real 10k-TPS reference block (projected ~41.6 MB/block) -- a real run at
+# 300mbit/s showed zero divergence (all BNs identical at peak chaos) despite
+# genuinely reaching ~6,000 TPS and crossing the TSS transition, because this
+# harness's own content (pure CryptoTransfer, no HCS) measured only ~868 KB/
+# block, not the projected 41.6 MB -- content *mix*, not just TPS, drives
+# bytes/block. Re-derived from that observed number instead: floor at the
+# observed ~0.467 blk/s = 867,673 x 8 x 0.467 ~= 3.24 Mbit/s. 6mbit/s
+# preserves the same ~1.8x margin as every prior derivation. See -stress
+# (3.5mbit/s, ~1.08x) and -severe (1.75mbit/s, ~0.54x).
 #
 # Assertions:
 #   blocks-diverged  min_spread=5   — conservative starting point for this
@@ -57,7 +49,7 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag.yaml
 
 name: bandwidth-lag
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (300mbit/s) — cumulative-lag production failure mode (minimal-constraint tier)"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (6mbit/s) — cumulative-lag production failure mode (minimal-constraint tier)"
 
 events:
   - id: load-start
@@ -72,26 +64,26 @@ events:
 
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 300mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
+    description: "Cap CN's egress to BN1's Service at 6mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "300mbit"
+      rate: "6mbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 300mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 6mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "300mbit"
+      rate: "6mbit"
       limit: 3000000
       buffer: 10000
       direction: to
