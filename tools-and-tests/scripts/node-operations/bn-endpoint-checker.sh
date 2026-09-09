@@ -519,6 +519,13 @@ grpc_call() {
     -connect-timeout 5
     -import-path "${RESOLVED_PROTO_DIR}"
     -proto        "${NODE_SERVICE_PROTO}"
+    # grpcurl defaults to a 4 MiB receive limit. serverStatusDetail on nodes
+    # with a large number of archived block ranges (observed on mainnet with
+    # 99M+ blocks) can exceed that, causing the call to fail with
+    # ResourceExhausted, which the caller surfaces as a misleading
+    # "method unavailable or proxy limitation" warning. 64 MiB is a safe
+    # upper bound for the status responses seen in the wild.
+    -max-msg-sz   67108864
     -d            '{}'
   )
   # Prepend -plaintext when TLS is disabled (the common case for internal nodes).
