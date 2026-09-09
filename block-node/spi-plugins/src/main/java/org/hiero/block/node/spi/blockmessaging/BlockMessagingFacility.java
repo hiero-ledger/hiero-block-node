@@ -120,14 +120,14 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
     void unregisterBlockNotificationHandler(BlockNotificationHandler handler);
 
     /**
-     * Use this method to send a TSS data update notification to all registered context notification handlers.
+     * Use this method to send a TSS data update notification to all registered application notification handlers.
      *
      * @param notification the TSS data update notification to send
      */
     void sendTssDataUpdate(final TssDataNotification notification);
 
     /**
-     * Use this method to send an address book history update notification to all registered context notification
+     * Use this method to send an address book history update notification to all registered application notification
      * handlers.
      *
      * @param notification the address book history update notification to send
@@ -135,25 +135,25 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
     void sendAddressBookHistoryUpdate(final AddressBookHistoryNotification notification);
 
     /**
-     * Use this method to send a stored blocks update notification to all registered context notification handlers.
+     * Use this method to send a stored blocks update notification to all registered application notification handlers.
      *
      * @param notification the stored blocks update notification to send
      */
     void sendStoredBlocksUpdate(final StoredBlocksNotification notification);
 
     /**
-     * Use this method to send an available blocks update notification to all registered context notification handlers.
+     * Use this method to send an available blocks update notification to all registered application notification handlers.
      *
      * @param notification the available blocks update notification to send
      */
     void sendAvailableBlocksUpdate(final AvailableBlocksNotification notification);
 
     /**
-     * Use this method to register a context notification handler. The handler will be called when node-level state
+     * Use this method to register a application notification handler. The handler will be called when node-level state
      * changes (TSS data, address book history, stored blocks, or available blocks). Each registered handler runs on
      * its own dedicated thread.
      *
-     * @param handler             the context notification handler to register
+     * @param handler             the application notification handler to register
      * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
      * @param handlerName         the name of the handler, used for thread name and logging
      */
@@ -161,11 +161,11 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
             ApplicationStateNotificationHandler handler, boolean cpuIntensiveHandler, String handlerName);
 
     /**
-     * Use this method to dynamically unregister a context notification handler. The handler will no longer be called
-     * when context notifications arrive. You only need to unregister handlers if they need to be unregistered before
+     * Use this method to dynamically unregister a application notification handler. The handler will no longer be called
+     * when application notifications arrive. You only need to unregister handlers if they need to be unregistered before
      * the service is shutdown. Shutting down the service will unregister all handlers.
      *
-     * @param handler the context notification handler to unregister
+     * @param handler the application notification handler to unregister
      */
     void unregisterApplicationStateNotificationHandler(ApplicationStateNotificationHandler handler);
 }

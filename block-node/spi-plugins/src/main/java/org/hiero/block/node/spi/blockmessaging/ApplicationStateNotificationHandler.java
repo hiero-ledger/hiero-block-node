@@ -42,4 +42,12 @@ public interface ApplicationStateNotificationHandler extends GatingHandler {
      * @param notification the available blocks update notification to handle
      */
     default void handleAvailableBlocksUpdate(final AvailableBlocksNotification notification) {}
+
+    /**
+     * These notifications are non-gating
+     */
+    @Override
+    default boolean isGating() {
+        return false;
+    }
 }
