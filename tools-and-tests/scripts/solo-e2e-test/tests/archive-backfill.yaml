@@ -13,7 +13,7 @@
 #   4. BN3 backfills from BN2 and resumes archiving to RustFS
 #   5. Verify both buckets grew past the snapshot taken while nothing was archiving
 #
-# This also covers plugin-profile-rfh: BN1 and BN3 both run the RFH flavor, so the
+# This also covers plugin-profile-rfh: BN1 and BN3 both run the RFH profile, so the
 # early bucket checks only pass if the cloud-only persistence loop closes
 # (backfill scan -> block-verification -> cloud-storage-archive/expanded -> addStoredBlockRange)
 # on a node with no local block provider and no live stream.
@@ -117,7 +117,7 @@ events:
       name: block-node-3
       backfill_sources: [block-node-2]
       greedy: true
-      flavor: rfh
+      plugin_profile: rfh
       archive_backend: rustfs
 
   - id: refresh-ports

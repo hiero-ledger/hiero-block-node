@@ -405,7 +405,7 @@ function execute_scale_down {
 
 function execute_deploy_blocknode {
     local args="$1"
-    local bn_name bn_sources greedy chart_version archive_backend flavor
+    local bn_name bn_sources greedy chart_version archive_backend plugin_profile
 
     bn_name=$(echo "$args" | yq '.name // "block-node-3"')
     bn_sources=$(echo "$args" | yq '.backfill_sources // []')
@@ -417,10 +417,10 @@ function execute_deploy_blocknode {
         echo "ERROR: ${bn_name} has unknown archive_backend: '${archive_backend}' -- only 'rustfs' is supported"
         return 1
     fi
-    # Same vocabulary as a topology's flavor: -- names a shipped plugin-profile-<flavor>.yaml.
+    # Same vocabulary as a topology's plugin_profile: -- names a shipped plugin-profile-<plugin_profile>.yaml.
     # Defaults to rfh for an archiving node, the profile that persists only to cloud storage.
-    flavor=$(echo "$args" | yq '.flavor // ""')
-    [[ -z "${flavor}" || "${flavor}" == "null" ]] && [[ -n "${archive_backend}" ]] && flavor="rfh"
+    plugin_profile=$(echo "$args" | yq '.plugin_profile // ""')
+    [[ -z "${plugin_profile}" || "${plugin_profile}" == "null" ]] && [[ -n "${archive_backend}" ]] && plugin_profile="rfh"
 
     # Without an explicit version Solo installs its own bundled default block node version,
     # which is older than the one the network was deployed with. A node replacement test then
@@ -482,23 +482,23 @@ EOF
         memory_override_args="-f ${memory_override}"
     fi
 
-    # Apply the named plugin profile, mirroring how solo-deploy-network.sh handles flavor:.
-    local flavor_args=""
-    if [[ -n "${flavor}" && "${flavor}" != "null" ]]; then
-        local plugin_profile="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-${flavor}.yaml"
-        if [[ ! -f "${plugin_profile}" ]]; then
-            echo "ERROR: Unknown BN flavor '${flavor}' for ${bn_name}: ${plugin_profile} not found"
+    # Apply the named plugin profile, mirroring how solo-deploy-network.sh handles plugin_profile:.
+    local plugin_profile_args=""
+    if [[ -n "${plugin_profile}" && "${plugin_profile}" != "null" ]]; then
+        local plugin_profile_file="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-${plugin_profile}.yaml"
+        if [[ ! -f "${plugin_profile_file}" ]]; then
+            echo "ERROR: Unknown BN plugin profile '${plugin_profile}' for ${bn_name}: ${plugin_profile_file} not found"
             return 1
         fi
-        flavor_args="-f ${plugin_profile}"
+        plugin_profile_args="-f ${plugin_profile_file}"
     fi
 
     # Generate cloud-storage archive overlay when archive_backend: rustfs is requested.
-    # The flavor profile sets plugins.names; this overlay sets env vars + storage.
+    # The plugin profile sets plugins.names; this overlay sets env vars + storage.
     local archive_overlay_args=""
     if [[ "${archive_backend}" == "rustfs" ]]; then
-        if [[ -z "${flavor_args}" ]] || ! grep -q "cloud-storage-archive" "${plugin_profile}"; then
-            echo "ERROR: ${bn_name} has archive_backend: ${archive_backend} but flavor '${flavor:-<unset>}' does not enable the cloud-storage plugins -- use a flavor (e.g. rfh, all) that includes cloud-storage-archive"
+        if [[ -z "${plugin_profile_args}" ]] || ! grep -q "cloud-storage-archive" "${plugin_profile_file}"; then
+            echo "ERROR: ${bn_name} has archive_backend: ${archive_backend} but plugin profile '${plugin_profile:-<unset>}' does not enable the cloud-storage plugins -- use a plugin profile (e.g. rfh, all) that includes cloud-storage-archive"
             return 1
         fi
         local cloud_overlay="/tmp/bn-${bn_name}-cloud-archive.yaml"
@@ -532,7 +532,7 @@ EOF
         ${version_args} \
         -f "${values_file}" \
         ${memory_override_args} \
-        ${flavor_args} \
+        ${plugin_profile_args} \
         ${archive_overlay_args} \
         --quiet-mode 2>&1; then
 
@@ -564,7 +564,7 @@ EOF
                 --namespace "${NAMESPACE}" \
                 -f "${values_file}" \
                 ${memory_override_args} \
-                ${flavor_args} \
+                ${plugin_profile_args} \
                 ${archive_overlay_args} \
                 --wait --timeout 5m
         else
@@ -575,7 +575,7 @@ EOF
                 --namespace "${NAMESPACE}" \
                 -f "${values_file}" \
                 ${memory_override_args} \
-                ${flavor_args} \
+                ${plugin_profile_args} \
                 ${archive_overlay_args} \
                 --wait --timeout 5m
         fi
@@ -1086,7 +1086,7 @@ function assert_no_errors_single {
     stream_errors=$(printf "%.0f" "${stream_errors:-0}" 2>/dev/null || echo "0")
 
     # TSS key material takes ~100 blocks to stabilise after a fresh network start, so
-    # early blocks can legitimately fail verification. Flavors that assert during warm-up
+    # early blocks can legitimately fail verification. Tests that assert during warm-up
     # set max_verify_failed to a warm-up-sized budget: enough to absorb those, low enough
     # that a node failing every block still fails the assertion.
     if [[ $((verify_errors + stream_errors)) -gt 0 || "$verify_failed" -gt "$max_verify_failed" ]]; then

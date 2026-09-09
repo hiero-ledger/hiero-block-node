@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Fixture-based unit tests for assert_no_errors in solo-test-runner.sh, covering the
-# max_verify_failed argument that flavor tests use to tolerate TSS warm-up failures.
+# max_verify_failed argument that plugin-profile tests use to tolerate TSS warm-up failures.
 #
 # Runs without a cluster: overrides curl to serve a canned /metrics body.
 # Exit 0 on all-pass, 1 on any failure.
@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The runner parses its options at source time, so hand it a real test file; main()
 # itself stays unrun (it is guarded on BASH_SOURCE).
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../solo-test-runner.sh" --test "${SCRIPT_DIR}/../../tests/bn-flavors.yaml"
+source "${SCRIPT_DIR}/../solo-test-runner.sh" --test "${SCRIPT_DIR}/../../tests/plugin-profiles.yaml"
 
 METRICS=""
 function curl { echo "${METRICS}"; }

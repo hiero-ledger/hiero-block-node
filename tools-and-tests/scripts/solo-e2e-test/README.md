@@ -470,19 +470,19 @@ and node2 has priority 2 (fallback).
 
 Topologies define network configuration. Located in `./topologies/`.
 
-|         Name          | CN | BN | MN | Relay | Explorer |                      Use Case                       |
-|-----------------------|----|----|:--:|:-----:|:--------:|-----------------------------------------------------|
-| `single`              | 1  | 1  | 1  |   0   |    0     | Basic testing, fastest startup                      |
-| `paired-3`            | 3  | 3  | 1  |   0   |    0     | Multi-node testing, each CN->BN pair                |
-| `fan-out-3cn-2bn`     | 3  | 2  | 1  |   0   |    0     | Redundancy testing, all CNs->all BNs                |
-| `3cn-1bn`             | 3  | 1  | 1  |   0   |    0     | Single BN receiving from multiple CNs               |
-| `minimal`             | 1  | 1  | 0  |   0   |    0     | CN+BN only, no mirror/relay/explorer                |
-| `2cn-2bn-backfill`    | 2  | 2  | 1  |   0   |    0     | Backfill testing, BN recovery after data loss       |
-| `2cn-2bn-archive`     | 2  | 2  | 1  |   0   |    0     | RFH-flavor BN archiving to RustFS via backfill      |
-| `2cn-3bn-flavors`     | 2  | 3  | 1  |   0   |    0     | BN plugin flavors: lfh, minimal, all                |
-| `7cn-3bn-distributed` | 7  | 3  | 1  |   0   |    0     | Distributed streaming, grouped CN->BN with backfill |
-| `single-wrb-rsa`      | 1  | 1  | 1  |   0   |    0     | WRB (wrapped record blocks) verified via RSA roster |
-| `3cn-2bn-wrb-rsa`     | 3  | 2  | 1  |   0   |    0     | WRB fan-out verified via RSA roster                 |
+|           Name            | CN | BN | MN | Relay | Explorer |                      Use Case                       |
+|---------------------------|----|----|:--:|:-----:|:--------:|-----------------------------------------------------|
+| `single`                  | 1  | 1  | 1  |   0   |    0     | Basic testing, fastest startup                      |
+| `paired-3`                | 3  | 3  | 1  |   0   |    0     | Multi-node testing, each CN->BN pair                |
+| `fan-out-3cn-2bn`         | 3  | 2  | 1  |   0   |    0     | Redundancy testing, all CNs->all BNs                |
+| `3cn-1bn`                 | 3  | 1  | 1  |   0   |    0     | Single BN receiving from multiple CNs               |
+| `minimal`                 | 1  | 1  | 0  |   0   |    0     | CN+BN only, no mirror/relay/explorer                |
+| `2cn-2bn-backfill`        | 2  | 2  | 1  |   0   |    0     | Backfill testing, BN recovery after data loss       |
+| `2cn-2bn-archive`         | 2  | 2  | 1  |   0   |    0     | RFH-profile BN archiving to RustFS via backfill     |
+| `2cn-3bn-plugin-profiles` | 2  | 3  | 1  |   0   |    0     | BN plugin profiles: lfh, minimal, all               |
+| `7cn-3bn-distributed`     | 7  | 3  | 1  |   0   |    0     | Distributed streaming, grouped CN->BN with backfill |
+| `single-wrb-rsa`          | 1  | 1  | 1  |   0   |    0     | WRB (wrapped record blocks) verified via RSA roster |
+| `3cn-2bn-wrb-rsa`         | 3  | 2  | 1  |   0   |    0     | WRB fan-out verified via RSA roster                 |
 
 See `../network-topology-tool/README.md` for topology schema details.
 
@@ -506,14 +506,14 @@ explorer_nodes: {}  # empty (or absent) -> not deployed
 >
 >> are broken". Enable the Relay only if you actually need JSON-RPC.
 
-### Block Node Plugin Flavors
+### Block Node Plugin Profiles
 
 By default every Block Node in a topology gets the chart's standard plugin set. A BN entry can
-name a **flavor** instead, which applies the matching shipped profile from
-`charts/block-node-server/values-overrides/plugin-profile-<flavor>.yaml` as a Helm overlay and
+name a **plugin profile** instead, which applies the matching shipped profile from
+`charts/block-node-server/values-overrides/plugin-profile-<plugin_profile>.yaml` as a Helm overlay and
 replaces `plugins.names` wholesale:
 
-|  Flavor   |                                                 Plugin set                                                  |                       Typical use                        |
+|  Profile  |                                                 Plugin set                                                  |                       Typical use                        |
 |-----------|-------------------------------------------------------------------------------------------------------------|----------------------------------------------------------|
 | `minimal` | messaging, block-access, health, server-status                                                              | Proves a BN starts with no stream and no storage at all  |
 | `lfh`     | Local Full History: local file storage, publisher, subscriber, backfill                                     | Same as the chart default                                |
@@ -525,11 +525,11 @@ block_nodes:
   block-node-1:
     address: block-node-1
     port: 40840
-    flavor: rfh
+    plugin_profile: rfh
     peers: [block-node-2]     # its only block source, since it takes no live stream
     greedy: true
     archive:
-      backend: rustfs         # requires a flavor with the cloud-storage plugins (rfh or all)
+      backend: rustfs         # requires a profile with the cloud-storage plugins (rfh or all)
       node: rustfs-1          # key in the topology's s3_nodes section
 
 s3_nodes:
@@ -538,19 +538,19 @@ s3_nodes:
     port: 9000
 ```
 
-Caveats worth knowing before adding a flavored BN:
+Caveats worth knowing before adding a BN with a plugin profile:
 
 - A `minimal` or `rfh` node runs no `stream-publisher`, so it **must not** appear under any
   consensus node's `block_nodes:`; no `stream-subscriber` means no mirror node may point at it
   either. The deploy fails or the component dangles otherwise.
-- `archive.backend` without a `flavor` is rejected by the deploy script -- the cloud-storage
+- `archive.backend` without a `plugin_profile` is rejected by the deploy script -- the cloud-storage
   plugins only exist in the `rfh` and `all` profiles.
 - An `rfh` node needs `ROSTER_BOOTSTRAP_TSS_BLOCK_NODE_SOURCES_PATH` so `roster-bootstrap-tss`
   can fetch a public key from a peer; without it every backfilled block fails verification. The
   topology tool emits it automatically for any BN with `peers:`, so no override file is needed.
-- The flavor overlay is applied **after** the per-topology overlay, so a `plugins.names` set in
+- The plugin profile overlay is applied **after** the per-topology overlay, so a `plugins.names` set in
   `overrides/<topology>/` is silently overridden.
-- `deploy-block-node` events take the same `flavor:` arg for BNs deployed mid-test.
+- `deploy-block-node` events take the same `plugin_profile:` arg for BNs deployed mid-test.
 
 ### WRB + RSA Verification Topologies
 
@@ -703,7 +703,7 @@ task test:validate TEST_FILE=tests/basic-load.yaml
 | `tests/node-restart-resilience.yaml` | BN recovery after restart during load                |
 | `tests/full-history-backfill.yaml`   | BN backfills history while ingesting live blocks     |
 | `tests/archive-backfill.yaml`        | RFH cloud-only loop, archiving with node replacement |
-| `tests/bn-flavors.yaml`              | lfh / minimal / all plugin profiles                  |
+| `tests/plugin-profiles.yaml`         | lfh / minimal / all plugin profiles                  |
 | `tests/rsa-roster-verification.yaml` | Blocks verified via the RSA roster (WRB topologies)  |
 
 ### Test Definition Schema
@@ -753,7 +753,7 @@ assertions:                      # Validations to run after all events
 | `sleep`                    | Pause execution                                                                                 | `seconds`                                                                                         |
 | `port-forward`             | Refresh port forwards                                                                           | (none)                                                                                            |
 | `clear-block-storage`      | Clear all block data on node (live, archive, verification, and the persisted block-range state) | `target`                                                                                          |
-| `deploy-block-node`        | Deploy new Block Node                                                                           | `name`, `backfill_sources`, `greedy`, `chart_version`, `archive_backend`, `flavor`                |
+| `deploy-block-node`        | Deploy new Block Node                                                                           | `name`, `backfill_sources`, `greedy`, `chart_version`, `archive_backend`, `plugin_profile`        |
 | `archive-files-exist`      | Count objects in an S3 bucket                                                                   | `bucket`, `min_files`, `min_increase`, `record_baseline`                                          |
 | `reconfigure-cn-streaming` | Update CN block-nodes.json                                                                      | `consensus_node`, `block_nodes`                                                                   |
 | `inject-latency`           | Apply a NetworkChaos rule                                                                       | `name`, `source.kind`, `target.kind`, `latency`, `jitter`, `correlation`, `bidirectional`, `loss` |
@@ -777,7 +777,7 @@ assertions:                      # Validations to run after all events
 
 **Note:** `archive-files-exist` with `min_increase: N` asserts "at least N more objects than the recorded baseline" instead of an absolute count. The baseline is written only by an earlier `archive-files-exist` **event** carrying `record_baseline: true`; with no baseline recorded the assertion fails rather than falling back to an absolute count. `archive-contiguous` derives the object-key segment width from the archive grouping level in `scripts/lib/cloud-storage-overlay.sh`, so it takes no `pad` argument.
 
-**Note:** `no-errors` is strict by default: any `verify_failed`, `verify_errors`, or `stream_errors` fails it. `max_verify_failed: N` raises the tolerance for `verify_failed` **only** -- the other two counters stay at zero. Use it when asserting during TSS warm-up, which takes ~100 blocks to stabilise after a fresh network start (see `tests/bn-flavors.yaml`). Keep the budget warm-up-sized so a node failing every block still fails the assertion.
+**Note:** `no-errors` is strict by default: any `verify_failed`, `verify_errors`, or `stream_errors` fails it. `max_verify_failed: N` raises the tolerance for `verify_failed` **only** -- the other two counters stay at zero. Use it when asserting during TSS warm-up, which takes ~100 blocks to stabilise after a fresh network start (see `tests/plugin-profiles.yaml`). Keep the budget warm-up-sized so a node failing every block still fails the assertion.
 
 **Note:** The `blocks-increasing` assertion verifies a Block Node is actively receiving blocks. It measures baseline, waits `wait_seconds` (default: 60), verifies increase, retrying up to `max_attempts` (default: 3) times.
 
@@ -984,18 +984,18 @@ The `solo-e2e-scheduler.yml` workflow runs tests automatically:
 
 Tests are validated against topologies before execution. The matrix defines which tests run on each topology:
 
-|       Topology        |                         Tests                         |
-|-----------------------|-------------------------------------------------------|
-| `single`              | `smoke-test`, `basic-load`, `node-restart-resilience` |
-| `paired-3`            | `smoke-test`, `basic-load`                            |
-| `3cn-1bn`             | `smoke-test`                                          |
-| `fan-out-3cn-2bn`     | `smoke-test`                                          |
-| `2cn-2bn-backfill`    | `full-history-backfill`                               |
-| `2cn-2bn-archive`     | `archive-backfill`                                    |
-| `2cn-3bn-flavors`     | `bn-flavors`                                          |
-| `7cn-3bn-distributed` | `smoke-test`                                          |
-| `single-wrb-rsa`      | `smoke-test`, `rsa-roster-verification`               |
-| `3cn-2bn-wrb-rsa`     | `smoke-test`, `rsa-roster-verification`               |
+|         Topology          |                         Tests                         |
+|---------------------------|-------------------------------------------------------|
+| `single`                  | `smoke-test`, `basic-load`, `node-restart-resilience` |
+| `paired-3`                | `smoke-test`, `basic-load`                            |
+| `3cn-1bn`                 | `smoke-test`                                          |
+| `fan-out-3cn-2bn`         | `smoke-test`                                          |
+| `2cn-2bn-backfill`        | `full-history-backfill`                               |
+| `2cn-2bn-archive`         | `archive-backfill`                                    |
+| `2cn-3bn-plugin-profiles` | `plugin-profiles`                                     |
+| `7cn-3bn-distributed`     | `smoke-test`                                          |
+| `single-wrb-rsa`          | `smoke-test`, `rsa-roster-verification`               |
+| `3cn-2bn-wrb-rsa`         | `smoke-test`, `rsa-roster-verification`               |
 
 Multiple tests run sequentially on the same deployment, reducing CI time.
 
