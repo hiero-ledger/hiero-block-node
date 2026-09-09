@@ -19,6 +19,7 @@ import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.api.TssData;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -31,6 +32,8 @@ import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -39,7 +42,7 @@ import org.hiero.metrics.core.MetricRegistry;
  * Plugin that implements the BlockNodeService and provides the 'serverStatus' RPC.
  */
 public class ServerStatusServicePlugin
-        implements BlockNodePlugin, BlockNodeServiceInterface, ApplicationStateNotificationHandler {
+        implements BlockNodePlugin, BlockNodeServiceInterface, ApplicationStateNotificationHandler, ThrottleSpec {
     /** Metric key for the number of server status requests */
     public static final MetricKey<LongCounter> METRIC_SERVER_STATUS_REQUESTS =
             MetricKey.of("server_status_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -66,6 +69,10 @@ public class ServerStatusServicePlugin
     private volatile List<BlockRange> availableBlocks = List.of();
     private volatile TssData tssData = null;
     private volatile RangedAddressBookHistory rangedAddressBookHistory = null;
+    /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile PerClientThrottleSettings throttleSettings;
+    /** This service's node-wide concurrency ceiling, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile int globalConcurrencyCeiling;
 
     /**
      * Handle a request for server status
@@ -172,11 +179,34 @@ public class ServerStatusServicePlugin
                         .setDescription("Number of server status details requests"))
                 .getOrCreateNotLabeled();
 
+        final ServerStatusThrottleConfig throttleConfig =
+                context.configuration().getConfigData(ServerStatusThrottleConfig.class);
+        this.throttleSettings = new PerClientThrottleSettings(
+                throttleConfig.ratePerSecond(),
+                throttleConfig.burstTolerance(),
+                throttleConfig.maxConcurrentPerClient());
+        this.globalConcurrencyCeiling = context.configuration()
+                .getConfigData(GlobalThrottleConfig.class)
+                .serverStatusMaxConcurrent();
+
         // Register this service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(ServerStatusConfig.class).port();
         serviceBuilder.registerGrpcService(port, this);
         context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public PerClientThrottleSettings perClientSettings() {
+        return throttleSettings;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public int globalConcurrencyCeiling() {
+        return globalConcurrencyCeiling;
     }
 
     @Override
