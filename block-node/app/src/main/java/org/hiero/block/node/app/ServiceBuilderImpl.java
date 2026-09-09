@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app;
 
+import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.WARNING;
+
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
@@ -13,15 +16,28 @@ import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.threading.ThreadPoolManager;
+import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
+import org.hiero.block.node.spi.throttle.StaleClientSweepable;
+import org.hiero.block.node.spi.throttle.ThrottleExempt;
+import org.hiero.block.node.spi.throttle.ThrottlePolicy;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
+import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
+import org.hiero.metrics.core.MetricRegistry;
 
 /// Default implementation of [ServiceBuilder]. That builds HTTP and PBJ GRPC services.
 ///
@@ -32,6 +48,8 @@ import org.hiero.block.node.spi.ServiceBuilder;
 /// A `null` port in any registration call resolves to the default port supplied at
 /// construction time (typically `server.port`).
 public class ServiceBuilderImpl implements ServiceBuilder {
+    private static final System.Logger LOGGER = System.getLogger(ServiceBuilderImpl.class.getName());
+
     /** Per-port HTTP routing builders. */
     private final Map<Integer, HttpRouting.Builder> httpBuilders = new HashMap<>();
     /** Per-port PBJ gRPC routing builders. */
@@ -40,14 +58,30 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private final ServerConfig serverConfig;
     private final Http2Config http2Config;
     private final SocketOptions socketOptions;
+    private final GlobalThrottleConfig globalThrottleConfig;
+    private final MetricRegistry metricRegistry;
+    private final ThreadPoolManager threadPoolManager;
     private WebServerResult generalWebserver;
     private final LinkedHashSet<WebServerResult> additionalWebservers;
 
+    /** Every throttled service this instance has created, for the periodic stale-client sweep. */
+    private final List<StaleClientSweepable> throttledServices = new ArrayList<>();
+    /** Lazily created on the first throttled registration; runs the stale-client-state sweep. */
+    private ScheduledExecutorService clientStateSweepExecutor;
+
     public ServiceBuilderImpl(
-            final ServerConfig serverConfig, final Http2Config http2Config, final SocketOptions socketOptions) {
+            final ServerConfig serverConfig,
+            final Http2Config http2Config,
+            final SocketOptions socketOptions,
+            final GlobalThrottleConfig globalThrottleConfig,
+            final MetricRegistry metricRegistry,
+            final ThreadPoolManager threadPoolManager) {
         this.serverConfig = serverConfig;
         this.http2Config = http2Config;
         this.socketOptions = socketOptions;
+        this.globalThrottleConfig = globalThrottleConfig;
+        this.metricRegistry = metricRegistry;
+        this.threadPoolManager = threadPoolManager;
         additionalWebservers = new LinkedHashSet<>();
     }
 
@@ -58,9 +92,73 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     }
 
     /// {@inheritDoc}
+    ///
+    /// Every registration is logged once, at startup, as one of throttled ([ThrottleSpec]), exempt
+    /// ([ThrottleExempt]), or neither — the last case logs a warning, since an admission-control
+    /// gap is far more likely to be an oversight than a deliberate choice, and nothing else here
+    /// would otherwise make that omission visible.
+    ///
+    /// If `service` also implements [ThrottleSpec], merges its per-client settings with its own
+    /// reported [ThrottleSpec#globalConcurrencyCeiling], and registers the resulting
+    /// [ThrottledServiceInterface] in place of the raw service.
     @Override
     public void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service) {
-        grpcBuilders.computeIfAbsent(resolve(port), k -> PbjRouting.builder()).service(service);
+        if (service instanceof ThrottleSpec spec) {
+            LOGGER.log(INFO, "Registered gRPC service {0}: throttled", service.serviceName());
+            registerThrottledGrpcService(port, service, spec);
+        } else {
+            if (service instanceof ThrottleExempt) {
+                LOGGER.log(
+                        INFO,
+                        "Registered gRPC service {0}: exempt (deliberately not throttled)",
+                        service.serviceName());
+            } else {
+                LOGGER.log(
+                        WARNING,
+                        "Registered gRPC service {0}: NOT throttled, and not marked exempt via ThrottleExempt — "
+                                + "confirm this is intentional",
+                        service.serviceName());
+            }
+            grpcBuilders
+                    .computeIfAbsent(resolve(port), k -> PbjRouting.builder())
+                    .service(service);
+        }
+    }
+
+    private void registerThrottledGrpcService(
+            @Nullable final Integer port, @NonNull final ServiceInterface service, @NonNull final ThrottleSpec spec) {
+        final ThrottlePolicy policy = ThrottlePolicy.merge(spec.perClientSettings(), spec.globalConcurrencyCeiling());
+        final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
+                service,
+                policy,
+                new RemoteAddressKeyExtractor(),
+                metricRegistry,
+                Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
+        throttledServices.add(throttled);
+        ensureClientStateSweepStarted();
+        grpcBuilders.computeIfAbsent(resolve(port), k -> PbjRouting.builder()).service(throttled);
+    }
+
+    /// Starts the periodic stale-client-state sweep the first time it's needed (i.e. the first
+    /// throttled service registration), rather than unconditionally in the constructor — a node
+    /// with no throttled services registers nothing and spawns no sweep thread.
+    private void ensureClientStateSweepStarted() {
+        if (clientStateSweepExecutor != null) {
+            return;
+        }
+        clientStateSweepExecutor = threadPoolManager.createVirtualThreadScheduledExecutor(
+                1, "throttle-client-state-sweep", (thread, throwable) -> {});
+        final long intervalMinutes = globalThrottleConfig.clientStateSweepIntervalMinutes();
+        clientStateSweepExecutor.scheduleAtFixedRate(
+                () -> {
+                    final long now = System.nanoTime();
+                    for (final StaleClientSweepable throttled : throttledServices) {
+                        throttled.sweepStaleClients(now);
+                    }
+                },
+                intervalMinutes,
+                intervalMinutes,
+                TimeUnit.MINUTES);
     }
 
     /// Returns all HTTP routing builders keyed by port.
@@ -126,6 +224,9 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         additionalWebservers.parallelStream()
                 .forEach(server -> server.serverCreated().stop());
         generalWebserver.serverCreated().stop();
+        if (clientStateSweepExecutor != null) {
+            clientStateSweepExecutor.shutdownNow();
+        }
     }
 
     @Override
