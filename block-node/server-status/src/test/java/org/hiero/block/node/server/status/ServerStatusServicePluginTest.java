@@ -22,6 +22,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -314,6 +315,24 @@ public class ServerStatusServicePluginTest
             julLogger.removeHandler(logHandler);
         }
         assertEquals(1, logHandler.countContaining("Server status heartbeat disabled"));
+    }
+
+    @Test
+    @DisplayName("ThrottleSpec reports the configured per-client settings and global ceiling")
+    void perClientSettingsAndGlobalCeilingReflectConfig() {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(
+                localPlugin,
+                localPlugin.methods().getFirst(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "throttle.serverStatus.ratePerSecond", "42",
+                        "throttle.serverStatus.burstTolerance", "7",
+                        "throttle.serverStatus.maxConcurrentPerClient", "3",
+                        "throttle.global.serverStatusMaxConcurrent", "99"));
+
+        assertEquals(new PerClientThrottleSettings(42, 7, 3), localPlugin.perClientSettings());
+        assertEquals(99, localPlugin.globalConcurrencyCeiling());
     }
 
     /**
