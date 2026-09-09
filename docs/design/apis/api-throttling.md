@@ -71,26 +71,23 @@ client or API triggered it.
 
 ## Terms
 
-<dl>
-<dt>Admission control</dt><dd>Deciding, at the point a request or stream is opened, whether to accept it now or
-reject it immediately.</dd>
-<dt>Client key</dt><dd>An identifier used to group a caller's requests for the purpose of per-client limits. Derived
-from the caller's network address in this design.</dd>
-<dt>Weight class</dt><dd>A cost tier assigned to a request (e.g. LIGHT, MODERATE, HEAVY) that determines which
-rate/concurrency policy applies to it.</dd>
-<dt>Content-aware weigher</dt><dd>A per-API function that inspects a request's content (e.g. the requested block
-number) to classify it into a weight class before admission, rather than relying on a single static weight for the
-whole API.</dd>
-<dt>Leaky bucket (rate limiter)</dt><dd>The rate-limiting model used per client per method: a request adds to a
-conceptual bucket, the bucket drains at a fixed rate, and a request is admitted only if the bucket isn't already
-full. Used strictly as a policer here (reject on arrival), not a shaper (delay and re-admit later); see
-[Alternatives considered](#alternatives-considered). The state representation used to implement this model — GCRA,
-see [`GcraLimiter`](#gcralimiter) — is an implementation choice, not part of the model itself.</dd>
-<dt>Bulkhead</dt><dd>A bounded pool of permits that caps how many callers can concurrently use a shared resource,
-independent of who those callers are.</dd>
-<dt>Concurrency permit</dt><dd>A slot representing one in-flight call or session against a limit; acquired on
-admission and released when the call/session ends.</dd>
-</dl>
+- **Admission control** — Deciding, at the point a request or stream is opened, whether to accept it now or reject
+  it immediately.
+- **Client key** — An identifier used to group a caller's requests for the purpose of per-client limits. Derived from
+  the caller's network address in this design.
+- **Weight class** — A cost tier assigned to a request (e.g. LIGHT, MODERATE, HEAVY) that determines which
+  rate/concurrency policy applies to it.
+- **Content-aware weigher** — A per-API function that inspects a request's content (e.g. the requested block number)
+  to classify it into a weight class before admission, rather than relying on a single static weight for the whole
+  API.
+- **Leaky bucket (rate limiter)** — The rate-limiting model used per client per method: a request adds to a
+  conceptual bucket, the bucket drains at a fixed rate, and a request is admitted only if the bucket isn't already
+  full. Used strictly as a policer here (reject on arrival), not a shaper (delay and re-admit later); see
+  [Alternatives considered](#alternatives-considered).
+- **Bulkhead** — A bounded pool of permits that caps how many callers can concurrently use a shared resource,
+  independent of who those callers are.
+- **Concurrency permit** — A slot representing one in-flight call or session against a limit; acquired on admission
+  and released when the call/session ends.
 
 ## Entities
 
