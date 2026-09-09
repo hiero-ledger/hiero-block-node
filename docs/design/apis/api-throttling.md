@@ -230,12 +230,12 @@ Component B is a single, bounded, non-client-keyed pool of permits guarding ever
   This wait is purely internal scheduling for already-admitted work — it never affects the admission decision in
   Component A.
 
-The node-wide concurrency ceilings Component A applies to historical `getBlock` requests should be sized with this
+The node-wide concurrency ceiling Component A applies to historical `getBlock` requests should be sized with this
 bulkhead's capacity in mind, since both draw from the same underlying resource — but because the bulkhead is also
-shared with subscriber catch-up traffic, which Component A's `getBlock` ceiling has no visibility into, sizing the
-two independently is a reasonable approximation rather than a guarantee that the bulkhead can never be contended by
-both sources at once. The bulkhead's own bounded behavior (reject or brief wait, never unbounded growth) is what
-keeps that scenario safe even so.
+shared with subscriber catch-up traffic, which that `getBlock` ceiling has no visibility into, sizing Component A's
+historical-`getBlock` ceiling and the bulkhead's permit count independently is a reasonable approximation rather than
+a guarantee that the bulkhead can never be contended by both sources at once. The bulkhead's own bounded behavior
+(reject or brief wait, never unbounded growth) is what keeps that scenario safe even so.
 
 ### Configuration ownership
 
