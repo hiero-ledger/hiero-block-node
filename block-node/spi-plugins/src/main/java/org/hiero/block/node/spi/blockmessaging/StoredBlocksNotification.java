@@ -10,4 +10,8 @@ import org.hiero.block.api.BlockRange;
  *
  * @param storedBlocks the current merged stored block ranges
  */
-public record StoredBlocksNotification(List<BlockRange> storedBlocks) {}
+public record StoredBlocksNotification(List<BlockRange> storedBlocks) {
+    public StoredBlocksNotification {
+        storedBlocks = List.copyOf(storedBlocks);
+    }
+}

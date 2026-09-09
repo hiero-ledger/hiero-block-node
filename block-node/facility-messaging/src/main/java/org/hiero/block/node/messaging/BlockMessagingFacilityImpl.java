@@ -749,6 +749,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     blockItemHandlerToEventProcessor,
                     blockItemHandlerToThread);
         }
+        preRegisteredBlockItemHandlers.clear();
+
         // register all the pre-registered block notification handlers
         for (var preRegisteredHandler : preRegisteredBlockNotificationHandlers) {
             registerHandler(
@@ -760,6 +762,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     blockNotificationHandlerToEventProcessor,
                     blockNotificationHandlerToThread);
         }
+        preRegisteredBlockNotificationHandlers.clear();
+
         // register all the pre-registered application state notification handlers
         for (var preRegisteredHandler : preRegisteredApplicationStateNotificationHandlers) {
             registerHandler(
@@ -771,6 +775,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     applicationStateNotificationHandlerToEventProcessor,
                     applicationStateNotificationHandlerToThread);
         }
+        preRegisteredApplicationStateNotificationHandlers.clear();
 
         // log successful start
         if (LOGGER.isLoggable(DEBUG)) {
@@ -792,22 +797,26 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             blockItemDisruptor.getRingBuffer().removeGatingSequence(eventHandler.getSequence());
             eventHandler.halt();
         }
+        blockItemHandlerToEventProcessor.clear();
         // Stop all the block item handler threads
         for (Thread thread : blockItemHandlerToThread.values()) {
             thread.interrupt();
             // log the stopping of the thread
             LOGGER.log(DEBUG, "Stopped block item handler thread: {0}", thread.getName());
         }
+        blockItemHandlerToThread.clear();
         // Stop all the block notification event handlers
         for (var eventHandler : blockNotificationHandlerToEventProcessor.values()) {
             blockNotificationDisruptor.getRingBuffer().removeGatingSequence(eventHandler.getSequence());
             eventHandler.halt();
         }
+        blockNotificationHandlerToEventProcessor.clear();
         // Stop all the context notification event handlers
         for (var eventHandler : applicationStateNotificationHandlerToEventProcessor.values()) {
             blockNotificationDisruptor.getRingBuffer().removeGatingSequence(eventHandler.getSequence());
             eventHandler.halt();
         }
+        applicationStateNotificationHandlerToEventProcessor.clear();
         // Shuts down all the threads handling events.
         blockItemDisruptor.shutdown();
         blockNotificationDisruptor.shutdown();
@@ -817,11 +826,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             // log the stopping of the thread
             LOGGER.log(DEBUG, "Stopped block notification handler thread: {0}", thread.getName());
         }
+        blockNotificationHandlerToThread.clear();
         // Stop all the application state notification handler threads
         for (Thread thread : applicationStateNotificationHandlerToThread.values()) {
             thread.interrupt();
             LOGGER.log(DEBUG, "Stopped application state notification handler thread: {0}", thread.getName());
         }
+        applicationStateNotificationHandlerToThread.clear();
         messageForwarder.shutdown();
     }
 
