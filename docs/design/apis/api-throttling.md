@@ -83,7 +83,8 @@ client or API triggered it.
 - **Leaky bucket (rate limiter)** — The rate-limiting model used per client per method: a request adds to a
   conceptual bucket, the bucket drains at a fixed rate, and a request is admitted only if the bucket isn't already
   full. Used strictly as a policer here (reject on arrival), not a shaper (delay and re-admit later); see
-  [Alternatives considered](#alternatives-considered).
+  [Alternatives considered](#alternatives-considered). The state representation used to implement this model is an
+  implementation choice, not part of the model itself — see [`GcraLimiter`](#gcralimiter).
 - **Bulkhead** — A bounded pool of permits that caps how many callers can concurrently use a shared resource,
   independent of who those callers are.
 - **Concurrency permit** — A slot representing one in-flight call or session against a limit; acquired on admission
@@ -98,9 +99,11 @@ per-client concurrency ceiling, and a node-wide concurrency ceiling.
 
 ### `GcraLimiter`
 
-A lock-free leaky-bucket rate limiter, keyed per client, implemented via GCRA. Holds one monotonic-clock timestamp
-(the theoretical arrival time) per key, advanced via compare-and-swap on each admitted request — deliberately not a
-token counter, since that would need the same timestamp anyway (to know when to refill) plus a second field.
+A lock-free leaky-bucket rate limiter, keyed per client, implemented via the
+[Generic Cell Rate Algorithm](https://en.wikipedia.org/wiki/Generic_cell_rate_algorithm) (GCRA). Holds one
+monotonic-clock timestamp (the theoretical arrival time) per key, advanced via compare-and-swap on each admitted
+request — deliberately not a token counter, since that would need the same timestamp anyway (to know when to
+refill) plus a second field.
 
 ### `ClientKeyExtractor`
 
