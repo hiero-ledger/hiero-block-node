@@ -149,6 +149,13 @@ can be introduced later as a new implementation of this one interface, without c
 `ThrottlePolicy`, or any configuration record. `RequestOptions.remoteCertificateChain()` already exists on the
 underlying request options today, unused — it is exactly what a future `TlsCertificateKeyExtractor` would read from.
 
+Selection of a `ClientKeyExtractor` implementation is wiring-driven, not configuration-driven: the registration
+point constructs the extractor directly, one instance per throttled service registration, rather than reading a
+choice from configuration. Changing the active implementation therefore requires a code change and a restart. Each
+throttled service owns its own isolated per-client state table, so two different extractor implementations
+producing the same key string for different callers can only collide within calls to the *same* service, not
+across services.
+
 ## Design
 
 ![Overall approach: Component A admits or rejects at the API boundary; Component B protects the shared block-storage read path independent of which API triggered the read; publishBlockStream bypasses both](../../assets/api/api-throttling-architecture.svg)
