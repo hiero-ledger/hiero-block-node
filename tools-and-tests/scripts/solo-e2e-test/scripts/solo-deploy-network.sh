@@ -878,6 +878,14 @@ function apply_cn_block_nodes_configs {
 # (amount/senderAccountId/recipientAccountId/transferTypes) still get deep-merged in from its
 # lower-priority values file alongside these, but ConsensusSubmitMessageTransactionSupplier simply
 # doesn't declare those fields, so they're harmlessly ignored by Spring's relaxed property binding.
+#
+# Also bumps monitor's own resource limits: Solo's default (`requests: {cpu: 0, memory: 0}`,
+# `limits: {cpu: 500m, memory: 1000Mi}`) OOMKilled the pod twice this session -- immediately at
+# TPS=1000, and eventually (after several minutes of sustained publishing) even at TPS=200 --
+# looking like memory growth over sustained runtime, not purely an instantaneous-TPS problem.
+# requests=0/0 also means k8s reserves it no headroom at all under node memory pressure, which
+# matters more on this harness's shared/contended CI runner than on BNCE's dedicated hardware
+# (which runs a real combined 10,000 TPS with no monitor-specific resources override at all).
 function generate_mirror_monitor_overlay {
   local output_file="$1"
   local tps="${MIRROR_NODE_PINGER_TPS:-5}"
@@ -888,6 +896,13 @@ function generate_mirror_monitor_overlay {
   cat > "${output_file}" << EOF
 monitor:
   enabled: ${enabled}
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
   config:
     hiero:
       mirror:
@@ -901,7 +916,7 @@ monitor:
                   topicId: "\${topic.ping}"
                   messageSize: 1024
 EOF
-  echo "Generated mirror monitor overlay (pinger.tps=${tps}, enabled=${enabled})"
+  echo "Generated mirror monitor overlay (pinger.tps=${tps}, enabled=${enabled}, resources: 250m/512Mi req, 1/2Gi limit)"
 }
 
 function deploy_mirror_node {

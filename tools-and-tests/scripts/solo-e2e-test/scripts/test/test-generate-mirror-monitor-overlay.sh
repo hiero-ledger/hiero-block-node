@@ -94,6 +94,17 @@ else
     fail "expected type=CONSENSUS_SUBMIT_MESSAGE topicId=\${topic.ping} messageSize=1024, got type=${scenario_type} topicId=${topic_id} messageSize=${message_size}"
 fi
 
+# ----------------------------------------------------------------------------
+echo "[6] generate_mirror_monitor_overlay raises monitor's resource limits above Solo's default (500m/1000Mi), which OOMKilled the pod twice this session"
+generate_mirror_monitor_overlay "${tmpfile}" >/dev/null
+mem_limit="$(yq '.monitor.resources.limits.memory' "${tmpfile}")"
+mem_request="$(yq '.monitor.resources.requests.memory' "${tmpfile}")"
+if [[ "${mem_limit}" == "2Gi" && "${mem_request}" == "512Mi" ]]; then
+    pass "memory limit=2Gi, request=512Mi (above Solo's 1000Mi/0 default)"
+else
+    fail "expected memory limit=2Gi request=512Mi, got limit=${mem_limit} request=${mem_request}"
+fi
+
 echo
 echo "RESULT: ${passed} passed, ${failed} failed"
 [[ $failed -eq 0 ]]
