@@ -1,0 +1,131 @@
+# Static PersistentVolumes for previewnet Tier 1 Local-Full-History deployments
+# on single-node clusters that do NOT have a default StorageClass.
+#
+# When to use this file:
+#   The previewnet Tier 1 values files (`previewnet-lfh-values.yaml` and
+#   `previewnet-lfh-values-smoketest.yaml`) set `persistence.*.create: true`,
+#   which tells the chart to dynamically provision PVCs via the cluster's
+#   default StorageClass. Solo Provisioner's stock previewnet install does
+#   NOT ship a default StorageClass on the single-node k3s cluster it
+#   creates, so those chart-provisioned PVCs stay `Pending` forever and
+#   the BN pod cannot schedule.
+#
+#   `kubectl apply -f` this file BEFORE running
+#   `sudo solo-provisioner block node install`. The 5 PVs are pre-bound
+#   (via `spec.claimRef`) to the exact PVC names the chart's
+#   volumeClaimTemplate will generate for the first StatefulSet replica
+#   (`<name>-storage-block-node-block-node-server-0`), so the PVCs bind
+#   immediately when the chart creates them.
+#
+#   Long-term fix: install `local-path-provisioner` (rancher's local-path
+#   StorageClass) into Solo Provisioner's default cluster setup so
+#   `persistence.*.create: true` works out of the box. Tracked as a
+#   follow-up against solo-weaver.
+#
+# HostPath layout:
+#   All 5 PVs are backed by hostPath directories under
+#   `/mnt/fast-storage/block-node/` (the standard Solo Provisioner storage
+#   root). Directories are auto-created by Solo Provisioner during the
+#   install; the PVs pre-declared here just point at them.
+#
+# Sizing:
+#   Capacities match the chart's volumeClaimTemplate requests for the
+#   smoke-test variant. For the main (non-smoke-test) variant, edit the
+#   `capacity.storage` values to match `previewnet-lfh-values.yaml`
+#   (larger archive/live/etc.) before applying.
+#
+# Reclaim policy:
+#   `Retain` — never auto-delete these PVs even when the bound PVC is
+#   removed. Prevents accidental data loss during helm upgrades or
+#   `solo-provisioner block node reset`.
+#
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: application-state-storage-pv-static
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: /mnt/fast-storage/block-node/application-state
+    type: Directory
+  claimRef:
+    namespace: block-node
+    name: application-state-storage-block-node-block-node-server-0
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: archive-storage-pv-static
+spec:
+  capacity:
+    storage: 800Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: /mnt/fast-storage/block-node/archive
+    type: Directory
+  claimRef:
+    namespace: block-node
+    name: archive-storage-block-node-block-node-server-0
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: live-storage-pv-static
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: /mnt/fast-storage/block-node/live
+    type: Directory
+  claimRef:
+    namespace: block-node
+    name: live-storage-block-node-block-node-server-0
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: logging-storage-pv-static
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: /mnt/fast-storage/block-node/logs
+    type: Directory
+  claimRef:
+    namespace: block-node
+    name: logging-storage-block-node-block-node-server-0
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: plugins-storage-pv-static
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: /mnt/fast-storage/block-node/plugins
+    type: Directory
+  claimRef:
+    namespace: block-node
+    name: plugins-storage-block-node-block-node-server-0

@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Smoke-test-scoped Helm values override for a previewnet Tier 1 LFH Block
+# Node running on a bigger-than-guide VM (32 cores / 256 GB RAM observed on
+# the previewnet smoke-test box) but with limited local disk (~1 TB total).
+#
+# Pair with `previewnet-lfh-provisioner-config-smoketest.yaml`. Use only with
+# `--skip-hardware-checks`; see that file's header for the full command.
+#
+# JVM / resources scaled up compared to the e2-standard-16 assumption in
+# previewnet-lfh-values.yaml, because the smoke-test box actually has 256 GB
+# RAM available -- leaving that unused would starve the JVM for no reason.
+
+blockNode:
+    config:
+        BACKFILL_GREEDY: "true"
+        BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
+        # Bigger heap than the e2-standard-16-tuned values.yaml because this
+        # host has 256 GB RAM; leaving room for OS + Kubernetes + page cache.
+        JAVA_OPTS: "-Xms96G -Xmx96G -XX:+ZGenerational"
+        PROMETHEUS_ENDPOINT_ENABLED: true
+        PROMETHEUS_ENDPOINT_PORT_NUMBER: "16007"
+        ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL: "https://previewnet.mirrornode.hedera.com"
+        SERVER_PORT: "40840"
+        logs:
+            level: "INFO"
+            loggingProperties:
+                org.hiero.block.level: "INFO"
+                java.util.logging.ConsoleHandler.level: "FINEST"
+                java.util.logging.FileHandler.level: "FINEST"
+
+        initContainers:
+            - name: init-storage-dirs
+              image: docker.io/library/busybox:latest
+              command:
+                  - sh
+                  - -c
+                  - |
+                      chown 2000:2000 /application-state-pvc && \
+                      chmod 700 /application-state-pvc && \
+                      chown 2000:2000 /archive-pvc && \
+                      chmod 700 /archive-pvc && \
+                      chown 2000:2000 /live-pvc && \
+                      chmod 700 /live-pvc && \
+                      chown 2000:2000 /logging-pvc && \
+                      chmod 700 /logging-pvc
+              volumeMounts:
+                  - name: application-state-storage
+                    mountPath: /application-state-pvc
+                  - name: archive-storage
+                    mountPath: /archive-pvc
+                  - name: live-storage
+                    mountPath: /live-pvc
+                  - name: logging-storage
+                    mountPath: /logging-pvc
+
+        # PVCs pre-provisioned by Solo Provisioner (5 PVs at fixed names,
+        # hostPath-backed on the VM disk). Seed with
+        # `backfill-wrb-to-bn.sh --pre-install` before first pod start;
+        # see the same comment in previewnet-lfh-values.yaml.
+        persistence:
+            live:
+                create: false
+                existingClaim: live-storage-pvc
+                subPath: ""
+            archive:
+                create: false
+                existingClaim: archive-storage-pvc
+                subPath: ""
+            logging:
+                create: false
+                existingClaim: logging-storage-pvc
+                subPath: ""
+            applicationState:
+                create: false
+                existingClaim: application-state-storage-pvc
+
+    ports:
+        publisher: 40984    # PRODUCER_PORT     — gRPC, block producers
+        subscriber: 40980   # SUBSCRIBER_PORT   — gRPC, block subscribers
+        blockAccess: 40981  # BLOCK_ACCESS_PORT — gRPC/HTTP, block query API
+        health: 40983       # HEALTH_PORT       — HTTP, /healthz endpoints
+        serverStatus: 40982 # SERVER_STATUS_PORT — HTTP, server-status endpoint
+
+# LoadBalancer enabled (team decision, 2026-07-30): the smoke-test box has a
+# public IP too, and Solo Provisioner installs MetalLB during a fresh install.
+# Match the main previewnet-lfh-values.yaml's LB shape so this smoke-test
+# variant differs from the main file ONLY in JVM heap + storage sizing.
+#
+# Same chart-0.37.1 limitation as the main file: LB only publishes 40840
+# (plain HTTP under the split-port setup). External gRPC probing requires
+# kubectl port-forward against the ClusterIP Service on the plugin port.
+loadBalancer:
+    enabled: true
+    port: "40840"
+    annotations:
+        metallb.io/address-pool: public-address-pool
+
+resources:
+    requests:
+        cpu: "16"
+        memory: "128Gi"
+    limits:
+        cpu: "16"
+        memory: "128Gi"
+
+service:
+    type: ClusterIP
+    port: 40840
