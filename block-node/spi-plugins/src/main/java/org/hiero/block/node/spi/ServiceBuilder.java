@@ -10,6 +10,7 @@ import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
 import java.util.Set;
 import java.util.TreeMap;
+import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 
 /// ServiceBuilder is an interface that defines the contract for registering HTTP and gRPC services
 /// with the web server during initialization.
@@ -70,6 +71,14 @@ public interface ServiceBuilder {
     /// use the default port
     /// @param service the gRPC service to register
     void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service);
+
+    /// The single, shared bulkhead protecting block storage from combined read load across every
+    /// call path that reads from it, independent of client identity. Every plugin that reads
+    /// directly from block storage shares this one instance rather than creating its own.
+    ///
+    /// @return the shared block-read bulkhead
+    @NonNull
+    BlockReadBulkhead blockReadBulkhead();
 
     /// Registers a new webserver configured with one or more HTTP services
     /// attached to a set of ports.
