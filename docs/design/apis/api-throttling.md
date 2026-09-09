@@ -68,6 +68,10 @@ client or API triggered it.
   exception to this if hardware heterogeneity across deployments makes one hand-tuned default impractical — see the
   adaptive-bulkhead-sizing follow-up under the throttling epic — but that applies narrowly to capacity sizing, not
   to per-client policy (rate, burst, per-client concurrency), which stays a static fairness choice by design.
+- **Priority-aware throttling.** Giving some connections/clients/requests precedence over others under high
+  concurrency is out of scope for this iteration. Meaningful prioritization needs a trustworthy client identity to
+  assign priority to, so this is plausibly gated on the authenticated-client-identity work above (a
+  `ClientKeyExtractor` successor) rather than being independent work.
 
 ## Terms
 
