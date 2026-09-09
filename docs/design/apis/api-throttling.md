@@ -241,6 +241,13 @@ historical-`getBlock` ceiling and the bulkhead's permit count independently is a
 a guarantee that the bulkhead can never be contended by both sources at once. The bulkhead's own bounded behavior
 (reject or brief wait, never unbounded growth) is what keeps that scenario safe even so.
 
+The initial implementation uses one shared pool for all tiers, including recent/live reads — there is no per-tier
+bulkhead, and a `getBlock` call for a live block acquires and releases a permit the same as a historical one. This
+was a deliberate simplicity choice for the first delivery (see [Extensibility](#extensibility)) rather than a claim
+that a recent-block read is free of overhead: if warm-path latency sensitivity proves material, a separate,
+generously-sized bulkhead for recent reads — or skipping the bulkhead entirely for reads served from an
+in-memory/warm-file path — is the documented extension point to use.
+
 ### Configuration ownership
 
 Each gRPC method has exactly one plugin that implements it, so a client's rate and per-client concurrency limits for
