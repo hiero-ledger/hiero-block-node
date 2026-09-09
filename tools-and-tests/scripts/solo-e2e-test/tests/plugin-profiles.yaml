@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# BN Plugin Flavors E2E Test
+# BN Plugin Profiles E2E Test
 #
 # Validates that plugin-profile-lfh.yaml, plugin-profile-minimal.yaml, and
 # plugin-profile-all.yaml each deploy correctly and behave as documented:
@@ -14,18 +14,18 @@
 #                           receives live stream from CN2, archives to RustFS,
 #                           backfills with BN1.
 #
-# Topology: 2cn-3bn-flavors
+# Topology: 2cn-3bn-plugin-profiles
 #   CN1 -> BN1 (lfh)    CN2 -> BN3 (all)    BN1 <-> BN3 (backfill)
 #   MN <- BN1, BN3      BN2 wired to nothing by design
 #
 # Prerequisites:
-#   - Topology 2cn-3bn-flavors deployed (deploys RustFS before BN1/BN2/BN3)
-#   - plugin-profile-<flavor>.yaml applied to each BN via flavor: field in topology
+#   - Topology 2cn-3bn-plugin-profiles deployed (deploys RustFS before BN1/BN2/BN3)
+#   - plugin-profile-<plugin_profile>.yaml applied to each BN via plugin_profile: field in topology
 #
 # Usage:
-#   task test:run TEST_FILE=tests/bn-flavors.yaml TOPOLOGY=2cn-3bn-flavors
+#   task test:run TEST_FILE=tests/plugin-profiles.yaml TOPOLOGY=2cn-3bn-plugin-profiles
 
-name: bn-flavors
+name: plugin-profiles
 description: "lfh / minimal / all plugin profiles exercise"
 
 events:
@@ -52,7 +52,7 @@ events:
 
   - id: verify-archive-expanded
     type: archive-files-exist
-    description: "Expanded bucket has >= 5 files -- proves all-flavor cloud-storage-expanded loop closed multiple times"
+    description: "Expanded bucket has >= 5 files -- proves the all profile's cloud-storage-expanded loop closed multiple times"
     delay: 200
     args:
       bucket: block-archive-expanded
@@ -68,7 +68,7 @@ events:
 
   - id: verify-local-storage-bn3
     type: command
-    description: "BN3 (all flavor) has local .blk files -- proves local-file plugin also populated, not cloud only"
+    description: "BN3 (all profile) has local .blk files -- proves local-file plugin also populated, not cloud only"
     delay: 205
     args:
       script: |
@@ -76,7 +76,7 @@ events:
 
   - id: verify-minimal-serves-status
     type: command
-    description: "BN2 (minimal flavor) answers serverStatus -- proves 4-plugin set boots and serves gRPC with no block provider"
+    description: "BN2 (minimal profile) answers serverStatus -- proves 4-plugin set boots and serves gRPC with no block provider"
     delay: 205
     args:
       script: |
@@ -92,7 +92,7 @@ events:
 assertions:
   - id: bn1-healthy
     type: node-healthy
-    description: "BN1 (lfh flavor) is running"
+    description: "BN1 (lfh profile) is running"
     target: block-node-1
 
   - id: bn1-block-available
@@ -116,7 +116,7 @@ assertions:
 
   - id: bn3-healthy
     type: node-healthy
-    description: "BN3 (all flavor) is running"
+    description: "BN3 (all profile) is running"
     target: block-node-3
 
   - id: bn3-block-available
@@ -140,7 +140,7 @@ assertions:
 
   - id: bn2-healthy
     type: node-healthy
-    description: "BN2 (minimal flavor) is running -- proves 4-plugin set starts without any block provider"
+    description: "BN2 (minimal profile) is running -- proves 4-plugin set starts without any block provider"
     target: block-node-2
 
   - id: bn2-no-errors

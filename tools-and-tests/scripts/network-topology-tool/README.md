@@ -22,22 +22,22 @@ Topologies are defined in YAML following `network-topology.schema.yaml`. The sch
 
 Each entry under `block_nodes` accepts:
 
-|          Field           | Required |                                              Description                                              |
-|--------------------------|----------|-------------------------------------------------------------------------------------------------------|
-| `address`                | Yes      | Service name used for in-cluster DNS                                                                  |
-| `port`                   | Yes      | gRPC port (40840 in every bundled topology)                                                           |
-| `peers`                  | No       | Other BNs this node backfills from, in priority order                                                 |
-| `greedy`                 | No       | Greedy backfill mode, i.e. pull all history rather than only fill gaps (default false)                |
-| `backfill_scan_interval` | No       | Gap-scan interval in ms (default 15000)                                                               |
-| `grpc_tuning`            | No       | Web-client tuning read off the **peer** entry by whoever backfills from it (see below)                |
-| `plugin_ports`           | No       | Per-plugin port overrides; camelCase keys matching `blockNode.ports` in the chart                     |
-| `flavor`                 | No       | Shipped plugin profile: `minimal`, `lfh`, `rfh` or `all` (see below)                                  |
-| `archive`                | No       | `backend: rustfs` plus `node:`, a key in `s3_nodes`; requires a flavor with the cloud-storage plugins |
+|          Field           | Required |                                              Description                                               |
+|--------------------------|----------|--------------------------------------------------------------------------------------------------------|
+| `address`                | Yes      | Service name used for in-cluster DNS                                                                   |
+| `port`                   | Yes      | gRPC port (40840 in every bundled topology)                                                            |
+| `peers`                  | No       | Other BNs this node backfills from, in priority order                                                  |
+| `greedy`                 | No       | Greedy backfill mode, i.e. pull all history rather than only fill gaps (default false)                 |
+| `backfill_scan_interval` | No       | Gap-scan interval in ms (default 15000)                                                                |
+| `grpc_tuning`            | No       | Web-client tuning read off the **peer** entry by whoever backfills from it (see below)                 |
+| `plugin_ports`           | No       | Per-plugin port overrides; camelCase keys matching `blockNode.ports` in the chart                      |
+| `plugin_profile`         | No       | Shipped plugin profile: `minimal`, `lfh`, `rfh` or `all` (see below)                                   |
+| `archive`                | No       | `backend: rustfs` plus `node:`, a key in `s3_nodes`; requires a profile with the cloud-storage plugins |
 
-`flavor` replaces the chart's `plugins.names` with
-`charts/block-node-server/values-overrides/plugin-profile-<flavor>.yaml`. `rfh` and `minimal` run
+`plugin_profile` replaces the chart's `plugins.names` with
+`charts/block-node-server/values-overrides/plugin-profile-<plugin_profile>.yaml`. `rfh` and `minimal` run
 no `stream-publisher`/`stream-subscriber`, so such a node must not be listed under any consensus
-or mirror node. See `../solo-e2e-test/README.md` ("Block Node Plugin Flavors") for the full
+or mirror node. See `../solo-e2e-test/README.md` ("Block Node Plugin Profiles") for the full
 operational caveats.
 
 `grpc_tuning` is read from the entry of the node being connected **to**: to widen the frames a
@@ -91,7 +91,7 @@ block_nodes:
   block-node-2:
     address: block-node-2
     port: 40840
-    flavor: rfh          # cloud-only profile: no local storage, no publisher/subscriber
+    plugin_profile: rfh  # cloud-only profile: no local storage, no publisher/subscriber
     peers: [block-node-1]
     greedy: true
     archive:

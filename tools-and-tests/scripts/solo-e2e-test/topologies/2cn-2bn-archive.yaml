@@ -37,7 +37,7 @@ block_nodes:
   block-node-1:
     address: block-node-1
     port: 40840
-    flavor: rfh
+    plugin_profile: rfh
     peers: [block-node-2]
     # No live stream reaches BN1, so backfill must pull the whole history greedily.
     greedy: true

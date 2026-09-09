@@ -127,10 +127,10 @@ properties:
             type: object
             description: "Per-plugin port overrides. Keys match blockNode.ports in the Helm chart (camelCase: publisher, subscriber, blockAccess, health, serverStatus). publisher defaults to service.port (40840) when unset."
             additionalProperties: { $ref: "#/$defs/port" }
-          flavor:
+          plugin_profile:
             type: string
             enum: [minimal, lfh, rfh, all]
-            description: "Shipped plugin profile to apply (plugin-profile-<flavor>.yaml). Overrides default plugins.names."
+            description: "Shipped plugin profile to apply (plugin-profile-<plugin_profile>.yaml). Overrides default plugins.names."
           archive:
             type: object
             description: "Cloud-storage archive backend configuration"
