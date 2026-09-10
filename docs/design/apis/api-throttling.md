@@ -70,8 +70,8 @@ client or API triggered it.
   to per-client policy (rate, burst, per-client concurrency), which stays a static fairness choice by design.
 - **Priority-aware throttling.** Giving some connections/clients/requests precedence over others under high
   concurrency is out of scope for this iteration. Meaningful prioritization needs a trustworthy client identity to
-  assign priority to, so this is plausibly gated on the authenticated-client-identity work above (a
-  `ClientKeyExtractor` successor) rather than being independent work.
+  assign priority to, so it's plausibly gated on the authenticated-client-identity work above rather than
+  independent work.
 
 ## Terms
 
@@ -120,15 +120,9 @@ mechanism.
 ### `ContentAwareWeigher`
 
 An optional, per-API function that classifies a request into a weight class based on its content. Used by
-`getBlock` and `subscribeBlockStream` to distinguish live/recent requests from historical ones.
-
-A weigher cannot classify a call inside `open()` — for both unary and server-streaming calls, the request bytes
-are not available there; they arrive later, via `onNext` on the pipeline `open()` returns. Where a weigher is
-registered, admission is therefore deferred in full: `open()` only extracts the client key and constructs the
-delegate's pipeline (cheap — no business logic runs yet), and classification plus every Component A check (global
-concurrency, per-client concurrency, rate) run together, once, in a wrapping pipeline's own `onNext`, before the
-delegate's `onNext` — and therefore its business logic — ever runs. A rejected call never reaches the delegate at
-all, so nothing is admitted provisionally and no check is ever paid for twice.
+`getBlock` and `subscribeBlockStream` to distinguish live/recent requests from historical ones. It cannot classify
+inside `open()` — request bytes aren't available there — so where one is registered, admission moves to `onNext`;
+see [Content-aware weighting](#component-a--per-client-admission-gate) for the full flow.
 
 ### The admission decorator
 
@@ -156,12 +150,10 @@ can be introduced later as a new implementation of this one interface, without c
 `ThrottlePolicy`, or any configuration record. `RequestOptions.remoteCertificateChain()` already exists on the
 underlying request options today, unused — it is exactly what a future `TlsCertificateKeyExtractor` would read from.
 
-Selection of a `ClientKeyExtractor` implementation is wiring-driven, not configuration-driven: the registration
-point constructs the extractor directly, one instance per throttled service registration, rather than reading a
-choice from configuration. Changing the active implementation therefore requires a code change and a restart. Each
-throttled service owns its own isolated per-client state table, so two different extractor implementations
-producing the same key string for different callers can only collide within calls to the *same* service, not
-across services.
+Selection is wiring-driven, not configuration-driven: the registration point constructs the extractor directly,
+one instance per throttled service, so switching implementations needs a code change and a restart, not a config
+change. Each throttled service also owns its own isolated per-client state table, so two extractors producing the
+same key for different callers can only collide within calls to the *same* service, never across services.
 
 ## Design
 
@@ -221,34 +213,27 @@ deadline being exceeded — for both unary and streaming calls alike. The releas
 guard, since more than one of those signals can arrive for the same call (for example, a cancellation arriving
 immediately after a business-logic error).
 
-**Content-aware weighting for `getBlock` and `subscribeBlockStream`.** A single static weight per API cannot express
+**Content-aware weighting for `getBlock` and `subscribeBlockStream`.** A single static weight per API can't express
 that a historical block read is more expensive than a live one. Both APIs register a `ContentAwareWeigher` that
-inspects the requested block number (for `getBlock`) or the requested start block (for `subscribeBlockStream`)
-against the recent/historical boundary described below, so a historical request is checked against a stricter
-policy than a live one. For `subscribeBlockStream`, this classification happens once, at admission time — a
-session that starts as a live subscription and later needs to catch up on history is protected by Component B
-below, not by re-evaluating its weight mid-session.
+classifies the requested block (`getBlock`) or start block (`subscribeBlockStream`) against the boundary below, so
+historical requests are checked against a stricter policy. For `subscribeBlockStream` this classification happens
+once, at admission — a session that later catches up on history is protected by Component B, not by re-weighing
+mid-session.
 
 **The recent/historical boundary** is distance from the tip: a request is historical if it targets a block more
-than a configurable `historicalThresholdBlocks` behind the current maximum available block, queried fresh on each
-call rather than cached — both `getBlock` and `subscribeBlockStream` already read that same value unconditionally
-elsewhere on their normal request path, so this doesn't add a new kind of cost, just one more read of a value
-already on the hot path. `getBlock`'s `retrieveLatest` (and a missing or negative block number) is always
-classified live, rather than resolving the actual latest block number just to weigh the call — the classification
-itself does not need to know what "latest" resolves to, only that the request isn't asking for something behind
-it. This threshold is a self-contained approximation, deliberately independent of the recent-storage-tier plugin's
-own retention boundary so the weigher doesn't require a specific storage-tier plugin to be present — the two are
-expected to be configured to match, but nothing enforces that if either is changed independently. Whether this
-approximation tracks the real recent/historical boundary closely enough in practice belongs in the acceptance
-tests for the implementation (see [Acceptance Tests](#acceptance-tests)).
+than a configurable `historicalThresholdBlocks` behind the current maximum available block. Queried fresh each
+call, not cached — the same accessor is already read unconditionally elsewhere on this path, so this adds no new
+cost. `retrieveLatest` and a missing/negative block number are always classified live, avoiding the cost of
+resolving "latest" just to weigh the call. The threshold is deliberately decoupled from the recent-storage-tier
+plugin's own retention boundary, so the weigher doesn't depend on a specific storage-tier plugin being present —
+the two are expected to match, but nothing enforces it; validating that in practice belongs in the acceptance
+tests (see [Acceptance Tests](#acceptance-tests)).
 
-This changes where in the call the ordered checks above actually run, for these two APIs specifically: since
-classification needs the request bytes, and those aren't available until `onNext` (see `ContentAwareWeigher`), a
-weighted method's `open()` does not gate anything itself — it only extracts the client key and constructs the
-delegate's pipeline, cheaply. Classification and all three checks happen together, once, in the wrapping pipeline's
-own `onNext`, before the delegate's `onNext` is ever called. The end result is the same as the unweighted case (a
-rejected call's business logic never runs, and nothing is charged twice) — only the point in the call where that
-decision happens moves later, from `open()` to `onNext`.
+Because classification needs the request bytes, which aren't available until `onNext`, a weighted method's
+`open()` doesn't gate anything — it only extracts the client key and builds the delegate's pipeline. Classification
+and all three checks then run together in the wrapping pipeline's `onNext`, before the delegate's `onNext` is
+called. The outcome matches the unweighted case (a rejected call's business logic never runs, nothing is charged
+twice); only the point where that decision happens moves, from `open()` to `onNext`.
 
 ### Component B — shared backend block-read bulkhead
 
@@ -277,12 +262,11 @@ historical-`getBlock` ceiling and the bulkhead's permit count independently is a
 a guarantee that the bulkhead can never be contended by both sources at once. The bulkhead's own bounded behavior
 (reject or brief wait, never unbounded growth) is what keeps that scenario safe even so.
 
-The initial implementation uses one shared pool for all tiers, including recent/live reads — there is no per-tier
-bulkhead, and a `getBlock` call for a live block acquires and releases a permit the same as a historical one. This
-was a deliberate simplicity choice for the first delivery (see [Extensibility](#extensibility)) rather than a claim
-that a recent-block read is free of overhead: if warm-path latency sensitivity proves material, a separate,
-generously-sized bulkhead for recent reads — or skipping the bulkhead entirely for reads served from an
-in-memory/warm-file path — is the documented extension point to use.
+The initial implementation uses one pool for all tiers, including recent/live reads — a `getBlock` call for a live
+block acquires and releases a permit the same as a historical one. This is a deliberate simplicity choice, not a
+claim that live reads are free of overhead: if warm-path latency sensitivity proves material, a separate bulkhead
+for recent reads — or skipping the bulkhead for reads served from an in-memory/warm-file path — is the documented
+[Extensibility](#extensibility) point to use.
 
 ### Configuration ownership
 
@@ -334,10 +318,8 @@ small and bounded by construction:
     two fields (e.g. a block number) to classify a request. It should do a targeted read of that field directly from
     the wire format, not fully deserialize the request message before the real handler does its own full parse —
     otherwise every classified call would pay for parsing the request twice. This is a hand-written read via PBJ's
-    `ProtoParserTools` (read the tag, extract field number and wire type, decode the target field or skip any other
-    field), the same low-level parsing primitives PBJ's own generated parsers use — there is no separate framework
-    support for a partial-field read, but none is needed. Each weigher currently implements this loop itself rather
-    than sharing one utility; factoring it out is worth doing once a second or third weigher needs the same logic,
+    `ProtoParserTools` — the same low-level primitives PBJ's generated parsers use, just called directly instead of
+    from generated code. Each weigher implements its own read loop today; worth sharing once a third one needs it,
     not before.
 - **Acceptance criterion.** This goal should be validated, not assumed: a benchmark comparing per-call latency and
   allocation with admission control enabled versus disabled on the same hardware belongs in the acceptance tests for
@@ -481,16 +463,14 @@ Each throttled API's own module declares its per-client settings:
 | `burstTolerance`         | How far ahead of the even-pacing schedule a client's request may arrive and still be admitted    |
 | `maxConcurrentPerClient` | Maximum concurrent in-flight calls/sessions for one client on this method                        |
 
-Where a method's `ContentAwareWeigher` can classify more than one weight class, each class gets its own full triple
-rather than sharing one: e.g. `getBlock` has independent live and historical per-client configuration, each with
-its own rate, burst, and per-client concurrency ceiling. This is a heavier configuration surface than a single
-per-method triple, but keeps each weight class's tuning — including how strict the historical policy is relative
-to the live one — fully independent.
+Where a method's `ContentAwareWeigher` produces more than one weight class, each class gets its own full triple
+rather than sharing one — e.g. `getBlock` has independent live and historical per-client configuration — so each
+tier's tuning, including how much stricter the historical policy is, stays fully independent.
 
 A single shared, node-level configuration record holds one node-wide concurrency ceiling per (method, weight
-class) — e.g. `getBlock` has independent live and historical node-wide ceilings — since this represents an
-allocation of shared node capacity across APIs rather than a single plugin's own concern. A method with only one
-weight class has just one ceiling.
+class) — e.g. `getBlock` has independent live and historical ceilings — since this represents an allocation of
+shared node capacity across APIs rather than a single plugin's own concern. A method with only one weight class
+has just one ceiling.
 
 The shared block-read bulkhead has its own single configuration value: the number of permits in the pool, informed
 by the target deployment's storage characteristics.
