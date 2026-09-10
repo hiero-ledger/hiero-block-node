@@ -15,6 +15,13 @@
 # "absent" here -- that's correct, not a bug: there is no CryptoTransfer
 # traffic at all without NLG running.
 #
+# Rate re-derivation (18mbit/s, up from 6mbit/s): see
+# bandwidth-lag-monitor-only-late-snapshot.yaml for the full derivation --
+# real Monitor mixed-traffic samples this session averaged ~2.55MB/block
+# (vs. bandwidth-lag.yaml's pure-CryptoTransfer ~868KB/block baseline this
+# rate was originally copied from), giving a real floor of ~9.71 Mbit/s.
+# 18mbit/s preserves roughly the same ~1.8x margin as the original derivation.
+#
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
 #
 # Pre-req:
@@ -25,31 +32,31 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 MIRROR_NODE_PINGER_TPS=10000 task test:run TEST_FILE=tests/bandwidth-lag-monitor-only.yaml
 
 name: bandwidth-lag-monitor-only
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (6mbit/s) — Monitor-only traffic, no NLG"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (18mbit/s) — Monitor-only traffic, no NLG"
 
 events:
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 6mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
+    description: "Cap CN's egress to BN1's Service at 18mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "6mbit"
+      rate: "18mbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 6mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 18mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "6mbit"
+      rate: "18mbit"
       limit: 3000000
       buffer: 10000
       direction: to

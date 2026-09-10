@@ -14,6 +14,18 @@
 # 450/455 to match, giving blocks much more time to reach the bigger,
 # post-TSS-transition regime before the snapshot fires.
 #
+# Rate re-derivation (18mbit/s, up from 6mbit/s): the 6mbit/s rate was
+# inherited from bandwidth-lag.yaml's pure-CryptoTransfer ~868KB/block
+# baseline. Real Monitor mixed-traffic (5k CryptoTransfer + 5k
+# ConsensusSubmitMessage) samples this session: 866,698 / 2,574,119 /
+# 2,782,229 / 3,991,184 bytes/block (mean ~2.55MB -- also see the file's own
+# per-BN-disagreement note below, real content varies block to block).
+# floor = 2,600,000 x 8 x 0.467 blk/s ~= 9.71 Mbit/s. 18mbit/s preserves
+# roughly the same ~1.8x margin as bandwidth-lag.yaml's original derivation.
+# Confirmed via a real run that even 2.5x more chaos-exposure time doesn't
+# reliably grow blocks-diverged's spread on its own (see handoff) -- so this
+# rate bump is necessary but likely not sufficient by itself.
+#
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
 #
 # Pre-req:
@@ -24,31 +36,31 @@
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 MIRROR_NODE_PINGER_TPS=10000 task test:run TEST_FILE=tests/bandwidth-lag-monitor-only-late-snapshot.yaml
 
 name: bandwidth-lag-monitor-only-late-snapshot
-description: "CN→BN1 + BN-peers→BN1 bandwidth cap (6mbit/s) — Monitor-only traffic, snapshot moved to delay=400 to test the timing-window hypothesis"
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (18mbit/s) — Monitor-only traffic, snapshot moved to delay=400 to test the timing-window hypothesis"
 
 events:
   - id: inject-cn-bn1-bw
     type: inject-bandwidth
-    description: "Cap CN's egress to BN1's Service at 6mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
+    description: "Cap CN's egress to BN1's Service at 18mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
     delay: 30
     args:
       name: cn-to-bn1-bw
       source: { kind: network-node }
       target: { kind: service, name: block-node-1 }
-      rate: "6mbit"
+      rate: "18mbit"
       limit: 3000000
       buffer: 10000
       direction: to
 
   - id: inject-peer-bn1-bw
     type: inject-bandwidth
-    description: "Cap BN-peers' egress to BN1's Service at 6mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    description: "Cap BN-peers' egress to BN1's Service at 18mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
     delay: 35
     args:
       name: peer-to-bn1-bw
       source: { kind: block-node }
       target: { kind: service, name: block-node-1 }
-      rate: "6mbit"
+      rate: "18mbit"
       limit: 3000000
       buffer: 10000
       direction: to
