@@ -105,6 +105,30 @@ else
     fail "expected memory limit=2Gi request=512Mi, got limit=${mem_limit} request=${mem_request}"
 fi
 
+# ----------------------------------------------------------------------------
+echo "[7] generate_mirror_monitor_overlay adds the xfer (CryptoTransfer) scenario when MIRROR_NODE_XFER_TPS is set"
+MIRROR_NODE_PINGER_TPS=5000 MIRROR_NODE_XFER_TPS=5000 generate_mirror_monitor_overlay "${tmpfile}" >/dev/null
+xfer_tps="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios.xfer.tps' "${tmpfile}")"
+xfer_type="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios.xfer.type' "${tmpfile}")"
+xfer_sender="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios.xfer.properties.senderAccountId' "${tmpfile}")"
+xfer_recipient="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios.xfer.properties.recipientAccountId' "${tmpfile}")"
+if [[ "${xfer_tps}" == "5000" && "${xfer_type}" == "CRYPTO_TRANSFER" && "${xfer_sender}" == "0.0.2" && "${xfer_recipient}" == "0.0.55" ]]; then
+    pass "xfer.tps=5000, type=CRYPTO_TRANSFER, sender=0.0.2, recipient=0.0.55"
+else
+    fail "expected xfer tps=5000 type=CRYPTO_TRANSFER sender=0.0.2 recipient=0.0.55, got tps=${xfer_tps} type=${xfer_type} sender=${xfer_sender} recipient=${xfer_recipient}"
+fi
+
+# ----------------------------------------------------------------------------
+echo "[8] generate_mirror_monitor_overlay omits the xfer scenario entirely when MIRROR_NODE_XFER_TPS is unset/0"
+unset MIRROR_NODE_XFER_TPS
+MIRROR_NODE_PINGER_TPS=100 generate_mirror_monitor_overlay "${tmpfile}" >/dev/null
+xfer_present="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios | has("xfer")' "${tmpfile}")"
+if [[ "${xfer_present}" == "false" ]]; then
+    pass "xfer scenario key absent when MIRROR_NODE_XFER_TPS is unset"
+else
+    fail "expected xfer scenario key absent, got has(xfer)=${xfer_present}"
+fi
+
 echo
 echo "RESULT: ${passed} passed, ${failed} failed"
 [[ $failed -eq 0 ]]

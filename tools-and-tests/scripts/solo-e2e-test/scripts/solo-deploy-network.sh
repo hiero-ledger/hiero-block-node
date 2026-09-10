@@ -886,12 +886,23 @@ function apply_cn_block_nodes_configs {
 # requests=0/0 also means k8s reserves it no headroom at all under node memory pressure, which
 # matters more on this harness's shared/contended CI runner than on BNCE's dedicated hardware
 # (which runs a real combined 10,000 TPS with no monitor-specific resources override at all).
+#
+# Also optionally enables the `xfer` (CryptoTransfer) scenario via MIRROR_NODE_XFER_TPS (0/unset
+# disables it, matching pinger's convention) -- this is what lets Monitor drive a *mixed*
+# CryptoTransfer + ConsensusSubmitMessage content mix on its own (matching BNCE's real 5k/5k
+# split), rather than only ever running the pinger (ConsensusSubmitMessage) scenario alone.
+# senderAccountId/recipientAccountId (0.0.2 -> 0.0.55) reuse the exact pair Solo's own bundled
+# defaults already use for pinger-as-CryptoTransfer (see the base mirror-node-values.yaml this
+# file overrides) -- a pairing already proven to work in this exact Solo-deployed environment.
+# transferTypes defaults to CRYPTO in CryptoTransferTransactionSupplier itself, so it doesn't
+# need to be set here.
 function generate_mirror_monitor_overlay {
   local output_file="$1"
-  local tps="${MIRROR_NODE_PINGER_TPS:-5}"
-  local enabled="true"
-  if [[ "${tps}" -eq 0 ]]; then
-    enabled="false"
+  local pinger_tps="${MIRROR_NODE_PINGER_TPS:-5}"
+  local xfer_tps="${MIRROR_NODE_XFER_TPS:-0}"
+  local enabled="false"
+  if [[ "${pinger_tps}" -gt 0 || "${xfer_tps}" -gt 0 ]]; then
+    enabled="true"
   fi
   cat > "${output_file}" << EOF
 monitor:
@@ -910,13 +921,23 @@ monitor:
           publish:
             scenarios:
               pinger:
-                tps: ${tps}
+                tps: ${pinger_tps}
                 type: CONSENSUS_SUBMIT_MESSAGE
                 properties:
                   topicId: "\${topic.ping}"
                   messageSize: 1024
 EOF
-  echo "Generated mirror monitor overlay (pinger.tps=${tps}, enabled=${enabled}, resources: 250m/512Mi req, 1/2Gi limit)"
+  if [[ "${xfer_tps}" -gt 0 ]]; then
+    cat >> "${output_file}" << EOF
+              xfer:
+                tps: ${xfer_tps}
+                type: CRYPTO_TRANSFER
+                properties:
+                  senderAccountId: "0.0.2"
+                  recipientAccountId: "0.0.55"
+EOF
+  fi
+  echo "Generated mirror monitor overlay (pinger.tps=${pinger_tps}, xfer.tps=${xfer_tps}, enabled=${enabled}, resources: 250m/512Mi req, 1/2Gi limit)"
 }
 
 function deploy_mirror_node {

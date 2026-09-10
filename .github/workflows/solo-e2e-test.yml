@@ -81,6 +81,10 @@ on:
         description: "Mirror Node pinger TPS (0 to disable)"
         type: string
         default: "5"
+      mirror-node-xfer-tps:
+        description: "Mirror Node xfer (CryptoTransfer) TPS (0 to disable)"
+        type: string
+        default: "0"
       record-stream-log-period-seconds:
         description: "CN record-stream log period in seconds (block-cutting cadence). Production default is 2."
         type: string
@@ -207,6 +211,10 @@ on:
         description: "Mirror Node pinger TPS (0 to disable)"
         required: false
         default: "5"
+      mirror-node-xfer-tps:
+        description: "Mirror Node xfer (CryptoTransfer) TPS (0 to disable)"
+        required: false
+        default: "0"
       record-stream-log-period-seconds:
         description: "CN record-stream log period in seconds (block-cutting cadence). Production default is 2."
         required: false
@@ -237,6 +245,7 @@ env:
   CLUSTER_REFERENCE: "kind-solo-cluster"
   # Solo CLI environment variables (these are read directly by Solo from the process env)
   MIRROR_NODE_PINGER_TPS: ${{ inputs.mirror-node-pinger-tps }}
+  MIRROR_NODE_XFER_TPS: ${{ inputs.mirror-node-xfer-tps }}
   # Read by solo-setup-cluster.sh / solo-deploy-network.sh to skip the minimum-version
   # check when a custom fork/branch build is in use.
   SOLO_SOURCE: ${{ inputs.solo-source }}
