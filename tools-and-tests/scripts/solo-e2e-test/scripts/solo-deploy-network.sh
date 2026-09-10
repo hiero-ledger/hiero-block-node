@@ -896,12 +896,23 @@ function apply_cn_block_nodes_configs {
 # file overrides) -- a pairing already proven to work in this exact Solo-deployed environment.
 # transferTypes defaults to CRYPTO in CryptoTransferTransactionSupplier itself, so it doesn't
 # need to be set here.
+#
+# Each scenario is toggled via its own `enabled` field (ScenarioProperties.enabled, default true
+# in the app itself) rather than by omitting the scenario block or setting tps=0 -- this is the
+# app's own documented per-scenario on/off switch, and setting it explicitly means each scenario's
+# required properties (topicId, senderAccountId/recipientAccountId) can stay populated regardless
+# of enabled state, avoiding any risk of a validation failure on the disabled one (Spring config
+# validation binds the whole properties tree, not just the enabled subset).
 function generate_mirror_monitor_overlay {
   local output_file="$1"
   local pinger_tps="${MIRROR_NODE_PINGER_TPS:-5}"
   local xfer_tps="${MIRROR_NODE_XFER_TPS:-0}"
+  local pinger_enabled="false"
+  local xfer_enabled="false"
   local enabled="false"
-  if [[ "${pinger_tps}" -gt 0 || "${xfer_tps}" -gt 0 ]]; then
+  [[ "${pinger_tps}" -gt 0 ]] && pinger_enabled="true"
+  [[ "${xfer_tps}" -gt 0 ]] && xfer_enabled="true"
+  if [[ "${pinger_enabled}" == "true" || "${xfer_enabled}" == "true" ]]; then
     enabled="true"
   fi
   cat > "${output_file}" << EOF
@@ -921,23 +932,21 @@ monitor:
           publish:
             scenarios:
               pinger:
+                enabled: ${pinger_enabled}
                 tps: ${pinger_tps}
                 type: CONSENSUS_SUBMIT_MESSAGE
                 properties:
                   topicId: "\${topic.ping}"
                   messageSize: 1024
-EOF
-  if [[ "${xfer_tps}" -gt 0 ]]; then
-    cat >> "${output_file}" << EOF
               xfer:
+                enabled: ${xfer_enabled}
                 tps: ${xfer_tps}
                 type: CRYPTO_TRANSFER
                 properties:
                   senderAccountId: "0.0.2"
                   recipientAccountId: "0.0.55"
 EOF
-  fi
-  echo "Generated mirror monitor overlay (pinger.tps=${pinger_tps}, xfer.tps=${xfer_tps}, enabled=${enabled}, resources: 250m/512Mi req, 1/2Gi limit)"
+  echo "Generated mirror monitor overlay (pinger: enabled=${pinger_enabled} tps=${pinger_tps}, xfer: enabled=${xfer_enabled} tps=${xfer_tps}, resources: 250m/512Mi req, 1/2Gi limit)"
 }
 
 function deploy_mirror_node {

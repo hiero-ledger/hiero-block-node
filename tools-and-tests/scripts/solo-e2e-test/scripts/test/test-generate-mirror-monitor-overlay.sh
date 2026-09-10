@@ -124,14 +124,37 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-echo "[8] generate_mirror_monitor_overlay omits the xfer scenario entirely when MIRROR_NODE_XFER_TPS is unset/0"
+echo "[8] generate_mirror_monitor_overlay marks xfer.enabled=false (not omitted) when MIRROR_NODE_XFER_TPS is unset/0"
 unset MIRROR_NODE_XFER_TPS
 MIRROR_NODE_PINGER_TPS=100 generate_mirror_monitor_overlay "${tmpfile}" >/dev/null
 xfer_present="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios | has("xfer")' "${tmpfile}")"
-if [[ "${xfer_present}" == "false" ]]; then
-    pass "xfer scenario key absent when MIRROR_NODE_XFER_TPS is unset"
+xfer_enabled="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios.xfer.enabled' "${tmpfile}")"
+if [[ "${xfer_present}" == "true" && "${xfer_enabled}" == "false" ]]; then
+    pass "xfer scenario present but enabled=false when MIRROR_NODE_XFER_TPS is unset"
 else
-    fail "expected xfer scenario key absent, got has(xfer)=${xfer_present}"
+    fail "expected xfer present with enabled=false, got has(xfer)=${xfer_present} enabled=${xfer_enabled}"
+fi
+
+# ----------------------------------------------------------------------------
+echo "[9] generate_mirror_monitor_overlay supports pure CryptoTransfer (pinger disabled, xfer enabled)"
+MIRROR_NODE_PINGER_TPS=0 MIRROR_NODE_XFER_TPS=10000 generate_mirror_monitor_overlay "${tmpfile}" >/dev/null
+pinger_enabled="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios.pinger.enabled' "${tmpfile}")"
+xfer_enabled="$(yq '.monitor.config.hiero.mirror.monitor.publish.scenarios.xfer.enabled' "${tmpfile}")"
+top_enabled="$(yq '.monitor.enabled' "${tmpfile}")"
+if [[ "${pinger_enabled}" == "false" && "${xfer_enabled}" == "true" && "${top_enabled}" == "true" ]]; then
+    pass "PINGER_TPS=0 XFER_TPS=10000 -> pinger disabled, xfer enabled, monitor enabled"
+else
+    fail "expected pinger=false xfer=true monitor=true, got pinger=${pinger_enabled} xfer=${xfer_enabled} monitor=${top_enabled}"
+fi
+
+# ----------------------------------------------------------------------------
+echo "[10] generate_mirror_monitor_overlay disables monitor entirely only when BOTH scenarios are off"
+MIRROR_NODE_PINGER_TPS=0 MIRROR_NODE_XFER_TPS=0 generate_mirror_monitor_overlay "${tmpfile}" >/dev/null
+top_enabled="$(yq '.monitor.enabled' "${tmpfile}")"
+if [[ "${top_enabled}" == "false" ]]; then
+    pass "PINGER_TPS=0 XFER_TPS=0 -> monitor.enabled=false"
+else
+    fail "expected monitor.enabled=false, got ${top_enabled}"
 fi
 
 echo
