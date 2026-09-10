@@ -87,9 +87,9 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     }
 
     /**
-     * Delivers an initial onContextUpdate() right after the plugin starts, so its first autonomous
-     * scan already reflects whatever the test's HistoricalBlockFacility was seeded with. Mirrors how
-     * BlockNodeApp flushes Application State (stored+available) before calling plugin.start().
+     * Delivers an initial StoredBlocksNotification right after the plugin starts, so its first
+     * autonomous scan already reflects whatever the test's HistoricalBlockFacility was seeded with.
+     * Mirrors how BlockNodeApp dispatches state notifications before plugins start.
      */
     @Override
     protected void doStart() {
@@ -1565,8 +1565,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .build();
 
         // Recent tier only holds 50..100 because retention deleted 0..49, but the node did store 0..100 earlier.
-        // Deliver the stored range via onContextUpdate before the plugin starts, so its first scan
-        // already sees it (mirrors BlockNodeApp flushing loaded state before plugins start).
+        // Deliver the stored range via StoredBlocksNotification before the plugin starts, so its first scan
+        // already sees it (mirrors BlockNodeApp dispatching loaded state before plugins start).
         final HistoricalBlockFacility pluginStore = getHistoricalBlockFacility(50, 100);
         doInit(new BackfillPlugin(), pluginStore, null, config, Map.of());
         updateStoredBlocks(new LongRange(0, 100));

@@ -24,6 +24,7 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -35,7 +36,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /// The TssData is retrieved from TssData sources in the following order:
 ///  - `RosterBootstrapTssConfig` TssData fields (ledgerId, wrapsVerificationKey, etc)
 ///  - (todo) Peer BlockNodes Queries other peer BlockNodes periodically for TssData
-public class RosterBootstrapTssPlugin implements BlockNodePlugin {
+public class RosterBootstrapTssPlugin implements BlockNodePlugin, ApplicationStateNotificationHandler {
     public static final MetricKey<ObservableGauge> METRIC_TSS_DATA_PEERS =
             MetricKey.of("tss_data_peers", ObservableGauge.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_TSS_DATA_ERRORS =
@@ -71,6 +72,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         this.blockNodeContext = context;
 
         initMetrics();
+        context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
 
         BlockNodeSource blockNodeSources = getBlockNodeSource(rosterBootstrapTssConfig);
 
@@ -169,14 +171,6 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         // Should start immediately, initialDelay=0, as this is during plugin startup
         queryPeerExecutor.scheduleAtFixedRate(
                 this::queryPeerTssData, 0, rosterBootstrapTssConfig.queryPeerInterval(), TimeUnit.MILLISECONDS);
-    }
-
-    /// {@inheritDoc}
-    /// This method is called on a separate thread. Make sure this.context is marked as `volatile`
-    @Override
-    public void onContextUpdate(BlockNodeContext context) {
-        // save the context update
-        this.blockNodeContext = context;
     }
 
     /// queries peer BlockNodes for their TssData

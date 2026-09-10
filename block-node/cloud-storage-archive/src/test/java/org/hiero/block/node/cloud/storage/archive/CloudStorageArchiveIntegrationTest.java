@@ -272,11 +272,7 @@ class CloudStorageArchiveIntegrationTest {
                 null,
                 new ServiceLoaderFunction(),
                 tpm,
-                null,
-                null,
-                null,
-                new ArrayList<>(),
-                new ArrayList<>());
+                null);
 
         final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
         plugin.init(ctx, null);

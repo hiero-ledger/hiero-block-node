@@ -152,7 +152,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
     /// todo(1420) add documentation
     public LiveStreamPublisherManager(
-            @NonNull final BlockNodeContext context, @NonNull final MetricsHolder metricsHolder) {
+            @NonNull final BlockNodeContext context,
+            @NonNull final MetricsHolder metricsHolder,
+            @NonNull final List<BlockRange> storedBlocks) {
         resetIsActive = new AtomicBoolean(true);
         serverContext = Objects.requireNonNull(context);
         applicationState = serverContext.applicationStateFacility();
@@ -182,7 +184,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         activeResendBlocks = new ConcurrentSkipListMap<>();
         activeStreamHandlerByBlock = new ConcurrentSkipListMap<>();
         handlerFlowState = new ConcurrentSkipListMap<>();
-        initializeBlockNumbers(serverContext);
+        initializeBlockNumbers(storedBlocks);
         scheduleFlowControlRefresh();
         resetIsActive.compareAndSet(true, false);
     }
@@ -842,20 +844,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     }
 
     /// todo(1420) add documentation
-    private void initializeBlockNumbers(final BlockNodeContext serverContext) {
+    private void initializeBlockNumbers(final List<BlockRange> storedBlocks) {
         // The current streaming should be the next block to be
         // streamed, but _only_ on startup. After that there should always be
         // a delta (next unstreamed must always be strictly greater than the current
         // streaming block number).
-        final long latestKnownBlock;
-        if (serverContext != null && serverContext.storedBlocks() != null) {
-            final List<BlockRange> storedBlocks = serverContext.storedBlocks();
-            latestKnownBlock = storedBlocks.isEmpty()
-                    ? UNKNOWN_BLOCK_NUMBER
-                    : storedBlocks.getLast().rangeEnd();
-        } else {
-            latestKnownBlock = UNKNOWN_BLOCK_NUMBER;
-        }
+        final long latestKnownBlock = (storedBlocks == null || storedBlocks.isEmpty())
+                ? UNKNOWN_BLOCK_NUMBER
+                : storedBlocks.getLast().rangeEnd();
         // Always set the last persisted block number, even if there are no
         // known blocks.
         lastPersistedBlockNumber.set(latestKnownBlock);
