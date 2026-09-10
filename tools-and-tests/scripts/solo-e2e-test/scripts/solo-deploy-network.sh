@@ -607,16 +607,37 @@ function deploy_block_nodes {
       log_line "  Applying topology overlay for block-node-${i}: %s" "${bn_topology_overlay#${SCRIPT_DIR}/../}"
     fi
 
-    # Apply cloud-storage archive overlay for BNs that have archive.backend: rustfs in the topology.
-    # plugin-profile-cloud.yaml sets plugins.names; the generated overlay sets env vars + storage.
     local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
+
+    # Apply a shipped plugin profile when the topology names one via plugin_profile:.
+    # The plugin profile overlay sets plugins.names, and it lands AFTER the per-topology overlay
+    # above -- a plugins.names in overrides/<topology>/ would be silently overridden.
+    # Only the archive overlay below is applied later and can still win.
+    local plugin_profile
+    plugin_profile=$(yq ".block_nodes[\"block-node-${i}\"].plugin_profile // \"\"" "${topology_file}" 2>/dev/null)
+    if [[ -n "${plugin_profile}" ]]; then
+      local plugin_profile_file="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-${plugin_profile}.yaml"
+      [[ ! -f "${plugin_profile_file}" ]] && fail "ERROR: Unknown BN plugin profile '${plugin_profile}' for block-node-${i}: ${plugin_profile_file} not found" 1
+      overlay_args="${overlay_args} -f ${plugin_profile_file}"
+      log_line "  Applying plugin profile '%s' to block-node-${i}" "${plugin_profile}"
+    fi
+
+    # Apply cloud-storage archive overlay for BNs that have archive.backend set in the topology.
+    # The plugin profile that enables cloud-storage-archive/expanded must be declared via plugin_profile:.
     local archive_backend
     archive_backend=$(yq ".block_nodes[\"block-node-${i}\"].archive.backend // \"\"" "${topology_file}" 2>/dev/null)
+    [[ "${archive_backend}" == "null" ]] && archive_backend=""
+    if [[ -n "${archive_backend}" && "${archive_backend}" != "rustfs" ]]; then
+      fail "ERROR: block-node-${i} has unknown archive.backend: '${archive_backend}' -- only 'rustfs' is supported" 1
+    fi
+    if [[ "${archive_backend}" == "rustfs" ]] &&
+      { [[ -z "${plugin_profile}" ]] || ! grep -q "cloud-storage-archive" "${plugin_profile_file}"; }; then
+      fail "ERROR: block-node-${i} has archive.backend: ${archive_backend} but plugin profile '${plugin_profile:-<unset>}' does not enable the cloud-storage plugins -- use a plugin profile (e.g. rfh, all) that includes cloud-storage-archive" 1
+    fi
     if [[ "${archive_backend}" == "rustfs" ]]; then
       local cloud_overlay="${overlay_dir}/bn-block-node-${i}-cloud-archive.yaml"
       generate_s3_archive_overlay "${cloud_overlay}"
-      local plugin_profile="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-cloud.yaml"
-      overlay_args="${overlay_args} -f ${plugin_profile} -f ${cloud_overlay}"
+      overlay_args="${overlay_args} -f ${cloud_overlay}"
       log_line "  Enabling cloud-storage archive plugins on block-node-${i}"
     fi
 
