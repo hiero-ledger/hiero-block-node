@@ -68,29 +68,31 @@ client or API triggered it.
   exception to this if hardware heterogeneity across deployments makes one hand-tuned default impractical — see the
   adaptive-bulkhead-sizing follow-up under the throttling epic — but that applies narrowly to capacity sizing, not
   to per-client policy (rate, burst, per-client concurrency), which stays a static fairness choice by design.
+- **Priority-aware throttling.** Giving some connections/clients/requests precedence over others under high
+  concurrency is out of scope for this iteration. Meaningful prioritization needs a trustworthy client identity to
+  assign priority to, so it's plausibly gated on the authenticated-client-identity work above rather than
+  independent work.
 
 ## Terms
 
-<dl>
-<dt>Admission control</dt><dd>Deciding, at the point a request or stream is opened, whether to accept it now or
-reject it immediately.</dd>
-<dt>Client key</dt><dd>An identifier used to group a caller's requests for the purpose of per-client limits. Derived
-from the caller's network address in this design.</dd>
-<dt>Weight class</dt><dd>A cost tier assigned to a request (e.g. LIGHT, MODERATE, HEAVY) that determines which
-rate/concurrency policy applies to it.</dd>
-<dt>Content-aware weigher</dt><dd>A per-API function that inspects a request's content (e.g. the requested block
-number) to classify it into a weight class before admission, rather than relying on a single static weight for the
-whole API.</dd>
-<dt>Leaky bucket (rate limiter)</dt><dd>The rate-limiting model used per client per method: a request adds to a
-conceptual bucket, the bucket drains at a fixed rate, and a request is admitted only if the bucket isn't already
-full. Used strictly as a policer here (reject on arrival), not a shaper (delay and re-admit later); see
-[Alternatives considered](#alternatives-considered). The state representation used to implement this model — GCRA,
-see [`GcraLimiter`](#gcralimiter) — is an implementation choice, not part of the model itself.</dd>
-<dt>Bulkhead</dt><dd>A bounded pool of permits that caps how many callers can concurrently use a shared resource,
-independent of who those callers are.</dd>
-<dt>Concurrency permit</dt><dd>A slot representing one in-flight call or session against a limit; acquired on
-admission and released when the call/session ends.</dd>
-</dl>
+- **Admission control** — Deciding, at the point a request or stream is opened, whether to accept it now or reject
+  it immediately.
+- **Client key** — An identifier used to group a caller's requests for the purpose of per-client limits. Derived from
+  the caller's network address in this design.
+- **Weight class** — A cost tier assigned to a request (e.g. LIGHT, MODERATE, HEAVY) that determines which
+  rate/concurrency policy applies to it.
+- **Content-aware weigher** — A per-API function that inspects a request's content (e.g. the requested block number)
+  to classify it into a weight class before admission, rather than relying on a single static weight for the whole
+  API.
+- **Leaky bucket (rate limiter)** — The rate-limiting model used per client per method: a request adds to a
+  conceptual bucket, the bucket drains at a fixed rate, and a request is admitted only if the bucket isn't already
+  full. Used strictly as a policer here (reject on arrival), not a shaper (delay and re-admit later); see
+  [Alternatives considered](#alternatives-considered). The state representation used to implement this model is an
+  implementation choice, not part of the model itself — see [`GcraLimiter`](#gcralimiter).
+- **Bulkhead** — A bounded pool of permits that caps how many callers can concurrently use a shared resource,
+  independent of who those callers are.
+- **Concurrency permit** — A slot representing one in-flight call or session against a limit; acquired on admission
+  and released when the call/session ends.
 
 ## Entities
 
@@ -101,9 +103,11 @@ per-client concurrency ceiling, and a node-wide concurrency ceiling.
 
 ### `GcraLimiter`
 
-A lock-free leaky-bucket rate limiter, keyed per client, implemented via GCRA. Holds one monotonic-clock timestamp
-(the theoretical arrival time) per key, advanced via compare-and-swap on each admitted request — deliberately not a
-token counter, since that would need the same timestamp anyway (to know when to refill) plus a second field.
+A lock-free leaky-bucket rate limiter, keyed per client, implemented via the
+[Generic Cell Rate Algorithm](https://en.wikipedia.org/wiki/Generic_cell_rate_algorithm) (GCRA). Holds one
+monotonic-clock timestamp (the theoretical arrival time) per key, advanced via compare-and-swap on each admitted
+request — deliberately not a token counter, since that would need the same timestamp anyway (to know when to
+refill) plus a second field.
 
 ### `ClientKeyExtractor`
 
@@ -115,9 +119,10 @@ mechanism.
 
 ### `ContentAwareWeigher`
 
-An optional, per-API function that classifies a request into a weight class based on its content, evaluated once at
-admission time before any rate/concurrency check runs. Used by `getBlock` and `subscribeBlockStream` to distinguish
-live/recent requests from historical ones.
+An optional, per-API function that classifies a request into a weight class based on its content. Used by
+`getBlock` and `subscribeBlockStream` to distinguish live/recent requests from historical ones. It cannot classify
+inside `open()` — request bytes aren't available there — so where one is registered, admission moves to `onNext`;
+see [Content-aware weighting](#component-a--per-client-admission-gate) for the full flow.
 
 ### The admission decorator
 
@@ -144,6 +149,11 @@ the decorator, specifically so a future authenticated-identity mechanism (an mTL
 can be introduced later as a new implementation of this one interface, without changing the admission decorator,
 `ThrottlePolicy`, or any configuration record. `RequestOptions.remoteCertificateChain()` already exists on the
 underlying request options today, unused — it is exactly what a future `TlsCertificateKeyExtractor` would read from.
+
+Selection is wiring-driven, not configuration-driven: the registration point constructs the extractor directly,
+one instance per throttled service, so switching implementations needs a code change and a restart, not a config
+change. Each throttled service also owns its own isolated per-client state table, so two extractors producing the
+same key for different callers can only collide within calls to the *same* service, never across services.
 
 ## Design
 
@@ -182,7 +192,8 @@ For every call, in order — the first check that rejects wins, and no later che
 
 If every check passes, the call is admitted: both concurrency counters are incremented, and the real service's
 `open()` is invoked. If any check fails, the call is rejected immediately (see [Exceptions](#exceptions)) and the
-real service method is never invoked.
+real service method is never invoked. (For `getBlock` and `subscribeBlockStream` specifically, these checks run at
+a different point in the call than described above — see "Content-aware weighting" below for why.)
 
 **Overload prevention vs. single-consumer abuse are different guarantees.** The global concurrency check above,
 and `BlockReadBulkhead` (Component B), are identity-agnostic: they cap total in-flight work regardless of who's
@@ -202,13 +213,27 @@ deadline being exceeded — for both unary and streaming calls alike. The releas
 guard, since more than one of those signals can arrive for the same call (for example, a cancellation arriving
 immediately after a business-logic error).
 
-**Content-aware weighting for `getBlock` and `subscribeBlockStream`.** A single static weight per API cannot express
+**Content-aware weighting for `getBlock` and `subscribeBlockStream`.** A single static weight per API can't express
 that a historical block read is more expensive than a live one. Both APIs register a `ContentAwareWeigher` that
-inspects the requested block number (for `getBlock`) or the requested start block (for `subscribeBlockStream`)
-against the current recent/historical boundary, classifying the call *before* the admission checks above run, so a
-historical request is checked against a stricter policy than a live one. For `subscribeBlockStream`, this
-classification happens once, at admission time — a session that starts as a live subscription and later needs to
-catch up on history is protected by Component B below, not by re-evaluating its weight mid-session.
+classifies the requested block (`getBlock`) or start block (`subscribeBlockStream`) against the boundary below, so
+historical requests are checked against a stricter policy. For `subscribeBlockStream` this classification happens
+once, at admission — a session that later catches up on history is protected by Component B, not by re-weighing
+mid-session.
+
+**The recent/historical boundary** is distance from the tip: a request is historical if it targets a block more
+than a configurable `historicalThresholdBlocks` behind the current maximum available block. Queried fresh each
+call, not cached — the same accessor is already read unconditionally elsewhere on this path, so this adds no new
+cost. `retrieveLatest` and a missing/negative block number are always classified live, avoiding the cost of
+resolving "latest" just to weigh the call. The threshold is deliberately decoupled from the recent-storage-tier
+plugin's own retention boundary, so the weigher doesn't depend on a specific storage-tier plugin being present —
+the two are expected to match, but nothing enforces it; validating that in practice belongs in the acceptance
+tests (see [Acceptance Tests](#acceptance-tests)).
+
+Because classification needs the request bytes, which aren't available until `onNext`, a weighted method's
+`open()` doesn't gate anything — it only extracts the client key and builds the delegate's pipeline. Classification
+and all three checks then run together in the wrapping pipeline's `onNext`, before the delegate's `onNext` is
+called. The outcome matches the unweighted case (a rejected call's business logic never runs, nothing is charged
+twice); only the point where that decision happens moves, from `open()` to `onNext`.
 
 ### Component B — shared backend block-read bulkhead
 
@@ -230,12 +255,18 @@ Component B is a single, bounded, non-client-keyed pool of permits guarding ever
   This wait is purely internal scheduling for already-admitted work — it never affects the admission decision in
   Component A.
 
-The node-wide concurrency ceilings Component A applies to historical `getBlock` requests should be sized with this
+The node-wide concurrency ceiling Component A applies to historical `getBlock` requests should be sized with this
 bulkhead's capacity in mind, since both draw from the same underlying resource — but because the bulkhead is also
-shared with subscriber catch-up traffic, which Component A's `getBlock` ceiling has no visibility into, sizing the
-two independently is a reasonable approximation rather than a guarantee that the bulkhead can never be contended by
-both sources at once. The bulkhead's own bounded behavior (reject or brief wait, never unbounded growth) is what
-keeps that scenario safe even so.
+shared with subscriber catch-up traffic, which that `getBlock` ceiling has no visibility into, sizing Component A's
+historical-`getBlock` ceiling and the bulkhead's permit count independently is a reasonable approximation rather than
+a guarantee that the bulkhead can never be contended by both sources at once. The bulkhead's own bounded behavior
+(reject or brief wait, never unbounded growth) is what keeps that scenario safe even so.
+
+The initial implementation uses one pool for all tiers, including recent/live reads — a `getBlock` call for a live
+block acquires and releases a permit the same as a historical one. This is a deliberate simplicity choice, not a
+claim that live reads are free of overhead: if warm-path latency sensitivity proves material, a separate bulkhead
+for recent reads — or skipping the bulkhead for reads served from an in-memory/warm-file path — is the documented
+[Extensibility](#extensibility) point to use.
 
 ### Configuration ownership
 
@@ -286,7 +317,10 @@ small and bounded by construction:
   - **Content-aware weighing must not require a full protobuf deserialization.** A weigher only needs to read one or
     two fields (e.g. a block number) to classify a request. It should do a targeted read of that field directly from
     the wire format, not fully deserialize the request message before the real handler does its own full parse —
-    otherwise every classified call would pay for parsing the request twice.
+    otherwise every classified call would pay for parsing the request twice. This is a hand-written read via PBJ's
+    `ProtoParserTools` — the same low-level primitives PBJ's generated parsers use, just called directly instead of
+    from generated code. Each weigher implements its own read loop today; worth sharing once a third one needs it,
+    not before.
 - **Acceptance criterion.** This goal should be validated, not assumed: a benchmark comparing per-call latency and
   allocation with admission control enabled versus disabled on the same hardware belongs in the acceptance tests for
   the implementation, not just asserted here (see [Acceptance Tests](#acceptance-tests)).
@@ -334,6 +368,33 @@ Two extension points are designed in from the start, since both are anticipated 
 
 ## Diagram
 
+The flow below is the general case: a method with no `ContentAwareWeigher` (e.g. `serverStatus`) is admitted or
+rejected synchronously inside `open()`, before the delegate's `open()` is even called.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant D as Admission Decorator
+    participant P as Plugin Service
+
+    C->>D: open(method, options, responses)
+    D->>D: global concurrency check
+    D->>D: per-client concurrency check
+    D->>D: GCRA rate check
+    alt any check rejects
+        D-->>C: RESOURCE_EXHAUSTED
+    else admitted
+        D->>P: open(method, options, wrapped responses)
+        P-->>D: streams/returns response(s)
+        D->>D: release permit on responses.onComplete/onError
+        D-->>C: response(s)
+    end
+```
+
+A method with a `ContentAwareWeigher` (`getBlock`, `subscribeBlockStream`) cannot follow that flow, because
+classification needs request bytes that `open()` doesn't have yet. `open()` instead only builds pipelines — no
+admission decision happens there — and the decision moves to `onNext`, once request bytes actually arrive:
+
 ```mermaid
 sequenceDiagram
     participant C as Client
@@ -342,15 +403,22 @@ sequenceDiagram
     participant P as Plugin Service
 
     C->>D: open(method, options, responses)
-    D->>W: classify(method, request) [if registered]
+    D->>P: open(method, options, wrapped responses)
+    P-->>D: plugin's inbound pipeline
+    D-->>C: wrapping pipeline
+    Note over D,P: open() only constructs pipelines here — no admission decision yet
+
+    C->>D: onNext(requestBytes)
+    D->>W: classify(method, requestBytes)
     W-->>D: weight class
-    D->>D: global concurrency check
-    D->>D: per-client concurrency check
-    D->>D: GCRA rate check
+    D->>D: global concurrency check (weight class's policy)
+    D->>D: per-client concurrency check (weight class's policy)
+    D->>D: GCRA rate check (weight class's policy)
     alt any check rejects
-        D-->>C: RESOURCE_EXHAUSTED
+        D-->>C: onError(RESOURCE_EXHAUSTED)
+        Note over P: plugin's onNext is never called — its business logic never runs
     else admitted
-        D->>P: open(method, options, wrapped responses)
+        D->>P: onNext(requestBytes)
         P-->>D: streams/returns response(s)
         D->>D: release permit on responses.onComplete/onError
         D-->>C: response(s)
@@ -395,9 +463,14 @@ Each throttled API's own module declares its per-client settings:
 | `burstTolerance`         | How far ahead of the even-pacing schedule a client's request may arrive and still be admitted    |
 | `maxConcurrentPerClient` | Maximum concurrent in-flight calls/sessions for one client on this method                        |
 
-A single shared, node-level configuration record holds one node-wide concurrency ceiling per throttled method
-(`maxConcurrentGlobal`-equivalent), since this represents an allocation of shared node capacity across APIs rather
-than a single plugin's own concern.
+Where a method's `ContentAwareWeigher` produces more than one weight class, each class gets its own full triple
+rather than sharing one — e.g. `getBlock` has independent live and historical per-client configuration — so each
+tier's tuning, including how much stricter the historical policy is, stays fully independent.
+
+A single shared, node-level configuration record holds one node-wide concurrency ceiling per (method, weight
+class) — e.g. `getBlock` has independent live and historical ceilings — since this represents an allocation of
+shared node capacity across APIs rather than a single plugin's own concern. A method with only one weight class
+has just one ceiling.
 
 The shared block-read bulkhead has its own single configuration value: the number of permits in the pool, informed
 by the target deployment's storage characteristics.
@@ -442,3 +515,6 @@ produced. `publishBlockStream` is not subject to any admission check and is unaf
 9. A benchmark measuring per-call latency and allocation rate, with admission control enabled versus disabled on the
    same hardware, shows no meaningful regression on throttled APIs and zero measurable overhead on
    `publishBlockStream`.
+10. The recent/historical boundary's default (`historicalThresholdBlocks`) tracks the recent-storage-tier plugin's
+    own retention boundary closely enough in practice that newly-ingested blocks are not misclassified as
+    historical under normal operation, despite the two values not being enforced to stay in sync.
