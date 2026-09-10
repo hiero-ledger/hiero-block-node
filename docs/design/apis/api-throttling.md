@@ -119,9 +119,16 @@ mechanism.
 
 ### `ContentAwareWeigher`
 
-An optional, per-API function that classifies a request into a weight class based on its content, evaluated once at
-admission time before any rate/concurrency check runs. Used by `getBlock` and `subscribeBlockStream` to distinguish
-live/recent requests from historical ones.
+An optional, per-API function that classifies a request into a weight class based on its content. Used by
+`getBlock` and `subscribeBlockStream` to distinguish live/recent requests from historical ones.
+
+A weigher cannot classify a call inside `open()` — for both unary and server-streaming calls, the request bytes
+are not available there; they arrive later, via `onNext` on the pipeline `open()` returns. Where a weigher is
+registered, admission is therefore deferred in full: `open()` only extracts the client key and constructs the
+delegate's pipeline (cheap — no business logic runs yet), and classification plus every Component A check (global
+concurrency, per-client concurrency, rate) run together, once, in a wrapping pipeline's own `onNext`, before the
+delegate's `onNext` — and therefore its business logic — ever runs. A rejected call never reaches the delegate at
+all, so nothing is admitted provisionally and no check is ever paid for twice.
 
 ### The admission decorator
 
@@ -193,7 +200,8 @@ For every call, in order — the first check that rejects wins, and no later che
 
 If every check passes, the call is admitted: both concurrency counters are incremented, and the real service's
 `open()` is invoked. If any check fails, the call is rejected immediately (see [Exceptions](#exceptions)) and the
-real service method is never invoked.
+real service method is never invoked. (For `getBlock` and `subscribeBlockStream` specifically, these checks run at
+a different point in the call than described above — see "Content-aware weighting" below for why.)
 
 **Overload prevention vs. single-consumer abuse are different guarantees.** The global concurrency check above,
 and `BlockReadBulkhead` (Component B), are identity-agnostic: they cap total in-flight work regardless of who's
@@ -216,10 +224,18 @@ immediately after a business-logic error).
 **Content-aware weighting for `getBlock` and `subscribeBlockStream`.** A single static weight per API cannot express
 that a historical block read is more expensive than a live one. Both APIs register a `ContentAwareWeigher` that
 inspects the requested block number (for `getBlock`) or the requested start block (for `subscribeBlockStream`)
-against the current recent/historical boundary, classifying the call *before* the admission checks above run, so a
-historical request is checked against a stricter policy than a live one. For `subscribeBlockStream`, this
-classification happens once, at admission time — a session that starts as a live subscription and later needs to
-catch up on history is protected by Component B below, not by re-evaluating its weight mid-session.
+against the current recent/historical boundary, so a historical request is checked against a stricter policy than
+a live one. For `subscribeBlockStream`, this classification happens once, at admission time — a session that starts
+as a live subscription and later needs to catch up on history is protected by Component B below, not by
+re-evaluating its weight mid-session.
+
+This changes where in the call the ordered checks above actually run, for these two APIs specifically: since
+classification needs the request bytes, and those aren't available until `onNext` (see `ContentAwareWeigher`), a
+weighted method's `open()` does not gate anything itself — it only extracts the client key and constructs the
+delegate's pipeline, cheaply. Classification and all three checks happen together, once, in the wrapping pipeline's
+own `onNext`, before the delegate's `onNext` is ever called. The end result is the same as the unweighted case (a
+rejected call's business logic never runs, and nothing is charged twice) — only the point in the call where that
+decision happens moves later, from `open()` to `onNext`.
 
 ### Component B — shared backend block-read bulkhead
 
@@ -352,6 +368,33 @@ Two extension points are designed in from the start, since both are anticipated 
 
 ## Diagram
 
+The flow below is the general case: a method with no `ContentAwareWeigher` (e.g. `serverStatus`) is admitted or
+rejected synchronously inside `open()`, before the delegate's `open()` is even called.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant D as Admission Decorator
+    participant P as Plugin Service
+
+    C->>D: open(method, options, responses)
+    D->>D: global concurrency check
+    D->>D: per-client concurrency check
+    D->>D: GCRA rate check
+    alt any check rejects
+        D-->>C: RESOURCE_EXHAUSTED
+    else admitted
+        D->>P: open(method, options, wrapped responses)
+        P-->>D: streams/returns response(s)
+        D->>D: release permit on responses.onComplete/onError
+        D-->>C: response(s)
+    end
+```
+
+A method with a `ContentAwareWeigher` (`getBlock`, `subscribeBlockStream`) cannot follow that flow, because
+classification needs request bytes that `open()` doesn't have yet. `open()` instead only builds pipelines — no
+admission decision happens there — and the decision moves to `onNext`, once request bytes actually arrive:
+
 ```mermaid
 sequenceDiagram
     participant C as Client
@@ -360,15 +403,22 @@ sequenceDiagram
     participant P as Plugin Service
 
     C->>D: open(method, options, responses)
-    D->>W: classify(method, request) [if registered]
+    D->>P: open(method, options, wrapped responses)
+    P-->>D: plugin's inbound pipeline
+    D-->>C: wrapping pipeline
+    Note over D,P: open() only constructs pipelines here — no admission decision yet
+
+    C->>D: onNext(requestBytes)
+    D->>W: classify(method, requestBytes)
     W-->>D: weight class
-    D->>D: global concurrency check
-    D->>D: per-client concurrency check
-    D->>D: GCRA rate check
+    D->>D: global concurrency check (weight class's policy)
+    D->>D: per-client concurrency check (weight class's policy)
+    D->>D: GCRA rate check (weight class's policy)
     alt any check rejects
-        D-->>C: RESOURCE_EXHAUSTED
+        D-->>C: onError(RESOURCE_EXHAUSTED)
+        Note over P: plugin's onNext is never called — its business logic never runs
     else admitted
-        D->>P: open(method, options, wrapped responses)
+        D->>P: onNext(requestBytes)
         P-->>D: streams/returns response(s)
         D->>D: release permit on responses.onComplete/onError
         D-->>C: response(s)
