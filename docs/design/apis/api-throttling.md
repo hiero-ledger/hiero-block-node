@@ -413,14 +413,16 @@ Each throttled API's own module declares its per-client settings:
 | `burstTolerance`         | How far ahead of the even-pacing schedule a client's request may arrive and still be admitted    |
 | `maxConcurrentPerClient` | Maximum concurrent in-flight calls/sessions for one client on this method                        |
 
-This triple is the only configuration surface a throttled method has — there is no separate configuration
-dimension for weight class. A `ContentAwareWeigher`, where registered, must therefore express differentiated
-treatment as a function applied on top of this one triple (e.g. a multiplier on the effective bucket cost for
-`HEAVY`-classified calls) rather than by selecting between multiple configured policies.
+Where a method's `ContentAwareWeigher` can classify more than one weight class, each class gets its own full triple
+rather than sharing one: e.g. `getBlock` has independent live and historical per-client configuration, each with
+its own rate, burst, and per-client concurrency ceiling. This is a heavier configuration surface than a single
+per-method triple, but keeps each weight class's tuning — including how strict the historical policy is relative
+to the live one — fully independent.
 
-A single shared, node-level configuration record holds one node-wide concurrency ceiling per throttled method
-(`maxConcurrentGlobal`-equivalent), since this represents an allocation of shared node capacity across APIs rather
-than a single plugin's own concern.
+A single shared, node-level configuration record holds one node-wide concurrency ceiling per (method, weight
+class) — e.g. `getBlock` has independent live and historical node-wide ceilings — since this represents an
+allocation of shared node capacity across APIs rather than a single plugin's own concern. A method with only one
+weight class has just one ceiling.
 
 The shared block-read bulkhead has its own single configuration value: the number of permits in the pool, informed
 by the target deployment's storage characteristics.
