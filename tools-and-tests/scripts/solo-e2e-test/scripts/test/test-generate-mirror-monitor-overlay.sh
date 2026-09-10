@@ -21,6 +21,11 @@
 
 set -u -o pipefail
 
+# Both vars are also set at the CI job level (workflow_dispatch inputs), so this
+# suite must not rely on them being unset by default -- explicitly clear both
+# before every test that doesn't set them itself, rather than assuming a clean shell.
+unset MIRROR_NODE_PINGER_TPS MIRROR_NODE_XFER_TPS
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_SCRIPT="${SCRIPT_DIR}/../solo-deploy-network.sh"
 
