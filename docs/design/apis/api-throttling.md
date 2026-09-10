@@ -224,10 +224,23 @@ immediately after a business-logic error).
 **Content-aware weighting for `getBlock` and `subscribeBlockStream`.** A single static weight per API cannot express
 that a historical block read is more expensive than a live one. Both APIs register a `ContentAwareWeigher` that
 inspects the requested block number (for `getBlock`) or the requested start block (for `subscribeBlockStream`)
-against the current recent/historical boundary, so a historical request is checked against a stricter policy than
-a live one. For `subscribeBlockStream`, this classification happens once, at admission time — a session that starts
-as a live subscription and later needs to catch up on history is protected by Component B below, not by
-re-evaluating its weight mid-session.
+against the recent/historical boundary described below, so a historical request is checked against a stricter
+policy than a live one. For `subscribeBlockStream`, this classification happens once, at admission time — a
+session that starts as a live subscription and later needs to catch up on history is protected by Component B
+below, not by re-evaluating its weight mid-session.
+
+**The recent/historical boundary** is distance from the tip: a request is historical if it targets a block more
+than a configurable `historicalThresholdBlocks` behind the current maximum available block, queried fresh on each
+call rather than cached — both `getBlock` and `subscribeBlockStream` already read that same value unconditionally
+elsewhere on their normal request path, so this doesn't add a new kind of cost, just one more read of a value
+already on the hot path. `getBlock`'s `retrieveLatest` (and a missing or negative block number) is always
+classified live, rather than resolving the actual latest block number just to weigh the call — the classification
+itself does not need to know what "latest" resolves to, only that the request isn't asking for something behind
+it. This threshold is a self-contained approximation, deliberately independent of the recent-storage-tier plugin's
+own retention boundary so the weigher doesn't require a specific storage-tier plugin to be present — the two are
+expected to be configured to match, but nothing enforces that if either is changed independently. Whether this
+approximation tracks the real recent/historical boundary closely enough in practice belongs in the acceptance
+tests for the implementation (see [Acceptance Tests](#acceptance-tests)).
 
 This changes where in the call the ordered checks above actually run, for these two APIs specifically: since
 classification needs the request bytes, and those aren't available until `onNext` (see `ContentAwareWeigher`), a
@@ -517,3 +530,6 @@ produced. `publishBlockStream` is not subject to any admission check and is unaf
 9. A benchmark measuring per-call latency and allocation rate, with admission control enabled versus disabled on the
    same hardware, shows no meaningful regression on throttled APIs and zero measurable overhead on
    `publishBlockStream`.
+10. The recent/historical boundary's default (`historicalThresholdBlocks`) tracks the recent-storage-tier plugin's
+    own retention boundary closely enough in practice that newly-ingested blocks are not misclassified as
+    historical under normal operation, despite the two values not being enforced to stay in sync.
