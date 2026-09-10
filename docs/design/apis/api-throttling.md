@@ -333,7 +333,12 @@ small and bounded by construction:
   - **Content-aware weighing must not require a full protobuf deserialization.** A weigher only needs to read one or
     two fields (e.g. a block number) to classify a request. It should do a targeted read of that field directly from
     the wire format, not fully deserialize the request message before the real handler does its own full parse —
-    otherwise every classified call would pay for parsing the request twice.
+    otherwise every classified call would pay for parsing the request twice. This is a hand-written read via PBJ's
+    `ProtoParserTools` (read the tag, extract field number and wire type, decode the target field or skip any other
+    field), the same low-level parsing primitives PBJ's own generated parsers use — there is no separate framework
+    support for a partial-field read, but none is needed. Each weigher currently implements this loop itself rather
+    than sharing one utility; factoring it out is worth doing once a second or third weigher needs the same logic,
+    not before.
 - **Acceptance criterion.** This goal should be validated, not assumed: a benchmark comparing per-call latency and
   allocation with admission control enabled versus disabled on the same hardware belongs in the acceptance tests for
   the implementation, not just asserted here (see [Acceptance Tests](#acceptance-tests)).
