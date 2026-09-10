@@ -70,6 +70,14 @@
 #                           blocks (17+ MiB observed), causing a
 #                           ResourceExhausted error. Must be a positive integer
 #                           between 1 and 100 (inclusive). Defaults to 20.
+#       --max-response-sz MIB
+#                           Maximum gRPC response size in MiB accepted from
+#                           BlockNodeService calls (serverStatus,
+#                           serverStatusDetail). grpcurl's built-in default is
+#                           4 MiB, which is too small for serverStatusDetail on
+#                           nodes with many archived block ranges (99M+ blocks
+#                           observed on mainnet). Must be a positive integer
+#                           between 1 and 512 (inclusive). Defaults to 64.
 #   -h, --help              Print this help text and exit.
 #
 # ENVIRONMENT
@@ -230,6 +238,7 @@ DETAILED_STATUS=false    # When true, also call serverStatusDetail per endpoint.
 LATEST_BLOCK_PROOF=false # When true, fetch the latest block and report proof type.
 BLOCK_ACCESS_PORT=""     # When set, used as the port for BlockAccessService/getBlock.
 BLOCK_MAX_BLOCK_MIB=20   # Max getBlock response size in MiB (default 20; range 1–100).
+MAX_RESPONSE_SZ_MIB=64   # Max BlockNodeService response size in MiB (default 64; range 1–512).
 ENDPOINTS=()             # Positional <host:port> arguments collected here.
 
 while [[ $# -gt 0 ]]; do
@@ -260,6 +269,13 @@ while [[ $# -gt 0 ]]; do
         usage 2
       fi
       BLOCK_MAX_BLOCK_MIB="${2}"; shift 2 ;;
+    --max-response-sz)
+      [[ -n "${2:-}" ]] || { log_err "--max-response-sz requires a value"; usage 2; }
+      if ! [[ "${2}" =~ ^[1-9][0-9]*$ ]] || (( ${2} < 1 || ${2} > 512 )); then
+        log_err "--max-response-sz must be a positive integer between 1 and 512 (MiB)."
+        usage 2
+      fi
+      MAX_RESPONSE_SZ_MIB="${2}"; shift 2 ;;
     -h|--help)
       usage 0 ;;
     -*)
@@ -519,9 +535,9 @@ grpc_call() {
     -connect-timeout 5
     -import-path "${RESOLVED_PROTO_DIR}"
     -proto        "${NODE_SERVICE_PROTO}"
+    -max-msg-sz   "$(( MAX_RESPONSE_SZ_MIB * 1048576 ))"
     -d            '{}'
   )
-  # Prepend -plaintext when TLS is disabled (the common case for internal nodes).
   [[ "$USE_TLS" == "false" ]] && flags=("-plaintext" "${flags[@]}")
 
   grpcurl "${flags[@]}" "${target}" "${GRPC_SERVICE}/${method}"
@@ -1084,6 +1100,7 @@ main() {
   log_info "  Block proof       : ${proof_label}"
   log_info "  Block access port : ${block_access_label}"
   log_info "  Max block size    : ${BLOCK_MAX_BLOCK_MIB} MiB"
+  log_info "  Max response size : ${MAX_RESPONSE_SZ_MIB} MiB"
 
   # Iterate over every supplied endpoint. Failures are accumulated rather than
   # stopping immediately so the operator gets a complete picture of all nodes in
