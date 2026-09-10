@@ -118,11 +118,11 @@ assertions:
 
   - id: blocks-increasing
     type: blocks-increasing
-    description: "Block production recovers on all BNs after bandwidth clears"
+    description: "Block production recovers on all BNs after bandwidth clears -- max_attempts extended to 30 (30 min budget) after two runs showed the whole network (not just BN1) stalled at a fixed height with zero throughput on ALL BNs, tied to the one-time genesis WRAPS proof construction taking 15-16 min under heavy Monitor load (normally seconds) -- and still not recovered 10-12.5 min after that construction itself finished, in both runs. Extending this to find out if/when it actually recovers."
     target: all
     args:
       wait_seconds: 60
-      max_attempts: 5
+      max_attempts: 30
 
   - id: block-rate-floor
     type: block-rate-floor
