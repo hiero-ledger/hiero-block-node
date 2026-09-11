@@ -42,10 +42,22 @@
 set -euo pipefail
 
 ENV_FILE="${ENV_FILE:-/tmp/wrb-distribution-step12.env}"
-if [[ -f "${ENV_FILE}" ]]; then
-    # shellcheck disable=SC1090
-    source "${ENV_FILE}"
-fi
+
+# start-live-push fires while install-and-run-wrb-cli.sh may still be running.
+# Poll for ENV_FILE rather than failing immediately.
+PREREQ_WAIT_TIMEOUT="${PREREQ_WAIT_TIMEOUT:-900}"
+prereq_waited=0
+until [[ -f "${ENV_FILE}" ]]; do
+    if (( prereq_waited >= PREREQ_WAIT_TIMEOUT )); then
+        echo "[wrb-dist-push-start] ERROR: timed out after ${PREREQ_WAIT_TIMEOUT}s waiting for ${ENV_FILE}" >&2
+        exit 1
+    fi
+    echo "[wrb-dist-push-start] waiting for install-and-run-wrb-cli.sh to finish (${prereq_waited}s elapsed)..."
+    sleep 10
+    prereq_waited=$(( prereq_waited + 10 ))
+done
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
 
 : "${NAMESPACE:=solo-network}"
 # This worker runs as a plain process on the test runner host, not inside the
@@ -60,7 +72,9 @@ BN1_GRPC_PORT="${BN1_GRPC_PORT:-$((40839 + 1))}"
 : "${CLI_LIB:?CLI_LIB must be set (written by install-and-run-wrb-cli.sh)}"
 
 LIVE_PUSH_POLL_SECONDS="${LIVE_PUSH_POLL_SECONDS:-30}"
-LIVE_PUSH_MAX_CONSECUTIVE_FAILURES="${LIVE_PUSH_MAX_CONSECUTIVE_FAILURES:-5}"
+# High tolerance so transient BN port-forward outages (during the many pod
+# restarts between start-live-push and stop-live-push) don't kill the worker.
+LIVE_PUSH_MAX_CONSECUTIVE_FAILURES="${LIVE_PUSH_MAX_CONSECUTIVE_FAILURES:-50}"
 
 PID_FILE="/tmp/wrb-dist-push.pid"
 LOG_FILE="/tmp/wrb-dist-push.log"
@@ -68,26 +82,51 @@ STATE_FILE="/tmp/wrb-dist-push.state"
 
 log() { echo "[wrb-dist-push-start] $*"; }
 
-if [[ -f "${PID_FILE}" ]] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
-    log "Live push already running (pid $(cat "${PID_FILE}")); leaving it in place."
-    exit 0
+# Never defer to a pre-existing worker: PID_FILE/LOG_FILE/STATE_FILE live under /tmp, which
+# survives `task down`/`task up` (only the Kubernetes cluster gets torn down, not local
+# background processes on this host). A worker orphaned by an interrupted/crashed prior run
+# (never reaching its own stop-live-push.sh) would otherwise be silently adopted here as "this
+# run's" worker -- still alive, but pushing against a stale wrapped_dir/port-forward from a
+# cluster that no longer exists, with a stale state-file baseline from whenever IT started.
+# Always kill anything still running first (same process-group kill as stop-live-push.sh) so
+# every run starts its own fresh worker with a correct, freshly-truncated log.
+if [[ -f "${PID_FILE}" ]]; then
+    stale_pid=$(cat "${PID_FILE}")
+    if [[ -n "${stale_pid}" ]] && kill -0 "${stale_pid}" 2>/dev/null; then
+        log "Found a live worker (pid ${stale_pid}) from a previous run; stopping it before starting fresh."
+        kill -TERM -"${stale_pid}" 2>/dev/null || kill -TERM "${stale_pid}" 2>/dev/null || true
+        for _ in $(seq 1 20); do
+            kill -0 "${stale_pid}" 2>/dev/null || break
+            sleep 0.5
+        done
+        if kill -0 "${stale_pid}" 2>/dev/null; then
+            kill -KILL -"${stale_pid}" 2>/dev/null || kill -KILL "${stale_pid}" 2>/dev/null || true
+        fi
+    fi
+    rm -f "${PID_FILE}"
 fi
 
 wrapped_dir="${WRB_DIST_WORK_DIR}/wrappedBlocks"
 [[ -d "${wrapped_dir}" ]] || { echo "Missing prerequisite: ${wrapped_dir}" >&2; exit 1; }
 
-# Snapshot whatever "push OK" count is already in the log rather than assuming 0, so this
-# stays correct even if LOG_FILE isn't fresh (e.g. re-run in a debug session against a log the
-# short-circuit above left in place).
-# No `|| echo 0`: grep -c prints 0 and exits 1 on no-match, so the fallback appends a
-# second line and any later arithmetic on this dies with `[[: 0\n0: syntax error`.
-initial_push_ok_count=$( grep -cE '\] push OK' "${LOG_FILE}" 2>/dev/null )
-initial_push_ok_count="${initial_push_ok_count:-0}"
+# Always use 0 as the baseline — the new worker's `nohup > "${LOG_FILE}"` (below) OVERWRITES
+# LOG_FILE at startup, so any content in the old log (e.g. from a stale worker killed above)
+# belongs to the previous run, not this one. Snapshotting the old count and then comparing
+# against the new worker's log would produce a meaningless cross-run comparison: if the old
+# log had 1 "push OK", initial=1, and after the new worker's first successful iteration
+# current=1, the assertion sees 1 > 1 = false and fails even though the worker is healthy.
+initial_push_ok_count=0
 printf 'initial_push_ok_count=%s\n' "${initial_push_ok_count}" > "${STATE_FILE}"
 
 # Fork the worker into the background and write its PID. Using nohup+setsid so
-# the loop survives if the CI shell that started the event goes away.
-nohup setsid bash -c '
+# the loop survives if the CI shell that started the event goes away. setsid
+# isn't available on macOS (it's a util-linux tool); fall back to plain nohup
+# there — the worker still gets backgrounded and outlives the parent shell,
+# just without its own process group (stop-live-push.sh already falls back to
+# a plain `kill <pid>` when the process-group kill fails for this reason).
+setsid_prefix=""
+command -v setsid >/dev/null 2>&1 && setsid_prefix="setsid"
+nohup ${setsid_prefix} bash -c '
     set -uo pipefail
 
     CLI_LIB='"'${CLI_LIB}'"'

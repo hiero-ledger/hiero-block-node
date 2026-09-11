@@ -41,10 +41,23 @@ PYTHON_DIR="${SCRIPT_DIR}/../python"
 # install-and-run-wrb-cli.sh. Each command event runs in its own subshell so
 # we can't rely on an in-memory export from a previous event.
 ENV_FILE="${ENV_FILE:-/tmp/wrb-distribution-step12.env}"
-if [[ -f "${ENV_FILE}" ]]; then
-    # shellcheck disable=SC1090
-    source "${ENV_FILE}"
-fi
+
+# start-live-wrap is fired 5 seconds after install-and-run-wrb-cli.sh begins, but
+# install needs several minutes to build the CLI, download records, and write
+# ENV_FILE. Poll here rather than failing immediately so the timing gap is safe.
+PREREQ_WAIT_TIMEOUT="${PREREQ_WAIT_TIMEOUT:-900}"
+prereq_waited=0
+until [[ -f "${ENV_FILE}" ]]; do
+    if (( prereq_waited >= PREREQ_WAIT_TIMEOUT )); then
+        echo "[wrb-dist-live-start] ERROR: timed out after ${PREREQ_WAIT_TIMEOUT}s waiting for ${ENV_FILE} (install-and-run-wrb-cli.sh may have failed)" >&2
+        exit 1
+    fi
+    echo "[wrb-dist-live-start] waiting for install-and-run-wrb-cli.sh to finish (${prereq_waited}s elapsed)..."
+    sleep 10
+    prereq_waited=$(( prereq_waited + 10 ))
+done
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
 
 : "${NAMESPACE:=solo-network}"
 : "${CONTEXT:=kind-solo-cluster}"
@@ -54,7 +67,11 @@ export NAMESPACE CONTEXT
 : "${CLI_LIB:?CLI_LIB must be set (write by install-and-run-wrb-cli.sh)}"
 
 LIVE_WRAP_POLL_SECONDS="${LIVE_WRAP_POLL_SECONDS:-30}"
-LIVE_WRAP_MAX_CONSECUTIVE_FAILURES="${LIVE_WRAP_MAX_CONSECUTIVE_FAILURES:-5}"
+# A high failure tolerance prevents the worker from exiting due to transient
+# MinIO download outages or k8s churn during the many BN/CN restarts that
+# happen between start-live-wrap and stop-live-wrap. The stop script explicitly
+# kills the worker; the worker should never exit on its own.
+LIVE_WRAP_MAX_CONSECUTIVE_FAILURES="${LIVE_WRAP_MAX_CONSECUTIVE_FAILURES:-50}"
 LIVE_WRAP_MAX_RECORDS_PER_POLL="${LIVE_WRAP_MAX_RECORDS_PER_POLL:-200}"
 
 PID_FILE="/tmp/wrb-dist-live.pid"
@@ -63,9 +80,27 @@ STATE_FILE="/tmp/wrb-dist-live.state"
 
 log() { echo "[wrb-dist-live-start] $*"; }
 
-if [[ -f "${PID_FILE}" ]] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
-    log "Live wrap already running (pid $(cat "${PID_FILE}")); leaving it in place."
-    exit 0
+# Never defer to a pre-existing worker: PID_FILE/LOG_FILE/STATE_FILE live under /tmp, which
+# survives `task down`/`task up` (only the Kubernetes cluster gets torn down, not local
+# background processes on this host). A worker orphaned by an interrupted/crashed prior run
+# (never reaching its own stop-live-wrap.sh) would otherwise be silently adopted here as "this
+# run's" worker -- still alive, but wrapping against a stale records/wrapped_dir from a cluster
+# that no longer exists. Always kill anything still running first (same process-group kill as
+# stop-live-wrap.sh) so every run starts its own fresh worker.
+if [[ -f "${PID_FILE}" ]]; then
+    stale_pid=$(cat "${PID_FILE}")
+    if [[ -n "${stale_pid}" ]] && kill -0 "${stale_pid}" 2>/dev/null; then
+        log "Found a live worker (pid ${stale_pid}) from a previous run; stopping it before starting fresh."
+        kill -TERM -"${stale_pid}" 2>/dev/null || kill -TERM "${stale_pid}" 2>/dev/null || true
+        for _ in $(seq 1 20); do
+            kill -0 "${stale_pid}" 2>/dev/null || break
+            sleep 0.5
+        done
+        if kill -0 "${stale_pid}" 2>/dev/null; then
+            kill -KILL -"${stale_pid}" 2>/dev/null || kill -KILL "${stale_pid}" 2>/dev/null || true
+        fi
+    fi
+    rm -f "${PID_FILE}"
 fi
 
 records_dir="${WRB_DIST_WORK_DIR}/records"
@@ -97,8 +132,14 @@ printf 'initial_zip_count=%s\ninitial_total_bytes=%s\ninitial_wrap_ok_count=0\n'
 log "Initial wrap output: ${initial_zip_count} zip file(s), ${initial_total_bytes} total byte(s)"
 
 # Fork the worker into the background and write its PID. Using nohup+setsid so
-# the loop survives if the CI shell that started the event goes away.
-nohup setsid bash -c '
+# the loop survives if the CI shell that started the event goes away. setsid
+# isn't available on macOS (it's a util-linux tool); fall back to plain nohup
+# there — the worker still gets backgrounded and outlives the parent shell,
+# just without its own process group (stop-live-wrap.sh already falls back to
+# a plain `kill <pid>` when the process-group kill fails for this reason).
+setsid_prefix=""
+command -v setsid >/dev/null 2>&1 && setsid_prefix="setsid"
+nohup ${setsid_prefix} bash -c '
     set -uo pipefail
 
     SCRIPT_DIR='"'${SCRIPT_DIR}'"'
@@ -143,7 +184,11 @@ nohup setsid bash -c '
             days=$( find "${records_dir}" -name "*.rcd" -exec basename {} \; | cut -d"T" -f1 | sort -u )
             for day in ${days}; do
                 archive="${days_dir}/${day}.tar.zstd"
-                ( cd "${records_dir}" && tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}" )
+                # COPYFILE_DISABLE=1 prevents macOS tar from adding AppleDouble ("._filename")
+                # resource-fork sidecar entries on APFS; those are not real record files and
+                # TarReader chokes on them (misreads their garbage bytes as a record-format
+                # version). No-op on Linux CI runners.
+                ( cd "${records_dir}" && COPYFILE_DISABLE=1 tar -cf - "${day}"T*.rcd "${day}"T*.rcd_sig 2>/dev/null | zstd -T0 > "${archive}" )
             done
 
             # Regenerate metadata so block_times.bin / day_blocks.json cover

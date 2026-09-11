@@ -109,31 +109,6 @@ fi
 
 echo "Discovering deployed services in namespace: ${NAMESPACE}"
 
-# Supervise a port-forward: kubectl exits whenever its connection drops, which
-# silently leaves a test talking to a dead local port. Restart it until the
-# keepalive sentinel is removed.
-#   $1 = svc/<name>, $2 = <local>:<remote>
-pf() {
-  ( delay=2
-    while [[ -f "${PF_KEEPALIVE_FILE}" ]]; do
-      started=${SECONDS}
-      kubectl port-forward "$1" -n "${NAMESPACE}" "$2" >/dev/null 2>&1
-      # A forward that ran for a while dropped its connection: retry promptly. One that
-      # exits instantly is a service that is gone, so back off up to 30s rather than
-      # respawning every 2s for the rest of a 25-minute run.
-      if (( SECONDS - started >= 10 )); then
-        delay=2
-      else
-        delay=$(( delay * 2 > 30 ? 30 : delay * 2 ))
-      fi
-      # Slept in 2s slices so a removed sentinel is still noticed within the window
-      # stop_forwards waits out, however long the backoff has grown.
-      for (( slept = 0; slept < delay; slept += 2 )); do
-        [[ -f "${PF_KEEPALIVE_FILE}" ]] || break
-        sleep 2
-      done
-    done ) 2>/dev/null &
-}
 
 # Stop any previous generation of forwards and their supervisors before starting
 # a new one, so they neither restart nor hold on to the local ports.
@@ -155,11 +130,58 @@ declare -a RELAY_ENDPOINTS=()
 declare -a EXPLORER_ENDPOINTS=()
 declare -a METRICS_ENDPOINTS=()
 
+# Collects the names of any forward that failed to bind, for a final visible
+# warning -- each individual `kubectl port-forward &` used to be launched with
+# its output sent to /dev/null and never checked, so a transient failure (e.g.
+# a race right after the `pkill` above) was silently invisible: the process
+# just wasn't there afterward, with no error anywhere.
+declare -a FAILED_FORWARDS=()
+PF_LOG_DIR="${TMPDIR:-/tmp}/solo-port-forward-logs"
+mkdir -p "${PF_LOG_DIR}"
+
+# Starts a supervised `kubectl port-forward` in the background (restarting it
+# whenever the connection drops, just as the former pf() did) and waits up to
+# 15s for the "Forwarding from" line to confirm the tunnel actually bound.
+# Output goes to a per-service log file so bind failures are visible via
+# FAILED_FORWARDS rather than silently discarded.
+function start_port_forward {
+  local svc_name="$1" local_port="$2" remote_port="$3"
+  local log_file="${PF_LOG_DIR}/${svc_name}-${local_port}.log"
+  ( delay=2
+    while [[ -f "${PF_KEEPALIVE_FILE}" ]]; do
+      : > "${log_file}"
+      started=${SECONDS}
+      kubectl port-forward "svc/${svc_name}" -n "${NAMESPACE}" "${local_port}:${remote_port}" > "${log_file}" 2>&1
+      # A forward that ran for a while dropped its connection: retry promptly. One that
+      # exits instantly is a service that is gone, so back off up to 30s rather than
+      # respawning every 2s for the rest of a 25-minute run.
+      if (( SECONDS - started >= 10 )); then
+        delay=2
+      else
+        delay=$(( delay * 2 > 30 ? 30 : delay * 2 ))
+      fi
+      # Slept in 2s slices so a removed sentinel is still noticed within the window
+      # stop_forwards waits out, however long the backoff has grown.
+      for (( slept = 0; slept < delay; slept += 2 )); do
+        [[ -f "${PF_KEEPALIVE_FILE}" ]] || break
+        sleep 2
+      done
+    done ) &
+  for _ in $(seq 1 15); do
+    grep -q "Forwarding from" "${log_file}" 2>/dev/null && return 0
+    sleep 1
+  done
+  echo "WARNING: port-forward for ${svc_name} (localhost:${local_port}) never came up:" >&2
+  sed 's/^/    /' "${log_file}" >&2 || true
+  FAILED_FORWARDS+=("${svc_name} (localhost:${local_port})")
+  return 1
+}
+
 echo "Setting up port forwards..."
 
 # Consensus node (single)
 if kubectl get svc haproxy-node1-svc -n "${NAMESPACE}" >/dev/null 2>&1; then
-  pf "svc/haproxy-node1-svc" "50211:50211"
+  start_port_forward "haproxy-node1-svc" "50211" "50211"
   CN_ENDPOINTS+=("localhost:50211")
 fi
 
@@ -167,7 +189,7 @@ fi
 BN_PORT=40840
 for svc in $(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep -E "block-node-[0-9]+$" | sort); do
   svc_name=$(basename "$svc")
-  pf "svc/${svc_name}" "${BN_PORT}:40840"
+  start_port_forward "${svc_name}" "${BN_PORT}" "40840"
   BN_ENDPOINTS+=("localhost:${BN_PORT} (${svc_name})")
   BN_PORT=$((BN_PORT + 1))
 done
@@ -176,7 +198,7 @@ done
 BN_METRICS_PORT=16007
 for svc in $(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep -E "block-node-[0-9]+$" | sort); do
   svc_name=$(basename "$svc")
-  pf "svc/${svc_name}" "${BN_METRICS_PORT}:16007"
+  start_port_forward "${svc_name}" "${BN_METRICS_PORT}" "16007"
   BN_METRICS_ENDPOINTS+=("http://localhost:${BN_METRICS_PORT}/metrics (${svc_name})")
   BN_METRICS_PORT=$((BN_METRICS_PORT + 1))
 done
@@ -185,7 +207,7 @@ done
 MN_PORT=5551
 for svc in $(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep "mirror-.*-rest$" | sort); do
   svc_name=$(basename "$svc")
-  pf "svc/${svc_name}" "${MN_PORT}:80"
+  start_port_forward "${svc_name}" "${MN_PORT}" "80"
   MN_ENDPOINTS+=("http://localhost:${MN_PORT} (${svc_name})")
   MN_PORT=$((MN_PORT + 1))
 done
@@ -196,10 +218,10 @@ RELAY_WS_PORT=8546
 for svc in $(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep -E "relay-[0-9]+" | grep -v "\-ws" | sort); do
   svc_name=$(basename "$svc")
   ws_svc="${svc_name}-ws"
-  pf "svc/${svc_name}" "${RELAY_PORT}:7546"
+  start_port_forward "${svc_name}" "${RELAY_PORT}" "7546"
   RELAY_ENDPOINTS+=("http://localhost:${RELAY_PORT} JSON-RPC (${svc_name})")
   if kubectl get svc "${ws_svc}" -n "${NAMESPACE}" >/dev/null 2>&1; then
-    pf "svc/${ws_svc}" "${RELAY_WS_PORT}:8546"
+    start_port_forward "${ws_svc}" "${RELAY_WS_PORT}" "8546"
     RELAY_ENDPOINTS+=("ws://localhost:${RELAY_WS_PORT} WebSocket (${ws_svc})")
   fi
   RELAY_PORT=$((RELAY_PORT + 1))
@@ -210,7 +232,7 @@ done
 EXPLORER_PORT=8080
 for svc in $(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep "explorer" | sort); do
   svc_name=$(basename "$svc")
-  pf "svc/${svc_name}" "${EXPLORER_PORT}:80"
+  start_port_forward "${svc_name}" "${EXPLORER_PORT}" "80"
   EXPLORER_ENDPOINTS+=("http://localhost:${EXPLORER_PORT} (${svc_name})")
   EXPLORER_PORT=$((EXPLORER_PORT + 1))
 done
@@ -219,7 +241,7 @@ done
 GRAFANA_SVC=$(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep grafana | head -1)
 if [[ -n "$GRAFANA_SVC" ]]; then
   svc_name=$(basename "$GRAFANA_SVC")
-  pf "svc/${svc_name}" "3000:80"
+  start_port_forward "${svc_name}" "3000" "80"
   METRICS_ENDPOINTS+=("http://localhost:3000 Grafana (admin/admin)")
 fi
 
@@ -227,11 +249,9 @@ fi
 PROM_SVC=$(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep "kubepromstack-prometheus" | head -1)
 if [[ -n "$PROM_SVC" ]]; then
   svc_name=$(basename "$PROM_SVC")
-  pf "svc/${svc_name}" "9090:9090"
+  start_port_forward "${svc_name}" "9090" "9090"
   METRICS_ENDPOINTS+=("http://localhost:9090 Prometheus")
 fi
-
-sleep 2
 
 # Print formatted summary
 echo ""
@@ -281,3 +301,9 @@ if [[ ${#METRICS_ENDPOINTS[@]} -gt 0 ]]; then
 fi
 
 echo ""
+
+if [[ ${#FAILED_FORWARDS[@]} -gt 0 ]]; then
+  echo "WARNING: ${#FAILED_FORWARDS[@]} port-forward(s) never came up (see warnings above):"
+  for ep in "${FAILED_FORWARDS[@]}"; do echo "  $ep"; done
+  echo ""
+fi

@@ -472,6 +472,8 @@ EOF
 
 # shellcheck source=lib/cloud-storage-overlay.sh
 source "${SCRIPT_DIR}/lib/cloud-storage-overlay.sh"
+# shellcheck source=lib/cn-application-properties.sh
+source "${SCRIPT_DIR}/lib/cn-application-properties.sh"
 
 # Deploy RustFS via solo-deploy-rustfs.sh when the topology declares s3_nodes.
 function deploy_rustfs {
@@ -633,62 +635,6 @@ function deploy_block_nodes {
   done
 }
 
-function generate_cn_application_properties {
-  local output_file="${1}"
-  cat > "${output_file}" << 'EOF'
-hedera.config.version=0
-ledger.id=0x01
-netty.mode=TEST
-contracts.chainId=298
-hedera.recordStream.logPeriod=1
-balances.exportPeriodSecs=400
-files.maxSizeKb=2048
-hedera.recordStream.compressFilesOnCreation=true
-balances.compressOnCreation=true
-contracts.maxNumWithHapiSigsAccess=0
-autoRenew.targetTypes=
-nodes.gossipFqdnRestricted=false
-hedera.profiles.active=TEST
-nodes.updateAccountIdAllowed=true
-blockStream.streamMode=BOTH
-# TODO: we can remove this after we no longer need less than v0.59.x
-networkAdmin.exportCandidateRoster=true
-# for v0.59+, write the network.json file when you freeze the network
-networkAdmin.diskNetworkExport=ONLY_FREEZE_BLOCK
-hedera.realm=0
-hedera.shard=0
-nodes.webProxyEndpointsEnabled=true
-nodes.nodeRewardsEnabled=false
-
-blockStream.writerMode=FILE_AND_GRPC
-
-blockNode.connectionStallThresholdMillis=5000
-EOF
-
-  # Verification-mode dependent settings. rsa-wrb streams Wrapped Record Blocks
-  # verified against the RSA roster, so TSS is disabled and WRB streaming enabled.
-  if [[ "${WRB_RSA}" == "true" ]]; then
-    cat >> "${output_file}" << 'EOF'
-
-tss.hintsEnabled=false
-tss.historyEnabled=false
-tss.forceMockSignatures=false
-tss.wrapsEnabled=false
-
-blockStream.streamWrappedRecordBlocks=true
-EOF
-  else
-    cat >> "${output_file}" << 'EOF'
-
-tss.hintsEnabled=true
-tss.historyEnabled=true
-tss.forceMockSignatures=false
-tss.wrapsEnabled=true
-
-blockStream.streamWrappedRecordBlocks=false
-EOF
-  fi
-}
 
 # WRAPS v1.0.0 proving keys: the tarball + its extracted .bin files are cached once and handed to
 # Solo via --wraps-key-path on every deploy (no ~2 GB re-download). Solo stages both into each CN
