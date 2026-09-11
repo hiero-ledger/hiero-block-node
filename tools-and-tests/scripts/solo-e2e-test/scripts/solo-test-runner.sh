@@ -1640,6 +1640,67 @@ function assert_blocks_diverged {
     fi
 }
 
+# Assert that at least one of several named snapshots captured across the chaos
+# window shows a block spread >= min_spread. More robust than
+# assert_blocks_diverged's single fixed-point sample -- real observed spread at
+# a single snapshot varies a lot depending on exactly when you look (session
+# data: 1-6 at a single fixed-delay snapshot, same rate, same content profile),
+# so this checks the PEAK across several snapshots taken throughout the chaos
+# window instead of gambling on one. Each snapshot must have been written by
+# its own preceding snapshot-block-heights event.
+function assert_blocks_diverged_max {
+    local min_spread="$1"
+    shift
+    local snapshot_ids=("$@")
+
+    if [[ ${#snapshot_ids[@]} -eq 0 ]]; then
+        echo "FAIL: assert_blocks_diverged_max called with no snapshot IDs"
+        return 1
+    fi
+
+    local best_spread=-1
+    local best_id="" best_min=0 best_max=0
+    local any_found="false"
+
+    for sid in "${snapshot_ids[@]}"; do
+        local snapshot_file="/tmp/chaos-snapshot-${sid}.txt"
+        if [[ ! -f "${snapshot_file}" ]]; then
+            echo "WARNING: snapshot '${sid}' not found at ${snapshot_file}, skipping"
+            continue
+        fi
+        any_found="true"
+
+        local min_last=999999999
+        local max_last=0
+        while IFS='=' read -r bn last_block; do
+            [[ -z "$bn" ]] && continue
+            [[ "${last_block}" -lt "${min_last}" ]] && min_last="${last_block}"
+            [[ "${last_block}" -gt "${max_last}" ]] && max_last="${last_block}"
+        done < "${snapshot_file}"
+
+        local spread=$(( max_last - min_last ))
+        echo "  snapshot '${sid}': spread=${spread} (min=${min_last}, max=${max_last})"
+        if [[ "${spread}" -gt "${best_spread}" ]]; then
+            best_spread="${spread}"
+            best_id="${sid}"
+            best_min="${min_last}"
+            best_max="${max_last}"
+        fi
+    done
+
+    if [[ "${any_found}" != "true" ]]; then
+        echo "FAIL: none of the requested snapshots were found: ${snapshot_ids[*]}"
+        return 1
+    fi
+
+    if [[ "${best_spread}" -lt "${min_spread}" ]]; then
+        echo "FAIL: max spread ${best_spread} (at snapshot '${best_id}', min=${best_min}, max=${best_max}) across ${#snapshot_ids[@]} snapshots is below minimum ${min_spread} — chaos produced no detectable divergence at any sampled point"
+        return 1
+    else
+        echo "PASS: max spread ${best_spread} (at snapshot '${best_id}', min=${best_min}, max=${best_max}) across ${#snapshot_ids[@]} snapshots ≥ ${min_spread}"
+    fi
+}
+
 # Assert that block signatures transition from Schnorr to WRAPS.
 # Delegates to monitor-block-proofs.sh and captures its output.
 function assert_signature_transition {
@@ -1877,10 +1938,20 @@ function run_assertion {
             assert_blocks_converged "$bc_tolerance"
             ;;
         blocks-diverged)
-            local bd_snapshot_id bd_min_spread
-            bd_snapshot_id=$(echo "$args" | yq '.snapshot_id // "default"')
+            local bd_min_spread bd_has_ids
             bd_min_spread=$(echo "$args" | yq '.min_spread // 3')
-            assert_blocks_diverged "${bd_snapshot_id}" "${bd_min_spread}"
+            bd_has_ids=$(echo "$args" | yq '(.snapshot_ids // null) != null')
+            if [[ "${bd_has_ids}" == "true" ]]; then
+                local bd_snapshot_ids=()
+                while IFS= read -r bd_sid; do
+                    [[ -n "${bd_sid}" ]] && bd_snapshot_ids+=("${bd_sid}")
+                done < <(echo "$args" | yq '.snapshot_ids[]')
+                assert_blocks_diverged_max "${bd_min_spread}" "${bd_snapshot_ids[@]}"
+            else
+                local bd_snapshot_id
+                bd_snapshot_id=$(echo "$args" | yq '.snapshot_id // "default"')
+                assert_blocks_diverged "${bd_snapshot_id}" "${bd_min_spread}"
+            fi
             ;;
         signature-transition)
             if [[ "${TSS_ENABLED:-true}" != "true" ]]; then

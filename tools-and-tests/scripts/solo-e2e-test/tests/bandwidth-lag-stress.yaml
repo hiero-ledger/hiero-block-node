@@ -67,11 +67,35 @@ events:
       buffer: 10000
       direction: to
 
-  - id: snapshot-peak-chaos
+  - id: snapshot-peak-chaos-1
     type: snapshot-block-heights
-    description: "Capture per-BN block heights at peak chaos (≈150s into chaos window)"
-    delay: 180
-    args: { snapshot_id: peak-chaos-stress }
+    description: "Capture per-BN block heights, sample 1/5 across the chaos window (see blocks-diverged: peak spread across all 5 wins, not any single one)"
+    delay: 90
+    args: { snapshot_id: peak-chaos-stress-1 }
+
+  - id: snapshot-peak-chaos-2
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 2/5"
+    delay: 150
+    args: { snapshot_id: peak-chaos-stress-2 }
+
+  - id: snapshot-peak-chaos-3
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 3/5"
+    delay: 210
+    args: { snapshot_id: peak-chaos-stress-3 }
+
+  - id: snapshot-peak-chaos-4
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 4/5"
+    delay: 270
+    args: { snapshot_id: peak-chaos-stress-4 }
+
+  - id: snapshot-peak-chaos-5
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 5/5 (≈10s before bandwidth clears)"
+    delay: 320
+    args: { snapshot_id: peak-chaos-stress-5 }
 
   - id: clear-cn-bn1-bw
     type: clear-bandwidth
@@ -105,9 +129,9 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BNs were at least 3 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (retuned from 5: this session's one real stress-tier run measured spread=3, and base tier's 11+ real samples (range 2-6) show 5 was never a reliable floor to begin with)"
+    description: "BNs were at least 3 blocks apart at peak chaos, at the WORST of 5 samples across the chaos window — confirms bandwidth cap caused cumulative lag on BN1, robust to which exact moment happens to show the most lag (a single-snapshot spread of 5 was never a reliable floor: base tier's 11+ real samples ranged 1-6 at the same style of cap)"
     args:
-      snapshot_id: peak-chaos-stress
+      snapshot_ids: [peak-chaos-stress-1, peak-chaos-stress-2, peak-chaos-stress-3, peak-chaos-stress-4, peak-chaos-stress-5]
       min_spread: 3
 
   - id: blocks-converged

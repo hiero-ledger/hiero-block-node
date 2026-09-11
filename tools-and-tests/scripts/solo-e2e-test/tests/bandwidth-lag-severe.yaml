@@ -87,11 +87,35 @@ events:
       buffer: 10000
       direction: to
 
-  - id: snapshot-peak-chaos
+  - id: snapshot-peak-chaos-1
     type: snapshot-block-heights
-    description: "Capture per-BN block heights at peak chaos (≈150s into chaos window)"
-    delay: 180
-    args: { snapshot_id: peak-chaos-severe }
+    description: "Capture per-BN block heights, sample 1/5 across the chaos window (see blocks-diverged: peak spread across all 5 wins, not any single one)"
+    delay: 90
+    args: { snapshot_id: peak-chaos-severe-1 }
+
+  - id: snapshot-peak-chaos-2
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 2/5"
+    delay: 150
+    args: { snapshot_id: peak-chaos-severe-2 }
+
+  - id: snapshot-peak-chaos-3
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 3/5"
+    delay: 210
+    args: { snapshot_id: peak-chaos-severe-3 }
+
+  - id: snapshot-peak-chaos-4
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 4/5"
+    delay: 270
+    args: { snapshot_id: peak-chaos-severe-4 }
+
+  - id: snapshot-peak-chaos-5
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 5/5 (≈10s before bandwidth clears)"
+    delay: 320
+    args: { snapshot_id: peak-chaos-severe-5 }
 
   - id: clear-cn-bn1-bw
     type: clear-bandwidth
@@ -127,9 +151,9 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BNs were at least 3 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (retuned from 5 to match base/stress's evidence-based floor; this tier has no real confirmed run yet this session -- first real run should confirm whether 3 holds or whether the structurally-insufficient rate produces a reliably bigger spread)"
+    description: "BNs were at least 3 blocks apart at peak chaos, at the WORST of 5 samples across the chaos window — confirms bandwidth cap caused cumulative lag on BN1, robust to which exact moment happens to show the most lag (this tier has no real confirmed run yet this session -- first real run should confirm whether 3 holds or whether the structurally-insufficient rate produces a reliably bigger spread)"
     args:
-      snapshot_id: peak-chaos-severe
+      snapshot_ids: [peak-chaos-severe-1, peak-chaos-severe-2, peak-chaos-severe-3, peak-chaos-severe-4, peak-chaos-severe-5]
       min_spread: 3
 
   - id: blocks-converged
