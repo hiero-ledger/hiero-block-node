@@ -343,9 +343,9 @@ class StreamPublisherPluginTest {
         }
 
         /**
-         * Like {@link #activatePlugin(long)} but delivers stored blocks to the plugin via
+         * Like {@link #activatePlugin(long)} but sets the ASF stored blocks via
          * {@link #replaceStoredBlocks} between {@code init()} and {@code start()}, mirroring
-         * how {@code BlockNodeApp} broadcasts ASF state before starting plugins.
+         * how {@code BlockNodeApp} loads ASF state before starting plugins.
          */
         private void activatePlugin(final long earliestManagedBlock, final List<BlockRange> initialStoredBlocks) {
             final StreamPublisherPlugin toTest = new StreamPublisherPlugin();
@@ -1118,8 +1118,8 @@ class StreamPublisherPluginTest {
         }
     }
 
-    /// Verifies [StreamPublisherPlugin] reacts to [StoredBlocksNotification] so the publisher
-    /// watermark is seeded from the stored-block range delivered after `init()`. Drives
+    /// Verifies [StreamPublisherPlugin] reads the ASF stored blocks in `start()` so the publisher
+    /// watermark is seeded from the stored-block range set after `init()`. Drives
     /// `init()` -> [#replaceStoredBlocks] -> `start()` via [#doInit] and [#replaceStoredBlocks],
     /// mirroring production startup order.
     @Nested
@@ -1155,8 +1155,7 @@ class StreamPublisherPluginTest {
         /// 11 is rejected as a duplicate carrying watermark 50. If the update was missed,
         /// the watermark stays at 10 and block 11 is accepted as the next expected block.
         @Test
-        @DisplayName(
-                "start() seeds watermark from ASF stored blocks delivered via StoredBlocksNotification before start()")
+        @DisplayName("start() seeds watermark from ASF stored blocks set before start()")
         void testWatermarkSeedsFromStoredBlocksDeliveredBeforeStart() {
             final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
             availableBlocks.add(0, 10);

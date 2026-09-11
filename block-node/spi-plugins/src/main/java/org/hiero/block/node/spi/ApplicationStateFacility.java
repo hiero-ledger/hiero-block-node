@@ -2,11 +2,11 @@
 package org.hiero.block.node.spi;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
+import java.util.List;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
-import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
@@ -34,7 +34,7 @@ public interface ApplicationStateFacility {
      * support the history file (i.e. {@code BlockNodeApp}) override this method.
      *
      * @param history the {@code RangedAddressBookHistory} to store; must not be {@code null}
-     * @return {@code true} if the history is queued for update, {@code false} if it was not
+     * @return {@code true} if the history is accepted and dispatched, {@code false} if it was not
      *     (e.g. equal to the currently stored value or implementation does not support history)
      */
     boolean updateAddressBookHistory(RangedAddressBookHistory history);
@@ -54,6 +54,34 @@ public interface ApplicationStateFacility {
      * @return the {@link NodeAddressBook} or null if not found
      */
     NodeAddressBook getAddressBookForBlock(long blockNum);
+
+    /**
+     * The TSS data currently held by the application. Plugins that need the TSS data loaded at startup read it here in
+     * {@code start()}; later changes are also dispatched as
+     * {@link org.hiero.block.node.spi.blockmessaging.TssDataNotification}.
+     *
+     * @return the current TSS data, or {@code null} if none has been loaded or reported
+     */
+    TssData tssData();
+
+    /**
+     * The RSA address book history currently held by the application. Plugins that need the history
+     * loaded at startup read it here in {@code start()}; later changes are also dispatched as
+     * {@link org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification}.
+     *
+     * @return the current history, or {@code null} if none has been loaded or reported
+     */
+    RangedAddressBookHistory rangedAddressBookHistory();
+
+    /**
+     * The stored block ranges (stored ranges merged with the available blocks) currently held by the
+     * application. Plugins that need the ranges loaded at startup read them here in {@code start()};
+     * later changes are also dispatched as
+     * {@link org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification}.
+     *
+     * @return the stored block ranges in ascending order; never {@code null} (empty when none)
+     */
+    List<BlockRange> storedBlocks();
 
     /**
      * The set of known inbound publishers, loaded from configuration on startup. Reported by the
@@ -117,12 +145,12 @@ public interface ApplicationStateFacility {
     void updateExpectedBlock(final long updatedExpectedBlock);
 
     /**
-     * Used by block provider plugins to report their current set of available blocks.
-     * BlockNodeApp maintains a per-provider map and recomputes the union on each call;
-     * if the union changed it updates the context snapshot and sends notifications.
-     *
-     * @param provider the provider plugin reporting its available blocks
-     * @param availableBlocks the full current set of blocks available from this provider
+     * Used by block provider plugins to signal that their set of available blocks has changed.
+     * Call it after mutating the set, not before: the provider's set is combined live by reference
+     * into {@code HistoricalBlockFacility.availableBlocks()}, so the union is re-read from there
+     * rather than passed in. If the union changed, the snapshot is updated and notifications sent.
+     * Blocks loaded during {@code init()} need no call: the startup union is dispatched once the
+     * application state facility starts.
      */
-    void updateAvailableBlocks(BlockProviderPlugin provider, BlockRangeSet availableBlocks);
+    void updateAvailableBlocks();
 }

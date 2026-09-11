@@ -32,6 +32,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
@@ -43,8 +44,6 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
@@ -812,6 +811,21 @@ class BlockUploadTaskTest {
         }
 
         @Override
+        public TssData tssData() {
+            return null;
+        }
+
+        @Override
+        public RangedAddressBookHistory rangedAddressBookHistory() {
+            return null;
+        }
+
+        @Override
+        public List<BlockRange> storedBlocks() {
+            return List.of();
+        }
+
+        @Override
         public NetworkData knownPublishers() {
             return NetworkData.DEFAULT;
         }
@@ -835,6 +849,6 @@ class BlockUploadTaskTest {
         public void updateBackfillSources(NetworkData sources) {}
 
         @Override
-        public void updateAvailableBlocks(BlockProviderPlugin provider, BlockRangeSet availableBlocks) {}
+        public void updateAvailableBlocks() {}
     }
 }

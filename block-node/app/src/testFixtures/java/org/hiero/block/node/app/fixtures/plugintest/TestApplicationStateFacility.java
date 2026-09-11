@@ -4,7 +4,9 @@ package org.hiero.block.node.app.fixtures.plugintest;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.Deque;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkConnection;
 import org.hiero.block.api.NetworkConnection.ConnectionReference;
 import org.hiero.block.api.NetworkConnection.IpProtocol;
@@ -13,8 +15,6 @@ import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.ApplicationStateFacility;
-import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
@@ -77,6 +77,21 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
         return null;
     }
 
+    @Override
+    public TssData tssData() {
+        return tssDataUpdates.peekLast();
+    }
+
+    @Override
+    public RangedAddressBookHistory rangedAddressBookHistory() {
+        return addressBookHistory;
+    }
+
+    @Override
+    public List<BlockRange> storedBlocks() {
+        return List.of();
+    }
+
     public void setKnownPublishers(NetworkData value) {
         this.knownPublishers = value;
     }
@@ -107,7 +122,7 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
     public void addStoredBlockRange(final LongRange blockRange) {}
 
     @Override
-    public void updateAvailableBlocks(final BlockProviderPlugin provider, final BlockRangeSet availableBlocks) {}
+    public void updateAvailableBlocks() {}
 
     @Override
     public NetworkData knownPublishers() {

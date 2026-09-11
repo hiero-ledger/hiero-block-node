@@ -19,12 +19,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockNodeSource;
-import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -36,7 +34,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /// The TssData is retrieved from TssData sources in the following order:
 ///  - `RosterBootstrapTssConfig` TssData fields (ledgerId, wrapsVerificationKey, etc)
 ///  - (todo) Peer BlockNodes Queries other peer BlockNodes periodically for TssData
-public class RosterBootstrapTssPlugin implements BlockNodePlugin, ApplicationStateNotificationHandler {
+public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     public static final MetricKey<ObservableGauge> METRIC_TSS_DATA_PEERS =
             MetricKey.of("tss_data_peers", ObservableGauge.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_TSS_DATA_ERRORS =
@@ -57,7 +55,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin, ApplicationSta
     private ScheduledExecutorService queryPeerExecutor;
     /// The config information for the RosterBootstrapTssConfig
     private RosterBootstrapTssConfig rosterBootstrapTssConfig;
-    // Metrics holder containing all backfill metrics
+    // Metrics holder containing all TssData metrics
     private MetricsHolder metricsHolder;
     // The class that fetches the TssData
     private TssDataFetcher tssDataFetcher;
@@ -72,16 +70,11 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin, ApplicationSta
         this.blockNodeContext = context;
 
         initMetrics();
-        context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
 
         BlockNodeSource blockNodeSources = getBlockNodeSource(rosterBootstrapTssConfig);
 
         if (blockNodeSources != null) {
-            // Let the logs know what we loaded.
-            for (BlockNodeSourceConfig node : blockNodeSources.nodes()) {
-                LOGGER.log(DEBUG, "Loaded peer BN source node: {0}", node);
-                currentBlockNodePeers.incrementAndGet();
-            }
+            currentBlockNodePeers.set(blockNodeSources.nodes().size());
             hasBNSourcesPath = true;
             tssDataFetcher = new TssDataFetcher(blockNodeSources, rosterBootstrapTssConfig, metricsHolder);
         }
@@ -181,13 +174,13 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin, ApplicationSta
         }
     }
 
-    /// Initializes the metrics for the backfill process.
+    /// Initializes the metrics for querying peer BlockNodes for TssData.
     private void initMetrics() {
         metricsHolder = MetricsHolder.createMetrics(blockNodeContext.metricRegistry(), currentBlockNodePeers);
     }
 
-    /// Holder for all backfill-related metrics.
-    /// This record groups all metrics used by the backfill plugin and its components,
+    /// Holder for all TssData-related metrics.
+    /// This record groups all metrics used by the roster bootstrap TSS plugin and its components,
     /// allowing them to be passed as a single parameter.
     public record MetricsHolder(LongCounter.Measurement tssDataRequests, LongCounter.Measurement tssDataErrors) {
 
