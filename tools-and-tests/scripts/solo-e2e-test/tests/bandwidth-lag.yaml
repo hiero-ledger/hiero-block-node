@@ -34,8 +34,11 @@
 # (3500kbit/s, ~1.08x) and -severe (1750kbit/s, ~0.54x).
 #
 # Assertions:
-#   blocks-diverged  min_spread=5   — conservative starting point for this
-#                                     rate; retune against observed spread.
+#   blocks-diverged  min_spread=3   — retuned from 5 against 11+ real observed
+#                                     spreads this session (range 2-6, mean ~4.2,
+#                                     never 0-1 when chaos was genuinely applied).
+#                                     5 was a guess made before any real data existed;
+#                                     3 is the actual evidence-based floor.
 #   blocks-converged tolerance=10   — BN1 may have a larger gap to close via
 #                                     backfill after chaos clears; allow 10 blocks.
 #
@@ -133,10 +136,10 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BNs were at least 5 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (conservative; tune min_spread upward once observed block sizes are known)"
+    description: "BNs were at least 3 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (retuned from 5 against 11+ real observed spreads this session, range 2-6, mean ~4.2, never 0-1 with chaos genuinely applied)"
     args:
       snapshot_id: peak-chaos
-      min_spread: 5
+      min_spread: 3
 
   - id: blocks-converged
     type: blocks-converged

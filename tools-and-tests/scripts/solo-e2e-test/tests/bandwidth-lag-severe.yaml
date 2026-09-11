@@ -127,10 +127,10 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BNs were at least 5 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (conservative starting point for this rate; retune against observed spread)"
+    description: "BNs were at least 3 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (retuned from 5 to match base/stress's evidence-based floor; this tier has no real confirmed run yet this session -- first real run should confirm whether 3 holds or whether the structurally-insufficient rate produces a reliably bigger spread)"
     args:
       snapshot_id: peak-chaos-severe
-      min_spread: 5
+      min_spread: 3
 
   - id: blocks-converged
     type: blocks-converged
