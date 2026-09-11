@@ -7,8 +7,8 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
+import com.hedera.hapi.node.base.NodeAddressBook;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -128,51 +128,20 @@ public class ServerStatusServicePlugin
         final TssData localTss = tssData;
         final RangedAddressBookHistory localHistory = rangedAddressBookHistory;
 
-        // serverStatus has the latest max available block. serverStatusDetail has an up to .5s old
-        // snapshot. This will align the lastBlock range end with what serverStatus would report without
-        // having to rebuild the entire available Blocks list.
-        final long liveMax = blockProvider.availableBlocks().max();
-        final List<BlockRange> fixedAvailable = !localAvailable.isEmpty()
-                        && liveMax != UNKNOWN_BLOCK_NUMBER
-                        && localAvailable.getLast().rangeEnd() != liveMax
-                ? fixAvailable(localAvailable, liveMax)
-                : localAvailable;
-
-        // Derive the latest NodeAddressBook from the history (mirrors BlockNodeContext.nodeAddressBook()).
-        final com.hedera.hapi.node.base.NodeAddressBook nodeAddressBook =
+        // Derive the latest NodeAddressBook from the history: the address book of its last era.
+        final NodeAddressBook nodeAddressBook =
                 localHistory != null && !localHistory.addressBooks().isEmpty()
                         ? localHistory.addressBooks().getLast().addressBook()
                         : null;
 
         return ServerStatusDetailResponse.newBuilder()
                 .versionInformation(blockNodeContext.blockNodeVersions())
-                .availableRanges(fixedAvailable)
+                .availableRanges(localAvailable)
                 .storedRanges(localStored)
                 .tssData(localTss)
                 .nodeAddressBook(nodeAddressBook)
                 .rangedAddressBookHistory(localHistory)
                 .build();
-    }
-
-    /**
-     * Returns a copy of {@code availableBlocks} whose last range end is aligned with the live
-     * {@code liveMax}. A copy is returned because the supplied list is the shared, immutable context
-     * snapshot (see {@code ApplicationStateUtility.toBlockRange}); it must never be mutated in place.
-     *
-     * @param availableBlocks the context snapshot of available ranges (never empty)
-     * @param liveMax the live maximum available block number to align the last range end with
-     * @return a new list with the last range end aligned to the live max
-     */
-    private List<BlockRange> fixAvailable(final List<BlockRange> availableBlocks, final long liveMax) {
-        final BlockRange lastBlockRange = availableBlocks.getLast();
-        final BlockRange newLastBlockRange = BlockRange.newBuilder()
-                .rangeStart(lastBlockRange.rangeStart())
-                .rangeEnd(liveMax)
-                .build();
-
-        final List<BlockRange> aligned = new ArrayList<>(availableBlocks);
-        aligned.set(aligned.size() - 1, newLastBlockRange);
-        return aligned;
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
@@ -229,6 +198,7 @@ public class ServerStatusServicePlugin
 
     @Override
     public void stop() {
+        blockNodeContext.blockMessaging().unregisterApplicationStateNotificationHandler(this);
         if (heartbeatExecutor == null) {
             return;
         }

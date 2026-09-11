@@ -35,8 +35,8 @@ import org.hiero.block.node.base.Loggable;
  *     `Node` entries to fill in the current Node Store (a.k.a. address book data) for determining
  *     valid publishers and publisher endpoints.
  * @param updateScanInterval The amount of milliseconds that the {@code ApplicationStateFacility} waits between
- *     checking to see if there are any {@code TssData} updates to process.
- * @param updateInitialDelay The amount of milliseconds before the first scheduled scan. Defaults to {@code 0}
+ *     checking whether the stored block ranges need to be persisted.
+ * @param updateInitialDelay The amount of milliseconds before the first scheduled persist check. Defaults to {@code 0}
  *     because application state is already processed synchronously before the executor starts.
  */
 @ConfigData("app.state")

@@ -8,10 +8,8 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
-import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
@@ -20,8 +18,6 @@ import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
-import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -45,8 +41,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /// in advance by other publishers, and also manages notification handling so
 /// that messaging sends one notification and, if needed, all handlers can send
 /// appropriate responses to their publishers.
-public final class StreamPublisherPlugin
-        implements BlockNodePlugin, BlockStreamPublishServiceInterface, ApplicationStateNotificationHandler {
+public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStreamPublishServiceInterface {
 
     /// Maximum length for the correlation ID header value.
     /// Chosen to accommodate current formats (e.g. `N#-STR#`, `N#-STR#-BLK#-REQ#`) and
@@ -114,8 +109,6 @@ public final class StreamPublisherPlugin
 
     /// The block node context, for access to core facilities.
     private final AtomicReference<BlockNodeContext> context = new AtomicReference<>();
-    /// The latest stored block ranges received via ApplicationStateNotificationHandler.
-    private final AtomicReference<List<BlockRange>> currentStoredBlocks = new AtomicReference<>(List.of());
     /// The publisher block manager, which connects handlers to the messaging facility.
     private StreamPublisherManager publisherManager;
 
@@ -166,7 +159,6 @@ public final class StreamPublisherPlugin
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context.set(Objects.requireNonNull(context));
-        context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
         // register us as a service, we need to register the gRPC service in
         // the init method, otherwise the server will be started and we will not
         // have registered at all. A null port (the default) shares server.port.
@@ -181,7 +173,10 @@ public final class StreamPublisherPlugin
         // Initialize plugin metrics
         initMetrics(currentContext.metricRegistry());
         // Initialize the publisher manager
-        publisherManager = new LiveStreamPublisherManager(currentContext, managerMetrics, currentStoredBlocks.get());
+        publisherManager = new LiveStreamPublisherManager(
+                currentContext,
+                managerMetrics,
+                currentContext.applicationStateFacility().storedBlocks());
         // register the manager as a notification handler
         currentContext
                 .blockMessaging()
@@ -193,13 +188,6 @@ public final class StreamPublisherPlugin
     public void stop() {
         context.get().blockMessaging().unregisterBlockNotificationHandler(publisherManager);
         publisherManager.shutdown();
-    }
-
-    /// Tracks the latest stored block ranges so they can be passed to a new
-    /// {@link LiveStreamPublisherManager} when the plugin is restarted.
-    @Override
-    public void handleStoredBlocksUpdate(final StoredBlocksNotification notification) {
-        currentStoredBlocks.set(notification.storedBlocks());
     }
 
     /// This method is called when a new publisher handler is created.

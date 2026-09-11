@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -498,11 +499,26 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     }
 
     /**
+     * Hands a notification send to the message forwarder. Once {@link #stop()} has shut the forwarder down, the
+     * notification is dropped rather than throwing {@link RejectedExecutionException} into the caller: plugins that are
+     * stopped after this facility may still report state, e.g. a block provider finishing a write.
+     *
+     * @param send the send to run on the message forwarder
+     */
+    private void forward(final Runnable send) {
+        try {
+            messageForwarder.submit(send);
+        } catch (final RejectedExecutionException e) {
+            LOGGER.log(DEBUG, "Messaging facility is stopped, dropping notification");
+        }
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override
     public void sendBlockVerification(VerificationNotification notification) {
-        messageForwarder.submit(() -> {
+        forward(() -> {
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             // metrics
             blockVerificationNotificationsCounter.increment();
@@ -521,7 +537,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockPersisted(PersistedNotification notification) {
-        messageForwarder.submit(() -> {
+        forward(() -> {
             LOGGER.log(
                     DEBUG,
                     "Sending block persisted notification: block={0} succeeded={1} source={2}",
@@ -538,7 +554,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
-        messageForwarder.submit(() -> {
+        forward(() -> {
             LOGGER.log(TRACE, "Sending backfilled block notification: block={0}", notification.blockNumber());
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             blockBackfilledNotificationsCounter.increment();
@@ -547,7 +563,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
     @Override
     public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
-        messageForwarder.submit(() -> {
+        forward(() -> {
             LOGGER.log(DEBUG, "Sending NewestBlockKnownToNetwork notification: block={0}", notification.blockNumber());
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             newestBlockKnownToNetworkNotificationsCounter.increment();
@@ -556,7 +572,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
     @Override
     public void sendPublisherStatusUpdate(final PublisherStatusUpdateNotification notification) {
-        messageForwarder.submit(() -> {
+        forward(() -> {
             LOGGER.log(DEBUG, "Sending publisher status update notification: {0}", notification);
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             publisherStatusUpdateNotificationsCounter.increment();
@@ -568,7 +584,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendTssDataUpdate(final TssDataNotification notification) {
-        messageForwarder.submit(() -> {
+        forward(() -> {
             LOGGER.log(DEBUG, "Sending TSS data update notification");
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             tssDataUpdateNotificationsCounter.increment();
@@ -580,7 +596,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendAddressBookHistoryUpdate(final AddressBookHistoryNotification notification) {
-        messageForwarder.submit(() -> {
+        forward(() -> {
             LOGGER.log(DEBUG, "Sending address book history update notification");
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             addressBookHistoryUpdateNotificationsCounter.increment();
@@ -592,7 +608,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendStoredBlocksUpdate(final StoredBlocksNotification notification) {
-        messageForwarder.submit(() -> {
+        forward(() -> {
             LOGGER.log(DEBUG, "Sending stored blocks update notification");
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             storedBlocksUpdateNotificationsCounter.increment();
@@ -604,7 +620,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendAvailableBlocksUpdate(final AvailableBlocksNotification notification) {
-        messageForwarder.submit(() -> {
+        forward(() -> {
             LOGGER.log(DEBUG, "Sending available blocks update notification");
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             availableBlocksUpdateNotificationsCounter.increment();

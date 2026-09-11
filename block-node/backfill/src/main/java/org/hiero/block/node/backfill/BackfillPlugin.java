@@ -290,6 +290,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      */
     @Override
     public void stop() {
+        context.blockMessaging().unregisterApplicationStateNotificationHandler(this);
+
         // 1. Stop periodic scanner
         shutdownExecutor(autonomousExecutor, "periodicExecutor");
 
