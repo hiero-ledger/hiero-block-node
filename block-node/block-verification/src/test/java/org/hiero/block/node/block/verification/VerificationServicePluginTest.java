@@ -43,6 +43,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /// Plugin-level integration test for [VerificationServicePlugin].
 @DisplayName("VerificationServicePlugin Tests")
@@ -636,6 +638,37 @@ class VerificationServicePluginTest {
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(block0.blockUnparsed(), VerificationNotification::block)
                     .returns(block0.blockRootHash(), VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that a real mainnet wrapped record block of a legacy
+        /// record file format version (v2 block 0 from 2019 and v5 block 26591040 from 2022),
+        /// carrying its original RSA signatures, passes full plugin verification when the era
+        /// address book is loaded: the hashing stage reconstructs the legacy binary format to
+        /// compute the version-appropriate signed payload and the RSA proof verifier validates
+        /// the real signatures against the era keys.
+        @ParameterizedTest(name = "{0}")
+        @EnumSource(
+                value = WRB.class,
+                names = {"MAINNET_V2_BLOCK_0", "MAINNET_V5_BLOCK_26591040"})
+        @DisplayName("Successful WRB Verification - real mainnet V2/V5 blocks")
+        void testSuccessfulWRBVerificationRealMainnetLegacyVersions(final WRB fixture)
+                throws IOException, ParseException {
+            final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
+            // First, we update the node address book with the era keys
+            updateAddressBook(block.nodeAddressBook());
+            // Then, we push the block to the live items RB
+            plugin.handleBlockItemsReceived(block.asBlockItems());
+            // Finally, await a single response and assert success
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(true, VerificationNotification::success)
+                    .returns(null, VerificationNotification::failureInfo)
+                    .returns(block.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(block.blockUnparsed(), VerificationNotification::block)
+                    .returns(block.blockRootHash(), VerificationNotification::blockHash);
         }
 
         /// This test aims to assert that when the next in line WRB block is

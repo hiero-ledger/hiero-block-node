@@ -105,7 +105,23 @@ public class ResourceTestBlockBuilder {
                 "WRB/SOLO_4N/4.blk.gz",
                 "32806f4d9977cf41ba2750e9b4254545c19870ff01a1783654b50429b201f2a310bae9cc549821f263935454de88bc43",
                 4,
-                "SOLO_4N");
+                "SOLO_4N"),
+        /// Real mainnet genesis block wrapped from a v2 record file
+        /// (2019-09-13T21_53_51.396440Z) with its original RSA signatures; the address book
+        /// carries the genesis-era keys with nodeId = accountNum - 3.
+        MAINNET_V2_BLOCK_0(
+                "WRB/MAINNET_V2/0.blk.gz",
+                "2262876a73c10cdd6c7780723b149d73d5f47196916104b9e34e675d950baef07d429173d48bc845de158ea8e7c0bacc",
+                0,
+                "MAINNET_V2"),
+        /// Real mainnet block wrapped from a v5 record file (2022-01-01T00_00_00.252365821Z)
+        /// with its original RSA signatures; the address book carries the era keys with
+        /// nodeId = accountNum - 3.
+        MAINNET_V5_BLOCK_26591040(
+                "WRB/MAINNET_V5/26591040.blk.gz",
+                "2e23d5e423bbe37ad32917109b0baf92ef5f890ad2c226b7d7e01d4f9c5d90217a2645ba2e832f948b76e200ecd03c70",
+                26591040,
+                "MAINNET_V5");
         private final String resourceName;
         private final Bytes blockRootHash;
         private final long blockNumber;
