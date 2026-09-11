@@ -859,6 +859,27 @@ task chaos:uninstall   # helm uninstall + delete the chaos-mesh namespace
 - Profiles, per-scenario detail, and how to add a new one: [`docs/latency-scenarios.md`](docs/latency-scenarios.md)
 - Upstream Chaos Mesh wrapper this builds on: [solo-chaos](https://github.com/hashgraph/solo-chaos) (for multi-region simulation)
 
+## Network Chaos / Bandwidth Tests
+
+Cap CN→BN1 (and BN-peers→BN1) egress bandwidth below what's needed to keep up with real block production, to exercise BN's lag-and-recovery behavior under a genuinely under-provisioned link. Same Chaos Mesh foundation and opt-in model as the latency tests above.
+
+Three tiers, differing only in how far below BN's real sustained-need floor the capped link sits:
+
+|         Test File          |  Profile   |                          Description                          |
+|-----------------------------|------------|----------------------------------------------------------------|
+| `tests/bandwidth-lag.yaml`         | base       | ~1.8x the real sustained-need floor — real, recoverable lag |
+| `tests/bandwidth-lag-stress.yaml`  | stress     | ~1.08x the floor — more pronounced lag, still recovers        |
+| `tests/bandwidth-lag-severe.yaml`  | severe     | ~0.54x the floor — structurally insufficient by design         |
+| `tests/bandwidth-lag-monitor-only.yaml` / `-late-snapshot.yaml` | base | Mirror Node Monitor as the sole traffic source, independently configurable CryptoTransfer/ConsensusSubmitMessage TPS and mix |
+
+```bash
+CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag.yaml
+```
+
+**For how to compute your own margin ratio, map your own environment's numbers onto these tiers (or these onto yours), and what to track across milestones to catch a real capacity regression rather than noise, see [`docs/bandwidth-scenarios.md`](docs/bandwidth-scenarios.md).**
+
+> **One at a time.** Same concurrency caveat as latency tests — never trigger a second `solo-e2e-test.yml` run while one is in flight.
+
 ## Troubleshooting
 
 ### Full Reset
