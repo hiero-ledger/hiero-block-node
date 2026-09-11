@@ -867,10 +867,12 @@ Three tiers, differing only in how far below BN's real sustained-need floor the 
 
 |         Test File          |  Profile   |                          Description                          |
 |-----------------------------|------------|----------------------------------------------------------------|
-| `tests/bandwidth-lag.yaml`         | base       | ~1.8x the real sustained-need floor — real, recoverable lag |
-| `tests/bandwidth-lag-stress.yaml`  | stress     | ~1.08x the floor — more pronounced lag, still recovers        |
-| `tests/bandwidth-lag-severe.yaml`  | severe     | ~0.54x the floor — structurally insufficient by design         |
-| `tests/bandwidth-lag-monitor-only.yaml` / `-late-snapshot.yaml` | base | Mirror Node Monitor as the sole traffic source, independently configurable CryptoTransfer/ConsensusSubmitMessage TPS and mix |
+| `tests/bandwidth-lag.yaml`         | base       | NLG traffic, ~1.8x the real sustained-need floor — real, recoverable lag |
+| `tests/bandwidth-lag-stress.yaml`  | stress     | NLG traffic, ~1.08x the floor — more pronounced lag, still recovers        |
+| `tests/bandwidth-lag-severe.yaml`  | severe     | NLG traffic, ~0.54x the floor — structurally insufficient by design         |
+| `tests/bandwidth-lag-monitor-only.yaml` / `-late-snapshot.yaml` | base | Mirror Node Monitor as the sole traffic source (independently configurable CryptoTransfer/ConsensusSubmitMessage TPS and mix), ~1.8x the floor |
+| `tests/bandwidth-lag-monitor-only-late-snapshot-stress.yaml` | stress | Monitor traffic, ~1.08x the floor |
+| `tests/bandwidth-lag-monitor-only-late-snapshot-severe.yaml` | severe | Monitor traffic, ~0.54x the floor |
 
 ```bash
 CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag.yaml

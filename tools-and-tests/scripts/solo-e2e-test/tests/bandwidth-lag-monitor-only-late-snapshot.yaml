@@ -26,6 +26,12 @@
 # reliably grow blocks-diverged's spread on its own (see handoff) -- so this
 # rate bump is necessary but likely not sufficient by itself.
 #
+# blocks-diverged now samples 5 snapshots across the chaos window and asserts
+# on the PEAK spread (see bandwidth-lag.yaml for the full rationale) instead
+# of one fixed-delay sample -- a single sample's spread varied 1-6 across
+# otherwise-identical real runs this session, so min_spread alone can't
+# reliably absorb that variance.
+#
 # Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
 #
 # Pre-req:
@@ -72,11 +78,35 @@ events:
     args:
       window_seconds: 100
 
-  - id: snapshot-peak-chaos
+  - id: snapshot-peak-chaos-1
     type: snapshot-block-heights
-    description: "Capture per-BN block heights at peak chaos (≈365s into the chaos window -- moved later than bandwidth-lag-monitor-only.yaml's 150s to test whether blocks have reached the bigger post-transition regime by this point)"
-    delay: 400
-    args: { snapshot_id: peak-chaos }
+    description: "Capture per-BN block heights, sample 1/5 across the chaos window (see blocks-diverged: peak spread across all 5 wins, not any single one)"
+    delay: 90
+    args: { snapshot_id: peak-chaos-1 }
+
+  - id: snapshot-peak-chaos-2
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 2/5"
+    delay: 180
+    args: { snapshot_id: peak-chaos-2 }
+
+  - id: snapshot-peak-chaos-3
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 3/5"
+    delay: 270
+    args: { snapshot_id: peak-chaos-3 }
+
+  - id: snapshot-peak-chaos-4
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 4/5"
+    delay: 360
+    args: { snapshot_id: peak-chaos-4 }
+
+  - id: snapshot-peak-chaos-5
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 5/5 (≈10s before bandwidth clears)"
+    delay: 440
+    args: { snapshot_id: peak-chaos-5 }
 
   - id: clear-cn-bn1-bw
     type: clear-bandwidth
@@ -105,10 +135,10 @@ assertions:
 
   - id: blocks-diverged
     type: blocks-diverged
-    description: "BNs were at least 5 blocks apart at peak chaos — testing whether a later snapshot (post-transition, bigger blocks) shows more reliable divergence than the original 150s snapshot"
+    description: "BNs were at least 3 blocks apart at peak chaos, at the WORST of 5 samples across the chaos window — robust to which exact moment happens to show the most lag (a single-snapshot spread varied 1-6 across otherwise-identical real runs this session)"
     args:
-      snapshot_id: peak-chaos
-      min_spread: 5
+      snapshot_ids: [peak-chaos-1, peak-chaos-2, peak-chaos-3, peak-chaos-4, peak-chaos-5]
+      min_spread: 3
 
   - id: blocks-converged
     type: blocks-converged

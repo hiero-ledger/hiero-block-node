@@ -39,6 +39,10 @@ Once you have your `margin_ratio`, this table tells you what to expect, based on
 | `tests/bandwidth-lag-stress.yaml` | same | 3500 kbit/s | ~1.08x |
 | `tests/bandwidth-lag-severe.yaml` | same | 1750 kbit/s | ~0.54x |
 | `tests/bandwidth-lag-monitor-only.yaml` / `-late-snapshot.yaml` | Mirror Node Monitor, configurable TPS/mix (CryptoTransfer/ConsensusSubmitMessage), ~2.55 MB/block at a 5k/5k split | 18 mbit/s | ~1.8x |
+| `tests/bandwidth-lag-monitor-only-late-snapshot-stress.yaml` | same Monitor content profile | 10500 kbit/s | ~1.08x |
+| `tests/bandwidth-lag-monitor-only-late-snapshot-severe.yaml` | same Monitor content profile | 5250 kbit/s | ~0.54x |
+
+> **Floor basis for the Monitor tier family**: all three Monitor rates share the same floor (~9.71 Mbit/s), derived from four real samples (866,698 / 2,574,119 / 2,782,229 / 3,991,184 bytes/block, mean ~2.55MB). A larger, more recent sample set (7 real runs, mean ~3.31MB/block) suggests the true floor may now be closer to ~12.4 Mbit/s — meaning base's actual margin may be closer to ~1.45x than the nominal ~1.8x. Not yet re-derived against the fuller dataset; flagged here rather than silently changed, since base's current rate is already confirmed via real passing CI runs and changing it would need its own re-confirmation pass.
 
 ## Running a bandwidth test
 
