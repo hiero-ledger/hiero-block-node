@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -36,7 +35,6 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
-import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -58,12 +56,12 @@ import org.junit.jupiter.api.io.TempDir;
 /// ## Simulating file preload in tests
 ///
 /// In production, `BlockNodeApp.loadApplicationState()` reads the RSA bootstrap file and calls
-/// `updateAddressBookHistory()`, which persists and immediately dispatches an
-/// `AddressBookHistoryNotification` to all registered handlers before plugins are started.
+/// `updateAddressBookHistory()`, which stores the history in the application state facility
+/// before plugins are started; the plugin reads it from there in `start()`.
 ///
 /// In tests, we replicate this by calling `updateAddressBook(book)` directly after `doInit()`,
-/// which dispatches the same notification synchronously so the plugin's internal state is
-/// populated before `doStart()` runs — exactly as it would be in production.
+/// which stores the history in the test base's application state facility before `doStart()`
+/// runs, as it would be in production.
 class RsaRosterBootstrapPluginTest
         extends PluginTestBase<RsaRosterBootstrapPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
 
@@ -113,10 +111,10 @@ class RsaRosterBootstrapPluginTest
     // Pre-loaded address book (simulates BlockNodeApp.loadApplicationState())
     //
     // updateAddressBook(book) replicates what BlockNodeApp.loadApplicationState() does:
-    //   reads the RSA bootstrap file → calls updateAddressBookHistory() → dispatches
-    //   AddressBookHistoryNotification directly to registered handlers.
+    //   reads the RSA bootstrap file, then calls updateAddressBookHistory(), which stores the
+    //   history in the application state facility.
     //
-    // By the time doStart() is called, the plugin has already received the notification,
+    // By the time doStart() is called, the history is already in the application state facility,
     // so start() takes the "file-loaded" branch and skips the Mirror Node fetch entirely.
     // -------------------------------------------------------------------------
 
@@ -128,8 +126,7 @@ class RsaRosterBootstrapPluginTest
         @DisplayName("start() skips Mirror Node and exposes the pre-loaded book in context")
         void preloadedBookIsReflectedInContext() {
             // updateAddressBook() simulates BlockNodeApp pre-loading the RSA bootstrap file:
-            // it sends an AddressBookHistoryNotification to the plugin so its internal history
-            // reference is populated before start() runs.
+            // it stores the history in the application state facility before start() reads it.
             final NodeAddressBook book = buildAddressBook(3);
             doInit(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
             updateAddressBook(book);
@@ -160,10 +157,10 @@ class RsaRosterBootstrapPluginTest
     // Pre-loaded address book history (simulates BlockNodeApp loading history file)
     //
     // updateAddressBookHistory(history) replicates what BlockNodeApp.loadApplicationState() does:
-    //   reads the RSA history file → calls updateAddressBookHistory() → dispatches
-    //   AddressBookHistoryNotification directly to registered handlers.
+    //   reads the RSA history file, then calls updateAddressBookHistory(), which stores the
+    //   history in the application state facility.
     //
-    // By the time doStart() is called, the plugin has already received the notification,
+    // By the time doStart() is called, the history is already in the application state facility,
     // so start() takes the "history-loaded" branch.
     // -------------------------------------------------------------------------
 
@@ -936,25 +933,18 @@ class RsaRosterBootstrapPluginTest
                     .grpcOverallTimeout(10_000)
                     .build();
 
-            final int[] contextUpdated = {0};
-            final RangedAddressBookHistory[] histories = {null};
-            CountDownLatch latch = new CountDownLatch(1);
-
-            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(contextUpdated, histories, latch);
-
-            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
             testThreadPoolManager.scheduledExecutor().executeSerially();
-            latch.await();
 
-            assertTrue(contextUpdated[0] > 0);
-            assertNotNull(histories[0]);
-            assertEquals(5, histories[0].addressBooks().size());
+            final RangedAddressBookHistory history = currentAddressBookHistory;
+            assertNotNull(history);
+            assertEquals(5, history.addressBooks().size());
 
             // These are magic numbers, yes. The {@link TestBlockNodeServer} does not yet have a way to pass in TssData
             // to
             // hand back to testers. Using the values that are passed back to make sure the statusDetails api is
             // being called. Todo: add TssData flexibility to {@link TestBlockNodeServer}
-            final NodeAddressBook peerBook = histories[0].addressBooks().get(0).addressBook();
+            final NodeAddressBook peerBook = history.addressBooks().get(0).addressBook();
             assertEquals(0L, peerBook.nodeAddress().getFirst().nodeId());
             assertEquals(1L, peerBook.nodeAddress().get(1).nodeId());
         }
@@ -1255,26 +1245,6 @@ class RsaRosterBootstrapPluginTest
                     "roster.bootstrap.rsa.maxIncomingBufferSize", String.valueOf(maxIncomingBufferSize),
                     "roster.bootstrap.rsa.grpcOverallTimeout", String.valueOf(grpcOverallTimeout),
                     "roster.bootstrap.rsa.enableTLS", String.valueOf(enableTLS)));
-        }
-    }
-
-    private class TestBootstrapPlugin extends RsaRosterBootstrapPlugin {
-        private final int[] contextUpdated;
-        private final RangedAddressBookHistory[] histories;
-        private final CountDownLatch latch;
-
-        private TestBootstrapPlugin(int[] contextUpdated, RangedAddressBookHistory[] histories, CountDownLatch latch) {
-            this.contextUpdated = contextUpdated;
-            this.histories = histories;
-            this.latch = latch;
-        }
-
-        @Override
-        public void handleAddressBookHistoryUpdate(final AddressBookHistoryNotification notification) {
-            super.handleAddressBookHistoryUpdate(notification);
-            contextUpdated[0]++;
-            histories[0] = notification.rangedAddressBookHistory();
-            latch.countDown();
         }
     }
 }

@@ -37,8 +37,6 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
-import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -48,23 +46,22 @@ import org.hiero.metrics.core.MetricRegistry;
 /// {@link ApplicationStateFacility#updateAddressBookHistory}.
 ///
 /// File loading is handled by {@code BlockNodeApp}: it reads the history file (or the legacy
-/// single-book file) in {@code loadApplicationState()} before plugins are initialised. This
-/// plugin's sole responsibility is to check whether the history was already loaded and, if not,
-/// to fetch it from a peer block node or the Mirror Node.
+/// single-book file, wrapped into a single open-ended era) in {@code loadApplicationState()} and
+/// stores it in the {@link ApplicationStateFacility}. This plugin's sole responsibility is to check
+/// whether {@link ApplicationStateFacility#rangedAddressBookHistory()} already holds a history and,
+/// if not, to fetch it from a peer block node or the Mirror Node.
 ///
 /// **Startup sequence:**
 ///
-/// 1. If {@code context.nodeAddressBookHistory()} is non-null: history was pre-loaded — emit
-///    metrics and return (no periodic refresh; history updates are an operator concern).
-/// 2. If {@code context.nodeAddressBook()} is non-null: a single-book file was pre-loaded —
-///    emit metrics and schedule periodic peer BN / Mirror Node refreshes.
-/// 3. Otherwise, start concurrent peer BN and Mirror Node fallback queries. The Mirror Node
+/// 1. If the application state facility already holds a history: emit metrics and return (no
+///    periodic refresh; history updates are an operator concern).
+/// 2. Otherwise, start concurrent peer BN and Mirror Node fallback queries. The Mirror Node
 ///    path builds a full {@link org.hiero.block.api.RangedAddressBookHistory} by converting
 ///    each node entry's timestamp range to a block-number range via the blocks API.
-/// 4. If neither source succeeds and {@code mirrorNodeBaseUrl} is blank: log WARNING and return.
+/// 3. If neither source succeeds and {@code mirrorNodeBaseUrl} is blank: log WARNING and return.
 ///
 /// See {@code docs/design/wrb-streaming/bootstrap-roster-plugin.md} for the full design.
-public class RsaRosterBootstrapPlugin implements BlockNodePlugin, ApplicationStateNotificationHandler {
+public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
     private static final System.Logger LOGGER = System.getLogger(RsaRosterBootstrapPlugin.class.getName());
 
@@ -127,9 +124,6 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin, ApplicationSta
     private ApplicationStateFacility applicationStateFacility;
     private AddressBookFetcher addressBookFetcher;
 
-    // Current address book history received via ApplicationStateNotificationHandler
-    private volatile RangedAddressBookHistory currentHistory;
-
     // Metric values stored after startup so ObservableGauge can read them
     private volatile long rosterEntriesLoaded = 0L;
     private volatile long rosterLoadDurationMs = 0L;
@@ -152,8 +146,6 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin, ApplicationSta
         metricRegistry.register(ObservableGauge.builder(METRIC_ROSTER_ERAS_LOADED)
                 .setDescription("Number of distinct block-range eras in the loaded address book history")
                 .observe(() -> rosterErasLoaded));
-
-        context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
 
         // Initialise the peer fetcher if a sources file is configured
         if (!config.blockNodeSourcesPath().isBlank()) {
@@ -180,25 +172,17 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin, ApplicationSta
         }
     }
 
-    /// Receives address-book history updates dispatched by the application state facility.
-    @Override
-    public void handleAddressBookHistoryUpdate(final AddressBookHistoryNotification notification) {
-        this.currentHistory = notification.rangedAddressBookHistory();
-    }
-
     /// Implements the bootstrap strategy:
-    /// 1. History file loaded (preferred) → record history metrics; no periodic refresh
+    /// 1. History present → record history metrics; no periodic refresh
     ///    (history updates are an operator / T3 concern).
-    /// 2. Single address book loaded → record book metrics; schedule periodic peer BN and Mirror
-    ///    Node refreshes as before.
-    /// 3. Neither loaded → start concurrent peer BN and Mirror Node fallback queries.
+    /// 2. No history → start concurrent peer BN and Mirror Node fallback queries.
     @Override
     public void start() {
         long startTimeMillis = System.currentTimeMillis();
 
-        // Prefer the block-number-keyed history over the legacy single-book
-        if (currentHistory != null) {
-            recordHistoryMetrics(currentHistory, startTimeMillis);
+        final RangedAddressBookHistory history = applicationStateFacility.rangedAddressBookHistory();
+        if (history != null) {
+            recordHistoryMetrics(history, startTimeMillis);
             return;
         }
 
@@ -284,8 +268,9 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin, ApplicationSta
     /// Fetches node entries from the Mirror Node REST API and builds or incrementally updates
     /// the {@link RangedAddressBookHistory}.
     ///
-    /// <p><b>Full build</b> (when no history exists in context): all pages are fetched, every era
-    /// timestamp pair is resolved to a block range, and a complete history is constructed.
+    /// <p><b>Full build</b> (when the application state facility holds no history): all pages are
+    /// fetched, every era timestamp pair is resolved to a block range, and a complete history is
+    /// constructed.
     ///
     /// <p><b>Incremental update</b> (when history already exists): pages are fetched newest-first
     /// ({@code order=desc}) and pagination stops as soon as an era whose block range is already
@@ -294,11 +279,11 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin, ApplicationSta
     /// ({@code endBlock = newStartBlock - 1}) and the new eras are appended.
     private void fetchFromMirrorNode() {
         final long startTimeMillis = System.currentTimeMillis();
-        final RangedAddressBookHistory latestHistory = this.currentHistory;
+        final RangedAddressBookHistory currentHistory = applicationStateFacility.rangedAddressBookHistory();
         final boolean hasHistory =
-                latestHistory != null && !latestHistory.addressBooks().isEmpty();
+                currentHistory != null && !currentHistory.addressBooks().isEmpty();
         final long currentLastStartBlock = hasHistory
-                ? latestHistory.addressBooks().getLast().startBlock()
+                ? currentHistory.addressBooks().getLast().startBlock()
                 : Long.MIN_VALUE; // sentinel: full-build path, never triggers early-stop
 
         // Two separate clients, not one shared across both endpoint families: some Mirror Node
@@ -320,7 +305,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin, ApplicationSta
             final Map<String, Era> eras = collectEras(nodesClient, blocksClient, currentLastStartBlock);
             if (eras == null) return; // Mirror Node unavailable — already logged by fetchAndParse
             if (eras.isEmpty()) {
-                if (latestHistory == null) {
+                if (currentHistory == null) {
                     LOGGER.log(
                             WARNING,
                             "Mirror Node returned zero nodes with a valid public_key from {0}.",
@@ -355,7 +340,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin, ApplicationSta
             rangedBooks.sort(Comparator.comparingLong(RangedNodeAddressBook::startBlock));
 
             final RangedAddressBookHistory history = RangedAddressBookHistory.newBuilder()
-                    .addressBooks(mergeWithExisting(latestHistory, rangedBooks))
+                    .addressBooks(mergeWithExisting(currentHistory, rangedBooks))
                     .build();
             recordHistoryMetrics(history, startTimeMillis);
             applicationStateFacility.updateAddressBookHistory(history);

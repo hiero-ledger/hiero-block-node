@@ -117,6 +117,9 @@ public final class VerificationServicePlugin
     /// last verified block, that is the same as the latest persisted block.
     @Override
     public void start() {
+        verificationDataProvider.safeUpdateTssData(
+                context.applicationStateFacility().tssData(), false);
+        updateLastVerifiedBlock(context.applicationStateFacility().storedBlocks());
         this.context.blockMessaging().registerBlockNotificationHandler(this, true, name());
         this.context.blockMessaging().registerBlockItemHandler(this, true, name());
         badBlockDumper.start(context.threadPoolManager());
@@ -137,6 +140,7 @@ public final class VerificationServicePlugin
         // unregister from listening to incoming block items
         context.blockMessaging().unregisterBlockItemHandler(this);
         context.blockMessaging().unregisterBlockNotificationHandler(this);
+        context.blockMessaging().unregisterApplicationStateNotificationHandler(this);
         // immediately shutdown the executor
         executor.shutdownNow();
         badBlockDumper.stop();
@@ -175,7 +179,7 @@ public final class VerificationServicePlugin
                 localLastVerified = lastVerifiedBlock.get();
             }
             if (updateHappened) {
-                final String message = "StoredBlocksNotification received, updated last verified block to {0}";
+                final String message = "Updated last verified block from stored blocks to {0}";
                 LOGGER.log(INFO, message, lastVerifiedBlock.get());
             }
         }

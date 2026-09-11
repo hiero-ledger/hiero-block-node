@@ -191,7 +191,6 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                 LOGGER.log(INFO, "Failed to get size of block file for block %s".formatted(blockNumber), e);
             }
         });
-        context.applicationStateFacility().updateAvailableBlocks(this, availableBlocks);
     }
 
     /**
@@ -331,6 +330,9 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                     for (long i = firstBlockToDelete; i < lastBlockToDelete; i++) {
                         delete(i);
                     }
+                    if (excess > 0) {
+                        context.applicationStateFacility().updateAvailableBlocks();
+                    }
                 }
             }
             final long totalTime = System.nanoTime() - startTime;
@@ -415,7 +417,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             LOGGER.log(DEBUG, "Wrote verified block {0} to file {1}", blockNumber, verifiedBlockPath.toAbsolutePath());
             // update the oldest and newest verified block numbers
             availableBlocks.add(blockNumber);
-            context.applicationStateFacility().updateAvailableBlocks(this, availableBlocks);
+            context.applicationStateFacility().updateAvailableBlocks();
             // Increment blocks written counter
             blocksWrittenCounter.increment();
             return true;
@@ -486,7 +488,6 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                 LOGGER.log(INFO, DELETE_MESSAGE.formatted("File missing", blockFilePath));
             }
             availableBlocks.remove(blockNumber);
-            context.applicationStateFacility().updateAvailableBlocks(this, availableBlocks);
             blocksDeletedCounter.increment();
             totalBytesStored.addAndGet(-fileSize);
         } catch (final IOException e) {
