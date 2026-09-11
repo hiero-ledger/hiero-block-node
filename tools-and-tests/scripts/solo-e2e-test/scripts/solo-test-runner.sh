@@ -199,6 +199,7 @@ function execute_load_start {
     local duration="${4:-300}"
     local max_tps="${5:-}"
     local extra_args="${6:-}"
+    local java_heap="${7:-}"
 
     # Construct NLG_ARGS from test definition parameters
     local nlg_args="-c $concurrency -a $accounts -tt $duration"
@@ -206,10 +207,13 @@ function execute_load_start {
 
     echo "Starting NLG (async): class=$test_class args='$nlg_args'"
     [[ -n "$max_tps" ]] && echo "  Max TPS: $max_tps"
+    [[ -n "$java_heap" ]] && echo "  Java heap: ${java_heap}g"
 
     export DEPLOYMENT NAMESPACE
+    export NLG_TEST_TYPE="$test_class"
     export NLG_ARGS="$nlg_args"
     [[ -n "$max_tps" ]] && export NLG_MAX_TPS="$max_tps"
+    [[ -n "$java_heap" ]] && export NLG_JAVA_HEAP="$java_heap"
 
     # Run in background so test can continue
     "${SCRIPT_DIR}/solo-load-generate.sh" start &
@@ -218,6 +222,19 @@ function execute_load_start {
 
     # Brief wait for Solo to initialize
     sleep 5
+
+    # A fast failure (e.g. Solo CLI lease contention when starting a second
+    # concurrent NLG process too soon after a first -- see finding 5f in the
+    # handoff) exits within this window. This event previously always
+    # reported PASS regardless, since the background job's own exit code was
+    # never checked. A slow failure (crash mid-run, well past this window)
+    # still won't be caught here -- this only catches failures fast enough to
+    # exit before the brief wait above ends.
+    if ! kill -0 "$pid" 2>/dev/null; then
+        wait "$pid"
+        local exit_code=$?
+        echo "WARNING: NLG start for $test_class exited early (code $exit_code) -- it likely never started successfully. Check nlg-logs for the reason (e.g. Solo CLI lease contention)."
+    fi
 }
 
 function execute_load_stop {
@@ -225,7 +242,21 @@ function execute_load_stop {
     echo "Stopping NLG: class=$test_class"
 
     export DEPLOYMENT NAMESPACE
+    export NLG_TEST_TYPE="$test_class"
     "${SCRIPT_DIR}/solo-load-generate.sh" stop
+
+    # Capture NLG's own self-reported output (TPS, precheck/BUSY rejections)
+    # AFTER stop, not before: `kubectl logs` on the NLG pod only ever shows its
+    # placeholder DONOTSTART container command (confirmed empirically — the
+    # real java process is launched via `kubectl exec` into that pod, which
+    # never becomes the container's own logged stdout, and --quiet-mode
+    # suppresses the exec's live output from this job's log too). The one real
+    # record is the diagnostics file `solo rapid-fire load stop` itself writes
+    # to ~/.solo/logs/rapid-fire-*.log once it detects the process it just
+    # stopped — which only exists *after* the stop call above, not before.
+    mkdir -p nlg-logs
+    cp "${HOME}/.solo/logs/"rapid-fire*.log nlg-logs/ 2>/dev/null || \
+        echo "No rapid-fire log file found under ${HOME}/.solo/logs/ after stop" > "nlg-logs/rapid-fire-log-missing.txt"
 }
 
 function execute_print_metrics {
@@ -251,6 +282,85 @@ function execute_print_metrics {
         echo "=== Metrics for $target (port $port) ==="
         "${SCRIPT_DIR}/solo-metrics-summary.sh" "$port" text || echo "Metrics unavailable"
     fi
+}
+
+# Ground-truth transaction count for a real block, straight from Mirror Node's
+# own REST API -- not inferred from NLG's self-reported TPS or BN's block-item
+# counters. Queries the most recent block at the moment this event fires, so
+# placing it inside an active NLG load window (not after load-stop) is what
+# makes the result meaningful.
+function execute_mirror_block_tx_count {
+    local port="${1:-5551}"
+    local response
+    response=$(curl -s "http://localhost:${port}/api/v1/blocks?limit=1&order=desc")
+    local number="unavailable" count="unavailable" timestamp="unavailable"
+    if [[ -n "$response" ]]; then
+        number=$(echo "$response" | jq -r '.blocks[0].number // "unavailable"' 2>/dev/null || echo "unavailable")
+        count=$(echo "$response" | jq -r '.blocks[0].count // "unavailable"' 2>/dev/null || echo "unavailable")
+        timestamp=$(echo "$response" | jq -r '.blocks[0].timestamp.from // "unavailable"' 2>/dev/null || echo "unavailable")
+    fi
+    echo "Mirror Node block (port ${port}): number=${number} count=${count} timestamp=${timestamp}"
+}
+
+# Samples the most recent transactions from Mirror Node and tallies them by
+# HAPI transaction type (.name) -- confirms which transaction types are
+# actually landing on-chain when NLG runs multiple types concurrently and its
+# own job classes don't all self-report (see nlg-mixed-throughput-ceiling.yaml
+# and finding 5e in the handoff: 4 of 5 LongevityLoadTest job types are
+# silent). Note: both fungible and NFT transfers report as CRYPTOTRANSFER --
+# this distinguishes HAPI-level transaction types, not which NLG job class
+# produced them.
+#
+# Caveat (confirmed empirically, see finding 5n/5o in the handoff): a fixed
+# record-count sample ("most recent N") is only representative when traffic
+# across types is roughly even. If one type dominates (e.g. HeliSwapJob
+# running at ~300 TPS via ETHEREUMTRANSACTION), "most recent 100" spans a
+# tiny slice of real time (100/300 = ~0.3s) entirely owned by whichever type
+# has the highest instantaneous rate -- any lower-frequency type has almost
+# no chance of appearing regardless of whether it's genuinely running.
+# Prefer execute_mirror_tx_presence below when traffic is expected to be
+# unevenly distributed across types.
+function execute_mirror_tx_distribution {
+    local port="${1:-5551}"
+    local limit="${2:-100}"
+    local response
+    response=$(curl -s "http://localhost:${port}/api/v1/transactions?limit=${limit}&order=desc")
+    local dist=""
+    if [[ -n "$response" ]]; then
+        dist=$(echo "$response" | jq -r '.transactions[]?.name // empty' 2>/dev/null \
+            | sort | uniq -c | sort -rn | awk '{printf "%s=%s ", $2, $1}')
+    fi
+    echo "Mirror Node tx distribution (port ${port}, sample=${limit}): ${dist:-unavailable}"
+}
+
+# Checks per-type presence (not proportion) of each given HAPI transaction
+# type within a real time window -- immune to the sampling-skew problem
+# above, since each type is queried independently via Mirror Node's own
+# transactiontype filter rather than competing for slots in a single
+# fixed-size "most recent N" sample. Answers "did this type land at all in
+# this window," regardless of how much any other type dominates.
+function execute_mirror_tx_presence {
+    local port="${1:-5551}"
+    local window_seconds="${2:-60}"
+    local types="${3:-CRYPTOTRANSFER,CONSENSUSSUBMITMESSAGE,CONTRACTCALL,ETHEREUMTRANSACTION}"
+    local since
+    since=$(( $(date +%s) - window_seconds ))
+    local result=""
+    local IFS=','
+    for tx_type in $types; do
+        local response count
+        response=$(curl -s "http://localhost:${port}/api/v1/transactions?transactiontype=${tx_type}&timestamp=gte:${since}.0&limit=1")
+        count=0
+        if [[ -n "$response" ]]; then
+            count=$(echo "$response" | jq -r '.transactions | length' 2>/dev/null || echo 0)
+        fi
+        if [[ "${count:-0}" -gt 0 ]]; then
+            result="${result}${tx_type}=present "
+        else
+            result="${result}${tx_type}=absent "
+        fi
+    done
+    echo "Mirror Node tx type presence (port ${port}, window=${window_seconds}s): ${result}"
 }
 
 function execute_network_status {
@@ -641,7 +751,22 @@ function chaos_slug {
 function chaos_resource_name {
     local scenario_name="$1"
     local n="$(chaos_slug "${TEST_NAME}")--$(chaos_slug "${scenario_name}")"
-    echo "${n:0:63}"
+    echo "${n:0:63}" | sed 's/-*$//'
+}
+
+# Blocks until a NetworkChaos resource reports AllInjected=True, or fails fast
+# if Chaos Mesh reports it could not be injected. Without this check, a
+# silently-failed injection (e.g. webhook rejection, ipset/chaosd issue) looks
+# identical to "chaos had no observable effect" — this turns that into a
+# clear, immediate error instead of a confusing downstream assertion failure.
+function wait_for_networkchaos_injected {
+    local chaos_name="$1"
+    if ! kctl wait --for=condition=AllInjected "networkchaos/${chaos_name}" \
+            -n chaos-mesh --timeout=30s >/dev/null 2>&1; then
+        echo "ERROR: NetworkChaos '${chaos_name}' did not reach AllInjected within 30s"
+        kctl describe networkchaos -n chaos-mesh "${chaos_name}"
+        return 1
+    fi
 }
 
 function execute_inject_latency {
@@ -655,7 +780,7 @@ function execute_inject_latency {
     latency=$(echo "$args" | yq '.latency // "0ms"')
     jitter=$(echo "$args" | yq '.jitter // "0ms"')
     correlation=$(echo "$args" | yq '.correlation // "0"')
-    bidirectional=$(echo "$args" | yq '.bidirectional // true')
+    bidirectional=$(echo "$args" | yq 'if has("bidirectional") then .bidirectional else true end')
     loss=$(echo "$args" | yq '.loss // ""')
     loss="${loss//%/}"  # Chaos Mesh expects plain numeric string, not "50%"
 
@@ -751,6 +876,8 @@ function execute_inject_latency {
     fi
 
     echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
+
+    wait_for_networkchaos_injected "${chaos_name}"
 }
 
 function execute_clear_latency {
@@ -770,6 +897,133 @@ function execute_clear_latency {
     fi
 }
 
+function execute_inject_bandwidth {
+    local args="$1"
+    local name source_kind source_name target_kind target_name rate limit buffer bidirectional direction_arg
+    name=$(echo "$args" | yq '.name // ""')
+    source_kind=$(echo "$args" | yq '.source.kind // ""')
+    source_name=$(echo "$args" | yq '.source.name // ""')
+    target_kind=$(echo "$args" | yq '.target.kind // ""')
+    target_name=$(echo "$args" | yq '.target.name // ""')
+    rate=$(echo "$args" | yq '.rate // "1mbps"')
+    limit=$(echo "$args" | yq '.limit // 1000000')
+    buffer=$(echo "$args" | yq '.buffer // 10000')
+    bidirectional=$(echo "$args" | yq '.bidirectional // false')
+    direction_arg=$(echo "$args" | yq '.direction // ""')
+
+    [[ -z "$name" || "$name" == "null" ]] && { echo "ERROR: inject-bandwidth requires args.name"; return 1; }
+    [[ -z "$source_kind" || "$source_kind" == "null" ]] && { echo "ERROR: inject-bandwidth requires args.source.kind"; return 1; }
+    [[ -z "$target_kind" || "$target_kind" == "null" ]] && { echo "ERROR: inject-bandwidth requires args.target.kind"; return 1; }
+
+    # Retry the CRD check — kubectl can return non-zero transiently after
+    # Chaos Mesh install (CRD propagation lag) or under cluster API-server load.
+    local crd_attempts=0
+    local crd_max=6
+    while [[ $crd_attempts -lt $crd_max ]]; do
+        if kctl api-resources --api-group=chaos-mesh.org -o name 2>/dev/null | grep -q networkchaos; then
+            break
+        fi
+        crd_attempts=$((crd_attempts + 1))
+        [[ $crd_attempts -lt $crd_max ]] && sleep 2
+    done
+    if [[ $crd_attempts -ge $crd_max ]]; then
+        echo "ERROR: Chaos Mesh CRDs not present after ${crd_max} retries. Run: CHAOS_ENABLED=true task chaos:install"
+        return 1
+    fi
+
+    local source_selector
+    source_selector=$(chaos_label_selector "$source_kind") || return 1
+    local source_key="${source_selector%%=*}" source_val="${source_selector#*=}"
+    local source_name_filter=""
+    local source_dryrun_selector="${source_selector}"
+    if [[ -n "${source_name}" && "${source_name}" != "null" ]]; then
+        source_dryrun_selector="${source_selector},app.kubernetes.io/instance=${source_name}"
+        source_name_filter="      app.kubernetes.io/instance: ${source_name}"
+    fi
+
+    if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
+            --selector "${source_dryrun_selector}" --label "source(${source_kind})"; then
+        return 1
+    fi
+
+    # "service" targets resolve to the Service's own ClusterIP and are passed
+    # as chaos-mesh's externalTargets (works only with direction=to), rather
+    # than a pod selector — required whenever the sender reaches the target
+    # via a k8s Service rather than its pod IP directly. See
+    # chaos-templates/README.md ("Targeting a Service") for why.
+    local target_block target_desc
+    if [[ "${target_kind}" == "service" ]]; then
+        [[ -z "${target_name}" || "${target_name}" == "null" ]] && \
+            { echo "ERROR: inject-bandwidth target.kind=service requires args.target.name"; return 1; }
+        local target_cluster_ip
+        target_cluster_ip=$(kctl get svc "${target_name}" -n "${NAMESPACE}" -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+        if [[ -z "${target_cluster_ip}" || "${target_cluster_ip}" == "None" ]]; then
+            echo "ERROR: could not resolve ClusterIP for service '${target_name}' in ns=${NAMESPACE}"
+            return 1
+        fi
+        echo "target(service): resolved '${target_name}' -> externalTargets: ${target_cluster_ip}"
+        target_block=$(printf '  externalTargets:\n    - %s' "${target_cluster_ip}")
+        target_desc="service/${target_name} (externalTargets: ${target_cluster_ip})"
+    else
+        local target_selector
+        target_selector=$(chaos_label_selector "$target_kind") || return 1
+        local target_key="${target_selector%%=*}" target_val="${target_selector#*=}"
+        local target_name_filter=""
+        local target_dryrun_selector="${target_selector}"
+        if [[ -n "${target_name}" && "${target_name}" != "null" ]]; then
+            target_dryrun_selector="${target_selector},app.kubernetes.io/instance=${target_name}"
+            target_name_filter="        app.kubernetes.io/instance: ${target_name}"
+        fi
+        if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
+                --selector "${target_dryrun_selector}" --label "target(${target_kind})"; then
+            return 1
+        fi
+        target_block=$(printf '  target:\n    mode: all\n    selector:\n      namespaces:\n        - %s\n      labelSelectors:\n        %s: %s\n%s' \
+            "${NAMESPACE}" "${target_key}" "${target_val}" "${target_name_filter}")
+        target_desc="${target_key}=${target_val}${target_name:+,instance=${target_name}}"
+    fi
+
+    local chaos_name direction
+    chaos_name=$(chaos_resource_name "${name}")
+
+    if [[ -n "${direction_arg}" && "${direction_arg}" != "null" ]]; then
+        direction="${direction_arg}"
+    elif [[ "${bidirectional}" == "true" ]]; then
+        direction="both"
+    else
+        direction="to"
+    fi
+
+    local manifest="/tmp/${chaos_name}.yaml"
+    export CHAOS_NAME="${chaos_name}"
+    export TEST_ID="$(chaos_slug "${TEST_NAME}")"
+    export SCENARIO_ID="$(chaos_slug "${name}")"
+    export DIRECTION="${direction}"
+    export TARGET_NAMESPACE="${NAMESPACE}"
+    export SOURCE_LABEL_KEY="${source_key}"
+    export SOURCE_LABEL_VALUE="${source_val}"
+    export SOURCE_NAME_FILTER="${source_name_filter}"
+    export TARGET_BLOCK="${target_block}"
+    export BANDWIDTH_RATE="${rate}"
+    export BANDWIDTH_LIMIT="${limit}"
+    export BANDWIDTH_BUFFER="${buffer}"
+
+    envsubst < "${CHAOS_TEMPLATE_DIR}/network-bandwidth.yaml.tmpl" > "${manifest}"
+
+    echo "Applying NetworkChaos '${chaos_name}'"
+    echo "  selector: ${source_key}=${source_val}${source_name:+,instance=${source_name}}  ->  target: ${target_desc}"
+    echo "  bandwidth: ${rate} (limit: ${limit}, buffer: ${buffer}, direction: ${direction})"
+
+    if ! kctl apply -f "${manifest}"; then
+        echo "ERROR: Failed to apply NetworkChaos manifest '${chaos_name}'"
+        return 1
+    fi
+
+    echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
+
+    wait_for_networkchaos_injected "${chaos_name}"
+}
+
 # ============================================================================
 # Event Dispatch
 # ============================================================================
@@ -780,14 +1034,15 @@ function execute_event {
 
     case "$event_type" in
         load-start)
-            local test_class concurrency accounts duration max_tps extra_args
+            local test_class concurrency accounts duration max_tps extra_args java_heap
             test_class=$(echo "$args" | yq '.test_class // "CryptoTransferLoadTest"')
             concurrency=$(echo "$args" | yq '.concurrency // 5')
             accounts=$(echo "$args" | yq '.accounts // 10')
             duration=$(echo "$args" | yq '.duration // 300')
             max_tps=$(echo "$args" | yq '.max_tps // ""')
             extra_args=$(echo "$args" | yq '.extra_args // ""')
-            execute_load_start "$test_class" "$concurrency" "$accounts" "$duration" "$max_tps" "$extra_args"
+            java_heap=$(echo "$args" | yq '.java_heap // ""')
+            execute_load_start "$test_class" "$concurrency" "$accounts" "$duration" "$max_tps" "$extra_args" "$java_heap"
             ;;
         load-stop)
             local test_class
@@ -799,6 +1054,24 @@ function execute_event {
             metrics_target=$(echo "$args" | yq '.target // "all"')
             [[ -n "$target" && "$target" != "null" ]] && metrics_target="$target"
             execute_print_metrics "$metrics_target"
+            ;;
+        mirror-block-tx-count)
+            local mirror_port
+            mirror_port=$(echo "$args" | yq '.port // 5551')
+            execute_mirror_block_tx_count "$mirror_port"
+            ;;
+        mirror-tx-distribution)
+            local mirror_dist_port mirror_dist_limit
+            mirror_dist_port=$(echo "$args" | yq '.port // 5551')
+            mirror_dist_limit=$(echo "$args" | yq '.limit // 100')
+            execute_mirror_tx_distribution "$mirror_dist_port" "$mirror_dist_limit"
+            ;;
+        mirror-tx-presence)
+            local mirror_pres_port mirror_pres_window mirror_pres_types
+            mirror_pres_port=$(echo "$args" | yq '.port // 5551')
+            mirror_pres_window=$(echo "$args" | yq '.window_seconds // 60')
+            mirror_pres_types=$(echo "$args" | yq '.types // ["CRYPTOTRANSFER","CONSENSUSSUBMITMESSAGE","CONTRACTCALL","ETHEREUMTRANSACTION"] | join(",")')
+            execute_mirror_tx_presence "$mirror_pres_port" "$mirror_pres_window" "$mirror_pres_types"
             ;;
         network-status)
             execute_network_status
@@ -865,6 +1138,12 @@ function execute_event {
             execute_inject_latency "$args"
             ;;
         clear-latency)
+            execute_clear_latency "$args"
+            ;;
+        inject-bandwidth)
+            execute_inject_bandwidth "$args"
+            ;;
+        clear-bandwidth)
             execute_clear_latency "$args"
             ;;
         *)
@@ -1361,6 +1640,67 @@ function assert_blocks_diverged {
     fi
 }
 
+# Assert that at least one of several named snapshots captured across the chaos
+# window shows a block spread >= min_spread. More robust than
+# assert_blocks_diverged's single fixed-point sample -- real observed spread at
+# a single snapshot varies a lot depending on exactly when you look (session
+# data: 1-6 at a single fixed-delay snapshot, same rate, same content profile),
+# so this checks the PEAK across several snapshots taken throughout the chaos
+# window instead of gambling on one. Each snapshot must have been written by
+# its own preceding snapshot-block-heights event.
+function assert_blocks_diverged_max {
+    local min_spread="$1"
+    shift
+    local snapshot_ids=("$@")
+
+    if [[ ${#snapshot_ids[@]} -eq 0 ]]; then
+        echo "FAIL: assert_blocks_diverged_max called with no snapshot IDs"
+        return 1
+    fi
+
+    local best_spread=-1
+    local best_id="" best_min=0 best_max=0
+    local any_found="false"
+
+    for sid in "${snapshot_ids[@]}"; do
+        local snapshot_file="/tmp/chaos-snapshot-${sid}.txt"
+        if [[ ! -f "${snapshot_file}" ]]; then
+            echo "WARNING: snapshot '${sid}' not found at ${snapshot_file}, skipping"
+            continue
+        fi
+        any_found="true"
+
+        local min_last=999999999
+        local max_last=0
+        while IFS='=' read -r bn last_block; do
+            [[ -z "$bn" ]] && continue
+            [[ "${last_block}" -lt "${min_last}" ]] && min_last="${last_block}"
+            [[ "${last_block}" -gt "${max_last}" ]] && max_last="${last_block}"
+        done < "${snapshot_file}"
+
+        local spread=$(( max_last - min_last ))
+        echo "  snapshot '${sid}': spread=${spread} (min=${min_last}, max=${max_last})"
+        if [[ "${spread}" -gt "${best_spread}" ]]; then
+            best_spread="${spread}"
+            best_id="${sid}"
+            best_min="${min_last}"
+            best_max="${max_last}"
+        fi
+    done
+
+    if [[ "${any_found}" != "true" ]]; then
+        echo "FAIL: none of the requested snapshots were found: ${snapshot_ids[*]}"
+        return 1
+    fi
+
+    if [[ "${best_spread}" -lt "${min_spread}" ]]; then
+        echo "FAIL: max spread ${best_spread} (at snapshot '${best_id}', min=${best_min}, max=${best_max}) across ${#snapshot_ids[@]} snapshots is below minimum ${min_spread} — chaos produced no detectable divergence at any sampled point"
+        return 1
+    else
+        echo "PASS: max spread ${best_spread} (at snapshot '${best_id}', min=${best_min}, max=${best_max}) across ${#snapshot_ids[@]} snapshots ≥ ${min_spread}"
+    fi
+}
+
 # Assert that block signatures transition from Schnorr to WRAPS.
 # Delegates to monitor-block-proofs.sh and captures its output.
 function assert_signature_transition {
@@ -1598,10 +1938,20 @@ function run_assertion {
             assert_blocks_converged "$bc_tolerance"
             ;;
         blocks-diverged)
-            local bd_snapshot_id bd_min_spread
-            bd_snapshot_id=$(echo "$args" | yq '.snapshot_id // "default"')
+            local bd_min_spread bd_has_ids
             bd_min_spread=$(echo "$args" | yq '.min_spread // 3')
-            assert_blocks_diverged "${bd_snapshot_id}" "${bd_min_spread}"
+            bd_has_ids=$(echo "$args" | yq '(.snapshot_ids // null) != null')
+            if [[ "${bd_has_ids}" == "true" ]]; then
+                local bd_snapshot_ids=()
+                while IFS= read -r bd_sid; do
+                    [[ -n "${bd_sid}" ]] && bd_snapshot_ids+=("${bd_sid}")
+                done < <(echo "$args" | yq '.snapshot_ids[]')
+                assert_blocks_diverged_max "${bd_min_spread}" "${bd_snapshot_ids[@]}"
+            else
+                local bd_snapshot_id
+                bd_snapshot_id=$(echo "$args" | yq '.snapshot_id // "default"')
+                assert_blocks_diverged "${bd_snapshot_id}" "${bd_min_spread}"
+            fi
             ;;
         signature-transition)
             if [[ "${TSS_ENABLED:-true}" != "true" ]]; then
@@ -1639,6 +1989,13 @@ function run_assertion {
             brf_min=$(echo "$args" | yq '.min_rate_per_sec // 0')
             brf_window=$(echo "$args" | yq '.window_seconds // 30')
             assert_block_rate_floor "$target" "$brf_min" "$brf_window"
+            ;;
+        avg-block-size-floor)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local absf_min absf_window
+            absf_min=$(echo "$args" | yq '.min_bytes // 0')
+            absf_window=$(echo "$args" | yq '.window_seconds // 30')
+            assert_avg_block_size_floor "$target" "$absf_min" "$absf_window"
             ;;
         backfill-triggered)
             [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')

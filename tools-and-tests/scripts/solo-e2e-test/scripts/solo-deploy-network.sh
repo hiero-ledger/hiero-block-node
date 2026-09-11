@@ -25,6 +25,15 @@
 #   --tss-enabled true|false   Enable TSS on consensus nodes (default: true)
 #   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
 #   --help                     Show this help message
+#
+# Environment variables:
+#   RECORD_STREAM_LOG_PERIOD_SECONDS   CN's block-cutting cadence in seconds
+#                                       (hedera.recordStream.logPeriod), default: 1.
+#                                       Raise this to accumulate more transactions
+#                                       per block before it's cut, e.g. to reach
+#                                       much larger block sizes for bandwidth-cap
+#                                       testing once real sustained throughput is
+#                                       known.
 
 set -o pipefail
 set +e
@@ -635,12 +644,12 @@ function deploy_block_nodes {
 
 function generate_cn_application_properties {
   local output_file="${1}"
-  cat > "${output_file}" << 'EOF'
+  cat > "${output_file}" << EOF
 hedera.config.version=0
 ledger.id=0x01
 netty.mode=TEST
 contracts.chainId=298
-hedera.recordStream.logPeriod=1
+hedera.recordStream.logPeriod=${RECORD_STREAM_LOG_PERIOD_SECONDS:-1}
 balances.exportPeriodSecs=400
 files.maxSizeKb=2048
 hedera.recordStream.compressFilesOnCreation=true
@@ -845,6 +854,101 @@ function apply_cn_block_nodes_configs {
   done <<< "${config_files}"
 }
 
+# Enable Mirror Node Monitor's pinger scenario (ConsensusSubmitMessage traffic) at a
+# configurable TPS via MIRROR_NODE_PINGER_TPS (0 disables it). Solo's own `--pinger` flag
+# silently no-ops this for mirror-node-version >= 0.152.0 -- its hasMirrorNodeMemoryImprovements
+# gate in mirror-node.ts skips the monitor.enabled/pinger.tps --set flags entirely past that
+# version, and the chart's own base values default monitor.enabled to false. Confirmed via
+# source read after MIRROR_NODE_PINGER_TPS showed zero effect (mirror-tx-presence: absent) at
+# TPS=100 and TPS=1000 on this harness's resolved v0.162.0. Applied here via values-file
+# instead, which Solo merges before that (skipped, for this version) conditional block, so it
+# isn't fought or overridden. chartNamespace is "hiero" for mirror-node-version >= 0.130.0
+# (POST_HIERO_MIGRATION_MIRROR_NODE_VERSION) -- this harness's resolved versions are always
+# past that boundary too.
+#
+# Also overrides the pinger scenario's `type`: Solo's own bundled defaults (mirror-node-values.yaml)
+# hardcode `type: CRYPTO_TRANSFER` for pinger, NOT the monitor app's own real default
+# (CONSENSUS_SUBMIT_MESSAGE, confirmed in hiero-mirror-node's monitor/src/main/resources/
+# application.yml) -- so even with monitor now correctly enabled, it would submit CryptoTransfer,
+# indistinguishable from NLG's own traffic. `properties.topicId: ${topic.ping}` is the app's own
+# built-in auto-bootstrap expression (ExpressionConverterImpl): it submits a real
+# ConsensusCreateTopicTransaction on first use and caches the resulting topic ID, no manual topic
+# pre-creation needed. `messageSize: 1024` matches BNCE's real production pinger config
+# (bnce_deploy_auxiliary_services.sh). Solo's own crypto-transfer-specific properties
+# (amount/senderAccountId/recipientAccountId/transferTypes) still get deep-merged in from its
+# lower-priority values file alongside these, but ConsensusSubmitMessageTransactionSupplier simply
+# doesn't declare those fields, so they're harmlessly ignored by Spring's relaxed property binding.
+#
+# Also bumps monitor's own resource limits: Solo's default (`requests: {cpu: 0, memory: 0}`,
+# `limits: {cpu: 500m, memory: 1000Mi}`) OOMKilled the pod twice this session -- immediately at
+# TPS=1000, and eventually (after several minutes of sustained publishing) even at TPS=200 --
+# looking like memory growth over sustained runtime, not purely an instantaneous-TPS problem.
+# requests=0/0 also means k8s reserves it no headroom at all under node memory pressure, which
+# matters more on this harness's shared/contended CI runner than on BNCE's dedicated hardware
+# (which runs a real combined 10,000 TPS with no monitor-specific resources override at all).
+#
+# Also optionally enables the `xfer` (CryptoTransfer) scenario via MIRROR_NODE_XFER_TPS (0/unset
+# disables it, matching pinger's convention) -- this is what lets Monitor drive a *mixed*
+# CryptoTransfer + ConsensusSubmitMessage content mix on its own (matching BNCE's real 5k/5k
+# split), rather than only ever running the pinger (ConsensusSubmitMessage) scenario alone.
+# senderAccountId/recipientAccountId (0.0.2 -> 0.0.55) reuse the exact pair Solo's own bundled
+# defaults already use for pinger-as-CryptoTransfer (see the base mirror-node-values.yaml this
+# file overrides) -- a pairing already proven to work in this exact Solo-deployed environment.
+# transferTypes defaults to CRYPTO in CryptoTransferTransactionSupplier itself, so it doesn't
+# need to be set here.
+#
+# Each scenario is toggled via its own `enabled` field (ScenarioProperties.enabled, default true
+# in the app itself) rather than by omitting the scenario block or setting tps=0 -- this is the
+# app's own documented per-scenario on/off switch, and setting it explicitly means each scenario's
+# required properties (topicId, senderAccountId/recipientAccountId) can stay populated regardless
+# of enabled state, avoiding any risk of a validation failure on the disabled one (Spring config
+# validation binds the whole properties tree, not just the enabled subset).
+function generate_mirror_monitor_overlay {
+  local output_file="$1"
+  local pinger_tps="${MIRROR_NODE_PINGER_TPS:-5}"
+  local xfer_tps="${MIRROR_NODE_XFER_TPS:-0}"
+  local pinger_enabled="false"
+  local xfer_enabled="false"
+  local enabled="false"
+  [[ "${pinger_tps}" -gt 0 ]] && pinger_enabled="true"
+  [[ "${xfer_tps}" -gt 0 ]] && xfer_enabled="true"
+  if [[ "${pinger_enabled}" == "true" || "${xfer_enabled}" == "true" ]]; then
+    enabled="true"
+  fi
+  cat > "${output_file}" << EOF
+monitor:
+  enabled: ${enabled}
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  config:
+    hiero:
+      mirror:
+        monitor:
+          publish:
+            scenarios:
+              pinger:
+                enabled: ${pinger_enabled}
+                tps: ${pinger_tps}
+                type: CONSENSUS_SUBMIT_MESSAGE
+                properties:
+                  topicId: "\${topic.ping}"
+                  messageSize: 1024
+              xfer:
+                enabled: ${xfer_enabled}
+                tps: ${xfer_tps}
+                type: CRYPTO_TRANSFER
+                properties:
+                  senderAccountId: "0.0.2"
+                  recipientAccountId: "0.0.55"
+EOF
+  echo "Generated mirror monitor overlay (pinger: enabled=${pinger_enabled} tps=${pinger_tps}, xfer: enabled=${xfer_enabled} tps=${xfer_tps}, resources: 250m/512Mi req, 1/2Gi limit)"
+}
+
 function deploy_mirror_node {
   log_line ""
   log_line "deploy_mirror_node called with SKIP_MIRROR=${SKIP_MIRROR}"
@@ -894,6 +998,10 @@ function deploy_mirror_node {
       # chart defaults so downstream test-def events can patch it.
       log_line "  No overlay for Mirror Node ${i} (topology has no MN→BN wiring); installing with chart defaults."
     fi
+
+    local mn_monitor_overlay="${OVERLAY_DIR}/mn-monitor-${i}-override.yaml"
+    generate_mirror_monitor_overlay "${mn_monitor_overlay}"
+    overlay_arg="${overlay_arg} -f ${mn_monitor_overlay}"
 
     start_task "Deploying Mirror Node ${i}"
     # shellcheck disable=SC2086

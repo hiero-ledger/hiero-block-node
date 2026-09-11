@@ -1,0 +1,137 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Bandwidth-Lag — Monitor-only traffic (no NLG)
+#
+# Variant of bandwidth-lag.yaml with NLG's load-start/load-stop events removed
+# entirely -- all block content comes from Mirror Node Monitor's pinger
+# scenario (ConsensusSubmitMessage) alone, driven by mirror-node-pinger-tps.
+# Everything else (bandwidth injection/clear, snapshot, assertions) is
+# unchanged from bandwidth-lag.yaml -- see that file for the full rate
+# rationale and gotcha references.
+#
+# Built to compare Monitor's own reliability/predictability against NLG as a
+# traffic source, independent of NLG entirely (not just Monitor-plus-NLG as
+# in bandwidth-lag.yaml). Expect mid-tx-presence's CRYPTOTRANSFER to show
+# "absent" here -- that's correct, not a bug: there is no CryptoTransfer
+# traffic at all without NLG running.
+#
+# Rate re-derivation (18mbit/s, up from 6mbit/s): see
+# bandwidth-lag-monitor-only-late-snapshot.yaml for the full derivation --
+# real Monitor mixed-traffic samples this session averaged ~2.55MB/block
+# (vs. bandwidth-lag.yaml's pure-CryptoTransfer ~868KB/block baseline this
+# rate was originally copied from), giving a real floor of ~9.71 Mbit/s.
+# 18mbit/s preserves roughly the same ~1.8x margin as the original derivation.
+#
+# Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
+#
+# Pre-req:
+#   task up TOPOLOGY=paired-3
+#   CHAOS_ENABLED=true task chaos:install
+#
+# Usage:
+#   CHAOS_ENABLED=true TOPOLOGY=paired-3 MIRROR_NODE_PINGER_TPS=10000 task test:run TEST_FILE=tests/bandwidth-lag-monitor-only.yaml
+
+name: bandwidth-lag-monitor-only
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (18mbit/s) — Monitor-only traffic, no NLG"
+
+events:
+  - id: inject-cn-bn1-bw
+    type: inject-bandwidth
+    description: "Cap CN's egress to BN1's Service at 18mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
+    delay: 30
+    args:
+      name: cn-to-bn1-bw
+      source: { kind: network-node }
+      target: { kind: service, name: block-node-1 }
+      rate: "18mbit"
+      limit: 3000000
+      buffer: 10000
+      direction: to
+
+  - id: inject-peer-bn1-bw
+    type: inject-bandwidth
+    description: "Cap BN-peers' egress to BN1's Service at 18mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    delay: 35
+    args:
+      name: peer-to-bn1-bw
+      source: { kind: block-node }
+      target: { kind: service, name: block-node-1 }
+      rate: "18mbit"
+      limit: 3000000
+      buffer: 10000
+      direction: to
+
+  - id: snapshot-peak-chaos
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights at peak chaos (≈150s into chaos window)"
+    delay: 180
+    args: { snapshot_id: peak-chaos }
+
+  - id: mid-tx-presence
+    type: mirror-tx-presence
+    description: "Per-type presence over a real 100s window, mid-chaos -- confirms Monitor's pinger scenario (CONSENSUSSUBMITMESSAGE) is landing transactions; CRYPTOTRANSFER expected absent (no NLG running)"
+    delay: 200
+    args:
+      window_seconds: 100
+
+  - id: clear-cn-bn1-bw
+    type: clear-bandwidth
+    description: "Clear CN→BN1 bandwidth cap"
+    delay: 330
+    args: { name: cn-to-bn1-bw }
+
+  - id: clear-peer-bn1-bw
+    type: clear-bandwidth
+    description: "Clear BN peers→BN1 bandwidth cap"
+    delay: 335
+    args: { name: peer-to-bn1-bw }
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All BNs survive bandwidth throttle and stay/return healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All BNs still have blocks after chaos"
+    target: all
+    args:
+      min_block: 0
+
+  - id: blocks-diverged
+    type: blocks-diverged
+    description: "BNs were at least 5 blocks apart at peak chaos — confirms bandwidth cap caused cumulative lag on BN1 (conservative; tune min_spread upward once observed block sizes are known)"
+    args:
+      snapshot_id: peak-chaos
+      min_spread: 5
+
+  - id: blocks-converged
+    type: blocks-converged
+    description: "All BNs converge to within 10 blocks after bandwidth clears — allows BN1 time to close its backfill gap"
+    args:
+      tolerance_blocks: 10
+
+  - id: blocks-increasing
+    type: blocks-increasing
+    description: "Block production recovers on all BNs after bandwidth clears"
+    target: all
+    args:
+      wait_seconds: 60
+      max_attempts: 5
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Post-chaos block rate recovers to ≥ 0.1 blk/s on all BNs"
+    target: all
+    args:
+      min_rate_per_sec: 0.1
+      window_seconds: 30
+
+  - id: avg-block-size
+    type: avg-block-size-floor
+    description: "Real avg bytes/block from files_recent_total_bytes_stored ÷ files_recent_blocks_written over the recovery window (diagnostic: min_bytes is a sanity floor, not a tuned expectation. Block size varies by TSS phase: steady-state blocks run small (~35KB), the one-time Schnorr->WRAPS transition block is a large single-item outlier (tens of MB, uncompressed), and every block after that carries a compressed TSS proof and runs meaningfully bigger than pre-transition steady-state (measured ~870-930KB/block) -- a big jump in the printed value after the transition is expected, not a red flag)"
+    target: all
+    args:
+      min_bytes: 1000
+      window_seconds: 30

@@ -159,6 +159,66 @@ function assert_block_rate_floor {
     fi
 }
 
+# avg-block-size-floor: derives Δbytes/Δblocks from blocknode_files_recent_total_bytes_stored
+# and blocknode_files_recent_blocks_written_total, asserts the average bytes-per-block over the
+# window is at or above min_bytes. Gives a real, direct block-size number instead
+# of inferring size from the presence/absence of CN-side slow-request warnings.
+# Same "assertions run after all events complete" constraint as block-rate-floor
+# applies here: this measures the post-load-stop/recovery window, not bytes-per-
+# block during active chaos. files_recent evicts on its own retention schedule,
+# not expected to trigger inside a single e2e run, so the gauge behaves as an
+# effectively-monotonic running total for the purposes of this Δ.
+# Metric names carry the "blocknode" category prefix (MetricKey.addCategory in
+# BlockNodePlugin.METRICS_CATEGORY) same as blocknode_publisher_highest_block_number_inbound
+# used by block-rate-floor above — the Java-side key strings themselves
+# ("files_recent_total_bytes_stored" etc.) do NOT include it.
+function assert_avg_block_size_floor_single {
+    local target="$1" min_bytes="$2" window_seconds="${3:-30}"
+    local baseline_bytes baseline_blocks current_bytes current_blocks delta_blocks avg_size
+    baseline_bytes=$(fetch_metric "$target" "blocknode_files_recent_total_bytes_stored")
+    baseline_blocks=$(fetch_metric "$target" "blocknode_files_recent_blocks_written_total")
+    if [[ -z "$baseline_bytes" || -z "$baseline_blocks" ]]; then
+        echo "${target}: no baseline (blocknode_files_recent_total_bytes_stored/blocknode_files_recent_blocks_written_total unavailable)"
+        return 1
+    fi
+    sleep "$window_seconds"
+    current_bytes=$(fetch_metric "$target" "blocknode_files_recent_total_bytes_stored")
+    current_blocks=$(fetch_metric "$target" "blocknode_files_recent_blocks_written_total")
+    if [[ -z "$current_bytes" || -z "$current_blocks" ]]; then
+        echo "${target}: no current sample after ${window_seconds}s wait"
+        return 1
+    fi
+    delta_blocks=$(awk -v b="$baseline_blocks" -v c="$current_blocks" 'BEGIN { print c - b }')
+    if [[ "$delta_blocks" -le 0 ]]; then
+        echo "${target}: no blocks written during ${window_seconds}s window (baseline=${baseline_blocks}, current=${current_blocks}) — cannot compute average size"
+        return 1
+    fi
+    avg_size=$(awk -v bb="$baseline_bytes" -v cb="$current_bytes" -v d="$delta_blocks" 'BEGIN { printf "%.0f", (cb - bb) / d }')
+    if compare_numeric "$avg_size" ">=" "$min_bytes" "${target}:avg_block_size(bytes)" >/dev/null 2>&1; then
+        echo "${target}: ${delta_blocks} blocks averaged ${avg_size} bytes/block over ${window_seconds}s (floor=${min_bytes}B)"
+        return 0
+    else
+        echo "${target}: ${delta_blocks} blocks averaged ${avg_size} bytes/block over ${window_seconds}s (BELOW floor ${min_bytes}B)"
+        return 1
+    fi
+}
+
+function assert_avg_block_size_floor {
+    local target="${1:-all}" min_bytes="$2" window_seconds="${3:-30}"
+    if [[ "$target" == "all" ]]; then
+        local failed=0 results=""
+        for bn in $(get_all_block_nodes); do
+            local result
+            result=$(assert_avg_block_size_floor_single "$bn" "$min_bytes" "$window_seconds") || failed=1
+            results="${results}${result}\n"
+        done
+        echo -e "${results%\\n}"
+        return $failed
+    else
+        assert_avg_block_size_floor_single "$target" "$min_bytes" "$window_seconds"
+    fi
+}
+
 # fetch_pod_logs: read recent pod logs for a target (matched by label, not
 # pod-name suffix, so it doesn't depend on Deployment vs StatefulSet pod
 # naming). Overridable in fixture tests.

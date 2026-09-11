@@ -235,6 +235,7 @@ cp .env.example .env
 | `NLG_ARGS`               | `-c 5 -a 10 -tt 300`     | NLG arguments (-c concurrency, -a accounts, -tt duration)            |
 | `NLG_MAX_TPS`            | (empty)                  | Optional max transactions per second                                 |
 | `MIRROR_NODE_PINGER_TPS` | `5`                      | Mirror Node pinger TPS (0 to disable, CI only)                       |
+| `RECORD_STREAM_LOG_PERIOD_SECONDS` | `1`            | CN block-cutting cadence in seconds (`hedera.recordStream.logPeriod`) |
 | `ENABLE_LOCAL_METRICS`   | `false`                  | Enable Prometheus+Grafana stack locally                              |
 | `TEST_FILE`              | `none`                   | Test definition file for `task test:run`                             |
 | `TCK_SDK_DIR`            | `sdk-tck`                | Directory for TCK-SDK repositories                                   |
@@ -720,6 +721,7 @@ assertions:                      # Validations to run after all events
 | `rsa-roster-verification` | Verify blocks accepted via the RSA roster (WRB), no RSA failures | `min_rsa_success`                                          |
 | `metric-threshold`        | Compare any BN Prometheus metric                                 | `metric`, `comparator`, `value`, `samples`, `wait_seconds` |
 | `block-rate-floor`        | Assert Δblocks/Δtime ≥ floor                                     | `min_rate_per_sec`, `window_seconds`                       |
+| `avg-block-size-floor`    | Assert Δ`blocknode_files_recent_total_bytes_stored`/Δ`blocknode_files_recent_blocks_written_total` ≥ floor | `min_bytes`, `window_seconds`  |
 | `backfill-triggered`      | Assert backfill log marker observed                              | `grep` (default `"backfill"`), `since_seconds`             |
 | `log-match`               | Generic log-substring check                                      | `grep`, `since_seconds`                                    |
 | `archive-files-exist`     | Verify an S3 archive bucket has (or gained) objects              | `bucket`, `min_files`, `min_increase`                      |
@@ -856,6 +858,29 @@ task chaos:uninstall   # helm uninstall + delete the chaos-mesh namespace
 
 - Profiles, per-scenario detail, and how to add a new one: [`docs/latency-scenarios.md`](docs/latency-scenarios.md)
 - Upstream Chaos Mesh wrapper this builds on: [solo-chaos](https://github.com/hashgraph/solo-chaos) (for multi-region simulation)
+
+## Network Chaos / Bandwidth Tests
+
+Cap CN→BN1 (and BN-peers→BN1) egress bandwidth below what's needed to keep up with real block production, to exercise BN's lag-and-recovery behavior under a genuinely under-provisioned link. Same Chaos Mesh foundation and opt-in model as the latency tests above.
+
+Three tiers, differing only in how far below BN's real sustained-need floor the capped link sits:
+
+|         Test File          |  Profile   |                          Description                          |
+|-----------------------------|------------|----------------------------------------------------------------|
+| `tests/bandwidth-lag.yaml`         | base       | NLG traffic, ~1.8x the real sustained-need floor — real, recoverable lag |
+| `tests/bandwidth-lag-stress.yaml`  | stress     | NLG traffic, ~1.08x the floor — more pronounced lag, still recovers        |
+| `tests/bandwidth-lag-severe.yaml`  | severe     | NLG traffic, ~0.54x the floor — structurally insufficient by design         |
+| `tests/bandwidth-lag-monitor-only.yaml` / `-late-snapshot.yaml` | base | Mirror Node Monitor as the sole traffic source (independently configurable CryptoTransfer/ConsensusSubmitMessage TPS and mix), ~1.8x the floor |
+| `tests/bandwidth-lag-monitor-only-late-snapshot-stress.yaml` | stress | Monitor traffic, ~1.08x the floor |
+| `tests/bandwidth-lag-monitor-only-late-snapshot-severe.yaml` | severe | Monitor traffic, ~0.54x the floor |
+
+```bash
+CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/bandwidth-lag.yaml
+```
+
+**For how to compute your own margin ratio, map your own environment's numbers onto these tiers (or these onto yours), and what to track across milestones to catch a real capacity regression rather than noise, see [`docs/bandwidth-scenarios.md`](docs/bandwidth-scenarios.md).**
+
+> **One at a time.** Same concurrency caveat as latency tests — never trigger a second `solo-e2e-test.yml` run while one is in flight.
 
 ## Troubleshooting
 
