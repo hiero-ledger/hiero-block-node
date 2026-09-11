@@ -38,8 +38,6 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.health.HealthFacility;
-import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
@@ -91,6 +89,8 @@ public abstract class PluginTestBase<
     protected volatile long nextExpectedBlock = -1L;
     /** Current address book history, updated via {@link #updateAddressBookHistory}. */
     protected volatile RangedAddressBookHistory currentAddressBookHistory;
+
+    protected volatile TssData currentTssData;
 
     protected PluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
         testThreadPoolManager = new TestThreadPoolManager<>(executorService, scheduledExecutorService);
@@ -324,6 +324,7 @@ public abstract class PluginTestBase<
      */
     @Override
     public void updateTssData(TssData tssData) {
+        this.currentTssData = tssData;
         blockMessaging.sendTssDataUpdate(new TssDataNotification(tssData));
     }
 
@@ -357,6 +358,21 @@ public abstract class PluginTestBase<
             }
         }
         return null;
+    }
+
+    @Override
+    public TssData tssData() {
+        return currentTssData;
+    }
+
+    @Override
+    public RangedAddressBookHistory rangedAddressBookHistory() {
+        return currentAddressBookHistory;
+    }
+
+    @Override
+    public List<BlockRange> storedBlocks() {
+        return storedBlocks;
     }
 
     @Override
@@ -417,6 +433,7 @@ public abstract class PluginTestBase<
                 .streamRanges()
                 .map(r -> new BlockRange(r.start(), r.end()))
                 .toList();
+        storedBlocks = mergedRanges;
         blockMessaging.sendStoredBlocksUpdate(new StoredBlocksNotification(mergedRanges));
         blockMessaging.sendAvailableBlocksUpdate(new AvailableBlocksNotification(available));
     }
@@ -447,7 +464,7 @@ public abstract class PluginTestBase<
     }
 
     @Override
-    public void updateAvailableBlocks(final BlockProviderPlugin provider, final BlockRangeSet availableBlocks) {
+    public void updateAvailableBlocks() {
         // No-op for test base; use replaceAvailableBlocks to simulate updates.
     }
 }

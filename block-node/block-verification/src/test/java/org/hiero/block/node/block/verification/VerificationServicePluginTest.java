@@ -333,6 +333,45 @@ class VerificationServicePluginTest {
         }
     }
 
+    /// Tests for seeding application state in [VerificationServicePlugin#start()]
+    @Nested
+    @DisplayName("Application State Seeding Tests")
+    class ApplicationStateSeedingTests
+            extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        ApplicationStateSeedingTests() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+        }
+
+        /// This test aims to assert that TSS data already held by the application state facility when
+        /// the plugin starts is used for verification, without waiting for a TssDataNotification. The
+        /// TSS data is installed between init() and start() without sending a notification, and the
+        /// block carries no LedgerIdPublication, so the start() seed is its only source of TSS data.
+        @Test
+        @DisplayName("TSS data held by the facility at start() is used for verification")
+        void testTssDataSeededOnStart() {
+            final TssBlockSigner signer = TssBlockSigner.create();
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed block0 =
+                    org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(signer)
+                            .next(0L);
+            doInit(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
+            // Simulate BlockNodeApp loading tss-bootstrap-roster.json: the facility holds the data, but no
+            // notification is sent
+            currentTssData = signer.verificationMaterial().tssData();
+            doStart();
+            plugin.handleBlockItemsReceived(block0.block().asBlockItems());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(true, VerificationNotification::success)
+                    .returns(null, VerificationNotification::failureInfo)
+                    .returns(block0.block().number(), VerificationNotification::blockNumber)
+                    .returns(block0.rootHash(), VerificationNotification::blockHash);
+        }
+    }
+
     /// Tests for State Proof verification
     @Nested
     @DisplayName("StateProof Verification Tests")
