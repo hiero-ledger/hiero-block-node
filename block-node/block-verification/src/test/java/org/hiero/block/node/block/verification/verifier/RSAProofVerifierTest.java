@@ -457,7 +457,8 @@ class RSAProofVerifierTest {
                     HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
             final BlockFooter footer =
                     new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]));
-            // Version 5 - only V6 is supported in Phase 2a
+            // Version 5 - currently rejected; tracked in #3640 (port V2/V5 hash construction
+            // from tools' SignatureDataExtractor into the hasher stage upstream of the verifier).
             final BlockProof proof = BlockProof.newBuilder()
                     .block(BLOCK_NUMBER)
                     .signedRecordFileProof(new SignedRecordFileProof(5, signaturesFor(0L, 1L, 2L, 3L, 4L)))

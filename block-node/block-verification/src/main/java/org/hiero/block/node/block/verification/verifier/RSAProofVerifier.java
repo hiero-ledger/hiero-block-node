@@ -73,7 +73,7 @@ public final class RSAProofVerifier implements ProofVerifier {
     /// ---
     /// Verifies a `SignedRecordFileProof` (WRB RSA proof).
     ///
-    /// **Algorithm (V6 only for Phase 2a):**
+    /// **Algorithm (V6 fully supported; V2 and V5 pending #3640):**
     /// 1. Compute the block root hash for chain continuity (identical to the TSS path).
     /// 2. Extract `record_file_contents` bytes (proto field 2) from the captured `RECORD_FILE` item.
     /// 3. Compute the signed payload: `SHA-384(int32(6) || rawRecordStreamFileBytes)`.
@@ -88,6 +88,13 @@ public final class RSAProofVerifier implements ProofVerifier {
     ///      batched `rsa_roster_mismatch_total` increment; step 4 already rejects the
     ///      block on any failed signature from a known node, so reaching this step
     ///      means every verifiable signature passed.
+    ///
+    /// V2 and V5 record-file proofs are currently rejected. The wrap CLI preserves the source
+    /// `recordFormatVersion` on `SignedRecordFileProof.version` (see `RecordBlockConverter.java`)
+    /// because V2/V5 signatures were computed over a different serialization than V6, so the
+    /// verifier cannot simply reinterpret them as V6. Lifting this scope requires porting the
+    /// V2/V5 signed-payload construction from the tools' `SignatureDataExtractor` into the
+    /// hasher stage upstream of this verifier - tracked in #3640.
     @Override
     public SessionFailureType verify() {
         final SessionFailureType result;
@@ -104,10 +111,17 @@ public final class RSAProofVerifier implements ProofVerifier {
             LOGGER.log(WARNING, "WRB block {0} missing signed payload", blockNumber);
             result = SessionFailureType.MISSING_VERIFICATION_DATA;
         } else if (version != 6) {
-            // Phase 2a scope: only record file format version 6 is supported
+            // TODO(#3640): Lift the V6-only scope by porting the V2/V5 signed-payload
+            //   construction from the tools' `SignatureDataExtractor` (under
+            //   `tools-and-tests/tools/.../blocks/validation/`, V2/V5 branches) into the
+            //   hasher stage upstream of this verifier. The wrap CLI preserves the source
+            //   `recordFormatVersion` on `SignedRecordFileProof.version` because V2/V5
+            //   signatures were computed over a different serialization than V6, so we
+            //   cannot simply reinterpret them as V6. Once the alternate payload
+            //   constructions land, expand this branch into a switch on `version`.
             LOGGER.log(
                     WARNING,
-                    "Unsupported SignedRecordFileProof version {0} in block {1} - only V6 is supported",
+                    "Unsupported SignedRecordFileProof version {0} in block {1} - only V6 is supported (see #3640)",
                     version,
                     blockNumber);
             result = SessionFailureType.MISSING_MANDATORY_FIELD;
