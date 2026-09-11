@@ -42,7 +42,7 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "sum by (instance) (rate(blocknode_get_block_requests_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
+                      "expr": "max by (instance) (blocknode_roster_entries_loaded{environment=~\"$environment\", instance=~\"$instance\"})",
                       "legendFormat": "{{instance}}",
                       "range": true
                     },
@@ -59,51 +59,17 @@
         "description": "",
         "id": 1,
         "links": [],
-        "title": "getBlock Requests/s (per node)",
+        "title": "Entries Loaded",
         "vizConfig": {
-          "group": "timeseries",
+          "group": "stat",
           "kind": "VizConfig",
           "spec": {
             "fieldConfig": {
               "defaults": {
                 "color": {
-                  "mode": "palette-classic"
+                  "mode": "thresholds"
                 },
-                "custom": {
-                  "axisBorderShow": false,
-                  "axisCenteredZero": false,
-                  "axisColorMode": "text",
-                  "axisLabel": "",
-                  "axisPlacement": "auto",
-                  "barAlignment": 0,
-                  "barWidthFactor": 0.6,
-                  "drawStyle": "line",
-                  "fillOpacity": 8,
-                  "gradientMode": "none",
-                  "hideFrom": {
-                    "legend": false,
-                    "tooltip": false,
-                    "viz": false
-                  },
-                  "insertNulls": false,
-                  "lineInterpolation": "linear",
-                  "lineWidth": 2,
-                  "pointSize": 5,
-                  "scaleDistribution": {
-                    "type": "linear"
-                  },
-                  "showPoints": "auto",
-                  "showValues": false,
-                  "spanNulls": false,
-                  "stacking": {
-                    "group": "A",
-                    "mode": "none"
-                  },
-                  "thresholdsStyle": {
-                    "mode": "off"
-                  }
-                },
-                "min": 0,
+                "mappings": [],
                 "thresholds": {
                   "mode": "absolute",
                   "steps": [
@@ -113,25 +79,26 @@
                     }
                   ]
                 },
-                "unit": "reqps"
+                "unit": "none",
+                "decimals": 0
               },
               "overrides": []
             },
             "options": {
-              "legend": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
                 "calcs": [
-                  "lastNotNull",
-                  "max"
+                  "lastNotNull"
                 ],
-                "displayMode": "table",
-                "placement": "bottom",
-                "showLegend": true
+                "fields": "",
+                "values": false
               },
-              "tooltip": {
-                "hideZeros": false,
-                "mode": "multi",
-                "sort": "desc"
-              }
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
             },
             "version": "12.3.2"
           }
@@ -157,55 +124,13 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "sum (rate(blocknode_get_block_requests_success_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
-                      "legendFormat": "success",
+                      "expr": "max by (instance) (blocknode_roster_eras_loaded{environment=~\"$environment\", instance=~\"$instance\"})",
+                      "legendFormat": "{{instance}}",
                       "range": true
                     },
                     "version": "v0"
                   },
                   "refId": "A"
-                }
-              },
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "editorMode": "code",
-                      "expr": "sum (rate(blocknode_get_block_requests_not_available_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
-                      "legendFormat": "not available",
-                      "range": true
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "B"
-                }
-              },
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "editorMode": "code",
-                      "expr": "sum (rate(blocknode_get_block_requests_not_found_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
-                      "legendFormat": "not found",
-                      "range": true
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "C"
                 }
               }
             ],
@@ -216,51 +141,17 @@
         "description": "",
         "id": 2,
         "links": [],
-        "title": "Outcomes/s (fleet)",
+        "title": "Eras Loaded",
         "vizConfig": {
-          "group": "timeseries",
+          "group": "stat",
           "kind": "VizConfig",
           "spec": {
             "fieldConfig": {
               "defaults": {
                 "color": {
-                  "mode": "palette-classic"
+                  "mode": "thresholds"
                 },
-                "custom": {
-                  "axisBorderShow": false,
-                  "axisCenteredZero": false,
-                  "axisColorMode": "text",
-                  "axisLabel": "",
-                  "axisPlacement": "auto",
-                  "barAlignment": 0,
-                  "barWidthFactor": 0.6,
-                  "drawStyle": "line",
-                  "fillOpacity": 8,
-                  "gradientMode": "none",
-                  "hideFrom": {
-                    "legend": false,
-                    "tooltip": false,
-                    "viz": false
-                  },
-                  "insertNulls": false,
-                  "lineInterpolation": "linear",
-                  "lineWidth": 2,
-                  "pointSize": 5,
-                  "scaleDistribution": {
-                    "type": "linear"
-                  },
-                  "showPoints": "auto",
-                  "showValues": false,
-                  "spanNulls": false,
-                  "stacking": {
-                    "group": "A",
-                    "mode": "none"
-                  },
-                  "thresholdsStyle": {
-                    "mode": "off"
-                  }
-                },
-                "min": 0,
+                "mappings": [],
                 "thresholds": {
                   "mode": "absolute",
                   "steps": [
@@ -270,25 +161,26 @@
                     }
                   ]
                 },
-                "unit": "reqps"
+                "unit": "none",
+                "decimals": 0
               },
               "overrides": []
             },
             "options": {
-              "legend": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
                 "calcs": [
-                  "lastNotNull",
-                  "max"
+                  "lastNotNull"
                 ],
-                "displayMode": "table",
-                "placement": "bottom",
-                "showLegend": true
+                "fields": "",
+                "values": false
               },
-              "tooltip": {
-                "hideZeros": false,
-                "mode": "multi",
-                "sort": "desc"
-              }
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
             },
             "version": "12.3.2"
           }
@@ -314,7 +206,7 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "100 * sum by (instance) (increase(blocknode_get_block_requests_success_total{environment=~\"$environment\", instance=~\"$instance\"}[$__range])) / clamp_min(sum by (instance) (increase(blocknode_get_block_requests_total{environment=~\"$environment\", instance=~\"$instance\"}[$__range])), 1)",
+                      "expr": "max by (instance) (blocknode_roster_load_duration_ms{environment=~\"$environment\", instance=~\"$instance\"})",
                       "legendFormat": "{{instance}}",
                       "range": true
                     },
@@ -331,7 +223,131 @@
         "description": "",
         "id": 3,
         "links": [],
-        "title": "Success Rate % (per node, range)",
+        "title": "Load Duration",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "ms",
+                "decimals": 0
+              },
+              "overrides": []
+            },
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            },
+            "version": "12.3.2"
+          }
+        }
+      }
+    },
+    "panel-4": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "sum (rate(blocknode_rsa_roster_peer_requests_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
+                      "legendFormat": "requests",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "sum (rate(blocknode_rsa_roster_peer_errors_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
+                      "legendFormat": "peer errors",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "sum (rate(blocknode_rsa_roster_addressbook_errors_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
+                      "legendFormat": "addressbook errors",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 4,
+        "links": [],
+        "title": "RSA Peer Requests & Errors/s (fleet)",
         "vizConfig": {
           "group": "timeseries",
           "kind": "VizConfig",
@@ -376,21 +392,20 @@
                   }
                 },
                 "min": 0,
-                "decimals": 1,
                 "thresholds": {
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "green",
                       "value": 0
                     },
                     {
-                      "color": "green",
-                      "value": 99
+                      "color": "red",
+                      "value": 0.001
                     }
                   ]
                 },
-                "unit": "percent"
+                "unit": "reqps"
               },
               "overrides": []
             },
@@ -436,7 +451,7 @@
                         "name": "panel-1"
                       },
                       "height": 8,
-                      "width": 12,
+                      "width": 8,
                       "x": 0,
                       "y": 0
                     }
@@ -449,15 +464,28 @@
                         "name": "panel-2"
                       },
                       "height": 8,
-                      "width": 12,
-                      "x": 12,
+                      "width": 8,
+                      "x": 8,
+                      "y": 0
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-3"
+                      },
+                      "height": 8,
+                      "width": 8,
+                      "x": 16,
                       "y": 0
                     }
                   }
                 ]
               }
             },
-            "title": "Requests"
+            "title": "Roster Load"
           }
         },
         {
@@ -473,7 +501,7 @@
                     "spec": {
                       "element": {
                         "kind": "ElementReference",
-                        "name": "panel-3"
+                        "name": "panel-4"
                       },
                       "height": 8,
                       "width": 24,
@@ -484,7 +512,7 @@
                 ]
               }
             },
-            "title": "Success Rate"
+            "title": "Peer Requests"
           }
         }
       ]
@@ -516,7 +544,7 @@
     "timezone": "browser",
     "to": "now"
   },
-  "title": "Block-Node: Block Access Service",
+  "title": "Block-Node: Roster Bootstrap (RSA)",
   "variables": [
     {
       "kind": "DatasourceVariable",

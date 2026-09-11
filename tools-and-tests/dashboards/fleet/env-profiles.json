@@ -1,0 +1,94 @@
+{
+  "_comment": "Per-variant render inputs for the fleet dashboards. Each variant names its source dashboard and schema: `cloud` renders the Grafana v2 schema source (full-history-metrics.v2.json) because its Grafana requires v2; `latitude`/`local` render the classic source (full-history-metrics.json). For each variant render.js substitutes the __FLEET__ selector token with fleetSelector and appends `variables` after the source's DS_PROMETHEUS datasource variable (into templating.list for classic, into variables[] for v2). Datasource stays a template variable in every variant. Label keys (environment/instance for cloud; cluster/instance for latitude) are grounded in the managed dashboards; latitude is not yet confirmed against live metrics.",
+  "variants": {
+    "cloud": {
+      "description": "Grafana Cloud (grafanacloud-swirldslabsproduction-prom), Grafana v2 schema. Serves previewnet/testnet/mainnet via the environment dropdown.",
+      "schema": "v2",
+      "source": "full-history-metrics.v2.json",
+      "fleetSelector": "environment=\"$environment\", instance=~\"$instance\"",
+      "variables": [
+        {
+          "kind": "QueryVariable",
+          "spec": {
+            "allowCustomValue": true,
+            "current": { "text": "mainnet", "value": "mainnet" },
+            "definition": "label_values(blocknode_app_state_status, environment)",
+            "hide": "dontHide",
+            "includeAll": false,
+            "label": "Environment",
+            "multi": false,
+            "name": "environment",
+            "options": [],
+            "query": {
+              "datasource": { "name": "${DS_PROMETHEUS}" },
+              "group": "prometheus",
+              "kind": "DataQuery",
+              "spec": { "query": "label_values(blocknode_app_state_status, environment)", "refId": "StandardVariableQuery" },
+              "version": "v0"
+            },
+            "refresh": "onTimeRangeChanged",
+            "regex": "",
+            "regexApplyTo": "value",
+            "skipUrlSync": false,
+            "sort": "alphabeticalAsc"
+          }
+        },
+        {
+          "kind": "QueryVariable",
+          "spec": {
+            "allowCustomValue": true,
+            "current": { "text": "All", "value": "$__all" },
+            "definition": "label_values(blocknode_app_state_status{environment=~\"$environment\"}, instance)",
+            "hide": "dontHide",
+            "includeAll": true,
+            "label": "Instance",
+            "multi": true,
+            "name": "instance",
+            "options": [],
+            "query": {
+              "datasource": { "name": "${DS_PROMETHEUS}" },
+              "group": "prometheus",
+              "kind": "DataQuery",
+              "spec": { "query": "label_values(blocknode_app_state_status{environment=~\"$environment\"}, instance)", "refId": "StandardVariableQuery" },
+              "version": "v0"
+            },
+            "refresh": "onTimeRangeChanged",
+            "regex": "",
+            "regexApplyTo": "value",
+            "skipUrlSync": false,
+            "sort": "alphabeticalAsc"
+          }
+        }
+      ]
+    },
+    "latitude": {
+      "description": "Latitude Mimir (block-node-{cutover,performance}-physical-mimir), classic schema. Serves bnce/perfnet via the datasource dropdown.",
+      "schema": "classic",
+      "source": "full-history-metrics.json",
+      "fleetSelector": "cluster=~\"$cluster\"",
+      "variables": [
+        {
+          "current": { "text": "All", "value": "$__all" },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "definition": "label_values(blocknode_app_state_status, cluster)",
+          "includeAll": true,
+          "label": "Cluster",
+          "name": "cluster",
+          "options": [],
+          "query": { "query": "label_values(blocknode_app_state_status, cluster)", "refId": "StandardVariableQuery" },
+          "refresh": 2,
+          "regex": "",
+          "regexApplyTo": "value",
+          "type": "query"
+        }
+      ]
+    },
+    "local": {
+      "description": "Local docker-compose / k8s single node, classic schema. No fleet filter; the datasource variable resolves to the single Prometheus.",
+      "schema": "classic",
+      "source": "full-history-metrics.json",
+      "fleetSelector": "",
+      "variables": []
+    }
+  }
+}
