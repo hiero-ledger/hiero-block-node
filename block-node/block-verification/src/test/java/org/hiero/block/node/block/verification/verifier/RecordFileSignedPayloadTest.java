@@ -95,8 +95,12 @@ class RecordFileSignedPayloadTest {
     // ---- Independent reference reconstruction -------------------------------------------------
 
     /// Returns the SHA-384 hash of the given bytes, using [MessageDigest] directly.
-    private static byte[] refSha384(final byte[] bytes) throws NoSuchAlgorithmException {
-        return MessageDigest.getInstance("SHA-384").digest(bytes);
+    private static byte[] refSha384(final byte[] bytes) {
+        try {
+            return MessageDigest.getInstance("SHA-384").digest(bytes);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /// Writes a legacy v5 hash object with [DataOutputStream].
@@ -115,7 +119,7 @@ class RecordFileSignedPayloadTest {
             final byte[] startHash,
             final byte[] endHash,
             final List<RecordStreamItem> items)
-            throws IOException, NoSuchAlgorithmException {
+            throws IOException {
         final ByteArrayOutputStream bout = new ByteArrayOutputStream();
         final DataOutputStream out = new DataOutputStream(bout);
         out.writeInt(5);
@@ -144,7 +148,7 @@ class RecordFileSignedPayloadTest {
     /// [DataOutputStream] and take the double hash split at the 57-byte header boundary.
     private static byte[] refV2Payload(
             final SemanticVersion hapi, final byte[] previousHash, final List<RecordStreamItem> items)
-            throws IOException, NoSuchAlgorithmException {
+            throws IOException {
         final ByteArrayOutputStream bout = new ByteArrayOutputStream();
         final DataOutputStream out = new DataOutputStream(bout);
         out.writeInt(2);
@@ -183,7 +187,7 @@ class RecordFileSignedPayloadTest {
         /// transaction) are correct.
         @Test
         @DisplayName("computeSignedPayload() v5 multi-item matches reference reconstruction")
-        void testV5MultiItemMatchesReference() throws Exception {
+        void testV5MultiItemMatchesReference() throws ParseException, IOException {
             final SemanticVersion hapi = new SemanticVersion(0, 22, 3, null, null);
             final byte[] startHash = fakeHash(0xCC);
             final byte[] endHash = fakeHash(0xDD);
@@ -198,7 +202,7 @@ class RecordFileSignedPayloadTest {
         /// realistic file shape.
         @Test
         @DisplayName("computeSignedPayload() v5 single-item matches reference reconstruction")
-        void testV5SingleItemMatchesReference() throws Exception {
+        void testV5SingleItemMatchesReference() throws ParseException, IOException {
             final SemanticVersion hapi = new SemanticVersion(0, 30, 0, null, null);
             final byte[] startHash = fakeHash(0x33);
             final byte[] endHash = fakeHash(0x44);
@@ -213,7 +217,7 @@ class RecordFileSignedPayloadTest {
         /// independent reference reconstruction.
         @Test
         @DisplayName("computeSignedPayload() v5 empty item list matches reference reconstruction")
-        void testV5EmptyItemsMatchesReference() throws Exception {
+        void testV5EmptyItemsMatchesReference() throws ParseException, IOException {
             final SemanticVersion hapi = new SemanticVersion(0, 25, 0, null, null);
             final byte[] startHash = fakeHash(0x55);
             final byte[] endHash = fakeHash(0x66);
@@ -227,7 +231,7 @@ class RecordFileSignedPayloadTest {
         /// proving the version parameter selects a genuinely different hash construction.
         @Test
         @DisplayName("computeSignedPayload() v5 payload is 48 bytes and differs from v6")
-        void testV5PayloadDiffersFromV6() throws Exception {
+        void testV5PayloadDiffersFromV6() throws ParseException {
             final SemanticVersion hapi = new SemanticVersion(0, 22, 0, null, null);
             final Bytes contents = contentsOf(recordStreamFile(hapi, fakeHash(0xAB), fakeHash(0xBA), fakeItems(2)));
             final byte[] v5Payload = RecordFileSignedPayload.computeSignedPayload(5, hapi, contents);
@@ -246,7 +250,7 @@ class RecordFileSignedPayloadTest {
         /// wire navigation and reconstruction order (transaction before record) are correct.
         @Test
         @DisplayName("computeSignedPayload() v2 matches reference reconstruction")
-        void testV2MatchesReference() throws Exception {
+        void testV2MatchesReference() throws ParseException, IOException, NoSuchAlgorithmException {
             final SemanticVersion hapi = new SemanticVersion(0, 3, 0, null, null);
             final byte[] previousHash = fakeHash(0xEE);
             final List<RecordStreamItem> items = fakeItems(2);
@@ -261,7 +265,7 @@ class RecordFileSignedPayloadTest {
         /// by recomputing the two digest stages manually from the reference reconstruction.
         @Test
         @DisplayName("computeSignedPayload() v2 double hash splits at the 57-byte header")
-        void testV2DoubleHashSplit() throws Exception {
+        void testV2DoubleHashSplit() throws ParseException, IOException {
             final SemanticVersion hapi = new SemanticVersion(0, 4, 0, null, null);
             final byte[] previousHash = fakeHash(0x77);
             final List<RecordStreamItem> items = fakeItems(1);
@@ -283,16 +287,20 @@ class RecordFileSignedPayloadTest {
                 out.writeInt(recordBytes.length);
                 out.write(recordBytes);
             }
-            final byte[] fileBytes = bout.toByteArray();
-            final MessageDigest digest = MessageDigest.getInstance("SHA-384");
-            digest.update(fileBytes, V2_HEADER_LENGTH, fileBytes.length - V2_HEADER_LENGTH);
-            final byte[] contentHash = digest.digest();
-            digest.update(fileBytes, 0, V2_HEADER_LENGTH);
-            digest.update(contentHash);
-            final byte[] expected = digest.digest();
-            final byte[] actual = RecordFileSignedPayload.computeSignedPayload(
-                    2, hapi, contentsOf(recordStreamFile(hapi, previousHash, null, items)));
-            assertThat(actual).isEqualTo(expected);
+            try {
+                final byte[] fileBytes = bout.toByteArray();
+                final MessageDigest digest = MessageDigest.getInstance("SHA-384");
+                digest.update(fileBytes, V2_HEADER_LENGTH, fileBytes.length - V2_HEADER_LENGTH);
+                final byte[] contentHash = digest.digest();
+                digest.update(fileBytes, 0, V2_HEADER_LENGTH);
+                digest.update(contentHash);
+                final byte[] expected = digest.digest();
+                final byte[] actual = RecordFileSignedPayload.computeSignedPayload(
+                        2, hapi, contentsOf(recordStreamFile(hapi, previousHash, null, items)));
+                assertThat(actual).isEqualTo(expected);
+            } catch (NoSuchAlgorithmException e) {
+                throw new IllegalStateException("SHA384 algorithm not available", e);
+            }
         }
 
         /// This test aims to assert that the v2 payload depends on the minor component of the
@@ -300,7 +308,7 @@ class RecordFileSignedPayloadTest {
         /// different minors over identical contents produce different payloads.
         @Test
         @DisplayName("computeSignedPayload() v2 payload is sensitive to hapi minor")
-        void testV2HapiMinorSensitivity() throws Exception {
+        void testV2HapiMinorSensitivity() throws ParseException {
             final byte[] previousHash = fakeHash(0x88);
             final List<RecordStreamItem> items = fakeItems(1);
             final SemanticVersion hapiMinor3 = new SemanticVersion(0, 3, 0, null, null);
@@ -316,7 +324,7 @@ class RecordFileSignedPayloadTest {
         /// header-only file.
         @Test
         @DisplayName("computeSignedPayload() v2 empty item list matches reference reconstruction")
-        void testV2EmptyItemsMatchesReference() throws Exception {
+        void testV2EmptyItemsMatchesReference() throws ParseException, IOException {
             final SemanticVersion hapi = new SemanticVersion(0, 5, 0, null, null);
             final byte[] previousHash = fakeHash(0x99);
             final byte[] actual = RecordFileSignedPayload.computeSignedPayload(
@@ -335,7 +343,7 @@ class RecordFileSignedPayloadTest {
         /// protobuf.
         @Test
         @DisplayName("computeSignedPayload() v6 delegates to HashingUtilities")
-        void testV6DelegatesToHashingUtilities() throws Exception {
+        void testV6DelegatesToHashingUtilities() throws ParseException {
             final SemanticVersion hapi = new SemanticVersion(0, 72, 0, null, null);
             final Bytes arbitraryBytes = Bytes.wrap("not-a-record-stream-file".getBytes());
             final byte[] actual = RecordFileSignedPayload.computeSignedPayload(6, hapi, arbitraryBytes);
@@ -352,7 +360,7 @@ class RecordFileSignedPayloadTest {
         /// a wrong payload.
         @Test
         @DisplayName("computeSignedPayload() v5 missing start running hash returns null")
-        void testV5MissingStartHashReturnsNull() throws Exception {
+        void testV5MissingStartHashReturnsNull() throws ParseException {
             final SemanticVersion hapi = new SemanticVersion(0, 22, 0, null, null);
             final Bytes contents = contentsOf(recordStreamFile(hapi, null, fakeHash(0x11), fakeItems(1)));
             assertThat(RecordFileSignedPayload.computeSignedPayload(5, hapi, contents))
@@ -363,7 +371,7 @@ class RecordFileSignedPayloadTest {
         /// cannot be reconstructed and yields the null missing-components sentinel.
         @Test
         @DisplayName("computeSignedPayload() v5 missing end running hash returns null")
-        void testV5MissingEndHashReturnsNull() throws Exception {
+        void testV5MissingEndHashReturnsNull() throws ParseException {
             final SemanticVersion hapi = new SemanticVersion(0, 22, 0, null, null);
             final Bytes contents = contentsOf(recordStreamFile(hapi, fakeHash(0x11), null, fakeItems(1)));
             assertThat(RecordFileSignedPayload.computeSignedPayload(5, hapi, contents))
@@ -375,7 +383,7 @@ class RecordFileSignedPayloadTest {
         /// a missing end running hash is tolerated because the v2 format has no end hash.
         @Test
         @DisplayName("computeSignedPayload() v2 requires only the start running hash")
-        void testV2MissingStartHashReturnsNull() throws Exception {
+        void testV2MissingStartHashReturnsNull() throws ParseException {
             final SemanticVersion hapi = new SemanticVersion(0, 3, 0, null, null);
             final Bytes noStartHash = contentsOf(recordStreamFile(hapi, null, null, fakeItems(1)));
             assertThat(RecordFileSignedPayload.computeSignedPayload(2, hapi, noStartHash))
@@ -390,7 +398,7 @@ class RecordFileSignedPayloadTest {
         /// reconstruction would silently shift the legacy binary layout.
         @Test
         @DisplayName("computeSignedPayload() wrong-length running hash returns null")
-        void testWrongLengthHashReturnsNull() throws Exception {
+        void testWrongLengthHashReturnsNull() throws ParseException {
             final SemanticVersion hapi = new SemanticVersion(0, 22, 0, null, null);
             final byte[] shortHash = new byte[32];
             Arrays.fill(shortHash, (byte) 0x21);
@@ -417,15 +425,15 @@ class RecordFileSignedPayloadTest {
         }
 
         /// This test aims to assert that record file format versions that never existed on
-        /// mainnet are rejected with an [IllegalArgumentException], because callers are
+        /// mainnet are rejected with an [ParseException], because callers are
         /// expected to gate the version before requesting a payload.
         @ParameterizedTest
         @ValueSource(ints = {0, 1, 3, 4, 7})
-        @DisplayName("computeSignedPayload() unsupported version throws IllegalArgumentException")
+        @DisplayName("computeSignedPayload() unsupported version throws ParseException")
         void testUnsupportedVersionThrows(final int version) {
             final SemanticVersion hapi = new SemanticVersion(0, 22, 0, null, null);
             final Bytes contents = contentsOf(recordStreamFile(hapi, fakeHash(0x01), fakeHash(0x02), fakeItems(1)));
-            assertThatExceptionOfType(IllegalArgumentException.class)
+            assertThatExceptionOfType(ParseException.class)
                     .isThrownBy(() -> RecordFileSignedPayload.computeSignedPayload(version, hapi, contents));
         }
     }
