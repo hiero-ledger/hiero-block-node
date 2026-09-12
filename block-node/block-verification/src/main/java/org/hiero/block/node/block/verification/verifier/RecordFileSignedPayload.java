@@ -16,7 +16,6 @@ import java.io.IOException;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import org.hiero.block.common.hasher.HashingUtilities;
 
 /// Computes the record-file signed payload for a Wrapped Record Block (WRB) proof, for every
@@ -31,15 +30,16 @@ import org.hiero.block.common.hasher.HashingUtilities;
 ///
 /// - **Version 6**: `SHA-384(int32be(6) || recordFileContents)` over the verbatim
 ///     protobuf bytes (delegates to [HashingUtilities#computeV6SignedPayload(Bytes)]).
-/// - **Version 5**: reconstruct the legacy v5 binary file
-/// `int32(5) || hapiMajor || hapiMinor || hapiPatch || int32(objectStreamVersion=1) ||
-/// startRunningHash as v5 HashObject || per item [classId || classVersion ||
-/// recordLen+recordBytes || transactionLen+transactionBytes] || endRunningHash as v5HashObject`
-/// and take a single `SHA-384` of the whole reconstruction.
-/// - **Version 2**: reconstruct the legacy v2 binary file
-/// `int32(2) || int32(hapiMinor) || byte(0x01) || 48-byte previous file hash(the start running hash) ||
-/// per item [byte(0x02) || transactionLen+transactionBytes|| recordLen+recordBytes]` and take the double hash
-/// `SHA-384(first 57 header bytes || SHA-384(bytes after the 57-byte header))`.
+/// - **Version 5**: reconstruct the legacy v5 binary file `int32(5) || hapiMajor ||
+///   hapiMinor || hapiPatch || int32(objectStreamVersion=1) || startRunningHash as
+///   v5 HashObject || per item [classId || classVersion || recordLen+recordBytes ||
+///   transactionLen+transactionBytes] || endRunningHash as v5HashObject` and take a
+///   single `SHA-384` of the whole reconstruction.
+/// - **Version 2**: reconstruct the legacy v2 binary file `int32(2) ||
+///   int32(hapiMinor) || byte(0x01) || 48-byte previous file hash(the start running
+///   hash) || per item [byte(0x02) || transactionLen+transactionBytes ||
+///   recordLen+recordBytes]` and take the double hash `SHA-384(first 57 header bytes ||
+///   SHA-384(bytes after the 57-byte header))`.
 ///
 /// The reconstruction copies raw byte spans navigated directly out of the protobuf wire format.
 /// It never re-serializes parsed `Transaction` or `TransactionRecord` messages,
@@ -132,19 +132,21 @@ public final class RecordFileSignedPayload {
     ///     must not be null
     /// @return the 48-byte signed payload, or `null` when mandatory components are missing
     /// @throws ParseException if the record file contents are malformed protobuf wire data
-    /// @throws IllegalArgumentException if the version is not 2, 5 or 6; callers are expected to
+    ///     or if the version is not 2, 5 or 6; callers are expected to
     ///     gate the version before calling
     public static byte[] computeSignedPayload(
             final int version, final SemanticVersion hapiProtoVersion, final Bytes recordFileContents)
             throws ParseException {
-        Objects.requireNonNull(hapiProtoVersion);
-        Objects.requireNonNull(recordFileContents);
-        return switch (version) {
-            case 6 -> HashingUtilities.computeV6SignedPayload(recordFileContents);
-            case 5 -> computeV5SignedPayload(hapiProtoVersion, extract(recordFileContents));
-            case 2 -> computeV2SignedPayload(hapiProtoVersion, extract(recordFileContents));
-            default -> throw new IllegalArgumentException("Unsupported record file format version: " + version);
-        };
+        try {
+            return switch (version) {
+                case 6 -> HashingUtilities.computeV6SignedPayload(recordFileContents);
+                case 5 -> computeV5SignedPayload(hapiProtoVersion, extract(recordFileContents));
+                case 2 -> computeV2SignedPayload(hapiProtoVersion, extract(recordFileContents));
+                default -> throw new ParseException("Unsupported record file format version: " + version);
+            };
+        } catch (IOException | RuntimeException e) {
+            throw new ParseException(e);
+        }
     }
 
     /// Computes the v5 signed payload: a single SHA-384 over the reconstructed legacy v5 binary
@@ -153,8 +155,9 @@ public final class RecordFileSignedPayload {
     /// @param hapiProtoVersion the HAPI protocol version from the block header
     /// @param data the raw components extracted from the record stream file protobuf
     /// @return the 48-byte signed payload, or `null` when a running hash is missing
-    private static byte[] computeV5SignedPayload(
-            final SemanticVersion hapiProtoVersion, final ExtractedRecordData data) {
+    /// @throws IOException if the wire data is malformed
+    private static byte[] computeV5SignedPayload(final SemanticVersion hapiProtoVersion, final ExtractedRecordData data)
+            throws IOException {
         final byte[] result;
         if (!isValidHash(data.startRunningHash()) || !isValidHash(data.endRunningHash())) {
             result = null;
@@ -177,9 +180,6 @@ public final class RecordFileSignedPayload {
                     item.transactionBytes().writeTo(out);
                 }
                 writeV5HashObject(out, data.endRunningHash());
-            } catch (final IOException e) {
-                // Cannot occur: the underlying stream is in-memory and close is a no-op.
-                throw new IllegalStateException(e);
             }
             result = HashingUtilities.noThrowSha384HashOf(bout.toByteArray());
         }
@@ -193,8 +193,9 @@ public final class RecordFileSignedPayload {
     ///     component carries the original single-int v2 HAPI version
     /// @param data the raw components extracted from the record stream file protobuf
     /// @return the 48-byte signed payload, or `null` when the start running hash is missing
-    private static byte[] computeV2SignedPayload(
-            final SemanticVersion hapiProtoVersion, final ExtractedRecordData data) {
+    /// @throws IOException if the wire data is malformed
+    private static byte[] computeV2SignedPayload(final SemanticVersion hapiProtoVersion, final ExtractedRecordData data)
+            throws IOException {
         final byte[] result;
         if (!isValidHash(data.startRunningHash())) {
             result = null;
@@ -214,9 +215,6 @@ public final class RecordFileSignedPayload {
                     out.writeInt((int) item.recordBytes().length());
                     item.recordBytes().writeTo(out);
                 }
-            } catch (final IOException e) {
-                // Cannot occur: the underlying stream is in-memory and close is a no-op.
-                throw new IllegalStateException(e);
             }
             result = computeV2DoubleHash(bout.toByteArray());
         }
@@ -267,39 +265,32 @@ public final class RecordFileSignedPayload {
     ///
     /// @param recordStreamFileBytes the verbatim `record_file_contents` bytes
     /// @return the extracted components; a missing running hash is left `null`
-    /// @throws ParseException if the wire data is malformed
-    private static ExtractedRecordData extract(final Bytes recordStreamFileBytes) throws ParseException {
+    private static ExtractedRecordData extract(final Bytes recordStreamFileBytes) throws IOException {
         Bytes startRunningHash = null;
         Bytes endRunningHash = null;
         final List<RawRecordStreamItem> items = new ArrayList<>();
         final ReadableSequentialData input = recordStreamFileBytes.toReadableSequentialData();
-        try {
-            while (input.hasRemaining()) {
-                final int tag = readTag(input);
-                if (tag == -1) {
-                    break;
-                } else {
-                    switch (tag) {
-                        case RSF_START_RUNNING_HASH_TAG -> {
-                            final int length = input.readVarInt(false);
-                            startRunningHash = extractHashFromHashObject(input.view(length));
-                        }
-                        case RSF_RECORD_STREAM_ITEMS_TAG -> {
-                            final int length = input.readVarInt(false);
-                            items.add(extractRawRecordStreamItem(input.view(length)));
-                        }
-                        case RSF_END_RUNNING_HASH_TAG -> {
-                            final int length = input.readVarInt(false);
-                            endRunningHash = extractHashFromHashObject(input.view(length));
-                        }
-                        default -> skipTaggedField(input, tag);
+        while (input.hasRemaining()) {
+            final int tag = readTag(input);
+            if (tag == -1) {
+                break;
+            } else {
+                switch (tag) {
+                    case RSF_START_RUNNING_HASH_TAG -> {
+                        final int length = input.readVarInt(false);
+                        startRunningHash = extractHashFromHashObject(input.view(length));
                     }
+                    case RSF_RECORD_STREAM_ITEMS_TAG -> {
+                        final int length = input.readVarInt(false);
+                        items.add(extractRawRecordStreamItem(input.view(length)));
+                    }
+                    case RSF_END_RUNNING_HASH_TAG -> {
+                        final int length = input.readVarInt(false);
+                        endRunningHash = extractHashFromHashObject(input.view(length));
+                    }
+                    default -> skipTaggedField(input, tag);
                 }
             }
-        } catch (final ParseException e) {
-            throw e;
-        } catch (final Exception e) {
-            throw new ParseException(e);
         }
         return new ExtractedRecordData(startRunningHash, endRunningHash, items);
     }
@@ -308,8 +299,8 @@ public final class RecordFileSignedPayload {
     ///
     /// @param input the message bytes to navigate
     /// @return the hash bytes, or `null` when the hash field is absent
-    /// @throws Exception if the wire data is malformed
-    private static Bytes extractHashFromHashObject(final ReadableSequentialData input) throws Exception {
+    /// @throws IOException if the wire data is malformed
+    private static Bytes extractHashFromHashObject(final ReadableSequentialData input) throws IOException {
         Bytes result = null;
         while (result == null && input.hasRemaining()) {
             final int tag = readTag(input);
@@ -332,8 +323,9 @@ public final class RecordFileSignedPayload {
     ///
     /// @param input the message bytes to navigate
     /// @return the raw spans; an absent field is represented as [Bytes#EMPTY]
-    /// @throws Exception if the wire data is malformed
-    private static RawRecordStreamItem extractRawRecordStreamItem(final ReadableSequentialData input) throws Exception {
+    /// @throws IOException if the wire data is malformed
+    private static RawRecordStreamItem extractRawRecordStreamItem(final ReadableSequentialData input)
+            throws IOException {
         Bytes transactionBytes = Bytes.EMPTY;
         Bytes recordBytes = Bytes.EMPTY;
         while (input.hasRemaining()) {
@@ -385,8 +377,8 @@ public final class RecordFileSignedPayload {
     ///
     /// @param input the input to advance
     /// @param tag the tag whose field value must be skipped
-    /// @throws Exception if the wire data is malformed
-    private static void skipTaggedField(final ReadableSequentialData input, final int tag) throws Exception {
+    /// @throws IOException if the wire data is malformed
+    private static void skipTaggedField(final ReadableSequentialData input, final int tag) throws IOException {
         final int wireType = tag & TAG_WIRE_TYPE_MASK;
         ProtoParserTools.skipField(input, ProtoConstants.get(wireType));
     }
