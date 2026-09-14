@@ -483,7 +483,7 @@ class RSAProofVerifierTest {
     }
 
     /// This test aims to assert that a `SignedRecordFileProof` declaring a record file format
-    /// version that never existed on mainnet (anything outside 2, 5 and 6) is rejected with
+    /// version that never existed (anything outside 2, 5 and 6) is rejected with
     /// `MISSING_MANDATORY_FIELD` by the verifier's version gate, before any payload
     /// computation is attempted.
     @ParameterizedTest(name = "version={0}")
@@ -822,13 +822,13 @@ class RSAProofVerifierTest {
         }
     }
 
-    /// Tests running real mainnet wrapped record blocks, carrying their original RSA
+    /// Tests running real wrapped record blocks, carrying their original RSA
     /// signatures, through the hashing stage and the verifier with the era address book keys.
     /// These fixtures are the ultimate oracle for the legacy payload reconstructions: the
-    /// signatures were produced by the mainnet consensus nodes over the original v2/v5 files.
+    /// signatures were produced by the consensus nodes over the original v2/v5 files.
     @Nested
-    @DisplayName("Real Mainnet Data Tests")
-    class RealMainnetDataTests {
+    @DisplayName("Real Data Tests")
+    class RealDataTests {
         /// Builds the node id to RSA public key map from a fixture era address book, mirroring
         /// the production key map construction (which is private to
         /// `VerificationDataProvider`).
@@ -842,7 +842,7 @@ class RSAProofVerifierTest {
             return keys;
         }
 
-        /// This test aims to assert that a real mainnet wrapped record block of a legacy
+        /// This test aims to assert that a real wrapped record block of a legacy
         /// record file format version (v2 block 0 from 2019 and v5 block 26591040 from 2022)
         /// is accepted by the verifier: the hashing stage reconstructs the original legacy
         /// binary file from the normalized protobuf contents, computes the version-appropriate
@@ -851,9 +851,9 @@ class RSAProofVerifierTest {
         @ParameterizedTest(name = "{0}")
         @EnumSource(
                 value = WRB.class,
-                names = {"MAINNET_V2_BLOCK_0", "MAINNET_V5_BLOCK_26591040"})
-        @DisplayName("real mainnet V2/V5 block with original signatures is accepted")
-        void realMainnetBlock_accepted(final WRB fixture) throws Exception {
+                names = {"V2_BLOCK_0", "V5_BLOCK_26591040"})
+        @DisplayName("real V2/V5 block with original signatures is accepted")
+        void realBlock_accepted(final WRB fixture) throws Exception {
             final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
             final BlockNodeContext context = TestUtils.testContext();
             final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());

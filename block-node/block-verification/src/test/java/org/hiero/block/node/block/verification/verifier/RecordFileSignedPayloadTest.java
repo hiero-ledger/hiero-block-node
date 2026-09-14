@@ -4,7 +4,9 @@ package org.hiero.block.node.block.verification.verifier;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
+import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.TransactionRecord;
 import com.hedera.hapi.streams.HashAlgorithm;
@@ -22,6 +24,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import org.hiero.block.common.hasher.HashingUtilities;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.block.verification.session.SessionFailureType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -337,13 +342,14 @@ class RecordFileSignedPayloadTest {
     @Nested
     @DisplayName("V6 Payload Tests")
     class V6PayloadTests {
-        /// This test aims to assert that the version 6 branch returns exactly the payload of
-        /// [HashingUtilities#computeV6SignedPayload], i.e. SHA-384(int32(6) || contents) over
-        /// the verbatim bytes with no extraction involved, even for bytes that are not valid
-        /// protobuf.
+        /// This test aims to assert that the version 6 branch computes SHA-384(int32(6) ||
+        /// contents) over the verbatim bytes with no extraction involved, even for bytes that
+        /// are not valid protobuf, and that it stays byte-for-byte aligned with
+        /// [HashingUtilities#computeV6SignedPayload] in the common module, which the
+        /// block-signing test signer uses to produce V6 fixtures.
         @Test
-        @DisplayName("computeSignedPayload() v6 delegates to HashingUtilities")
-        void testV6DelegatesToHashingUtilities() throws ParseException {
+        @DisplayName("computeSignedPayload() v6 matches the signer's payload formula")
+        void testV6MatchesSignerFormula() throws ParseException {
             final SemanticVersion hapi = new SemanticVersion(0, 72, 0, null, null);
             final Bytes arbitraryBytes = Bytes.wrap("not-a-record-stream-file".getBytes());
             final byte[] actual = RecordFileSignedPayload.computeSignedPayload(6, hapi, arbitraryBytes);
@@ -425,7 +431,7 @@ class RecordFileSignedPayloadTest {
         }
 
         /// This test aims to assert that record file format versions that never existed on
-        /// mainnet are rejected with an [ParseException], because callers are
+        /// are rejected with an [ParseException], because callers are
         /// expected to gate the version before requesting a payload.
         @ParameterizedTest
         @ValueSource(ints = {0, 1, 3, 4, 7})
@@ -435,6 +441,134 @@ class RecordFileSignedPayloadTest {
             final Bytes contents = contentsOf(recordStreamFile(hapi, fakeHash(0x01), fakeHash(0x02), fakeItems(1)));
             assertThatExceptionOfType(ParseException.class)
                     .isThrownBy(() -> RecordFileSignedPayload.computeSignedPayload(version, hapi, contents));
+        }
+    }
+
+    /// Tests for the block-level entry point [RecordFileSignedPayload#computeSignedWRBPayload],
+    /// which locates the `RECORD_FILE` item in the block, gates the proof version and
+    /// classifies every failure into the [SessionFailureType] the block must be refused with.
+    @Nested
+    @DisplayName("Compute Signed WRB Payload Tests")
+    class ComputeSignedWRBPayloadTests {
+        /// The block number passed to the entry point, only relevant for logging.
+        private static final long BLOCK_NUMBER = 1502L;
+        /// The era HAPI version used by the fixtures.
+        private static final SemanticVersion HAPI = new SemanticVersion(0, 22, 0, null, null);
+
+        /// Builds a block carrying the given record stream file wrapped in a serialized
+        /// `RecordFileItem` as its single `RECORD_FILE` item.
+        private static BlockUnparsed blockWith(final RecordStreamFile recordStreamFile) {
+            final RecordFileItem item = new RecordFileItem(
+                    new Timestamp(1_500_000_000L, 0),
+                    recordStreamFile,
+                    Collections.emptyList(),
+                    Collections.emptyList());
+            return blockWithItemBytes(RecordFileItem.PROTOBUF.toBytes(item));
+        }
+
+        /// Builds a block carrying the given raw bytes as its single `RECORD_FILE` item.
+        private static BlockUnparsed blockWithItemBytes(final Bytes recordFileItemBytes) {
+            return BlockUnparsed.newBuilder()
+                    .blockItems(List.of(BlockItemUnparsed.newBuilder()
+                            .recordFile(recordFileItemBytes)
+                            .build()))
+                    .build();
+        }
+
+        /// This test aims to assert that for every supported proof version (2, 5 and 6) the
+        /// entry point locates the `RECORD_FILE` item in the block and produces exactly the
+        /// payload of the version-specific construction, with no failure set.
+        @ParameterizedTest(name = "version={0}")
+        @ValueSource(ints = {2, 5, 6})
+        @DisplayName("computeSignedWRBPayload() supported versions produce the payload")
+        void testSupportedVersionsProducePayload(final int version) throws ParseException {
+            final RecordStreamFile contents = recordStreamFile(HAPI, fakeHash(0xAC), fakeHash(0xCA), fakeItems(2));
+            final byte[] expected = RecordFileSignedPayload.computeSignedPayload(version, HAPI, contentsOf(contents));
+            final RecordFileSignedPayload.SignedPayloadResult result =
+                    RecordFileSignedPayload.computeSignedWRBPayload(blockWith(contents), version, HAPI, BLOCK_NUMBER);
+            assertThat(result.failure()).isNull();
+            assertThat(result.payload()).isEqualTo(expected);
+        }
+
+        /// This test aims to assert that a block without a `RECORD_FILE` item yields the
+        /// MISSING_VERIFICATION_DATA failure: there is nothing to verify the proof against.
+        @Test
+        @DisplayName("computeSignedWRBPayload() no RECORD_FILE item fails with missing verification data")
+        void testNoRecordFileItemFails() {
+            final BlockUnparsed emptyBlock =
+                    BlockUnparsed.newBuilder().blockItems(List.of()).build();
+            final RecordFileSignedPayload.SignedPayloadResult result =
+                    RecordFileSignedPayload.computeSignedWRBPayload(emptyBlock, 6, HAPI, BLOCK_NUMBER);
+            assertThat(result.payload()).isNull();
+            assertThat(result.failure()).isEqualTo(SessionFailureType.MISSING_VERIFICATION_DATA);
+        }
+
+        /// This test aims to assert that a proof declaring a record file format version that
+        /// never existed (anything outside 2, 5 and 6) yields the
+        /// MISSING_MANDATORY_FIELD failure from the version gate, even when the block carries
+        /// perfectly valid record file contents.
+        @ParameterizedTest(name = "version={0}")
+        @ValueSource(ints = {0, 1, 3, 4, 7})
+        @DisplayName("computeSignedWRBPayload() unsupported version fails with missing mandatory field")
+        void testUnsupportedVersionFails(final int version) {
+            final RecordStreamFile contents = recordStreamFile(HAPI, fakeHash(0x0D), fakeHash(0xD0), fakeItems(1));
+            final RecordFileSignedPayload.SignedPayloadResult result =
+                    RecordFileSignedPayload.computeSignedWRBPayload(blockWith(contents), version, HAPI, BLOCK_NUMBER);
+            assertThat(result.payload()).isNull();
+            assertThat(result.failure()).isEqualTo(SessionFailureType.MISSING_MANDATORY_FIELD);
+        }
+
+        /// This test aims to assert that a `RECORD_FILE` item without the
+        /// `record_file_contents` field yields the MISSING_MANDATORY_FIELD failure: the item
+        /// exists but carries no contents to compute the payload from.
+        @Test
+        @DisplayName("computeSignedWRBPayload() missing record_file_contents fails with missing mandatory field")
+        void testMissingContentsFails() {
+            final RecordFileSignedPayload.SignedPayloadResult result =
+                    RecordFileSignedPayload.computeSignedWRBPayload(blockWith(null), 6, HAPI, BLOCK_NUMBER);
+            assertThat(result.payload()).isNull();
+            assertThat(result.failure()).isEqualTo(SessionFailureType.MISSING_MANDATORY_FIELD);
+        }
+
+        /// This test aims to assert that contents structurally missing a component mandatory
+        /// for the declared version (a v5 file without its running hashes) yield the
+        /// MISSING_MANDATORY_FIELD failure instead of a wrong payload.
+        @Test
+        @DisplayName("computeSignedWRBPayload() contents missing mandatory components fail")
+        void testMissingMandatoryComponentsFails() {
+            final RecordStreamFile noHashes = recordStreamFile(HAPI, null, null, fakeItems(1));
+            final RecordFileSignedPayload.SignedPayloadResult result =
+                    RecordFileSignedPayload.computeSignedWRBPayload(blockWith(noHashes), 5, HAPI, BLOCK_NUMBER);
+            assertThat(result.payload()).isNull();
+            assertThat(result.failure()).isEqualTo(SessionFailureType.MISSING_MANDATORY_FIELD);
+        }
+
+        /// This test aims to assert that malformed record file contents (a length-delimited
+        /// field whose declared length exceeds the available bytes) yield the UNABLE_TO_PARSE
+        /// failure.
+        @Test
+        @DisplayName("computeSignedWRBPayload() malformed contents fail with unable to parse")
+        void testMalformedContentsFails() {
+            // RecordFileItem proto: field 2 (LEN) carrying two inner bytes that declare a
+            // 127-byte field with nothing following.
+            final Bytes malformedItemBytes = Bytes.wrap(new byte[] {0x12, 0x02, 0x12, 0x7F});
+            final RecordFileSignedPayload.SignedPayloadResult result = RecordFileSignedPayload.computeSignedWRBPayload(
+                    blockWithItemBytes(malformedItemBytes), 5, HAPI, BLOCK_NUMBER);
+            assertThat(result.payload()).isNull();
+            assertThat(result.failure()).isEqualTo(SessionFailureType.UNABLE_TO_PARSE);
+        }
+
+        /// This test aims to assert that the [RecordFileSignedPayload.SignedPayloadResult]
+        /// invariant holds: exactly one of the two components must be non-null, so constructing
+        /// a result with both or with neither throws.
+        @Test
+        @DisplayName("SignedPayloadResult requires exactly one non-null component")
+        void testResultInvariant() {
+            assertThatExceptionOfType(IllegalArgumentException.class)
+                    .isThrownBy(() -> new RecordFileSignedPayload.SignedPayloadResult(null, null));
+            assertThatExceptionOfType(IllegalArgumentException.class)
+                    .isThrownBy(() -> new RecordFileSignedPayload.SignedPayloadResult(
+                            fakeHash(0x01), SessionFailureType.UNABLE_TO_PARSE));
         }
     }
 }

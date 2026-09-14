@@ -640,7 +640,7 @@ class VerificationServicePluginTest {
                     .returns(block0.blockRootHash(), VerificationNotification::blockHash);
         }
 
-        /// This test aims to assert that a real mainnet wrapped record block of a legacy
+        /// This test aims to assert that a real wrapped record block of a legacy
         /// record file format version (v2 block 0 from 2019 and v5 block 26591040 from 2022),
         /// carrying its original RSA signatures, passes full plugin verification when the era
         /// address book is loaded: the hashing stage reconstructs the legacy binary format to
@@ -649,10 +649,9 @@ class VerificationServicePluginTest {
         @ParameterizedTest(name = "{0}")
         @EnumSource(
                 value = WRB.class,
-                names = {"MAINNET_V2_BLOCK_0", "MAINNET_V5_BLOCK_26591040"})
-        @DisplayName("Successful WRB Verification - real mainnet V2/V5 blocks")
-        void testSuccessfulWRBVerificationRealMainnetLegacyVersions(final WRB fixture)
-                throws IOException, ParseException {
+                names = {"V2_BLOCK_0", "V5_BLOCK_26591040"})
+        @DisplayName("Successful WRB Verification - real V2/V5 blocks")
+        void testSuccessfulWRBVerificationRealLegacyVersions(final WRB fixture) throws IOException, ParseException {
             final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
             // First, we update the node address book with the era keys
             updateAddressBook(block.nodeAddressBook());
