@@ -7,9 +7,6 @@ import static java.lang.System.Logger.Level.WARNING;
 import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.block.stream.SignedRecordFileProof;
 import com.hedera.hapi.node.base.SemanticVersion;
-import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.io.ReadableSequentialData;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.InvalidKeyException;
 import java.security.PublicKey;
 import java.security.Signature;
@@ -19,10 +16,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.block.verification.metrics.ProofVerificationMetrics;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
+import org.hiero.block.node.block.verification.verifier.RecordFileSignedPayload.SignedPayloadResult;
 
 /// RSA proof verifier.
 public final class RSAProofVerifier implements ProofVerifier {
@@ -48,11 +45,6 @@ public final class RSAProofVerifier implements ProofVerifier {
     private final SemanticVersion hapiProtoVersion;
     /// The `SHA384withRSA` signature engine used to verify each signature.
     private final Signature sha384WithRSA;
-
-    /// The outcome of the signed payload computation: exactly one of the two components is
-    /// non-null. Carries either the computed payload or the failure the block must be refused
-    /// with.
-    private record SignedPayloadResult(byte[] payload, SessionFailureType failure) {}
 
     /// Constructor.
     ///
@@ -126,7 +118,8 @@ public final class RSAProofVerifier implements ProofVerifier {
                     blockNumber);
             result = SessionFailureType.MISSING_VERIFICATION_DATA;
         } else {
-            final SignedPayloadResult payloadResult = computeSignedWRBPayload();
+            final SignedPayloadResult payloadResult =
+                    RecordFileSignedPayload.computeSignedWRBPayload(block, version, hapiProtoVersion, blockNumber);
             final byte[] signedWRBPayload = payloadResult.payload();
             if (signedWRBPayload == null) {
                 result = payloadResult.failure();
@@ -238,149 +231,6 @@ public final class RSAProofVerifier implements ProofVerifier {
             proofVerificationMetrics.rsaSuccess().increment();
         }
         return result;
-    }
-
-    /// Computes the signed payload for the proof's declared record file format version from
-    /// the block's `RECORD_FILE` item, or the failure the block must be refused with:
-    /// - no `RECORD_FILE` item in the block: `MISSING_VERIFICATION_DATA`
-    /// - unsupported version (outside 2, 5 and 6): `MISSING_MANDATORY_FIELD`
-    /// - `record_file_contents` absent or missing components mandatory for the version
-    ///   (the running hashes of the legacy reconstructions): `MISSING_MANDATORY_FIELD`
-    /// - malformed protobuf wire data: `UNABLE_TO_PARSE`
-    ///
-    /// @return the payload or the failure, exactly one of the two, never both
-    private SignedPayloadResult computeSignedWRBPayload() {
-        final SignedPayloadResult result;
-        final Bytes rawRecordFileItemBytes = findRecordFileItemBytes();
-        if (rawRecordFileItemBytes == null) {
-            LOGGER.log(WARNING, "WRB block {0} carries no RECORD_FILE item to verify the proof against", blockNumber);
-            result = new SignedPayloadResult(null, SessionFailureType.MISSING_VERIFICATION_DATA);
-        } else if (!RecordFileSignedPayload.isSupportedVersion(version)) {
-            LOGGER.log(
-                    WARNING,
-                    "Unsupported SignedRecordFileProof version {0} in block {1}"
-                            + " - only versions 2, 5 and 6 are supported",
-                    version,
-                    blockNumber);
-            result = new SignedPayloadResult(null, SessionFailureType.MISSING_MANDATORY_FIELD);
-        } else {
-            SignedPayloadResult computed;
-            try {
-                final Bytes recordFileContents = extractRecordStreamFileBytes(rawRecordFileItemBytes);
-                if (recordFileContents.length() == 0) {
-                    LOGGER.log(WARNING, "WRB block {0} carries no record_file_contents", blockNumber);
-                    computed = new SignedPayloadResult(null, SessionFailureType.MISSING_MANDATORY_FIELD);
-                } else {
-                    final byte[] payload =
-                            RecordFileSignedPayload.computeSignedPayload(version, hapiProtoVersion, recordFileContents);
-                    if (payload == null) {
-                        // the contents are missing components mandatory for this version
-                        LOGGER.log(
-                                WARNING,
-                                "WRB block {0} record_file_contents miss components mandatory for version {1}",
-                                blockNumber,
-                                version);
-                        computed = new SignedPayloadResult(null, SessionFailureType.MISSING_MANDATORY_FIELD);
-                    } else {
-                        computed = new SignedPayloadResult(payload, null);
-                    }
-                }
-            } catch (final ParseException e) {
-                LOGGER.log(
-                        WARNING,
-                        "WRB block %d record_file_contents are malformed - rejecting block".formatted(blockNumber),
-                        e);
-                computed = new SignedPayloadResult(null, SessionFailureType.UNABLE_TO_PARSE);
-            }
-            result = computed;
-        }
-        return result;
-    }
-
-    /// Finds the raw serialized bytes of the block's `RecordFileItem` proto message.
-    ///
-    /// @return the raw `RECORD_FILE` item bytes, or `null` when the block carries no such item
-    private Bytes findRecordFileItemBytes() {
-        Bytes result = null;
-        for (final BlockItemUnparsed item : block.blockItems()) {
-            if (item.hasRecordFile()) {
-                result = item.recordFile();
-                break;
-            }
-        }
-        return result;
-    }
-
-    /// Extracts the raw `record_file_contents` bytes from a serialized `RecordFileItem`
-    /// proto message by walking the protobuf wire format directly, without deserializing the message.
-    ///
-    /// `record_file_contents` is proto field 2 of `RecordFileItem`. These bytes are
-    /// the normalized `RecordStreamFile` content exactly as the wrap CLI serialized it. They
-    /// must be returned byte-for-byte identical to what the signed payload was computed over;
-    /// full deserialization via `RecordFileItem.PROTOBUF.parse()` is deliberately avoided
-    /// because re-serializing a parsed object can produce subtly different bytes (e.g. omitting
-    /// default-value fields, different varint encoding choices), which would cause the
-    /// recomputed payload to diverge from the one the consensus nodes signed.
-    ///
-    /// **Protobuf wire format:** every field on the wire is encoded as a tag varint followed
-    /// by its value. The tag packs two things:
-    /// - `fieldNumber = tag >>> 3`
-    /// - `wireType = tag & 0x7`
-    ///
-    /// Wire type 2 (`LEN`) means the value is length-prefixed bytes, used for `bytes`,
-    /// `string`, and embedded messages. It is encoded as:
-    /// `[tag varint] [length varint] [raw bytes...]`.
-    ///
-    /// **Algorithm:**
-    /// 1. Read the next field tag varint and decode its field number and wire type.
-    /// 2. If `fieldNumber == 2` and `wireType == LEN`: read the length prefix varint,
-    ///    read exactly that many bytes, and return them - these are the
-    ///    `record_file_contents`.
-    /// 3. Otherwise skip the field using the wire type to know how many bytes to consume:
-    ///    - VARINT (wire 0): read and discard one varint
-    ///    - I64 (wire 1): skip 8 bytes fixed
-    ///    - LEN (wire 2): read the length prefix, skip that many bytes
-    ///    - I32 (wire 5): skip 4 bytes fixed
-    /// 4. Repeat until field 2 is found or input is exhausted.
-    ///
-    /// @param recordFileItemBytes raw serialized bytes of a `RecordFileItem` proto message
-    /// @return verbatim bytes of the `record_file_contents` field (proto field 2), or
-    ///         [Bytes#EMPTY] if field 2 is not present or an unknown wire type is encountered
-    /// @throws ParseException if the wire data is malformed (e.g. truncated)
-    private static Bytes extractRecordStreamFileBytes(final Bytes recordFileItemBytes) throws ParseException {
-        try {
-            final ReadableSequentialData input = recordFileItemBytes.toReadableSequentialData();
-            while (input.hasRemaining()) {
-                // Each field starts with a tag varint: high bits = field number, low 3 bits = wire type
-                final int tag = input.readVarInt(false);
-                final int wireType = tag & 0x7;
-                final int fieldNumber = tag >>> 3;
-                if (fieldNumber == 2 && wireType == 2) {
-                    // Found record_file_contents (field 2, LEN wire type).
-                    // Read the length-prefix varint then copy the raw payload bytes verbatim.
-                    final int len = input.readVarInt(false);
-                    final byte[] raw = new byte[len];
-                    input.readBytes(raw);
-                    return Bytes.wrap(raw);
-                }
-                // Not field 2 - skip this field using its wire type to advance the cursor correctly
-                switch (wireType) {
-                    case 0 -> input.readVarLong(false); // VARINT: read and discard the value
-                    case 1 -> input.skip(8); // I64: fixed 64-bit, skip 8 bytes
-                    case 2 -> { // LEN: read length prefix, skip content
-                        final int l = input.readVarInt(false);
-                        input.skip(l);
-                    }
-                    case 5 -> input.skip(4); // I32: fixed 32-bit, skip 4 bytes
-                    default -> {
-                        return Bytes.EMPTY; // Unknown wire type - bail out safely
-                    }
-                }
-            }
-        } catch (final RuntimeException e) {
-            throw new ParseException(e);
-        }
-        return Bytes.EMPTY; // field 2 not present in the message
     }
 
     /// Returns `true` if every byte in `bytes` is zero.

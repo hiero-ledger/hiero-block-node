@@ -2,6 +2,7 @@
 package org.hiero.block.node.block.verification.verifier;
 
 import static com.hedera.pbj.runtime.ProtoConstants.TAG_WIRE_TYPE_MASK;
+import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.ParseException;
@@ -14,12 +15,15 @@ import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
-import org.hiero.block.common.hasher.HashingUtilities;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.block.verification.session.SessionFailureType;
 
 /// Computes the record-file signed payload for a Wrapped Record Block (WRB) proof, for every
-/// record file format version that ever existed on mainnet: 2, 5 and 6.
+/// record file format version that ever existed: 2, 5 and 6.
 ///
 /// The consensus nodes signed each record file's hash with their RSA keys, but the bytes that
 /// were hashed depend on the record file format version the file was originally produced in.
@@ -29,7 +33,9 @@ import org.hiero.block.common.hasher.HashingUtilities;
 /// losslessly, from that protobuf before hashing. The signed payload per version is:
 ///
 /// - **Version 6**: `SHA-384(int32be(6) || recordFileContents)` over the verbatim
-///     protobuf bytes (delegates to [HashingUtilities#computeV6SignedPayload(Bytes)]).
+///     protobuf bytes; this formula must stay byte-for-byte identical to
+///     `HashingUtilities.computeV6SignedPayload` in the common module, which the
+///     block-signing test signer uses to produce V6 fixtures.
 /// - **Version 5**: reconstruct the legacy v5 binary file `int32(5) || hapiMajor ||
 ///   hapiMinor || hapiPatch || int32(objectStreamVersion=1) || startRunningHash as
 ///   v5 HashObject || per item [classId || classVersion || recordLen+recordBytes ||
@@ -51,10 +57,16 @@ import org.hiero.block.common.hasher.HashingUtilities;
 ///
 /// Sources of truth: the reconstruction pseudocode in
 /// `protobuf-sources/src/main/proto-overrides/block/stream/record_file_item.proto` and the
-/// mainnet-validated implementation in the tools module
+/// implementation in the tools module, validated against the real record stream archive
 /// (`org.hiero.block.tools.blocks.validation.SignatureDataExtractor` and
 /// `org.hiero.block.tools.records.model.parsed.ParsedRecordFile`).
 public final class RecordFileSignedPayload {
+    /// Logger for the payload computation.
+    private static final System.Logger LOGGER = System.getLogger(RecordFileSignedPayload.class.getName());
+    /// The standard name of the SHA2 384-bit hash algorithm.
+    private static final String HASH_ALGORITHM = "SHA-384";
+    /// The size of an SHA-384 hash, in bytes.
+    private static final int SHA_384_HASH_SIZE = 48;
 
     // ---- Legacy v2 binary format constants ----
 
@@ -65,7 +77,7 @@ public final class RecordFileSignedPayload {
     /// The length of the v2 file header: version int, HAPI version int, previous file hash
     /// marker byte and the 48-byte previous file hash. The v2 signed hash is a double hash
     /// split exactly at this offset.
-    private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + HashingUtilities.HASH_SIZE;
+    private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + SHA_384_HASH_SIZE;
 
     // ---- Legacy v5 binary format constants ----
 
@@ -103,17 +115,192 @@ public final class RecordFileSignedPayload {
     /// Raw transaction and record byte spans of a single `RecordStreamItem`.
     private record RawRecordStreamItem(Bytes transactionBytes, Bytes recordBytes) {}
 
+    /// The outcome of the signed payload computation: exactly one of the two components is
+    /// non-null. Carries either the computed payload or the failure the block must be refused
+    /// with.
+    record SignedPayloadResult(byte[] payload, SessionFailureType failure) {
+        SignedPayloadResult {
+            if ((payload == null && failure == null) || (payload != null && failure != null)) {
+                throw new IllegalArgumentException("SignedPayloadResult must have exactly one non-null component");
+            }
+        }
+    }
+
     private RecordFileSignedPayload() {
         throw new UnsupportedOperationException("Utility Class");
     }
 
+    /// Computes the signed payload for the proof's declared record file format version from
+    /// the block's `RECORD_FILE` item, or the failure the block must be refused with:
+    /// - no `RECORD_FILE` item in the block: `MISSING_VERIFICATION_DATA`
+    /// - unsupported version (outside 2, 5 and 6): `MISSING_MANDATORY_FIELD`
+    /// - `record_file_contents` absent or missing components mandatory for the version
+    ///   (the running hashes of the legacy reconstructions): `MISSING_MANDATORY_FIELD`
+    /// - malformed protobuf wire data: `UNABLE_TO_PARSE`
+    ///
+    /// @param block the whole block being verified, carrying the `RECORD_FILE` item
+    /// @param version the record file format version declared by the proof
+    /// @param hapiProtoVersion the HAPI protocol version from the block header
+    /// @param blockNumber the number of the block being verified, used for logging
+    /// @return the payload or the failure, exactly one of the two, never both
+    static SignedPayloadResult computeSignedWRBPayload(
+            final BlockUnparsed block,
+            final int version,
+            final SemanticVersion hapiProtoVersion,
+            final long blockNumber) {
+        final SignedPayloadResult result;
+        final Bytes rawRecordFileItemBytes = findRecordFileItemBytes(block);
+        if (rawRecordFileItemBytes == null) {
+            LOGGER.log(WARNING, "WRB block {0} carries no RECORD_FILE item to verify the proof against", blockNumber);
+            result = new SignedPayloadResult(null, SessionFailureType.MISSING_VERIFICATION_DATA);
+        } else if (!isSupportedVersion(version)) {
+            final String message =
+                    "Unsupported SignedRecordFileProof version {0} in block {1} - only versions 2, 5 and 6 are supported";
+            LOGGER.log(WARNING, message, version, blockNumber);
+            result = new SignedPayloadResult(null, SessionFailureType.MISSING_MANDATORY_FIELD);
+        } else {
+            result = getSignedPayload(rawRecordFileItemBytes, version, hapiProtoVersion, blockNumber);
+        }
+        return result;
+    }
+
+    /// Extracts the `record_file_contents` from the raw `RecordFileItem` bytes and computes
+    /// the signed payload for the given version, classifying every failure.
+    ///
+    /// @param rawRecordFileItemBytes raw serialized bytes of the `RecordFileItem` proto message
+    /// @param version the record file format version declared by the proof, must be 2, 5 or 6
+    /// @param hapiProtoVersion the HAPI protocol version from the block header
+    /// @param blockNumber the number of the block being verified, used for logging
+    /// @return the payload or the failure, exactly one of the two, never both
+    private static SignedPayloadResult getSignedPayload(
+            final Bytes rawRecordFileItemBytes,
+            final int version,
+            final SemanticVersion hapiProtoVersion,
+            final long blockNumber) {
+        SignedPayloadResult computed;
+        try {
+            final Bytes recordFileContents = extractRecordStreamFileBytes(rawRecordFileItemBytes);
+            if (recordFileContents.length() == 0) {
+                LOGGER.log(WARNING, "WRB block {0} carries no record_file_contents", blockNumber);
+                computed = new SignedPayloadResult(null, SessionFailureType.MISSING_MANDATORY_FIELD);
+            } else {
+                final byte[] payload = computeSignedPayload(version, hapiProtoVersion, recordFileContents);
+                if (payload == null) {
+                    // the contents are missing components mandatory for this version
+                    LOGGER.log(
+                            WARNING,
+                            "WRB block {0} record_file_contents miss components mandatory for version {1}",
+                            blockNumber,
+                            version);
+                    computed = new SignedPayloadResult(null, SessionFailureType.MISSING_MANDATORY_FIELD);
+                } else {
+                    computed = new SignedPayloadResult(payload, null);
+                }
+            }
+        } catch (final ParseException e) {
+            LOGGER.log(
+                    WARNING,
+                    "WRB block %d record_file_contents are malformed - rejecting block".formatted(blockNumber),
+                    e);
+            computed = new SignedPayloadResult(null, SessionFailureType.UNABLE_TO_PARSE);
+        }
+        return computed;
+    }
+
+    /// Finds the raw serialized bytes of the block's `RecordFileItem` proto message.
+    ///
+    /// @param block the block to search
+    /// @return the raw `RECORD_FILE` item bytes, or `null` when the block carries no such item
+    private static Bytes findRecordFileItemBytes(final BlockUnparsed block) {
+        Bytes result = null;
+        for (final BlockItemUnparsed item : block.blockItems()) {
+            if (item.hasRecordFile()) {
+                result = item.recordFile();
+                break;
+            }
+        }
+        return result;
+    }
+
+    /// Extracts the raw `record_file_contents` bytes from a serialized `RecordFileItem`
+    /// proto message by walking the protobuf wire format directly, without deserializing the message.
+    ///
+    /// `record_file_contents` is proto field 2 of `RecordFileItem`. These bytes are
+    /// the normalized `RecordStreamFile` content exactly as the wrap CLI serialized it. They
+    /// must be returned byte-for-byte identical to what the signed payload was computed over;
+    /// full deserialization via `RecordFileItem.PROTOBUF.parse()` is deliberately avoided
+    /// because re-serializing a parsed object can produce subtly different bytes (e.g. omitting
+    /// default-value fields, different varint encoding choices), which would cause the
+    /// recomputed payload to diverge from the one the consensus nodes signed.
+    ///
+    /// **Protobuf wire format:** every field on the wire is encoded as a tag varint followed
+    /// by its value. The tag packs two things:
+    /// - `fieldNumber = tag >>> 3`
+    /// - `wireType = tag & 0x7`
+    ///
+    /// Wire type 2 (`LEN`) means the value is length-prefixed bytes, used for `bytes`,
+    /// `string`, and embedded messages. It is encoded as:
+    /// `[tag varint] [length varint] [raw bytes...]`.
+    ///
+    /// **Algorithm:**
+    /// 1. Read the next field tag varint and decode its field number and wire type.
+    /// 2. If `fieldNumber == 2` and `wireType == LEN`: read the length prefix varint,
+    ///    read exactly that many bytes, and return them - these are the
+    ///    `record_file_contents`.
+    /// 3. Otherwise skip the field using the wire type to know how many bytes to consume:
+    ///    - VARINT (wire 0): read and discard one varint
+    ///    - I64 (wire 1): skip 8 bytes fixed
+    ///    - LEN (wire 2): read the length prefix, skip that many bytes
+    ///    - I32 (wire 5): skip 4 bytes fixed
+    /// 4. Repeat until field 2 is found or input is exhausted.
+    ///
+    /// @param recordFileItemBytes raw serialized bytes of a `RecordFileItem` proto message
+    /// @return verbatim bytes of the `record_file_contents` field (proto field 2), or
+    ///         [Bytes#EMPTY] if field 2 is not present or an unknown wire type is encountered
+    /// @throws ParseException if the wire data is malformed (e.g. truncated)
+    private static Bytes extractRecordStreamFileBytes(final Bytes recordFileItemBytes) throws ParseException {
+        try {
+            final ReadableSequentialData input = recordFileItemBytes.toReadableSequentialData();
+            while (input.hasRemaining()) {
+                // Each field starts with a tag varint: high bits = field number, low 3 bits = wire type
+                final int tag = input.readVarInt(false);
+                final int wireType = tag & 0x7;
+                final int fieldNumber = tag >>> 3;
+                if (fieldNumber == 2 && wireType == 2) {
+                    // Found record_file_contents (field 2, LEN wire type).
+                    // Read the length-prefix varint then copy the raw payload bytes verbatim.
+                    final int len = input.readVarInt(false);
+                    final byte[] raw = new byte[len];
+                    input.readBytes(raw);
+                    return Bytes.wrap(raw);
+                }
+                // Not field 2 - skip this field using its wire type to advance the cursor correctly
+                switch (wireType) {
+                    case 0 -> input.readVarLong(false); // VARINT: read and discard the value
+                    case 1 -> input.skip(8); // I64: fixed 64-bit, skip 8 bytes
+                    case 2 -> { // LEN: read length prefix, skip content
+                        final int l = input.readVarInt(false);
+                        input.skip(l);
+                    }
+                    case 5 -> input.skip(4); // I32: fixed 32-bit, skip 4 bytes
+                    default -> {
+                        return Bytes.EMPTY; // Unknown wire type - bail out safely
+                    }
+                }
+            }
+        } catch (final RuntimeException e) {
+            throw new ParseException(e);
+        }
+        return Bytes.EMPTY; // field 2 not present in the message
+    }
+
     /// Returns `true` when the given record file format version is one this class can
-    /// compute a signed payload for, i.e. one of the versions that ever existed on mainnet:
+    /// compute a signed payload for, i.e. one of the versions that ever existed:
     /// 2, 5 and 6.
     ///
     /// @param version the record file format version declared by a proof
     /// @return `true` when the version is supported
-    public static boolean isSupportedVersion(final int version) {
+    private static boolean isSupportedVersion(final int version) {
         return version == 2 || version == 5 || version == 6;
     }
 
@@ -134,12 +321,12 @@ public final class RecordFileSignedPayload {
     /// @throws ParseException if the record file contents are malformed protobuf wire data
     ///     or if the version is not 2, 5 or 6; callers are expected to
     ///     gate the version before calling
-    public static byte[] computeSignedPayload(
+    static byte[] computeSignedPayload(
             final int version, final SemanticVersion hapiProtoVersion, final Bytes recordFileContents)
             throws ParseException {
         try {
             return switch (version) {
-                case 6 -> HashingUtilities.computeV6SignedPayload(recordFileContents);
+                case 6 -> computeV6SignedPayload(recordFileContents);
                 case 5 -> computeV5SignedPayload(hapiProtoVersion, extract(recordFileContents));
                 case 2 -> computeV2SignedPayload(hapiProtoVersion, extract(recordFileContents));
                 default -> throw new ParseException("Unsupported record file format version: " + version);
@@ -181,7 +368,7 @@ public final class RecordFileSignedPayload {
                 }
                 writeV5HashObject(out, data.endRunningHash());
             }
-            result = HashingUtilities.noThrowSha384HashOf(bout.toByteArray());
+            result = sha384Digest().digest(bout.toByteArray());
         }
         return result;
     }
@@ -221,6 +408,34 @@ public final class RecordFileSignedPayload {
         return result;
     }
 
+    /// Computes the v6 signed payload: `SHA-384(int32be(6) || recordFileContents)` over the
+    /// verbatim protobuf bytes, where `int32be(6)` is the four bytes `0x00 0x00 0x00 0x06`.
+    ///
+    /// This formula must stay byte-for-byte identical to
+    /// `HashingUtilities.computeV6SignedPayload` in the common module, which the block-signing
+    /// test signer uses to produce V6 fixtures; the alignment is pinned by a test.
+    ///
+    /// @param recordFileContents the verbatim `record_file_contents` bytes
+    /// @return the 48-byte signed payload
+    private static byte[] computeV6SignedPayload(final Bytes recordFileContents) {
+        final MessageDigest digest = sha384Digest();
+        digest.update(new byte[] {0, 0, 0, 6});
+        recordFileContents.writeTo(digest);
+        return digest.digest();
+    }
+
+    /// Returns a [MessageDigest] for the SHA-384 algorithm.
+    ///
+    /// @return a fresh SHA-384 digest
+    private static MessageDigest sha384Digest() {
+        try {
+            return MessageDigest.getInstance(HASH_ALGORITHM);
+        } catch (final NoSuchAlgorithmException fatal) {
+            // Cannot occur: SHA-384 is a mandatory JCA algorithm
+            throw new IllegalStateException(fatal);
+        }
+    }
+
     /// Computes the v2 double hash of a reconstructed v2 file:
     /// `SHA-384(header || SHA-384(content))` where the header is the first
     /// [#V2_HEADER_LENGTH] bytes and the content is everything after it.
@@ -228,7 +443,7 @@ public final class RecordFileSignedPayload {
     /// @param recordFileBytes the reconstructed v2 file bytes
     /// @return the 48-byte double hash
     private static byte[] computeV2DoubleHash(final byte[] recordFileBytes) {
-        final MessageDigest digest = HashingUtilities.sha384DigestOrThrow();
+        final MessageDigest digest = sha384Digest();
         digest.update(recordFileBytes, V2_HEADER_LENGTH, recordFileBytes.length - V2_HEADER_LENGTH);
         final byte[] contentHash = digest.digest();
         digest.update(recordFileBytes, 0, V2_HEADER_LENGTH);
@@ -245,7 +460,7 @@ public final class RecordFileSignedPayload {
         out.writeLong(V5_HASH_OBJECT_CLASS_ID);
         out.writeInt(V5_HASH_OBJECT_CLASS_VERSION);
         out.writeInt(V5_DIGEST_TYPE_SHA384);
-        out.writeInt(HashingUtilities.HASH_SIZE);
+        out.writeInt(SHA_384_HASH_SIZE);
         hash.writeTo(out);
     }
 
@@ -254,7 +469,7 @@ public final class RecordFileSignedPayload {
     /// @param hash the hash to check, may be null
     /// @return `true` when the hash can be used in a legacy reconstruction
     private static boolean isValidHash(final Bytes hash) {
-        return hash != null && hash.length() == HashingUtilities.HASH_SIZE;
+        return hash != null && hash.length() == SHA_384_HASH_SIZE;
     }
 
     /// Extracts the raw components needed for a legacy reconstruction by navigating the
