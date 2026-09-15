@@ -24,9 +24,9 @@ admission control.
 This means a burst of read traffic (many concurrent subscribers, or a spike of `getBlock` requests against
 historical blocks) has no mechanism preventing it from consuming a disproportionate share of node resources (CPU,
 memory, disk I/O, and connection capacity). This document proposes an admission-control layer that applies
-per-client rate and concurrency limits to each gRPC API. The admission is tuned to how expensive that API's calls
-actually are, plus a shared safeguard that protects the block-storage read path from concurrent-read overload regardless
-of which client or API triggered it.
+per-client rate and concurrency limits to each gRPC API, tuned to how expensive that API's calls actually are, plus
+a shared safeguard that protects the block-storage read path from concurrent-read overload regardless of which
+client or API triggered it.
 
 ![The problem: no admission control exists today on any read API, and contention can delay the publish path](../../assets/api/api-throttling-problem.svg)
 
@@ -38,7 +38,7 @@ of which client or API triggered it.
    differently.
 3. Protect the shared backend block-storage read path from concurrent-read overload, independent of and
    complementary to per-client limits.
-4. Fit naturally on top of the BN's existing gRPC service layer (`ServiceInterface`), without coupling the
+4. Fit naturally on top of the Block Node's existing gRPC service layer (`ServiceInterface`), without coupling the
    mechanism to a specific web server (Helidon, Netty, etc.) implementation.
 5. Favor a small number of simple, well-understood, proven mechanisms (rate limiting, concurrency limiting) over a
    complex adaptive system.
@@ -71,7 +71,7 @@ of which client or API triggered it.
   fairness choice by design.
 - **Priority-aware throttling.** Giving some connections/clients/requests precedence over others under high
   concurrency is out of scope for this iteration. Meaningful prioritization needs a trustworthy client identity to
-  assign priority to, this is better gated on authenticated-client-identity work.
+  assign priority to, so this is better gated on the authenticated-client-identity work above.
 
 ## Terms
 
@@ -122,7 +122,7 @@ mechanism.
 An optional, per-API function that classifies a request into a weight class based on its content. Used by
 `getBlock` and `subscribeBlockStream` to distinguish live/recent requests from historical ones. It cannot classify
 inside `open()` — request bytes aren't available there — so where one is registered, admission moves to `onNext`;
-see [Content-aware weighting](#component-a--per-client-admission-gate) for the full flow.
+see [Component A](#component-a--per-client-admission-gate)'s "Content-aware weighting" for the full flow.
 
 ### The admission decorator
 
@@ -169,13 +169,13 @@ Pipeline<? super Bytes> open(Method method, RequestOptions options, Pipeline<? s
 ```
 
 This is the attachment point for admission control: a decorator wraps a plugin's `ServiceInterface` before it is
-registered with the server, and every call is checked before the plugin's real implementation ever runs. `open()`
-is where the decorator attaches, but not always where the check itself runs: for most methods it runs
-synchronously inside `open()`; for `getBlock` and `subscribeBlockStream`, it runs in the pipeline's `onNext`
-instead, since classifying a call's weight needs request bytes `open()` doesn't have yet — see
-[Component A](#component-a--per-client-admission-gate)'s "Content-aware weighting" for why. Either way, the
-plugin's real implementation never runs until admission passes, and because the decorator sits at the
-`ServiceInterface` level rather than inside a specific web server's request-routing layer, the mechanism does not
+registered with the server. `open()` is where the decorator attaches, but not always where the check itself runs:
+for most methods it runs synchronously inside `open()`; for `getBlock` and `subscribeBlockStream`, it runs in the
+pipeline's `onNext` instead, since classifying a call's weight needs request bytes `open()` doesn't have yet — see
+[Component A](#component-a--per-client-admission-gate)'s "Content-aware weighting" for why.
+
+Either way, the plugin's real implementation never runs until admission passes. Because the decorator sits at the
+`ServiceInterface` level rather than inside a specific web server's request-routing layer, the mechanism doesn't
 depend on which web server hosts the gRPC service.
 
 `RequestOptions` already exposes what's needed for the default client-key extraction (the caller's remote address)
@@ -191,14 +191,14 @@ For every call, in order — the first check that rejects wins, and no later che
    read of shared state)
 2. **Per-client concurrency check** — has this client already reached its own concurrency ceiling for this method?
    (a pure read of per-client state)
-3. **Rate check (leaky bucket, via GCRA)** — is this client calling faster than its allowed rate? This check is the only one that
-   mutates state (it advances the client's theoretical-arrival-time marker), so it deliberately runs last: a call
-   that's going to be rejected by a cheaper check must not be allowed to consume a rate-limiting slot first.
+3. **Rate check (leaky bucket, via GCRA)** — is this client calling faster than its allowed rate? This check is the only
+   one that mutates state (it advances the client's theoretical-arrival-time marker), so it deliberately runs last.
+   A call that's going to be rejected by a cheaper check must not be allowed to consume a rate-limiting slot first.
 
 If every check passes, the call is admitted: both concurrency counters are incremented, and the real service's
 `open()` is invoked. If any check fails, the call is rejected immediately (see [Exceptions](#exceptions)) and the
-real service method is never invoked. (For `getBlock` and `subscribeBlockStream` specifically, these checks run at
-a different point in the call than described above — see "Content-aware weighting" below for why.)
+real service method is never invoked. (For `getBlock` and `subscribeBlockStream`, these checks run later — in
+`onNext`, not `open()` — see "Content-aware weighting" below.)
 
 **Overload prevention vs. single-consumer abuse are different guarantees.** The global concurrency check above,
 and `BlockReadBulkhead` (Component B), are identity-agnostic: they cap total in-flight work regardless of who's
@@ -208,13 +208,13 @@ contrast, are a best-effort deterrent for the common case (a buggy or greedy sin
 authenticated identity, they cannot be a guarantee against a motivated, distributed adversary.
 
 **Concurrency-permit lifecycle.** The decorator must release a call's concurrency permit exactly once, whenever the
-call ends — but "the call ends" is not signaled the same way for every RPC shape. The permit must be attached to the
+call ends (noting "the call ends" is not signaled the same way for every RPC shape). The permit must be attached to the
 *outgoing* `responses` pipeline (the pipeline passed into `open()`), not the pipeline that `open()` returns. For a
 server-streaming call such as `subscribeBlockStream`, the client sends one request and then half-closes its side
-almost immediately — but that does not mean the call is finished, since the server may continue streaming responses
+almost immediately. This does not mean the call is finished, since the server may continue streaming responses
 for a long time afterward. The `responses` pipeline's completion callbacks, by contrast, reliably fire exactly once
-when the call actually ends — on normal completion, on a business-logic error, on client cancellation, and on a
-deadline being exceeded — for both unary and streaming calls alike. The release logic needs its own single-fire
+when the call actually ends (on normal completion, on a business-logic error, on client cancellation, and on a
+deadline being exceeded) for both unary and streaming calls alike. The release logic needs its own single-fire
 guard, since more than one of those signals can arrive for the same call (for example, a cancellation arriving
 immediately after a business-logic error).
 
@@ -253,8 +253,8 @@ Component B is a single, bounded, non-client-keyed pool of permits guarding ever
 
 - `getBlock` acquires a permit without waiting; if none is available, the call is rejected immediately, since this
   is a single request-response exchange from the client's perspective.
-- A subscriber session catching up on historical blocks acquires a permit with a brief bounded wait instead of an
-  immediate rejection. A session is a standing resource whose purpose is to keep running; rejecting the whole
+- A `subscribeBlockStream` session catching up on historical blocks acquires a permit with a brief bounded wait instead
+  of an immediate rejection. A session is a standing resource whose purpose is to keep running; rejecting the whole
   session over one momentary saturation instant is a worse outcome than a short internal delay before retrying.
   This wait is purely internal scheduling for already-admitted work — it never affects the admission decision in
   Component A.
@@ -269,7 +269,7 @@ a guarantee that the bulkhead can never be contended by both sources at once. Th
 The initial implementation uses one pool for all tiers, including recent/live reads — a `getBlock` call for a live
 block acquires and releases a permit the same as a historical one. This is a deliberate simplicity choice, not a
 claim that live reads are free of overhead: if warm-path latency sensitivity proves material, a separate bulkhead
-for recent reads — or skipping the bulkhead for reads served from an in-memory/warm-file path — is the documented
+for recent reads (or skipping the bulkhead for reads served from an in-memory/warm-file path) is the documented
 [Extensibility](#extensibility) point to use.
 
 ### Configuration ownership
@@ -520,8 +520,7 @@ produced. `publishBlockStream` is not subject to any admission check and is unaf
 4. `getBlock` and `subscribeBlockStream` requests for historical blocks are limited independently of requests for
    live/recent blocks, using the same client's traffic on both tiers.
 5. A concurrency permit is released exactly once for a call that completes normally, for a call cancelled by the
-   client, and for a call that exceeds its deadline — verified for both a unary call and a long-lived streaming
-   call.
+   client, and for a call that exceeds its deadline — verified for both a unary call and a long-lived streaming call.
 6. Sustained subscribe/unsubscribe churn from many clients does not cause per-client or node-wide in-flight counts,
    or the client-state table size, to grow without bound.
 7. Concurrent `getBlock` (historical) and subscriber catch-up traffic together are capped by the shared block-read
