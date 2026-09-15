@@ -6,7 +6,7 @@ import static org.hiero.block.node.stream.publisher.PublishApiUtility.endThisBlo
 import static org.hiero.block.node.stream.publisher.PublishApiUtility.sendHeaderOnly;
 
 import com.swirlds.config.api.Configuration;
-import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
@@ -71,7 +71,7 @@ class PublisherManagerRegressionTest {
         historicalBlockFacility.init(context, null);
 
         managerMetrics = MetricsHolder.createMetrics(TestUtils.createMetrics());
-        toTest = new LiveStreamPublisherManager(context, managerMetrics);
+        toTest = new LiveStreamPublisherManager(context, managerMetrics, List.of());
         context.blockMessaging()
                 .registerBlockNotificationHandler(toTest, false, LiveStreamPublisherManager.class.getSimpleName());
 
@@ -407,10 +407,6 @@ class PublisherManagerRegressionTest {
                 applicationStateFacility,
                 serviceLoader,
                 threadPoolManager,
-                null,
-                null,
-                null,
-                new ArrayList<>(),
-                new ArrayList<>());
+                null);
     }
 }

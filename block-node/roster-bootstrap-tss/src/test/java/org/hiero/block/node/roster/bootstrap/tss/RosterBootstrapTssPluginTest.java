@@ -2,8 +2,6 @@
 package org.hiero.block.node.roster.bootstrap.tss;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
@@ -12,7 +10,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockNodeSource;
@@ -22,7 +19,7 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
-import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -31,8 +28,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 public class RosterBootstrapTssPluginTest
         extends PluginTestBase<RosterBootstrapTssPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
-    Map<String, String> defaultConfig = new HashMap<>();
-
     private List<TestBlockNodeServer> testBlockNodeServers;
 
     /// TempDir for the current test
@@ -63,14 +58,11 @@ public class RosterBootstrapTssPluginTest
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
 
         this.testTempDir = tempDir;
-
-        // todo: setup the config for the BN peers test
-        defaultConfig.put("key", "value");
     }
 
     @Test
     @DisplayName("request TssData from a peer bn ")
-    void requestTssDataFromPeerBN() throws IOException, InterruptedException {
+    void requestTssDataFromPeerBN() throws IOException {
         final TestBlockNodeServer server1 = new TestBlockNodeServer(0, new SimpleInMemoryHistoricalBlockFacility());
         testBlockNodeServers.add(server1);
         String blockNodeSourcesPath = testTempDir + "/blocknode-sources.json";
@@ -94,24 +86,20 @@ public class RosterBootstrapTssPluginTest
                 .enableTLS(false) // start quickly
                 .build();
 
-        final int[] contextUpdated = {0};
-        final TssData[] tssData = {null};
-        CountDownLatch latch = new CountDownLatch(1);
-
-        RosterBootstrapTssPlugin plugin = new TestBootstrapPlugin(contextUpdated, tssData, latch);
-
-        start(plugin, new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+        start(new RosterBootstrapTssPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+        // Runs the scheduled peer query on this thread, so the plugin has reported the TssData once this returns.
         testThreadPoolManager.scheduledExecutor().executeSerially();
-        latch.await();
 
-        assertTrue(contextUpdated[0] > 0);
-        assertNotNull(tssData[0]);
+        // The test base's updateTssData() forwards what the plugin reported as a TssDataNotification.
+        final List<TssDataNotification> sentTssData = blockMessaging.getSentTssDataNotifications();
+        assertEquals(1, sentTssData.size());
+        final TssData tssData = sentTssData.getFirst().tssData();
 
         // These are magic numbers, yes. The {@link TestBlockNodeServer} does not yet have a way to pass in TssData to
         // hand back to testers. Using the values that are passed back to make sure the statusDetails api is
         // being called. Todo: add TssData flexibility to {@link TestBlockNodeServer}
-        assertEquals(Bytes.fromHex("01010101"), tssData[0].ledgerId());
-        assertEquals(Bytes.fromHex("02020202"), tssData[0].wrapsVerificationKey());
+        assertEquals(Bytes.fromHex("01010101"), tssData.ledgerId());
+        assertEquals(Bytes.fromHex("02020202"), tssData.wrapsVerificationKey());
     }
 
     private void createTestBlockNodeSourcesFile(BlockNodeSource blockNodeSource, String configPath) throws IOException {
@@ -120,7 +108,7 @@ public class RosterBootstrapTssPluginTest
         java.nio.file.Files.write(java.nio.file.Paths.get(configPath), jsonString.getBytes());
     }
 
-    /// Builder for creating backfill configuration maps for testing.
+    /// Builder for creating roster bootstrap TSS configuration maps for testing.
     public static class RosterBootstrapTssConfigBuilder {
 
         private String blockNodeSourcesPath;
@@ -164,7 +152,7 @@ public class RosterBootstrapTssPluginTest
 
         public Map<String, String> build() {
             if (blockNodeSourcesPath == null || blockNodeSourcesPath.isBlank()) {
-                throw new IllegalStateException("backfillSourcePath is required");
+                throw new IllegalStateException("blockNodeSourcesPath is required");
             }
 
             return new HashMap<>(Map.of(
@@ -173,25 +161,6 @@ public class RosterBootstrapTssPluginTest
                     "roster.bootstrap.tss.queryPeerInitialDelay", String.valueOf(queryPeerInitialDelay),
                     "roster.bootstrap.tss.maxIncomingBufferSize", String.valueOf(maxIncomingBufferSize),
                     "roster.bootstrap.tss.enableTLS", String.valueOf(enableTLS)));
-        }
-    }
-
-    private class TestBootstrapPlugin extends RosterBootstrapTssPlugin {
-        private final int[] contextUpdated;
-        private final TssData[] tssData;
-        private final CountDownLatch latch;
-
-        private TestBootstrapPlugin(int[] contextUpdated, TssData[] tssData, CountDownLatch latch) {
-            this.contextUpdated = contextUpdated;
-            this.tssData = tssData;
-            this.latch = latch;
-        }
-
-        @Override
-        public void onContextUpdate(BlockNodeContext context) {
-            contextUpdated[0]++;
-            tssData[0] = context.tssData();
-            latch.countDown();
         }
     }
 }

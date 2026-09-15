@@ -5,7 +5,14 @@ import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.node.spi.module.ModuleInfoAccessor;
 
 /**
- * Interface for all block node plugins to implement. Plugins are registered as module services that provide this interface.
+ * Interface for all block node plugins to implement. Plugins are registered as module services that provide this
+ * interface.
+ * <p>
+ * Plugins that need to react to dynamic application-state changes (TSS data, address-book history, stored blocks,
+ * available blocks) should implement
+ * {@link org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler} and register with
+ * {@link BlockNodeContext#blockMessaging()} during {@link #init}.
+ * </p>
  */
 public interface BlockNodePlugin {
     /**
@@ -70,21 +77,5 @@ public interface BlockNodePlugin {
                 .pluginId(clazz.getName())
                 .pluginSoftwareVersion(moduleInfo.version())
                 .build();
-    }
-
-    /**
-     * Notify the plugin of an update to the BlockNodeContext. This method is called when the block node context has
-     * been updated. It provides the plugin an opportunity to update its state when the BlockNodeContext changes.
-     * `onContextUpdate()` will be called from a different thread than the thread the plugin was started on so local copy
-     * of the `BlockNodeContext should be created and used to avoid the address of the BlockNodeContext changing mid-use.
-     * <p>
-     * The default implementation does nothing. This is to be overridden by the plugin if it needs to handle
-     * {@link BlockNodeContext} updates.
-     * </p>
-     *
-     * @param context the block node context
-     */
-    default void onContextUpdate(BlockNodeContext context) {
-        // do nothing
     }
 }
