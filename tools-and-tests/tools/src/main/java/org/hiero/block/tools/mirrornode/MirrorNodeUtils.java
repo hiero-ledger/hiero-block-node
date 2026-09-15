@@ -7,9 +7,13 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.UncheckedIOException;
+import java.net.ConnectException;
 import java.net.HttpURLConnection;
+import java.net.NoRouteToHostException;
+import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -90,16 +94,22 @@ public class MirrorNodeUtils {
                 "Failed after " + MAX_RETRIES + " retries: " + lastException.getMessage(), lastException));
     }
 
-    private static boolean isRetryableException(IOException e) {
+    // package-private for testing
+    static boolean isRetryableException(IOException e) {
         String msg = e.getMessage();
-        if (msg == null) return false;
-        return msg.contains("503")
-                || msg.contains("502")
-                || msg.contains("500")
-                || msg.contains("504")
-                || msg.contains("429")
-                || msg.contains("Connection reset")
-                || msg.contains("Connection timed out");
+        return e instanceof UnknownHostException
+                || e instanceof SocketTimeoutException
+                || e instanceof ConnectException
+                || e instanceof NoRouteToHostException
+                || (msg != null
+                        && (msg.contains("503")
+                                || msg.contains("502")
+                                || msg.contains("500")
+                                || msg.contains("504")
+                                || msg.contains("429")
+                                || msg.contains("Connection reset")
+                                || msg.contains("Connection timed out")
+                                || msg.contains("Broken pipe")));
     }
 
     /**
