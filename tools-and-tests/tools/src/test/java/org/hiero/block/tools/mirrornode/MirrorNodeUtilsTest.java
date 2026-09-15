@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
+import static org.hiero.block.tools.mirrornode.MirrorNodeUtils.NO_RESPONSE_CODE;
 import static org.hiero.block.tools.mirrornode.MirrorNodeUtils.isRetryableException;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.ConnectException;
+import java.net.InetSocketAddress;
 import java.net.NoRouteToHostException;
 import java.net.SocketTimeoutException;
+import java.net.URI;
 import java.net.UnknownHostException;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 /** Tests for {@link MirrorNodeUtils}. */
@@ -20,25 +28,54 @@ class MirrorNodeUtilsTest {
     @Test
     void transientNetworkExceptionsAreRetryable() {
         // regression for #3644: the message is only the hostname, no retry substring
-        assertTrue(isRetryableException(new UnknownHostException("mainnet-public.mirrornode.hedera.com")));
-        assertTrue(isRetryableException(new SocketTimeoutException("Read timed out")));
-        assertTrue(isRetryableException(new SocketTimeoutException("Connect timed out")));
-        assertTrue(isRetryableException(new ConnectException("Connection refused")));
-        assertTrue(isRetryableException(new NoRouteToHostException("No route to host")));
+        assertTrue(isRetryableException(
+                NO_RESPONSE_CODE, new UnknownHostException("mainnet-public.mirrornode.hedera.com")));
+        assertTrue(isRetryableException(NO_RESPONSE_CODE, new SocketTimeoutException("Read timed out")));
+        assertTrue(isRetryableException(NO_RESPONSE_CODE, new SocketTimeoutException("Connect timed out")));
+        assertTrue(isRetryableException(NO_RESPONSE_CODE, new ConnectException("Connection refused")));
+        assertTrue(isRetryableException(NO_RESPONSE_CODE, new NoRouteToHostException("No route to host")));
+    }
+
+    @Test
+    void retryableHttpStatusesAreRetryable() {
+        for (int status : new int[] {429, 500, 502, 503, 504}) {
+            assertTrue(isRetryableException(status, new IOException("HTTP " + status + " for URL: " + URL)));
+        }
     }
 
     @Test
     void retryableMessagesAreRetryable() {
-        // same message shape readUrl builds for non-OK HTTP responses
-        assertTrue(isRetryableException(new IOException("HTTP 503 for URL: " + URL)));
-        assertTrue(isRetryableException(new IOException("HTTP 429 for URL: " + URL)));
-        assertTrue(isRetryableException(new IOException("Connection reset")));
-        assertTrue(isRetryableException(new IOException("Broken pipe")));
+        assertTrue(isRetryableException(NO_RESPONSE_CODE, new IOException("Connection reset")));
+        assertTrue(isRetryableException(NO_RESPONSE_CODE, new IOException("Connection timed out")));
+        assertTrue(isRetryableException(NO_RESPONSE_CODE, new IOException("Broken pipe")));
     }
 
     @Test
     void nonTransientExceptionsAreNotRetryable() {
-        assertFalse(isRetryableException(new IOException("HTTP 404 for URL: " + URL)));
-        assertFalse(isRetryableException(new IOException()));
+        assertFalse(isRetryableException(NO_RESPONSE_CODE, new IOException("Stream closed")));
+        assertFalse(isRetryableException(NO_RESPONSE_CODE, new IOException()));
+        assertFalse(isRetryableException(404, new IOException("HTTP 404 for URL: " + URL)));
+        // regression for #3648: "500" in the URL used to match the old message substring check
+        assertFalse(isRetryableException(404, new IOException("HTTP 404 for URL: " + URL + "/5000")));
+    }
+
+    @Test
+    void notFoundWithStatusLikeNumberInUrlFailsWithoutRetry() throws Exception {
+        // regression for #3648: "500" in the URL used to match the message check and retry a 404
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/", exchange -> {
+            requests.incrementAndGet();
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var url = new URI("http://localhost:" + server.getAddress().getPort() + "/api/v1/blocks/5000").toURL();
+            assertThrows(UncheckedIOException.class, () -> MirrorNodeUtils.readUrl(url));
+            assertEquals(1, requests.get());
+        } finally {
+            server.stop(0);
+        }
     }
 }
