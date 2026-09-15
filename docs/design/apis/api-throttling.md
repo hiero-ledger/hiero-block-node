@@ -349,6 +349,17 @@ Two extension points are designed in from the start, since both are anticipated 
 - **A classic token bucket with a background refill thread, instead of GCRA.** Rejected: GCRA achieves the same
   smooth rate-limiting behavior with one comparison and one atomic update per call, no background thread, and no
   per-bucket refill bookkeeping.
+- **Splitting the weighted admission decision — reject on global/per-client concurrency in `open()`, and defer
+  only the rate check to `onNext` once classified.** Rejected: there's no weight-agnostic version of the
+  concurrency checks to split off in the first place. `maxConcurrentGlobal` and `maxConcurrentPerClient` are
+  fields on each weight class's own `ThrottlePolicy`, not a shared ceiling underneath them, so which ceiling
+  applies is unknown until classification happens in `onNext` regardless — there's nothing coherent to check
+  earlier. Doing this anyway would mean inventing a new policy value with no counterpart elsewhere in this
+  design, plus a provisional-admit-then-reconcile step once the real class is known: a release-then-reacquire
+  window in which a concurrent call can take the freed capacity, transiently exceeding the intended ceiling.
+  That doubles the surface area of the permit-release subtlety described above, to save one cheap pipeline
+  construction and a targeted few-byte field read — neither of which touches the resource this mechanism
+  protects.
 - **Queueing or delaying a call briefly instead of rejecting it immediately when a limit is hit.** Rejected for the
   client-facing admission decision: a queue is itself a resource that needs its own bound, timeout, and monitoring,
   which works against keeping this mechanism simple. The one deliberate exception is internal to Component B: a
