@@ -21,12 +21,12 @@ recent blocks, comparatively expensive for archived/historical ones), and lightw
 `serverStatusDetail`). None of these APIs currently have any rate limiting, per-client concurrency limiting, or
 admission control.
 
-This means a burst of read traffic — many concurrent subscribers, or a spike of `getBlock` requests against
-historical blocks — has no mechanism preventing it from consuming a disproportionate share of node resources (CPU,
+This means a burst of read traffic (many concurrent subscribers, or a spike of `getBlock` requests against
+historical blocks) has no mechanism preventing it from consuming a disproportionate share of node resources (CPU,
 memory, disk I/O, and connection capacity). This document proposes an admission-control layer that applies
-per-client rate and concurrency limits to each gRPC API, tuned to how expensive that API's calls actually are, plus
-a shared safeguard that protects the block-storage read path from concurrent-read overload regardless of which
-client or API triggered it.
+per-client rate and concurrency limits to each gRPC API. The admission is tuned to how expensive that API's calls
+actually are, plus a shared safeguard that protects the block-storage read path from concurrent-read overload regardless
+of which client or API triggered it.
 
 ![The problem: no admission control exists today on any read API, and contention can delay the publish path](../../assets/api/api-throttling-problem.svg)
 
@@ -38,8 +38,8 @@ client or API triggered it.
    differently.
 3. Protect the shared backend block-storage read path from concurrent-read overload, independent of and
    complementary to per-client limits.
-4. Fit naturally on top of the project's existing gRPC service layer (`ServiceInterface`), without coupling the
-   mechanism to a specific web server implementation.
+4. Fit naturally on top of the BN's existing gRPC service layer (`ServiceInterface`), without coupling the
+   mechanism to a specific web server (Helidon, Netty, etc.) implementation.
 5. Favor a small number of simple, well-understood, proven mechanisms (rate limiting, concurrency limiting) over a
    complex adaptive system.
 6. Be performant: admission control must not become a meaningful source of latency or resource consumption itself,
@@ -66,8 +66,9 @@ client or API triggered it.
   to build and operate, and is not warranted without evidence that static, well-tuned limits fall short. The static
   *capacity* knobs specifically (node-wide concurrency ceilings, `BlockReadBulkhead` permits) are a plausible
   exception to this if hardware heterogeneity across deployments makes one hand-tuned default impractical — see the
-  adaptive-bulkhead-sizing follow-up under the throttling epic — but that applies narrowly to capacity sizing, not
-  to per-client policy (rate, burst, per-client concurrency), which stays a static fairness choice by design.
+  adaptive-bulkhead-sizing follow-up under the throttling epic. The hardware heterogeneity consideration applies
+  narrowly to capacity sizing, not to per-client policy (rate, burst, per-client concurrency), which stays a static
+  fairness choice by design.
 - **Priority-aware throttling.** Giving some connections/clients/requests precedence over others under high
   concurrency is out of scope for this iteration. Meaningful prioritization needs a trustworthy client identity to
   assign priority to, this is better gated on authenticated-client-identity work.
@@ -89,7 +90,7 @@ client or API triggered it.
   [Alternatives considered](#alternatives-considered). The state representation used to implement this model is an
   implementation choice, not part of the model itself — see [`GcraLimiter`](#gcralimiter).
 - **Bulkhead** — A bounded pool of permits that caps how many callers can concurrently use a shared resource,
-  independent of who those callers are.
+  independent of whom those callers are.
 - **Concurrency permit** — A slot representing one in-flight call or session against a limit; acquired on admission
   and released when the call/session ends.
 
@@ -161,16 +162,21 @@ same key for different callers can only collide within calls to the *same* servi
 ### Where admission control attaches
 
 Every gRPC service implemented by this project's plugins is a PBJ `ServiceInterface`, and every call to any of them
-— unary or streaming — passes through exactly one method:
+(unary or streaming) passes through exactly one method:
 
 ```java
 Pipeline<? super Bytes> open(Method method, RequestOptions options, Pipeline<? super Bytes> responses)
 ```
 
 This is the attachment point for admission control: a decorator wraps a plugin's `ServiceInterface` before it is
-registered with the server, and every call is checked before the plugin's real implementation ever runs. Because
-this sits at the `ServiceInterface` level rather than inside a specific web server's request-routing layer, the
-mechanism does not depend on which web server hosts the gRPC service.
+registered with the server, and every call is checked before the plugin's real implementation ever runs. `open()`
+is where the decorator attaches, but not always where the check itself runs: for most methods it runs
+synchronously inside `open()`; for `getBlock` and `subscribeBlockStream`, it runs in the pipeline's `onNext`
+instead, since classifying a call's weight needs request bytes `open()` doesn't have yet — see
+[Component A](#component-a--per-client-admission-gate)'s "Content-aware weighting" for why. Either way, the
+plugin's real implementation never runs until admission passes, and because the decorator sits at the
+`ServiceInterface` level rather than inside a specific web server's request-routing layer, the mechanism does not
+depend on which web server hosts the gRPC service.
 
 `RequestOptions` already exposes what's needed for the default client-key extraction (the caller's remote address)
 and, if authenticated client identity is introduced later, the caller's certificate chain.
@@ -225,8 +231,7 @@ call, not cached — the same accessor is already read unconditionally elsewhere
 cost. `retrieveLatest` and a missing/negative block number are always classified live, avoiding the cost of
 resolving "latest" just to weigh the call. The threshold is deliberately decoupled from the recent-storage-tier
 plugin's own retention boundary, so the weigher doesn't depend on a specific storage-tier plugin being present —
-the two are expected to match, but nothing enforces it; validating that in practice belongs in the acceptance
-tests (see [Acceptance Tests](#acceptance-tests)).
+the two are expected to match, but nothing enforces it.
 
 Because classification needs the request bytes, which aren't available until `onNext`, a weighted method's
 `open()` doesn't gate anything — it only extracts the client key and builds the delegate's pipeline. Classification
