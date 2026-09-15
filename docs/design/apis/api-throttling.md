@@ -70,8 +70,7 @@ client or API triggered it.
   to per-client policy (rate, burst, per-client concurrency), which stays a static fairness choice by design.
 - **Priority-aware throttling.** Giving some connections/clients/requests precedence over others under high
   concurrency is out of scope for this iteration. Meaningful prioritization needs a trustworthy client identity to
-  assign priority to, so it's plausibly gated on the authenticated-client-identity work above rather than
-  independent work.
+  assign priority to, this is better gated on authenticated-client-identity work.
 
 ## Terms
 
