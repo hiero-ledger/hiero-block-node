@@ -14,7 +14,6 @@ import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.UnknownField;
-import com.hedera.pbj.runtime.io.ReadableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -108,8 +107,9 @@ public final class BlockHasher implements Supplier<HashingResult> {
     /// The HAPI proto version from the block header.
     private SemanticVersion hapiProtoVersion;
     /// Raw serialized bytes of the outer `RecordFileItem` proto message, captured when a
-    /// `RECORD_FILE` item is seen. Field 2 of this proto holds the `record_file_contents`
-    /// bytes required to compute the V6 signed payload. Null until such an item is encountered.
+    /// `RECORD_FILE` item is seen and used to detect a second such item (a WRB block carries
+    /// exactly one). The WRB signed payload is computed downstream by the RSA proof verifier
+    /// from the block carried on the [HashingResult]. Null until such an item is encountered.
     private Bytes rawRecordFileItemProtoBytes;
 
     /// Constructor.
@@ -419,9 +419,6 @@ public final class BlockHasher implements Supplier<HashingResult> {
                         .blockItems(accumulatedBlockItems)
                         .build();
                 final List<BlockProof> proofs = Collections.unmodifiableList(blockProofs);
-                final byte[] signedWRBPayload = rawRecordFileItemProtoBytes == null
-                        ? null
-                        : computeWRBSignedPayload(rawRecordFileItemProtoBytes);
                 hashingResult = new HashingResult(
                         blockNumber,
                         blockSource,
@@ -430,8 +427,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
                         blockHeader,
                         blockFooter,
                         proofs,
-                        hapiProtoVersion,
-                        signedWRBPayload);
+                        hapiProtoVersion);
             } else {
                 throw new VerificationSessionFailedException(
                         blockNumber, SessionFailureType.MISSING_MANDATORY_FIELD, blockSource);
@@ -468,101 +464,5 @@ public final class BlockHasher implements Supplier<HashingResult> {
                 && previousBlockHash != Bytes.EMPTY
                 && startOfBlockStateRootHash != null
                 && startOfBlockStateRootHash != Bytes.EMPTY;
-    }
-
-    /// Compute the WRB signed payload
-    /// @return a `byte[]` containing the WRB signed payload
-    private byte[] computeWRBSignedPayload(final Bytes rawRecordFileBytes) throws NoSuchAlgorithmException {
-        final Bytes extracted = extractRecordStreamFileBytes(rawRecordFileBytes);
-        if (extracted.length() == 0) {
-            throw new VerificationSessionFailedException(
-                    blockNumber, SessionFailureType.MISSING_MANDATORY_FIELD, blockSource);
-        } else {
-            return computeV6SignedPayload(extracted);
-        }
-    }
-
-    /// Extracts the raw `record_file_contents` bytes from a serialized `RecordFileItem`
-    /// proto message by walking the protobuf wire format directly, without deserializing the message.
-    ///
-    /// `record_file_contents` is proto field 2 of `RecordFileItem`. These bytes are
-    /// the verbatim content of the `.rcd` record stream file exactly as the consensus node
-    /// read it from disk when it computed the V6 signed hash. They must be returned byte-for-byte
-    /// identical to what the consensus node used; full deserialization via
-    /// `RecordFileItem.PROTOBUF.parse()` is deliberately avoided because re-serializing a
-    /// parsed object can produce subtly different bytes (e.g. omitting default-value fields, different
-    /// varint encoding choices), which would cause the recomputed hash to diverge from the one the
-    /// consensus node signed.
-    ///
-    /// **Protobuf wire format:** every field on the wire is encoded as a tag varint followed
-    /// by its value. The tag packs two things:
-    /// - `fieldNumber = tag >>> 3`
-    /// - `wireType = tag & 0x7`
-    ///
-    /// Wire type 2 (`LEN`) means the value is length-prefixed bytes, used for `bytes`,
-    /// `string`, and embedded messages. It is encoded as:
-    /// `[tag varint] [length varint] [raw bytes...]`.
-    ///
-    /// **Algorithm:**
-    /// 1. Read the next field tag varint and decode its field number and wire type.
-    /// 2. If `fieldNumber == 2` and `wireType == LEN`: read the length prefix varint,
-    ///    read exactly that many bytes, and return them - these are the
-    ///    `record_file_contents`.
-    /// 3. Otherwise skip the field using the wire type to know how many bytes to consume:
-    ///    - VARINT (wire 0): read and discard one varint
-    ///    - I64 (wire 1): skip 8 bytes fixed
-    ///    - LEN (wire 2): read the length prefix, skip that many bytes
-    ///    - I32 (wire 5): skip 4 bytes fixed
-    /// 4. Repeat until field 2 is found or input is exhausted.
-    ///
-    /// @param recordFileItemBytes raw serialized bytes of a `RecordFileItem` proto message
-    /// @return verbatim bytes of the `record_file_contents` field (proto field 2), or
-    ///         `Bytes.EMPTY` if field 2 is not present or if any parse error occurs
-    private Bytes extractRecordStreamFileBytes(final Bytes recordFileItemBytes) {
-        try {
-            final ReadableSequentialData input = recordFileItemBytes.toReadableSequentialData();
-            while (input.hasRemaining()) {
-                // Each field starts with a tag varint: high bits = field number, low 3 bits = wire type
-                final int tag = input.readVarInt(false);
-                final int wireType = tag & 0x7;
-                final int fieldNumber = tag >>> 3;
-                if (fieldNumber == 2 && wireType == 2) {
-                    // Found record_file_contents (field 2, LEN wire type).
-                    // Read the length-prefix varint then copy the raw payload bytes verbatim.
-                    final int len = input.readVarInt(false);
-                    final byte[] raw = new byte[len];
-                    input.readBytes(raw);
-                    return Bytes.wrap(raw);
-                }
-                // Not field 2 - skip this field using its wire type to advance the cursor correctly
-                switch (wireType) {
-                    case 0 -> input.readVarLong(false); // VARINT: read and discard the value
-                    case 1 -> input.skip(8); // I64: fixed 64-bit, skip 8 bytes
-                    case 2 -> { // LEN: read length prefix, skip content
-                        final int l = input.readVarInt(false);
-                        input.skip(l);
-                    }
-                    case 5 -> input.skip(4); // I32: fixed 32-bit, skip 4 bytes
-                    default -> {
-                        return Bytes.EMPTY; // Unknown wire type - bail out safely
-                    }
-                }
-            }
-        } catch (final RuntimeException e) {
-            throw new VerificationSessionFailedException(
-                    blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource, e);
-        }
-        return Bytes.EMPTY; // field 2 not present in the message
-    }
-
-    /// Computes the V6 RSA signed payload: `SHA-384(int32(6) || rawRecordStreamFileBytes)`.
-    ///
-    /// Delegates to [HashingUtilities#computeV6SignedPayload] so the verifier and the block-signing
-    /// library share one definition of the payload.
-    ///
-    /// @param rawRecordStreamFileBytes raw bytes of the `record_file_contents` field
-    /// @return 48-byte SHA-384 digest
-    private byte[] computeV6SignedPayload(final Bytes rawRecordStreamFileBytes) {
-        return HashingUtilities.computeV6SignedPayload(rawRecordStreamFileBytes);
     }
 }
