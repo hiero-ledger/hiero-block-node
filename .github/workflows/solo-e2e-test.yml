@@ -1081,6 +1081,18 @@ jobs:
             echo "Collected file logs for mirror-1-importer from pod ${MN_POD}"
           fi
 
+          # Pinger logs - it crash-loops at startup on Solo 0.88.1 (#3649). The previous
+          # container's log holds the exit reason; the current one may be empty.
+          PINGER_POD=$(kubectl --context "${CONTEXT}" get pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=pinger" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          if [[ -n "$PINGER_POD" ]]; then
+            kubectl --context "${CONTEXT}" logs -n "${NAMESPACE}" "${PINGER_POD}" --all-containers --timestamps --tail=-1 > "mn-logs/mirror-1-pinger-stdout.log" 2>&1 || true
+            kubectl --context "${CONTEXT}" logs -n "${NAMESPACE}" "${PINGER_POD}" --all-containers --timestamps --tail=-1 --previous > "mn-logs/mirror-1-pinger-previous.log" 2>&1 || true
+            kubectl --context "${CONTEXT}" describe pod -n "${NAMESPACE}" "${PINGER_POD}" > "mn-logs/mirror-1-pinger-describe.txt" 2>&1 || true
+            echo "Collected pinger logs from pod ${PINGER_POD}"
+          else
+            echo "No pinger pod found" > "mn-logs/mirror-1-pinger-missing.txt"
+          fi
+
           # Show what was collected
           echo "=== Collected BN logs ===" && ls -laR bn-logs/
           echo "=== Collected MN logs ===" && ls -laR mn-logs/
@@ -1117,6 +1129,18 @@ jobs:
 
           # Capture last 1000 lines of solo.log (recent activity only, not full history)
           tail -1000 "${LOG_FOLDER}/solo.log" > "cn-logs-filtered/solo-tail.log" 2>/dev/null || true
+
+          # Solo's own per-component logs and pod describes (written by the diagnostics
+          # call above) - the only place the Mirror Node pinger's exit reason shows up.
+          # The block node logs in there duplicate the BN-logs artifact, so drop them.
+          COMPONENT_LOGS=$(find "${LOG_FOLDER}" -maxdepth 3 -type d -name hiero-components-logs -print -quit 2>/dev/null || true)
+          if [[ -n "${COMPONENT_LOGS}" ]]; then
+            cp -r "${COMPONENT_LOGS}" cn-logs-filtered/
+            rm -f cn-logs-filtered/hiero-components-logs/*/block-node-*.log
+            echo "Collected component logs from ${COMPONENT_LOGS}"
+          else
+            echo "No hiero-components-logs under ${LOG_FOLDER}" > cn-logs-filtered/hiero-components-logs-missing.txt
+          fi
 
           echo "CN_LOG_FOLDER=cn-logs-filtered" >> $GITHUB_ENV
 

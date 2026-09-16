@@ -896,6 +896,7 @@ function deploy_mirror_node {
     fi
 
     start_task "Deploying Mirror Node ${i}"
+    local add_log="${OVERLAY_DIR}/mirror-node-${i}-add.log"
     # shellcheck disable=SC2086
     solo mirror node add \
       --deployment "${DEPLOYMENT}" \
@@ -903,8 +904,25 @@ function deploy_mirror_node {
       --cluster-ref "${CLUSTER_REF}" \
       --enable-ingress \
       ${mn_args} \
-      ${overlay_arg} || fail "ERROR: Failed to deploy Mirror Node ${i}" 1
-    end_task
+      ${overlay_arg} 2>&1 | tee "${add_log}"
+    local add_status="${PIPESTATUS[0]}"
+    if [[ "${add_status}" -ne 0 ]]; then
+      if grep -qE "Pod readiness check failed.*component=pinger" "${add_log}"; then
+        end_task "PINGER NOT READY (continuing)"
+        log_line "  WARNING: Mirror Node ${i} deployed, but Solo gave up waiting for the pinger pod."
+        log_line "  Waiting up to 300s for the pinger to recover (non-fatal)."
+        local wait_out
+        wait_out=$(kubectl wait --for=condition=ready pod \
+          -n "${NAMESPACE}" \
+          -l "app.kubernetes.io/instance=mirror-${i},app.kubernetes.io/component=pinger" \
+          --timeout=300s 2>&1) \
+          || log_line "  WARNING: continuing without the pinger: %s" "${wait_out}"
+      else
+        fail "ERROR: Failed to deploy Mirror Node ${i}" 1
+      fi
+    else
+      end_task
+    fi
   done
 }
 
