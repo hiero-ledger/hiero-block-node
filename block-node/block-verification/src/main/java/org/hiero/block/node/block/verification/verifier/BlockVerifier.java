@@ -115,7 +115,8 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
                         hashingResult.blockNumber(),
                         rsaKeys,
                         proof.signedRecordFileProof(),
-                        hashingResult.signedWRBPayload(),
+                        hashingResult.block(),
+                        hashingResult.hapiProtoVersion(),
                         sha384WithRSASig));
             } else if (proof.hasBlockStateProof()) {
                 verifiers.add(new StateProofVerifier(
