@@ -90,6 +90,8 @@ jobs:
   # ============================================================================
   configure:
     runs-on: hl-bn-lin-md
+    # Covers the 60-minute artifact wait plus headroom, instead of the 6-hour default.
+    timeout-minutes: 75
     outputs:
       run-type: ${{ steps.config.outputs.run_type }}
       matrix: ${{ steps.config.outputs.matrix }}
@@ -118,7 +120,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sparse-checkout: tools-and-tests/scripts/solo-e2e-test/scripts/resolve-versions.sh
+          sparse-checkout: |
+            tools-and-tests/scripts/solo-e2e-test/scripts/resolve-versions.sh
+            tools-and-tests/scripts/solo-e2e-test/scripts/wait-for-bn-artifacts.sh
           sparse-checkout-cone-mode: false
 
       - name: Determine run configuration
@@ -313,6 +317,7 @@ jobs:
           CN_RESOLVED=$(echo "$OUTPUT" | grep "^cn_version=" | cut -d= -f2)
           MN_RESOLVED=$(echo "$OUTPUT" | grep "^mn_version=" | cut -d= -f2)
           BN_RESOLVED=$(echo "$OUTPUT" | grep "^bn_version=" | cut -d= -f2)
+          echo "bn_version=${BN_RESOLVED}" >> "${GITHUB_OUTPUT}"
 
           # Format version labels: show "requested -> resolved" when they differ
           format_version() {
@@ -341,6 +346,16 @@ jobs:
           fi
 
           echo "matrix_detail=${MATRIX_DETAIL}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.14.4
+
+      # A tag push starts this workflow and the release workflow at the same time. Wait for the
+      # chart and plugin jars so a red run means a broken release, not a publish race.
+      - name: Wait for Block Node artifacts
+        run: ./tools-and-tests/scripts/solo-e2e-test/scripts/wait-for-bn-artifacts.sh "${{ steps.resolved.outputs.bn_version }}"
 
   # ============================================================================
   # RUN-TESTS: Execute test matrix
