@@ -11,6 +11,7 @@ import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.FilteredSingleItem;
 import com.hedera.hapi.block.stream.RedactedItem;
+import com.hedera.hapi.block.stream.SignedRecordFileProof;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
@@ -65,10 +66,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 class BlockHasherTest {
     private static final String ALL_RESOURCE_BLOCKS_SOURCE =
             "org.hiero.block.node.block.verification.hasher.BlockHasherTest#allResourceBlocks";
-    private static final String ALL_RESOURCE_WRB_BLOCKS_SOURCE =
-            "org.hiero.block.node.block.verification.hasher.BlockHasherTest#allResourceWRBBlocks";
-    private static final String ALL_RESOURCE_NON_WRB_BLOCKS_SOURCE =
-            "org.hiero.block.node.block.verification.hasher.BlockHasherTest#allResourceNonWRBBlocks";
     private static final String FOOTER_WITH_MISSING_VALUES =
             "org.hiero.block.node.block.verification.hasher.BlockHasherTest#footerWithMissingValues";
     private static final String UNSUPPORTED_ITEM_TYPES =
@@ -296,50 +293,29 @@ class BlockHasherTest {
             assertThat(actual).returns(block.hapiVersion(), HashingResult::hapiProtoVersion);
         }
 
-        /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
-        /// will contain a value for signed payload of the block we want to hash, if the block is WRB.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_WRB_BLOCKS_SOURCE)
-        @DisplayName("get() successful hashing produces expected block signed payload")
-        void testSuccessfulHashingProducesValueForSignedPayload(final ResourceTestBlock block) {
-            // Create a new block hasher based on what block we have
+        /// This test aims to assert that a WRB block hashes successfully even when its record
+        /// file contents are malformed and its proof declares an unsupported version: the
+        /// hashing stage does not inspect the `RECORD_FILE` contents or the proof version, the
+        /// signed payload computation and rejection belong to the RSA proof verifier
+        /// downstream.
+        @Test
+        @DisplayName("get() successful hashing regardless of record file contents and proof version")
+        void testWrbContentsAndProofVersionNotInspected() {
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
-                    block.number(),
+                    0,
                     BlockSource.PUBLISHER,
                     verificationDataProvider);
-            // Supply the block in full to the hasher
-            blockItemsDeque.add(block.asBlockItems());
-            // Call
+            // Outer RecordFileItem proto: field 2 (LEN) carrying two inner bytes that declare
+            // a 127-byte field with nothing following, and an unsupported proof version 7.
+            final Bytes malformedRecordFileItem = Bytes.wrap(new byte[] {0x12, 0x02, 0x12, 0x7F});
+            final List<BlockItemUnparsed> items = wrbBlockItems(7, malformedRecordFileItem);
+            blockItemsDeque.offer(new BlockItems(items, 0, true, true));
             final HashingResult actual = toTest.get();
-            // Assert
-            assertThat(actual.signedWRBPayload()).isNotNull().isNotEmpty();
-        }
-
-        /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
-        /// will not contain a value for signed payload of the block we want to hash, if the block is WRB.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_NON_WRB_BLOCKS_SOURCE)
-        @DisplayName("get() successful hashing produces expected block signed payload (non WRB)")
-        void testSuccessfulHashingProducesNoValueForSignedPayload(final ResourceTestBlock block) {
-            // Create a new block hasher based on what block we have
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
-            final BlockHasher toTest = new BlockHasher(
-                    new AtomicBoolean(false),
-                    blockItemsDeque,
-                    metrics.hashingMetrics(),
-                    block.number(),
-                    BlockSource.PUBLISHER,
-                    verificationDataProvider);
-            // Supply the block in full to the hasher
-            blockItemsDeque.add(block.asBlockItems());
-            // Call
-            final HashingResult actual = toTest.get();
-            // Assert
-            assertThat(actual.signedWRBPayload()).isNull();
+            assertThat(actual.blockProofs()).hasSize(1);
         }
     }
 
@@ -1022,25 +998,42 @@ class BlockHasherTest {
                 new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, headerWithNoTimestamp)));
     }
 
+    /// Builds a minimal WRB block whose record file proof declares the given version and whose
+    /// `RECORD_FILE` item carries the given proto bytes.
+    private static List<BlockItemUnparsed> wrbBlockItems(final int proofVersion, final Bytes recordFileItemProtoBytes) {
+        final BlockHeader header = new BlockHeader(
+                new SemanticVersion(0, 22, 0, "", ""),
+                new SemanticVersion(1, 0, 0, "", ""),
+                0,
+                new Timestamp(1_500_000_000L, 0),
+                BlockHashAlgorithm.SHA2_384);
+        final BlockFooter footer =
+                new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]));
+        final BlockProof proof = BlockProof.newBuilder()
+                .block(0)
+                .signedRecordFileProof(new SignedRecordFileProof(proofVersion, List.of()))
+                .build();
+        return List.of(
+                BlockItemUnparsed.newBuilder()
+                        .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .recordFile(recordFileItemProtoBytes)
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                        .build());
+    }
+
     /// All available resource blocks.
     private static Stream<Arguments> allResourceBlocks() throws IOException, ParseException {
         final List<ResourceTestBlock> wraps = ResourceTestBlockBuilder.loadMultiple(WRAPS.values());
         final List<ResourceTestWRBBlock> wrb = ResourceTestBlockBuilder.loadMultiple(WRB.values());
         final List<ResourceTestBlock> stateProof = ResourceTestBlockBuilder.loadMultiple(StateProof.values());
         return Stream.of(wraps, wrb, stateProof).flatMap(List::stream).map(Arguments::of);
-    }
-
-    /// All available resource WRB blocks.
-    private static Stream<Arguments> allResourceWRBBlocks() throws IOException, ParseException {
-        final List<ResourceTestWRBBlock> wrb = ResourceTestBlockBuilder.loadMultiple(WRB.values());
-        return wrb.stream().map(Arguments::of);
-    }
-
-    /// All available non WRB resource blocks.
-    private static Stream<Arguments> allResourceNonWRBBlocks() throws IOException, ParseException {
-        final List<ResourceTestBlock> wraps = ResourceTestBlockBuilder.loadMultiple(WRAPS.values());
-        final List<ResourceTestBlock> stateProof = ResourceTestBlockBuilder.loadMultiple(StateProof.values());
-        return Stream.of(wraps, stateProof).flatMap(List::stream).map(Arguments::of);
     }
 
     private static Stream<Arguments> footerWithMissingValues() throws ParseException {
