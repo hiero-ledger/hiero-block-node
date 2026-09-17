@@ -1,0 +1,137 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# NLG Concurrent-Same-Type Throughput Bump Attempt (no chaos)
+#
+# Tests whether the confirmed-real ~6,000-6,200 TPS CryptoTransferLoadTest
+# ceiling (see nlg-mirror-node-tps-validation.yaml) is a per-JVM-process
+# software limit (NLG's own single-process queue/client-pool internals) or a
+# true downstream constraint (CN receive capacity, or shared CI-runner
+# hardware) -- by running TWO separate CryptoTransferLoadTest processes
+# concurrently, each independently creating its own private account pool (no
+# cross-process contention, unlike LongevityLoadTest's shared-account
+# problem). If combined real TPS rises meaningfully above the single-process
+# ceiling, the constraint was per-process. If it stays capped at roughly the
+# same aggregate (or gets worse), the constraint is downstream of NLG
+# entirely and adding more NLG processes can't help.
+#
+# Deliberately memory-neutral: java_heap: 4 on each process keeps combined
+# heap at 8g total -- the same combined footprint already validated safe in
+# nlg-dual-type-throughput-ceiling.yaml, not an increase.
+#
+# Stagger widened to 60s (up from the 10s that failed in
+# nlg-dual-type-throughput-ceiling.yaml): that run's HCSLoadTest start failed
+# at Solo CLI's Acquire lock step because CryptoTransferLoadTest's own
+# `solo rapid-fire load start` invocation was still working through
+# Initialize -> chart-manager setup -> pod-readiness checks -- which took
+# ~29s in that run -- before reaching the point where it releases its
+# deployment lease. 60s gives comfortable margin. execute_load_start now also
+# surfaces a WARNING if the backgrounded start command exits early (a gap
+# found and fixed this session, previously silent), so a repeat of that
+# failure mode will be visible in the job log this time even though the
+# load-start event itself still reports PASS.
+#
+# Only one load-stop event: `solo rapid-fire load stop --test
+# CryptoTransferLoadTest` kills via `pkill -f CryptoTransferLoadTest` inside
+# the pod, which matches both processes' identical command line -- one call
+# stops both. Per-process self-reported logs may interleave into a single
+# rapid-fire diagnostics file; that's fine here since the primary signal is
+# Mirror Node's real aggregate transaction count, not NLG's own per-process
+# log (same approach as nlg-mirror-node-tps-validation.yaml).
+#
+# Prerequisites:
+#   - Any topology deployed (task up) -- paired-3 is sufficient, no chaos needed
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/nlg-concurrent-same-type-throughput-bump.yaml
+
+name: nlg-concurrent-same-type-throughput-bump
+description: "Two concurrent CryptoTransferLoadTest processes, cross-checked against Mirror Node, no chaos"
+
+events:
+  - id: start-crypto-transfer-1
+    type: load-start
+    description: "Start first CryptoTransferLoadTest process (accounts=10, matches the historical single-process ceiling measurement)"
+    delay: 10
+    args:
+      test_class: CryptoTransferLoadTest
+      concurrency: 50
+      accounts: 10
+      duration: 900
+      java_heap: 4
+
+  - id: start-crypto-transfer-2
+    type: load-start
+    description: "Start second, independent CryptoTransferLoadTest process 60s later -- its own private account pool, no contention with the first"
+    delay: 70
+    args:
+      test_class: CryptoTransferLoadTest
+      concurrency: 50
+      accounts: 10
+      duration: 840
+      java_heap: 4
+
+  - id: mirror-check-1
+    type: mirror-block-tx-count
+    description: "Mirror Node's real transaction count for the most recent block, ~5 minutes into the combined load window"
+    delay: 300
+
+  - id: bn-metrics-1
+    type: print-metrics
+    description: "BN's own cumulative Block Items Received/Blocks Stored at the same point, for cross-reference"
+    delay: 300
+
+  - id: mirror-check-2
+    type: mirror-block-tx-count
+    description: "Mirror Node's real transaction count for the most recent block, ~10 minutes into the combined load window"
+    delay: 600
+
+  - id: bn-metrics-2
+    type: print-metrics
+    description: "BN's own cumulative Block Items Received/Blocks Stored at the same point, for cross-reference"
+    delay: 600
+
+  - id: mirror-check-3
+    type: mirror-block-tx-count
+    description: "Mirror Node's real transaction count for the most recent block, near the end of the combined load window"
+    delay: 830
+
+  - id: bn-metrics-3
+    type: print-metrics
+    description: "BN's own cumulative Block Items Received/Blocks Stored at the same point, for cross-reference"
+    delay: 830
+
+  - id: stop-crypto-transfer
+    type: load-stop
+    description: "Stop both CryptoTransferLoadTest processes (pkill matches both by identical command line)"
+    delay: 900
+    args:
+      test_class: CryptoTransferLoadTest
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Print final metrics after stop"
+    delay: 960
+
+assertions:
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors"
+    target: all
+
+  - id: all-blocks-increasing
+    type: blocks-increasing
+    description: "All Block Nodes are receiving new blocks"
+    target: all

@@ -1,0 +1,171 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Bandwidth-Lag — Monitor-only traffic, snapshot moved later (timing-window hypothesis)
+#
+# Variant of bandwidth-lag-monitor-only.yaml testing whether the divergence
+# snapshot's fixed timing -- not bandwidth rate or content size -- explains why
+# bigger Monitor-driven blocks never moved blocks-diverged's spread (session
+# finding: peer/BN1 block heights at the original t=180s snapshot cluster
+# tightly in the same ~162-183 range regardless of Monitor TPS or content mix,
+# across every run tested, while avg-block-size's big readings only ever come
+# from the post-load-stop recovery window -- the two measurements never
+# overlapped in time). Moves snapshot-peak-chaos from delay=180 to delay=400
+# (365s of chaos exposure instead of 145s) and pushes clear-*-bw out to
+# 450/455 to match, giving blocks much more time to reach the bigger,
+# post-TSS-transition regime before the snapshot fires.
+#
+# Rate re-derivation (18mbit/s, up from 6mbit/s): the 6mbit/s rate was
+# inherited from bandwidth-lag.yaml's pure-CryptoTransfer ~868KB/block
+# baseline. Real Monitor mixed-traffic (5k CryptoTransfer + 5k
+# ConsensusSubmitMessage) samples this session: 866,698 / 2,574,119 /
+# 2,782,229 / 3,991,184 bytes/block (mean ~2.55MB -- also see the file's own
+# per-BN-disagreement note below, real content varies block to block).
+# floor = 2,600,000 x 8 x 0.467 blk/s ~= 9.71 Mbit/s. 18mbit/s preserves
+# roughly the same ~1.8x margin as bandwidth-lag.yaml's original derivation.
+# Confirmed via a real run that even 2.5x more chaos-exposure time doesn't
+# reliably grow blocks-diverged's spread on its own (see handoff) -- so this
+# rate bump is necessary but likely not sufficient by itself.
+#
+# blocks-diverged now samples 5 snapshots across the chaos window and asserts
+# on the PEAK spread (see bandwidth-lag.yaml for the full rationale) instead
+# of one fixed-delay sample -- a single sample's spread varied 1-6 across
+# otherwise-identical real runs this session, so min_spread alone can't
+# reliably absorb that variance.
+#
+# Requires topology: paired-3 (≥ 3 BNs; CN1 streams exclusively to BN1).
+#
+# Pre-req:
+#   task up TOPOLOGY=paired-3
+#   CHAOS_ENABLED=true task chaos:install
+#
+# Usage:
+#   CHAOS_ENABLED=true TOPOLOGY=paired-3 MIRROR_NODE_PINGER_TPS=10000 task test:run TEST_FILE=tests/bandwidth-lag-monitor-only-late-snapshot.yaml
+
+name: bandwidth-lag-monitor-only-late-snapshot
+description: "CN→BN1 + BN-peers→BN1 bandwidth cap (18mbit/s) — Monitor-only traffic, snapshot moved to delay=400 to test the timing-window hypothesis"
+
+events:
+  - id: inject-cn-bn1-bw
+    type: inject-bandwidth
+    description: "Cap CN's egress to BN1's Service at 18mbit/s (direction=to, target=service/block-node-1) — forces BN1 ingest below block production rate"
+    delay: 30
+    args:
+      name: cn-to-bn1-bw
+      source: { kind: network-node }
+      target: { kind: service, name: block-node-1 }
+      rate: "18mbit"
+      limit: 3000000
+      buffer: 10000
+      direction: to
+
+  - id: inject-peer-bn1-bw
+    type: inject-bandwidth
+    description: "Cap BN-peers' egress to BN1's Service at 18mbit/s (direction=to, target=service/block-node-1) — prevents greedy backfill from neutralising the ingest cap"
+    delay: 35
+    args:
+      name: peer-to-bn1-bw
+      source: { kind: block-node }
+      target: { kind: service, name: block-node-1 }
+      rate: "18mbit"
+      limit: 3000000
+      buffer: 10000
+      direction: to
+
+  - id: mid-tx-presence
+    type: mirror-tx-presence
+    description: "Per-type presence over a real 100s window, mid-chaos -- confirms Monitor's scenario(s) are landing transactions"
+    delay: 200
+    args:
+      window_seconds: 100
+
+  - id: snapshot-peak-chaos-1
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 1/5 across the chaos window (see blocks-diverged: peak spread across all 5 wins, not any single one)"
+    delay: 90
+    args: { snapshot_id: peak-chaos-1 }
+
+  - id: snapshot-peak-chaos-2
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 2/5"
+    delay: 180
+    args: { snapshot_id: peak-chaos-2 }
+
+  - id: snapshot-peak-chaos-3
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 3/5"
+    delay: 270
+    args: { snapshot_id: peak-chaos-3 }
+
+  - id: snapshot-peak-chaos-4
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 4/5"
+    delay: 360
+    args: { snapshot_id: peak-chaos-4 }
+
+  - id: snapshot-peak-chaos-5
+    type: snapshot-block-heights
+    description: "Capture per-BN block heights, sample 5/5 (≈10s before bandwidth clears)"
+    delay: 440
+    args: { snapshot_id: peak-chaos-5 }
+
+  - id: clear-cn-bn1-bw
+    type: clear-bandwidth
+    description: "Clear CN→BN1 bandwidth cap"
+    delay: 450
+    args: { name: cn-to-bn1-bw }
+
+  - id: clear-peer-bn1-bw
+    type: clear-bandwidth
+    description: "Clear BN peers→BN1 bandwidth cap"
+    delay: 455
+    args: { name: peer-to-bn1-bw }
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All BNs survive bandwidth throttle and stay/return healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All BNs still have blocks after chaos"
+    target: all
+    args:
+      min_block: 0
+
+  - id: blocks-diverged
+    type: blocks-diverged
+    description: "BNs were at least 3 blocks apart at peak chaos, at the WORST of 5 samples across the chaos window — robust to which exact moment happens to show the most lag (a single-snapshot spread varied 1-6 across otherwise-identical real runs this session)"
+    args:
+      snapshot_ids: [peak-chaos-1, peak-chaos-2, peak-chaos-3, peak-chaos-4, peak-chaos-5]
+      min_spread: 3
+
+  - id: blocks-converged
+    type: blocks-converged
+    description: "All BNs converge to within 10 blocks after bandwidth clears — allows BN1 time to close its backfill gap"
+    args:
+      tolerance_blocks: 10
+
+  - id: blocks-increasing
+    type: blocks-increasing
+    description: "Block production recovers on all BNs after bandwidth clears -- max_attempts extended to 30 (30 min budget) after two runs showed the whole network (not just BN1) stalled at a fixed height with zero throughput on ALL BNs, tied to the one-time genesis WRAPS proof construction taking 15-16 min under heavy Monitor load (normally seconds) -- and still not recovered 10-12.5 min after that construction itself finished, in both runs. Extending this to find out if/when it actually recovers."
+    target: all
+    args:
+      wait_seconds: 60
+      max_attempts: 30
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Post-chaos block rate recovers to ≥ 0.1 blk/s on all BNs"
+    target: all
+    args:
+      min_rate_per_sec: 0.1
+      window_seconds: 30
+
+  - id: avg-block-size
+    type: avg-block-size-floor
+    description: "Real avg bytes/block from files_recent_total_bytes_stored ÷ files_recent_blocks_written over the recovery window (diagnostic: min_bytes is a sanity floor, not a tuned expectation. Block size varies by TSS phase: steady-state blocks run small (~35KB), the one-time Schnorr->WRAPS transition block is a large single-item outlier (tens of MB, uncompressed), and every block after that carries a compressed TSS proof and runs meaningfully bigger than pre-transition steady-state -- a big jump in the printed value after the transition is expected, not a red flag)"
+    target: all
+    args:
+      min_bytes: 1000
+      window_seconds: 30

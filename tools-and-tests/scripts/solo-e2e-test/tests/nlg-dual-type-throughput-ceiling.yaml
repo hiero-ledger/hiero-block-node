@@ -1,0 +1,165 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# NLG Dual-Type Throughput Ceiling Probe (no chaos)
+#
+# Fallback to nlg-mixed-throughput-ceiling.yaml's LongevityLoadTest approach:
+# that test's own 4 of 5 concurrent job types (CryptoTransfer/NftTransfer/
+# MessageSend/SmartContract) turned out to emit no periodic stdout progress
+# at all -- only HeliSwapJob does -- so two runs (accounts=10, then
+# accounts=3000) gave near-identical, uninformative BN-side proxy numbers
+# with no way to attribute them to any specific transaction type. This test
+# instead runs CryptoTransferLoadTest and HCSLoadTest as two genuinely
+# separate NLG processes, concurrently, in the same pod -- both of these
+# single-type classes DO self-report periodic TPS (CryptoTransferJob and
+# MessageSendJob both call LoadTest.reportStatistics every 100,000 txns,
+# unconditionally, unlike the silent job types above), so this run should
+# give a real, attributable per-type TPS reading via each class's own log
+# output, not just an aggregate BN-side proxy.
+#
+# Isolates the same question as the mixed-type probe: is NLG's observed
+# ~6,000-6,500 TPS ceiling with CryptoTransferLoadTest alone (measured at
+# accounts=10, the same account count kept here for an apples-to-apples
+# comparison) caused by a per-transaction-type CN throttle (CRYPTO_TRANSFER
+# resolved to min{3500.00 tps} per node after the deployed network's 3-way
+# topology split), or by CN's raw receive capacity? If CryptoTransfer alone
+# still plateaus near the same ceiling while HCS runs concurrently at a real
+# additional rate, the constraint is per-type throttling. If the combined
+# total can't exceed the single-type ceiling, it's a shared capacity limit.
+#
+# Concurrent-process mechanics (verified against Solo CLI source,
+# @hashgraph/solo src/commands/rapid-fire.ts, before relying on this):
+#   - `solo rapid-fire load start` explicitly releases its deployment lease
+#     right before the (blocking, for the full test duration) container exec
+#     that runs the java process -- so a second `load start` invoked shortly
+#     after the first does not hit the lease-acquisition contention documented
+#     in finding 003 (that finding was about re-deploying the NLG Helm chart
+#     between separate sequential test file runs, not two exec calls into an
+#     already-running pod within one test).
+#   - `solo rapid-fire load stop --test <class>` kills via `pkill -f <class>`
+#     inside the pod, matching the full class name in the process command
+#     line -- stopping one class cannot kill the other's process.
+#   - Each `load-start` still independently (re)writes the same CN-IPs values
+#     file (../.tmp/nlg-values.yaml); harmless since the content doesn't
+#     depend on test class, so the second write racing the first is a no-op
+#     duplicate, not a corruption risk.
+#   - The two starts are staggered by 10s (delay 10 and 20) to comfortably
+#     clear the first's lease-release-then-lookup window before the second
+#     begins, not because it's structurally required.
+#
+# Memory: the NLG pod's chart default is a 16Gi limit / 10Gi request, and
+# Solo's own --javaHeap default is 8 (Xmx8g) -- two concurrent processes at
+# that default would sit right at the pod's memory limit with no headroom.
+# java_heap: 4 on each start (new field, wired through this session via
+# solo-load-generate.sh's --javaHeap passthrough) keeps combined heap at 8g,
+# leaving real headroom for non-heap/native overhead.
+#
+# HCSLoadTest defaults to nTopics=1 (its own class, unlike LongevityLoadTest,
+# doesn't override this) -- `-n 100` in extra_args avoids funneling every
+# submitted message through a single topic.
+#
+# Prerequisites:
+#   - Any topology deployed (task up) -- paired-3 is sufficient, no chaos needed
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/nlg-dual-type-throughput-ceiling.yaml
+
+name: nlg-dual-type-throughput-ceiling
+description: "CryptoTransferLoadTest + HCSLoadTest running concurrently, no chaos"
+
+events:
+  - id: start-crypto-transfer
+    type: load-start
+    description: "Start CryptoTransferLoadTest (accounts=10, same as the historical ~6,000-6,500 TPS ceiling measurement, for an apples-to-apples comparison)"
+    delay: 10
+    args:
+      test_class: CryptoTransferLoadTest
+      concurrency: 50
+      accounts: 10
+      duration: 900
+      java_heap: 4
+
+  - id: start-hcs
+    type: load-start
+    description: "Start HCSLoadTest concurrently, staggered 10s after CryptoTransferLoadTest to clear its lease-release window first"
+    delay: 20
+    args:
+      test_class: HCSLoadTest
+      concurrency: 50
+      accounts: 10
+      duration: 890
+      extra_args: "-n 100"
+      java_heap: 4
+
+  - id: setup-window-metrics
+    type: print-metrics
+    description: "Print metrics early in the concurrent-load window"
+    delay: 180
+
+  - id: mid-metrics
+    type: print-metrics
+    description: "Print metrics mid-way through the concurrent-load window"
+    delay: 480
+
+  - id: late-metrics
+    type: print-metrics
+    description: "Print metrics near the end of the concurrent-load window"
+    delay: 780
+
+  - id: stop-crypto-transfer
+    type: load-stop
+    description: "Stop CryptoTransferLoadTest"
+    delay: 950
+    args:
+      test_class: CryptoTransferLoadTest
+
+  - id: stop-hcs
+    type: load-stop
+    description: "Stop HCSLoadTest"
+    delay: 960
+    args:
+      test_class: HCSLoadTest
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Print final metrics"
+    delay: 1020
+
+assertions:
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors"
+    target: all
+
+  - id: all-blocks-increasing
+    type: blocks-increasing
+    description: "All Block Nodes are receiving new blocks"
+    target: all
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Block rate stays >= 0.1 blk/s across the dual-type load window"
+    target: all
+    args:
+      min_rate_per_sec: 0.1
+      window_seconds: 30
+
+  - id: avg-block-size
+    type: avg-block-size-floor
+    description: "Real avg bytes/block over the recovery window -- secondary aggregate signal; the primary signal for this test is each class's own self-reported TPS in the NLG logs, not this BN-side number (min_bytes is a sanity floor, not a tuned expectation)"
+    target: all
+    args:
+      min_bytes: 1000
+      window_seconds: 30
