@@ -59,6 +59,31 @@ function kctl {
     kubectl --context "${CONTEXT}" "$@"
 }
 
+readonly POD_RECOVERY_TIMEOUT_SECONDS=300
+
+function wait_for_pods_ready {
+    local selector="${1}"
+    local what="${2}"
+    local wait_out
+
+    if [[ -z "$(kctl get pod -n "${NAMESPACE}" -l "${selector}" -o name 2>/dev/null)" ]]; then
+        log "No pod matches '${selector}', so ${what} cannot recover."
+        return 1
+    fi
+
+    log "Waiting up to ${POD_RECOVERY_TIMEOUT_SECONDS}s for ${what} to become ready."
+    if wait_out=$(kctl wait --for=condition=ready pod \
+        -n "${NAMESPACE}" \
+        -l "${selector}" \
+        --timeout="${POD_RECOVERY_TIMEOUT_SECONDS}s" 2>&1); then
+        log "${what} became ready."
+        return 0
+    fi
+
+    log "${what} did not become ready: ${wait_out}"
+    return 1
+}
+
 function dump_importer_logs {
     local log_file_importer="/tmp/mirror-importer-logs-$(date +%s).log"
     local log_file_bn="/tmp/block-node-1-logs-$(date +%s).log"
@@ -208,15 +233,25 @@ importer:
 EOF
 
         # Deploy Mirror Node (version from MIRROR_NODE_VERSION env var)
+        local add_status=0
         solo mirror node add \
             --deployment "${DEPLOYMENT}" \
             --mirror-node-version "${MIRROR_NODE_VERSION}" \
             --pinger \
             --cluster-ref "${CONTEXT}" \
-            -f "${overlay_file}" || {
-            log "ERROR: Failed to deploy ${mn_name}"
-            return 1
-        }
+            -f "${overlay_file}" || add_status=$?
+
+        if [[ "${add_status}" -ne 0 ]]; then
+            log "WARNING: 'solo mirror node add' failed for ${mn_name}; checking whether the pods recovered."
+            wait_for_pods_ready "app.kubernetes.io/instance=${mn_name},app.kubernetes.io/component!=pinger" \
+                "${mn_name} without its pinger" || {
+                log "ERROR: Failed to deploy ${mn_name}"
+                return 1
+            }
+            wait_for_pods_ready "app.kubernetes.io/instance=${mn_name},app.kubernetes.io/component=pinger" \
+                "${mn_name} pinger" \
+                || log "WARNING: continuing without the ${mn_name} pinger; it only generates load."
+        fi
 
         log "${mn_name} deployed successfully"
     fi
