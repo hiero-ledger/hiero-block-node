@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.block.verification;
 
-import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
-import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
@@ -16,11 +12,14 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.BlockRange;
-import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.node.base.ParseHelper;
+import org.hiero.block.node.block.verification.BackfilledBlockNotificationAdapter.Accepted;
+import org.hiero.block.node.block.verification.BackfilledBlockNotificationAdapter.Adapted;
+import org.hiero.block.node.block.verification.BackfilledBlockNotificationAdapter.Ignored;
+import org.hiero.block.node.block.verification.BackfilledBlockNotificationAdapter.Rejected;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
 import org.hiero.block.node.block.verification.session.BlockSessionHandler;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
+import org.hiero.block.node.block.verification.session.eviction.GapAwareEvictionPolicy;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -97,7 +96,8 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 recentlyVerifiedBlocks,
                 new ConcurrentSkipListMap<>(),
                 executor,
-                badBlockDumper);
+                badBlockDumper,
+                new GapAwareEvictionPolicy());
     }
 
     /// Uncaught exception handler method handle for verification pool.
@@ -192,6 +192,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     /// and must, expect that we can receive the start of a new block before
     /// the end of the previous block. In those cases the active session of the
     /// previous block must be canceled.
+    /// Sessions started here are high priority sessions.
     ///
     /// @param blockItems the immutable list of block items to handle
     @Override
@@ -199,8 +200,8 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
         final BlockSource source = BlockSource.PUBLISHER;
         try {
             if (blockItems != null) {
-                if (validateStartOfBlock(blockItems)) {
-                    sessionHandler.processBlockItems(blockItems, source);
+                if (BlockStartValidator.isValidStart(blockItems)) {
+                    sessionHandler.processLiveItems(blockItems);
                 } else {
                     safeSendNotification(blockItems.blockNumber(), source, SessionFailureType.MISSING_MANDATORY_ITEM);
                 }
@@ -217,10 +218,12 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     /// {@inheritDoc}
     /// ---
     /// This is where we receive blocks from backfill.
-    /// We will always receive a complete block, one per notification.
-    /// We can safely wrap the block as [BlockItems] which is both the start
-    /// and the end of the block. We then propagate the block to the session
-    /// handler.
+    /// We will always receive a complete block, one per notification. The
+    /// [BackfilledBlockNotificationAdapter] turns the notification into a
+    /// single batch of [BlockItems] that both starts and ends the block, which
+    /// is then propagated to the session handler as a low priority session.
+    /// Everything specific to this delivery path lives in the adapter, which
+    /// is temporary until whole blocks are delivered on their own ring buffer.
     ///
     /// @param notification the [BackfilledBlockNotification] received as an
     ///     event.
@@ -228,20 +231,11 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     public void handleBackfilled(final BackfilledBlockNotification notification) {
         final BlockSource source = BlockSource.BACKFILL;
         try {
-            if (notification != null
-                    && notification.blockNumber() >= 0L
-                    && notification.block() != null
-                    && notification.block().blockItems() != null
-                    && !notification.block().blockItems().isEmpty()) {
-                final BlockItems blockItems =
-                        new BlockItems(notification.block().blockItems(), notification.blockNumber(), true, true);
-                if (validateStartOfBlock(blockItems)) {
-                    sessionHandler.processBlockItems(blockItems, source);
-                } else {
-                    safeSendNotification(blockItems.blockNumber(), source, SessionFailureType.MISSING_MANDATORY_ITEM);
-                }
-            } else {
-                LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);
+            final Adapted adapted = BackfilledBlockNotificationAdapter.adapt(notification);
+            switch (adapted) {
+                case Accepted accepted -> sessionHandler.processWholeBlock(accepted.blockItems(), source);
+                case Rejected rejected -> safeSendNotification(rejected.blockNumber(), source, rejected.failure());
+                case Ignored ignored -> LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);
             }
         } catch (final RuntimeException e) {
             LOGGER.log(INFO, "Failed to handle backfill notification in verification ", e);
@@ -296,36 +290,6 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
             final String message = "Failed to send verification notification for block %d with source %s"
                     .formatted(blockNumber, blockSource);
             LOGGER.log(WARNING, message, e);
-        }
-    }
-
-    /// Validate the start of a block. When the supplied items mark the start of a
-    /// new block, the first item must be a block header and the header's number
-    /// must match the block number announced with the items. Items that do not
-    /// mark the start of a block are always considered valid here.
-    ///
-    /// @param blockItems the block items to validate
-    /// @return `true` if the items are valid to process, `false` otherwise
-    private boolean validateStartOfBlock(final BlockItems blockItems) {
-        try {
-            final boolean result;
-            if (blockItems.isStartOfNewBlock()) {
-                final BlockItemUnparsed first = blockItems.blockItems().getFirst();
-                if (first != null && first.hasBlockHeader()) {
-                    final Bytes bytes = first.blockHeaderOrThrow();
-                    final BlockHeader header = ParseHelper.standardParse(BlockHeader.PROTOBUF, bytes);
-                    result = header.number() == blockItems.blockNumber();
-                } else {
-                    result = false;
-                }
-            } else {
-                result = true;
-            }
-            return result;
-        } catch (final ParseException e) {
-            final String message = "Failed to parse block header";
-            LOGGER.log(DEBUG, message, e);
-            return false;
         }
     }
 

@@ -22,6 +22,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import org.assertj.core.api.ObjectAssert;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlock;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder;
@@ -944,25 +945,28 @@ class VerificationServicePluginTest {
     @DisplayName("Active Sessions Buffer Tests")
     class ActiveSessionsBufferTests
             extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        /// Sessions run on a blocking executor that never executes them, so no
+        /// session completes on its own and the eviction triggered by the third
+        /// block is deterministic. The historical facility is empty, so the last
+        /// verified block is unknown and every block waits for order.
         ActiveSessionsBufferTests() {
             super(
-                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
                     new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
             final Map<String, String> configOverrides =
                     Map.ofEntries(Map.entry("verification.activeSessionsBufferSize", "2"));
             start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverrides);
         }
 
-        /// This test aims to verify that when the active sessions buffer is full and a new session comes,
-        /// the lowest active session will be canceled to make room, so long as the lowest active session is not
-        /// the one we just submitted.
+        /// This test aims to verify that when the active sessions buffer is full and a new publisher
+        /// block arrives, the publisher session with the highest block that is not the one just
+        /// started is cancelled to make room, keeping the lowest block, which is the one that will
+        /// release the others once it completes.
         /// Because the evicted session had already received its complete block, the failure is reported
-        /// with the CANCELLED failure type and not CANCELLED_INCOMPLETE.
+        /// with the CANCELLED failure type and not CANCELLED_INCOMPLETE, so the publisher schedules a resend.
         @Test
-        @DisplayName(
-                "Active Sessions Buffer - cancel lowest session when buffer full and new submission is not the lowest active session")
-        void testCancelLowestActiveSessionWhenBufferFullAndCurrentSubmissionNotLowest()
-                throws IOException, ParseException {
+        @DisplayName("Active Sessions Buffer - cancel highest non current publisher session when buffer full")
+        void testCancelHighestNonCurrentSessionWhenBufferFull() throws IOException, ParseException {
             final List<ResourceTestWRBBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRBBlocks);
             final ResourceTestWRBBlock block2 = loadedBlocks.get(2);
             final ResourceTestWRBBlock block3 = loadedBlocks.get(3);
@@ -977,24 +981,23 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
-                    .returns(block2.number(), VerificationNotification::blockNumber)
+                    .returns(block3.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
         }
 
-        /// This test aims to assert that when the active sessions buffer is full and the lowest active
-        /// session is evicted while it has not yet received the batch that ends its block, the eviction
-        /// is reported with the CANCELLED_INCOMPLETE failure type and not CANCELLED. Here block 2 is
-        /// supplied by the publisher as a header only batch, so its session never receives the end of
-        /// the block. Blocks 3 and 4 are then supplied as backfilled blocks, which do not supersede the
-        /// live publisher session, filling the buffer and forcing the eviction of the incomplete
-        /// session for block 2.
+        /// This test aims to assert that a publisher session which has not yet received the batch
+        /// that ends its block is protected from eviction triggered by backfilled blocks. Here block 2
+        /// is supplied by the publisher as a header only batch, so its session never receives the end
+        /// of the block. Blocks 3 and 4 are then supplied as backfilled blocks, filling the buffer.
+        /// The incomplete publisher session must survive, since cancelling it would be reported as
+        /// CANCELLED_INCOMPLETE, which the publisher does not act on; instead the backfilled block 3,
+        /// which fills the gap toward block 4, is evicted and reported CANCELLED with the backfill source.
         @Test
         @DisplayName(
-                "Active Sessions Buffer - evicted session that has not received its full block reports CANCELLED_INCOMPLETE")
-        void testEvictIncompleteLowestActiveSessionWhenBufferFullReportsIncomplete()
-                throws IOException, ParseException {
+                "Active Sessions Buffer - incomplete publisher session is protected, backfilled session is evicted")
+        void testIncompletePublisherSessionProtectedFromBackfillEviction() throws IOException, ParseException {
             final List<ResourceTestWRBBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRBBlocks);
             final ResourceTestWRBBlock block2 = loadedBlocks.get(2);
             final ResourceTestWRBBlock block3 = loadedBlocks.get(3);
@@ -1010,11 +1013,9 @@ class VerificationServicePluginTest {
                     .hasSize(1)
                     .first()
                     .returns(false, VerificationNotification::success)
-                    .returns(
-                            FailureInfo.standard(FailureType.CANCELLED_INCOMPLETE),
-                            VerificationNotification::failureInfo)
-                    .returns(block2.number(), VerificationNotification::blockNumber)
-                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
+                    .returns(block3.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.BACKFILL, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
         }

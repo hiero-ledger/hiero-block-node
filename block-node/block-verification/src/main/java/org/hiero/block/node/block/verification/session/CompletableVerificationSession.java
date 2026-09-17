@@ -33,6 +33,8 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     private final long blockNumber;
     /// The source of the block.
     private final BlockSource blockSource;
+    /// The priority of the session, derived from the delivery path.
+    private final SessionPriority priority;
     /// The executor the stage chain runs on.
     private final ExecutorService executor;
     /// Cancellation flag shared with all stages of the session.
@@ -66,6 +68,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     /// @param blockNumber the number of the block to verify, must be non-negative
     /// @param metricsHolder the holder for all verification metrics, must not be null
     /// @param blockSource the source of the block, must not be null
+    /// @param priority the priority of the session, must not be null
     /// @param verificationDataProvider provider of the verification data, must not be null
     /// @param lastVerifiedBlock the last successfully verified block, must not be null
     /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
@@ -79,6 +82,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
             final long blockNumber,
             final MetricsHolder metricsHolder,
             final BlockSource blockSource,
+            final SessionPriority priority,
             final VerificationDataProvider verificationDataProvider,
             final AtomicLong lastVerifiedBlock,
             final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
@@ -98,6 +102,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         this.verificationDataProvider = Objects.requireNonNull(verificationDataProvider);
         this.metricsHolder = Objects.requireNonNull(metricsHolder);
         this.blockSource = Objects.requireNonNull(blockSource);
+        this.priority = Objects.requireNonNull(priority);
         this.executor = Objects.requireNonNull(executor);
         this.isCancelled = new AtomicBoolean(false);
         this.endOfBlockReceived = new AtomicBoolean(false);
@@ -111,6 +116,24 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     @Override
     public SessionKey sessionKey() {
         return sessionKey;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public SessionPriority priority() {
+        return priority;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public BlockSource blockSource() {
+        return blockSource;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public boolean isEndOfBlockReceived() {
+        return endOfBlockReceived.get();
     }
 
     /// {@inheritDoc}
@@ -167,20 +190,24 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     /// {@inheritDoc}
     /// ---
     /// Cancels the stage chain and raises the shared cancellation flag so that any
-    /// stage currently running can observe it and stop.
+    /// stage currently running can observe it and stop. Cancelling a chain that
+    /// has already completed is a no-op that reports `false`, the result of the
+    /// session was, or will be, handled normally.
     ///
     /// @throws IllegalStateException if the session was never started
     @Override
-    public void cancel() {
+    public boolean cancel() {
         final CompletableFuture<BlockVerificationResult> localChain = sessionCompletionChain;
         try {
+            final boolean result;
             if (localChain != null) {
-                localChain.cancel(true);
+                result = localChain.cancel(true);
             } else {
                 final String message = "Session with id %d for block %d with source %s canceled before it was started"
                         .formatted(sessionKey.uniqueId(), blockNumber, blockSource);
                 throw new IllegalStateException(message);
             }
+            return result;
         } finally {
             isCancelled.set(true);
         }

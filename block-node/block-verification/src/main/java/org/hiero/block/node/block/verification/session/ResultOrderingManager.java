@@ -83,17 +83,18 @@ public final class ResultOrderingManager implements Function<BlockVerificationRe
     /// [VerificationConfig#firstOrderedBlock()], it is ahead of the next expected
     /// block, and its source is subject to ordering (publisher always is; other
     /// sources only when [VerificationConfig#allSourcesRequireOrdering()] is `true`).
+    /// The rule itself lives in [OrderingRules] and is shared with the eviction policy.
     ///
     /// @param verificationResult the successful result awaiting propagation
     /// @param nextExpectedBlock the next block number expected to verify in order
     /// @return `true` if the result must keep waiting, `false` when it may proceed
     private boolean shouldPark(final BlockVerificationResult verificationResult, final long nextExpectedBlock) {
-        // spotless:off
-        final long verifiedBlockNumber = verificationResult.blockNumber();
-        return (verifiedBlockNumber >= verificationConfig.firstOrderedBlock())
-            && (verifiedBlockNumber > nextExpectedBlock)
-            && (verificationResult.source() == BlockSource.PUBLISHER || verificationConfig.allSourcesRequireOrdering());
-        // spotless:on
+        return OrderingRules.mustAwaitOrder(
+                verificationResult.blockNumber(),
+                verificationResult.source(),
+                nextExpectedBlock,
+                verificationConfig.firstOrderedBlock(),
+                verificationConfig.allSourcesRequireOrdering());
     }
 
     /// Returns `true` if the owning session has been cancelled or the current thread interrupted.

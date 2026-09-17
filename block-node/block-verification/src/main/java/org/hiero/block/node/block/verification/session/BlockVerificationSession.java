@@ -3,6 +3,7 @@ package org.hiero.block.node.block.verification.session;
 
 import java.util.concurrent.ConcurrentLinkedDeque;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
 /// This interface defines a verification session for a block.
 /// Sessions run async. They can be canceled. Once a session completes, it will
@@ -12,6 +13,20 @@ public interface BlockVerificationSession {
     /// A composite key of block number and a unique session id.
     /// @return the session key
     SessionKey sessionKey();
+
+    /// The priority of the session, derived from the delivery path the block
+    /// came in on. Decides which sessions yield first when the active sessions
+    /// buffer is over its limit.
+    /// @return the session priority
+    SessionPriority priority();
+
+    /// The source of the block this session verifies.
+    /// @return the block source
+    BlockSource blockSource();
+
+    /// Whether the batch ending the block has been received.
+    /// @return `true` once [#markEndOfBlockReceived()] has been called
+    boolean isEndOfBlockReceived();
 
     /// Start the session.
     ///
@@ -33,7 +48,10 @@ public interface BlockVerificationSession {
     void start();
 
     /// Cancel and stop the session.
-    void cancel();
+    ///
+    /// @return `true` if the session was running and is now cancelled,
+    ///     `false` if it had already produced its result
+    boolean cancel();
 
     /// Mark that the end of block has been received for this session.
     ///

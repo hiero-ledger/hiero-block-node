@@ -104,10 +104,31 @@ verified blocks buffer.
 
 ### BlockSessionHandler
 
-Creates, manages, and cancels verification sessions. It routes publisher item
-batches to the active publisher session and starts a new session for each
-backfilled block. It enforces the **active sessions buffer**: a configurable
-maximum number of simultaneously running sessions.
+Creates, manages, and cancels verification sessions. It has one entry point per
+delivery path: live item batches from the publisher stream are routed to the
+active publisher session and start **high priority** sessions; whole blocks
+delivered at once (backfilled blocks today) each start a **low priority**
+session. It enforces the **active sessions buffer**: a configurable maximum
+number of simultaneously running sessions. When a new session pushes the buffer
+over that maximum, the handler asks the eviction policy which sessions to cancel
+and cancels them.
+
+### EvictionPolicy
+
+A pure selector: it receives an immutable snapshot of the active sessions
+buffer (every session with its key, priority and source, plus the last verified
+block, the ordering settings, the limit and the protected keys) and returns the
+keys to evict, in order. It has no side effects and never blocks. The default
+implementation is the `GapAwareEvictionPolicy` described below. A different
+policy is a new class, not a rewrite of the handler.
+
+### BackfilledBlockNotificationAdapter
+
+A temporary helper that turns a backfilled block notification into a validated
+single batch that both starts and ends the block, or into the reason it cannot
+be verified. Everything specific to receiving whole blocks through the
+notification ring buffer lives here, so it can be deleted as a unit once whole
+blocks are delivered on their own ring buffer.
 
 ### CompletableVerificationSession
 
@@ -153,7 +174,7 @@ sources today:
   reports a `CANCELLED_INCOMPLETE` failure.
 - **Backfill**: blocks arrive whole, one complete block per notification. Each
   is wrapped as a single batch that is both the start and the end of the block,
-  and a session is started for it.
+  and a low priority session is started for it.
 
 Before any session is started, the plugin validates the start of the block: the
 first item must be a block header and the header's number must match the block
@@ -193,14 +214,62 @@ stage skips the remaining work and goes straight to result handling.
 ### The Active Sessions Buffer
 
 The session handler keeps all running sessions in a bounded buffer, sized by
-`activeSessionsBufferSize`. Every new session is added to the buffer. If the
-buffer would exceed its size, room is made by **cancelling the session that is
-verifying the lowest block number**, unless that session is the one that was
-just started. An evicted session reports a failure through the normal result
-handling path: `CANCELLED` when it had already received its complete block,
-`CANCELLED_INCOMPLETE` when the block was never fully received. This bounds resource
-usage while preferring to keep the most recent work: the oldest, likely
-stalled or superseded session is the one to go.
+`activeSessionsBufferSize`. Every new session is added to the buffer. Each
+session carries a **priority** derived from the path it came in on: sessions
+started from the live publisher stream are *high* priority, sessions started
+from whole blocks delivered at once (backfill) are *low* priority. One limit
+applies to both together, so either path may use the whole buffer.
+
+If adding a session pushes the buffer over its limit, the handler asks the
+**eviction policy** which sessions to cancel. Adding, checking and evicting
+happen under a lock held only for that in-memory work, so the two delivery
+threads never observe each other's half activated sessions. Every selected
+victim is checked again before it is cancelled: it must still be in the buffer
+and must not have produced its result already, since a session can complete
+between the selection and the cancellation. An evicted session reports a
+failure through the normal result handling path, `CANCELLED`, so that the
+publisher schedules a resend and backfill re-fetches the block later.
+
+The default policy, `GapAwareEvictionPolicy`, follows one principle: **only
+sessions that wait on something external are ever evicted**. A session that is
+not subject to ordering, or whose block is at or below the next expected block,
+finishes on its own as soon as hashing and proof verification complete;
+evicting it would free nothing durable and only cost a resend or a re-fetch.
+Eviction exists to remove sessions that are, or will be, parked in the ordering
+stage waiting for a block that has not arrived. These are the *stuck* sessions.
+Among them, victims are chosen in tiers, always the highest block first, since
+the highest stuck block is the one furthest from being releasable and the one
+the fewest other sessions depend on:
+
+1. Low priority sessions that are not filling a gap some other stuck session
+   waits for.
+2. High priority sessions.
+3. Low priority sessions that do fill such a gap.
+
+Two sessions are protected from selection: the session that was just activated
+and the publisher session still receiving live items, whose cancellation would
+be reported as `CANCELLED_INCOMPLETE` and ignored by the publisher. There is one
+exception: a low priority session so far ahead that it cannot be released
+before the whole buffer has turned over (`block > next expected + limit`) is
+never protected and evicts itself, so junk from a bad peer never forces a
+publisher eviction. The exception is disabled while the last verified block is
+unknown, so a node starting mid chain can seed it with its first success.
+
+Selection stops as soon as the buffer is back within its limit. When only
+non-stuck or protected sessions remain, the buffer is allowed to overshoot
+transiently: every remaining session is either about to finish on its own or
+protected, and the next activation runs the policy again. The overshoot is
+bounded by how many blocks the producers have in flight.
+
+Consequences worth knowing:
+
+- When block N fails and N+1.. keep arriving and parking, the buffer fills with
+  the chain above N. Each further arrival evicts the *top* of that chain, never
+  its base, so the moment N's resend verifies the whole base releases at once.
+- Blocks arriving in descending order never grow the buffer past its limit: the
+  newest, lowest block is kept and the highest is evicted.
+- Historical backfill (blocks below the next expected block) is never evicted
+  and keeps its full speed even while a publisher chain is parked.
 
 ### The Recently Verified Blocks Buffer and Informational Failures
 
@@ -253,18 +322,18 @@ Every failed session reports a failure type in its notification. The
 as informational when the block is in the recently verified buffer, and as
 standard otherwise.
 
-|        Failure type         |                                                    Meaning                                                     | Can be informational |
-|-----------------------------|----------------------------------------------------------------------------------------------------------------|----------------------|
-| `BAD_BLOCK_PROOF`           | A proof did not verify against the computed root hash                                                          | yes                  |
-| `UNABLE_TO_PARSE`           | The block or one of its items could not be parsed                                                              | yes                  |
-| `MISSING_MANDATORY_ITEM`    | A mandatory item (header, footer, at least one usable proof) is missing                                        | yes                  |
-| `MISSING_MANDATORY_FIELD`   | A mandatory item is present but a required field has no value                                                  | yes                  |
-| `MISSING_VERIFICATION_DATA` | Required verification data is unavailable (TSS data, RSA keys, or a required algorithm)                        | yes                  |
-| `UNRECOGNIZED_PROOF_TYPE`   | The proof(s) provided for the block are not of a recognized type                                               | yes                  |
-| `UNSUPPORTED_HAPI_VERSION`  | The block declares a HAPI version the node does not support                                                    | yes                  |
-| `CANCELLED`                 | The session was cancelled after the complete block was received (evicted from the buffer, or shut down)        | yes                  |
-| `CANCELLED_INCOMPLETE`      | The session ended before the full block was received (superseded, or evicted/shut down while still incomplete) | yes                  |
-| `UNKNOWN_ERROR`             | An unexpected error occurred during verification                                                               | yes                  |
+|        Failure type         |                                                 Meaning                                                  | Can be informational |
+|-----------------------------|----------------------------------------------------------------------------------------------------------|----------------------|
+| `BAD_BLOCK_PROOF`           | A proof did not verify against the computed root hash                                                    | yes                  |
+| `UNABLE_TO_PARSE`           | The block or one of its items could not be parsed                                                        | yes                  |
+| `MISSING_MANDATORY_ITEM`    | A mandatory item (header, footer, at least one usable proof) is missing                                  | yes                  |
+| `MISSING_MANDATORY_FIELD`   | A mandatory item is present but a required field has no value                                            | yes                  |
+| `MISSING_VERIFICATION_DATA` | Required verification data is unavailable (TSS data, RSA keys, or a required algorithm)                  | yes                  |
+| `UNRECOGNIZED_PROOF_TYPE`   | The proof(s) provided for the block are not of a recognized type                                         | yes                  |
+| `UNSUPPORTED_HAPI_VERSION`  | The block declares a HAPI version the node does not support                                              | yes                  |
+| `CANCELLED`                 | The session was cancelled after the complete block was received (evicted from the buffer, or shut down)  | yes                  |
+| `CANCELLED_INCOMPLETE`      | The session ended before the full block was received (superseded by a new publisher block, or shut down) | yes                  |
+| `UNKNOWN_ERROR`             | An unexpected error occurred during verification                                                         | yes                  |
 
 ## Diagram
 
@@ -325,27 +394,36 @@ How the active sessions buffer makes room:
 
 ```mermaid
 flowchart TD
-    NS[New session starts] --> ADD[Add to active sessions]
+    NS[New session starts] --> ADD[Add to active sessions, under the activation lock]
     ADD --> FULL{Buffer over its limit?}
     FULL -- no --> RUN[All sessions keep running]
-    FULL -- yes --> LOW{"Is the lowest-block session the new one?"}
-    LOW -- no --> CANCEL["Cancel the lowest-block session (reports CANCELLED or CANCELLED_INCOMPLETE)"]
-    LOW -- yes --> RUN
+    FULL -- yes --> SNAP[Snapshot buffer, last verified block, protected keys]
+    SNAP --> POL[Eviction policy selects victims]
+    POL --> T1{"Stuck low priority session not filling a gap?"}
+    T1 -- yes --> EV["Evict highest such session (reports CANCELLED)"]
+    T1 -- no --> T2{"Stuck high priority session, not protected?"}
+    T2 -- yes --> EV
+    T2 -- no --> T3{"Stuck low priority session filling a gap?"}
+    T3 -- yes --> EV
+    T3 -- no --> OVER[Only non-stuck or protected sessions remain: transient overshoot]
+    EV --> AGAIN{Still over the limit?}
+    AGAIN -- yes --> T1
+    AGAIN -- no --> RUN
 ```
 
 ## Configuration
 
 Configuration prefix: `verification`
 
-|              Property              |                  Default                   |                                                                              Description                                                                               |
-|------------------------------------|--------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `recentlyVerifiedBlocksBufferSize` | `100`                                      | Maximum number of recently verified block numbers kept for the informational failure check. When full, the oldest entry is dropped.                                    |
-| `activeSessionsBufferSize`         | `100`                                      | Maximum number of simultaneously active sessions. When exceeded, the session verifying the lowest block is cancelled to make room, unless it is the newly started one. |
-| `firstOrderedBlock`                | `0`                                        | The first block number that requires strict ordering. Blocks below this value report success immediately, without waiting for order.                                   |
-| `allSourcesRequireOrdering`        | `true`                                     | If `true`, successes from every source are strictly ordered. If `false`, only publisher blocks are ordered. Should remain `true` on Tier 1 Block Nodes.                |
-| `dumpEnabled`                      | `false`                                    | Whether to write failing block bytes and metadata to disk for diagnostics.                                                                                             |
-| `dumpDirectoryPath`                | `/opt/hiero/block-node/verification/dumps` | Directory where bad block dump files are written.                                                                                                                      |
-| `dumpRetentionDays`                | `7`                                        | How many days dump files are retained before the daily purge removes them.                                                                                             |
+|              Property              |                  Default                   |                                                                                 Description                                                                                  |
+|------------------------------------|--------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `recentlyVerifiedBlocksBufferSize` | `100`                                      | Maximum number of recently verified block numbers kept for the informational failure check. When full, the oldest entry is dropped.                                          |
+| `activeSessionsBufferSize`         | `100`                                      | Maximum number of simultaneously active sessions. When exceeded, the eviction policy cancels sessions waiting for an earlier block, low priority first, highest block first. |
+| `firstOrderedBlock`                | `0`                                        | The first block number that requires strict ordering. Blocks below this value report success immediately, without waiting for order.                                         |
+| `allSourcesRequireOrdering`        | `true`                                     | If `true`, successes from every source are strictly ordered. If `false`, only publisher blocks are ordered. Should remain `true` on Tier 1 Block Nodes.                      |
+| `dumpEnabled`                      | `false`                                    | Whether to write failing block bytes and metadata to disk for diagnostics.                                                                                                   |
+| `dumpDirectoryPath`                | `/opt/hiero/block-node/verification/dumps` | Directory where bad block dump files are written.                                                                                                                            |
+| `dumpRetentionDays`                | `7`                                        | How many days dump files are retained before the daily purge removes them.                                                                                                   |
 
 ## Metrics
 
@@ -358,6 +436,8 @@ verification stage, and the result handling stage.
 |---------------------------------------------------------------------------------|--------------|------------------------------------------------|------------------------------------------------------------------|
 | _**<br/>[Session Handler Metrics](#session-handler-metrics)<br/>&nbsp;**_       |              |                                                |                                                                  |
 | [`verification_blocks_received`](#verification_blocks_received)                 | Counter      | none                                           | Blocks received for verification, one per session started        |
+| [`verification_active_sessions`](#verification_active_sessions)                 | Gauge        | none                                           | Live size of the active sessions buffer                          |
+| [`verification_sessions_evicted`](#verification_sessions_evicted)               | Counter      | `priority="high"`, `priority="low"`            | Sessions evicted from the active sessions buffer                 |
 | _**<br/>[Hashing Metrics](#hashing-metrics)<br/>&nbsp;**_                       |              |                                                |                                                                  |
 | [`hashing_block_time`](#hashing_block_time)                                     | Counter (ns) | none                                           | Cumulative time spent hashing blocks                             |
 | _**<br/>[Proof Verification Metrics](#proof-verification-metrics)<br/>&nbsp;**_ |              |                                                |                                                                  |
@@ -385,6 +465,23 @@ regardless of source. Every block the plugin attempts to verify is counted
 here, whether it later succeeds, fails, or is cancelled. Comparing this
 counter with the verified and failed counters shows how many blocks are still
 in flight.
+
+#### `verification_active_sessions`
+
+The live size of the active sessions buffer, updated after every activation,
+completion and eviction round. It normally sits far below
+`activeSessionsBufferSize`; a value pinned at the limit means sessions are
+parked waiting for a block that has not arrived, and a value above the limit
+is a transient overshoot of sessions that will complete on their own.
+
+#### `verification_sessions_evicted`
+
+A single counter with the `priority` dynamic label (`high` for sessions started
+from the live publisher stream, `low` for sessions started from whole blocks).
+It increments once per session actually cancelled by an eviction round. A
+rising `high` series means the publisher chain is parked on a missing block and
+every new live block costs a resend; a rising `low` series means backfill is
+delivering blocks far ahead of what verification can release.
 
 ### Hashing Metrics
 
@@ -467,7 +564,9 @@ ends in a verification notification, and the plugin keeps running.
 - **Cancellation.** A session cancelled for any reason (superseded by a new
   publisher block, evicted from the active sessions buffer, or plugin shutdown)
   reports a `CANCELLED` failure when it had already received its complete
-  block, and a `CANCELLED_INCOMPLETE` failure when the block was never fully received.
+  block, and a `CANCELLED_INCOMPLETE` failure when the block was never fully
+  received. Eviction only ever cancels sessions that received their complete
+  block, since the publisher session still receiving items is protected.
 - **Unexpected errors.** Any unexpected error, in a stage or in the plugin's
   own handling, is reported as `UNKNOWN_ERROR` and counted in the error metric.
   The plugin logs the details and continues.
@@ -495,9 +594,12 @@ ends in a verification notification, and the plugin keeps running.
    `false`, a backfilled block ahead of the last verified block reports
    success immediately; with `true`, it waits.
 6. **Active sessions buffer.** When more sessions are started than the buffer
-   allows, the session verifying the lowest block is cancelled and reports
-   `CANCELLED` when its complete block was received, or `CANCELLED_INCOMPLETE` when it
-   was not; the newest session is never the one evicted.
+   allows, only sessions waiting for an earlier block are cancelled, low
+   priority ones first and the highest block first; the evicted session reports
+   `CANCELLED`; the newest session and the publisher session still receiving
+   items are never evicted; blocks arriving in descending order never grow the
+   buffer past its limit; sessions that will complete on their own are left
+   alone even if the buffer transiently exceeds its limit.
 7. **Informational failures.** A failure for a block present in the recently
    verified buffer is reported as informational; the same failure for a block
    not in the buffer is standard.
