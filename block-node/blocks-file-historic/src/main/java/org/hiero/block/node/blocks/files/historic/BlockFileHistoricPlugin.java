@@ -511,6 +511,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                             totalBytesStored.addAndGet(-zipFileSize);
                             availableBlocks.remove(
                                     minBlockNumberStored, minBlockNumberStored + numberOfBlocksPerZipFile - 1);
+                            context.applicationStateFacility().updateAvailableBlocks();
                             final long currentNumberOfZips = totalZipFiles.decrementAndGet();
                             if (currentNumberOfZips <= 0) {
                                 break;
@@ -636,6 +637,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     // zipped and the staging files removed.
                     // Now we need to update the first and last block numbers
                     plugin.availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
+                    plugin.context.applicationStateFacility().updateAvailableBlocks();
                     plugin.totalZipFiles.incrementAndGet();
                     final String successMessage = "Successfully moved batch of blocks[{0} -> {1}] to zip file.";
                     plugin.LOGGER.log(DEBUG, successMessage, batchFirstBlockNumber, batchLastBlockNumber);

@@ -173,7 +173,10 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         // Initialize plugin metrics
         initMetrics(currentContext.metricRegistry());
         // Initialize the publisher manager
-        publisherManager = new LiveStreamPublisherManager(currentContext, managerMetrics);
+        publisherManager = new LiveStreamPublisherManager(
+                currentContext,
+                managerMetrics,
+                currentContext.applicationStateFacility().storedBlocks());
         // register the manager as a notification handler
         currentContext
                 .blockMessaging()
@@ -185,16 +188,6 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     public void stop() {
         context.get().blockMessaging().unregisterBlockNotificationHandler(publisherManager);
         publisherManager.shutdown();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void onContextUpdate(final BlockNodeContext context) {
-        if (context != null) {
-            this.context.set(context);
-        }
     }
 
     /// This method is called when a new publisher handler is created.

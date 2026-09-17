@@ -19,7 +19,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockNodeSource;
-import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -56,7 +55,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     private ScheduledExecutorService queryPeerExecutor;
     /// The config information for the RosterBootstrapTssConfig
     private RosterBootstrapTssConfig rosterBootstrapTssConfig;
-    // Metrics holder containing all backfill metrics
+    // Metrics holder containing all TssData metrics
     private MetricsHolder metricsHolder;
     // The class that fetches the TssData
     private TssDataFetcher tssDataFetcher;
@@ -75,11 +74,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         BlockNodeSource blockNodeSources = getBlockNodeSource(rosterBootstrapTssConfig);
 
         if (blockNodeSources != null) {
-            // Let the logs know what we loaded.
-            for (BlockNodeSourceConfig node : blockNodeSources.nodes()) {
-                LOGGER.log(DEBUG, "Loaded peer BN source node: {0}", node);
-                currentBlockNodePeers.incrementAndGet();
-            }
+            currentBlockNodePeers.set(blockNodeSources.nodes().size());
             hasBNSourcesPath = true;
             tssDataFetcher = new TssDataFetcher(blockNodeSources, rosterBootstrapTssConfig, metricsHolder);
         }
@@ -171,14 +166,6 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
                 this::queryPeerTssData, 0, rosterBootstrapTssConfig.queryPeerInterval(), TimeUnit.MILLISECONDS);
     }
 
-    /// {@inheritDoc}
-    /// This method is called on a separate thread. Make sure this.context is marked as `volatile`
-    @Override
-    public void onContextUpdate(BlockNodeContext context) {
-        // save the context update
-        this.blockNodeContext = context;
-    }
-
     /// queries peer BlockNodes for their TssData
     private void queryPeerTssData() {
         List<TssData> tssDataList = tssDataFetcher.getTssData();
@@ -187,13 +174,13 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         }
     }
 
-    /// Initializes the metrics for the backfill process.
+    /// Initializes the metrics for querying peer BlockNodes for TssData.
     private void initMetrics() {
         metricsHolder = MetricsHolder.createMetrics(blockNodeContext.metricRegistry(), currentBlockNodePeers);
     }
 
-    /// Holder for all backfill-related metrics.
-    /// This record groups all metrics used by the backfill plugin and its components,
+    /// Holder for all TssData-related metrics.
+    /// This record groups all metrics used by the roster bootstrap TSS plugin and its components,
     /// allowing them to be passed as a single parameter.
     public record MetricsHolder(LongCounter.Measurement tssDataRequests, LongCounter.Measurement tssDataErrors) {
 
