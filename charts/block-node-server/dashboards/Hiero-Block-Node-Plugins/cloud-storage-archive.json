@@ -42,13 +42,34 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "sum by (instance) (rate(blocknode_get_block_requests_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
-                      "legendFormat": "{{instance}}",
+                      "expr": "sum (rate(blocknode_cloud_storage_archive_blocks_written_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
+                      "legendFormat": "blocks written",
                       "range": true
                     },
                     "version": "v0"
                   },
                   "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "sum (rate(blocknode_cloud_storage_archive_successful_tasks_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
+                      "legendFormat": "successful tasks",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
                 }
               }
             ],
@@ -59,7 +80,7 @@
         "description": "",
         "id": 1,
         "links": [],
-        "title": "getBlock Requests/s (per node)",
+        "title": "Archive Tasks/s (fleet)",
         "vizConfig": {
           "group": "timeseries",
           "kind": "VizConfig",
@@ -113,7 +134,7 @@
                     }
                   ]
                 },
-                "unit": "reqps"
+                "unit": "cps"
               },
               "overrides": []
             },
@@ -157,55 +178,13 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "sum (rate(blocknode_get_block_requests_success_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
-                      "legendFormat": "success",
+                      "expr": "sum (rate(blocknode_cloud_storage_archive_stored_bytes_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
+                      "legendFormat": "bytes/s",
                       "range": true
                     },
                     "version": "v0"
                   },
                   "refId": "A"
-                }
-              },
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "editorMode": "code",
-                      "expr": "sum (rate(blocknode_get_block_requests_not_available_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
-                      "legendFormat": "not available",
-                      "range": true
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "B"
-                }
-              },
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "editorMode": "code",
-                      "expr": "sum (rate(blocknode_get_block_requests_not_found_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
-                      "legendFormat": "not found",
-                      "range": true
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "C"
                 }
               }
             ],
@@ -216,7 +195,7 @@
         "description": "",
         "id": 2,
         "links": [],
-        "title": "Outcomes/s (fleet)",
+        "title": "Bytes Archived/s (fleet)",
         "vizConfig": {
           "group": "timeseries",
           "kind": "VizConfig",
@@ -270,7 +249,7 @@
                     }
                   ]
                 },
-                "unit": "reqps"
+                "unit": "Bps"
               },
               "overrides": []
             },
@@ -314,13 +293,34 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "100 * sum by (instance) (increase(blocknode_get_block_requests_success_total{environment=~\"$environment\", instance=~\"$instance\"}[$__range])) / clamp_min(sum by (instance) (increase(blocknode_get_block_requests_total{environment=~\"$environment\", instance=~\"$instance\"}[$__range])), 1)",
-                      "legendFormat": "{{instance}}",
+                      "expr": "sum (rate(blocknode_cloud_storage_archive_failed_tasks_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
+                      "legendFormat": "failed tasks",
                       "range": true
                     },
                     "version": "v0"
                   },
                   "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "sum (rate(blocknode_cloud_storage_archive_duplicate_blocks_discarded_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
+                      "legendFormat": "duplicates discarded",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
                 }
               }
             ],
@@ -331,7 +331,7 @@
         "description": "",
         "id": 3,
         "links": [],
-        "title": "Success Rate % (per node, range)",
+        "title": "Failures & Duplicates/s (fleet)",
         "vizConfig": {
           "group": "timeseries",
           "kind": "VizConfig",
@@ -376,21 +376,20 @@
                   }
                 },
                 "min": 0,
-                "decimals": 1,
                 "thresholds": {
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "green",
                       "value": 0
                     },
                     {
-                      "color": "green",
-                      "value": 99
+                      "color": "red",
+                      "value": 0.001
                     }
                   ]
                 },
-                "unit": "percent"
+                "unit": "cps"
               },
               "overrides": []
             },
@@ -457,7 +456,7 @@
                 ]
               }
             },
-            "title": "Requests"
+            "title": "Archive Throughput"
           }
         },
         {
@@ -484,7 +483,7 @@
                 ]
               }
             },
-            "title": "Success Rate"
+            "title": "Issues"
           }
         }
       ]
@@ -516,7 +515,7 @@
     "timezone": "browser",
     "to": "now"
   },
-  "title": "Block-Node: Block Access Service",
+  "title": "Block-Node: Cloud Storage Archive",
   "variables": [
     {
       "kind": "DatasourceVariable",

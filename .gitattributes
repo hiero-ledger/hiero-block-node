@@ -1,0 +1,19 @@
+# Generated Grafana dashboards.
+#
+# These are rendered from tools-and-tests/dashboards/src by
+# `node tools-and-tests/dashboards/render.js` and are committed so the Helm chart and the
+# docker-compose metrics stack stay self-contained (both read the files directly, with no
+# render step at deploy time). CI enforces freshness via `render.js --check`.
+#
+# Marking them generated collapses them in GitHub diffs and excludes them from language
+# stats, so a dashboard change reviews as the one source edit rather than three copies.
+block-node/app/docker/metrics/dashboards/**/*.json   linguist-generated=true
+charts/block-node-server/dashboards/**/*.json        linguist-generated=true
+tools-and-tests/dashboards/fleet/dist/**/*.json      linguist-generated=true
+
+# Hand-maintained extras that live in the same directories but are NOT rendered from src/.
+# Listed after the rules above so these win: edits to them are real review material.
+block-node/app/docker/metrics/dashboards/block-node-server-logs.json   linguist-generated=false
+block-node/app/docker/metrics/dashboards/cAdvisor.json                 linguist-generated=false
+charts/block-node-server/dashboards/kubernetes-views-pods.json         linguist-generated=false
+charts/block-node-server/dashboards/node-exporter-full.json            linguist-generated=false
