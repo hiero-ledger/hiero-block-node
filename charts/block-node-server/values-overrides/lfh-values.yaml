@@ -16,52 +16,52 @@ blockNode:
         # "https://<previewnet|testnet|mainnet>.mirrornode.hedera.com"
         ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL: "https://mainnet.mirrornode.hedera.com"
         SERVER_PORT: "40840"
-        logs:
-            level: "INFO"
-            loggingProperties:
-                org.hiero.block.level: "INFO"
-                java.util.logging.ConsoleHandler.level: "FINEST"
-                java.util.logging.FileHandler.level: "FINEST"
-        initContainers:
-            - name: init-storage-dirs
-              image: docker.io/library/busybox:latest
-              command:
-                  - sh
-                  - -c
-                  - |
-                      chown 2000:2000 /application-state-pvc && \
-                      chmod 700 /application-state-pvc \
-                      chown 2000:2000 /archive-pvc && \
-                      chmod 700 /archive-pvc && \
-                      chown 2000:2000 /live-pvc && \
-                      chmod 700 /live-pvc && \
-                      chown 2000:2000 /logging-pvc && \
-                      chmod 700 /logging-pvc
-              volumeMounts:
-                  - name: application-state-storage
-                    mountPath: /application-state-pvc
-                  - name: archive-storage
-                    mountPath: /archive-pvc
-                  - name: live-storage
-                    mountPath: /live-pvc
-                  - name: logging-storage
-                    mountPath: /logging-pvc
-        persistence:
-            live:
-                create: false
-                existingClaim: live-storage-pvc
-                subPath: ""
-            archive:
-                create: false
-                existingClaim: archive-storage-pvc
-                subPath: ""
-            logging:
-                create: false
-                existingClaim: logging-storage-pvc
-                subPath: ""
-            applicationState:
-                create: false
-                existingClaim: application-state-storage-pvc
+    logs:
+        level: "INFO"
+        loggingProperties:
+            org.hiero.block.level: "INFO"
+            java.util.logging.ConsoleHandler.level: "FINEST"
+            java.util.logging.FileHandler.level: "FINEST"
+    initContainers:
+        - name: init-storage-dirs
+          image: docker.io/library/busybox:latest
+          command:
+              - sh
+              - -c
+              - |
+                  chown 2000:2000 /application-state-pvc && \
+                  chmod 700 /application-state-pvc \
+                  chown 2000:2000 /archive-pvc && \
+                  chmod 700 /archive-pvc && \
+                  chown 2000:2000 /live-pvc && \
+                  chmod 700 /live-pvc && \
+                  chown 2000:2000 /logging-pvc && \
+                  chmod 700 /logging-pvc
+          volumeMounts:
+              - name: application-state-storage
+                mountPath: /application-state-pvc
+              - name: archive-storage
+                mountPath: /archive-pvc
+              - name: live-storage
+                mountPath: /live-pvc
+              - name: logging-storage
+                mountPath: /logging-pvc
+    persistence:
+        live:
+            create: false
+            existingClaim: live-storage-pvc
+            subPath: ""
+        archive:
+            create: false
+            existingClaim: archive-storage-pvc
+            subPath: ""
+        logging:
+            create: false
+            existingClaim: logging-storage-pvc
+            subPath: ""
+        applicationState:
+            create: false
+            existingClaim: application-state-storage-pvc
     ports:
         publisher: 40984    # PRODUCER_PORT    — gRPC, block producers
         subscriber: 40980   # SUBSCRIBER_PORT  — gRPC, block subscribers
