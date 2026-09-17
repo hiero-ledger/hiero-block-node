@@ -465,7 +465,7 @@ blockNode:
     # Poll the Mirror Node frequently so the roster loads ASAP after the MN is up — this
     # narrows the startup window in which the genesis block (0) can arrive before the roster
     # and be dropped. See wrb-startup-block-gap-issue: the real fix is no-gap-from-genesis on the BN.
-    ROSTER_BOOTSTRAP_RSA_INITIAL_QUERY_INTERVAL_MILLIS: "3000"
+    ROSTER_BOOTSTRAP_RSA_MN_INITIAL_QUERY_INTERVAL_MILLIS: "3000"
 EOF
   log_line "  Generated BN WRB overlay (roster URL: %s)" "${mn_base_url}"
 }
