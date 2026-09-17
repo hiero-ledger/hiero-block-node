@@ -59,7 +59,7 @@ function kctl {
     kubectl --context "${CONTEXT}" "$@"
 }
 
-POD_RECOVERY_TIMEOUT_SECONDS=300
+readonly POD_RECOVERY_TIMEOUT_SECONDS=300
 
 function wait_for_pods_ready {
     local selector="${1}"
