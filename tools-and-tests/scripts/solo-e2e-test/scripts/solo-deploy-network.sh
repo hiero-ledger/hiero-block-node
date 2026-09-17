@@ -67,6 +67,31 @@ function end_task {
   printf "%s\n" "${1:-DONE}"
 }
 
+readonly POD_RECOVERY_TIMEOUT_SECONDS=300
+
+function wait_for_pods_ready {
+  local selector="${1}"
+  local what="${2}"
+  local wait_out
+
+  if [[ -z "$(kubectl get pod -n "${NAMESPACE}" -l "${selector}" -o name 2>/dev/null)" ]]; then
+    log_line "  No pod matches '%s', so %s cannot recover." "${selector}" "${what}"
+    return 1
+  fi
+
+  log_line "  Waiting up to %ss for %s to become ready." "${POD_RECOVERY_TIMEOUT_SECONDS}" "${what}"
+  if wait_out=$(kubectl wait --for=condition=ready pod \
+    -n "${NAMESPACE}" \
+    -l "${selector}" \
+    --timeout="${POD_RECOVERY_TIMEOUT_SECONDS}s" 2>&1); then
+    log_line "  %s became ready." "${what}"
+    return 0
+  fi
+
+  log_line "  %s did not become ready: %s" "${what}" "${wait_out}"
+  return 1
+}
+
 function show_help {
   cat << EOF
 Usage: $(basename "$0") [options]
@@ -791,10 +816,21 @@ function deploy_consensus_nodes {
   end_task
 
   start_task "Starting consensus nodes"
+  local start_status=0
   solo consensus node start \
     --deployment "${DEPLOYMENT}" \
-    --node-aliases "${NODE_ALIASES}" || fail "ERROR: Failed to start consensus nodes" 1
-  end_task
+    --node-aliases "${NODE_ALIASES}" || start_status=$?
+  if [[ "${start_status}" -ne 0 ]]; then
+    end_task "FAILED (checking pods)"
+    log_line "  WARNING: 'solo consensus node start' failed; checking whether the pods recovered."
+    wait_for_pods_ready "solo.hedera.com/type=haproxy" "Consensus Node proxies" \
+      || fail "ERROR: Failed to start consensus nodes" 1
+    wait_for_pods_ready "solo.hedera.com/type=network-node" "Consensus Nodes" \
+      || fail "ERROR: Failed to start consensus nodes" 1
+    log_line "  WARNING: continuing; Solo did not finish verifying the nodes are ACTIVE."
+  else
+    end_task
+  fi
 }
 
 # Apply generated CN block-nodes.json files to CN pods when the topology sets
@@ -896,7 +932,7 @@ function deploy_mirror_node {
     fi
 
     start_task "Deploying Mirror Node ${i}"
-    local add_log="${OVERLAY_DIR}/mirror-node-${i}-add.log"
+    local add_status=0
     # shellcheck disable=SC2086
     solo mirror node add \
       --deployment "${DEPLOYMENT}" \
@@ -904,22 +940,16 @@ function deploy_mirror_node {
       --cluster-ref "${CLUSTER_REF}" \
       --enable-ingress \
       ${mn_args} \
-      ${overlay_arg} 2>&1 | tee "${add_log}"
-    local add_status="${PIPESTATUS[0]}"
+      ${overlay_arg} || add_status=$?
     if [[ "${add_status}" -ne 0 ]]; then
-      if grep -qE "Pod readiness check failed.*component=pinger" "${add_log}"; then
-        end_task "PINGER NOT READY (continuing)"
-        log_line "  WARNING: Mirror Node ${i} deployed, but Solo gave up waiting for the pinger pod."
-        log_line "  Waiting up to 300s for the pinger to recover (non-fatal)."
-        local wait_out
-        wait_out=$(kubectl wait --for=condition=ready pod \
-          -n "${NAMESPACE}" \
-          -l "app.kubernetes.io/instance=mirror-${i},app.kubernetes.io/component=pinger" \
-          --timeout=300s 2>&1) \
-          || log_line "  WARNING: continuing without the pinger: %s" "${wait_out}"
-      else
-        fail "ERROR: Failed to deploy Mirror Node ${i}" 1
-      fi
+      end_task "FAILED (checking pods)"
+      log_line "  WARNING: 'solo mirror node add' failed for Mirror Node ${i}; checking whether the pods recovered."
+      wait_for_pods_ready "app.kubernetes.io/instance=mirror-${i},app.kubernetes.io/component!=pinger" \
+        "Mirror Node ${i} without its pinger" \
+        || fail "ERROR: Failed to deploy Mirror Node ${i}" 1
+      wait_for_pods_ready "app.kubernetes.io/instance=mirror-${i},app.kubernetes.io/component=pinger" \
+        "Mirror Node ${i} pinger" \
+        || log_line "  WARNING: continuing without the Mirror Node ${i} pinger; it only generates load."
     else
       end_task
     fi
