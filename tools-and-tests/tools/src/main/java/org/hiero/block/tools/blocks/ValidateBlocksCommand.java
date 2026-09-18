@@ -55,10 +55,12 @@ import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
 import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
 import org.hiero.block.tools.blocks.validation.StreamingMerkleTreeValidation;
+import org.hiero.block.tools.blocks.validation.TssEnablementValidation;
 import org.hiero.block.tools.blocks.wrapped.BalanceCheckpointValidator;
 import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.days.model.NodeStakeRegistry;
+import org.hiero.block.tools.days.model.TssEnablementRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
@@ -448,6 +450,16 @@ public class ValidateBlocksCommand implements Runnable {
         }
         // Node stake update comes after address book so stake weights are current for signature validation
         sequentialValidations.add(new NodeStakeUpdateValidation(nodeStakeRegistry));
+        // TSS enablement detection: writes tss-enablement.bin + tss-bootstrap-roster.json into the
+        // first input directory as soon as a LedgerIdPublication transaction is found, so a node
+        // operator can stage tss-bootstrap-roster.json onto a Tier-0 Block Node (see the Block
+        // Node's APP_STATE_TSS_BOOTSTRAP_FILE_PATH). Same derivation as statsOutputDir below.
+        final Path tssOutputDir = Arrays.stream(files)
+                .filter(Files::isDirectory)
+                .findFirst()
+                .orElseGet(() -> files[0].getParent() != null ? files[0].getParent() : Path.of("."));
+        sequentialValidations.add(
+                new TssEnablementValidation(new TssEnablementRegistry(), tssOutputDir.resolve("tss-enablement.bin")));
         sequentialValidations.add(chainValidation);
         sequentialValidations.add(treeValidation);
         if (supplyValidation != null) {

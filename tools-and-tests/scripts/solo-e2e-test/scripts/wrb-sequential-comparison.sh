@@ -296,10 +296,15 @@ function download_record_files_from_minio {
 
     log "Found MinIO pod: ${minio_pod} in namespace: ${minio_namespace}"
 
-    # Wait for CN to upload files to MinIO (uploader sidecar may need time)
-    # Other tests wait 120s for record files to be produced and uploaded
-    log "Waiting 120s for CN to produce and upload record files to MinIO..."
-    sleep 120
+    # Wait for CN to upload files to MinIO (uploader sidecar may need time).
+    # Callers that retry (e.g. detect-tss-enablement.sh) set MINIO_SKIP_INITIAL_WAIT=true
+    # after the first invocation so subsequent calls don't re-sleep.
+    if [[ "${MINIO_SKIP_INITIAL_WAIT:-false}" != "true" ]]; then
+        log "Waiting 120s for CN to produce and upload record files to MinIO..."
+        sleep 120
+    else
+        log "Skipping initial MinIO wait (retry mode)..."
+    fi
 
     # Access MinIO via S3 API using mc client (like wrb-cli-wrap-and-compare.sh)
     log "Accessing MinIO bucket via S3 API..."
@@ -327,11 +332,22 @@ function download_record_files_from_minio {
     # List files in bucket via S3 API
     log "Listing files in solo-streams/recordstreams bucket..."
     kubectl --context "${CONTEXT}" --namespace "${minio_namespace}" exec "${minio_pod}" -c minio -- \
-        mc ls --recursive local/solo-streams/recordstreams/ > /tmp/minio-listing.txt 2>&1 || {
+        mc ls --recursive local/solo-streams/recordstreams/ > /tmp/minio-listing-raw.txt 2>&1 || {
         log "WARNING: mc ls failed, trying CN pod..."
         download_record_files_from_cn "${output_dir}" "${max_files}"
         return $?
     }
+
+    # `mc ls --recursive` lists lexicographically, which groups every entry under
+    # each per-node prefix (record0.0.3/, record0.0.4/, record0.0.5/) together before
+    # moving to the next -- chronological within a single node's own subtree, but NOT
+    # chronological across the bucket as a whole. Left unsorted, the download loop
+    # below (which stops once it hits max_files) can exhaust its whole budget inside
+    # one node's early history and never reach recent activity from the other two,
+    # no matter how large max_files is set. Sorting on the listing's own leading
+    # "[YYYY-MM-DD HH:MM:SS" timestamp column merges all three prefixes into true
+    # chronological order first.
+    sort -k1,2 /tmp/minio-listing-raw.txt > /tmp/minio-listing.txt
 
     # No `|| echo 0`: grep -c prints 0 and exits 1 on no-match, so the fallback would
     # append a second line and break the arithmetic below. :-0 covers a missing file.
@@ -346,24 +362,169 @@ function download_record_files_from_minio {
 
     log "Found ${file_count} record files in MinIO bucket"
 
-    # Download files using mc cat
-    local downloaded=0
+    # Build the list of objects we actually still need (respecting max_files and
+    # skipping anything a previous poll already downloaded).
+    local skipped=0
+    local wanted_paths=()
     while IFS= read -r line; do
         if [[ "$line" =~ \.rcd ]]; then
             local file_path=$(echo "$line" | awk '{print $NF}')
             local filename=$(basename "${file_path}")
 
-            kubectl --context "${CONTEXT}" --namespace "${minio_namespace}" exec "${minio_pod}" -c minio -- \
-                mc cat "local/solo-streams/recordstreams/${file_path}" > "${output_dir}/${filename}" 2>/dev/null && \
-                ((downloaded++)) || true
+            # Skip files already downloaded by a previous poll. Check both the
+            # compressed (.rcd.gz) and decompressed (.rcd) form: the download
+            # saves .rcd.gz, but install-and-run-wrb-cli.sh and the live-wrap
+            # worker both gunzip the files immediately after download (removing
+            # the .gz), so on the next poll only the .rcd remains. Without the
+            # decompressed-form check, every file appears un-downloaded on
+            # every poll (the .gz is gone), the 200-entry budget gets consumed
+            # entirely by 3-copies-per-round re-downloads of already-known
+            # rounds, and no genuinely new records are ever added.
+            if [[ -s "${output_dir}/${filename}" || -s "${output_dir}/${filename%.gz}" ]]; then
+                ((skipped++))
+                continue
+            fi
 
-            if [ ${downloaded} -ge ${max_files} ]; then
+            # For Solo-format sig files, every node directory (record0.0.3/,
+            # record0.0.4/, record0.0.5/) produces an identically-named
+            # timestamp-only .rcd_sig.  If we include all three they collapse
+            # to a single file in the flat output dir (last-node-wins, which is
+            # alphabetically record0.0.5/).  extractNodeAccountNumFromSignaturePath
+            # then hardcodes account-num 3 for timestamp-only names, so the wrap
+            # tool looks up node 0.0.3's key — but the bytes are from node 0.0.5
+            # → verification fails for every block.  Fix: include sig files only
+            # from record0.0.3/ so the surviving copy always belongs to node 3.
+            if [[ "${file_path}" == *.rcd_sig ]] && \
+               [[ "${file_path}" == record0.0.* ]] && \
+               [[ "${file_path}" != record0.0.3/* ]]; then
+                continue
+            fi
+
+            wanted_paths+=("${file_path}")
+            if [ ${#wanted_paths[@]} -ge ${max_files} ]; then
                 break
             fi
         fi
     done < /tmp/minio-listing.txt
 
-    if [ ${downloaded} -lt 2 ]; then
+    local downloaded=0
+
+    # If MinIO has files but ALL are already downloaded (common once the CN's
+    # MinIO uploader stalls or is behind), fall back to the CN pod which always
+    # has the authoritative on-disk record stream. The skip check inside
+    # download_record_files_from_cn avoids re-copying files already in
+    # output_dir, so only genuinely new rounds are transferred.
+    if [ ${#wanted_paths[@]} -eq 0 ] && [ "${skipped}" -gt 0 ]; then
+        log "MinIO has no new record files (all ${skipped} already downloaded). Trying CN pod for newer records..."
+        download_record_files_from_cn "${output_dir}" "${max_files}"
+        return $?
+    fi
+
+    if [ ${#wanted_paths[@]} -gt 0 ]; then
+        # Fetch everything in ONE kubectl exec session instead of one exec call per
+        # file. A separate `kubectl exec ... mc cat` per object (the previous
+        # approach) meant thousands of individual API round-trips for a large
+        # backlog -- slow, and prone to silently losing a large fraction of them to
+        # transient exec-session contention/throttling (confirmed live: files that
+        # failed to download this way were still perfectly retrievable via a single
+        # manual `mc cat` moments later), especially with the live-wrap background
+        # loop polling this same MinIO pod concurrently. Instead, run the whole
+        # batch of `mc cp` calls inside the pod in one exec, then have that same
+        # exec print each resulting file back out base64-framed over its stdout.
+        #
+        # NOTE: this deliberately does NOT use `tar` to bundle the results -- the
+        # official MinIO container image has no shell utilities beyond a handful
+        # (confirmed live: no tar, gzip, zip, or find; `mc`, `bash`, `cat`, and
+        # `base64` are the only relevant ones present), so tarring inside the pod
+        # or a `kubectl cp` (which itself shells out to a remote `tar`) both fail
+        # silently. base64-with-text-markers only needs `cat`/`base64`, both present.
+        local staging_dir="/tmp/wrb-batch-$$"
+        local start_marker="===WRB-FILE-START==="
+        local end_marker="===WRB-FILE-END==="
+        local batch_script
+        batch_script=$(mktemp)
+        {
+            echo "set -u"
+            echo "mkdir -p '${staging_dir}'"
+            local path filename
+            for path in "${wanted_paths[@]}"; do
+                printf 'mc cp "local/solo-streams/recordstreams/%s" "%s/" >>"%s.log" 2>&1\n' \
+                    "${path}" "${staging_dir}" "${staging_dir}"
+            done
+            echo "cat '${staging_dir}.log' >&2 2>/dev/null || true"
+            # Different nodes' record0.0.3/0.0.4/0.0.5 copies of the same consensus
+            # round share an identical basename, so `mc cp` above already collapsed
+            # them to a single file per basename in staging_dir (last-node-wins,
+            # matching this script's existing flatten-by-basename convention
+            # elsewhere). Emit each distinct basename exactly once here -- otherwise
+            # every node-duplicate in wanted_paths re-emits the SAME already-merged
+            # file again, inflating the downloaded count without adding any actual
+            # new file.
+            local emitted_tmp
+            emitted_tmp=$(mktemp)
+            for path in "${wanted_paths[@]}"; do
+                filename=$(basename "${path}")
+                if grep -qxF "${filename}" "${emitted_tmp}" 2>/dev/null; then
+                    continue
+                fi
+                echo "${filename}" >> "${emitted_tmp}"
+                printf 'if [ -f "%s/%s" ]; then echo "%s%s"; base64 "%s/%s"; echo "%s"; fi\n' \
+                    "${staging_dir}" "${filename}" "${start_marker}" "${filename}" \
+                    "${staging_dir}" "${filename}" "${end_marker}"
+            done
+            rm -f "${emitted_tmp}"
+            echo "rm -rf '${staging_dir}' '${staging_dir}.log'"
+        } > "${batch_script}"
+
+        log "Batch-copying ${#wanted_paths[@]} object(s) inside the MinIO pod..."
+        rm -f /tmp/wrb-minio-batch.out /tmp/wrb-minio-batch.err
+        kubectl --context "${CONTEXT}" --namespace "${minio_namespace}" exec -i "${minio_pod}" -c minio -- \
+            bash < "${batch_script}" > /tmp/wrb-minio-batch.out 2>/tmp/wrb-minio-batch.err
+        rm -f "${batch_script}"
+
+        # Surface whatever the pod-side `mc cp` calls logged (previously this was
+        # thrown away entirely with `2>/dev/null`), but capped so a mass failure
+        # doesn't flood the test log.
+        if [ -s /tmp/wrb-minio-batch.err ]; then
+            log "MinIO batch-copy stderr (first 20 lines):"
+            head -20 /tmp/wrb-minio-batch.err | while IFS= read -r errline; do
+                log "  ${errline}"
+            done
+        fi
+
+        if [ -s /tmp/wrb-minio-batch.out ]; then
+            local current_file="" b64_tmp=""
+            while IFS= read -r outline; do
+                case "${outline}" in
+                    "${start_marker}"*)
+                        current_file="${outline#"${start_marker}"}"
+                        b64_tmp=$(mktemp)
+                        ;;
+                    "${end_marker}"*)
+                        if [[ -n "${current_file}" && -n "${b64_tmp}" ]]; then
+                            if base64 -d < "${b64_tmp}" > "${output_dir}/${current_file}" 2>/dev/null \
+                                && [[ -s "${output_dir}/${current_file}" ]]; then
+                                downloaded=$((downloaded + 1))
+                            fi
+                        fi
+                        rm -f "${b64_tmp}"
+                        current_file=""
+                        b64_tmp=""
+                        ;;
+                    *)
+                        [[ -n "${b64_tmp}" ]] && echo "${outline}" >> "${b64_tmp}"
+                        ;;
+                esac
+            done < /tmp/wrb-minio-batch.out
+        fi
+    fi
+
+    # Only treat this as "MinIO gave us nothing usable" if we made no
+    # progress at all, including recognizing files already downloaded by an
+    # earlier poll -- once caught up, a poll with nothing new yet legitimately
+    # downloads 0 new files while skipping everything already present, which
+    # is not a failure and must not trigger the CN-pod fallback.
+    if [ $((downloaded + skipped)) -lt 2 ]; then
         log "WARNING: Only downloaded ${downloaded} files from MinIO, trying CN pod..."
         download_record_files_from_cn "${output_dir}" "${max_files}"
         return $?
@@ -406,20 +567,25 @@ function download_record_files_from_cn {
     kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" exec "${cn_pod}" -- \
         sh -c "ls -la /opt/hiero/services-hedera/HapiApp2.0/data/recordStreams/ 2>/dev/null" || true
 
-    # Record files path in CN
+    # Get ALL record files from CN sorted chronologically into a local temp file.
+    # We intentionally do NOT use 'tail -N' here: if the CN has records 0-500 and
+    # output_dir already has 0-82 (from MinIO), tail-200 would give records 300-499,
+    # leaving an unbridgeable gap at 83-299 that the wrap command cannot cross. By
+    # listing everything and then pre-filtering locally (below) we always fill the
+    # gap starting from the first missing record.
     kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" exec "${cn_pod}" -- \
-        sh -c "find /opt/hiero/services-hedera/HapiApp2.0/data/recordStreams/ -name '*.rcd' 2>/dev/null | head -${max_files}" > /tmp/cn-files.txt 2>/dev/null || {
+        sh -c "find /opt/hiero/services-hedera/HapiApp2.0/data/recordStreams/ -name '*.rcd' 2>/dev/null | sort" > /tmp/cn-all-files.txt 2>/dev/null || {
         log "WARNING: Could not list record files in standard path"
     }
 
-    local file_list=$(cat /tmp/cn-files.txt)
+    local file_list=$(cat /tmp/cn-all-files.txt)
     if [ -z "${file_list}" ]; then
         log "No .rcd files in standard path, trying record-stream-uploader container..."
         # Try record-stream-uploader sidecar container
         kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" exec "${cn_pod}" -c record-stream-uploader -- \
-            sh -c "find / -name '*.rcd' 2>/dev/null | grep -v '/proc/' | head -${max_files}" > /tmp/cn-files.txt 2>/dev/null || true
+            sh -c "find / -name '*.rcd' 2>/dev/null | grep -v '/proc/' | sort" > /tmp/cn-all-files.txt 2>/dev/null || true
 
-        file_list=$(cat /tmp/cn-files.txt)
+        file_list=$(cat /tmp/cn-all-files.txt)
         if [ -n "${file_list}" ]; then
             log "Found files in record-stream-uploader container"
         fi
@@ -430,8 +596,8 @@ function download_record_files_from_cn {
         # Try common shared volume paths
         for path in "/opt/hiero/streamData" "/data" "/streams"; do
             kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" exec "${cn_pod}" -c root-container -- \
-                sh -c "find ${path} -name '*.rcd' 2>/dev/null | head -${max_files}" > /tmp/cn-files.txt 2>/dev/null || true
-            file_list=$(cat /tmp/cn-files.txt)
+                sh -c "find ${path} -name '*.rcd' 2>/dev/null | sort" > /tmp/cn-all-files.txt 2>/dev/null || true
+            file_list=$(cat /tmp/cn-all-files.txt)
             if [ -n "${file_list}" ]; then
                 log "Found files in ${path}"
                 break
@@ -449,11 +615,27 @@ function download_record_files_from_cn {
 
     log "Found $(echo "$file_list" | wc -l) record files in CN"
 
-    # Copy each file
+    # Pre-filter: select the first max_files records from the sorted CN list that
+    # are not yet in output_dir. This always starts from the first chronological
+    # gap (e.g. record 83 if output_dir has 0-82) rather than the tail.
+    : > /tmp/cn-files.txt
+    local _cn_count=0
+    local _cn_path _cn_name
+    while IFS= read -r _cn_path && (( _cn_count < max_files )); do
+        [[ -z "${_cn_path}" ]] && continue
+        _cn_name=$(basename "${_cn_path}")
+        if [[ ! -s "${output_dir}/${_cn_name}" && ! -s "${output_dir}/${_cn_name%.gz}" ]]; then
+            echo "${_cn_path}" >> /tmp/cn-files.txt
+            (( _cn_count++ ))
+        fi
+    done < /tmp/cn-all-files.txt
+    log "Pre-filtered to ${_cn_count} new record file(s) to download from CN"
+
     local copied=0
     while IFS= read -r file_path; do
         if [ -n "${file_path}" ]; then
-            local filename=$(basename "${file_path}")
+            local filename
+            filename=$(basename "${file_path}")
             kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" cp \
                 "${cn_pod}:${file_path}" "${output_dir}/${filename}" 2>/dev/null && \
                 ((copied++)) || true
@@ -462,8 +644,8 @@ function download_record_files_from_cn {
 
     log "Downloaded ${copied} record files from CN"
 
-    if [ ${copied} -lt 2 ]; then
-        log "ERROR: Not enough record files downloaded"
+    if [ ${copied} -lt 1 ]; then
+        log "ERROR: No new record files downloaded from CN"
         return 1
     fi
 

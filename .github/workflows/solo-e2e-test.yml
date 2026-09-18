@@ -82,7 +82,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
         type: string
         default: "none"
     outputs:
@@ -113,11 +113,7 @@ on:
           - 3cn-2bn-wrb-rsa # 3 CN, 2 BN, 1 MN; WRB verified via RSA roster
           - wrb-differential-test # 1 CN, 2 BNs (live + historic), 2 MNs
           - wrb-differential-test-minimal # 1 CN, 2 BNs (live + historic), no MN
-          - wrb-distribution-step12 # WRB Distribution E2E (#3125) — slice 1: 3 CN v0.75 + MN1 v0.157.1, no BN
-          - wrb-distribution-step345 # WRB Distribution E2E (#3125) — slice 3: adds BN1/BN2/BN3 with EMB
-          - wrb-distribution-step67 # WRB Distribution E2E (#3125) — slice 4: MN1 → BN2/BN3 + MN2 from genesis
-          - wrb-distribution-step89 # WRB Distribution E2E (#3125) — slice 5: CN → BN3 + wrb-cli push to BN1
-          - wrb-distribution-step10 # WRB Distribution E2E (#3125) — slice 5: BN2/BN3 reconfigured to backfill from BN1
+          - wrb-distribution-steps1-12 # WRB Distribution E2E (#3125): full steps 1-12
       block-node-version:
         description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.29.0')"
         required: false
@@ -204,7 +200,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-step12, wrb-distribution-step345, wrb-distribution-step67, wrb-distribution-step89, wrb-distribution-step10, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
         required: false
         default: "none"
 
@@ -317,11 +313,21 @@ jobs:
           # the resolved mn_version below.
           MN_RESOLVED=$(echo "$OUTPUT" | grep "^mn_version=" | cut -d= -f2)
           echo "MN_VERSION=${MN_RESOLVED}" >> "${GITHUB_ENV}"
+          # Export BN_VERSION too: the later "Run Test Definitions" step invokes
+          # solo-test-runner.sh directly, which (for wrb-distribution tests) calls add-bn.sh to
+          # add BN2/BN3 post-genesis. Without these in the environment, add-bn.sh's BN_VERSION
+          # check is never true, so BN2/BN3 get deployed with no --chart-version at all —
+          # silently falling back to Solo's own hardcoded chart default instead of the version
+          # this workflow actually resolved and used for BN1 at genesis.
+          BN_RESOLVED=$(echo "$OUTPUT" | grep "^bn_version=" | cut -d= -f2)
+          echo "BN_VERSION=${BN_RESOLVED}" >> "${GITHUB_ENV}"
+
           # Solo installs the Consensus Node from a build zip on builds.hedera.com and only
           # tagged releases are published there. A -SNAPSHOT (what 'main' resolves to, from
           # version.txt on the CN branch) has no artifact, so it must be built from source and
           # handed to Solo via --local-build-path. Flag that for the steps below.
           CN_RESOLVED=$(echo "$OUTPUT" | grep "^cn_version=" | cut -d= -f2)
+          echo "CN_VERSION=${CN_RESOLVED}" >> "${GITHUB_ENV}"
           if [[ "${CN_RESOLVED}" == *-SNAPSHOT ]]; then
             echo "cn_needs_local_build=true" >> "${GITHUB_OUTPUT}"
           else
