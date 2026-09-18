@@ -13,7 +13,7 @@
 # Usage: ./wait-for-bn-artifacts.sh <bn_version>     (e.g. v0.41.0-rc1 or 0.41.0-rc1)
 # SNAPSHOT versions are skipped: they are republished on every main push.
 
-set -o pipefail
+set -u -o pipefail
 
 readonly CHART_REF="oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server"
 readonly MAVEN_BASE="https://repo1.maven.org/maven2/org/hiero/block-node"
