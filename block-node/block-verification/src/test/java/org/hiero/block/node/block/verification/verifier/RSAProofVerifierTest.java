@@ -483,7 +483,7 @@ class RSAProofVerifierTest {
     }
 
     /// This test aims to assert that a `SignedRecordFileProof` declaring a record file format
-    /// version that never existed (anything outside 2, 5 and 6) is rejected with
+    /// version never used by a production network (anything outside 2, 5 and 6) is rejected with
     /// `MISSING_MANDATORY_FIELD` by the verifier's version gate, before any payload
     /// computation is attempted.
     @ParameterizedTest(name = "version={0}")
