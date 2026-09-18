@@ -67,7 +67,8 @@ public class MirrorNodeUtils {
                 }
             } catch (IOException e) {
                 lastException = e;
-                if (attempt < MAX_RETRIES && isRetryableException(responseCode, e)) {
+                boolean retryable = isRetryableException(responseCode, e);
+                if (attempt < MAX_RETRIES && retryable) {
                     long delay = INITIAL_RETRY_DELAY_MS * (1L << (attempt - 1));
                     System.err.println("[MirrorNode] " + e.getMessage() + ", retrying in " + (delay / 1000)
                             + "s (attempt " + attempt + "/" + MAX_RETRIES + ")...");
@@ -77,7 +78,7 @@ public class MirrorNodeUtils {
                         Thread.currentThread().interrupt();
                         throw new IllegalStateException("Interrupted while waiting to retry", ie);
                     }
-                } else if (!isRetryableException(responseCode, e)) {
+                } else if (!retryable) {
                     throw new UncheckedIOException(e);
                 }
             }
