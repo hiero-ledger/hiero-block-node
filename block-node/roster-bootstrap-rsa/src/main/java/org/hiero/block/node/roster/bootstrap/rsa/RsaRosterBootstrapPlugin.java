@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.roster.bootstrap.rsa;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
@@ -21,9 +22,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -320,7 +323,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                         .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
                         .build()) {
 
-            final Map<String, Era> eras = collectEras(nodesClient, blocksClient, currentLastStartBlock);
+            final Map<String, Era> eras = collectEras(nodesClient, blocksClient, currentLastStartBlock, !hasHistory);
             if (eras == null) return; // Mirror Node unavailable — already logged by fetchAndParse
             if (eras.isEmpty()) {
                 if (currentHistory == null) {
@@ -371,19 +374,26 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         }
     }
 
-    /// A single address-book era collected from the Mirror Node: its resolved {@code [startBlock,
-    /// endBlock]} range and the node entries that belong to it.
-    private record Era(long[] blockRange, List<NodeEntry> entries) {}
+    /// A single address-book era collected from the Mirror Node: the era's {@code from} timestamp as
+    /// the Mirror Node reported it, its resolved {@code [startBlock, endBlock]} range ({@code null}
+    /// while unresolved) and the node entries that belong to it.
+    private record Era(String from, long[] blockRange, List<NodeEntry> entries) {}
 
     /// Paginates the Mirror Node nodes API (newest-first) and groups entries by their {@code
     /// (from|to)} era key, preserving insertion order. The block range for an era is resolved the
     /// first time the era is seen; pagination stops early once an era already present in the current
     /// history is reached (its start block is {@code <= currentLastStartBlock}).
     ///
+    /// An era whose range cannot be resolved is handed to [#rescueGenesisEra] on the full-build path
+    /// ({@code fullBuild}), and dropped on the incremental path.
+    ///
     /// Returns {@code null} if the Mirror Node could not be reached (already logged), or a
     /// (possibly empty) map of era key to {@link Era} otherwise.
     private Map<String, Era> collectEras(
-            final HttpClient nodesClient, final HttpClient blocksClient, final long currentLastStartBlock) {
+            final HttpClient nodesClient,
+            final HttpClient blocksClient,
+            final long currentLastStartBlock,
+            final boolean fullBuild) {
         final Map<String, Era> eras = new LinkedHashMap<>();
         String nextUrl = config.mirrorNodeBaseUrl() + "/api/v1/network/nodes?limit=" + config.mirrorNodePageSize()
                 + "&order=desc";
@@ -405,9 +415,20 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 Era era = eras.get(eraKey);
                 if (era == null) {
                     final long[] blockRange = fetchBlockRange(blocksClient, from, to);
-                    if (blockRange == null) continue;
-                    if (blockRange[0] <= currentLastStartBlock) break pagination;
-                    era = new Era(blockRange, new ArrayList<>());
+                    if (blockRange == null) {
+                        if (!fullBuild) {
+                            // Incremental refresh: an era we cannot place is almost always one
+                            // already covered by the history, so this is routine, not a fault.
+                            LOGGER.log(DEBUG, "Mirror Node era [{0}] skipped: block range unresolved", eraKey);
+                            continue;
+                        }
+                        // Keep the era for the post-pagination rescue below: on the full-build path
+                        // one of these eras is the genesis address book and must not be lost.
+                        era = new Era(from, null, new ArrayList<>());
+                    } else {
+                        if (blockRange[0] <= currentLastStartBlock) break pagination;
+                        era = new Era(from, blockRange, new ArrayList<>());
+                    }
                     eras.put(eraKey, era);
                 }
                 era.entries().add(entry);
@@ -418,7 +439,58 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                     ? null
                     : rawNext.startsWith("http") ? rawNext : config.mirrorNodeBaseUrl() + rawNext;
         }
+        if (fullBuild) {
+            rescueGenesisEra(eras);
+        }
         return eras;
+    }
+
+    /// Maps the oldest era to {@code [0, -1]} when the blocks API could place no era at all, and drops
+    /// every era still without a range.
+    ///
+    /// Full-build path only. The rescue requires that *nothing* resolved: then the oldest era the
+    /// Mirror Node reports is the genesis book and covers block 0, and without this the roster never
+    /// loads when the blocks API is unreachable or still empty. If any era did resolve, an
+    /// unresolvable one is usually the newest instead — an open-ended era with no block produced
+    /// since its address-book update resolves to an empty list — and stamping block 0 on it would
+    /// verify every block from 0 against the wrong roster.
+    private static void rescueGenesisEra(final Map<String, Era> eras) {
+        String oldestKey = null;
+        double oldestFrom = Double.MAX_VALUE;
+        boolean anyResolved = false;
+        for (final Entry<String, Era> entry : eras.entrySet()) {
+            if (entry.getValue().blockRange() != null) {
+                anyResolved = true;
+            } else {
+                final double from = parseFromSeconds(entry.getValue().from());
+                // The null check is not redundant: an unparseable `from` also parses to MAX_VALUE,
+                // and such an era must still be rescued when it is the only candidate.
+                if (oldestKey == null || from < oldestFrom) {
+                    oldestFrom = from;
+                    oldestKey = entry.getKey();
+                }
+            }
+        }
+        if (!anyResolved && oldestKey != null) {
+            final Era oldest = eras.get(oldestKey);
+            eras.put(oldestKey, new Era(oldest.from(), new long[] {0L, -1L}, oldest.entries()));
+            LOGGER.log(
+                    INFO,
+                    "Mirror Node blocks API could not place any era; treating era [{0}] as the genesis"
+                            + " address book covering block 0 onwards",
+                    oldestKey);
+        }
+        final Iterator<Entry<String, Era>> iterator = eras.entrySet().iterator();
+        while (iterator.hasNext()) {
+            final Entry<String, Era> entry = iterator.next();
+            if (entry.getValue().blockRange() == null) {
+                LOGGER.log(
+                        WARNING,
+                        "Mirror Node era [{0}] dropped: its block range could not be resolved via" + " the blocks API",
+                        entry.getKey());
+                iterator.remove();
+            }
+        }
     }
 
     /// Merges newly discovered eras with the existing history: carries forward all prior eras
@@ -427,17 +499,28 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     private List<RangedNodeAddressBook> mergeWithExisting(
             final RangedAddressBookHistory currentHistory, final List<RangedNodeAddressBook> newBooks) {
         final List<RangedNodeAddressBook> allBooks = new ArrayList<>();
+        List<RangedNodeAddressBook> appended = newBooks;
         if (currentHistory != null && !currentHistory.addressBooks().isEmpty()) {
             final List<RangedNodeAddressBook> existing = currentHistory.addressBooks();
-            allBooks.addAll(existing.subList(0, existing.size() - 1));
             final RangedNodeAddressBook lastEra = existing.getLast();
+            if (lastEra.addressBook().equals(newBooks.getFirst().addressBook())) {
+                // Same address book as the open-ended last era: this is that era re-reported with a
+                // start block, not a new one. Happens after a rescued era ([0, -1]) finally resolves
+                // once the blocks API recovers. Keep the existing book instead of splitting it into
+                // two identical ones.
+                appended = newBooks.subList(1, newBooks.size());
+            }
+            allBooks.addAll(existing.subList(0, existing.size() - 1));
             allBooks.add(RangedNodeAddressBook.newBuilder()
                     .addressBook(lastEra.addressBook())
                     .startBlock(lastEra.startBlock())
-                    .endBlock(newBooks.getFirst().startBlock() - 1)
+                    .endBlock(
+                            appended.isEmpty()
+                                    ? lastEra.endBlock()
+                                    : appended.getFirst().startBlock() - 1)
                     .build());
         }
-        allBooks.addAll(newBooks);
+        allBooks.addAll(appended);
         return allBooks;
     }
 
@@ -477,13 +560,20 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// networks (e.g. solo) where the Mirror Node has no blocks until the Block Node — which needs
     /// this roster to verify them — starts storing them.
     private static boolean isGenesisFrom(final String from) {
+        return parseFromSeconds(from) < 1.0;
+    }
+
+    /// Parses a Mirror Node {@code from} timestamp to seconds: 0 when blank (genesis) and
+    /// {@link Double#MAX_VALUE} when unparseable, so it sorts after every real timestamp. Lossy on
+    /// the nanosecond part, which only has to separate address-book updates seconds apart.
+    private static double parseFromSeconds(final String from) {
         if (from == null || from.isBlank()) {
-            return true;
+            return 0.0;
         }
         try {
-            return Double.parseDouble(from) < 1.0;
+            return Double.parseDouble(from);
         } catch (final NumberFormatException e) {
-            return false;
+            return Double.MAX_VALUE;
         }
     }
 
