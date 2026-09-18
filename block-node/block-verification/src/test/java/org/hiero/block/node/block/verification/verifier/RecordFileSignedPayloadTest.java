@@ -430,9 +430,9 @@ class RecordFileSignedPayloadTest {
                     .isThrownBy(() -> RecordFileSignedPayload.computeSignedPayload(version, hapi, truncated));
         }
 
-        /// This test aims to assert that record file format versions that never existed on
-        /// are rejected with an [ParseException], because callers are
-        /// expected to gate the version before requesting a payload.
+        /// This test aims to assert that record file format versions never used by a production
+        /// network (anything outside 2, 5 and 6) are rejected with a [ParseException], because
+        /// callers are expected to gate the version before requesting a payload.
         @ParameterizedTest
         @ValueSource(ints = {0, 1, 3, 4, 7})
         @DisplayName("computeSignedPayload() unsupported version throws ParseException")
@@ -503,8 +503,8 @@ class RecordFileSignedPayloadTest {
             assertThat(result.failure()).isEqualTo(SessionFailureType.MISSING_VERIFICATION_DATA);
         }
 
-        /// This test aims to assert that a proof declaring a record file format version that
-        /// never existed (anything outside 2, 5 and 6) yields the
+        /// This test aims to assert that a proof declaring a record file format version never
+        /// used by a production network (anything outside 2, 5 and 6) yields the
         /// MISSING_MANDATORY_FIELD failure from the version gate, even when the block carries
         /// perfectly valid record file contents.
         @ParameterizedTest(name = "version={0}")

@@ -23,7 +23,9 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
 
 /// Computes the record-file signed payload for a Wrapped Record Block (WRB) proof, for every
-/// record file format version that ever existed: 2, 5 and 6.
+/// record file format version ever used by a production network's record stream: 2, 5 and 6.
+/// Earlier format versions (1 and 3) existed but were never used on a current production
+/// network, so they are not supported.
 ///
 /// The consensus nodes signed each record file's hash with their RSA keys, but the bytes that
 /// were hashed depend on the record file format version the file was originally produced in.
@@ -295,8 +297,8 @@ public final class RecordFileSignedPayload {
     }
 
     /// Returns `true` when the given record file format version is one this class can
-    /// compute a signed payload for, i.e. one of the versions that ever existed:
-    /// 2, 5 and 6.
+    /// compute a signed payload for, i.e. one of the versions ever used by a production
+    /// network's record stream: 2, 5 and 6.
     ///
     /// @param version the record file format version declared by a proof
     /// @return `true` when the version is supported
