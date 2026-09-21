@@ -324,6 +324,7 @@ public abstract class PluginTestBase<
      */
     @Override
     public void updateTssData(TssData tssData) {
+        if (tssData == null) return;
         this.currentTssData = tssData;
         blockMessaging.sendTssDataUpdate(new TssDataNotification(tssData));
     }
