@@ -35,6 +35,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.Set;
@@ -73,6 +74,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.health.HealthFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
@@ -99,7 +101,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// @param index the index built from that history
     record AddressBookState(RangedAddressBookHistory history, NavigableMap<Long, RangedNodeAddressBook> index) {
         /// The state before any history has been accepted.
-        static final AddressBookState EMPTY = new AddressBookState(null, new TreeMap<>());
+        static final AddressBookState EMPTY =
+                new AddressBookState(null, Collections.unmodifiableNavigableMap(new TreeMap<>()));
     }
 
     /// The logger for this class.  This must be static because there are tests that
@@ -489,7 +492,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     @Override
     public void addStoredBlockRange(LongRange blockRange) {
         storedBlocks.add(blockRange);
-        refreshStoredBlocks();
+        refreshStoredBlocks(historicalBlockFacility.availableBlocks());
     }
 
     @Override
@@ -560,6 +563,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             }
             if (addressBookState.compareAndSet(
                     current, new AddressBookState(history, AddressBookHistoryLookup.buildIndex(history)))) {
+                // Update knownPublishers immediately on the caller's thread so that publisher
+                // authentication reflects the new address book before this method returns.
+                // The dispatcher also calls updateKnownPublishersFromAddressBook in
+                // syncAddressBookHistory, where it reads the current (possibly newer) value.
+                updateKnownPublishersFromAddressBook(history);
                 runOnDispatcherThread(this::syncAddressBookHistory);
                 updated = true;
                 break;
@@ -584,14 +592,17 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     @Override
     public void updateAvailableBlocks() {
-        refreshAvailableBlocks();
-        refreshStoredBlocks();
+        // Capture one snapshot so both Available and Stored notifications are always derived from
+        // the same moment in time, preserving the invariant stored >= available.
+        final BlockRangeSet snapshot = historicalBlockFacility.availableBlocks();
+        refreshAvailableBlocks(snapshot);
+        refreshStoredBlocks(snapshot);
     }
 
-    private void refreshAvailableBlocks() {
+    private void refreshAvailableBlocks(BlockRangeSet availableBlocks) {
         while (true) {
             final List<BlockRange> current = currentAvailableBlocks.get();
-            final List<BlockRange> candidate = toBlockRange(historicalBlockFacility.availableBlocks());
+            final List<BlockRange> candidate = toBlockRange(availableBlocks);
             if (candidate.equals(current)) {
                 // Nothing changed, either because there was no update or because another thread
                 // already installed an identical snapshot; there is nothing to notify.
@@ -613,10 +624,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .sendAvailableBlocksUpdate(new AvailableBlocksNotification(currentAvailableBlocks.get()));
     }
 
-    private void refreshStoredBlocks() {
+    private void refreshStoredBlocks(BlockRangeSet availableBlocks) {
         while (true) {
             final List<BlockRange> current = currentStoredBlocks.get();
-            final List<BlockRange> candidate = mergeRanges(storedBlocks, historicalBlockFacility.availableBlocks());
+            final List<BlockRange> candidate = mergeRanges(storedBlocks, availableBlocks);
             if (candidate.equals(current)) {
                 break;
             }
