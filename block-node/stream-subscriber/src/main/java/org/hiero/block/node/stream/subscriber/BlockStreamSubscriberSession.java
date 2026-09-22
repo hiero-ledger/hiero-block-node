@@ -18,6 +18,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -788,10 +789,15 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * This method is only called for blocks that exceed the max chunk size.
      * Small blocks are sent directly via the fast path in sendOneFullBlock().
      * <p>
-     * Algorithm follows Consensus Node approach:
+     * Algorithm:
      * <ul>
-     *   <li>Soft limit: aim for chunks of maxChunkSizeBytes (~1MB default)</li>
-     *   <li>If an item exceeds the soft limit but is under the hard limit (4MB PBJ buffer), it ships by itself</li>
+     *   <li>Any item whose serialised size exceeds {@code maxSingleItemSizeBytes} is first
+     *       expanded into smaller sub-items via {@link RecordFileItemSplitter}.  For
+     *       {@code RECORD_FILE} items this splits the {@code record_stream_items} repeated
+     *       field into batches; for any item type that cannot be split the stream is
+     *       closed with {@link Code#ERROR}.</li>
+     *   <li>The (possibly-expanded) item list is then chunked into responses of at most
+     *       {@code maxChunkSizeBytes}; an item larger than the soft limit ships alone.</li>
      * </ul>
      *
      * @param allItems the list of all block items to send
@@ -799,45 +805,52 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     void sendBlockItemsChunked(final List<BlockItemUnparsed> allItems) {
         final int maxChunkBytes = sessionContext.subscriberConfig.maxChunkSizeBytes();
         final int maxSingleItemBytes = sessionContext.subscriberConfig.maxSingleItemSizeBytes();
-        int currentIndex = 0;
 
-        while (currentIndex < allItems.size()) {
-            final int startIndex = currentIndex;
-            long currentChunkSize = 0;
-
-            // Build chunk until we approach max size
-            while (currentIndex < allItems.size()) {
-                final int itemSize = BlockItemUnparsed.PROTOBUF.measureRecord(allItems.get(currentIndex));
-
-                // Hard limit: PBJ cannot serialize a single item larger than this into one response.
-                // Sending it would throw RuntimeException and close the stream silently with no error code.
-                if (itemSize > maxSingleItemBytes) {
+        // First pass: expand any item that exceeds maxSingleItemBytes.
+        // RecordFileItem items are split at the record_stream_items level; other oversized
+        // item types cannot be split and cause the stream to close with ERROR.
+        final List<BlockItemUnparsed> workingItems = new ArrayList<>(allItems.size());
+        for (final BlockItemUnparsed item : allItems) {
+            final int itemSize = BlockItemUnparsed.PROTOBUF.measureRecord(item);
+            if (itemSize > maxSingleItemBytes) {
+                final List<BlockItemUnparsed> subItems = RecordFileItemSplitter.splitIfNeeded(item, maxSingleItemBytes);
+                if (subItems.size() <= 1) {
+                    // Item cannot be split — PBJ cannot serialise it into one response
                     LOGGER.log(
                             Level.ERROR,
-                            "Block item [{0}] is {1} bytes which exceeds the PBJ per-item serialization"
-                                    + " limit of {2} bytes; closing stream with ERROR",
-                            currentIndex,
+                            "Block item is {0} bytes, exceeds the PBJ per-item serialisation"
+                                    + " limit of {1} bytes, and cannot be split; closing stream with ERROR",
                             itemSize,
                             maxSingleItemBytes);
                     close(Code.ERROR);
                     return;
                 }
+                workingItems.addAll(subItems);
+            } else {
+                workingItems.add(item);
+            }
+        }
 
-                // If adding this item would exceed max and chunk is not empty, break
-                // (item will ship by itself in the next iteration)
+        // Second pass: chunk the (possibly-expanded) item list into responses
+        int currentIndex = 0;
+        while (currentIndex < workingItems.size()) {
+            final int startIndex = currentIndex;
+            long currentChunkSize = 0;
+
+            while (currentIndex < workingItems.size()) {
+                final int itemSize = BlockItemUnparsed.PROTOBUF.measureRecord(workingItems.get(currentIndex));
+                // If adding this item would exceed the chunk limit and the chunk is non-empty,
+                // break so the item ships in the next chunk (or alone if it exceeds the limit).
                 if (currentIndex > startIndex && currentChunkSize + itemSize > maxChunkBytes) {
                     break;
                 }
-
                 currentChunkSize += itemSize;
                 currentIndex++;
             }
 
-            // subList creates a view - no copying needed
-            final boolean isLastChunk = currentIndex >= allItems.size();
-            sendOneBlockItemSet(allItems.subList(startIndex, currentIndex), isLastChunk);
+            final boolean isLastChunk = currentIndex >= workingItems.size();
+            sendOneBlockItemSet(workingItems.subList(startIndex, currentIndex), isLastChunk);
 
-            // If session was closed during send, stop
             if (interruptedStream.get()) {
                 return;
             }
