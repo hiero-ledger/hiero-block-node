@@ -25,6 +25,8 @@ public class MirrorNodeUtils {
     private static final int MAX_RETRIES = 5;
     private static final long INITIAL_RETRY_DELAY_MS = 2000;
     private static final Set<Integer> RETRYABLE_HTTP_CODES = Set.of(429, 500, 502, 503, 504);
+    // package-private for testing
+    static final int NO_RESPONSE_CODE = -1;
 
     /**
      * Read a URL and return the JSON object.
@@ -49,30 +51,24 @@ public class MirrorNodeUtils {
     public static JsonObject readUrl(URL url) {
         Exception lastException = null;
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            int responseCode = NO_RESPONSE_CODE;
             try {
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(30000);
                 conn.setReadTimeout(30000);
-                int responseCode = conn.getResponseCode();
+                responseCode = conn.getResponseCode();
 
                 if (responseCode == HttpURLConnection.HTTP_OK) {
                     try (Reader reader = new InputStreamReader(conn.getInputStream())) {
                         return new Gson().fromJson(reader, JsonObject.class);
-                    }
-                } else if (RETRYABLE_HTTP_CODES.contains(responseCode)) {
-                    lastException = new IOException("HTTP " + responseCode + " for URL: " + url);
-                    if (attempt < MAX_RETRIES) {
-                        long delay = INITIAL_RETRY_DELAY_MS * (1L << (attempt - 1)); // Exponential backoff
-                        System.err.println("[MirrorNode] HTTP " + responseCode + ", retrying in " + (delay / 1000)
-                                + "s (attempt " + attempt + "/" + MAX_RETRIES + ")...");
-                        Thread.sleep(delay);
                     }
                 } else {
                     throw new IOException("HTTP " + responseCode + " for URL: " + url);
                 }
             } catch (IOException e) {
                 lastException = e;
-                if (attempt < MAX_RETRIES && isRetryableException(e)) {
+                boolean retryable = isRetryableException(responseCode, e);
+                if (attempt < MAX_RETRIES && retryable) {
                     long delay = INITIAL_RETRY_DELAY_MS * (1L << (attempt - 1));
                     System.err.println("[MirrorNode] " + e.getMessage() + ", retrying in " + (delay / 1000)
                             + "s (attempt " + attempt + "/" + MAX_RETRIES + ")...");
@@ -82,12 +78,9 @@ public class MirrorNodeUtils {
                         Thread.currentThread().interrupt();
                         throw new IllegalStateException("Interrupted while waiting to retry", ie);
                     }
-                } else if (!isRetryableException(e)) {
+                } else if (!retryable) {
                     throw new UncheckedIOException(e);
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Interrupted while waiting to retry", e);
             }
         }
         throw new UncheckedIOException(new IOException(
@@ -95,19 +88,15 @@ public class MirrorNodeUtils {
     }
 
     // package-private for testing
-    static boolean isRetryableException(IOException e) {
+    static boolean isRetryableException(int responseCode, IOException e) {
         String msg = e.getMessage();
-        return e instanceof UnknownHostException
+        return RETRYABLE_HTTP_CODES.contains(responseCode)
+                || e instanceof UnknownHostException
                 || e instanceof SocketTimeoutException
                 || e instanceof ConnectException
                 || e instanceof NoRouteToHostException
                 || (msg != null
-                        && (msg.contains("503")
-                                || msg.contains("502")
-                                || msg.contains("500")
-                                || msg.contains("504")
-                                || msg.contains("429")
-                                || msg.contains("Connection reset")
+                        && (msg.contains("Connection reset")
                                 || msg.contains("Connection timed out")
                                 || msg.contains("Broken pipe")));
     }
