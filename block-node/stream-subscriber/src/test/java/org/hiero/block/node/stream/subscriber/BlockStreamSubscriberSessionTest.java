@@ -1427,32 +1427,26 @@ class BlockStreamSubscriberSessionTest {
     }
 
     /**
-     * Tests for the hard per-item size limit in
+     * Tests for oversized-item handling in
      * {@link BlockStreamSubscriberSession#sendBlockItemsChunked}.
      *
-     * <p>Background: block 837,080 on mainnet contains a single {@code recordFile}
-     * block item of ~27.66 MB. PBJ cannot serialize a {@code SubscribeStreamResponse}
-     * containing this item (hard limit ~4 MB). Before the fix, the session called
-     * {@code close(null)} on failure, sending {@code onComplete} with zero items and
-     * no status code, leaving the backfill client unable to distinguish the failure
-     * from a successful empty response. The fix detects items that exceed
-     * {@link SubscriberConfig#maxSingleItemSizeBytes()} and closes the stream with
-     * {@link Code#ERROR} so the caller receives an unambiguous error.
+     * <p>Background: block 837,080 on testnet contains a single {@code recordFile}
+     * block item of ~27.66 MB. PBJ cannot serialise a {@code SubscribeStreamResponse}
+     * containing this item (hard limit ~4 MB). The fix splits {@code RECORD_FILE}
+     * items at the {@code record_stream_items} wire level into batches that each fit
+     * within the limit.  Non-splittable oversized items (e.g. {@code roundHeader})
+     * still close the stream with {@link Code#ERROR}.
      */
     @Nested
     @DisplayName("Oversized Block Item Tests")
     class OversizedBlockItemTests {
         /**
-         * Synthetic test: a block item larger than {@code maxSingleItemSizeBytes}
-         * must close the stream with {@link Code#ERROR} and not silently send
-         * {@code onComplete} with zero block items.
-         *
-         * <p>This test is always runnable (no external file required) and directly
-         * reproduces the failure mode observed with block 837,080.
+         * Non-splittable oversized item (not a {@code recordFile}) must close the
+         * stream with {@link Code#ERROR}.
          */
         @Test
-        @DisplayName("item exceeding maxSingleItemSizeBytes closes stream with ERROR")
-        void testOversizedItemClosesStreamWithError() {
+        @DisplayName("non-splittable item exceeding maxSingleItemSizeBytes closes stream with ERROR")
+        void testOversizedNonSplittableItemClosesStreamWithError() {
             // Configure a 1 MB hard limit so we don't need a multi-megabyte item in the test
             final int hardLimitBytes = 1_048_576; // 1 MB
             final Configuration cfg = ConfigurationBuilder.create()
@@ -1471,7 +1465,7 @@ class BlockStreamSubscriberSessionTest {
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
                     SessionContext.create(clientId, request, ctx), pipeline, ctx, sessionReadyLatch);
 
-            // Create one item just over the hard limit (hardLimitBytes + 1 byte padding)
+            // roundHeader is not a recordFile, so the splitter cannot help — must ERROR
             final byte[] padding = new byte[hardLimitBytes + 1];
             final BlockItemUnparsed oversizedItem = BlockItemUnparsed.newBuilder()
                     .roundHeader(Bytes.wrap(padding))
@@ -1485,7 +1479,6 @@ class BlockStreamSubscriberSessionTest {
                     .first()
                     .returns(ResponseOneOfType.STATUS, responseTypeExtractor)
                     .returns(Code.ERROR, responseStatusExtractor);
-            // And then closed
             assertThat(pipeline.getOnCompleteCalls()).hasValue(1);
         }
 
@@ -1496,14 +1489,15 @@ class BlockStreamSubscriberSessionTest {
          * To run it locally, download {@code wrb-837080.blk} and place it at
          * {@code ~/Downloads/wrb-837080.blk}.
          *
-         * <p>Block 837,080 contains a single {@code recordFile} item of 29,000,260
-         * bytes (~27.66 MB) — 6.9× the default 4 MB PBJ limit. Before the fix this
-         * caused a silent {@code onComplete} with zero blocks; after the fix the
-         * session must close with {@link Code#ERROR}.
+         * <p>Block 837,080 contains a single {@code recordFile} item of ~27.66 MB.
+         * The splitter must partition its {@code record_stream_items} into batches
+         * that each fit within the 4 MB limit, allowing the full block to be served
+         * across multiple {@code BLOCK_ITEMS} responses followed by an
+         * {@code END_OF_BLOCK} — no {@link Code#ERROR} should be sent.
          */
         @Test
-        @DisplayName("block 837080 recordFile item (27.66 MB) closes stream with ERROR")
-        void testBlock837080ClosesStreamWithError() throws Exception {
+        @DisplayName("block 837080 recordFile item (27.66 MB) is split and served successfully")
+        void testBlock837080IsSplitAndServedSuccessfully() throws Exception {
             final Path blockFile = Path.of(System.getProperty("user.home"), "Downloads", "wrb-837080.blk");
             assumeTrue(Files.exists(blockFile), "wrb-837080.blk not found at " + blockFile + " — skipping");
 
@@ -1520,7 +1514,6 @@ class BlockStreamSubscriberSessionTest {
                     .as("recordFile item size")
                     .isGreaterThan(SubscriberConfig.DEFAULT_MAX_SINGLE_ITEM_SIZE_BYTES);
 
-            // Run through sendBlockItemsChunked with the default 4 MB limit
             final Configuration cfg = ConfigurationBuilder.create()
                     .withConfigDataType(SubscriberConfig.class)
                     .build();
@@ -1537,13 +1530,37 @@ class BlockStreamSubscriberSessionTest {
 
             session.sendBlockItemsChunked(items);
 
-            // Must receive exactly one STATUS/ERROR — not a silent onComplete with zero items
-            assertThat(pipeline.getOnNextCalls())
-                    .hasSize(1)
-                    .first()
-                    .returns(ResponseOneOfType.STATUS, responseTypeExtractor)
-                    .returns(Code.ERROR, responseStatusExtractor);
-            assertThat(pipeline.getOnCompleteCalls()).hasValue(1);
+            final var responses = pipeline.getOnNextCalls();
+
+            // No ERROR status must have been sent
+            assertThat(responses)
+                    .as("no ERROR status expected")
+                    .noneMatch(r -> r.response().kind() == ResponseOneOfType.STATUS && r.status() == Code.ERROR);
+
+            // Multiple BLOCK_ITEMS responses expected (original 4 items expand to > 4 after split)
+            final long blockItemsCount = responses.stream()
+                    .filter(r -> r.response().kind() == ResponseOneOfType.BLOCK_ITEMS)
+                    .count();
+            assertThat(blockItemsCount)
+                    .as("multiple BLOCK_ITEMS responses expected due to split")
+                    .isGreaterThan(4);
+
+            // Exactly one END_OF_BLOCK at the end
+            final long endOfBlockCount = responses.stream()
+                    .filter(r -> r.response().kind() == ResponseOneOfType.END_OF_BLOCK)
+                    .count();
+            assertThat(endOfBlockCount).as("exactly one END_OF_BLOCK").isEqualTo(1);
+            assertThat(responses.getLast().response().kind())
+                    .as("END_OF_BLOCK must be the last response")
+                    .isEqualTo(ResponseOneOfType.END_OF_BLOCK);
+
+            // Every sub-item produced by the splitter must fit within the 4 MB limit
+            responses.stream()
+                    .filter(r -> r.response().kind() == ResponseOneOfType.BLOCK_ITEMS)
+                    .flatMap(r -> r.blockItems().blockItems().stream())
+                    .forEach(subItem -> assertThat(BlockItemUnparsed.PROTOBUF.measureRecord(subItem))
+                            .as("sub-item must fit within maxSingleItemSizeBytes")
+                            .isLessThanOrEqualTo(SubscriberConfig.DEFAULT_MAX_SINGLE_ITEM_SIZE_BYTES));
         }
     }
 
