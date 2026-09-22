@@ -15,11 +15,15 @@
 #                                    version, available block ranges, registered
 #                                    plugins, and TSS data presence
 #                                    (only when --detailed-server-status is passed)
-#   4. Fetching the latest block   → reports the block proof type and effective
+#   4. Fetching a block            → reports the block proof type and effective
 #                                    download throughput; proof types: WRB/RSA
 #                                    (Phase 2a), TSS hinTS + WRAPS proof, or
 #                                    TSS hinTS + Aggregate Schnorr (Phase 2b)
-#                                    (only when --latest-block-proof is passed)
+#                                    (only when --latest-block-proof is passed).
+#                                    Fetches the latest block by default, or a
+#                                    specific block number when --block-number
+#                                    is passed. Optionally saved to disk with
+#                                    --save-block.
 #
 # Endpoints are supplied as positional arguments in <host:port> form.
 # A proto package is resolved in the following priority order:
@@ -45,16 +49,38 @@
 #                           data presence. Omitted by default because this RPC
 #                           can be slow on nodes with many block ranges.
 #       --latest-block-proof
-#                           Fetch the latest block from the node and report the
-#                           proof type observed in it. Useful for confirming that
-#                           a node can serve blocks and for tracking the network's
-#                           current proof phase:
+#                           Fetch a block from the node and report the proof
+#                           type observed in it, plus its size uncompressed and
+#                           zstd-compressed. Fetches the latest block by
+#                           default, or a specific block when --block-number is
+#                           passed. Useful for confirming that a node can serve
+#                           blocks and for tracking the network's current proof
+#                           phase:
 #                             WRB/RSA            — Phase 2a (SignedRecordFileProof)
 #                             TSS WRAPS proof    — Phase 2b, WRAPS-based hinTS
 #                             TSS Agg. Schnorr   — Phase 2b, Aggregate Schnorr
 #                           Requires the proto package to contain the
 #                           block_access_service.proto file (same archive as the
 #                           node_service.proto already required).
+#       --block-number NUM  Request this specific block number instead of the
+#                           latest one (sets `block_number` instead of
+#                           `retrieve_latest` in the getBlock request). Only
+#                           meaningful together with --latest-block-proof.
+#                           Must be a non-negative integer.
+#       --save-block        Save the fetched block under
+#                           $SCRIPT_DIR/downloaded-block/, named with
+#                           block-node's own on-disk convention: a 19-digit
+#                           zero-padded block number + ".blk.zstd" (see
+#                           BlockFile / CompressionType in
+#                           block-node/base/src/main/java/org/hiero/block/node/base/).
+#                           The saved content is the block's proto3 JSON
+#                           encoding, zstd-compressed at level 1 (block-node's
+#                           default level) — NOT the raw protobuf wire bytes a
+#                           real block node writes, since grpcurl has no
+#                           raw-binary output mode. Treat it as a JSON payload
+#                           with the same name/compression convention, not a
+#                           byte-identical .blk file. Requires --latest-block-proof
+#                           and the `zstd` CLI tool.
 #       --block-access-port PORT
 #                           Port to use for BlockAccessService/getBlock calls
 #                           when --latest-block-proof is enabled. Defaults to
@@ -113,11 +139,18 @@
 #     lfh01.mainnet.blocknode.hashgraph-devops.com:40982 \
 #     lfh02.mainnet.blocknode.hashgraph-devops.com:40982
 #
+#   # Fetch a specific block and save it under ./downloaded-block/
+#   bn-endpoint-checker.sh --version 0.40.0 --latest-block-proof \
+#     --block-number 12345678 --save-block \
+#     mynode.example.com:40840
+#
 # REQUIREMENTS
 #   grpcurl   Auto-installed if missing (you will be prompted for the
 #             install location).
 #   jq        JSON processor — used for pretty-printing gRPC responses.
 #   curl      Used to download grpcurl and proto archives when needed.
+#   zstd      Only required when --save-block is passed; used to compress the
+#             saved block the same way block-node compresses blocks on disk.
 #
 # GRPCURL AUTO-INSTALL
 #   If grpcurl is not found on PATH or in $SCRIPT_DIR/bin/, the script
@@ -168,9 +201,25 @@ NODE_SERVICE_PROTO="block-node/api/node_service.proto"
 GRPC_SERVICE="org.hiero.block.api.BlockNodeService"
 
 # Proto file and service name for the block access service, used by
-# --latest-block-proof to call getBlock with retrieve_latest=true.
+# --latest-block-proof to call getBlock with retrieve_latest=true (or with a
+# specific block_number when --block-number is passed).
 BLOCK_ACCESS_PROTO="block-node/api/block_access_service.proto"
 BLOCK_ACCESS_SERVICE="org.hiero.block.api.BlockAccessService"
+
+# ── --save-block: on-disk naming/compression, mirrored from block-node ───────
+#
+# block-node persists blocks as <19-digit zero-padded block number>.blk.zstd.
+# See BlockFile.BLOCK_FILE_EXTENSION / blockFileName() and
+# CompressionType.ZSTD / DEFAULT_ZSTD_COMPRESSION_LEVEL in:
+#   block-node/base/src/main/java/org/hiero/block/node/base/BlockFile.java
+#   block-node/base/src/main/java/org/hiero/block/node/base/CompressionType.java
+# grpcurl has no raw-binary output mode (it only ever emits proto3 JSON for
+# responses), so the saved payload here is that JSON, zstd-compressed at the
+# same level — not a byte-identical .blk file.
+DOWNLOAD_DIR="${SCRIPT_DIR}/downloaded-block"
+readonly BLOCK_FILE_EXTENSION=".blk"
+readonly ZSTD_FILE_EXTENSION=".zstd"
+readonly ZSTD_COMPRESSION_LEVEL=1
 
 # ── TSS block_signature sub-type byte-length constants ───────────────────────
 #
@@ -239,6 +288,8 @@ LATEST_BLOCK_PROOF=false # When true, fetch the latest block and report proof ty
 BLOCK_ACCESS_PORT=""     # When set, used as the port for BlockAccessService/getBlock.
 BLOCK_MAX_BLOCK_MIB=20   # Max getBlock response size in MiB (default 20; range 1–100).
 MAX_RESPONSE_SZ_MIB=64   # Max BlockNodeService response size in MiB (default 64; range 1–512).
+BLOCK_NUMBER=""          # When set, request this block_number instead of retrieve_latest.
+SAVE_BLOCK=false         # When true, persist the fetched block under DOWNLOAD_DIR.
 ENDPOINTS=()             # Positional <host:port> arguments collected here.
 
 while [[ $# -gt 0 ]]; do
@@ -255,6 +306,15 @@ while [[ $# -gt 0 ]]; do
       DETAILED_STATUS=true; shift ;;
     --latest-block-proof)
       LATEST_BLOCK_PROOF=true; shift ;;
+    --block-number)
+      [[ -n "${2:-}" ]] || { log_err "--block-number requires a value"; usage 2; }
+      if ! [[ "${2}" =~ ^[0-9]+$ ]]; then
+        log_err "--block-number must be a non-negative integer."
+        usage 2
+      fi
+      BLOCK_NUMBER="$2"; shift 2 ;;
+    --save-block)
+      SAVE_BLOCK=true; shift ;;
     --block-access-port)
       [[ -n "${2:-}" ]] || { log_err "--block-access-port requires a value"; usage 2; }
       if ! [[ "${2}" =~ ^[1-9][0-9]*$ ]] || (( ${2} < 1 || ${2} > 65535 )); then
@@ -290,6 +350,18 @@ done
 
 if [[ ${#ENDPOINTS[@]} -eq 0 ]]; then
   log_err "Error: at least one <host:port> endpoint is required."
+  usage 2
+fi
+
+# --block-number and --save-block only affect the getBlock check, which is
+# itself gated behind --latest-block-proof. Fail fast rather than silently
+# ignoring the flag.
+if [[ -n "$BLOCK_NUMBER" && "$LATEST_BLOCK_PROOF" == "false" ]]; then
+  log_err "Error: --block-number requires --latest-block-proof."
+  usage 2
+fi
+if [[ "$SAVE_BLOCK" == "true" && "$LATEST_BLOCK_PROOF" == "false" ]]; then
+  log_err "Error: --save-block requires --latest-block-proof."
   usage 2
 fi
 
@@ -334,6 +406,19 @@ check_jq() {
     log_err "Install it via your package manager:"
     log_err "  Debian/Ubuntu : apt install jq"
     log_err "  macOS         : brew install jq"
+    exit 2
+  fi
+}
+
+# Verify zstd is present. Only required when --save-block is passed, since
+# that is the only path that compresses output — the block size report itself
+# degrades gracefully (see report_block_size) rather than hard-failing.
+check_zstd() {
+  if ! command -v zstd &>/dev/null; then
+    log_err "Error: 'zstd' is required by --save-block but was not found."
+    log_err "Install it via your package manager:"
+    log_err "  Debian/Ubuntu : apt install zstd"
+    log_err "  macOS         : brew install zstd"
     exit 2
   fi
 }
@@ -545,8 +630,10 @@ grpc_call() {
 
 # ── Block proof gRPC call ─────────────────────────────────────────────────────
 
-# Calls BlockAccessService/getBlock with retrieve_latest=true and returns the
-# raw JSON response on stdout.
+# Calls BlockAccessService/getBlock and returns the raw JSON response on
+# stdout. Requests block_number=$BLOCK_NUMBER when set, otherwise
+# retrieve_latest=true (BlockRequest.block_specifier is a oneof — exactly one
+# of the two is sent).
 #
 # Important: -emit-defaults is deliberately NOT used here. For proto3 oneof
 # fields, emitting defaults causes grpcurl to output all three proof variants
@@ -555,12 +642,18 @@ grpc_call() {
 # set in the oneof appears in the JSON output.
 grpc_call_block_proof() {
   local target="$1"
+  local request_body
+  if [[ -n "$BLOCK_NUMBER" ]]; then
+    request_body="{\"block_number\": ${BLOCK_NUMBER}}"
+  else
+    request_body='{"retrieve_latest": true}'
+  fi
   local -a flags=(
     -connect-timeout 5
     -import-path "${RESOLVED_PROTO_DIR}"
     -proto        "${BLOCK_ACCESS_PROTO}"
     -max-msg-sz   "$(( BLOCK_MAX_BLOCK_MIB * 1048576 ))"
-    -d            '{"retrieve_latest": true}'
+    -d            "$request_body"
   )
   [[ "$USE_TLS" == "false" ]] && flags=("-plaintext" "${flags[@]}")
 
@@ -628,6 +721,67 @@ print_block_proof() {
         "block \($num): UNKNOWN proof type — keys: \($p | keys)"
       end
     '
+}
+
+# Extracts the block number from a getBlock JSON response via its
+# blockHeader item. Prints nothing (empty stdout) if not found.
+extract_block_number() {
+  local json="$1"
+  echo "$json" | jq -r '(.block.items[]? | select(has("blockHeader")) | .blockHeader.number) // empty' | head -1
+}
+
+# ── Block size reporting ──────────────────────────────────────────────────────
+
+# Extracts just the `block` field from a getBlock JSON response (the actual
+# block content, i.e. what block-node persists to disk — excluding the
+# BlockResponse.status wrapper) as compact JSON on stdout.
+extract_block_json() {
+  local json="$1"
+  echo "$json" | jq -c '.block // {}'
+}
+
+# Prints the block's size uncompressed and, when `zstd` is available on PATH,
+# zstd -1 compressed (matching CompressionType.DEFAULT_ZSTD_COMPRESSION_LEVEL,
+# the level block-node itself uses on disk). Sizes are measured against the
+# proto3 JSON encoding of the block, since grpcurl has no raw-binary output
+# mode — this is an approximation of on-wire/on-disk size, not byte-identical
+# to a real .blk / .blk.zstd file.
+report_block_size() {
+  local block_json="$1"
+  local uncompressed_bytes compressed_bytes ratio_str
+  uncompressed_bytes="$(printf '%s' "$block_json" | wc -c | tr -d ' ')"
+  print_field "block size (JSON, uncompressed)" "${uncompressed_bytes} B"
+
+  if command -v zstd &>/dev/null; then
+    compressed_bytes="$(printf '%s' "$block_json" | zstd -"${ZSTD_COMPRESSION_LEVEL}" -c 2>/dev/null | wc -c | tr -d ' ')"
+    ratio_str="$(awk -v u="$uncompressed_bytes" -v c="$compressed_bytes" \
+      'BEGIN { if (u > 0) printf "%.0f%% smaller", (100 - (c / u * 100)); else print "n/a" }')"
+    print_field "block size (JSON, zstd -${ZSTD_COMPRESSION_LEVEL})" "${compressed_bytes} B (${ratio_str})"
+  fi
+}
+
+# ── Block persistence (--save-block) ──────────────────────────────────────────
+
+# Saves a block's JSON content under DOWNLOAD_DIR using block-node's own
+# on-disk naming convention (see the DOWNLOAD_DIR/BLOCK_FILE_EXTENSION
+# constants above): a 19-digit zero-padded block number + ".blk.zstd",
+# zstd-compressed at the same level block-node uses. The content is the
+# block's proto3 JSON encoding, not the raw protobuf wire bytes a real block
+# node writes — clearly a JSON payload sharing the name/compression
+# convention, not a byte-identical .blk file.
+save_block_to_disk() {
+  local block_num="$1" block_json="$2"
+
+  mkdir -p "$DOWNLOAD_DIR"
+  local padded_num outfile
+  padded_num="$(printf '%019d' "$block_num")"
+  outfile="${DOWNLOAD_DIR}/${padded_num}${BLOCK_FILE_EXTENSION}${ZSTD_FILE_EXTENSION}"
+
+  if printf '%s' "$block_json" | zstd -"${ZSTD_COMPRESSION_LEVEL}" -q -f -o "$outfile"; then
+    log_success "  💾 saved block ${block_num} → ${outfile}"
+  else
+    log_warn "  🟠 --save-block: zstd compression failed; block not saved."
+  fi
 }
 
 # ── Timing helpers ────────────────────────────────────────────────────────────
@@ -1012,16 +1166,19 @@ check_endpoint() {
     fi
   fi
 
-  # 3. Latest block proof (opt-in via --latest-block-proof) ────────────────────
-  # Fetches the most recent block from the node and reports the proof type and
-  # effective download throughput. This confirms two things at once:
+  # 3. Block proof (opt-in via --latest-block-proof) ────────────────────────
+  # Fetches a block from the node — the latest one by default, or a specific
+  # block_number when --block-number is set — and reports the proof type,
+  # effective download throughput, and block size (uncompressed and zstd
+  # compressed). This confirms two things at once:
   #   a) The node can serve block data via BlockAccessService/getBlock.
   #   b) The current network proof phase (WRB/RSA vs TSS WRAPS vs TSS Schnorr).
   # Throughput is labelled "approx" because JSON response size > proto wire size.
   #
   # Failure is non-fatal: a node may have serverStatus working before it has
-  # stored any blocks (e.g. freshly started or syncing). The warning is still
-  # printed so the operator knows the block fetch was attempted.
+  # stored any blocks (e.g. freshly started or syncing), or the requested
+  # block-number may not exist on this node. The warning is still printed so
+  # the operator knows the block fetch was attempted.
   #
   # When --block-access-port is set, getBlock is sent to a different port than
   # serverStatus — production deployments split these onto separate ports.
@@ -1031,28 +1188,45 @@ check_endpoint() {
   fi
 
   if [[ "$LATEST_BLOCK_PROOF" == "true" ]]; then
-    local proof_json proof_line proof_t0 proof_elapsed_ms
+    local proof_json proof_line proof_t0 proof_elapsed_ms block_label
+    if [[ -n "$BLOCK_NUMBER" ]]; then block_label="block ${BLOCK_NUMBER}"; else block_label="latest block"; fi
     proof_t0="$(now_ms)"
     if proof_json="$(grpc_call_block_proof "$block_access_target" 2>&1)"; then
       proof_elapsed_ms=$(( $(now_ms) - proof_t0 ))
       elapsed="$(format_elapsed_ms "$proof_elapsed_ms")"
       proof_line="$(print_block_proof "$proof_json")"
-      log_success "  🔏 latest block proof  (${elapsed})"
+      log_success "  🔏 ${block_label} proof  (${elapsed})"
       print_field "proof_type" "$proof_line"
       # Compute effective throughput from JSON response size and elapsed time.
       # JSON bytes are a proxy for wire size (actual proto is smaller, but this
       # gives a meaningful order-of-magnitude bandwidth indicator).
       local proof_bytes throughput_str
-      proof_bytes="${#proof_json}"
+      proof_bytes="$(printf '%s' "$proof_json" | wc -c | tr -d ' ')"
       if (( proof_elapsed_ms > 0 )); then
         throughput_str="$(awk "BEGIN { bps = ${proof_bytes} / (${proof_elapsed_ms} / 1000.0); \
           if (bps >= 1048576) printf \"%.1f MiB/s\", bps/1048576; \
           else printf \"%.0f KiB/s\", bps/1024 }")"
         print_field "throughput (approx)" "${proof_bytes} B JSON -> ${throughput_str}"
       fi
+
+      # Block size: report uncompressed and zstd-compressed size of just the
+      # `block` field (what block-node actually persists to disk).
+      local block_json
+      block_json="$(extract_block_json "$proof_json")"
+      report_block_size "$block_json"
+
+      if [[ "$SAVE_BLOCK" == "true" ]]; then
+        local block_num
+        block_num="$(extract_block_number "$proof_json")"
+        if [[ -n "$block_num" ]]; then
+          save_block_to_disk "$block_num" "$block_json"
+        else
+          log_warn "  🟠 --save-block skipped: could not determine block number from response."
+        fi
+      fi
     else
       elapsed="$(format_elapsed_ms "$(( $(now_ms) - proof_t0 ))")"
-      log_warn "  🟠 latest block proof WARN (getBlock unavailable or no blocks stored)  (${elapsed})"
+      log_warn "  🟠 ${block_label} proof WARN (getBlock unavailable, requested block not stored, or no blocks stored)  (${elapsed})"
       echo "$proof_json" | sed 's/^/     /'
     fi
   fi
@@ -1077,6 +1251,7 @@ main() {
   # install instructions rather than cryptic errors mid-run.
   check_jq
   check_grpcurl
+  [[ "$SAVE_BLOCK" == "true" ]] && check_zstd
 
   # Ensure the proto directory is present, downloading it if needed.
   ensure_proto_dir
@@ -1086,11 +1261,13 @@ main() {
   # Build human-readable labels for the run summary header.
   # Explicit if/else avoids the &&/|| ternary idiom, which is fragile: if the
   # true-branch command ever fails, the false-branch fires incorrectly.
-  local tls_label detail_label proof_label block_access_label
+  local tls_label detail_label proof_label block_access_label block_number_label save_block_label
   if [[ "$USE_TLS"             == "true" ]]; then tls_label="TLS";     else tls_label="plaintext"; fi
   if [[ "$DETAILED_STATUS"     == "true" ]]; then detail_label="enabled"; else detail_label="disabled (pass --detailed-server-status to enable)"; fi
   if [[ "$LATEST_BLOCK_PROOF"  == "true" ]]; then proof_label="enabled"; else proof_label="disabled (pass --latest-block-proof to enable)"; fi
   if [[ -n "$BLOCK_ACCESS_PORT" ]]; then block_access_label="$BLOCK_ACCESS_PORT"; else block_access_label="(same as endpoint)"; fi
+  if [[ -n "$BLOCK_NUMBER" ]]; then block_number_label="${BLOCK_NUMBER}"; else block_number_label="(latest)"; fi
+  if [[ "$SAVE_BLOCK" == "true" ]]; then save_block_label="enabled -> ${DOWNLOAD_DIR}"; else save_block_label="disabled (pass --save-block to enable)"; fi
 
   echo ""
   log_info "Checking ${#ENDPOINTS[@]} endpoint(s)"
@@ -1098,9 +1275,11 @@ main() {
   log_info "  Transport         : ${tls_label}"
   log_info "  Detailed status   : ${detail_label}"
   log_info "  Block proof       : ${proof_label}"
+  log_info "  Block number      : ${block_number_label}"
   log_info "  Block access port : ${block_access_label}"
   log_info "  Max block size    : ${BLOCK_MAX_BLOCK_MIB} MiB"
   log_info "  Max response size : ${MAX_RESPONSE_SZ_MIB} MiB"
+  log_info "  Save block        : ${save_block_label}"
 
   # Iterate over every supplied endpoint. Failures are accumulated rather than
   # stopping immediately so the operator gets a complete picture of all nodes in
