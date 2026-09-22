@@ -2,6 +2,7 @@
 package org.hiero.block.node.app;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
@@ -19,11 +21,21 @@ import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
+import java.util.List;
 import java.util.Map;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
+import org.hiero.block.node.spi.threading.ThreadPoolManager;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.ThrottleExempt;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
+import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Tests for {@link ServiceBuilderImpl} class which implements the {@link org.hiero.block.node.spi.ServiceBuilder}
@@ -42,7 +54,132 @@ class ServiceBuilderImplTest {
         final Http2Config http2Config = Http2Config.builder().build();
         final SocketOptions socketOptions = SocketOptions.builder().build();
         ServerConfig testConfig = new ServerConfig(0, 0, 0, PUBLISHER_PORT, 0, 0, 0, 0, false, 0, 0);
-        serviceBuilder = new ServiceBuilderImpl(testConfig, http2Config, socketOptions);
+        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 30, 5);
+        final MetricRegistry metricRegistry = MetricRegistry.builder()
+                .setMetricsExporter(new TestMetricsExporter())
+                .build();
+        final ThreadPoolManager threadPoolManager = mock(ThreadPoolManager.class);
+        // Only exercised by throttled-registration tests, which trigger the lazily-started
+        // stale-client sweep; a mock executor is enough since these tests don't assert on sweeps.
+        when(threadPoolManager.createVirtualThreadScheduledExecutor(
+                        org.mockito.ArgumentMatchers.anyInt(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(mock(java.util.concurrent.ScheduledExecutorService.class));
+        serviceBuilder = new ServiceBuilderImpl(
+                testConfig, http2Config, socketOptions, globalThrottleConfig, metricRegistry, threadPoolManager);
+    }
+
+    @Test
+    @DisplayName("registerGrpcService wraps a ThrottleSpec service using its own reported settings")
+    void registerGrpcService_throttleSpec_wrapsService() {
+        final ServiceInterface testService =
+                new TestThrottledService("TestService", new PerClientThrottleSettings(10, 5, 3), 100);
+        final PbjRouting.Builder spyBuilder = injectGrpcBuilderSpy(CONSUMER_PORT);
+
+        serviceBuilder.registerGrpcService(CONSUMER_PORT, testService);
+
+        final ArgumentCaptor<ServiceInterface> registered = ArgumentCaptor.forClass(ServiceInterface.class);
+        verify(spyBuilder).service(registered.capture());
+        assertInstanceOf(ThrottledServiceInterface.class, registered.getValue());
+        assertNotSame(testService, registered.getValue(), "the raw service must be wrapped, not registered as-is");
+    }
+
+    @Test
+    @DisplayName("registerGrpcService registers a ThrottleExempt service as-is, without wrapping")
+    void registerGrpcService_throttleExempt_registersRawServiceWithoutWrapping() {
+        final ServiceInterface testService = new TestExemptService("TestExemptService");
+        final PbjRouting.Builder spyBuilder = injectGrpcBuilderSpy(CONSUMER_PORT);
+
+        serviceBuilder.registerGrpcService(CONSUMER_PORT, testService);
+
+        verify(spyBuilder).service(eq(testService));
+    }
+
+    /// A minimal, hand-written [ServiceInterface] + [ThrottleSpec] test double. Deliberately not a
+    /// Mockito mock with `extraInterfaces`: the generated mock class would live in
+    /// `ServiceInterface`'s own module (`com.hedera.pbj.runtime`), which does not read
+    /// `org.hiero.block.node.spi` — so Mockito cannot make it implement `ThrottleSpec` across that
+    /// module boundary. A real class compiled into this module has no such restriction.
+    private static final class TestThrottledService implements ServiceInterface, ThrottleSpec {
+        private final String serviceName;
+        private final PerClientThrottleSettings perClientSettings;
+        private final int globalConcurrencyCeiling;
+
+        TestThrottledService(
+                final String serviceName,
+                final PerClientThrottleSettings perClientSettings,
+                final int globalConcurrencyCeiling) {
+            this.serviceName = serviceName;
+            this.perClientSettings = perClientSettings;
+            this.globalConcurrencyCeiling = globalConcurrencyCeiling;
+        }
+
+        @Override
+        public String serviceName() {
+            return serviceName;
+        }
+
+        @Override
+        public String fullName() {
+            return serviceName;
+        }
+
+        @Override
+        public List<Method> methods() {
+            return List.of();
+        }
+
+        @Override
+        public com.hedera.pbj.runtime.grpc.Pipeline<? super com.hedera.pbj.runtime.io.buffer.Bytes> open(
+                final Method method,
+                final RequestOptions opts,
+                final com.hedera.pbj.runtime.grpc.Pipeline<? super com.hedera.pbj.runtime.io.buffer.Bytes> responses) {
+            throw new UnsupportedOperationException("not exercised by these registration-only tests");
+        }
+
+        @Override
+        public PerClientThrottleSettings perClientSettings() {
+            return perClientSettings;
+        }
+
+        @Override
+        public int globalConcurrencyCeiling() {
+            return globalConcurrencyCeiling;
+        }
+    }
+
+    /// A minimal, hand-written [ServiceInterface] + [ThrottleExempt] test double; see
+    /// [TestThrottledService] for why this isn't a Mockito `extraInterfaces` mock.
+    private static final class TestExemptService implements ServiceInterface, ThrottleExempt {
+        private final String serviceName;
+
+        TestExemptService(final String serviceName) {
+            this.serviceName = serviceName;
+        }
+
+        @Override
+        public String serviceName() {
+            return serviceName;
+        }
+
+        @Override
+        public String fullName() {
+            return serviceName;
+        }
+
+        @Override
+        public List<Method> methods() {
+            return List.of();
+        }
+
+        @Override
+        public com.hedera.pbj.runtime.grpc.Pipeline<? super com.hedera.pbj.runtime.io.buffer.Bytes> open(
+                final Method method,
+                final RequestOptions opts,
+                final com.hedera.pbj.runtime.grpc.Pipeline<? super com.hedera.pbj.runtime.io.buffer.Bytes> responses) {
+            throw new UnsupportedOperationException("not exercised by these registration-only tests");
+        }
     }
 
     @Test
