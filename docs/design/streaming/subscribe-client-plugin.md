@@ -32,11 +32,20 @@ up older ranges; this plugin owns the live edge.
    `PriorityHealthBasedStrategy` selection).
 6. Provide operator instrumentation (metrics, logs) that make replication
    lag, reconnects, and failover visible.
+7. Tag every plugin-injected block with a distinct `BlockSource` value
+   (`SUBSCRIBED`) so downstream plugins can protect and prioritize
+   publisher-originated blocks over plugin-originated ones without
+   inspecting content.
 
 ## Non-Goals
 
-1. Historical gap detection or backfill. That remains `BackfillPlugin`'s
-   responsibility. This plugin only tails live.
+1. Historical gap detection or backfill. `BackfillPlugin` continues to
+   own bounded historical gap-fills. This plugin's role is any stream
+   that ends in a live tail — a cold-starting BN can legitimately request
+   a `start_block_number` deep in history and stream through to live via
+   `end_block_number = uint64_max`, but it will not schedule discrete
+   historical gap fetches the way Backfill does. Subsuming Backfill's
+   greedy mode is possible in a later iteration; out of scope for v1.
 2. Reworking the `StreamPublisherPlugin`, `VerificationServicePlugin`, or
    the existing item ring. The design deliberately uses a separate ring
    buffer so the well-tested publisher path is untouched.
@@ -124,7 +133,12 @@ up older ranges; this plugin owns the live edge.
   platform config framework and its values injectable into the plugin.
 - **`SubscribeSessionRunner`** — long-lived loop that owns active peer
   selection and drives one `BlockStreamSubscribeUnparsedClient` call at a
-  time. Runs on a dedicated platform thread.
+  time. Runs on a virtual thread. (Issue [#2091](https://github.com/hiero-ledger/hiero-block-node/issues/2091) —
+  Helidon HTTP/2 on virtual threads in K8s — was closed 2026-02-04, so the
+  Backfill-era workaround of pinning to a platform thread is no longer
+  required. If we discover a new virtual-thread interaction on the
+  `BlockStreamSubscribeUnparsedClient` path we can revisit, but the default
+  should track the current Backfill choice.)
 - **`SubscribedBlockPublisher`** — thin adapter that receives frames from
   the streaming callback and publishes `SubscribedBlockNotification`s onto
   the **Unvalidated Blocks ring buffer**. Two internal strategies:
@@ -254,13 +268,54 @@ Downstream consumers of the Unvalidated Blocks ring:
   `VerificationNotification` / `PersistedNotification` mechanism), so no
   changes needed there.
 
-Ordering:
+**Provenance — `BlockSource.SUBSCRIBED`.** Blocks injected by this plugin
+carry a new `BlockSource.SUBSCRIBED` enum value on the downstream
+`VerificationNotification` and `PersistedNotification` messages. This is a
+one-line addition to `BlockSource.java` (currently `UNKNOWN`, `PUBLISHER`,
+`BACKFILL`, `HISTORY`) so downstream plugins can:
 
-- Immediate mode preserves peer ordering per stream because
-  `SubscribeSessionRunner` is single-threaded; item sets are published in
-  arrival order per block.
-- Full-block mode is strictly ordered by construction: one notification per
-  block, emitted only on `BlockEnd`, in ascending block number.
+- Prioritize `PUBLISHER` blocks over `SUBSCRIBED` blocks on shared
+  work-queues, matching the team's agreement to protect the publisher path.
+- Emit source-labeled metrics (`persist_duration_seconds{source=…}`,
+  `verification_failures_total{source=…}`).
+- Skip specific downstream behaviours (e.g. subscriber fan-out re-emission)
+  for `SUBSCRIBED` blocks if a downstream consumer wants replica-only
+  processing.
+
+The value is set by `SubscribedBlockPublisher` when constructing the
+`SubscribedBlockNotification` and propagates through
+`VerificationServicePlugin` into the notification-ring events it emits.
+
+**Ordering guarantees.**
+
+- **Per-block, per-stream:** `SubscribeSessionRunner` is single-threaded
+  (one active peer, one open subscribe RPC). Frames from the peer arrive
+  in wire order — items ascending within a block, `BlockEnd` marking
+  each block boundary, blocks ascending by block number. Multiple blocks'
+  items therefore *cannot* interleave at the plugin's input.
+- **Immediate mode:** the plugin publishes one `SubscribedBlockNotification`
+  per received `BlockItemSetUnparsed` in arrival order. Because the plugin
+  is single-threaded, items for block N always land on the Unvalidated
+  Blocks ring before any items for block N+1. Each notification carries
+  the explicit `block_number`, so a downstream consumer never needs to
+  infer boundaries from ordering alone — it can partition by
+  `block_number` even if the ring reorders (it doesn't, but this is
+  defensive).
+- **Full-block mode:** trivially ordered — one notification per assembled
+  block, emitted only on `BlockEnd`, in ascending block number. The
+  plugin's per-block buffer is drained in the same single thread.
+- **What `VerificationServicePlugin` already enforces on the item ring:**
+  per-block ordering via `BlockItems.blockNumber` +
+  `isStartOfNewBlock`/`isEndOfBlock` flags on `sendBlockItems`. The
+  Unvalidated Blocks ring uses a different message shape
+  (`SubscribedBlockNotification` with explicit `block_number` and a
+  `oneof`), so the plugin's ordering contract is delivered by the
+  notification schema itself rather than by ring semantics. No new
+  cross-plugin ordering primitives are required.
+- **Failover:** on a peer switch mid-stream, the new session opens with
+  `start_block_number = local_tip + 1` (see the Failover section). This
+  can't produce out-of-order blocks downstream — the ring only sees
+  blocks with `block_number > local_tip` from the moment of switchover.
 
 ### Relationship to Backfill
 
@@ -353,7 +408,7 @@ flowchart TB
 
   subgraph Local["Local Block Node"]
     subgraph Plugin["SubscribeClientPlugin"]
-      SSR["SubscribeSessionRunner<br/>(platform thread)"]
+      SSR["SubscribeSessionRunner<br/>(virtual thread)"]
       SBP["SubscribedBlockPublisher<br/>(Immediate | FullBlock strategy)"]
       SEL["PriorityHealthBasedStrategy"]
       SH["SourceHealth"]
