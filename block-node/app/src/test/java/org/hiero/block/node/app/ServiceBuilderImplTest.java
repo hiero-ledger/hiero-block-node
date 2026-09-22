@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -20,7 +21,10 @@ import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
 import java.util.Map;
+import org.hiero.block.node.app.config.BlockReadBulkheadConfig;
 import org.hiero.block.node.app.config.ServerConfig;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -42,7 +46,25 @@ class ServiceBuilderImplTest {
         final Http2Config http2Config = Http2Config.builder().build();
         final SocketOptions socketOptions = SocketOptions.builder().build();
         ServerConfig testConfig = new ServerConfig(0, 0, 0, PUBLISHER_PORT, 0, 0, 0, 0, false, 0, 0);
-        serviceBuilder = new ServiceBuilderImpl(testConfig, http2Config, socketOptions);
+        final BlockReadBulkheadConfig blockReadBulkheadConfig = new BlockReadBulkheadConfig(50);
+        final MetricRegistry metricRegistry = MetricRegistry.builder()
+                .setMetricsExporter(new TestMetricsExporter())
+                .build();
+        serviceBuilder =
+                new ServiceBuilderImpl(testConfig, http2Config, socketOptions, blockReadBulkheadConfig, metricRegistry);
+    }
+
+    @Test
+    @DisplayName("blockReadBulkhead should return a non-null, correctly-sized bulkhead")
+    void blockReadBulkhead_returnsConfiguredBulkhead() {
+        assertNotNull(serviceBuilder.blockReadBulkhead());
+        assertEquals(50, serviceBuilder.blockReadBulkhead().totalPermits());
+    }
+
+    @Test
+    @DisplayName("blockReadBulkhead should return the same shared instance on every call")
+    void blockReadBulkhead_returnsSameInstance() {
+        assertSame(serviceBuilder.blockReadBulkhead(), serviceBuilder.blockReadBulkhead());
     }
 
     @Test
