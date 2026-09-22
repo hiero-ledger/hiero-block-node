@@ -798,6 +798,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      */
     void sendBlockItemsChunked(final List<BlockItemUnparsed> allItems) {
         final int maxChunkBytes = sessionContext.subscriberConfig.maxChunkSizeBytes();
+        final int maxSingleItemBytes = sessionContext.subscriberConfig.maxSingleItemSizeBytes();
         int currentIndex = 0;
 
         while (currentIndex < allItems.size()) {
@@ -807,6 +808,20 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             // Build chunk until we approach max size
             while (currentIndex < allItems.size()) {
                 final int itemSize = BlockItemUnparsed.PROTOBUF.measureRecord(allItems.get(currentIndex));
+
+                // Hard limit: PBJ cannot serialize a single item larger than this into one response.
+                // Sending it would throw RuntimeException and close the stream silently with no error code.
+                if (itemSize > maxSingleItemBytes) {
+                    LOGGER.log(
+                            Level.ERROR,
+                            "Block item [{0}] is {1} bytes which exceeds the PBJ per-item serialization"
+                                    + " limit of {2} bytes; closing stream with ERROR",
+                            currentIndex,
+                            itemSize,
+                            maxSingleItemBytes);
+                    close(Code.ERROR);
+                    return;
+                }
 
                 // If adding this item would exceed max and chunk is not empty, break
                 // (item will ship by itself in the next iteration)
