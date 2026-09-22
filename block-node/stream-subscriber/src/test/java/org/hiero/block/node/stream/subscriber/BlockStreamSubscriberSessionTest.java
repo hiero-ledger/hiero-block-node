@@ -7,9 +7,14 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleHeaderUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleProofUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleRoundHeaderUnparsed;
+import static org.hiero.block.node.base.ParseHelper.standardParse;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -18,6 +23,7 @@ import java.util.stream.Stream;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfType;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
@@ -1417,6 +1423,127 @@ class BlockStreamSubscriberSessionTest {
             return BlockItemUnparsed.newBuilder()
                     .roundHeader(com.hedera.pbj.runtime.io.buffer.Bytes.wrap(padding))
                     .build();
+        }
+    }
+
+    /**
+     * Tests for the hard per-item size limit in
+     * {@link BlockStreamSubscriberSession#sendBlockItemsChunked}.
+     *
+     * <p>Background: block 837,080 on mainnet contains a single {@code recordFile}
+     * block item of ~27.66 MB. PBJ cannot serialize a {@code SubscribeStreamResponse}
+     * containing this item (hard limit ~4 MB). Before the fix, the session called
+     * {@code close(null)} on failure, sending {@code onComplete} with zero items and
+     * no status code, leaving the backfill client unable to distinguish the failure
+     * from a successful empty response. The fix detects items that exceed
+     * {@link SubscriberConfig#maxSingleItemSizeBytes()} and closes the stream with
+     * {@link Code#ERROR} so the caller receives an unambiguous error.
+     */
+    @Nested
+    @DisplayName("Oversized Block Item Tests")
+    class OversizedBlockItemTests {
+        /**
+         * Synthetic test: a block item larger than {@code maxSingleItemSizeBytes}
+         * must close the stream with {@link Code#ERROR} and not silently send
+         * {@code onComplete} with zero block items.
+         *
+         * <p>This test is always runnable (no external file required) and directly
+         * reproduces the failure mode observed with block 837,080.
+         */
+        @Test
+        @DisplayName("item exceeding maxSingleItemSizeBytes closes stream with ERROR")
+        void testOversizedItemClosesStreamWithError() {
+            // Configure a 1 MB hard limit so we don't need a multi-megabyte item in the test
+            final int hardLimitBytes = 1_048_576; // 1 MB
+            final Configuration cfg = ConfigurationBuilder.create()
+                    .withConfigDataType(SubscriberConfig.class)
+                    .withValue("subscriber.maxChunkSizeBytes", "100000")
+                    .withValue("subscriber.maxSingleItemSizeBytes", String.valueOf(hardLimitBytes))
+                    .build();
+            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+            final BlockNodeContext ctx = generateContext(cfg, messaging, historicalBlockFacility);
+            final TestResponsePipeline<SubscribeStreamResponseUnparsed> pipeline = new TestResponsePipeline<>();
+
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(0L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, ctx), pipeline, ctx, sessionReadyLatch);
+
+            // Create one item just over the hard limit (hardLimitBytes + 1 byte padding)
+            final byte[] padding = new byte[hardLimitBytes + 1];
+            final BlockItemUnparsed oversizedItem = BlockItemUnparsed.newBuilder()
+                    .roundHeader(Bytes.wrap(padding))
+                    .build();
+
+            session.sendBlockItemsChunked(List.of(sampleHeaderUnparsed(0), oversizedItem, sampleProofUnparsed(0)));
+
+            // The stream must have sent exactly one STATUS response with Code.ERROR
+            assertThat(pipeline.getOnNextCalls())
+                    .hasSize(1)
+                    .first()
+                    .returns(ResponseOneOfType.STATUS, responseTypeExtractor)
+                    .returns(Code.ERROR, responseStatusExtractor);
+            // And then closed
+            assertThat(pipeline.getOnCompleteCalls()).hasValue(1);
+        }
+
+        /**
+         * Integration test using the actual block 837,080 binary.
+         *
+         * <p>This test is skipped automatically when the file is not present (CI).
+         * To run it locally, download {@code wrb-837080.blk} and place it at
+         * {@code ~/Downloads/wrb-837080.blk}.
+         *
+         * <p>Block 837,080 contains a single {@code recordFile} item of 29,000,260
+         * bytes (~27.66 MB) — 6.9× the default 4 MB PBJ limit. Before the fix this
+         * caused a silent {@code onComplete} with zero blocks; after the fix the
+         * session must close with {@link Code#ERROR}.
+         */
+        @Test
+        @DisplayName("block 837080 recordFile item (27.66 MB) closes stream with ERROR")
+        void testBlock837080ClosesStreamWithError() throws Exception {
+            final Path blockFile = Path.of(System.getProperty("user.home"), "Downloads", "wrb-837080.blk");
+            assumeTrue(Files.exists(blockFile), "wrb-837080.blk not found at " + blockFile + " — skipping");
+
+            final byte[] rawBytes = Files.readAllBytes(blockFile);
+            final BlockUnparsed block = standardParse(
+                    BlockUnparsed.PROTOBUF,
+                    Bytes.wrap(rawBytes),
+                    SubscriberConfig.DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES);
+            final List<BlockItemUnparsed> items = block.blockItems();
+
+            // Confirm the file contains the known oversized recordFile item
+            final int recordFileSize = BlockItemUnparsed.PROTOBUF.measureRecord(items.get(1));
+            assertThat(recordFileSize)
+                    .as("recordFile item size")
+                    .isGreaterThan(SubscriberConfig.DEFAULT_MAX_SINGLE_ITEM_SIZE_BYTES);
+
+            // Run through sendBlockItemsChunked with the default 4 MB limit
+            final Configuration cfg = ConfigurationBuilder.create()
+                    .withConfigDataType(SubscriberConfig.class)
+                    .build();
+            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+            final BlockNodeContext ctx = generateContext(cfg, messaging, historicalBlockFacility);
+            final TestResponsePipeline<SubscribeStreamResponseUnparsed> pipeline = new TestResponsePipeline<>();
+
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(837080L)
+                    .endBlockNumber(837080L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, ctx), pipeline, ctx, sessionReadyLatch);
+
+            session.sendBlockItemsChunked(items);
+
+            // Must receive exactly one STATUS/ERROR — not a silent onComplete with zero items
+            assertThat(pipeline.getOnNextCalls())
+                    .hasSize(1)
+                    .first()
+                    .returns(ResponseOneOfType.STATUS, responseTypeExtractor)
+                    .returns(Code.ERROR, responseStatusExtractor);
+            assertThat(pipeline.getOnCompleteCalls()).hasValue(1);
         }
     }
 
