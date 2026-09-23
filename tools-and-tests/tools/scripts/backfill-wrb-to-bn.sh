@@ -130,7 +130,10 @@ WRB_SOURCE_DIR=""
 SOLO_PROFILE=""
 SOLO_CONFIG=""
 SOLO_VALUES=""
-SOLO_EXTRA_FLAGS=(--skip-hardware-checks --non-interactive)
+# Operators on undersized VMs (e.g. smoke-test shape) should pass
+# `--solo-flag --skip-hardware-checks` explicitly. It is NOT default so that
+# operators running on production-sized VMs still get the hardware check.
+SOLO_EXTRA_FLAGS=(--non-interactive)
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --install-and-seed) MODE="install-and-seed"; shift ;;
@@ -220,8 +223,8 @@ run_pre_install() {
 
     # 3. Locate PV host path (hostPath OR local)
     local pv_host_path
-    pv_host_path=$(kubectl get pv "$pv_name" -o jsonpath='{.spec.hostPath.path}')
-    [[ -n "$pv_host_path" ]] || pv_host_path=$(kubectl get pv "$pv_name" -o jsonpath='{.spec.local.path}')
+    pv_host_path=$("${kctl[@]}" get pv "$pv_name" -o jsonpath='{.spec.hostPath.path}')
+    [[ -n "$pv_host_path" ]] || pv_host_path=$("${kctl[@]}" get pv "$pv_name" -o jsonpath='{.spec.local.path}')
     [[ -n "$pv_host_path" ]] || fail "PV $pv_name is not a hostPath / local volume (nfs/gce-pd/... requires --post-install mode)"
     log "  PV host path:          $pv_host_path"
 
