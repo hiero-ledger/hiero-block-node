@@ -37,14 +37,14 @@ events:
   - id: stop-load
     type: load-stop
     description: "Stop load generation (cleanup)"
-    delay: 220  # ~30s buffer after load ends naturally
+    delay: 300
     args:
       test_class: CryptoTransferLoadTest
 
   - id: final-metrics
     type: print-metrics
     description: "Print final metrics"
-    delay: 240  # 4 minutes total
+    delay: 320
     args:
       target: all
 

@@ -11,7 +11,7 @@ Set Release name and version to install.
 
 ```bash
 export RELEASE="simulator-release"
-export VERSION="0.43.0-SNAPSHOT"
+export VERSION="0.44.0-SNAPSHOT"
 ```
 
 ## Template

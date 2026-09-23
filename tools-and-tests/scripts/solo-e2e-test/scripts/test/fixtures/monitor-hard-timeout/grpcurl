@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fake grpcurl for the real monitor-block-proofs.sh: every block is NOT_AVAILABLE,
+# so the scan loop waits forever and only the max_block*2 deadline can end it.
+echo '{ "status": "NOT_AVAILABLE" }'
