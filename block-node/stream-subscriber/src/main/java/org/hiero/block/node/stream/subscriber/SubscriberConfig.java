@@ -29,14 +29,7 @@ import org.hiero.block.node.base.Loggable;
  *     when streaming historical blocks. Large blocks are split into chunks to stay
  *     within PBJ's buffer allocation limit (4MB). The default of 1MB provides
  *     headroom for protobuf overhead. If a single item exceeds this limit but is
- *     under {@code maxSingleItemSizeBytes}, it will be sent by itself.
- * @param maxSingleItemSizeBytes The hard upper limit in bytes for a single
- *     {@code BlockItemUnparsed} that can be serialized into one
- *     {@code SubscribeStreamResponse}. PBJ allocates a contiguous buffer when
- *     serializing each response; items larger than this limit cannot be serialized
- *     and will cause the session to close with {@code Code.ERROR}. The default of
- *     4MB matches PBJ's known serialization buffer limit. This value must be
- *     greater than or equal to {@code maxChunkSizeBytes}.
+ *     under 4MB, it will be sent by itself.
  * @param maxProtobufMessageSizeBytes The maximum protobuf message size, in bytes,
  *     accepted while parsing a block that is streamed to a subscriber.
  * @param port The dedicated port this plugin's gRPC service binds to. When {@code null} (the
@@ -52,13 +45,9 @@ public record SubscriberConfig(
         @Loggable @ConfigProperty(defaultValue = "4000") @Min(10) long maximumFutureRequest,
         @Loggable @ConfigProperty(defaultValue = "400") @Min(10) int minimumLiveQueueCapacity,
         @Loggable @ConfigProperty(defaultValue = "1_048_576") @Min(100_000) int maxChunkSizeBytes,
-        // defaultValue must match DEFAULT_MAX_SINGLE_ITEM_SIZE_BYTES (annotation requires a String literal)
-        @Loggable @ConfigProperty(defaultValue = "4_194_304") @Min(1_048_576) @Max(134_217_728) int maxSingleItemSizeBytes,
         // defaultValue must match DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES (annotation requires a String literal)
         @Loggable @ConfigProperty(defaultValue = "131_072_000") @Min(1_048_576) @Max(1_610_612_736) int maxProtobufMessageSizeBytes,
         @Loggable @ConfigProperty(defaultValue = ConfigProperty.NULL_DEFAULT_VALUE) Integer port) {
-    /** Default for {@code maxSingleItemSizeBytes}; must match the {@code @ConfigProperty(defaultValue = ...)} literal above. */
-    public static final int DEFAULT_MAX_SINGLE_ITEM_SIZE_BYTES = 4_194_304;
     /** Default for {@code maxProtobufMessageSizeBytes}; must match the {@code @ConfigProperty(defaultValue = ...)} literal above. */
     public static final int DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES = 131_072_000;
 }
