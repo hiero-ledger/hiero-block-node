@@ -1427,42 +1427,57 @@ class BlockStreamSubscriberSessionTest {
     }
 
     /**
-     * Tests for the hard per-item size limit in
-     * {@link BlockStreamSubscriberSession#sendBlockItemsChunked}.
+     * Tests that transport failures during block item delivery are captured and
+     * reported as {@link Code#ERROR} rather than silently closing the stream.
      *
      * <p>Background: block 837,080 on mainnet contains a single {@code recordFile}
-     * block item of ~27.66 MB. PBJ cannot serialize a {@code SubscribeStreamResponse}
-     * containing this item (hard limit ~4 MB). Before the fix, the session called
-     * {@code close(null)} on failure, sending {@code onComplete} with zero items and
-     * no status code, leaving the backfill client unable to distinguish the failure
-     * from a successful empty response. The fix detects items that exceed
-     * {@link SubscriberConfig#maxSingleItemSizeBytes()} and closes the stream with
-     * {@link Code#ERROR} so the caller receives an unambiguous error.
+     * block item of ~27.66 MB. When PBJ tries to write this into a single HTTP/2
+     * DATA frame, the frame exceeds the client's negotiated {@code SETTINGS_MAX_FRAME_SIZE}
+     * (~4 MB) and the write throws a {@link RuntimeException}. Before the fix, the
+     * session caught the exception and called {@code close(null)}, sending
+     * {@code onComplete} with no status code, leaving the backfill client unable to
+     * distinguish the failure from a successful empty response. The fix logs the
+     * exception at ERROR level and calls {@code close(Code.ERROR)} so the caller
+     * receives an unambiguous error code.
      */
     @Nested
     @DisplayName("Oversized Block Item Tests")
     class OversizedBlockItemTests {
+
         /**
-         * Synthetic test: a block item larger than {@code maxSingleItemSizeBytes}
-         * must close the stream with {@link Code#ERROR} and not silently send
-         * {@code onComplete} with zero block items.
+         * A pipeline that simulates transport failure by throwing on any
+         * {@code BLOCK_ITEMS} response while passing {@code STATUS} responses through.
+         * This reproduces the behavior of {@code PbjProtocolHandler} when a gRPC
+         * message is too large to fit in a single HTTP/2 DATA frame.
+         */
+        private static class ThrowingOnBlockItemsPipeline
+                extends TestResponsePipeline<SubscribeStreamResponseUnparsed> {
+            @Override
+            public void onNext(final SubscribeStreamResponseUnparsed item) {
+                if (item.response().kind() == ResponseOneOfType.BLOCK_ITEMS) {
+                    throw new RuntimeException("simulated transport failure: frame too large");
+                }
+                super.onNext(item);
+            }
+        }
+
+        /**
+         * Synthetic test: when the transport layer throws while delivering a
+         * {@code BLOCK_ITEMS} response, the session must close with {@link Code#ERROR}
+         * and not silently send {@code onComplete} with no status code.
          *
          * <p>This test is always runnable (no external file required) and directly
          * reproduces the failure mode observed with block 837,080.
          */
         @Test
-        @DisplayName("item exceeding maxSingleItemSizeBytes closes stream with ERROR")
-        void testOversizedItemClosesStreamWithError() {
-            // Configure a 1 MB hard limit so we don't need a multi-megabyte item in the test
-            final int hardLimitBytes = 1_048_576; // 1 MB
+        @DisplayName("transport exception during block item delivery closes stream with ERROR")
+        void testTransportExceptionClosesStreamWithError() {
             final Configuration cfg = ConfigurationBuilder.create()
                     .withConfigDataType(SubscriberConfig.class)
-                    .withValue("subscriber.maxChunkSizeBytes", "100000")
-                    .withValue("subscriber.maxSingleItemSizeBytes", String.valueOf(hardLimitBytes))
                     .build();
             final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
             final BlockNodeContext ctx = generateContext(cfg, messaging, historicalBlockFacility);
-            final TestResponsePipeline<SubscribeStreamResponseUnparsed> pipeline = new TestResponsePipeline<>();
+            final ThrowingOnBlockItemsPipeline pipeline = new ThrowingOnBlockItemsPipeline();
 
             final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                     .startBlockNumber(0L)
@@ -1471,13 +1486,7 @@ class BlockStreamSubscriberSessionTest {
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
                     SessionContext.create(clientId, request, ctx), pipeline, ctx, sessionReadyLatch);
 
-            // Create one item just over the hard limit (hardLimitBytes + 1 byte padding)
-            final byte[] padding = new byte[hardLimitBytes + 1];
-            final BlockItemUnparsed oversizedItem = BlockItemUnparsed.newBuilder()
-                    .roundHeader(Bytes.wrap(padding))
-                    .build();
-
-            session.sendBlockItemsChunked(List.of(sampleHeaderUnparsed(0), oversizedItem, sampleProofUnparsed(0)));
+            session.sendBlockItemsChunked(List.of(sampleHeaderUnparsed(0), sampleProofUnparsed(0)));
 
             // The stream must have sent exactly one STATUS response with Code.ERROR
             assertThat(pipeline.getOnNextCalls())
@@ -1497,12 +1506,12 @@ class BlockStreamSubscriberSessionTest {
          * {@code ~/Downloads/wrb-837080.blk}.
          *
          * <p>Block 837,080 contains a single {@code recordFile} item of 29,000,260
-         * bytes (~27.66 MB) — 6.9× the default 4 MB PBJ limit. Before the fix this
-         * caused a silent {@code onComplete} with zero blocks; after the fix the
-         * session must close with {@link Code#ERROR}.
+         * bytes (~27.66 MB). When the transport throws while delivering this block,
+         * the session must close with {@link Code#ERROR} — not a silent
+         * {@code onComplete} with zero items.
          */
         @Test
-        @DisplayName("block 837080 recordFile item (27.66 MB) closes stream with ERROR")
+        @DisplayName("block 837080 recordFile item (27.66 MB) closes stream with ERROR on transport failure")
         void testBlock837080ClosesStreamWithError() throws Exception {
             final Path blockFile = Path.of(System.getProperty("user.home"), "Downloads", "wrb-837080.blk");
             assumeTrue(Files.exists(blockFile), "wrb-837080.blk not found at " + blockFile + " — skipping");
@@ -1514,19 +1523,16 @@ class BlockStreamSubscriberSessionTest {
                     SubscriberConfig.DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES);
             final List<BlockItemUnparsed> items = block.blockItems();
 
-            // Confirm the file contains the known oversized recordFile item
+            // Confirm the file contains the known oversized recordFile item (>4 MB)
             final int recordFileSize = BlockItemUnparsed.PROTOBUF.measureRecord(items.get(1));
-            assertThat(recordFileSize)
-                    .as("recordFile item size")
-                    .isGreaterThan(SubscriberConfig.DEFAULT_MAX_SINGLE_ITEM_SIZE_BYTES);
+            assertThat(recordFileSize).as("recordFile item size").isGreaterThan(4_194_304);
 
-            // Run through sendBlockItemsChunked with the default 4 MB limit
             final Configuration cfg = ConfigurationBuilder.create()
                     .withConfigDataType(SubscriberConfig.class)
                     .build();
             final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
             final BlockNodeContext ctx = generateContext(cfg, messaging, historicalBlockFacility);
-            final TestResponsePipeline<SubscribeStreamResponseUnparsed> pipeline = new TestResponsePipeline<>();
+            final ThrowingOnBlockItemsPipeline pipeline = new ThrowingOnBlockItemsPipeline();
 
             final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                     .startBlockNumber(837080L)
