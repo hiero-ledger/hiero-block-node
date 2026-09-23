@@ -16,6 +16,7 @@ import java.net.InetSocketAddress;
 import java.net.NoRouteToHostException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.net.URL;
 import java.net.UnknownHostException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -54,24 +55,75 @@ class MirrorNodeUtilsTest {
     void nonTransientExceptionsAreNotRetryable() {
         assertFalse(isRetryableException(NO_RESPONSE_CODE, new IOException("Stream closed")));
         assertFalse(isRetryableException(NO_RESPONSE_CODE, new IOException()));
+        // 404 with no URL context (two-arg overload) stays terminal
         assertFalse(isRetryableException(404, new IOException("HTTP 404 for URL: " + URL)));
-        // regression for #3648: "500" in the URL used to match the old message substring check
         assertFalse(isRetryableException(404, new IOException("HTTP 404 for URL: " + URL + "/5000")));
     }
 
     @Test
-    void notFoundWithStatusLikeNumberInUrlFailsWithoutRetry() throws Exception {
-        // regression for #3648: "500" in the URL used to match the message check and retry a 404
+    void notFoundOnBlocksEndpointIsRetryable() throws Exception {
+        // #3683: mirror-node returns a transient 404 when a requested block is at or
+        // just past the indexer tip. Retry the /api/v1/blocks family only.
+        URL blocksRange = new URI(URL + "?block.number=gte:100305505&limit=100&order=asc").toURL();
+        URL blocksById = new URI(URL + "/5000").toURL();
+        assertTrue(isRetryableException(404, new IOException("HTTP 404 for URL: " + blocksRange), blocksRange));
+        assertTrue(isRetryableException(404, new IOException("HTTP 404 for URL: " + blocksById), blocksById));
+    }
+
+    @Test
+    void notFoundOnNonBlocksEndpointStaysTerminal() throws Exception {
+        // 404 outside /api/v1/blocks family is a real not-found and must not retry
+        URL tokens = new URI("https://mainnet-public.mirrornode.hedera.com/api/v1/tokens/1").toURL();
+        URL accounts = new URI("https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/1").toURL();
+        assertFalse(isRetryableException(404, new IOException("HTTP 404 for URL: " + tokens), tokens));
+        assertFalse(isRetryableException(404, new IOException("HTTP 404 for URL: " + accounts), accounts));
+    }
+
+    @Test
+    void notFoundOnBlocksEndpointRetriesAndEventuallySucceeds() throws Exception {
+        // Server returns 404 once, then a 200 with a JSON body — the retry loop should
+        // reach the 200 (two requests total) instead of throwing on the first 404.
+        // One retry keeps the exponential backoff wait to its initial delay (~2s).
         AtomicInteger requests = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-        server.createContext("/", exchange -> {
+        server.createContext("/api/v1/blocks", exchange -> {
+            int n = requests.incrementAndGet();
+            if (n < 2) {
+                exchange.sendResponseHeaders(404, -1);
+            } else {
+                byte[] body = "{\"blocks\":[]}".getBytes();
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            }
+            exchange.close();
+        });
+        server.start();
+        try {
+            URL url = new URI("http://localhost:" + server.getAddress().getPort()
+                            + "/api/v1/blocks?block.number=gte:100305505&limit=100&order=asc")
+                    .toURL();
+            var json = MirrorNodeUtils.readUrl(url);
+            assertEquals(2, requests.get());
+            assertTrue(json.has("blocks"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void notFoundOnNonBlocksEndpointFailsWithoutRetry() throws Exception {
+        // A single 404 on a non-blocks path stays terminal — no retry.
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/api/v1/tokens", exchange -> {
             requests.incrementAndGet();
             exchange.sendResponseHeaders(404, -1);
             exchange.close();
         });
         server.start();
         try {
-            var url = new URI("http://localhost:" + server.getAddress().getPort() + "/api/v1/blocks/5000").toURL();
+            URL url = new URI("http://localhost:" + server.getAddress().getPort() + "/api/v1/tokens/1").toURL();
             assertThrows(UncheckedIOException.class, () -> MirrorNodeUtils.readUrl(url));
             assertEquals(1, requests.get());
         } finally {
