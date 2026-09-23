@@ -4,7 +4,7 @@ package org.hiero.block.node.stream.publisher;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.swirlds.config.api.Configuration;
-import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.PublishStreamResponse;
@@ -69,7 +69,7 @@ class LiveStreamPublisherManagerFlowControlTest {
             final MetricsHolder managerMetrics = MetricsHolder.createMetrics(registry);
             final PublisherHandler.MetricsHolder handlerMetrics =
                     PublisherHandler.MetricsHolder.createMetrics(registry);
-            manager = new LiveStreamPublisherManager(context, managerMetrics);
+            manager = new LiveStreamPublisherManager(context, managerMetrics, List.of());
             handler = manager.addHandler(new TestResponsePipeline<PublishStreamResponse>(), handlerMetrics, null);
         }
 
@@ -184,7 +184,7 @@ class LiveStreamPublisherManagerFlowControlTest {
             final MetricsHolder managerMetrics = MetricsHolder.createMetrics(registry);
             final PublisherHandler.MetricsHolder handlerMetrics =
                     PublisherHandler.MetricsHolder.createMetrics(registry);
-            manager = new LiveStreamPublisherManager(context, managerMetrics);
+            manager = new LiveStreamPublisherManager(context, managerMetrics, List.of());
             handler1 = manager.addHandler(new TestResponsePipeline<PublishStreamResponse>(), handlerMetrics, null);
             handler2 = manager.addHandler(new TestResponsePipeline<PublishStreamResponse>(), handlerMetrics, null);
         }
@@ -261,7 +261,7 @@ class LiveStreamPublisherManagerFlowControlTest {
             final MetricsHolder managerMetrics = MetricsHolder.createMetrics(registry);
             final PublisherHandler.MetricsHolder handlerMetrics =
                     PublisherHandler.MetricsHolder.createMetrics(registry);
-            manager = new LiveStreamPublisherManager(context, managerMetrics);
+            manager = new LiveStreamPublisherManager(context, managerMetrics, List.of());
             handler = manager.addHandler(new TestResponsePipeline<PublishStreamResponse>(), handlerMetrics, null);
         }
 
@@ -317,10 +317,6 @@ class LiveStreamPublisherManagerFlowControlTest {
                 new TestApplicationStateFacility(),
                 null,
                 threadPoolManager,
-                null,
-                null,
-                null,
-                new ArrayList<>(),
-                new ArrayList<>());
+                null);
     }
 }

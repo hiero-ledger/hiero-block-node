@@ -46,20 +46,19 @@ import org.hiero.metrics.core.MetricRegistry;
 /// {@link ApplicationStateFacility#updateAddressBookHistory}.
 ///
 /// File loading is handled by {@code BlockNodeApp}: it reads the history file (or the legacy
-/// single-book file) in {@code loadApplicationState()} before plugins are initialised. This
-/// plugin's sole responsibility is to check whether the history was already loaded and, if not,
-/// to fetch it from a peer block node or the Mirror Node.
+/// single-book file, wrapped into a single open-ended era) in {@code loadApplicationState()} and
+/// stores it in the {@link ApplicationStateFacility}. This plugin's sole responsibility is to check
+/// whether {@link ApplicationStateFacility#rangedAddressBookHistory()} already holds a history and,
+/// if not, to fetch it from a peer block node or the Mirror Node.
 ///
 /// **Startup sequence:**
 ///
-/// 1. If {@code context.nodeAddressBookHistory()} is non-null: history was pre-loaded — emit
-///    metrics and return (no periodic refresh; history updates are an operator concern).
-/// 2. If {@code context.nodeAddressBook()} is non-null: a single-book file was pre-loaded —
-///    emit metrics and schedule periodic peer BN / Mirror Node refreshes.
-/// 3. Otherwise, start concurrent peer BN and Mirror Node fallback queries. The Mirror Node
+/// 1. If the application state facility already holds a history: emit metrics and return (no
+///    periodic refresh; history updates are an operator concern).
+/// 2. Otherwise, start concurrent peer BN and Mirror Node fallback queries. The Mirror Node
 ///    path builds a full {@link org.hiero.block.api.RangedAddressBookHistory} by converting
 ///    each node entry's timestamp range to a block-number range via the blocks API.
-/// 4. If neither source succeeds and {@code mirrorNodeBaseUrl} is blank: log WARNING and return.
+/// 3. If neither source succeeds and {@code mirrorNodeBaseUrl} is blank: log WARNING and return.
 ///
 /// See {@code docs/design/wrb-streaming/bootstrap-roster-plugin.md} for the full design.
 public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
@@ -173,35 +172,17 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         }
     }
 
-    /// {@inheritDoc}
-    @Override
-    public void onContextUpdate(final BlockNodeContext updatedContext) {
-        this.context = updatedContext;
-    }
-
     /// Implements the bootstrap strategy:
-    /// 1. History file loaded (preferred) → record history metrics; no periodic refresh
+    /// 1. History present → record history metrics; no periodic refresh
     ///    (history updates are an operator / T3 concern).
-    /// 2. Single address book loaded → record book metrics; schedule periodic peer BN and Mirror
-    ///    Node refreshes as before.
-    /// 3. Neither loaded → start concurrent peer BN and Mirror Node fallback queries.
+    /// 2. No history → start concurrent peer BN and Mirror Node fallback queries.
     @Override
     public void start() {
         long startTimeMillis = System.currentTimeMillis();
 
-        // Prefer the block-number-keyed history over the legacy single-book
-        final RangedAddressBookHistory history = context.rangedAddressBookHistory();
+        final RangedAddressBookHistory history = applicationStateFacility.rangedAddressBookHistory();
         if (history != null) {
             recordHistoryMetrics(history, startTimeMillis);
-            return;
-        }
-
-        final NodeAddressBook book = context.nodeAddressBook();
-        if (book != null) {
-            // Single-book file was pre-loaded by BlockNodeApp
-            recordSuccessMetrics(book, startTimeMillis, "File");
-            schedulePeriodicBlockNodeRefresh();
-            schedulePeriodicMirrorNodeRefresh();
             return;
         }
 
@@ -287,8 +268,9 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// Fetches node entries from the Mirror Node REST API and builds or incrementally updates
     /// the {@link RangedAddressBookHistory}.
     ///
-    /// <p><b>Full build</b> (when no history exists in context): all pages are fetched, every era
-    /// timestamp pair is resolved to a block range, and a complete history is constructed.
+    /// <p><b>Full build</b> (when the application state facility holds no history): all pages are
+    /// fetched, every era timestamp pair is resolved to a block range, and a complete history is
+    /// constructed.
     ///
     /// <p><b>Incremental update</b> (when history already exists): pages are fetched newest-first
     /// ({@code order=desc}) and pagination stops as soon as an era whose block range is already
@@ -297,7 +279,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// ({@code endBlock = newStartBlock - 1}) and the new eras are appended.
     private void fetchFromMirrorNode() {
         final long startTimeMillis = System.currentTimeMillis();
-        final RangedAddressBookHistory currentHistory = context.rangedAddressBookHistory();
+        final RangedAddressBookHistory currentHistory = applicationStateFacility.rangedAddressBookHistory();
         final boolean hasHistory =
                 currentHistory != null && !currentHistory.addressBooks().isEmpty();
         final long currentLastStartBlock = hasHistory
@@ -539,17 +521,6 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
-
-    private void recordSuccessMetrics(NodeAddressBook book, long startTimeMillis, String source) {
-        rosterEntriesLoaded = book.nodeAddress().size();
-        rosterLoadDurationMs = System.currentTimeMillis() - startTimeMillis;
-        LOGGER.log(
-                INFO,
-                "RSA roster available: {0} entries obtained from {1} in {2}ms",
-                rosterEntriesLoaded,
-                source,
-                rosterLoadDurationMs);
-    }
 
     private void recordHistoryMetrics(RangedAddressBookHistory history, long startTimeMillis) {
         rosterErasLoaded = history.addressBooks().size();

@@ -37,8 +37,7 @@ class BlockSessionHandlerTest {
     /// Setup before each test.
     @BeforeEach
     void setUp() {
-        final BlockNodeContext context =
-                new BlockNodeContext(null, null, null, null, null, null, null, null, null, null, null, null, null);
+        final BlockNodeContext context = new BlockNodeContext(null, null, null, null, null, null, null, null, null);
         metrics = MetricsHolder.create(TestUtils.createMetrics());
         final TestConfigurationBuilder configBuilder = new TestConfigurationBuilder();
         final VerificationConfig verificationConfig = configBuilder

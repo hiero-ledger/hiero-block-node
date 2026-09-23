@@ -7,21 +7,28 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
+import com.hedera.hapi.node.base.NodeAddressBook;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
+import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.metrics.LongCounter;
@@ -31,7 +38,8 @@ import org.hiero.metrics.core.MetricRegistry;
 /**
  * Plugin that implements the BlockNodeService and provides the 'serverStatus' RPC.
  */
-public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServiceInterface {
+public class ServerStatusServicePlugin
+        implements BlockNodePlugin, BlockNodeServiceInterface, ApplicationStateNotificationHandler {
     /** Metric key for the number of server status requests */
     public static final MetricKey<LongCounter> METRIC_SERVER_STATUS_REQUESTS =
             MetricKey.of("server_status_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -53,6 +61,11 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     private LongCounter.Measurement requestDetailCounter;
     /** Scheduler for the periodic status heartbeat; null when the heartbeat is disabled. */
     private ScheduledExecutorService heartbeatExecutor;
+    // Individual volatile state fields updated by ApplicationStateNotificationHandler
+    private volatile List<BlockRange> storedBlocks = List.of();
+    private volatile List<BlockRange> availableBlocks = List.of();
+    private volatile TssData tssData = null;
+    private volatile RangedAddressBookHistory rangedAddressBookHistory = null;
 
     /**
      * Handle a request for server status
@@ -109,52 +122,26 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusRequest request) {
         requestDetailCounter.increment();
 
-        // blockNodeContext is volatile, assign to local variable so reference stays consistent
-        final BlockNodeContext context = blockNodeContext;
+        // Capture volatile snapshots for a consistent read within this call.
+        final List<BlockRange> localAvailable = availableBlocks;
+        final List<BlockRange> localStored = storedBlocks;
+        final TssData localTss = tssData;
+        final RangedAddressBookHistory localHistory = rangedAddressBookHistory;
 
-        // serverStatus has the latest max available block. serverStatusDetail has an up to .5s old
-        // snapshot. This will align the lastBlock range end with what serverStatus would report without
-        // having to rebuild the entire available Blocks list.
-        final long liveMax = blockProvider.availableBlocks().max();
-        List<BlockRange> fixedAvailable = !context.availableBlocks().isEmpty()
-                        && liveMax != UNKNOWN_BLOCK_NUMBER
-                        && context.availableBlocks().getLast().rangeEnd() != liveMax
-                ? fixAvailable(context.availableBlocks(), liveMax)
-                : context.availableBlocks();
+        // Derive the latest NodeAddressBook from the history: the address book of its last era.
+        final NodeAddressBook nodeAddressBook =
+                localHistory != null && !localHistory.addressBooks().isEmpty()
+                        ? localHistory.addressBooks().getLast().addressBook()
+                        : null;
 
-        // Return detailed block node status information. Every field is read from the
-        // periodically-refreshed context snapshot: this keeps the response internally consistent
-        // and avoids recomputing the merged available ranges on every request (the context already
-        // holds the merged List<BlockRange> maintained by the application state facility).
         return ServerStatusDetailResponse.newBuilder()
-                .versionInformation(context.blockNodeVersions())
-                .availableRanges(fixedAvailable)
-                .storedRanges(context.storedBlocks())
-                .tssData(context.tssData())
-                .nodeAddressBook(context.nodeAddressBook())
-                .rangedAddressBookHistory(context.rangedAddressBookHistory())
+                .versionInformation(blockNodeContext.blockNodeVersions())
+                .availableRanges(localAvailable)
+                .storedRanges(localStored)
+                .tssData(localTss)
+                .nodeAddressBook(nodeAddressBook)
+                .rangedAddressBookHistory(localHistory)
                 .build();
-    }
-
-    /**
-     * Returns a copy of {@code availableBlocks} whose last range end is aligned with the live
-     * {@code liveMax}. A copy is returned because the supplied list is the shared, immutable context
-     * snapshot (see {@code ApplicationStateUtility.toBlockRange}); it must never be mutated in place.
-     *
-     * @param availableBlocks the context snapshot of available ranges (never empty)
-     * @param liveMax the live maximum available block number to align the last range end with
-     * @return a new list with the last range end aligned to the live max
-     */
-    private List<BlockRange> fixAvailable(final List<BlockRange> availableBlocks, final long liveMax) {
-        final BlockRange lastBlockRange = availableBlocks.getLast();
-        final BlockRange newLastBlockRange = BlockRange.newBuilder()
-                .rangeStart(lastBlockRange.rangeStart())
-                .rangeEnd(liveMax)
-                .build();
-
-        final List<BlockRange> aligned = new ArrayList<>(availableBlocks);
-        aligned.set(aligned.size() - 1, newLastBlockRange);
-        return aligned;
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
@@ -189,6 +176,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         final Integer port =
                 context.configuration().getConfigData(ServerStatusConfig.class).port();
         serviceBuilder.registerGrpcService(port, this);
+        context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
     }
 
     @Override
@@ -210,6 +198,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
     @Override
     public void stop() {
+        blockNodeContext.blockMessaging().unregisterApplicationStateNotificationHandler(this);
         if (heartbeatExecutor == null) {
             return;
         }
@@ -261,12 +250,23 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         LOGGER.log(WARNING, "Uncaught exception in server-status heartbeat thread", throwable);
     }
 
-    /**
-     * {@inheritDoc}
-     * This method is called on a separate thread. Make sure this.context is marked as `volatile`
-     */
     @Override
-    public void onContextUpdate(BlockNodeContext context) {
-        this.blockNodeContext = context;
+    public void handleTssDataUpdate(final TssDataNotification notification) {
+        this.tssData = notification.tssData();
+    }
+
+    @Override
+    public void handleAddressBookHistoryUpdate(final AddressBookHistoryNotification notification) {
+        this.rangedAddressBookHistory = notification.rangedAddressBookHistory();
+    }
+
+    @Override
+    public void handleStoredBlocksUpdate(final StoredBlocksNotification notification) {
+        this.storedBlocks = notification.storedBlocks();
+    }
+
+    @Override
+    public void handleAvailableBlocksUpdate(final AvailableBlocksNotification notification) {
+        this.availableBlocks = notification.availableBlocks();
     }
 }
