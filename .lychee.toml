@@ -1,4 +1,4 @@
-# Lychee link checker configuration — scoped to docs/
+# Lychee link checker configuration
 # https://lychee.cli.rs/usage/config/
 
 # Patterns excluded from all link checks (matched against the target URL/path)
@@ -8,14 +8,19 @@ exclude = [
   "localhost",      # Local development URLs
   "127\\.0\\.0\\.1",
   "broken-reference", # GitBook placeholder for unresolved cross-references
+  "\\.java$",       # Links to source-code files — existence verified by build/CI, not link-checker
+  "\\.proto$",
+  "\\.kts$",
+  "\\.gradle$",
+  "\\.sh$",
 ]
 
-# Docs that contain deliberate links to source-code files (*.kts, *.proto, *.java)
-# that live outside the docs/ tree and cannot be validated by an offline link check.
+# Directories to skip entirely
 exclude_path = [
-  "docs/block-node/architecture/plugins.md",
-  "docs/design",
-  "docs/test-plan",
+  "build",           # Gradle build artifacts
+  ".gradle",         # Gradle cache
+  "protobuf-sources", # Git submodule — README links are relative to the source repo, not this one
+  ".github",         # PR/issue templates contain placeholder links
 ]
 
 # HTTP status codes accepted as valid (handles rate-limiting gracefully)

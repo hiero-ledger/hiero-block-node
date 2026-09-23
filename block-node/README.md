@@ -3,8 +3,8 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Prerequisites](#prerequisites)
-3. [Configuration](#configuration)
+2. [Configuration](#configuration)
+3. [Quickstart](#quickstart)
 4. [Metrics](#metrics)
 5. [Design](#design)
    1. [Block Persistence](#block-persistence)
@@ -18,22 +18,22 @@ It uses various configuration sources and dependency injection to manage its com
 
 ## Configuration
 
-Refer to the [Configuration](docs/configuration.md) for configuration options.
+Refer to the [Configuration](../docs/block-node/configuration.md) for configuration options.
 
 ## Quickstart
 
-Refer to the [Quickstart](docs/quickstart.md) for a quick guide on how to get started with the application.
+Refer to the [Quickstart](../docs/block-node/docker-compose-quickstart.md) for a quick guide on how to get started with the application.
 
 ## Metrics
 
-Refer to the [Metrics](docs/metrics.md) for metrics available in the system.
+Refer to the [Metrics](../docs/block-node/metrics.md) for metrics available in the system.
 
 ## Design
 
 ### Block Persistence
 
-Refer to the [Block Persistence](docs/design/block-persistence.md) for details on how blocks are persisted.
+Refer to the [Block Persistence](../docs/design/persistence/block-persistence.md) for details on how blocks are persisted.
 
 ### Bi-directional Producer/Consumer Streaming with gRPC
 
-Refer to the [Bi-directional Producer/Consumer Streaming with gRPC](docs/design/live-streaming/bidi-producer-consumers-streaming.md) for details on how the gRPC streaming is implemented.
+Refer to the [Bi-directional Producer/Consumer Streaming with gRPC](../docs/design/streaming/bidi-producer-consumers-streaming.md) for details on how the gRPC streaming is implemented.
