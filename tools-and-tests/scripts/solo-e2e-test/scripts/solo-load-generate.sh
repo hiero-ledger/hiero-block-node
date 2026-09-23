@@ -12,6 +12,10 @@
 #                    Options: CryptoTransferLoadTest, HCSLoadTest, TokenTransferLoadTest, NftTransferLoadTest
 #   NLG_ARGS         NLG arguments string (e.g., "-c 5 -a 10 -tt 300")
 #   NLG_MAX_TPS      --max-tps parameter (optional)
+#   NLG_JAVA_HEAP    --javaHeap parameter in GB (optional, Solo default is 8).
+#                    Lower this when running more than one NLG test class
+#                    concurrently against the same pod, so combined -Xmx
+#                    stays under the pod's memory limit (see values.yaml).
 #
 # Examples:
 #   DEPLOYMENT=my-deploy ./solo-load-generate.sh start
@@ -31,6 +35,7 @@ NAMESPACE="${NAMESPACE:-solo-network}"
 TEST_CLASS="${NLG_TEST_TYPE:-CryptoTransferLoadTest}"
 NLG_ARGS="${NLG_ARGS:--c 5 -a 10 -tt 300}"
 MAX_TPS="${NLG_MAX_TPS:-}"
+JAVA_HEAP="${NLG_JAVA_HEAP:-}"
 
 # Temporary directory for generated files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -148,6 +153,7 @@ echo "  Deployment:  $DEPLOYMENT"
 echo "  Test class:  $TEST_CLASS"
 echo "  NLG args:    $NLG_ARGS"
 [[ -n "$MAX_TPS" ]] && echo "  Max TPS:     $MAX_TPS"
+[[ -n "$JAVA_HEAP" ]] && echo "  Java heap:   ${JAVA_HEAP}g"
 
 # Generate values file with CN network properties
 VALUES_FILE=$(generate_nlg_values)
@@ -163,6 +169,11 @@ SOLO_CMD=(
 # Add --max-tps if specified
 if [[ -n "$MAX_TPS" ]]; then
     SOLO_CMD+=(--max-tps "$MAX_TPS")
+fi
+
+# Add --javaHeap if specified
+if [[ -n "$JAVA_HEAP" ]]; then
+    SOLO_CMD+=(--javaHeap "$JAVA_HEAP")
 fi
 
 SOLO_CMD+=(--quiet-mode)
