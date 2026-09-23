@@ -46,7 +46,6 @@ defaults:
     shell: bash
 
 permissions:
-  id-token: write
   contents: read
 
 env:
@@ -60,6 +59,9 @@ jobs:
     timeout-minutes: 15
     name: Generate Baseline
     runs-on: hl-bn-lin-md
+    permissions:
+      id-token: write
+      contents: read
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
       path: ${{ steps.baseline.outputs.path }}
@@ -139,6 +141,9 @@ jobs:
     timeout-minutes: 15
     name: "Verify Artifacts (${{ join(matrix.os, ', ') }})"
     runs-on: ${{ matrix.os }}
+    permissions:
+      id-token: write
+      contents: read
     needs:
       - generate-baseline
     strategy:

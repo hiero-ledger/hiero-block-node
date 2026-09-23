@@ -14,7 +14,10 @@ updates:
     open-pull-requests-limit: 10
 
   - package-ecosystem: docker
-    directory: /auth-layer-proxy
+    directories:
+      - /block-node/app/docker
+      - /tools-and-tests/simulator/docker
+      - /tools-and-tests/tools/docker
     assignees:
       - "swirlds-automation"
     labels:
