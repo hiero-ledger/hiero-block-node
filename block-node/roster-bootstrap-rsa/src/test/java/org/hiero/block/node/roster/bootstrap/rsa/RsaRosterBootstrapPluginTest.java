@@ -740,9 +740,10 @@ class RsaRosterBootstrapPluginTest
         }
 
         @Test
-        @DisplayName("Blocks API returns 500 → eras with timestamps are skipped → no history update")
-        void blocksApi500CausesErasToBeSkipped() {
-            // Nodes have timestamps, so fetchBlockRange is called. Blocks API returns 500 → null returned.
+        @DisplayName("Blocks API returns 500 → the only era is rescued as the genesis address book")
+        void blocksApi500RescuesGenesisEra() {
+            // Nodes have timestamps, so fetchBlockRange is called. Blocks API returns 500 → null
+            // returned → on the full-build path the oldest unresolvable era becomes [0, -1].
             registerStaticHandler("/api/v1/blocks", 500, "");
             registerStaticHandler(
                     "/api/v1/network/nodes",
@@ -754,14 +755,21 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            // All eras skipped → rangedBooks empty → no update
-            assertNull(blockNodeContext.rangedAddressBookHistory(), "No history when blocks API always returns 500");
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            assertEquals(0L, history.addressBooks().getFirst().startBlock());
+            assertEquals(-1L, history.addressBooks().getFirst().endBlock());
+            final NodeAddressBook era0 = history.addressBooks().getFirst().addressBook();
+            assertEquals(1, era0.nodeAddress().size());
+            assertEquals("aabbcc", era0.nodeAddress().getFirst().rsaPubKey());
         }
 
         @Test
-        @DisplayName("Blocks API returns empty list → fetchBlockRange returns null → era skipped")
-        void blocksApiEmptyListCausesEraToBeSkipped() {
-            // Nodes have timestamps, blocks API returns an empty blocks list.
+        @DisplayName("Blocks API returns empty list → the only era is rescued as the genesis address book")
+        void blocksApiEmptyListRescuesGenesisEra() {
+            // The Mirror Node "blocknode" profile case: the blocks API answers, but has no blocks
+            // until this Block Node — which needs this roster to verify them — stores some.
             registerStaticHandler("/api/v1/blocks", 200, "{\"blocks\":[],\"links\":{\"next\":null}}");
             registerStaticHandler(
                     "/api/v1/network/nodes",
@@ -773,7 +781,248 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
-            assertNull(blockNodeContext.rangedAddressBookHistory(), "No history when blocks API returns empty list");
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            assertEquals(0L, history.addressBooks().getFirst().startBlock());
+            assertEquals(-1L, history.addressBooks().getFirst().endBlock());
+            assertEquals(
+                    "aabbcc",
+                    history.addressBooks()
+                            .getFirst()
+                            .addressBook()
+                            .nodeAddress()
+                            .getFirst()
+                            .rsaPubKey());
+        }
+
+        @Test
+        @DisplayName("Genesis era already ingested + blocks API 404 → era rescued to block 0")
+        void blocksApi404RescuesIngestedGenesisEra() {
+            // The failing Solo run shape: the Mirror Node has ingested the genesis address book
+            // update, so the era carries a real consensus timestamp instead of the near-epoch
+            // sentinel, and mirrorNodeBaseUrl points at rest-java, which 404s /api/v1/blocks.
+            registerStaticHandler("/api/v1/blocks", 404, "");
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":[{\"node_id\":0,\"public_key\":\"aabbcc\","
+                            + "\"timestamp\":{\"from\":\"1789454107.246481179\",\"to\":null}}],"
+                            + "\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history, "Roster must load even when the blocks API 404s");
+            assertEquals(1, history.addressBooks().size());
+            assertEquals(0L, history.addressBooks().getFirst().startBlock());
+            assertEquals(-1L, history.addressBooks().getFirst().endBlock());
+            assertEquals(
+                    "aabbcc",
+                    history.addressBooks()
+                            .getFirst()
+                            .addressBook()
+                            .nodeAddress()
+                            .getFirst()
+                            .rsaPubKey());
+        }
+
+        @Test
+        @DisplayName("Only the oldest unresolvable era is rescued; the newer ones are dropped")
+        void onlyOldestUnresolvableEraIsRescued() {
+            // Two open-ended eras, both unresolvable. Rescuing both would produce two books claiming
+            // startBlock 0; only the older one (from=900.0) may survive.
+            registerStaticHandler("/api/v1/blocks", 404, "");
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":["
+                            + "{\"node_id\":0,\"public_key\":\"newkey\",\"timestamp\":{\"from\":\"1000.0\",\"to\":null}},"
+                            + "{\"node_id\":1,\"public_key\":\"oldkey\",\"timestamp\":{\"from\":\"900.0\",\"to\":null}}"
+                            + "],\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            assertEquals(0L, history.addressBooks().getFirst().startBlock());
+            final NodeAddressBook rescued = history.addressBooks().getFirst().addressBook();
+            assertEquals(1, rescued.nodeAddress().size());
+            assertEquals(1L, rescued.nodeAddress().getFirst().nodeId());
+            assertEquals("oldkey", rescued.nodeAddress().getFirst().rsaPubKey());
+        }
+
+        @Test
+        @DisplayName("Rescued era that later resolves does not duplicate into a second identical book")
+        void rescuedEraResolvingLaterDoesNotDuplicate() {
+            // First poll rescues the era to [0, -1]; on the second poll the blocks API has recovered
+            // and places the same era at block 5. That is the same address book, so the history must
+            // stay at one era instead of closing [0, 4] and appending an identical [5, -1].
+            final AtomicInteger blocksCallCount = new AtomicInteger(0);
+            server.createContext("/api/v1/blocks", exchange -> {
+                if (blocksCallCount.getAndIncrement() == 0) {
+                    exchange.sendResponseHeaders(404, -1);
+                } else {
+                    final String body = "{\"blocks\":[{\"number\":5}],\"links\":{\"next\":null}}";
+                    final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    try (var out = exchange.getResponseBody()) {
+                        out.write(bytes);
+                    }
+                }
+                exchange.close();
+            });
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":[{\"node_id\":0,\"public_key\":\"aabbcc\","
+                            + "\"timestamp\":{\"from\":\"1789454107.246481179\",\"to\":null}}],"
+                            + "\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            final RangedAddressBookHistory rescued = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(rescued);
+            assertEquals(1, rescued.addressBooks().size());
+            assertEquals(0L, rescued.addressBooks().getFirst().startBlock());
+
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            final RangedAddressBookHistory afterRecovery = blockNodeContext.rangedAddressBookHistory();
+            assertEquals(1, afterRecovery.addressBooks().size(), "No duplicate era after the blocks API recovers");
+            assertEquals(0L, afterRecovery.addressBooks().getFirst().startBlock());
+            assertEquals(-1L, afterRecovery.addressBooks().getFirst().endBlock());
+        }
+
+        @Test
+        @DisplayName("No rescue against a genesis-sentinel era: no second book claims startBlock 0")
+        void noRescueWhenSentinelEraAlreadyCoversBlockZero() {
+            // The sentinel era resolves to [0, -1] with no API call, so it counts as resolved and the
+            // newer unresolvable era must not be stamped with block 0 too: buildIndex keys a TreeMap
+            // by startBlock, so a second book at 0 would silently displace one of the two.
+            registerStaticHandler("/api/v1/blocks", 200, "{\"blocks\":[],\"links\":{\"next\":null}}");
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":["
+                            + "{\"node_id\":0,\"public_key\":\"newkey\",\"timestamp\":{\"from\":\"1000.0\",\"to\":null}},"
+                            + "{\"node_id\":1,\"public_key\":\"genesiskey\",\"timestamp\":{\"from\":\"0.000000001\",\"to\":null}}"
+                            + "],\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size(), "Only the genesis-sentinel era may cover block 0");
+            assertEquals(0L, history.addressBooks().getFirst().startBlock());
+            assertEquals(
+                    "genesiskey",
+                    history.addressBooks()
+                            .getFirst()
+                            .addressBook()
+                            .nodeAddress()
+                            .getFirst()
+                            .rsaPubKey());
+        }
+
+        @Test
+        @DisplayName("No rescue when another era resolved: the unresolvable newest era is dropped")
+        void unresolvableEraDroppedWhenAnotherEraResolves() {
+            // The newest era is open-ended and no block has been produced since that address-book
+            // update, so its gte-query returns an empty list while the older era resolves fine.
+            // Stamping block 0 on it would verify every block from 0 against the wrong roster.
+            server.createContext("/api/v1/blocks", exchange -> {
+                final String query = exchange.getRequestURI().getQuery();
+                final String body = query.contains("timestamp=lte:")
+                        ? "{\"blocks\":[{\"number\":80000},{\"number\":89999}],\"links\":{\"next\":null}}"
+                        : "{\"blocks\":[],\"links\":{\"next\":null}}";
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+                exchange.close();
+            });
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":["
+                            + "{\"node_id\":0,\"public_key\":\"newkey\",\"timestamp\":{\"from\":\"900.0\",\"to\":null}},"
+                            + "{\"node_id\":0,\"public_key\":\"oldkey\",\"timestamp\":{\"from\":\"800.0\",\"to\":\"900.0\"}}"
+                            + "],\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            final RangedAddressBookHistory history = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(history);
+            assertEquals(1, history.addressBooks().size());
+            assertEquals(80000L, history.addressBooks().getFirst().startBlock());
+            assertEquals(
+                    "oldkey",
+                    history.addressBooks()
+                            .getFirst()
+                            .addressBook()
+                            .nodeAddress()
+                            .getFirst()
+                            .rsaPubKey());
+        }
+
+        @Test
+        @DisplayName("Incremental: an unresolvable era is not rescued once a history exists")
+        void incrementalUnresolvableEraIsNotRescued() {
+            // Rescuing here would append a second book with startBlock 0 and close the existing one
+            // at endBlock -1 (see mergeWithExisting), corrupting the history.
+            final AtomicInteger blocksCallCount = new AtomicInteger(0);
+            server.createContext("/api/v1/blocks", exchange -> {
+                if (blocksCallCount.getAndIncrement() == 0) {
+                    final String body = "{\"blocks\":[{\"number\":100000}],\"links\":{\"next\":null}}";
+                    final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    try (var out = exchange.getResponseBody()) {
+                        out.write(bytes);
+                    }
+                } else {
+                    exchange.sendResponseHeaders(404, -1);
+                }
+                exchange.close();
+            });
+
+            final AtomicInteger nodeCallCount = new AtomicInteger(0);
+            server.createContext("/api/v1/network/nodes", exchange -> {
+                final String body = nodeCallCount.getAndIncrement() == 0
+                        ? "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\","
+                                + "\"timestamp\":{\"from\":\"1000.0\",\"to\":null}}],\"links\":{\"next\":null}}"
+                        : "{\"nodes\":[{\"node_id\":2,\"public_key\":\"ddeeff\","
+                                + "\"timestamp\":{\"from\":\"1100.0\",\"to\":null}}],\"links\":{\"next\":null}}";
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+                exchange.close();
+            });
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            // First run: full build → one era at startBlock 100000.
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            final RangedAddressBookHistory afterFullBuild = blockNodeContext.rangedAddressBookHistory();
+            assertNotNull(afterFullBuild);
+            assertEquals(1, afterFullBuild.addressBooks().size());
+            assertEquals(100000L, afterFullBuild.addressBooks().getFirst().startBlock());
+
+            // Second run: incremental — the new era cannot be resolved and must simply be dropped.
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            assertEquals(afterFullBuild, blockNodeContext.rangedAddressBookHistory(), "History must be unchanged");
+            // The second pass really ran and really reached the unresolvable era, rather than
+            // returning early somewhere before the block-range lookup.
+            assertEquals(2, nodeCallCount.get(), "Second poll must query the nodes API");
+            assertEquals(2, blocksCallCount.get(), "Second poll must attempt to resolve the new era");
         }
 
         @Test
