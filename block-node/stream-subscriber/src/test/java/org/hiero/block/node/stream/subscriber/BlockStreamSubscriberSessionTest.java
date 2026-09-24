@@ -7,14 +7,9 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleHeaderUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleProofUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleRoundHeaderUnparsed;
-import static org.hiero.block.node.base.ParseHelper.standardParse;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -23,7 +18,6 @@ import java.util.stream.Stream;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfType;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
@@ -1495,60 +1489,6 @@ class BlockStreamSubscriberSessionTest {
                     .returns(ResponseOneOfType.STATUS, responseTypeExtractor)
                     .returns(Code.ERROR, responseStatusExtractor);
             // And then closed
-            assertThat(pipeline.getOnCompleteCalls()).hasValue(1);
-        }
-
-        /**
-         * Integration test using the actual block 837,080 binary.
-         *
-         * <p>This test is skipped automatically when the file is not present (CI).
-         * To run it locally, download {@code wrb-837080.blk} and place it at
-         * {@code ~/Downloads/wrb-837080.blk}.
-         *
-         * <p>Block 837,080 contains a single {@code recordFile} item of 29,000,260
-         * bytes (~27.66 MB). When the transport throws while delivering this block,
-         * the session must close with {@link Code#ERROR} — not a silent
-         * {@code onComplete} with zero items.
-         */
-        @Test
-        @DisplayName("block 837080 recordFile item (27.66 MB) closes stream with ERROR on transport failure")
-        void testBlock837080ClosesStreamWithError() throws Exception {
-            final Path blockFile = Path.of(System.getProperty("user.home"), "Downloads", "wrb-837080.blk");
-            assumeTrue(Files.exists(blockFile), "wrb-837080.blk not found at " + blockFile + " — skipping");
-
-            final byte[] rawBytes = Files.readAllBytes(blockFile);
-            final BlockUnparsed block = standardParse(
-                    BlockUnparsed.PROTOBUF,
-                    Bytes.wrap(rawBytes),
-                    SubscriberConfig.DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES);
-            final List<BlockItemUnparsed> items = block.blockItems();
-
-            // Confirm the file contains the known oversized recordFile item (>4 MB)
-            final int recordFileSize = BlockItemUnparsed.PROTOBUF.measureRecord(items.get(1));
-            assertThat(recordFileSize).as("recordFile item size").isGreaterThan(4_194_304);
-
-            final Configuration cfg = ConfigurationBuilder.create()
-                    .withConfigDataType(SubscriberConfig.class)
-                    .build();
-            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
-            final BlockNodeContext ctx = generateContext(cfg, messaging, historicalBlockFacility);
-            final ThrowingOnBlockItemsPipeline pipeline = new ThrowingOnBlockItemsPipeline();
-
-            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
-                    .startBlockNumber(837080L)
-                    .endBlockNumber(837080L)
-                    .build();
-            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, request, ctx), pipeline, ctx, sessionReadyLatch);
-
-            session.sendBlockItemsChunked(items);
-
-            // Must receive exactly one STATUS/ERROR — not a silent onComplete with zero items
-            assertThat(pipeline.getOnNextCalls())
-                    .hasSize(1)
-                    .first()
-                    .returns(ResponseOneOfType.STATUS, responseTypeExtractor)
-                    .returns(Code.ERROR, responseStatusExtractor);
             assertThat(pipeline.getOnCompleteCalls()).hasValue(1);
         }
     }
