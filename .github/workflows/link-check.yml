@@ -4,12 +4,12 @@ name: Link Check
 on:
   pull_request:
     paths:
-      - "docs/**/*.md"
+      - "**/*.md"
   push:
     branches:
       - main
     paths:
-      - "docs/**/*.md"
+      - "**/*.md"
   schedule:
     - cron: "0 6 * * 1" # every Monday at 06:00 UTC
   workflow_dispatch:
@@ -40,7 +40,40 @@ jobs:
           fi
 
       - name: Check internal links
-        run: ./lychee --config .lychee.toml --offline --no-progress 'docs/**/*.md'
+        run: ./lychee --config .lychee.toml --offline --no-progress '**/*.md'
+
+  anchor-links:
+    name: Anchor links
+    if: github.event_name != 'schedule'
+    runs-on: hl-bn-lin-md
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20.x"
+
+      - name: Install markdown-link-check
+        run: npm install -g markdown-link-check@3.12.2
+
+      - name: Check anchor links
+        run: |
+          status=0
+          while IFS= read -r file; do
+            markdown-link-check --config .markdown-link-check.json --quiet "$file" || status=1
+          done < <(find . -name "*.md" \
+            ! -path "./.github/*" \
+            ! -path "*/build/*" \
+            ! -path "./.gradle/*" \
+            ! -path "./protobuf-sources/*")
+          exit $status
 
   external-links:
     name: External links (advisory)
@@ -65,4 +98,4 @@ jobs:
           fi
 
       - name: Check external links
-        run: ./lychee --config .lychee.toml --no-progress 'docs/**/*.md'
+        run: ./lychee --config .lychee.toml --no-progress '**/*.md'

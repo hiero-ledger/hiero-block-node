@@ -1,0 +1,17 @@
+{
+  "ignorePatterns": [
+    {"pattern": "^https?://"},
+    {"pattern": "^mailto:"},
+    {"pattern": "^localhost"},
+    {"pattern": "^127\\.0\\.0\\.1"},
+    {"pattern": "broken-reference"},
+    {"pattern": "\\.java$"},
+    {"pattern": "\\.proto$"},
+    {"pattern": "\\.kts$"},
+    {"pattern": "\\.gradle$"},
+    {"pattern": "\\.sh$"},
+    {"pattern": "#.*--"},
+    {"pattern": "#E2ETC_"},
+    {"pattern": "@"}
+  ]
+}
