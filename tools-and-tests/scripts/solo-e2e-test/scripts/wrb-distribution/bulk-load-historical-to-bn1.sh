@@ -122,13 +122,15 @@ log "Re-establishing kubectl port-forwards for block-node-1 (grpc :${BN1_GRPC_PO
 # tunneling to; kill any still-running ones first so the new ones below can
 # bind the same local ports (a dead-pod port-forward doesn't always exit
 # immediately on its own).
-# Match loosely (svc/block-node-1.*<port>:) rather than requiring the port pair
+# Match loosely (svc/block-node-1 .*<port>:) rather than requiring the port pair
 # immediately after "svc/block-node-1" -- solo-port-forward.sh launches its own
 # forwards as `kubectl port-forward svc/block-node-1 -n NAMESPACE PORT:PORT`, with
 # -n between them, so a literal-adjacency pattern never matches and the old forward
-# survives to collide with the new one on the same local port.
-pkill -f "port-forward svc/block-node-1.*${BN1_GRPC_PORT}:" 2>/dev/null || true
-pkill -f "port-forward svc/block-node-1.*${BN1_METRICS_PORT}:" 2>/dev/null || true
+# survives to collide with the new one on the same local port. Anchor
+# "block-node-1" with a trailing space so it doesn't also prefix-match
+# svc/block-node-10, -11, etc. once the suite scales past 9 BNs.
+pkill -f "port-forward svc/block-node-1[[:space:]].*${BN1_GRPC_PORT}:" 2>/dev/null || true
+pkill -f "port-forward svc/block-node-1[[:space:]].*${BN1_METRICS_PORT}:" 2>/dev/null || true
 sleep 1
 
 pf_log_dir="${TMPDIR:-/tmp}/wrb-dist-add-bn-pf"
