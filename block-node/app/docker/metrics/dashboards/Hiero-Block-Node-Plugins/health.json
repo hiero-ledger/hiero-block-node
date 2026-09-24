@@ -42,8 +42,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "sum by (instance) (rate(blocknode_get_block_requests_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
-                      "legendFormat": "{{instance}}",
+                      "expr": "sum by (endpoint, result) (rate(blocknode_health_requests_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
+                      "legendFormat": "{{endpoint}} {{result}}",
                       "range": true
                     },
                     "version": "v0"
@@ -59,7 +59,7 @@
         "description": "",
         "id": 1,
         "links": [],
-        "title": "getBlock Requests/s (per node)",
+        "title": "Health Requests/s by endpoint & result (fleet)",
         "vizConfig": {
           "group": "timeseries",
           "kind": "VizConfig",
@@ -157,164 +157,7 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "sum (rate(blocknode_get_block_requests_success_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
-                      "legendFormat": "success",
-                      "range": true
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "A"
-                }
-              },
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "editorMode": "code",
-                      "expr": "sum (rate(blocknode_get_block_requests_not_available_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
-                      "legendFormat": "not available",
-                      "range": true
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "B"
-                }
-              },
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "editorMode": "code",
-                      "expr": "sum (rate(blocknode_get_block_requests_not_found_total{environment=~\"$environment\", instance=~\"$instance\"}[$__rate_interval]))",
-                      "legendFormat": "not found",
-                      "range": true
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "C"
-                }
-              }
-            ],
-            "queryOptions": {},
-            "transformations": []
-          }
-        },
-        "description": "",
-        "id": 2,
-        "links": [],
-        "title": "Outcomes/s (fleet)",
-        "vizConfig": {
-          "group": "timeseries",
-          "kind": "VizConfig",
-          "spec": {
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "palette-classic"
-                },
-                "custom": {
-                  "axisBorderShow": false,
-                  "axisCenteredZero": false,
-                  "axisColorMode": "text",
-                  "axisLabel": "",
-                  "axisPlacement": "auto",
-                  "barAlignment": 0,
-                  "barWidthFactor": 0.6,
-                  "drawStyle": "line",
-                  "fillOpacity": 8,
-                  "gradientMode": "none",
-                  "hideFrom": {
-                    "legend": false,
-                    "tooltip": false,
-                    "viz": false
-                  },
-                  "insertNulls": false,
-                  "lineInterpolation": "linear",
-                  "lineWidth": 2,
-                  "pointSize": 5,
-                  "scaleDistribution": {
-                    "type": "linear"
-                  },
-                  "showPoints": "auto",
-                  "showValues": false,
-                  "spanNulls": false,
-                  "stacking": {
-                    "group": "A",
-                    "mode": "none"
-                  },
-                  "thresholdsStyle": {
-                    "mode": "off"
-                  }
-                },
-                "min": 0,
-                "thresholds": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": 0
-                    }
-                  ]
-                },
-                "unit": "reqps"
-              },
-              "overrides": []
-            },
-            "options": {
-              "legend": {
-                "calcs": [
-                  "lastNotNull",
-                  "max"
-                ],
-                "displayMode": "table",
-                "placement": "bottom",
-                "showLegend": true
-              },
-              "tooltip": {
-                "hideZeros": false,
-                "mode": "multi",
-                "sort": "desc"
-              }
-            },
-            "version": "12.3.2"
-          }
-        }
-      }
-    },
-    "panel-3": {
-      "kind": "Panel",
-      "spec": {
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "editorMode": "code",
-                      "expr": "100 * sum by (instance) (increase(blocknode_get_block_requests_success_total{environment=~\"$environment\", instance=~\"$instance\"}[$__range])) / clamp_min(sum by (instance) (increase(blocknode_get_block_requests_total{environment=~\"$environment\", instance=~\"$instance\"}[$__range])), 1)",
+                      "expr": "sum (increase(blocknode_health_requests_total{environment=~\"$environment\", instance=~\"$instance\"}[$__range]))",
                       "legendFormat": "{{instance}}",
                       "range": true
                     },
@@ -329,86 +172,48 @@
           }
         },
         "description": "",
-        "id": 3,
+        "id": 2,
         "links": [],
-        "title": "Success Rate % (per node, range)",
+        "title": "Requests (range)",
         "vizConfig": {
-          "group": "timeseries",
+          "group": "stat",
           "kind": "VizConfig",
           "spec": {
             "fieldConfig": {
               "defaults": {
                 "color": {
-                  "mode": "palette-classic"
+                  "mode": "thresholds"
                 },
-                "custom": {
-                  "axisBorderShow": false,
-                  "axisCenteredZero": false,
-                  "axisColorMode": "text",
-                  "axisLabel": "",
-                  "axisPlacement": "auto",
-                  "barAlignment": 0,
-                  "barWidthFactor": 0.6,
-                  "drawStyle": "line",
-                  "fillOpacity": 8,
-                  "gradientMode": "none",
-                  "hideFrom": {
-                    "legend": false,
-                    "tooltip": false,
-                    "viz": false
-                  },
-                  "insertNulls": false,
-                  "lineInterpolation": "linear",
-                  "lineWidth": 2,
-                  "pointSize": 5,
-                  "scaleDistribution": {
-                    "type": "linear"
-                  },
-                  "showPoints": "auto",
-                  "showValues": false,
-                  "spanNulls": false,
-                  "stacking": {
-                    "group": "A",
-                    "mode": "none"
-                  },
-                  "thresholdsStyle": {
-                    "mode": "off"
-                  }
-                },
-                "min": 0,
-                "decimals": 1,
+                "mappings": [],
                 "thresholds": {
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
-                      "value": 0
-                    },
-                    {
                       "color": "green",
-                      "value": 99
+                      "value": 0
                     }
                   ]
                 },
-                "unit": "percent"
+                "unit": "none",
+                "decimals": 0
               },
               "overrides": []
             },
             "options": {
-              "legend": {
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
                 "calcs": [
-                  "lastNotNull",
-                  "max"
+                  "lastNotNull"
                 ],
-                "displayMode": "table",
-                "placement": "bottom",
-                "showLegend": true
+                "fields": "",
+                "values": false
               },
-              "tooltip": {
-                "hideZeros": false,
-                "mode": "multi",
-                "sort": "desc"
-              }
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
             },
             "version": "12.3.2"
           }
@@ -436,7 +241,7 @@
                         "name": "panel-1"
                       },
                       "height": 8,
-                      "width": 12,
+                      "width": 16,
                       "x": 0,
                       "y": 0
                     }
@@ -449,42 +254,15 @@
                         "name": "panel-2"
                       },
                       "height": 8,
-                      "width": 12,
-                      "x": 12,
+                      "width": 8,
+                      "x": 16,
                       "y": 0
                     }
                   }
                 ]
               }
             },
-            "title": "Requests"
-          }
-        },
-        {
-          "kind": "RowsLayoutRow",
-          "spec": {
-            "collapse": false,
-            "layout": {
-              "kind": "GridLayout",
-              "spec": {
-                "items": [
-                  {
-                    "kind": "GridLayoutItem",
-                    "spec": {
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "panel-3"
-                      },
-                      "height": 8,
-                      "width": 24,
-                      "x": 0,
-                      "y": 0
-                    }
-                  }
-                ]
-              }
-            },
-            "title": "Success Rate"
+            "title": "Liveness / Readiness"
           }
         }
       ]
@@ -516,7 +294,7 @@
     "timezone": "browser",
     "to": "now"
   },
-  "title": "Block-Node: Block Access Service",
+  "title": "Block-Node: Health Endpoints",
   "variables": [
     {
       "kind": "DatasourceVariable",
