@@ -18,10 +18,6 @@ result and notify (or publish a _persistence result_) appropriately.
 
 > Note, _writers_ should implement `Callable` to make this process simpler.
 
-## Structure Diagram
-
-![Task Persistence](../assets/Task-Persistence.svg)
-
 ## Expected Behavior
 
 The Handler is relatively simple.  The Handler simply checks the input, and
