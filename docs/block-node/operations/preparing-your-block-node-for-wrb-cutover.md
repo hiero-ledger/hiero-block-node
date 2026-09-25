@@ -211,7 +211,7 @@ Add `roster-bootstrap-rsa` to your plugin list in `block-node-values.yaml`. Appe
 
 ```yaml
 plugins:
-  names: facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill,roster-bootstrap-rsa,roster-bootstrap-tss
+  names: facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,block-verification,blocks-file-historic,blocks-file-recent,backfill,roster-bootstrap-rsa,roster-bootstrap-tss
 ```
 
 **Mirror Node auto-fetch (mainnet cohort default)**
