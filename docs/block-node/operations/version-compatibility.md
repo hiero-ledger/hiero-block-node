@@ -10,11 +10,11 @@ who need to know which component versions are required to run together.
 
 ## Version compatibility table
 
-| Block Node | Consensus Node | Mirror Node |
-|------------|----------------|-------------|
-| 0.41.x | 0.77.0+ | 0.162.0+ |
-| 0.38.x - 0.40.x | 0.76.x | - |
-| 0.36.x - 0.37.x | 0.75.x | - |
+|   Block Node    | Consensus Node | Mirror Node |
+|-----------------|----------------|-------------|
+| 0.41.0+         | 0.77.0+        | 0.162.0+    |
+| 0.38.x - 0.40.x | 0.76.x         | -           |
+| 0.36.x - 0.37.x | 0.75.x         | -           |
 
 Mirror Node versions are tracked from BN 0.41.0 onwards. For version combinations not listed
 here, check the [Block Node releases page](https://github.com/hiero-ledger/hiero-block-node/releases)
