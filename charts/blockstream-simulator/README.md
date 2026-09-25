@@ -27,7 +27,7 @@ helm template --name-template simulator-release blockstream-simulator/ --dry-run
 To pull the packaged chart from the public repo:
 
 ```bash
-helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/charts/blockstream-simulator-chart --version "${VERSION}"
+helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/blockstream-simulator-chart --version "${VERSION}"
 ```
 
 ## Install using a local chart cloned from the repo
@@ -41,7 +41,7 @@ helm install "${RELEASE}" charts/blockstream-simulator -f <path-to-custom-values
 ## Configure
 
 The chart comes with a set of default `Values.yaml` file that sets it in ProducerMode and looks for GRPC BN Server with
-the following service name `my-bn-block-node-helm-chart` within the same cluster, ready to start streaming blocks.
+the following service name `my-bn-block-node-server` within the same cluster, ready to start streaming blocks. If you installed the Block Node chart with a different release name, override `GRPC_SERVER_ADDRESS` to match (format: `<release-name>-block-node-server`).
 However, is also possible to use the simulator in ConsumerMode, to do so, you need to set the following values in the
 `values.yaml` file:
 
@@ -53,7 +53,7 @@ simulator:
     <ENV_VARIABLE>: "<Value>"
 ```
 
-and if your BlockNode RELEASE name is different from the assumed: `blkNod`, you need to set the following value in the
+and if your BlockNode RELEASE name is different from the assumed: `my-bn`, you need to set the following value in the
 `values.yaml` file:
 
 ```yaml

@@ -139,8 +139,11 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 | `block-verification`   | Cryptographic verification of blocks (rewrite, mutually exclusive with `verification`) |
 | `blocks-file-recent`   | Local storage for recent/live blocks                                                   |
 | `blocks-file-historic` | Local storage for historical blocks                                                    |
-| `backfill`             | Fetches missing historical blocks from other nodes                                     |
-| `s3-archive`           | Archives blocks to S3-compatible storage                                               |
+| `backfill`               | Fetches missing historical blocks from other nodes                                     |
+| `cloud-storage-archive`  | Archives blocks to S3-compatible cloud storage (grouped files)                         |
+| `cloud-storage-expanded` | Uploads each verified block individually to S3-compatible storage                      |
+| `roster-bootstrap-rsa`   | Bootstraps the network roster from Mirror Node RSA address book                        |
+| `roster-bootstrap-tss`   | Bootstraps the network roster using TSS signature verification                         |
 
 #### Pre-defined Profiles
 
@@ -163,7 +166,10 @@ Full functionality for development and testing.
 * `blocks-file-historic`
 * `blocks-file-recent`
 * `backfill`
-* `s3-archive`
+* `cloud-storage-archive`
+* `cloud-storage-expanded`
+* `roster-bootstrap-rsa`
+* `roster-bootstrap-tss`
 
 ##### plugin-profile-minimal.yaml
 
@@ -186,20 +192,32 @@ Local File History - stores all blocks on local persistent volumes (same as defa
 * `blocks-file-historic`
 * `blocks-file-recent`
 * `backfill`
+* `roster-bootstrap-rsa`
+* `roster-bootstrap-tss`
 
 ##### plugin-profile-rfh.yaml
 
-Remote File History - stores blocks in S3-compatible storage.
+Remote File History - archives blocks to S3-compatible cloud storage.
 * `facility-messaging`
-* `block-access-service`
 * `health`
 * `server-status`
-* `stream-publisher`
-* `stream-subscriber`
 * `block-verification`
-* `blocks-file-recent`
+* `cloud-storage-archive`
+* `cloud-storage-expanded`
+* `roster-bootstrap-rsa`
+* `roster-bootstrap-tss`
 * `backfill`
-* `s3-archive`
+
+##### plugin-profile-cloud.yaml
+
+Cloud storage only - archives blocks to cloud storage without local block storage. Blocks arrive via backfill; no live stream from a Consensus Node.
+* `facility-messaging`
+* `health`
+* `server-status`
+* `block-verification`
+* `backfill`
+* `cloud-storage-archive`
+* `cloud-storage-expanded`
 
 Deploy with a profile:
 
@@ -216,7 +234,7 @@ Create your own values file to select specific plugins:
 plugins:
   # Comma-separated list of plugin names (defaults to Chart.AppVersion)
   # Append :<version> to override the version for a specific plugin
-  names: "facility-messaging,health,server-status,block-access-service:0.27.0,stream-publisher,verification,blocks-file-recent"
+  names: "facility-messaging,health,server-status,block-access-service:0.27.0,stream-publisher,block-verification,blocks-file-recent"
 ```
 
 **Note:** `facility-messaging` is required for the application to start. The `health` plugin is recommended for Kubernetes liveness/readiness probes.
