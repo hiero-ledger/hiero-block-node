@@ -127,18 +127,18 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 
 #### Available Plugins
 
-|         Plugin         |                                      Description                                       |
-|------------------------|----------------------------------------------------------------------------------------|
-| `facility-messaging`   | Core messaging facility for inter-plugin communication (required)                      |
-| `health`               | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)                           |
-| `server-status`        | Server status API and metrics                                                          |
-| `block-access-service` | gRPC API for block queries                                                             |
-| `stream-publisher`     | Publishes blocks to downstream subscribers                                             |
-| `stream-subscriber`    | Subscribes to upstream block streams                                                   |
-| `verification`         | Cryptographic verification of blocks                                                   |
-| `block-verification`   | Cryptographic verification of blocks (rewrite, mutually exclusive with `verification`) |
-| `blocks-file-recent`   | Local storage for recent/live blocks                                                   |
-| `blocks-file-historic` | Local storage for historical blocks                                                    |
+|          Plugin          |                                      Description                                       |
+|--------------------------|----------------------------------------------------------------------------------------|
+| `facility-messaging`     | Core messaging facility for inter-plugin communication (required)                      |
+| `health`                 | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)                           |
+| `server-status`          | Server status API and metrics                                                          |
+| `block-access-service`   | gRPC API for block queries                                                             |
+| `stream-publisher`       | Publishes blocks to downstream subscribers                                             |
+| `stream-subscriber`      | Subscribes to upstream block streams                                                   |
+| `verification`           | Cryptographic verification of blocks                                                   |
+| `block-verification`     | Cryptographic verification of blocks (rewrite, mutually exclusive with `verification`) |
+| `blocks-file-recent`     | Local storage for recent/live blocks                                                   |
+| `blocks-file-historic`   | Local storage for historical blocks                                                    |
 | `backfill`               | Fetches missing historical blocks from other nodes                                     |
 | `cloud-storage-archive`  | Archives blocks to S3-compatible cloud storage (grouped files)                         |
 | `cloud-storage-expanded` | Uploads each verified block individually to S3-compatible storage                      |
