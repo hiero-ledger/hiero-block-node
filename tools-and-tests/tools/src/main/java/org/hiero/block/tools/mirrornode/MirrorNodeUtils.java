@@ -25,6 +25,11 @@ public class MirrorNodeUtils {
     private static final int MAX_RETRIES = 5;
     private static final long INITIAL_RETRY_DELAY_MS = 2000;
     private static final Set<Integer> RETRYABLE_HTTP_CODES = Set.of(429, 500, 502, 503, 504);
+    /// Path prefix that identifies mirror-node block-lookup endpoints
+    /// (`/api/v1/blocks`, `/api/v1/blocks/{n}`, `/api/v1/blocks?block.number=gte:{n}`).
+    /// A 404 on any of these is treated as a transient tip-gap and retried
+    /// (see issue #3683). Any other 404 remains terminal.
+    private static final String BLOCKS_ENDPOINT_PATH_MARKER = "/api/v1/blocks";
     // package-private for testing
     static final int NO_RESPONSE_CODE = -1;
 
@@ -67,7 +72,7 @@ public class MirrorNodeUtils {
                 }
             } catch (IOException e) {
                 lastException = e;
-                boolean retryable = isRetryableException(responseCode, e);
+                boolean retryable = isRetryableException(responseCode, e, url);
                 if (attempt < MAX_RETRIES && retryable) {
                     long delay = INITIAL_RETRY_DELAY_MS * (1L << (attempt - 1));
                     System.err.println("[MirrorNode] " + e.getMessage() + ", retrying in " + (delay / 1000)
@@ -87,10 +92,16 @@ public class MirrorNodeUtils {
                 "Failed after " + MAX_RETRIES + " retries: " + lastException.getMessage(), lastException));
     }
 
-    // package-private for testing
+    // package-private for testing; two-arg overload kept for pre-existing call sites.
     static boolean isRetryableException(int responseCode, IOException e) {
+        return isRetryableException(responseCode, e, null);
+    }
+
+    // package-private for testing
+    static boolean isRetryableException(int responseCode, IOException e, URL url) {
         String msg = e.getMessage();
         return RETRYABLE_HTTP_CODES.contains(responseCode)
+                || isTransientBlocksTipGap(responseCode, url)
                 || e instanceof UnknownHostException
                 || e instanceof SocketTimeoutException
                 || e instanceof ConnectException
@@ -99,6 +110,18 @@ public class MirrorNodeUtils {
                         && (msg.contains("Connection reset")
                                 || msg.contains("Connection timed out")
                                 || msg.contains("Broken pipe")));
+    }
+
+    /// Returns `true` when the response is `HTTP 404` on a mirror-node
+    /// block-lookup endpoint. Mirror-node returns 404 briefly when the
+    /// requested block number is at or just past the current indexer tip;
+    /// re-issuing the request after a short backoff succeeds. Any 404 outside
+    /// the `/api/v1/blocks` family stays terminal (see issue #3683).
+    private static boolean isTransientBlocksTipGap(int responseCode, URL url) {
+        return responseCode == HttpURLConnection.HTTP_NOT_FOUND
+                && url != null
+                && url.getPath() != null
+                && url.getPath().startsWith(BLOCKS_ENDPOINT_PATH_MARKER);
     }
 
     /**
