@@ -221,7 +221,7 @@ cp .env.example .env
 | `CLUSTER_NAME`           | `solo-cluster`           | Kind cluster name                                                    |
 | `NAMESPACE`              | `solo-network`           | Kubernetes namespace                                                 |
 | `DEPLOYMENT`             | `deployment-solo`        | Solo deployment name                                                 |
-| `SOLO_VERSION`           | `latest`                 | Solo CLI version (CI pins to `0.79.0`)                               |
+| `SOLO_VERSION`           | `latest`                 | Solo CLI version (CI pins to `0.91.0`)                               |
 | `SOLO_SOURCE`            | `npm`                    | Solo install source: `npm` or `git` (see Custom Solo Build)          |
 | `SOLO_GIT_REPO`          | (empty)                  | Fork `owner/repo` when `SOLO_SOURCE=git` (must be approved)          |
 | `SOLO_GIT_REF`           | (empty)                  | Branch/tag/SHA when `SOLO_SOURCE=git`                                |
