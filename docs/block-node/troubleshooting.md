@@ -73,7 +73,7 @@ INFO ServerStatusServicePlugin  Status heartbeat: oldestBlock=0 newestBlock=896 
 
 |                               Grep tag                                |                    Typically means                     |                                                     First action                                                      |
 |-----------------------------------------------------------------------|--------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
-| `VerificationServicePlugin` (WARNING)                                 | A block failed signature / proof verification          | Check `blocknode_verification_blocks_failed`; a spike may signal upstream or key issues                               |
+| `VerificationServicePlugin` (WARNING)                                 | A block failed signature / proof verification          | Check `blocknode_verification_blocks_failed_total`; a spike may signal upstream or key issues                         |
 | `BackfillPlugin` (WARNING)                                            | Backfill could not persist / verify / re-queue a block | Check storage & verification health; watch `blocknode_backfill*` metrics (transient "cannot reach upstream" is DEBUG) |
 | `BlockFileRecentPlugin` / `BlockFileHistoricPlugin` (WARNING/SEVERE)  | Storage read/write or archive failure                  | Check disk space and I/O - see [Disk full](#disk-full--out-of-space)                                                  |
 | `Failed to upload` (BlockUploadTask / TempArchiveUploadTask, WARNING) | Cloud archive upload failed                            | Check bucket credentials/connectivity; watch `cloud_storage_archive_failed_tasks`                                     |
@@ -103,7 +103,7 @@ The Block Node exposes a rich set of Prometheus metrics on `/metrics`
 [Hiero Block Node `dashboards/` folder.](https://github.com/hiero-ledger/hiero-block-node/tree/main/charts/block-node-server/dashboards)
 
 All metrics are prefixed with `blocknode`
-(for example, `blocknode_publisher_block_items_received`).
+(for example, `blocknode_publisher_block_items_received_total`).
 See the full list in the
 [metrics reference](./metrics.md#metrics-by-plugin).
 
@@ -219,7 +219,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
    - Update firewall / security groups to allow gRPC traffic from subscribers.
 6. **Verification**
    - Confirm clients successfully establish long-lived gRPC streams without continuous reconnects.
-   - `blocknode_subscriber_open_connections` is stable and non-zero; `blocknode_subscriber_errors` is not climbing.
+   - `blocknode_subscriber_open_connections` is stable and non-zero; `blocknode_subscriber_errors_total` is not climbing.
 
 ---
 
@@ -262,7 +262,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
 7. **Verification**
    - Confirm the Mirror Node's last committed block advances monotonically.
    - Importer logs show active subscribe sessions without repeated reconnects.
-   - If you operate the Block Node, `blocknode_subscriber_open_connections` is non-zero and `blocknode_subscriber_errors` is not climbing.
+   - If you operate the Block Node, `blocknode_subscriber_open_connections` is non-zero and `blocknode_subscriber_errors_total` is not climbing.
 8. **Escalation**
    - If the steps above do not resolve the issue, collect the following before opening a ticket:
      - Output of `nc -vz <BLOCK_NODE_HOST> <PORT>`.
