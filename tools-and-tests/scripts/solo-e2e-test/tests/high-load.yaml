@@ -3,7 +3,11 @@
 # High Load Test
 #
 # Validates that all Block Nodes correctly receive and store blocks
-# under high load conditions (5000 TPS).
+# under high load conditions (5000 TPS cap) and that Mirror Node
+# keeps pace. Scheduled on: single, paired-3.
+#
+# Out of scope: memory-stability (BN /metrics exposes no heap gauge;
+# kubectl top sampling requires a separate event type — tracked as follow-up).
 #
 # Prerequisites:
 #   - Any topology deployed (task up)
@@ -16,6 +20,15 @@ name: high-load-test
 description: "High load test with 5000 TPS cap"
 
 events:
+  # Timeline. `duration` covers the transfer phase only; NLG pod deploy (~35s measured)
+  # and account creation (~30 accounts/sec measured) run before it. So: transfers start
+  # at ~t=115 and end at ~t=535.
+  #
+  # `accounts` is sized so setup fits in the budget, not for its own sake. At 15000 the
+  # 7-minute transfer phase never started -- the run spent its whole window creating
+  # accounts and produced ~43 items/sec, nowhere near the 5000 TPS this test claims.
+  # Do not drop it much below 2000 or repeat-account contention starts capping CN
+  # throughput instead.
   - id: start-load
     type: load-start
     description: "Start CryptoTransfer high load"
@@ -23,8 +36,8 @@ events:
     args:
       test_class: CryptoTransferLoadTest
       concurrency: 10
-      accounts: 15000
-      duration: 420  # 7 minutes - ends at ~430s
+      accounts: 2000
+      duration: 420  # 7 minutes of transfers, ending at ~535s
       max_tps: 5000
 
   - id: early-metrics
@@ -41,17 +54,33 @@ events:
     args:
       target: all
 
+  - id: mid-load-backpressure
+    type: command
+    description: "Assert queue depth and MN lag while load is still running"
+    delay: 320  # mid-load; transfers run from ~t=115 to ~t=535
+    # At-peak thresholds are deliberately looser than the post-load ones below. Both
+    # assertions fail on the first bad sample, not on a sustained breach, so a strict
+    # number here fails the run on one transient spike. These catch a queue heading for
+    # full and an MN that has stopped importing, not normal backpressure. Unvalidated at
+    # 5000 TPS -- tighten them once a few CI runs show the real peak.
+    args:
+      script: |
+        rc=0
+        assert_metric_threshold all blocknode_messaging_item_queue_percent_used "<" 80 3 20 || rc=1
+        assert_mirror_lag all 200 || rc=1
+        exit $rc
+
   - id: stop-load
     type: load-stop
     description: "Stop load generation (cleanup)"
-    delay: 510  # 8.5 minutes - 80s buffer after NLG should end naturally
+    delay: 620  # 85s buffer after transfers should end naturally at ~535
     args:
       test_class: CryptoTransferLoadTest
 
   - id: final-metrics
     type: print-metrics
     description: "Print final metrics"
-    delay: 570  # 9.5 minutes
+    delay: 680
     args:
       target: all
 
@@ -77,3 +106,30 @@ assertions:
     type: blocks-increasing
     description: "All Block Nodes are receiving new blocks"
     target: all
+
+  - id: mirror-blocks-flowing
+    type: mirror-blocks-increasing
+    description: "Mirror Node is still importing blocks after load"
+    target: all
+
+  # Load ends at ~535; assertions start after the last event at 680, and these two sit
+  # behind two 60s-per-node checks, so they sample 4+ minutes past the end of load (more
+  # on multi-node topologies). They are drain checks. The at-peak reading is the
+  # mid-load-backpressure event.
+  - id: mirror-caught-up
+    type: mirror-lag
+    description: "Mirror Node caught up with Block Node after load"
+    target: all
+    args:
+      max_blocks_behind: 30
+
+  - id: verification-queue-drained
+    type: metric-threshold
+    description: "Queue utilisation back below 60% after load"
+    target: all
+    args:
+      metric: blocknode_messaging_item_queue_percent_used
+      comparator: "<"
+      value: 60
+      samples: 3
+      wait_seconds: 20
