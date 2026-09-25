@@ -94,15 +94,13 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     public static final MetricKey<LongGauge> METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS =
             MetricKey.of("cloud_expanded_pending_retry_blocks", LongGauge.class).addCategory(METRICS_CATEGORY);
     /// Total number of blocks recovered by a later background retry after an initial upload failure.
-    public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_RETRY_SUCCESS_TOTAL = MetricKey.of(
-                    "cloud_expanded_retry_success_total", LongCounter.class)
-            .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_RETRY_SUCCESS_TOTAL =
+            MetricKey.of("cloud_expanded_retry_success", LongCounter.class).addCategory(METRICS_CATEGORY);
     /// Total number of blocks dropped after exhausting all background retry attempts, evicted from
     /// the retry buffer to make room for a newer failure, or still buffered when the plugin shuts
     /// down — the latter two are not necessarily a sign of S3 failures.
-    public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_RETRY_EXHAUSTED_TOTAL = MetricKey.of(
-                    "cloud_expanded_retry_exhausted_total", LongCounter.class)
-            .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_RETRY_EXHAUSTED_TOTAL =
+            MetricKey.of("cloud_expanded_retry_exhausted", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     private static final System.Logger LOGGER = System.getLogger(ExpandedCloudStoragePlugin.class.getName());
 
@@ -207,6 +205,15 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             LOGGER.log(
                     WARNING,
                     "cloud.storage.expanded.regionName is blank; S3 uploads will be skipped until configured.");
+        }
+        // Only the property name is logged, never the value.
+        if (config.accessKey().isBlank()) {
+            LOGGER.log(
+                    WARNING, "cloud.storage.expanded.accessKey is blank; S3 uploads will be skipped until configured.");
+        }
+        if (config.secretKey().isBlank()) {
+            LOGGER.log(
+                    WARNING, "cloud.storage.expanded.secretKey is blank; S3 uploads will be skipped until configured.");
         }
         blockMessaging.registerBlockNotificationHandler(this, false, name());
     }
