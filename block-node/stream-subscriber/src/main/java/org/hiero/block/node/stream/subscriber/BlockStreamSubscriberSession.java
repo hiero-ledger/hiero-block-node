@@ -851,11 +851,10 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             LOGGER.log(Level.DEBUG, message, e);
             close(null); // cannot send the end stream response, just close the stream.
         } catch (RuntimeException e) {
-            // If the pipeline is in an error state; close this session.
-            final String message = "Client error sending block items for client %d: %s"
+            final String message = "Transport error sending block items for client %d: %s"
                     .formatted(sessionContext.clientId, e.getMessage());
             LOGGER.log(Level.DEBUG, message, e);
-            close(null); // cannot send the end stream response, just close the stream.
+            close(Code.ERROR);
         }
     }
 

@@ -1421,6 +1421,79 @@ class BlockStreamSubscriberSessionTest {
     }
 
     /**
+     * Tests that transport failures during block item delivery are captured and
+     * reported as {@link Code#ERROR} rather than silently closing the stream.
+     *
+     * <p>Background: block 837,080 on mainnet contains a single {@code recordFile}
+     * block item of ~27.66 MB. When PBJ tries to write this into a single HTTP/2
+     * DATA frame, the frame exceeds the client's negotiated {@code SETTINGS_MAX_FRAME_SIZE}
+     * (~4 MB) and the write throws a {@link RuntimeException}. Before the fix, the
+     * session caught the exception and called {@code close(null)}, sending
+     * {@code onComplete} with no status code, leaving the backfill client unable to
+     * distinguish the failure from a successful empty response. The fix logs the
+     * exception at ERROR level and calls {@code close(Code.ERROR)} so the caller
+     * receives an unambiguous error code.
+     */
+    @Nested
+    @DisplayName("Oversized Block Item Tests")
+    class OversizedBlockItemTests {
+
+        /**
+         * A pipeline that simulates transport failure by throwing on any
+         * {@code BLOCK_ITEMS} response while passing {@code STATUS} responses through.
+         * This reproduces the behavior of {@code PbjProtocolHandler} when a gRPC
+         * message is too large to fit in a single HTTP/2 DATA frame.
+         */
+        private static class ThrowingOnBlockItemsPipeline
+                extends TestResponsePipeline<SubscribeStreamResponseUnparsed> {
+            @Override
+            public void onNext(final SubscribeStreamResponseUnparsed item) {
+                if (item.response().kind() == ResponseOneOfType.BLOCK_ITEMS) {
+                    throw new RuntimeException("simulated transport failure: frame too large");
+                }
+                super.onNext(item);
+            }
+        }
+
+        /**
+         * Synthetic test: when the transport layer throws while delivering a
+         * {@code BLOCK_ITEMS} response, the session must close with {@link Code#ERROR}
+         * and not silently send {@code onComplete} with no status code.
+         *
+         * <p>This test is always runnable (no external file required) and directly
+         * reproduces the failure mode observed with block 837,080.
+         */
+        @Test
+        @DisplayName("transport exception during block item delivery closes stream with ERROR")
+        void testTransportExceptionClosesStreamWithError() {
+            final Configuration cfg = ConfigurationBuilder.create()
+                    .withConfigDataType(SubscriberConfig.class)
+                    .build();
+            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+            final BlockNodeContext ctx = generateContext(cfg, messaging, historicalBlockFacility);
+            final ThrowingOnBlockItemsPipeline pipeline = new ThrowingOnBlockItemsPipeline();
+
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(0L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, ctx), pipeline, ctx, sessionReadyLatch);
+
+            session.sendBlockItemsChunked(List.of(sampleHeaderUnparsed(0), sampleProofUnparsed(0)));
+
+            // The stream must have sent exactly one STATUS response with Code.ERROR
+            assertThat(pipeline.getOnNextCalls())
+                    .hasSize(1)
+                    .first()
+                    .returns(ResponseOneOfType.STATUS, responseTypeExtractor)
+                    .returns(Code.ERROR, responseStatusExtractor);
+            // And then closed
+            assertThat(pipeline.getOnCompleteCalls()).hasValue(1);
+        }
+    }
+
+    /**
      * Generate a basic BlockNodeContext for testing purposes.
      */
     private BlockNodeContext generateContext(
