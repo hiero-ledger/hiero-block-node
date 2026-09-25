@@ -78,3 +78,9 @@ agent/**
 *.local
 *.local.*
 
+# Claude Code: ignore local/ephemeral state, but allow shared config to be committed
+.claude/*
+!.claude/skills/
+!.claude/knowledge/
+!.claude/settings.json
+
