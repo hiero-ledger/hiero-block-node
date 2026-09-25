@@ -175,19 +175,15 @@ When deploying the Block Node in Kubernetes, container resource requests and lim
 consistently and must account for JVM heap overhead inside the container.
 
 The [Helm chart](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values.yaml)
-ships with default values that **require adjustment before use**:
+ships with the following defaults:
 
-| Helm value | Default |
-|------------|---------|
-| `resources.requests.cpu` | `4` |
-| `resources.requests.memory` | `12Gi` |
-| `resources.limits.cpu` | `4` |
-| `resources.limits.memory` | `15Gi` |
-| `blockNode.config.JAVA_OPTS` (heap flags) | `-Xms16G -Xmx16G` |
-
-> **Warning:** The default `JAVA_OPTS` sets a 16 GiB heap (`-Xms16G -Xmx16G`), which exceeds
-> the default 15 GiB memory limit. A pod using these defaults will be OOM-killed at startup.
-> Always override both `resources.limits.memory` and `JAVA_OPTS` together before deploying.
+|                Helm value                 |                   Default                   |
+|-------------------------------------------|---------------------------------------------|
+| `resources.requests.cpu`                  | `4`                                         |
+| `resources.requests.memory`               | `12Gi`                                      |
+| `resources.limits.cpu`                    | `4`                                         |
+| `resources.limits.memory`                 | `15Gi`                                      |
+| `blockNode.config.JAVA_OPTS` (heap flags) | `-Xms10G -Xmx10G -XX:MaxMetaspaceSize=512m` |
 
 Set the JVM heap (`-Xmx`) to between 75-90% of the container memory limit, leaving the
 remainder for JVM non-heap overhead (metaspace, code cache, native threads). For testnet
