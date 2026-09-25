@@ -452,10 +452,9 @@ Edit `plugins.names` in your Helm values (comma-separated plugin identifiers), t
 `helm upgrade` or `task helm-upgrade`:
 
 ```yaml
-blockNode:
-  config:
-    # Example: Tier 2 — stream-publisher removed
-    PLUGINS_NAMES: "backfill,block-access-service,blocks-file-recent,blocks-file-historic,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-subscriber,block-verification"
+plugins:
+  # Example: Tier 2 - stream-publisher removed
+  names: "backfill,block-access-service,blocks-file-recent,blocks-file-historic,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-subscriber,block-verification"
 ```
 
 **Note:** Removing a plugin name skips loading on the next pod start but does not
