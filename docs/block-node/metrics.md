@@ -362,6 +362,10 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 
 **Cloud Expanded**: Alerts for metrics regarding expanded cloud storage (single-block S3 uploads)
 
+> **Note:** The three counters in this alerting table (`cloud_expanded_total_upload_failures`,
+> `cloud_expanded_total_uploads`, `cloud_expanded_total_upload_bytes`) are registered without a
+> `_total` suffix; Prometheus appends `_total` at scrape time, producing the PromQL names shown here.
+
 | Severity | Alert                         | Metric                                       |                         Condition                          |
 |:---------|:------------------------------|:---------------------------------------------|------------------------------------------------------------|
 | Warning  | Upload failure rate elevated  | `cloud_expanded_total_upload_failures_total` | `rate(cloud_expanded_total_upload_failures_total[5m]) > 0` |
