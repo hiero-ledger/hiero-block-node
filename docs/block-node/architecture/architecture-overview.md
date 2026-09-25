@@ -58,7 +58,7 @@ These flows are illustrated in detail in the [Data Flow](data-flow.md) document.
 - **Block Management:** Block storage and access is managed by implementations of `BlockProviderPlugin` in cooperation
   with one implementation of the `HistoricalBlockFacility`. Together these aggregate multiple block providers and expose
   a unified view of available blocks.
-- **Block Verification:** Blocks are verified for integrity using the `BlockVerificationServicePlugin` which builds the
+- **Block Verification:** Blocks are verified for integrity using the `VerificationServicePlugin` which builds the
   virtual merkle tree and validates the block proof prior to persistence.
 
 ## Plugins
@@ -77,7 +77,7 @@ Key plugins include:
 - **ServerStatusServicePlugin:** Provides block node status API endpoints.
 - **StreamPublisherPlugin:** Provides a block stream publishing API as documented in the [communication protocol](./../../design/communication-protocol/README.md).
 - **SubscriberServicePlugin:** Provides an _unverified_ Block Subscription API.
-- **BlockVerificationServicePlugin:** Verifies incoming blocks for integrity prior to persistence.
+- **VerificationServicePlugin:** Verifies incoming blocks for integrity prior to persistence.
 
 For additional details on plugins, refer to the [Plugins](./plugins.md).
 
