@@ -25,6 +25,13 @@ public class MirrorNodeUtils {
     private static final int MAX_RETRIES = 5;
     private static final long INITIAL_RETRY_DELAY_MS = 2000;
     private static final Set<Integer> RETRYABLE_HTTP_CODES = Set.of(429, 500, 502, 503, 504);
+    /**
+     * Path prefix that identifies mirror-node block-lookup endpoints
+     * ({@code /api/v1/blocks}, {@code /api/v1/blocks/{n}}, {@code /api/v1/blocks?block.number=gte:{n}}).
+     * A 404 on any of these is treated as a transient tip-gap and retried
+     * (see issue #3683). Any other 404 remains terminal.
+     */
+    private static final String BLOCKS_ENDPOINT_PATH_MARKER = "/api/v1/blocks";
 
     /**
      * Read a URL and return the JSON object.
@@ -59,7 +66,7 @@ public class MirrorNodeUtils {
                     try (Reader reader = new InputStreamReader(conn.getInputStream())) {
                         return new Gson().fromJson(reader, JsonObject.class);
                     }
-                } else if (RETRYABLE_HTTP_CODES.contains(responseCode)) {
+                } else if (RETRYABLE_HTTP_CODES.contains(responseCode) || isTransientBlocksTipGap(responseCode, url)) {
                     lastException = new IOException("HTTP " + responseCode + " for URL: " + url);
                     if (attempt < MAX_RETRIES) {
                         long delay = INITIAL_RETRY_DELAY_MS * (1L << (attempt - 1)); // Exponential backoff
@@ -110,6 +117,26 @@ public class MirrorNodeUtils {
                                 || msg.contains("Connection reset")
                                 || msg.contains("Connection timed out")
                                 || msg.contains("Broken pipe")));
+    }
+
+    /**
+     * Returns {@code true} when the response is HTTP 404 on a mirror-node block-lookup
+     * endpoint. Mirror-node returns 404 briefly when the requested block number is at or
+     * just past the current indexer tip; re-issuing the request after a short backoff
+     * succeeds. Any 404 outside the {@code /api/v1/blocks} family stays terminal
+     * (see issue #3683).
+     *
+     * <p>Package-private for testing.
+     *
+     * @param responseCode the HTTP response code
+     * @param url the URL that was requested
+     * @return {@code true} when the response should be retried as a transient tip-gap
+     */
+    static boolean isTransientBlocksTipGap(int responseCode, URL url) {
+        return responseCode == HttpURLConnection.HTTP_NOT_FOUND
+                && url != null
+                && url.getPath() != null
+                && url.getPath().startsWith(BLOCKS_ENDPOINT_PATH_MARKER);
     }
 
     /**
