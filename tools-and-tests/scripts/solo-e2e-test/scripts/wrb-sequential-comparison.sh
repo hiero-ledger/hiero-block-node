@@ -401,6 +401,7 @@ function download_record_files_from_minio {
     # skipping anything a previous poll already downloaded).
     local skipped=0
     local wanted_paths=()
+    local -A wanted_basenames=()
     while IFS= read -r line; do
         if [[ "$line" =~ \.rcd ]]; then
             local file_path=$(echo "$line" | awk '{print $NF}')
@@ -434,6 +435,21 @@ function download_record_files_from_minio {
                [[ "${file_path}" != record0.0.3/* ]]; then
                 continue
             fi
+
+            # Every record file (.rcd) is produced identically by each node
+            # (record0.0.3/, record0.0.4/, record0.0.5/) -- same basename,
+            # listed 3 times because `mc ls --recursive` walks every node's
+            # own subtree. Without deduping on basename here, wanted_paths
+            # accumulates all 3 copies of each file, so the >= max_files break
+            # below fires at ~max_files/3 *unique* files (e.g. max_files=5000
+            # yields ~1666 unique records). Dedup BEFORE the budget check --
+            # not just implicitly at download/write time via the last-node-wins
+            # output_dir collision -- so max_files reflects the actual number
+            # of unique files fetched.
+            if [[ -n "${wanted_basenames[${filename}]:-}" ]]; then
+                continue
+            fi
+            wanted_basenames[${filename}]=1
 
             wanted_paths+=("${file_path}")
             if [ ${#wanted_paths[@]} -ge ${max_files} ]; then

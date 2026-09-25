@@ -36,7 +36,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         type: string
-        default: "0.88.1"
+        default: "0.91.0"
       solo-source:
         description: "Solo install source: 'npm' or 'git' (build an approved fork/branch)"
         type: string
@@ -141,7 +141,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         required: false
-        default: "0.88.1"
+        default: "0.91.0"
       solo-source:
         description: "Solo install source"
         required: false

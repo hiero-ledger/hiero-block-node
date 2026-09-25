@@ -261,6 +261,11 @@ export WRB_DIST_WORK_DIR="${WORK_DIR}"
 export CLI_LIB="${CLI_LIB}"
 export NAMESPACE="${NAMESPACE}"
 export CONTEXT="${CONTEXT}"
+# CN's real genesis time (derived from the first record file above), so
+# downstream scripts (e.g. add-mn2.sh) can bootstrap address-book eras that
+# actually cover blocks produced from genesis, instead of "now".
+export GENESIS_TS_SECONDS="${genesis_ts_seconds}"
+export GENESIS_TS_NANOS="${genesis_ts_nanos}"
 EOF
 log "Wrote shared env for slice-2 scripts to ${ENV_FILE}"
 log "Step 1+2 slice complete."
