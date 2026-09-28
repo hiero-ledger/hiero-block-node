@@ -33,19 +33,19 @@ up older ranges; this plugin owns the live edge.
 6. Provide operator instrumentation (metrics, logs) that make replication
    lag, reconnects, and failover visible.
 7. Tag every plugin-injected block with a distinct `BlockSource` value
-   (`SUBSCRIBED`) so downstream plugins can protect and prioritize
+   (`SUBSCRIBER`) so downstream plugins can protect and prioritize
    publisher-originated blocks over plugin-originated ones without
    inspecting content.
 
 ## Non-Goals
 
-1. Historical gap detection or backfill. `BackfillPlugin` continues to
-   own bounded historical gap-fills. This plugin's role is any stream
-   that ends in a live tail — a cold-starting BN can legitimately request
-   a `start_block_number` deep in history and stream through to live via
-   `end_block_number = uint64_max`, but it will not schedule discrete
-   historical gap fetches the way Backfill does. Subsuming Backfill's
-   greedy mode is possible in a later iteration; out of scope for v1.
+1. Historical gap detection or backfill. `BackfillPlugin` owns every
+   historical fill (bounded gaps and cold-start catchup alike). This
+   plugin only tails live: `start_block_number` is set from the peer's
+   current tip at each session open and `end_block_number = uint64_max`
+   keeps the stream open indefinitely. It does not request historical
+   ranges, does not schedule discrete gap fetches, and does not subsume
+   Backfill's greedy mode.
 2. Reworking the `StreamPublisherPlugin`, `VerificationServicePlugin`, or
    the existing item ring. The design deliberately uses a separate ring
    buffer so the well-tested publisher path is untouched.
@@ -70,21 +70,22 @@ up older ranges; this plugin owns the live edge.
   <dd>The RPC mode where the client requests an <code>end_block_number</code>
       of <code>uint64_max</code>, signalling that the server should keep
       streaming new blocks as they become available. <code>start_block_number</code>
-      is set to the next block the local BN needs; that is typically near
-      <code>local_tip</code>, but a cold-starting BN can request a much earlier
-      start and let the peer catch it up historically before transitioning to
-      real-time tail. The stream continues until the client half-closes or the
-      connection breaks.</dd>
+      is set to the peer's current tip (read from a pre-flight
+      <code>serverStatus</code>) so the stream begins at "now" regardless
+      of how far behind the local BN is; Backfill fills any historical
+      gap independently. The stream continues until the client
+      half-closes or the connection breaks.</dd>
 
   <dt>Immediate Mode</dt>
   <dd>Delivery mode where each <code>BlockItemSet</code> received from the peer
       is forwarded downstream as soon as it arrives. Lowest end-to-end latency;
-      downstream consumers must handle partial-block streams. Considered a
-      "nice to have" — expected to be used sparingly (e.g. Jasper or other
-      latency-sensitive downstream consumers).</dd>
+      downstream consumers must handle partial-block streams and there is no
+      claim this BN has verified the block. Legitimate use case for
+      latency-sensitive downstream consumers such as a Tier 2 RFH BN and Jasper.</dd>
 
   <dt>Full-Block Mode</dt>
-  <dd>Delivery mode where item sets are accumulated until a complete block is
+  <dd>Delivery mode where item sets are accumulated by the
+      <code>SubscribedBlockPublisher</code> until a complete block is
       assembled, then delivered as a single whole-block message. Simpler
       downstream contract; higher latency by one block-assembly interval.
       Default mode.</dd>
@@ -133,12 +134,7 @@ up older ranges; this plugin owns the live edge.
   platform config framework and its values injectable into the plugin.
 - **`SubscribeSessionRunner`** — long-lived loop that owns active peer
   selection and drives one `BlockStreamSubscribeUnparsedClient` call at a
-  time. Runs on a virtual thread. (Issue [#2091](https://github.com/hiero-ledger/hiero-block-node/issues/2091) —
-  Helidon HTTP/2 on virtual threads in K8s — was closed 2026-02-04, so the
-  Backfill-era workaround of pinning to a platform thread is no longer
-  required. If we discover a new virtual-thread interaction on the
-  `BlockStreamSubscribeUnparsedClient` path we can revisit, but the default
-  should track the current Backfill choice.)
+  time. Runs on a virtual thread.
 - **`SubscribedBlockPublisher`** — thin adapter that receives frames from
   the streaming callback and publishes `SubscribedBlockNotification`s onto
   the **Unvalidated Blocks ring buffer**. Two internal strategies:
@@ -182,9 +178,10 @@ a single active peer in four steps:
 1. Filter out peers currently in exponential backoff.
 2. Sort by `(priority ASC, healthScore ASC)`.
 3. Reduce to the set of **candidates** — peers whose pre-flight
-   `serverStatus` shows a tip at or ahead of our requested
-   `start_block_number` and confirms availability of the range we need.
-4. Pick the candidate with the **lowest observed round-trip latency** from
+   `serverStatus` returns successfully (reachable). The tip they
+   advertise becomes each candidate's `start_block_number` when we open
+   a stream against them.
+4. Pick the candidate with the **lowest observed round-trip latency** on
    the pre-flight call (`serverStatus` RTT). This becomes the active peer.
    Ties are broken by priority.
 
@@ -201,9 +198,11 @@ a single active peer in four steps:
   may recover), and the next candidate is tried. Default threshold: 3×
   expected block interval (e.g. 3000 ms for a 1 s cadence).
 
-  This is intentionally client-side and cheap. We do **not** poll the peer's
-  `serverStatus` during the live stream to compare tips. See Open
-  Question #3.
+- **Peer-tip lag** — periodic `serverStatus` polls (`peerTipPollInterval`)
+  of every backoff-free candidate. If any candidate's advertised tip is
+  `peerTipLagThresholdBlocks` ahead of the active peer's advertised tip,
+  cancel the current stream and re-select. Catches the case where the
+  active peer is reachable and cadenced but itself behind consensus.
 
 Backoff is exponential per peer: `delay = initialRetryDelay × 2^(attempts-1)`,
 capped at `maxBackoffMs`. Reset on successful reconnect.
@@ -268,18 +267,18 @@ Downstream consumers of the Unvalidated Blocks ring:
   `VerificationNotification` / `PersistedNotification` mechanism), so no
   changes needed there.
 
-**Provenance — `BlockSource.SUBSCRIBED`.** Blocks injected by this plugin
-carry a new `BlockSource.SUBSCRIBED` enum value on the downstream
+**Provenance — `BlockSource.SUBSCRIBER`.** Blocks injected by this plugin
+carry a new `BlockSource.SUBSCRIBER` enum value on the downstream
 `VerificationNotification` and `PersistedNotification` messages. This is a
 one-line addition to `BlockSource.java` (currently `UNKNOWN`, `PUBLISHER`,
 `BACKFILL`, `HISTORY`) so downstream plugins can:
 
-- Prioritize `PUBLISHER` blocks over `SUBSCRIBED` blocks on shared
+- Prioritize `PUBLISHER` blocks over `SUBSCRIBER` blocks on shared
   work-queues, matching the team's agreement to protect the publisher path.
 - Emit source-labeled metrics (`persist_duration_seconds{source=…}`,
   `verification_failures_total{source=…}`).
 - Skip specific downstream behaviours (e.g. subscriber fan-out re-emission)
-  for `SUBSCRIBED` blocks if a downstream consumer wants replica-only
+  for `SUBSCRIBER` blocks if a downstream consumer wants replica-only
   processing.
 
 The value is set by `SubscribedBlockPublisher` when constructing the
@@ -313,30 +312,46 @@ The value is set by `SubscribedBlockPublisher` when constructing the
   notification schema itself rather than by ring semantics. No new
   cross-plugin ordering primitives are required.
 - **Failover:** on a peer switch mid-stream, the new session opens with
-  `start_block_number = local_tip + 1` (see the Failover section). This
-  can't produce out-of-order blocks downstream — the ring only sees
-  blocks with `block_number > local_tip` from the moment of switchover.
+  `start_block_number = new_peer_tip` (see the Startup and Reconnection
+  section). The new stream can therefore begin at, ahead of, or slightly
+  behind the previous session's last-seen block; downstream consumers
+  handle it identically because every `SubscribedBlockNotification`
+  carries an explicit `block_number` and verification deduplicates by
+  block number.
 
 ### Relationship to Backfill
 
 Distinct plugins, distinct responsibilities, distinct data paths on the
 same new ring buffer:
 
-|    Concern     |                    Subscribe Client                    |                                   Backfill                                   |
-|----------------|--------------------------------------------------------|------------------------------------------------------------------------------|
-| Time horizon   | Near `local_tip` → ∞ (`end_block_number = uint64_max`) | Historical gaps                                                              |
-| Trigger        | Continuous open-ended stream                           | Gap detection + periodic sweep                                               |
-| RPC            | `subscribeBlockStream` (open-ended)                    | `subscribeBlockStream` (bounded ranges)                                      |
-| Injection ring | Unvalidated Blocks (#3614)                             | Unvalidated Blocks (#3614) — migrated from `sendBackfilledBlockNotification` |
-| Coexist?       | Yes — non-overlapping block ranges                     | Yes — non-overlapping block ranges                                           |
+|    Concern     |                Subscribe Client                |                                   Backfill                                   |
+|----------------|------------------------------------------------|------------------------------------------------------------------------------|
+| Time horizon   | Peer tip → ∞ (`end_block_number = uint64_max`) | Historical gaps and cold-start catchup                                       |
+| Trigger        | Continuous open-ended stream                   | Gap detection + periodic sweep                                               |
+| RPC            | `subscribeBlockStream` (open-ended)            | `subscribeBlockStream` (bounded ranges)                                      |
+| Injection ring | Unvalidated Blocks (#3614)                     | Unvalidated Blocks (#3614) — migrated from `sendBackfilledBlockNotification` |
+| Coexist?       | Yes — non-overlapping block ranges             | Yes — non-overlapping block ranges                                           |
 
-On cold start, if the local BN is far behind, Backfill's historical
-scheduler brings the archive current. Subscribe Client sits idle until
-`local_tip` is close enough to the peer's tip for a live subscribe to
-succeed — the plugin computes `start = local_tip + 1` immediately before
-opening the RPC and delegates the "too far behind" decision to the peer's
-response code (`NOT_AVAILABLE` when the peer no longer holds the requested
-historical start block).
+On cold start, if the local BN is far behind, the two plugins run in
+parallel on non-overlapping ranges:
+
+- **Subscribe Client** opens a live subscribe stream at
+  `start_block_number = current peer tip` (from the pre-flight
+  `serverStatus`) and streams blocks from *now* forward. It does not wait
+  for the archive to catch up.
+- **Backfill** closes the historical gap between the local tip and the
+  Subscribe Client's first received block, independently.
+
+The two ranges are non-overlapping by construction, so
+`VerificationServicePlugin` never sees the same block twice from these
+two producers. A cold-starting BN therefore holds a growing archive-side
+front (advanced by Backfill) and an established live-side tail (advanced
+by Subscribe Client) simultaneously; the two meet when Backfill's cursor
+reaches the block Subscribe Client started at.
+
+If the peer no longer holds the block that Subscribe Client's pre-flight
+picked (a rare race), the subscribe RPC returns `NOT_AVAILABLE`, the
+runner picks up a new tip from the next `serverStatus`, and reopens.
 
 ### Coexistence with the Publisher Plugin
 
@@ -354,16 +369,20 @@ technically permitted:
   is idempotent and persistence deduplicates by block number, but it is
   wasteful.
 
-The design **strongly discourages** enabling both in the same deployment
-via documented operator guidance rather than a hard `init()`-time mutex.
-Startup logs a WARN when both are enabled to make the situation visible.
+In practice, `SubscribeClientPlugin` is a Tier 2 plugin and
+`StreamPublisherPlugin` is a Tier 1 plugin, so operators following the
+prescribed chart plugin combinations do not enable both on the same BN
+and no startup warning is needed. The plugins remain safe together in
+edge deployments (verification is idempotent and persistence deduplicates
+by block number), but the design does not treat that as a supported
+operating mode.
 
 Typical deployments:
 
-- **Primary BN** — `StreamPublisherPlugin` deployed,
+- **Tier 1 BN (primary)** — `StreamPublisherPlugin` deployed,
   `SubscribeClientPlugin` not deployed. Receives directly from consensus.
-- **Replica BN** — `SubscribeClientPlugin` deployed,
-  `StreamPublisherPlugin` not deployed. Mirrors a primary BN.
+- **Tier 2 BN (replica)** — `SubscribeClientPlugin` deployed,
+  `StreamPublisherPlugin` not deployed. Mirrors a Tier 1 BN.
 
 ### Startup and Reconnection
 
@@ -380,21 +399,24 @@ Plugin lifecycle follows the standard `BlockNodePlugin` split:
 
 Per session (one iteration of the streaming loop, driven inside `start()`):
 
-1. Query local `HistoricalBlockFacility` for `local_tip`.
-2. Compute `start_block_number` — normally `local_tip + 1`; on cold start
-   with a large gap, this may point deep into history.
-3. Call peer's `serverStatus` for a pre-flight availability check. This
-   confirms the peer is reachable, records the RTT for latency-based
-   selection (step 4 of Source Selection), and verifies the peer holds a
-   block range that covers `start_block_number`.
-4. Select the active peer via `PriorityHealthBasedStrategy`.
-5. Open `subscribeBlockStream` with the computed
-   `start_block_number` and `end_block_number = uint64_max`.
-6. Consume the response stream:
+1. Select the active peer via `PriorityHealthBasedStrategy`.
+2. Call the peer's `serverStatus` for a pre-flight availability check.
+   This confirms the peer is reachable, records the RTT for latency-based
+   selection, and reads the peer's current tip.
+3. Compute `start_block_number = peer_tip` — the stream always begins at
+   the peer's current tip. Backfill is responsible for filling any gap
+   between the local BN's tip and this start block.
+4. Open `subscribeBlockStream` with `start_block_number` and
+   `end_block_number = uint64_max`.
+5. Consume the response stream:
    - `BlockItemSet` → hand to `SubscribedBlockPublisher`.
    - `BlockEnd` → in full-block mode, trigger notification emit; reset
      stale-watchdog timer.
    - Terminal `Code` (any) → mark peer per code; fall through to reconnect.
+6. Periodically (`peerTipPollInterval`) re-issue `serverStatus` against
+   the active peer and each backoff-free candidate; if a candidate's tip
+   is `peerTipLagThresholdBlocks` ahead of the active peer's tip, close
+   the current stream and loop to step 1 (peer-tip-lag failover).
 7. On any stream termination: sleep `reconnectMinDelayMs`, loop back to
    step 1.
 
@@ -481,24 +503,23 @@ sequenceDiagram
 
 `@ConfigData("subscribe.client")` record:
 
-|          Field          |                Type                |   Default    |                           Purpose                            |
-|-------------------------|------------------------------------|--------------|--------------------------------------------------------------|
-| `deliveryMode`          | enum (`full-block` or `immediate`) | `full-block` | Global mode. Strictly on/off — not per-peer.                 |
-| `blockNodeSourcesPath`  | String                             | `""`         | Path to peer-sources JSON (parsed as PBJ `BlockNodeSource`). |
-| `staleThresholdMs`      | long                               | `3000`       | Time since last `BlockEnd` before failing over.              |
-| `initialRetryDelayMs`   | long                               | `500`        | Base for exponential per-peer backoff.                       |
-| `maxBackoffMs`          | long                               | `60000`      | Cap on per-peer backoff.                                     |
-| `reconnectMinDelayMs`   | long                               | `250`        | Minimum sleep between session iterations.                    |
-| `grpcOverallTimeout`    | Duration                           | `30s`        | Per-call gRPC deadline for `serverStatus`.                   |
-| `enableTLS`             | boolean                            | `false`      | TLS toggle. Follows Backfill's convention.                   |
-| `maxIncomingBufferSize` | int                                | `4194304`    | Helidon client incoming buffer.                              |
+|            Field            |                Type                |   Default    |                                                                    Purpose                                                                    |
+|-----------------------------|------------------------------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| `deliveryMode`              | enum (`full-block` or `immediate`) | `full-block` | Global mode. Strictly on/off — not per-peer.                                                                                                  |
+| `blockNodeSourcesPath`      | String                             | `""`         | Path to peer-sources JSON (parsed as PBJ `BlockNodeSource`).                                                                                  |
+| `staleThresholdMs`          | long                               | `3000`       | Time since last `BlockEnd` before failing over.                                                                                               |
+| `initialRetryDelayMs`       | long                               | `500`        | Base for exponential per-peer backoff.                                                                                                        |
+| `maxBackoffMs`              | long                               | `60000`      | Cap on per-peer backoff.                                                                                                                      |
+| `reconnectMinDelayMs`       | long                               | `250`        | Minimum sleep between session iterations.                                                                                                     |
+| `grpcOverallTimeout`        | Duration                           | `30s`        | Per-call gRPC deadline for `serverStatus`.                                                                                                    |
+| `peerTipPollInterval`       | Duration                           | `30s`        | Cadence for polling the active peer's `serverStatus` mid-stream to detect peer-tip lag.                                                       |
+| `peerTipLagThresholdBlocks` | long                               | `50`         | Block-count gap between the active peer's advertised tip and another candidate's tip that triggers a failover to the further-ahead candidate. |
+| `enableTLS`                 | boolean                            | `false`      | TLS toggle. Follows Backfill's convention.                                                                                                    |
+| `maxIncomingBufferSize`     | int                                | `4194304`    | Helidon client incoming buffer.                                                                                                               |
 
-Per the plugin-framework convention, this plugin does **not** carry an
-`enabled` config field. Presence of `SubscribeClientPlugin` on the plugin
-classpath is what enables it; operators deploy the plugin (or omit it) at
-deployment time. Pre-flight `serverStatus` calls are also unconditional —
-there is no toggle to skip them because every reconnect must confirm the
-peer is up and holds the required block range before opening the stream.
+Pre-flight `serverStatus` calls are unconditional — there is no toggle to
+skip them because every reconnect must confirm the peer is up and holds
+the required block range before opening the stream.
 
 Peer JSON file: identical schema to Backfill's `block-nodes.json`, reused
 via the shared `BlockNodeSource` PBJ message. `subscribe_port` field is
@@ -507,43 +528,38 @@ used for the subscribe stream; `status_port` for the pre-flight
 
 ## Metrics
 
-Category: `blocknode`. All names use snake_case:
+Category: `blocknode`. All names use snake_case. Trimmed to the metrics
+with a concrete operator use case; anything the caller can already infer
+from the ones below is omitted.
 
-|                  Metric                  |      Type       |                                Meaning                                 |
-|------------------------------------------|-----------------|------------------------------------------------------------------------|
-| `subscribe_client_active_peer`           | ObservableGauge | Index/id of the currently-active peer (-1 if none).                    |
-| `subscribe_client_delivery_mode`         | ObservableGauge | 0 = full-block, 1 = immediate.                                         |
-| `subscribe_client_blocks_received`       | LongCounter     | Blocks with a `BlockEnd` received from the peer.                       |
-| `subscribe_client_notifications_emitted` | LongCounter     | `SubscribedBlockNotification`s published to the ring. Labeled by mode. |
-| `subscribe_client_stream_opens`          | LongCounter     | Successful subscribe stream openings.                                  |
-| `subscribe_client_stream_terminations`   | LongCounter     | All stream ends, labeled by cause (clean, error, transport, stale).    |
-| `subscribe_client_failovers`             | LongCounter     | Failovers triggered.                                                   |
-| `subscribe_client_reconnects`            | LongCounter     | Total reconnect attempts.                                              |
-| `subscribe_client_lag_ms`                | ObservableGauge | `now - lastBlockEndReceivedAt`.                                        |
-| `subscribe_client_peer_backoff_active`   | ObservableGauge | Count of peers currently in exponential backoff.                       |
-| `subscribe_client_last_block_number`     | ObservableGauge | Highest block number for which a notification was emitted.             |
+|                 Metric                 |      Type       |                                                                                                             Meaning                                                                                                             |
+|----------------------------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `subscribe_client_active_peer`         | ObservableGauge | `node_id` of the currently-active peer (or `-1` if none). Value comes from `BlockNodeSourceConfig.node_id` in the peer-sources JSON, which is operator-assigned and stable across upgrades. Answers "which peer are we on now". |
+| `subscribe_client_blocks_received`     | LongCounter     | Blocks with a `BlockEnd` received from the peer. Throughput signal.                                                                                                                                                             |
+| `subscribe_client_stream_terminations` | LongCounter     | All stream ends, labeled by cause (`clean`, `error`, `transport`, `stale`). One metric covers both "how many streams ended" and "why" — subsumes a separate failovers counter.                                                  |
+| `subscribe_client_lag_ms`              | ObservableGauge | `now - lastBlockEndReceivedAt`. Primary operator health signal: rising lag = peer or transport in trouble.                                                                                                                      |
+| `subscribe_client_last_block_number`   | ObservableGauge | Highest block number for which a notification was emitted. Cross-check with the local BN's tip and (optionally) a peer's `serverStatus` to see how far behind consensus we are.                                                 |
 
 ## Exceptions
 
-|                                      Situation                                      |                                                                                                    Handling                                                                                                    |
-|-------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Peer returns terminal `Code != SUCCESS`                                             | Mark peer failed in `SourceHealth`, log at WARN with code + peer id, start backoff, reconnect.                                                                                                                 |
-| HTTP/2 transport failure (RST, connection reset, timeout)                           | Same as above; wrapped as failure in the streaming callback.                                                                                                                                                   |
-| Ring-buffer publish throws                                                          | Log at ERROR, cancel stream, mark peer failed (defensively), backoff, reconnect. Do NOT swallow silently.                                                                                                      |
-| No peer selectable (all in backoff, or empty file)                                  | Sleep `reconnectMinDelayMs × factor`, retry selection. Log at WARN with a rate-limited cadence.                                                                                                                |
-| Config validation: `blockNodeSourcesPath` missing / unreadable / malformed          | Fail-fast at `init()`.                                                                                                                                                                                         |
-| Config validation: peer JSON file has zero entries and plugin enabled               | Fail-fast at `init()` — misconfiguration.                                                                                                                                                                      |
-| Config validation: both `SubscribeClientPlugin` and `StreamPublisherPlugin` enabled | Log a WARN naming the conflict; do NOT fail-fast. Both plugins use separate ring buffers so this is safe, just wasteful (see [Coexistence with the Publisher Plugin](#coexistence-with-the-publisher-plugin)). |
+|                                 Situation                                  |                                                 Handling                                                  |
+|----------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| Peer returns terminal `Code != SUCCESS`                                    | Mark peer failed in `SourceHealth`, log at WARN with code + peer id, start backoff, reconnect.            |
+| HTTP/2 transport failure (RST, connection reset, timeout)                  | Same as above; wrapped as failure in the streaming callback.                                              |
+| Ring-buffer publish throws                                                 | Log at ERROR, cancel stream, mark peer failed (defensively), backoff, reconnect. Do NOT swallow silently. |
+| No peer selectable (all in backoff, or empty file)                         | Sleep `reconnectMinDelayMs × factor`, retry selection. Log at WARN with a rate-limited cadence.           |
+| Config validation: `blockNodeSourcesPath` missing / unreadable / malformed | Fail-fast at `init()`.                                                                                    |
+| Config validation: peer JSON file has zero entries and plugin enabled      | Fail-fast at `init()` — misconfiguration.                                                                 |
 
 ## Security
 
 - Peer authentication and transport encryption follow the same pattern as
   Backfill (`enableTLS` toggle). No new key material is introduced.
-- The peer BN is trusted to send valid blocks, but
-  `VerificationServicePlugin` on the Unvalidated Blocks ring re-verifies
-  signatures and Merkle roots, so a compromised or byzantine peer cannot
-  silently poison local state — the worst case is repeated verification
-  failures and eventual peer eviction.
+- Every block from a peer is verified locally by
+  `VerificationServicePlugin` on the Unvalidated Blocks ring — this is a
+  general BN invariant, not a peer-specific mitigation. A compromised or
+  byzantine peer produces repeated verification failures and eventual
+  peer eviction; local state is not corruptible via this path.
 - The peer-sources JSON file contains hostnames and ports; not secret, but
   its integrity matters. Same operational posture as Backfill's peer file.
 
@@ -588,78 +604,90 @@ land on the ring at the same version.
 7. Config validation: missing peer file fails `init()`; zero-entry peer
    file fails `init()`; both-plugins-enabled logs WARN but does NOT fail.
 
-**Integration (uses `block-node-e2e-tests` harness):**
+**Integration** (uses the `block-node-e2e-tests` harness — the existing
+JUnit-driven Testcontainers harness under
+`tools-and-tests/block-node-e2e-tests/` that spins up BNs via the block
+node chart and drives them with the `blocks` CLI):
 
-1. Two BNs, one primary (publisher-enabled) and one replica
-   (subscribe-client-enabled, full-block mode). Blocks pushed to primary
-   appear on replica through the Unvalidated Blocks → Verification path
-   with lag under threshold.
-2. Same setup, immediate mode. Item sets appear at the verification stage
+1. **Tier 1 → Tier 2, full-block mode.** One Tier 1 BN (publisher-enabled)
+   and one Tier 2 BN (subscribe-client-enabled, `deliveryMode=full-block`).
+   Blocks pushed to Tier 1 appear on Tier 2 through the Unvalidated Blocks
+   → Verification path with lag under threshold.
+2. **Tier 1 → Tier 2, immediate mode.** Same as (1) but
+   `deliveryMode=immediate`. Item sets appear at the verification stage
    before the block is complete.
-3. Kill the primary mid-stream: replica logs failover, holds at last block
-   until a secondary peer is available, resumes without gap.
-4. Two peers configured on the replica: kill primary peer, replica fails
-   over to secondary within `staleThresholdMs`, verify no gap.
-5. Restart the replica cold with a peer well ahead: replica reconnects,
-   `subscribeBlockStream` returns `NOT_AVAILABLE` (peer no longer holds
-   the requested historical start block); backfill catches up; subscribe
-   client resumes at live tail once `local_tip + 1` is within peer range.
-6. Regression: enable both `StreamPublisherPlugin` and
-   `SubscribeClientPlugin` on the same BN — startup succeeds with a WARN,
-   verification does not double-persist blocks (dedupe holds).
+3. **Mid-stream Tier 1 death.** Kill the Tier 1 peer mid-stream. Tier 2
+   logs failover, holds at last block, resumes without gap once the peer
+   is back.
+4. **Two Tier 1 peers, one dies.** Tier 2 configured with two Tier 1
+   peers. Kill the active one. Tier 2 fails over to the second within
+   `staleThresholdMs`, verify no gap in the received block sequence.
+5. **Cold-start Tier 2 with `backfill.greedy=true`, historical gap.**
+   Tier 2 starts far behind. Subscribe Client opens a live subscribe at
+   the peer's current tip, Backfill greedily fills the historical gap in
+   parallel. The two ranges meet cleanly with no duplicates and no gap.
+6. **Cold-start Tier 2 with `backfill.greedy=false`, gap between last
+   stored and live.** Same setup as (5) but Backfill only runs on gap
+   detection. Subscribe Client still holds the live tail; the historical
+   gap fills at the Backfill cadence. Ends up with the same final state.
+7. **Overlap race.** Backfill and Subscribe Client both target the same
+   block number briefly (Backfill nearing the range Subscribe Client is
+   currently on). Verification dedupes, persistence writes each block
+   once, `subscribe_client_blocks_received` and Backfill counters both
+   increment for the overlap.
+8. **Mid-block stream drop, immediate mode.** Peer stops sending mid-block
+   after emitting one or two `BlockItemSet`s. Tier 2 discards the partial
+   in-flight block (nothing written to persistence), fails over, and the
+   new session starts from the still-un-verified block.
+9. **Both plugins enabled on the same BN.** Enable both
+   `StreamPublisherPlugin` and `SubscribeClientPlugin` on one BN, feed
+   blocks via both paths for the same range. Verification does not
+   double-persist (dedupe holds), and metrics reflect blocks arriving
+   from both `PUBLISHER` and `SUBSCRIBER` sources.
 
 ## Open Questions
 
 1. **Immediate-mode consumers.** Full-block mode has a clear downstream
-   (verification then persistence). Immediate mode's target consumer set
-   isn't final — Jasper is the main motivating case. Do we need any other
-   in-tree consumer for immediate mode in v1, or is it enough that the
-   notification exists on the ring and external tools can subscribe later?
+   (verification then persistence). Immediate mode's primary consumers
+   are Tier 2 RFH BNs and Jasper — a Tier 1 shipping `BlockItemSet`s to
+   a Tier 2 with sub-block latency is one of the key drivers for this
+   plugin. Confirmed as in-scope for v1. Any additional in-tree consumer
+   (beyond the RFH and Jasper cases) is a later add.
 
-2. **Persistence of already-verified blocks.** Backfill re-verifies fetched
-   blocks locally. This plugin's flow does the same via the shared
-   verification hook on the Unvalidated Blocks ring. Is the CPU cost of
-   double-verifying every replicated block acceptable, or do we want a
-   fast-path that trusts the peer's proof (would require a new
-   `BlockSource.SUBSCRIBED` value on `VerificationNotification` /
-   `PersistedNotification`, analogous to `PUBLISHER` / `BACKFILL`)?
+2. **Persistence of already-verified blocks.** Backfill re-verifies
+   fetched blocks locally. This plugin's flow does the same via the
+   shared verification hook on the Unvalidated Blocks ring. Verification
+   already runs at most once per block (idempotent by block number), so
+   there is no double-verification in flight even when Backfill and
+   Subscribe Client both target the same range briefly. A trusts-the-peer
+   fast-path is not proposed; the value of `BlockSource.SUBSCRIBER` is
+   pipeline-attribution and downstream prioritisation, not skipping
+   verification.
 
-3. **Peer-tip lag detection.** The client-side stale watchdog catches the
-   case where the peer stops sending us blocks. It does NOT catch the case
-   where the peer itself is behind consensus and dutifully sends us its
-   stale live tail at normal cadence. Defer until observed in production,
-   or add a periodic `serverStatus` poll now?
+3. **Peer-tip lag detection.** The client-side stale watchdog catches
+   the case where the peer stops sending us blocks. It does NOT catch
+   the case where the peer itself is behind consensus and dutifully
+   sends us its stale live tail at normal cadence. Resolution: add a
+   periodic `serverStatus` poll of the current peer, and if another
+   candidate peer's advertised tip is meaningfully further ahead
+   (bounded by a threshold), fail over to that peer. The threshold and
+   poll cadence are tuning knobs (`peerTipLagThresholdBlocks`,
+   `peerTipPollInterval`); starting values in the Configuration table.
 
-4. **Per-peer mode.** Design fixes mode globally. Are there realistic
-   deployments that want immediate mode on one peer and full-block on
-   another? If so we lift the "strictly on/off" constraint later.
+4. **Plugin location for shared selection logic.** Resolved: move
+   `SourceHealth` and `PriorityHealthBasedStrategy` out of
+   `block-node/backfill/` into
+   `block-node/base/src/main/java/org/hiero/block/node/base/client`,
+   coordinating with Backfill owners. Both plugins depend on the shared
+   package at that path.
 
-5. **Plugin location for shared selection logic.** `SourceHealth` and
-   `PriorityHealthBasedStrategy` live inside `block-node/backfill/` today.
-   Options: (a) duplicate into this plugin, (b) move to `block-node/base/`
-   for reuse. Recommend (b) but coordinate with Backfill owners.
-
-6. **`GrpcWebClientTuning` fallback is hardcoded to
-   `backfill.grpcOverallTimeout`.** The `GrpcWebClientTuning` proto
+5. **`GrpcWebClientTuning` fallback.** The `GrpcWebClientTuning` proto
    (`internal/block_node_source.proto:77`) documents that unset timeout
-   fields fall back to `backfill.grpcOverallTimeout`. If this plugin
-   reuses the shared `BlockNodeClient` for WebClient construction,
-   per-peer tuning defaults will keep coming from Backfill's config, not
-   ours. Options: (a) accept the coupling (operators supply explicit
-   per-peer tuning), (b) generalize `BlockNodeClient` to accept a fallback
-   timeout from the calling plugin, (c) add a
-   `subscribe.client.grpcOverallTimeout` and shadow the fallback
-   ourselves. Recommend (b) but out of scope for v1.
-
-7. **Corner cases (from design collab).** Joseph flagged that there may be
-   additional edge cases worth thinking through, not fully enumerated in
-   the initial catchup. Candidates to review before implementation:
-
-   - Backfill and Subscribe Client both writing to the Unvalidated Blocks
-     ring for overlapping block numbers — how does `VerificationServicePlugin`
-     dedupe?
-   - What happens on `SubscribedBlockNotification` for a block whose items
-     were partially delivered in immediate mode and then the stream drops
-     mid-block — is the partial state discarded, and how?
-   - Downstream persistence race between Backfill's already-verified path
-     and our just-verified path when both fill the same block number.
+   fields fall back to `backfill.grpcOverallTimeout`. Needs verification:
+   this comment may pre-date the introduction of a shared
+   `BlockNodeClient` and reflect a Backfill-specific behaviour rather
+   than a hard coupling. Action: audit the current `BlockNodeClient`
+   construction path and, if the fallback is real, tighten it to
+   read from the calling plugin's own `grpcOverallTimeout`
+   (`subscribe.client.grpcOverallTimeout` is already in the Config
+   table). If it is only a stale comment, update the proto docstring.
