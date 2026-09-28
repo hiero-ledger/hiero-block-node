@@ -106,11 +106,14 @@ public final class BlockHasher implements Supplier<HashingResult> {
     private BlockFooter blockFooter;
     /// The HAPI proto version from the block header.
     private SemanticVersion hapiProtoVersion;
-    /// Raw serialized bytes of the outer `RecordFileItem` proto message, captured when a
-    /// `RECORD_FILE` item is seen and used to detect a second such item (a WRB block carries
-    /// exactly one). The WRB signed payload is computed downstream by the RSA proof verifier
-    /// from the block carried on the [HashingResult]. Null until such an item is encountered.
-    private Bytes rawRecordFileItemProtoBytes;
+    /// Whether a `RECORD_FILE` item has already been processed for this block. A wrapped
+    /// record block carries exactly one record file item: it is hashed into the output subtree
+    /// like any other item, and a second one fails the block with
+    /// `UNSUPPORTED_STREAM_FORMAT`, because a mandatory once-per-block item appearing twice is
+    /// a valid encoding but not a processable stream. The record file contents are not
+    /// inspected here; the WRB signed payload is computed downstream by the RSA proof verifier
+    /// from the block carried on the [HashingResult].
+    private boolean recordFileItemSeen;
 
     /// Constructor.
     ///
@@ -274,12 +277,12 @@ public final class BlockHasher implements Supplier<HashingResult> {
                     yield null;
                 }
                 case RECORD_FILE -> {
-                    if (this.rawRecordFileItemProtoBytes != null) {
+                    if (this.recordFileItemSeen) {
                         // a mandatory once per block item appearing more than once is a valid
                         // encoding, but not a processable stream
                         yield SessionFailureType.UNSUPPORTED_STREAM_FORMAT;
                     } else {
-                        this.rawRecordFileItemProtoBytes = item.recordFileOrThrow();
+                        this.recordFileItemSeen = true;
                         outputTreeHasher.addLeaf(getBlockItemHash(item));
                         yield null;
                     }

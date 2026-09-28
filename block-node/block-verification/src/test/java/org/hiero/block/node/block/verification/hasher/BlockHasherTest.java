@@ -737,6 +737,28 @@ class BlockHasherTest {
             assertHashingFails(item, SessionFailureType.UNSUPPORTED_STREAM_FORMAT);
         }
 
+        /// This test aims to assert that a wrapped record block carrying two `RECORD_FILE`
+        /// items is rejected with `UNSUPPORTED_STREAM_FORMAT`: a WRB carries exactly one record
+        /// file item, so a second one is a valid encoding but not a processable stream. The
+        /// first record file item is accepted and hashed, only the repeated one fails the block.
+        @Test
+        @DisplayName("get() second RECORD_FILE item in a block is rejected")
+        void testSecondRecordFileItemRejected() {
+            final Bytes recordFileItemProtoBytes = Bytes.wrap(new byte[] {0x12, 0x02, 0x12, 0x00});
+            final List<BlockItemUnparsed> singleRecordFileItems = wrbBlockItems(6, recordFileItemProtoBytes);
+            // Sanity: the same block with a single RECORD_FILE item hashes successfully
+            assertThat(hashBlockItems(singleRecordFileItems).blockProofs()).hasSize(1);
+            // Repeat the RECORD_FILE item (index 1: header, record file, footer, proof)
+            final List<BlockItemUnparsed> twoRecordFileItems = new ArrayList<>(singleRecordFileItems);
+            twoRecordFileItems.add(2, singleRecordFileItems.get(1));
+            assertThatThrownBy(() -> hashBlockItems(twoRecordFileItems))
+                    .isInstanceOf(VerificationSessionFailedException.class)
+                    .asInstanceOf(type(VerificationSessionFailedException.class))
+                    .returns(
+                            SessionFailureType.UNSUPPORTED_STREAM_FORMAT,
+                            VerificationSessionFailedException::getFailureType);
+        }
+
         /// This test aims to assert that an item carrying no field at all is refused: there is
         /// nothing valid to process, so something unexpected is happening.
         @Test
