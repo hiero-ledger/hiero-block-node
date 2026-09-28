@@ -70,8 +70,12 @@ class AccessorPerformanceComparisonTest {
             runRandomAccess(cachedArchive, 500, 1);
 
             report.append("== Sequential chunk reads (simulates a backfill chunk fetch from one archive) ==\n");
+            // Bound total blocks read (not repetitions) per chunk size, so worst-case wall-clock stays
+            // roughly constant regardless of chunk size instead of scaling with chunkSize * repetitions --
+            // important for a test that must stay reliable on slow/noisy CI hardware.
+            final int totalBlocksReadBudget = 600;
             for (final int chunkSize : new int[] {1, 10, 100}) {
-                final int repetitions = 100;
+                final int repetitions = Math.max(5, totalBlocksReadBudget / chunkSize);
                 final long legacyNanos = runSequentialChunks(legacyArchive, chunkSize, repetitions);
                 final long cachedNanos = runSequentialChunks(cachedArchive, chunkSize, repetitions);
                 appendComparison(
@@ -83,7 +87,7 @@ class AccessorPerformanceComparisonTest {
             }
 
             report.append("\n== Single-threaded random access across the archive ==\n");
-            final int randomOps = 3000;
+            final int randomOps = 1000;
             final long legacyRandomNanos = runRandomAccess(legacyArchive, randomOps, 42);
             final long cachedRandomNanos = runRandomAccess(cachedArchive, randomOps, 42);
             appendComparison(
@@ -91,7 +95,7 @@ class AccessorPerformanceComparisonTest {
 
             report.append("\n== Concurrent random access (total wall-clock for all threads) ==\n");
             for (final int threadCount : new int[] {4, 16}) {
-                final int opsPerThread = 500;
+                final int opsPerThread = 150;
                 final long legacyNanos = runConcurrentRandomAccess(legacyArchive, threadCount, opsPerThread);
                 final long cachedNanos = runConcurrentRandomAccess(cachedArchive, threadCount, opsPerThread);
                 appendComparison(
@@ -183,7 +187,10 @@ class AccessorPerformanceComparisonTest {
                 });
             }
             final long startNanos = System.nanoTime();
-            final List<Future<Void>> futures = executor.invokeAll(tasks, 60, TimeUnit.SECONDS);
+            // Generous timeout: this only guards against a genuine hang, not against the legacy
+            // implementation being slow (that IS the thing being measured), so it must tolerate
+            // CI hardware being much slower/noisier than a local machine rather than racing it.
+            final List<Future<Void>> futures = executor.invokeAll(tasks, 10, TimeUnit.MINUTES);
             for (final Future<Void> future : futures) {
                 future.get();
             }
