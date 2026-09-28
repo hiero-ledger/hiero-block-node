@@ -84,7 +84,7 @@ class BlockFileHistoricPluginTest {
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
         // also we will not use compression, and we will use the jUnit temp dir
-        testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, false);
+        testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, false, false, 8);
         // build the plugin using the test environment
         toTest = new BlockFileHistoricPlugin();
         // initialize an in memory historical block facility to use for testing
@@ -931,7 +931,7 @@ class BlockFileHistoricPluginTest {
         @Test
         @DisplayName("Test happy path zip successful notification sent per staged block when enabled")
         void testZipRangeHappyPathNotificationSentPerStagedBlock() throws IOException {
-            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, true);
+            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, true, false, 8);
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
             // generate first 10 blocks from numbers 0-9 and add them to the
             // test historical block facility
@@ -1337,7 +1337,7 @@ class BlockFileHistoricPluginTest {
         @DisplayName("Test retention policy threshold disabled")
         void testRetentionPolicyThresholdDisabled() throws IOException {
             // change the retention policy to be disabled
-            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 0L, 3, false);
+            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 0L, 3, false, false, 8);
             // override the config in the plugin
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
             // generate first 150 blocks from numbers 0-149 and add them to the
@@ -1490,7 +1490,7 @@ class BlockFileHistoricPluginTest {
             // Configure plugin with allowZippingMultipleTimes = true (last parameter).
             // This special configuration allows the same batch to be re-archived when
             // duplicate notifications arrive, unlike the default idempotent behavior.
-            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, false);
+            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, false, false, 8);
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
 
             // Send the first set of block verification notifications (blocks 0-9).
@@ -1664,7 +1664,7 @@ class BlockFileHistoricPluginTest {
         @DisplayName("init moves corrupted zip file without shutting down")
         void initMovesCorruptedZipWithoutShutdown() throws IOException {
             final Path corruptedRoot = dataRoot.resolve("corrupted-zip-root");
-            testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L, 3, false);
+            testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L, 3, false, false, 8);
 
             final BlockPath corruptedZipLocation = BlockPath.computeBlockPath(testConfig, 0L);
             Files.createDirectories(corruptedZipLocation.dirPath());
@@ -1691,7 +1691,7 @@ class BlockFileHistoricPluginTest {
 
             // Phase 1: Start with powersOfTenPerZipFileContents = 1, which creates archives like "00.zip" (2 chars)
             FilesHistoricConfig initialConfig =
-                    new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 1, 10L, 3, false);
+                    new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 1, 10L, 3, false, false, 8);
             final BlockFileHistoricPlugin firstPlugin = new BlockFileHistoricPlugin();
             start(firstPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(initialConfig));
 
@@ -1714,7 +1714,7 @@ class BlockFileHistoricPluginTest {
             // Phase 2: Restart the plugin with the same powersOfTenPerZipFileContents to make sure the
             // happy path works
 
-            testConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 1, 10L, 3, false);
+            testConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 1, 10L, 3, false, false, 8);
             final BlockFileHistoricPlugin secondPlugin = new BlockFileHistoricPlugin();
             start(secondPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
 
@@ -1724,7 +1724,7 @@ class BlockFileHistoricPluginTest {
 
             // Phase 3: Create plugin with different powersOfTenPerZipFileContents = 3
             // This expects archives like "0000.zip" (4 chars) but will find "00.zip" (2 chars)
-            testConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 3, 10L, 3, false);
+            testConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 3, 10L, 3, false, false, 8);
             final BlockFileHistoricPlugin thirdPlugin = new BlockFileHistoricPlugin();
             start(thirdPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
 

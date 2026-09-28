@@ -29,6 +29,14 @@ import org.hiero.block.node.base.Loggable;
  * that by default only a single Persisted Notification is sent per successfully archived zip batch, matching the
  * plugin's legacy behavior. Note: a staged block is not retrievable via {@code block(long)} until its batch is
  * zipped.
+ * @param cachedZipAccessorEnabled if enabled, block reads share a small, bounded cache of open zip archive
+ * filesystems ({@link CachedZipBlockAccessor}) instead of each read opening its own via a temporary hard link
+ * ({@link ZipBlockAccessor}, the default). The cached accessor avoids repeatedly reopening the same archive for
+ * consecutive reads, at the cost of sharing one open filesystem across concurrent readers of that archive.
+ * @param maxCachedZipArchives maximum number of open zip archive filesystems to keep cached (shared and
+ * reference-counted across concurrent readers) at once when {@link #cachedZipAccessorEnabled} is set. Reads for
+ * blocks in the same archive reuse the cached filesystem instead of reopening it; archives not currently in use
+ * are evicted least-recently-used first once this many are cached.
  */
 @ConfigData("files.historic")
 public record FilesHistoricConfig(
@@ -38,6 +46,8 @@ public record FilesHistoricConfig(
         @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents,
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long blockRetentionThreshold,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(1) int maxFilesPerDir,
-        @Loggable @ConfigProperty(defaultValue = "false") boolean stagedBlockNotificationsEnabled) {
+        @Loggable @ConfigProperty(defaultValue = "false") boolean stagedBlockNotificationsEnabled,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean cachedZipAccessorEnabled,
+        @Loggable @ConfigProperty(defaultValue = "8") @Min(1) int maxCachedZipArchives) {
         // spotless:on
 }

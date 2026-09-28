@@ -18,12 +18,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -344,7 +351,9 @@ class ZipBlockArchiveTest {
         void testBlockAccessorFound() throws IOException {
             // create test environment, for this test we need one zip file with two zip entries inside
             final long targetBlockNumber = 1L;
-            final ZipBlockAccessor expected = createAndAddBlockEntry(targetBlockNumber);
+            createAndAddBlockEntry(targetBlockNumber);
+            final BlockUnparsed expected =
+                    TestBlockBuilder.generateBlockWithNumber(targetBlockNumber).blockUnparsed();
             // call
             final BlockAccessor actual = toTest.blockAccessor(targetBlockNumber);
             // assert
@@ -352,7 +361,102 @@ class ZipBlockArchiveTest {
                     .isNotNull()
                     .isExactlyInstanceOf(ZipBlockAccessor.class)
                     .extracting(BlockAccessor::blockUnparsed)
-                    .isEqualTo(expected.blockUnparsed());
+                    .isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to assert that with {@link FilesHistoricConfig#cachedZipAccessorEnabled()} turned on,
+         * {@link ZipBlockArchive#blockAccessor(long)} returns a {@link CachedZipBlockAccessor} rather than the
+         * default {@link ZipBlockAccessor}.
+         */
+        @Test
+        @DisplayName("Test blockAccessor() returns CachedZipBlockAccessor when caching is enabled")
+        void testBlockAccessorFoundWithCachingEnabled() throws IOException {
+            final long targetBlockNumber = 1L;
+            createAndAddBlockEntry(targetBlockNumber);
+            final BlockUnparsed expected =
+                    TestBlockBuilder.generateBlockWithNumber(targetBlockNumber).blockUnparsed();
+            final ZipBlockArchive cachedArchive =
+                    new ZipBlockArchive(testContext, createCachedTestConfiguration(testConfig.rootPath(), 1));
+            // call
+            final BlockAccessor actual = cachedArchive.blockAccessor(targetBlockNumber);
+            // assert
+            assertThat(actual)
+                    .isNotNull()
+                    .isExactlyInstanceOf(CachedZipBlockAccessor.class)
+                    .extracting(BlockAccessor::blockUnparsed)
+                    .isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that {@link ZipBlockArchive#blockAccessor(long)} is safe to call
+         * concurrently from many threads against the same archive -- both for the same block number and for
+         * different block numbers spread across more than one archive. Every read must return exactly the
+         * content for the block it asked for, with no corruption or cross-talk between concurrently open
+         * readers. Runs against both accessor implementations, since each opens filesystems differently:
+         * {@link ZipBlockAccessor} gives every reader its own filesystem (via a hard link) so this is mostly a
+         * regression guard, while {@link CachedZipBlockAccessor} shares one filesystem across readers of the
+         * same archive, which is the assumption that actually needs proving under concurrent load.
+         */
+        @Test
+        @DisplayName("Test blockAccessor() is safe under concurrent access with the default (non-cached) accessor")
+        void testBlockAccessorConcurrentAccess() throws Exception {
+            // create test environment with enough blocks to span more than one archive
+            final int blockCount = 20;
+            for (long blockNumber = 0; blockNumber < blockCount; blockNumber++) {
+                createAndAddBlockEntry(blockNumber);
+            }
+            runConcurrentBlockAccessorAssertions(toTest, blockCount);
+        }
+
+        /**
+         * See {@link #testBlockAccessorConcurrentAccess()}; this variant exercises the same scenario with
+         * {@link FilesHistoricConfig#cachedZipAccessorEnabled()} turned on, so many threads share one
+         * reference-counted {@link ZipBlockArchive.ArchiveHandle} per archive concurrently.
+         */
+        @Test
+        @DisplayName("Test blockAccessor() is safe under concurrent access with caching enabled")
+        void testBlockAccessorConcurrentAccessWithCachingEnabled() throws Exception {
+            final int blockCount = 20;
+            for (long blockNumber = 0; blockNumber < blockCount; blockNumber++) {
+                createAndAddBlockEntry(blockNumber);
+            }
+            final ZipBlockArchive cachedArchive =
+                    new ZipBlockArchive(testContext, createCachedTestConfiguration(testConfig.rootPath(), 1));
+            runConcurrentBlockAccessorAssertions(cachedArchive, blockCount);
+        }
+
+        private void runConcurrentBlockAccessorAssertions(final ZipBlockArchive archive, final int blockCount)
+                throws Exception {
+            final int threadCount = 16;
+            final int iterationsPerThread = 100;
+            final ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+            try {
+                final List<Callable<Void>> tasks = new ArrayList<>();
+                for (int t = 0; t < threadCount; t++) {
+                    final long seed = t;
+                    tasks.add(() -> {
+                        final java.util.Random random = new java.util.Random(seed);
+                        for (int i = 0; i < iterationsPerThread; i++) {
+                            final long blockNumber = random.nextInt(blockCount);
+                            final BlockUnparsed expected = TestBlockBuilder.generateBlockWithNumber(blockNumber)
+                                    .blockUnparsed();
+                            try (final BlockAccessor accessor = archive.blockAccessor(blockNumber)) {
+                                assertThat(accessor).isNotNull();
+                                assertThat(accessor.blockUnparsed()).isEqualTo(expected);
+                            }
+                        }
+                        return null;
+                    });
+                }
+                final List<Future<Void>> futures = executor.invokeAll(tasks, 30, TimeUnit.SECONDS);
+                for (final Future<Void> future : futures) {
+                    // get() rethrows any assertion failure or exception raised inside the task
+                    future.get();
+                }
+            } finally {
+                executor.shutdownNow();
+            }
         }
 
         /**
@@ -655,14 +759,13 @@ class ZipBlockArchiveTest {
         }
     }
 
-    private ZipBlockAccessor createAndAddBlockEntry(final long blockNumber) throws IOException {
+    private void createAndAddBlockEntry(final long blockNumber) throws IOException {
         final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, blockNumber);
         final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
-        return createAndAddBlockEntry(blockPath, block.bytes().toByteArray());
+        createAndAddBlockEntry(blockPath, block.bytes().toByteArray());
     }
 
-    private ZipBlockAccessor createAndAddBlockEntry(final BlockPath blockPath, final byte[] bytesToWrite)
-            throws IOException {
+    private void createAndAddBlockEntry(final BlockPath blockPath, final byte[] bytesToWrite) throws IOException {
         // create & assert existing block file path before call
         Files.createDirectories(blockPath.dirPath());
         // it is important the output stream is closed as the compression writes a footer on close
@@ -708,13 +811,20 @@ class ZipBlockArchiveTest {
             final byte[] fromZipEntry = Files.readAllBytes(entry);
             assertThat(fromZipEntry).isEqualTo(bytesToWrite);
         }
-        return new ZipBlockAccessor(blockPath, linksTempDir);
     }
 
     private FilesHistoricConfig createTestConfiguration(
             final Path blocksRoot, final int powersOfTenPerZipFileContents) {
         // for simplicity let's use no compression
-        return new FilesHistoricConfig(blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3, false);
+        return new FilesHistoricConfig(
+                blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3, false, false, 8);
+    }
+
+    /** Same as {@link #createTestConfiguration}, but with {@code cachedZipAccessorEnabled} turned on. */
+    private FilesHistoricConfig createCachedTestConfiguration(
+            final Path blocksRoot, final int powersOfTenPerZipFileContents) {
+        return new FilesHistoricConfig(
+                blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3, false, true, 8);
     }
 
     /**

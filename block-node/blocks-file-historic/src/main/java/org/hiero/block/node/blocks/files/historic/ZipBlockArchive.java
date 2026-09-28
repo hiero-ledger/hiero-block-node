@@ -19,7 +19,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -37,6 +40,20 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
 /**
  * The ZipBlockArchive class provides methods for creating and managing zip files containing blocks.
  * It allows for writing new zip files and accessing individual blocks within the zip files.
+ * <p>
+ * Block reads are served by one of two accessor implementations, chosen per
+ * {@link FilesHistoricConfig#cachedZipAccessorEnabled()}:
+ * <ul>
+ *   <li>{@link ZipBlockAccessor} (default): each accessor opens (and indexes) its own filesystem via a
+ *   temporary hard link, so concurrent readers of the same archive never share a filesystem instance.</li>
+ *   <li>{@link CachedZipBlockAccessor}: reads share a small, bounded cache of open zip filesystems (see
+ *   {@link #openArchives}), keyed by archive path and reference-counted across concurrently active
+ *   accessors, so that consecutive reads from the same archive (the common case, since archives typically
+ *   hold many thousands of blocks) reuse one open filesystem instead of each accessor opening and indexing
+ *   its own.</li>
+ * </ul>
+ * The two coexist (rather than one replacing the other) so they can be switched between and profiled/compared,
+ * and so there is a known-safe fallback if a shared, concurrently-read zip filesystem ever proves unsafe.
  */
 class ZipBlockArchive {
     /** The logger for this class. */
@@ -45,10 +62,18 @@ class ZipBlockArchive {
     private final BlockNodeContext context;
     /** The configuration for the historic files. */
     private final FilesHistoricConfig config;
-    /** root path for temporary hard links to zip files */
+    /** root path for temporary hard links to zip files, used by {@link ZipBlockAccessor}. */
     private final Path linksRootPath;
     /** The format for the blocks. */
     private final Format format;
+    /** Guards all access to {@link #openArchives}. Only used when {@link CachedZipBlockAccessor} is enabled. */
+    private final Object archiveCacheLock = new Object();
+    /**
+     * Cache of open zip filesystems, keyed by archive path, access-ordered so the eldest (least-recently-used)
+     * entry is evicted first. Guarded by {@link #archiveCacheLock}. Only used when {@link CachedZipBlockAccessor}
+     * is enabled.
+     */
+    private final Map<Path, ArchiveHandle> openArchives = new LinkedHashMap<>(16, 0.75f, true);
 
     /**
      * Constructor for ZipBlockArchive.
@@ -64,6 +89,114 @@ class ZipBlockArchive {
             case ZSTD -> Format.ZSTD_PROTOBUF;
             case NONE -> Format.PROTOBUF;
         };
+    }
+
+    /**
+     * A shared, reference-counted handle to an open zip archive filesystem. Multiple concurrent
+     * {@link CachedZipBlockAccessor}s reading from the same archive hold a reference to the same handle.
+     */
+    static final class ArchiveHandle {
+        private final FileSystem fileSystem;
+        /** Guarded by {@link #archiveCacheLock}. */
+        private int refCount;
+
+        private ArchiveHandle(@NonNull final FileSystem fileSystem) {
+            this.fileSystem = fileSystem;
+        }
+
+        FileSystem fileSystem() {
+            return fileSystem;
+        }
+    }
+
+    /**
+     * Acquires a shared reference to the open filesystem for the given archive, opening and caching it if it is
+     * not already cached. Every successful call must be paired with exactly one {@link #releaseArchive} call.
+     *
+     * @param zipFilePath the path to the zip archive, must already be known to exist
+     * @return a handle with an active reference already counted for the caller
+     */
+    private ArchiveHandle acquireArchive(@NonNull final Path zipFilePath) throws IOException {
+        synchronized (archiveCacheLock) {
+            ArchiveHandle handle = openArchives.get(zipFilePath);
+            if (handle == null) {
+                handle = new ArchiveHandle(FileSystems.newFileSystem(zipFilePath));
+                openArchives.put(zipFilePath, handle);
+            }
+            handle.refCount++;
+            evictIfNeededLocked();
+            return handle;
+        }
+    }
+
+    /**
+     * Releases a reference previously acquired via {@link #acquireArchive}. The underlying filesystem is not
+     * necessarily closed immediately: it stays cached for reuse until evicted.
+     */
+    private void releaseArchive(@NonNull final ArchiveHandle handle) {
+        synchronized (archiveCacheLock) {
+            handle.refCount--;
+        }
+    }
+
+    /**
+     * Evicts the least-recently-used cached archives, oldest first, while the cache exceeds its configured bound
+     * and skipping any archive that is still actively referenced. Must be called while holding
+     * {@link #archiveCacheLock}.
+     */
+    private void evictIfNeededLocked() {
+        final int maxCachedZipArchives = config.maxCachedZipArchives();
+        if (openArchives.size() <= maxCachedZipArchives) {
+            return;
+        }
+        final Iterator<Map.Entry<Path, ArchiveHandle>> iterator =
+                openArchives.entrySet().iterator();
+        while (openArchives.size() > maxCachedZipArchives && iterator.hasNext()) {
+            final Map.Entry<Path, ArchiveHandle> entry = iterator.next();
+            if (entry.getValue().refCount == 0) {
+                iterator.remove();
+                closeQuietly(entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
+    private void closeQuietly(@NonNull final Path zipFilePath, @NonNull final ArchiveHandle handle) {
+        try {
+            handle.fileSystem().close();
+        } catch (final IOException e) {
+            LOGGER.log(WARNING, "Failed to close cached zip archive filesystem for: %s".formatted(zipFilePath), e);
+        }
+    }
+
+    /**
+     * Evicts and closes the cached filesystem for the given archive path, if cached and not currently in use by
+     * an active accessor. Intended to be called right after the archive's zip file has been deleted (e.g. by
+     * retention policy pruning), so the cache does not keep holding a filesystem open for a file that no longer
+     * exists on disk any longer than necessary. If the archive is still actively referenced, this is a no-op;
+     * it will be cleaned up by the normal LRU eviction once released.
+     *
+     * @param zipFilePath the path to the archive that was deleted
+     */
+    void evictArchive(@NonNull final Path zipFilePath) {
+        synchronized (archiveCacheLock) {
+            final ArchiveHandle handle = openArchives.get(zipFilePath);
+            if (handle != null && handle.refCount == 0) {
+                openArchives.remove(zipFilePath);
+                closeQuietly(zipFilePath, handle);
+            }
+        }
+    }
+
+    /**
+     * Closes every cached archive filesystem. Should be called when the owning plugin stops.
+     */
+    void close() {
+        synchronized (archiveCacheLock) {
+            for (final Map.Entry<Path, ArchiveHandle> entry : openArchives.entrySet()) {
+                closeQuietly(entry.getKey(), entry.getValue());
+            }
+            openArchives.clear();
+        }
     }
 
     /**
@@ -109,12 +242,21 @@ class ZipBlockArchive {
     }
 
     /**
-     * Get a block accessor for a block number
+     * Get a block accessor for a block number. Returns a {@link CachedZipBlockAccessor} or a
+     * {@link ZipBlockAccessor}, per {@link FilesHistoricConfig#cachedZipAccessorEnabled()}.
      *
      * @param blockNumber The block number
      * @return The block accessor for the block number
      */
     BlockAccessor blockAccessor(long blockNumber) {
+        return config.cachedZipAccessorEnabled() ? cachedBlockAccessor(blockNumber) : legacyBlockAccessor(blockNumber);
+    }
+
+    /**
+     * Get a block accessor for a block number, using each accessor's own hard-linked filesystem.
+     * Package-private for testing.
+     */
+    BlockAccessor legacyBlockAccessor(long blockNumber) {
         try {
             // get existing block path or null if we cannot find it or create accessor for
             final BlockPath blockPath = computeExistingBlockPath(config, blockNumber);
@@ -122,6 +264,41 @@ class ZipBlockArchive {
         } catch (final IOException e) {
             LOGGER.log(INFO, "Could not create zip block accessor", e);
             return null;
+        }
+    }
+
+    /**
+     * Get a block accessor for a block number, sharing a cached, reference-counted filesystem across
+     * accessors reading from the same archive. Package-private for testing.
+     */
+    BlockAccessor cachedBlockAccessor(long blockNumber) {
+        final Path zipFilePath = BlockPath.computeBlockPath(config, blockNumber).zipFilePath();
+        if (!Files.isRegularFile(zipFilePath)) {
+            return null;
+        }
+        final ArchiveHandle handle;
+        try {
+            handle = acquireArchive(zipFilePath);
+        } catch (final IOException e) {
+            LOGGER.log(INFO, "Could not open zip archive", e);
+            return null;
+        }
+        boolean releaseOnExit = true;
+        try {
+            final BlockPath blockPath = computeExistingBlockPath(config, blockNumber, handle.fileSystem());
+            if (blockPath == null) {
+                return null;
+            }
+            final CachedZipBlockAccessor accessor = new CachedZipBlockAccessor(blockPath, handle, this::releaseArchive);
+            releaseOnExit = false;
+            return accessor;
+        } catch (final IOException e) {
+            LOGGER.log(INFO, "Could not create zip block accessor", e);
+            return null;
+        } finally {
+            if (releaseOnExit) {
+                releaseArchive(handle);
+            }
         }
     }
 
@@ -155,16 +332,28 @@ class ZipBlockArchive {
                             }));
                     if (zipFilePath.isPresent()) {
                         final Path candidateZip = zipFilePath.get();
-                        try (final FileSystem zipFs = FileSystems.newFileSystem(candidateZip);
-                                final Stream<Path> entries = Files.list(zipFs.getPath("/"))) {
-                            return entries.mapToLong(entry -> blockNumberFromFile(entry.getFileName()))
-                                    .min()
-                                    .orElse(-1);
+                        ArchiveHandle handle = null;
+                        try {
+                            // Route through the shared archive cache rather than opening the real zip path
+                            // directly: a concurrent block read could already have this same archive cached
+                            // and open, and the zip filesystem provider does not allow the same canonical
+                            // path to be opened twice at once.
+                            handle = acquireArchive(candidateZip);
+                            try (final Stream<Path> entries =
+                                    Files.list(handle.fileSystem().getPath("/"))) {
+                                return entries.mapToLong(entry -> blockNumberFromFile(entry.getFileName()))
+                                        .min()
+                                        .orElse(-1);
+                            }
                         } catch (final ZipException zipException) {
                             if (handleCorruptedZipFile(candidateZip, zipException)) {
                                 continue;
                             }
                             return -1;
+                        } finally {
+                            if (handle != null) {
+                                releaseArchive(handle);
+                            }
                         }
                     } else {
                         // no zip files found in min directory
@@ -213,16 +402,26 @@ class ZipBlockArchive {
                             }));
                     if (zipFilePath.isPresent()) {
                         final Path candidateZip = zipFilePath.get();
-                        try (final FileSystem zipFs = FileSystems.newFileSystem(candidateZip);
-                                final Stream<Path> entries = Files.list(zipFs.getPath("/"))) {
-                            return entries.mapToLong(entry -> blockNumberFromFile(entry.getFileName()))
-                                    .max()
-                                    .orElse(-1);
+                        ArchiveHandle handle = null;
+                        try {
+                            // See minStoredBlockNumber() for why this goes through the shared archive cache
+                            // rather than opening the real zip path directly.
+                            handle = acquireArchive(candidateZip);
+                            try (final Stream<Path> entries =
+                                    Files.list(handle.fileSystem().getPath("/"))) {
+                                return entries.mapToLong(entry -> blockNumberFromFile(entry.getFileName()))
+                                        .max()
+                                        .orElse(-1);
+                            }
                         } catch (final ZipException zipException) {
                             if (handleCorruptedZipFile(candidateZip, zipException)) {
                                 continue;
                             }
                             return -1;
+                        } finally {
+                            if (handle != null) {
+                                releaseArchive(handle);
+                            }
                         }
                     } else {
                         // no zip files found in max directory

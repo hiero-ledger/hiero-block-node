@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
-import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
+import static java.util.Objects.requireNonNull;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.Block;
@@ -12,21 +12,27 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.System.Logger;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Objects;
+import java.util.function.Consumer;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /**
- * The ZipBlockAccessor class provides access to a block stored in a zip file.
+ * The CachedZipBlockAccessor class provides access to a block stored in a zip file, sharing a single open
+ * filesystem across every accessor currently reading from the same archive rather than opening (and indexing)
+ * its own filesystem per block, unlike {@link ZipBlockAccessor}.
+ * <p>
+ * Reads go through a {@link ZipBlockArchive.ArchiveHandle} shared and reference-counted across every accessor
+ * currently reading from the same archive. {@link #close()} releases this accessor's reference; the underlying
+ * filesystem is not necessarily closed at that point, since {@link ZipBlockArchive} keeps recently-used archives
+ * cached for reuse by later reads.
+ * <p>
+ * This class exists alongside {@link ZipBlockAccessor} (rather than replacing it) so the two implementations can
+ * be switched between via {@link FilesHistoricConfig#cachedZipAccessorEnabled()} and profiled/compared, and so
+ * there is a known-safe fallback if a shared, concurrently-read zip filesystem ever proves unsafe in practice.
  */
-final class ZipBlockAccessor implements BlockAccessor {
-    private static final String FAILED_TO_DELETE_LINK_MESSAGE =
-            "Failed to delete accessor link for block: %s, zipFilePath: %s, entryName: %s";
+final class CachedZipBlockAccessor implements BlockAccessor {
     /** The logger for this class. */
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /** Message logged when the protobuf codec fails to parse data */
@@ -34,62 +40,32 @@ final class ZipBlockAccessor implements BlockAccessor {
             "Failed to parse block: %s, zipFilePath: %s, zipEntryName: %s";
     /** Message logged when data cannot be read from a block file */
     private static final String FAILED_TO_READ_MESSAGE = "Failed to read block: %s, zipFilePath: %s, zipEntryName: %s";
-    /** Message logged when the provided path to a zip file is not a regular file or does not exist. */
-    private static final String INVALID_ZIP_FILE_PATH_MESSAGE =
-            "Provided path to zip file is not a regular file or does not exist: %s";
-    /** The absolute path to the zip file, used for logging. */
-    private final Path absoluteZipFilePath;
     /** All path and block information for the block accessed */
     private final BlockPath blockPathData;
     /** Block number this accessor manages. */
     private final long blockNumber;
-    /** Path to the temporary hardlink for the zip file behind this accessor. */
-    private final Path zipFileLink;
+    /** The shared, reference-counted handle to this block's archive filesystem. */
+    private final ZipBlockArchive.ArchiveHandle archiveHandle;
+    /** Releases this accessor's reference to {@link #archiveHandle} on {@link #close()}. */
+    private final Consumer<ZipBlockArchive.ArchiveHandle> releaseArchive;
+    /** Whether this accessor has been closed. */
+    private volatile boolean closed = false;
 
     /**
-     * Constructs a ZipBlockAccessor with the specified block path.
+     * Constructs a CachedZipBlockAccessor for a block resolved within an already-acquired archive handle.
      *
-     * @param blockPath the block path
+     * @param blockPath the resolved block path
+     * @param archiveHandle the caller's reference to the shared archive filesystem, acquired for this accessor
+     * @param releaseArchive callback invoked exactly once, on {@link #close()}, to release the reference
      */
-    ZipBlockAccessor(@NonNull final BlockPath blockPath, @NonNull final Path linksRootPath) throws IOException {
-        blockPathData = blockPath;
+    CachedZipBlockAccessor(
+            @NonNull final BlockPath blockPath,
+            @NonNull final ZipBlockArchive.ArchiveHandle archiveHandle,
+            @NonNull final Consumer<ZipBlockArchive.ArchiveHandle> releaseArchive) {
+        blockPathData = requireNonNull(blockPath);
         blockNumber = blockPath.blockNumber();
-        final Path zipFilePath = blockPath.zipFilePath();
-        absoluteZipFilePath = zipFilePath.toAbsolutePath();
-        if (!Files.isRegularFile(zipFilePath)) {
-            final String msg = INVALID_ZIP_FILE_PATH_MESSAGE.formatted(zipFilePath);
-            throw new IOException(msg);
-        }
-        final Path linkBase = linksRootPath.resolve(blockPath.zipFilePath());
-        zipFileLink = createTempLink(linkBase);
-    }
-
-    /**
-     * Creates a hard link at a name derived from {@code linkBase}, retrying with the next candidate name on a
-     * collision instead of checking existence first: a separate exists-check followed by a create is not atomic,
-     * so two accessors racing to link the same block concurrently could otherwise both pick the same free-looking
-     * name and have one lose with {@link FileAlreadyExistsException}. Letting {@link Files#createLink} itself be
-     * the single source of truth for "is this name taken" removes that race.
-     */
-    @NonNull
-    private Path createTempLink(final Path linkBase) throws IOException {
-        int count = 0;
-        Path candidateLink = linkBase;
-        while (true) {
-            try {
-                return Files.createLink(candidateLink, absoluteZipFilePath);
-            } catch (final FileAlreadyExistsException e) {
-                if (count >= Integer.MAX_VALUE - 1) {
-                    final String message = "Unable to create link; more than %d links already created for %s";
-                    throw new IOException(message.formatted(count, linkBase), e);
-                }
-                candidateLink = getTempFilePath(linkBase, count++);
-            }
-        }
-    }
-
-    private Path getTempFilePath(Path baseFile, int currentCount) {
-        return baseFile.getParent().resolve(baseFile.getFileName() + "." + currentCount);
+        this.archiveHandle = requireNonNull(archiveHandle);
+        this.releaseArchive = requireNonNull(releaseArchive);
     }
 
     @Override
@@ -99,13 +75,14 @@ final class ZipBlockAccessor implements BlockAccessor {
 
     @Override
     public Bytes blockBytes(@NonNull final Format format) {
-        Objects.requireNonNull(format);
-        String entryName = blockPathData.blockFileName();
-        try (final FileSystem zipFileSystem = FileSystems.newFileSystem(zipFileLink)) {
-            final Path entry = zipFileSystem.getPath(blockPathData.blockFileName());
+        requireNonNull(format);
+        final String entryName = blockPathData.blockFileName();
+        try {
+            final Path entry = archiveHandle.fileSystem().getPath(entryName);
             return getBytesFromPath(format, entry, blockPathData.compressionType());
         } catch (final RuntimeException | IOException e) {
-            final String message = FAILED_TO_READ_MESSAGE.formatted(blockNumber, absoluteZipFilePath, entryName);
+            final String message =
+                    FAILED_TO_READ_MESSAGE.formatted(blockNumber, blockPathData.zipFilePath(), entryName);
             LOGGER.log(WARNING, message, e);
             return null;
         }
@@ -158,8 +135,9 @@ final class ZipBlockAccessor implements BlockAccessor {
             try {
                 return Block.JSON.toBytes(standardParse(Block.PROTOBUF, sourceData, Integer.MAX_VALUE));
             } catch (final RuntimeException | ParseException e) {
-                String entryName = blockPathData.blockFileName();
-                final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockNumber, absoluteZipFilePath, entryName);
+                final String entryName = blockPathData.blockFileName();
+                final String message =
+                        FAILED_TO_PARSE_MESSAGE.formatted(blockNumber, blockPathData.zipFilePath(), entryName);
                 LOGGER.log(WARNING, message, e);
                 return null;
             }
@@ -170,17 +148,14 @@ final class ZipBlockAccessor implements BlockAccessor {
 
     @Override
     public void close() {
-        try {
-            Files.delete(zipFileLink);
-        } catch (final RuntimeException | IOException e) {
-            final String message = FAILED_TO_DELETE_LINK_MESSAGE.formatted(
-                    blockNumber, absoluteZipFilePath, blockPathData.blockFileName());
-            LOGGER.log(INFO, message, e);
+        if (!closed) {
+            closed = true;
+            releaseArchive.accept(archiveHandle);
         }
     }
 
     @Override
     public boolean isClosed() {
-        return !Files.exists(zipFileLink);
+        return closed;
     }
 }
