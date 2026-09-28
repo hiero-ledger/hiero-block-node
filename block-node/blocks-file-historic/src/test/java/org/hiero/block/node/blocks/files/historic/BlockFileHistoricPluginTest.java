@@ -156,6 +156,27 @@ class BlockFileHistoricPluginTest {
                         .containsExactlyInAnyOrder(zipWorkRoot, linksRoot, stagingRoot);
             }
         }
+
+        /**
+         * This test aims to assert that {@link BlockFileHistoricPlugin#stop()} closes the underlying
+         * {@link ZipBlockArchive}'s cached filesystems without throwing, once the plugin has been started.
+         */
+        @Test
+        @DisplayName("stop() closes the underlying zip archive cache without throwing")
+        void testStopClosesZipArchiveCache() {
+            start(toTest, testHistoricalBlockFacility, getConfigOverrides());
+            assertThatNoException().isThrownBy(toTest::stop);
+        }
+
+        /**
+         * This test aims to assert that {@link BlockFileHistoricPlugin#stop()} is safe to call even when the
+         * plugin was never started (so its {@code zipBlockArchive} field is still {@code null}).
+         */
+        @Test
+        @DisplayName("stop() is a no-op when the plugin was never started")
+        void testStopBeforeStartDoesNotThrow() {
+            assertThatNoException().isThrownBy(new BlockFileHistoricPlugin()::stop);
+        }
     }
 
     /**

@@ -127,21 +127,18 @@ final class CachedZipBlockAccessor implements BlockAccessor {
      * <p>This is computationally _expensive_ and incurs a heavy GC load, so it
      * should only be used for testing and debugging.
      *
+     * @param sourceData the protobuf-encoded block bytes, never null
      * @return a Bytes containing the JSON serialized content of the block.
-     *     Returns null if the file bytes cannot be read or cannot be parsed.
+     *     Returns null if the bytes cannot be parsed.
      */
     private Bytes getJsonBytesFromProtobufBytes(final Bytes sourceData) {
-        if (sourceData != null) {
-            try {
-                return Block.JSON.toBytes(standardParse(Block.PROTOBUF, sourceData, Integer.MAX_VALUE));
-            } catch (final RuntimeException | ParseException e) {
-                final String entryName = blockPathData.blockFileName();
-                final String message =
-                        FAILED_TO_PARSE_MESSAGE.formatted(blockNumber, blockPathData.zipFilePath(), entryName);
-                LOGGER.log(WARNING, message, e);
-                return null;
-            }
-        } else {
+        try {
+            return Block.JSON.toBytes(standardParse(Block.PROTOBUF, sourceData, Integer.MAX_VALUE));
+        } catch (final RuntimeException | ParseException e) {
+            final String entryName = blockPathData.blockFileName();
+            final String message =
+                    FAILED_TO_PARSE_MESSAGE.formatted(blockNumber, blockPathData.zipFilePath(), entryName);
+            LOGGER.log(WARNING, message, e);
             return null;
         }
     }

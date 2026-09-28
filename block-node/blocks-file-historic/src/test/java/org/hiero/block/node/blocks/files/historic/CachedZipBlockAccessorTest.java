@@ -31,6 +31,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
@@ -446,6 +447,77 @@ class CachedZipBlockAccessorTest {
             final BlockAccessor toTest2 = archive.blockAccessor(blockPath.blockNumber());
             // now we should be able to access the block again
             assertThat(toTest2.blockUnparsed()).isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that {@link CachedZipBlockAccessor#blockNumber()} returns the block number it
+         * was constructed for.
+         */
+        @Test
+        @DisplayName("Test blockNumber() returns the accessor's block number")
+        void testBlockNumber() throws IOException {
+            final long targetBlockNumber = 7L;
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(targetBlockNumber);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, CompressionType.NONE);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, targetBlockNumber);
+            final ZipBlockArchive archive = new ZipBlockArchive(testContext, testConfig);
+            final BlockAccessor toTest =
+                    createBlockAndGetAssociatedAccessor(testConfig, archive, blockPath, block.bytes());
+            assertThat(toTest.blockNumber()).isEqualTo(targetBlockNumber);
+        }
+
+        /**
+         * This test aims to verify that {@link CachedZipBlockAccessor#blockBytes(Format)} correctly returns the
+         * persisted block converted to {@link Format#JSON}.
+         */
+        @Test
+        @DisplayName("Test blockBytes() returns correctly a persisted block as bytes using JSON format")
+        void testBlockBytesJsonFormat() throws IOException, ParseException {
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, CompressionType.NONE);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final ZipBlockArchive archive = new ZipBlockArchive(testContext, testConfig);
+            final BlockAccessor toTest =
+                    createBlockAndGetAssociatedAccessor(testConfig, archive, blockPath, block.bytes());
+            final Bytes jsonBytes = toTest.blockBytes(Format.JSON);
+            assertThat(jsonBytes).isNotNull();
+            final Block parsedBack = standardParse(Block.JSON, jsonBytes);
+            assertThat(parsedBack).isEqualTo(block.block());
+        }
+
+        /**
+         * This test aims to verify that {@link CachedZipBlockAccessor#blockBytes(Format)} returns {@code null}
+         * (rather than throwing) when the underlying, shared archive filesystem has already been closed -- e.g.
+         * by {@link ZipBlockArchive#close()} on plugin shutdown, while an accessor still holds a reference.
+         */
+        @Test
+        @DisplayName("Test blockBytes() returns null once the shared archive filesystem is closed")
+        void testBlockBytesReturnsNullAfterArchiveClosed() throws IOException {
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, CompressionType.NONE);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final ZipBlockArchive archive = new ZipBlockArchive(testContext, testConfig);
+            final BlockAccessor toTest =
+                    createBlockAndGetAssociatedAccessor(testConfig, archive, blockPath, block.bytes());
+            // simulate plugin shutdown while a reader is still active
+            archive.close();
+            assertThat(toTest.blockBytes(Format.PROTOBUF)).isNull();
+        }
+
+        /**
+         * This test aims to verify that {@link CachedZipBlockAccessor#blockBytes(Format)} returns {@code null}
+         * (rather than throwing) when the persisted entry is not valid protobuf and {@link Format#JSON} is
+         * requested, since that format requires parsing the protobuf bytes before re-encoding as JSON.
+         */
+        @Test
+        @DisplayName("Test blockBytes() returns null for JSON format when the entry is not valid protobuf")
+        void testBlockBytesJsonFormatReturnsNullOnCorruptData() throws IOException {
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, CompressionType.NONE);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, 0L);
+            final ZipBlockArchive archive = new ZipBlockArchive(testContext, testConfig);
+            final Bytes garbage = Bytes.wrap("this is not a valid protobuf block".getBytes());
+            final BlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, archive, blockPath, garbage);
+            assertThat(toTest.blockBytes(Format.JSON)).isNull();
         }
 
         private Format getHappyPathFormat(final CompressionType compressionType) {

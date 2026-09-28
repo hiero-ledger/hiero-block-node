@@ -389,6 +389,127 @@ class ZipBlockArchiveTest {
         }
 
         /**
+         * This test aims to assert that with caching enabled, {@link ZipBlockArchive#blockAccessor(long)} returns
+         * {@code null} when no zip archive is present at all for the requested block.
+         */
+        @Test
+        @DisplayName("Test cached blockAccessor() returns null when no blocks are present")
+        void testBlockAccessorCachedReturnsNullWhenNoBlocksPresent() throws IOException {
+            final ZipBlockArchive cachedArchive =
+                    new ZipBlockArchive(testContext, createCachedTestConfiguration(testConfig.rootPath(), 1));
+            assertThat(cachedArchive.blockAccessor(1L)).isNull();
+        }
+
+        /**
+         * This test aims to assert that with caching enabled, {@link ZipBlockArchive#blockAccessor(long)} returns
+         * {@code null} when the archive for the requested block exists (so the shared filesystem is opened and
+         * cached successfully) but that specific block's entry is not present within it.
+         */
+        @Test
+        @DisplayName("Test cached blockAccessor() returns null when the archive exists but the block does not")
+        void testBlockAccessorCachedReturnsNullWhenBlockNotFoundInArchive() throws IOException {
+            // block 0 exists; block 1 shares the same archive (10 blocks per zip) but is never added
+            createAndAddBlockEntry(0L);
+            final ZipBlockArchive cachedArchive =
+                    new ZipBlockArchive(testContext, createCachedTestConfiguration(testConfig.rootPath(), 1));
+            assertThat(cachedArchive.blockAccessor(1L)).isNull();
+            // the archive itself should still be usable afterward -- the miss must not leak the acquired handle
+            assertThat(cachedArchive.blockAccessor(0L)).isNotNull();
+        }
+
+        /**
+         * This test aims to assert that with caching enabled, {@link ZipBlockArchive#blockAccessor(long)} returns
+         * {@code null} (rather than throwing) when the file at the computed archive path exists but is not a
+         * valid zip archive, mirroring how the same scenario is handled for the default accessor.
+         */
+        @Test
+        @DisplayName("Test cached blockAccessor() returns null when the archive file is not a valid zip")
+        void testBlockAccessorCachedHandlesCorruptZipFile() throws IOException {
+            final FilesHistoricConfig cachedConfig = createCachedTestConfiguration(testConfig.rootPath(), 1);
+            final BlockPath computedPath = BlockPath.computeBlockPath(cachedConfig, 0L);
+            Files.createDirectories(computedPath.dirPath());
+            Files.createFile(computedPath.zipFilePath());
+            final ZipBlockArchive cachedArchive = new ZipBlockArchive(testContext, cachedConfig);
+            assertThat(cachedArchive.blockAccessor(0L)).isNull();
+        }
+
+        /**
+         * This test aims to verify that with caching enabled, {@link ZipBlockArchive#blockAccessor(long)} returns
+         * {@code null} (rather than throwing) when resolving the block within an already-open archive fails --
+         * here, because the entry with the expected block file name is a directory rather than a regular file,
+         * so reading it to determine its compression throws {@link IOException}. This exercises
+         * {@code cachedBlockAccessor}'s defensive catch around {@code computeExistingBlockPath}, distinct from
+         * {@link #testBlockAccessorCachedHandlesCorruptZipFile()} which fails earlier, while opening the archive
+         * itself.
+         */
+        @Test
+        @DisplayName("Test cached blockAccessor() returns null when the block entry cannot be read as a file")
+        void testBlockAccessorCachedReturnsNullWhenEntryIsUnreadable() throws IOException {
+            final FilesHistoricConfig cachedConfig = createCachedTestConfiguration(testConfig.rootPath(), 1);
+            final BlockPath blockPath = BlockPath.computeBlockPath(cachedConfig, 0L);
+            Files.createDirectories(blockPath.dirPath());
+            try (final ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(blockPath.zipFilePath()))) {
+                final ZipEntry directoryEntry = new ZipEntry(blockPath.blockFileName() + "/");
+                zipOut.putNextEntry(directoryEntry);
+                zipOut.closeEntry();
+            }
+            final ZipBlockArchive cachedArchive = new ZipBlockArchive(testContext, cachedConfig);
+            assertThat(cachedArchive.blockAccessor(0L)).isNull();
+        }
+
+        /**
+         * This test aims to verify that {@link ZipBlockArchive#close()} closes every cached archive filesystem
+         * and leaves the cache empty, and that the archive remains usable afterward (a later request transparently
+         * reopens whatever it needs).
+         */
+        @Test
+        @DisplayName("Test close() closes all cached archives and the archive remains usable afterward")
+        void testCloseClosesAllCachedArchives() throws IOException {
+            createAndAddBlockEntry(0L);
+            final ZipBlockArchive cachedArchive =
+                    new ZipBlockArchive(testContext, createCachedTestConfiguration(testConfig.rootPath(), 1));
+            try (final BlockAccessor accessor = cachedArchive.blockAccessor(0L)) {
+                assertThat(accessor).isNotNull();
+            }
+            assertThat(cachedArchive.cachedArchiveCount()).isEqualTo(1);
+
+            cachedArchive.close();
+            assertThat(cachedArchive.cachedArchiveCount()).isZero();
+
+            // still usable: a later request reopens the archive rather than staying broken
+            assertThat(cachedArchive.blockAccessor(0L)).isNotNull();
+        }
+
+        /**
+         * This test aims to verify that {@link ZipBlockArchive} evicts least-recently-used cached archives, oldest
+         * first, once the number of cached archives exceeds {@link FilesHistoricConfig#maxCachedZipArchives()},
+         * as long as they are not currently referenced (every accessor from them has been closed).
+         */
+        @Test
+        @DisplayName("Test cache evicts least-recently-used archives once the configured bound is exceeded")
+        void testEvictIfNeededLockedEvictsLeastRecentlyUsedArchive() throws IOException {
+            // 10 blocks per zip (powersOfTenPerZipFileContents=1), so 0, 10, 20, 30 are four distinct archives
+            createAndAddBlockEntry(0L);
+            createAndAddBlockEntry(10L);
+            createAndAddBlockEntry(20L);
+            createAndAddBlockEntry(30L);
+            final ZipBlockArchive cachedArchive =
+                    new ZipBlockArchive(testContext, createCachedTestConfiguration(testConfig.rootPath(), 1, 2));
+
+            for (final long blockNumber : new long[] {0L, 10L, 20L, 30L}) {
+                try (final BlockAccessor accessor = cachedArchive.blockAccessor(blockNumber)) {
+                    assertThat(accessor).isNotNull();
+                }
+            }
+
+            // bound is 2, and every accessor above was closed before requesting the next archive, so the cache
+            // must never have been allowed to grow past its configured bound
+            assertThat(cachedArchive.cachedArchiveCount()).isLessThanOrEqualTo(2);
+            // the evicted archives must still be transparently reopenable
+            assertThat(cachedArchive.blockAccessor(0L)).isNotNull();
+        }
+
+        /**
          * This test aims to verify that {@link ZipBlockArchive#blockAccessor(long)} is safe to call
          * concurrently from many threads against the same archive -- both for the same block number and for
          * different block numbers spread across more than one archive. Every read must return exactly the
@@ -823,8 +944,21 @@ class ZipBlockArchiveTest {
     /** Same as {@link #createTestConfiguration}, but with {@code cachedZipAccessorEnabled} turned on. */
     private FilesHistoricConfig createCachedTestConfiguration(
             final Path blocksRoot, final int powersOfTenPerZipFileContents) {
+        return createCachedTestConfiguration(blocksRoot, powersOfTenPerZipFileContents, 8);
+    }
+
+    /** Same as {@link #createCachedTestConfiguration(Path, int)}, with an explicit {@code maxCachedZipArchives}. */
+    private FilesHistoricConfig createCachedTestConfiguration(
+            final Path blocksRoot, final int powersOfTenPerZipFileContents, final int maxCachedZipArchives) {
         return new FilesHistoricConfig(
-                blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3, false, true, 8);
+                blocksRoot,
+                CompressionType.NONE,
+                powersOfTenPerZipFileContents,
+                0L,
+                3,
+                false,
+                true,
+                maxCachedZipArchives);
     }
 
     /**

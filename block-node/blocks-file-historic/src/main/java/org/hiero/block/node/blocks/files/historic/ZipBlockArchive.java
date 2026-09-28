@@ -199,6 +199,13 @@ class ZipBlockArchive {
         }
     }
 
+    /** Returns the number of archive filesystems currently cached. Package-private for testing. */
+    int cachedArchiveCount() {
+        synchronized (archiveCacheLock) {
+            return openArchives.size();
+        }
+    }
+
     /**
      * Write a new zip file containing the input batch of blocks.
      *
