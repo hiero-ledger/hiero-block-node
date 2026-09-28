@@ -13,6 +13,10 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.hiero.block.api.SubscribeStreamRequest;
@@ -26,6 +30,7 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -1417,6 +1422,79 @@ class BlockStreamSubscriberSessionTest {
             return BlockItemUnparsed.newBuilder()
                     .roundHeader(com.hedera.pbj.runtime.io.buffer.Bytes.wrap(padding))
                     .build();
+        }
+    }
+
+    /**
+     * Tests for how the session reacts when sending to the client fails.
+     */
+    @Nested
+    @DisplayName("Send Failure Tests")
+    class SendFailureTests {
+        /** Upper bound for waits, so a regression fails the test instead of hanging it. */
+        private static final long WAIT_TIMEOUT_SECONDS = 10L;
+
+        /**
+         * This test verifies that once a send to the client fails, the session
+         * stops sending the live batches already queued. Each send to a failed
+         * HTTP/2 stream blocks for the full flow control timeout, so continuing
+         * would keep the session thread busy on a dead stream.
+         */
+        @Test
+        @DisplayName("should stop sending queued live batches after a send failure")
+        void testQueuedLiveBatchesNotSentAfterSendFailure() throws Exception {
+            final StallingFailingResponsePipeline failingPipeline = new StallingFailingResponsePipeline();
+            final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+            final BlockNodeContext context =
+                    generateContext(blockNodeContext.configuration(), messagingFacility, historicalBlockFacility);
+            final SubscribeStreamRequest liveRequest = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(-1L)
+                    .endBlockNumber(-1L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, liveRequest, context), failingPipeline, context, sessionReadyLatch);
+
+            try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+                assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+
+                messagingFacility.sendBlockItems(new BlockItems(List.of(sampleHeaderUnparsed(0)), 0L, true, false));
+                assertThat(failingPipeline.firstSendStarted.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                // Queue more batches while the first send is blocked, as happens during a real stall.
+                messagingFacility.sendBlockItems(
+                        new BlockItems(List.of(sampleRoundHeaderUnparsed(0)), 0L, false, false));
+                messagingFacility.sendBlockItems(new BlockItems(List.of(sampleProofUnparsed(0)), 0L, false, true));
+                failingPipeline.releaseFirstSend.countDown();
+
+                sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            }
+
+            assertThat(failingPipeline.getOnNextCalls()).hasSize(1);
+        }
+    }
+
+    /**
+     * Response pipeline that fails every send. The first send blocks until
+     * released, like a stream waiting for an HTTP/2 window update that never
+     * arrives, so the test can queue more batches before the failure.
+     */
+    private static final class StallingFailingResponsePipeline
+            extends TestResponsePipeline<SubscribeStreamResponseUnparsed> {
+        private final CountDownLatch firstSendStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseFirstSend = new CountDownLatch(1);
+
+        @Override
+        public void onNext(final SubscribeStreamResponseUnparsed item) {
+            super.onNext(item);
+            firstSendStarted.countDown();
+            try {
+                releaseFirstSend.await();
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            throw new RuntimeException("Flow control update wait time-out.");
         }
     }
 
