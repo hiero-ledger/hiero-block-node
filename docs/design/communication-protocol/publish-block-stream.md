@@ -5,12 +5,14 @@
 1. [Abstract](#abstract)
    1. [Reliability note](#reliability-note)
 2. [Definitions](#definitions)
-3. [Base Protocol](#base-protocol)
+3. [BN Response Messages](#bn-response-messages)
+   1. [`EndOfStream` status codes](#endofstream-status-codes)
+4. [Base Protocol](#base-protocol)
    1. [Base Protocol Diagram](#base-protocol-diagram)
-4. [Multiple Publisher Extension](#multiple-publisher-extension)
+5. [Multiple Publisher Extension](#multiple-publisher-extension)
    1. [Multiple Publisher Diagram](#multiple-publisher-extension-diagram)
    2. [Pipeline Example Diagram](#pipeline-example-diagram)
-5. [Error Handling](#error-handling)
+6. [Error Handling](#error-handling)
    1. [Error Handling Diagram](#error-handling-diagram)
 
 ## Abstract
@@ -64,6 +66,40 @@ stream and retry (either to another Block-Node, or after a short delay).
   the TSS signature of the network ledger ID is valid.</dd>
 </dl>
 
+## BN Response Messages
+
+The Block-Node MAY send five distinct response message types to a Publisher
+during a `publishBlockStream` stream. Understanding all five is essential for
+correct Publisher and test implementation.
+
+|        Message         |          Field          |                        When sent                         |                                            Publisher action                                            |
+|------------------------|-------------------------|----------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| `BlockAcknowledgement` | `acknowledgement`       | Block verified and persisted                             | Advance to next block; remove acknowledged block from cache                                            |
+| `SkipBlock`            | `skip_block`            | Another Publisher already won the race for this block    | Stop sending current block; resume with next block header; retain block in cache pending ACK or RESEND |
+| `ResendBlock`          | `resend_block`          | A previously-skipped block failed; Publisher must resend | Resend block from header, or end stream                                                                |
+| `BehindPublisher`      | `node_behind_publisher` | Publisher sent a block number ahead of what BN expects   | Restart stream from block `block_number + 1`, or send `EndStream(TOO_FAR_BEHIND)`                      |
+| `EndOfStream`          | `end_stream`            | Stream terminating for any reason                        | Cease sending; inspect status code (see below)                                                         |
+
+### `EndOfStream` status codes
+
+`EndOfStream` is the only terminal BN response. The `status` field identifies
+the reason:
+
+|         Code         | Value |                      Meaning                       |                               Publisher action                               |
+|----------------------|-------|----------------------------------------------------|------------------------------------------------------------------------------|
+| `SUCCESS`            | 1     | BN orderly shutdown                                | Start new stream from next block                                             |
+| `INVALID_REQUEST`    | 2     | Malformed or structurally invalid message          | Correct the request and retry                                                |
+| `ERROR`              | 3     | BN internal error                                  | Retry with exponential backoff; consider alternate BN                        |
+| `TIMEOUT`            | 4     | Publisher too slow; no data received in time       | Start new stream before the failed block                                     |
+| `DUPLICATE_BLOCK`    | 5     | Block already stored and verified                  | Start new stream after last persisted block                                  |
+| `BAD_BLOCK_PROOF`    | 6     | Block proof verification failed                    | Start new stream before the failed block                                     |
+| `PERSISTENCE_FAILED` | 7     | Block verified but could not be written to storage | Resend to this BN or another; do NOT discard block until persisted somewhere |
+
+> **Note:** `UNKNOWN = 0` is a sentinel for unset values and indicates a software
+> defect. Publishers MUST NOT rely on receiving this code.
+
+---
+
 ## Base Protocol
 
 This protocol describes the basic interactions when a single Publisher is
@@ -74,7 +110,7 @@ Node.
 * Publisher, on connect, sends a block header, this contains a block number.
   * If this is the next block, no problem, start streaming.
   * If this is less than last known verified block, respond with
-    "DuplicateBlock"
+    `EndOfStream(DUPLICATE_BLOCK)`
     * Response includes the last known block, so Publisher can perhaps do its
       own catch up or reconnect.
     * This REQUIRES Publisher to check and resend block header, or end the
@@ -91,7 +127,8 @@ Node.
     * Respond with `BehindPublisher`
       * This includes the last known and verified block number.
       * Publisher will send from block after that block, or send
-        `EndOfStream`(`TOO_FAR_BEHIND`) and retry with exponential backoff.
+        `EndStream(TOO_FAR_BEHIND)` (a Publisher→BN request message, not a
+        BN response) and retry with exponential backoff.
       * Publisher will include earliest and latest known blocks with end of
         stream, so this Block-Node has an idea of the range to catch up.
         * This is _advisory_, and will almost certainly change before the
@@ -152,24 +189,24 @@ sequenceDiagram
     alt N == last known verified block number + 1
       BlockNode-->>Publisher: Accept and start streaming
     else N < last known verified block number
-      BlockNode-->>Publisher: Respond with EndOfStream(Duplicate Block) (includes last available block L)
+      BlockNode-->>Publisher: EndOfStream(DUPLICATE_BLOCK) with last available block L
       Publisher-->>BlockNode: Connect to a new Block-Node and send new block header from block L+1.
       Note over Publisher: Reconnect to consensus network, if needed
     else N > last known verified block number + 1
-      BlockNode -->> Publisher: Respond with BehindPublisher and specify the latest completed block (L)
-      Publisher-->>BlockNode: Send from block L+1 or send EndStream(Too Far Behind) and retry with exponential backoff
+      BlockNode -->> Publisher: BehindPublisher(L) — last known and verified block L
+      Publisher-->>BlockNode: Send from block L+1, or send EndStream(TOO_FAR_BEHIND) and retry with exponential backoff
       Note over Publisher: Includes earliest and latest available blocks with EndStream if sent
       Note over BlockNode: May need to catch up from another Block-Node
     end
     critical Validate latest streamed block
       alt Block is verified and persisted
-        BlockNode-->>Publisher: Send `BlockAcknowledgement` with block number N
+        BlockNode-->>Publisher: BlockAcknowledgement(N)
         Note over Publisher: Continue with next block header
       else Block fails verification
-        BlockNode-->>Publisher: Send `EndOfStream` "Bad Block Proof" with block number L
+        BlockNode-->>Publisher: EndOfStream(BAD_BLOCK_PROOF) with last persisted block L
         Note over Publisher: End connection and resume stream from block N to the same or a different block node
       else Block fails to persist
-        BlockNode-->>Publisher: Send `EndOfStream` "Persistence Failed" with block number L
+        BlockNode-->>Publisher: EndOfStream(PERSISTENCE_FAILED) with last persisted block L
         Note over Publisher: Mark block node "not healthy" and connect to a different block node.
       end
     end
@@ -294,7 +331,7 @@ sequenceDiagram
       end
     else N < last known and verified block
       break Return to base protocol
-        BlockNode -->> Publisher: Respond with `EndOfStream` "DuplicateBlock"
+        BlockNode -->> Publisher: EndOfStream(DUPLICATE_BLOCK)
       end
     end
     break Return to base protocol: Validate latest streamed block
@@ -353,16 +390,17 @@ gantt
 ## Error Handling
 
 * If Publisher detects an internal error at any time
-  * Next message will be an `EndStream` item with an appropriate error code.
+  * Next message will be an `EndStream` item with an appropriate error code
+    (`RESET`, `TIMEOUT`, `ERROR`, or `TOO_FAR_BEHIND`).
   * Block-Node will drop any in-progress unproven block from that Publisher,
     and, if no remaining active incoming streams, notify all Subscribers with
     an `EndStream` item specifying "source error".
   * Block-Node will continue streaming from other incoming stream sources, if
     any, or await a restarted stream if no other incoming stream sources.
 * If a Block-Node detects an internal error at any time
-  * Block-Node will send an `EndOfStream` response to all incoming streams, with
-    appropriate status code.
-    * Publisher, on receiving the end stream, will retry publishing the
+  * Block-Node will send an `EndOfStream(ERROR)` response to all incoming
+    streams.
+    * Publisher, on receiving this response, will retry publishing the
       stream; and will use exponential backoff if the Block-Node failure
       continues.
       * If Publisher has multiple "downstream" Block-Node options, a
@@ -372,6 +410,13 @@ gantt
     status code.
     * Subscribers _should_ resume streaming from another Block-Node
   * Block-Node will either recover or await manual recovery.
+* If a Block-Node receives a malformed or structurally invalid message
+  * Block-Node sends `EndOfStream(INVALID_REQUEST)`.
+  * Publisher must correct the malformed message before retrying.
+* If a Block-Node shuts down in an orderly manner (no error)
+  * Block-Node sends `EndOfStream(SUCCESS)` to all active Publisher streams.
+  * Publisher may start a new stream to this or another Block-Node beginning
+    with the next unacknowledged block.
 
 ### Error Handling Diagram
 
@@ -393,13 +438,19 @@ sequenceDiagram
             BlockNode-->>Subscriber: Continue streaming from other sources
             Publisher-->>BlockNode: Publisher initiates a new stream after handling the error
         end
-    else BlockNode detects an error
-        BlockNode-->>Publisher: Send EndOfStream response with error code
+    else BlockNode detects an internal error
+        BlockNode-->>Publisher: Send EndOfStream(ERROR) response
         Publisher-->>BlockNode: Retry publishing with exponential backoff
         Note over Publisher: May connect to alternate Block-Node
         BlockNode-->>Subscriber: Send EndStream with error code
         Note over Subscriber: Should resume streaming from another Block-Node
         BlockNode-->>BlockNode: Recover or await manual recovery
+    else BlockNode receives a malformed message
+        BlockNode-->>Publisher: Send EndOfStream(INVALID_REQUEST)
+        Note over Publisher: Correct the message and retry
+    else BlockNode shuts down in an orderly manner
+        BlockNode-->>Publisher: Send EndOfStream(SUCCESS)
+        Note over Publisher: Start new stream from next unacknowledged block
     else BlockNode receives a `BlockHeader` before<br/>receiving a `BlockEnd` for the current block
         BlockNode-->>BlockNode: Drop the current in-progress block
         BlockNode-->>BlockNode: Treat the BlockHeader as the start of a new block
