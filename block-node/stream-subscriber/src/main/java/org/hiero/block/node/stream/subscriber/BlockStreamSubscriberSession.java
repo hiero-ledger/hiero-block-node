@@ -856,7 +856,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             final String message = "Transport error sending block items for client %d: %s"
                     .formatted(sessionContext.clientId, e.getMessage());
             LOGGER.log(Level.DEBUG, message, e);
-            close(null);
+            close(null); // cannot send the end stream response, just close the stream.
         }
     }
 
