@@ -9,7 +9,6 @@ import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
@@ -25,8 +24,12 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 
-/// The final stage of a [CompletableVerificationSession].
-/// This stage handles the result of the verification process of a block.
+/// The result handling stage of a [CompletableVerificationSession].
+/// This stage handles the result of the verification process of a block and
+/// propagates it to messaging. It runs on the executor thread when the chain
+/// completes on its own and on the cancelling thread when the chain is
+/// cancelled, so it must never block. The owning session chains its removal
+/// from the active sessions buffer right after this stage.
 public final class SessionResultHandler implements BiConsumer<BlockVerificationResult, Throwable> {
     /// Logger for the handler.
     private static final Logger LOGGER = System.getLogger(SessionResultHandler.class.getName());
@@ -53,9 +56,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     final BlockSource blockSource;
     /// The set of recently verified blocks, used for the informational failure check.
     final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
-    /// The set this handler adds the session's key to once the result has been handled.
-    private final ConcurrentSkipListSet<SessionKey> finishedSessions;
-    /// The composite key of the owning session.
+    /// The composite key of the owning session, used in log messages.
     private final SessionKey sessionKey;
     /// Flag raised by the owning session when the batch ending the block has
     /// been received, used to discriminate a cancelled complete block from an
@@ -72,7 +73,6 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
     /// @param blockNumber the number of the block the session verified, must be non-negative
     /// @param blockSource the source of the block, must not be null
-    /// @param finishedSessions the set to add the session's key to when handled, must not be null
     /// @param sessionKey the composite key of the owning session, must not be null
     /// @param endOfBlockReceived flag raised by the owning session when the batch ending the
     ///     block has been received, must not be null
@@ -85,7 +85,6 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
             final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
             final long blockNumber,
             final BlockSource blockSource,
-            final ConcurrentSkipListSet<SessionKey> finishedSessions,
             final SessionKey sessionKey,
             final AtomicBoolean endOfBlockReceived) {
         this.context = Objects.requireNonNull(context);
@@ -95,7 +94,6 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
         this.blockSource = Objects.requireNonNull(blockSource);
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
-        this.finishedSessions = Objects.requireNonNull(finishedSessions);
         this.sessionKey = Objects.requireNonNull(sessionKey);
         this.endOfBlockReceived = Objects.requireNonNull(endOfBlockReceived);
         if (blockNumber < 0) {
@@ -128,8 +126,6 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
                     blockSource);
             safeSendNotification(notification);
             sessionResultMetrics.verificationBlocksError().increment();
-        } finally {
-            finishedSessions.add(sessionKey);
         }
     }
 

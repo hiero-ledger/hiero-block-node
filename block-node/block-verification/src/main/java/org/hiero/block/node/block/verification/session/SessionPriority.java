@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.block.verification.session;
 
-/// The priority of a [BlockVerificationSession], derived from the delivery
-/// path the block came in on.
-///
-/// The priority decides which sessions yield first when the active sessions
-/// buffer is over its limit. It is deliberately NOT the
-/// [org.hiero.block.node.spi.blockmessaging.BlockSource]: the source says who
-/// produced the block, the priority says which ring buffer delivered it.
+/// Which delivery path a session was started from. Decides which sessions
+/// yield first when the active sessions buffer is over its limit. This is not
+/// the [org.hiero.block.node.spi.blockmessaging.BlockSource]: it records the
+/// path the block came in on, not who produced the block.
 public enum SessionPriority {
-    /// Started from the live block items ring, i.e. the publisher stream.
-    /// Protected: only evicted when no lower priority session can make room.
+    /// Started from the live items ring buffer (publisher stream). Never
+    /// evicted while still receiving its block; once complete it yields only
+    /// after the low priority sessions at the top of the waiting range.
     HIGH,
-    /// Started from a whole-block delivery, i.e. a backfilled block
-    /// notification today and the unvalidated blocks ring in the future.
-    /// Evicted first when room must be made.
+    /// Started from a whole block delivered at once (a backfilled block today,
+    /// the unvalidated blocks ring buffer tomorrow). Never protected: it yields
+    /// first whenever it is at the top of the waiting range.
     LOW
 }

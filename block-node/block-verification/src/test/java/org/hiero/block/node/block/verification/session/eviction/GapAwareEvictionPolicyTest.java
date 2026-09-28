@@ -19,23 +19,22 @@ import org.junit.jupiter.api.Test;
 ///
 /// Every test fabricates an [EvictionSnapshot] directly, no sessions run. The
 /// policy is a pure function, so each test states the buffer content, the
-/// last verified block, the limit and the protected keys, and asserts exactly
-/// which keys come back, in which order.
+/// last verified block, the limit and the protected keys (the publisher
+/// sessions still receiving their block), and asserts exactly which keys
+/// come back, in which order.
 @DisplayName("Gap Aware Eviction Policy Tests")
 class GapAwareEvictionPolicyTest {
     /// The policy under test, stateless.
     private final GapAwareEvictionPolicy toTest = new GapAwareEvictionPolicy();
 
-    /// Build a high priority publisher session snapshot with a complete block.
+    /// Build a high priority publisher session snapshot.
     private static SessionSnapshot high(final long blockNumber, final long uniqueId) {
-        return new SessionSnapshot(
-                new SessionKey(blockNumber, uniqueId), SessionPriority.HIGH, BlockSource.PUBLISHER, true);
+        return new SessionSnapshot(new SessionKey(blockNumber, uniqueId), SessionPriority.HIGH, BlockSource.PUBLISHER);
     }
 
-    /// Build a low priority backfill session snapshot with a complete block.
+    /// Build a low priority backfill session snapshot.
     private static SessionSnapshot low(final long blockNumber, final long uniqueId) {
-        return new SessionSnapshot(
-                new SessionKey(blockNumber, uniqueId), SessionPriority.LOW, BlockSource.BACKFILL, true);
+        return new SessionSnapshot(new SessionKey(blockNumber, uniqueId), SessionPriority.LOW, BlockSource.BACKFILL);
     }
 
     /// Build a snapshot with every block ordered from block zero and all sources ordered.
@@ -66,7 +65,7 @@ class GapAwareEvictionPolicyTest {
     @DisplayName("Contract Tests")
     class ContractTests {
         /// This test aims to assert that the policy selects nothing while the
-        /// buffer is at or below its limit, even when every session is stuck
+        /// buffer is at or below its limit, even when every session is
         /// waiting for an earlier block.
         @Test
         @DisplayName("selects nothing when the buffer is within its limit")
@@ -97,24 +96,24 @@ class GapAwareEvictionPolicyTest {
 
     /// Tests asserting that sessions which will complete on their own are never evicted.
     @Nested
-    @DisplayName("Non Stuck Sessions Are Never Evicted")
-    class NonStuckSessionTests {
+    @DisplayName("Non Waiting Sessions Are Never Evicted")
+    class NonWaitingSessionTests {
         /// This test aims to assert that low priority sessions for blocks below
         /// the next expected block (historical backfill) are never evicted, and
-        /// that the highest stuck publisher session goes instead, even though
+        /// that the highest waiting publisher session goes instead, even though
         /// low priority sessions are normally evicted first.
         @Test
         @DisplayName("historical backfill sessions below the next expected block are kept")
         void testHistoricalBackfillKept() {
             final List<SessionSnapshot> sessions = List.of(low(5, 0), low(6, 1), low(7, 2), high(102, 3), high(103, 4));
-            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 4, low(7, 2)));
+            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 4));
             assertThat(victims).containsExactly(new SessionKey(103, 4));
         }
 
         /// This test aims to assert that publisher sessions at or below the
         /// last verified block (duplicates) and the session for the next
         /// expected block (the head of the chain) are never evicted, and that
-        /// the highest stuck publisher session is chosen instead.
+        /// the highest waiting publisher session is chosen instead.
         @Test
         @DisplayName("duplicates and the chain head are kept")
         void testDuplicatesAndHeadKept() {
@@ -125,7 +124,8 @@ class GapAwareEvictionPolicyTest {
 
         /// This test aims to assert that when sources other than the publisher
         /// are not subject to ordering, low priority sessions far ahead are not
-        /// stuck and are therefore kept, while a stuck publisher session is evicted.
+        /// waiting and are therefore kept, while a waiting publisher session is
+        /// evicted.
         @Test
         @DisplayName("unordered sources are kept when all sources require ordering is off")
         void testUnorderedSourcesKept() {
@@ -148,23 +148,23 @@ class GapAwareEvictionPolicyTest {
         /// on their own are over the limit, the policy returns no victims and
         /// lets the buffer overshoot transiently.
         @Test
-        @DisplayName("returns nothing when only non stuck sessions are over the limit")
-        void testOvershootWithOnlyNonStuckSessions() {
+        @DisplayName("returns nothing when only non waiting sessions are over the limit")
+        void testOvershootWithOnlyNonWaitingSessions() {
             final List<SessionSnapshot> sessions = List.of(low(5, 0), low(6, 1), low(7, 2));
             assertThat(toTest.selectVictims(snapshot(sessions, 100, 2))).isEmpty();
         }
     }
 
-    /// Tests for the first tier: stuck low priority sessions not filling a gap.
+    /// Tests for the first tier: a low priority session at the top of the waiting range.
     @Nested
     @DisplayName("Tier One Tests")
     class TierOneTests {
-        /// This test aims to assert that a stuck low priority session at the
-        /// top of the chain, which no other session depends on, is evicted
-        /// before any publisher session.
+        /// This test aims to assert that a waiting low priority session at the
+        /// top of the waiting range, which no other session depends on, is
+        /// evicted before any publisher session.
         @Test
-        @DisplayName("stuck low priority top of chain is evicted before publisher sessions")
-        void testStuckLowTopEvictedFirst() {
+        @DisplayName("low priority session at the top of the waiting range is evicted before publisher sessions")
+        void testLowAtTopEvictedFirst() {
             final List<SessionSnapshot> sessions = List.of(high(102, 0), high(103, 1), high(104, 2), low(110, 3));
             final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3));
             assertThat(victims).containsExactly(new SessionKey(110, 3));
@@ -175,59 +175,71 @@ class GapAwareEvictionPolicyTest {
         /// publisher session can be evicted instead.
         @Test
         @DisplayName("low priority session filling a gap is kept while a publisher alternative exists")
-        void testNeededLowKept() {
+        void testLowFillingGapKept() {
             final List<SessionSnapshot> sessions = List.of(low(102, 0), high(103, 1), high(104, 2), high(105, 3));
             final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3));
             assertThat(victims).containsExactly(new SessionKey(105, 3));
         }
 
         /// This test aims to assert that a low priority session so far ahead
-        /// that it cannot be released before the buffer turns over is evicted
-        /// even when it is the protected, just activated session, so junk from
-        /// a bad peer never forces a publisher eviction.
+        /// that it cannot be released before the whole buffer has turned over
+        /// is evicted first even when it is the newest session, the one whose
+        /// activation triggered the round: the newest session enjoys no
+        /// protection, so a publisher session is never evicted on its behalf.
         @Test
-        @DisplayName("far ahead low priority session evicts itself even when protected")
-        void testFarAheadLowEvictsItself() {
-            final SessionSnapshot junk = low(5000, 3);
-            final List<SessionSnapshot> sessions = List.of(high(102, 0), high(103, 1), high(104, 2), junk);
-            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3, junk));
-            assertThat(victims).containsExactly(junk.key());
+        @DisplayName("far ahead low priority session is evicted even when it is the newest")
+        void testFarAheadLowEvictedEvenWhenNewest() {
+            final List<SessionSnapshot> sessions = List.of(high(102, 0), high(103, 1), high(104, 2), low(5000, 3));
+            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3));
+            assertThat(victims).containsExactly(new SessionKey(5000, 3));
         }
 
-        /// This test aims to assert that the far ahead rule is disabled while
-        /// the last verified block is unknown, so a node starting mid chain can
-        /// seed the last verified block with its first success; the protected
-        /// session is then kept and the highest publisher session goes.
+        /// This test aims to assert that a low priority session below a
+        /// protected publisher session at the top of the waiting range is not
+        /// a first tier candidate, since the protected session depends on it:
+        /// the top of the range counts protected sessions too.
         @Test
-        @DisplayName("far ahead rule is disabled while the last verified block is unknown")
-        void testFarAheadRuleDisabledAtStartup() {
-            final SessionSnapshot current = low(5000, 3);
-            final List<SessionSnapshot> sessions = List.of(high(2, 0), high(3, 1), high(4, 2), current);
-            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, -1, 3, current));
-            assertThat(victims).containsExactly(new SessionKey(4, 2));
+        @DisplayName("the top of the waiting range counts protected sessions")
+        void testTopCountsProtectedSessions() {
+            final SessionSnapshot incomplete = high(105, 3);
+            final List<SessionSnapshot> sessions = List.of(low(102, 0), high(103, 1), low(104, 2), incomplete);
+            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3, incomplete));
+            assertThat(victims).containsExactly(new SessionKey(103, 1));
         }
     }
 
-    /// Tests for the second tier: stuck publisher sessions.
+    /// Tests for the second tier: publisher sessions that received their complete block.
     @Nested
     @DisplayName("Tier Two Tests")
     class TierTwoTests {
         /// This test aims to assert that among publisher sessions the highest
-        /// non protected block is evicted, keeping the base of the chain intact
-        /// so it releases the moment the missing block arrives.
+        /// one not still receiving its block is evicted, keeping the base of
+        /// the chain intact so it releases the moment the missing block arrives.
         @Test
         @DisplayName("highest non protected publisher session is evicted")
         void testHighestNonProtectedPublisherEvicted() {
-            final SessionSnapshot current = high(105, 3);
-            final List<SessionSnapshot> sessions = List.of(high(102, 0), high(103, 1), high(104, 2), current);
-            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3, current));
+            final SessionSnapshot incomplete = high(105, 3);
+            final List<SessionSnapshot> sessions = List.of(high(102, 0), high(103, 1), high(104, 2), incomplete);
+            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3, incomplete));
             assertThat(victims).containsExactly(new SessionKey(104, 2));
         }
 
-        /// This test aims to assert that when every stuck session is protected
+        /// This test aims to assert that a complete publisher session at the
+        /// top of the waiting range is evicted even when it is the newest
+        /// session, the one whose activation triggered the round, since it
+        /// enjoys no protection once its complete block was received.
+        @Test
+        @DisplayName("complete publisher session at the top is evicted even when it is the newest")
+        void testCompletePublisherAtTopEvictedEvenWhenNewest() {
+            final List<SessionSnapshot> sessions = List.of(high(102, 0), high(103, 1), high(104, 2), high(105, 3));
+            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3));
+            assertThat(victims).containsExactly(new SessionKey(105, 3));
+        }
+
+        /// This test aims to assert that when every waiting session is protected
         /// the policy returns no victims instead of violating the protection.
         @Test
-        @DisplayName("returns nothing when every stuck session is protected")
+        @DisplayName("returns nothing when every waiting session is protected")
         void testAllProtected() {
             final SessionSnapshot first = high(102, 0);
             final SessionSnapshot second = high(103, 1);
@@ -237,15 +249,14 @@ class GapAwareEvictionPolicyTest {
         }
 
         /// This test aims to assert the reverse order scenario from the design
-        /// call: blocks 10, 9, 8 fill a buffer of three and block 7 arrives as
-        /// the protected current session; the highest block is evicted and the
-        /// buffer never grows past its limit.
+        /// call: blocks 10, 9, 8 fill a buffer of three and block 7 arrives;
+        /// the highest block is evicted, the newest and lowest block is kept,
+        /// and the buffer never grows past its limit.
         @Test
         @DisplayName("reverse order keeps the newest lowest block and evicts the highest")
         void testReverseOrder() {
-            final SessionSnapshot current = high(7, 3);
-            final List<SessionSnapshot> sessions = List.of(high(10, 0), high(9, 1), high(8, 2), current);
-            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 5, 3, current));
+            final List<SessionSnapshot> sessions = List.of(high(10, 0), high(9, 1), high(8, 2), high(7, 3));
+            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 5, 3));
             assertThat(victims).containsExactly(new SessionKey(10, 0));
         }
 
@@ -253,16 +264,15 @@ class GapAwareEvictionPolicyTest {
         /// reverse order inside the gap a parked publisher chain waits for is
         /// kept, and the top of the publisher chain is evicted instead.
         @Test
-        @DisplayName("reverse order backfill inside the needed range is kept")
+        @DisplayName("reverse order backfill inside the gap is kept")
         void testReverseOrderBackfillInsideGapKept() {
-            final SessionSnapshot current = low(110, 3);
-            final List<SessionSnapshot> sessions = List.of(high(111, 0), high(112, 1), high(113, 2), current);
-            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3, current));
+            final List<SessionSnapshot> sessions = List.of(high(111, 0), high(112, 1), high(113, 2), low(110, 3));
+            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3));
             assertThat(victims).containsExactly(new SessionKey(113, 2));
         }
     }
 
-    /// Tests for the third tier: stuck low priority sessions filling a gap.
+    /// Tests for the third tier: low priority sessions filling a gap.
     @Nested
     @DisplayName("Tier Three Tests")
     class TierThreeTests {
@@ -270,12 +280,40 @@ class GapAwareEvictionPolicyTest {
         /// is evicted only when no first or second tier candidate exists, and
         /// then the highest such session goes first.
         @Test
-        @DisplayName("needed low priority session is evicted only as a last resort")
-        void testNeededLowEvictedLast() {
-            final SessionSnapshot current = high(104, 2);
-            final List<SessionSnapshot> sessions = List.of(low(102, 0), low(103, 1), current);
-            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 2, current));
+        @DisplayName("low priority session filling a gap is evicted only as a last resort")
+        void testLowFillingGapEvictedLast() {
+            final SessionSnapshot incomplete = high(104, 2);
+            final List<SessionSnapshot> sessions = List.of(low(102, 0), low(103, 1), incomplete);
+            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 2, incomplete));
             assertThat(victims).containsExactly(new SessionKey(103, 1));
+        }
+    }
+
+    /// Tests for the state before the last verified block is known.
+    @Nested
+    @DisplayName("Unknown Last Verified Block Tests")
+    class UnknownLastVerifiedBlockTests {
+        /// This test aims to assert that while the last verified block is
+        /// unknown every ordered block above zero counts as waiting, so a
+        /// burst before the first success keeps the buffer bounded by
+        /// evicting from the top: a low priority session at the top first.
+        @Test
+        @DisplayName("every block above zero waits and the top low priority session goes first")
+        void testLowAtTopEvictedWhileLastVerifiedUnknown() {
+            final List<SessionSnapshot> sessions = List.of(high(2, 0), high(3, 1), high(4, 2), low(5000, 3));
+            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, -1, 3));
+            assertThat(victims).containsExactly(new SessionKey(5000, 3));
+        }
+
+        /// This test aims to assert that while the last verified block is
+        /// unknown a burst of publisher blocks is bounded by evicting the
+        /// highest complete publisher session.
+        @Test
+        @DisplayName("the highest publisher session goes while the last verified block is unknown")
+        void testHighestPublisherEvictedWhileLastVerifiedUnknown() {
+            final List<SessionSnapshot> sessions = List.of(high(2, 0), high(3, 1), high(4, 2), high(5, 3));
+            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, -1, 3));
+            assertThat(victims).containsExactly(new SessionKey(5, 3));
         }
     }
 
@@ -285,23 +323,23 @@ class GapAwareEvictionPolicyTest {
     class MultiEvictionTests {
         /// This test aims to assert that when the buffer is over the limit by
         /// more than one, enough victims are returned to get back within the
-        /// limit, highest block first.
+        /// limit, highest block first, never touching the protected session.
         @Test
         @DisplayName("returns as many victims as needed, highest first")
         void testReturnsEnoughVictims() {
-            final SessionSnapshot current = high(106, 4);
+            final SessionSnapshot incomplete = high(106, 4);
             final List<SessionSnapshot> sessions =
-                    List.of(high(102, 0), high(103, 1), high(104, 2), high(105, 3), current);
-            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3, current));
+                    List.of(high(102, 0), high(103, 1), high(104, 2), high(105, 3), incomplete);
+            final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 3, incomplete));
             assertThat(victims).containsExactly(new SessionKey(105, 3), new SessionKey(104, 2));
         }
 
-        /// This test aims to assert that the highest stuck block is recomputed
-        /// after every eviction: a low priority session that was filling a gap
-        /// toward the evicted top becomes the new top and is evicted next,
-        /// before any publisher session.
+        /// This test aims to assert that the top of the waiting range is
+        /// recomputed after every eviction: a low priority session that was
+        /// filling a gap toward the evicted top becomes the new top and is
+        /// evicted next, before any publisher session.
         @Test
-        @DisplayName("recomputes the top of the chain after each eviction")
+        @DisplayName("recomputes the top of the waiting range after each eviction")
         void testRecomputesTopAfterEachEviction() {
             final List<SessionSnapshot> sessions = List.of(high(102, 0), high(103, 1), low(105, 2), low(110, 3));
             final List<SessionKey> victims = toTest.selectVictims(snapshot(sessions, 100, 2));

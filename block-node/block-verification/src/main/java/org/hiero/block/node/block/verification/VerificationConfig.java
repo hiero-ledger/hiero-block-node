@@ -17,9 +17,10 @@ import org.hiero.block.node.base.Loggable;
 ///     been recently verified will result in an informational failure rather than a standard one.
 /// @param activeSessionsBufferSize size of maximum allowed active sessions. When a new session pushes the
 ///     buffer over this limit, the eviction policy makes room by cancelling sessions that are waiting for an
-///     earlier block to arrive: low priority (whole-block) sessions not filling a gap first, then the highest
-///     publisher session, then the remaining low priority sessions. Sessions that will complete on their own
-///     are never evicted, so the buffer may transiently exceed this limit by the number of such sessions.
+///     earlier block to arrive, from the top of the waiting range: a low priority (whole block) session at the
+///     top first, then the highest publisher session that has received its complete block, then the highest
+///     remaining low priority session. Sessions that will complete on their own and the publisher session
+///     still receiving its block are never evicted, so the buffer may transiently exceed this limit.
 /// @param firstOrderedBlock the first block number that will require strict ordering. All blocks below this
 ///     setting will not await order, and successful verification will be reported immediately.
 /// @param allSourcesRequireOrdering if true, strict ordering of the next expected block to verify will be enforced
@@ -38,11 +39,12 @@ public record VerificationConfig(
     @Loggable @ConfigProperty(defaultValue = "false") boolean dumpEnabled,
     @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/verification/dumps") Path dumpDirectoryPath,
     @Loggable @ConfigProperty(defaultValue = "7") int dumpRetentionDays) {
-    /// Compact constructor, validates the buffer sizes.
+    /// Compact constructor, validates the buffer sizes and the first ordered block.
     public VerificationConfig {
         Preconditions.requirePositive(
             recentlyVerifiedBlocksBufferSize, "verification.recentlyVerifiedBlocksBufferSize must be positive");
         Preconditions.requirePositive(activeSessionsBufferSize, "verification.activeSessionsBufferSize must be positive");
+        Preconditions.requireWhole(firstOrderedBlock, "verification.firstOrderedBlock must be non-negative");
     }
 }
 

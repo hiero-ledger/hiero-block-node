@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.app.fixtures.TestConfigurationBuilder;
@@ -63,7 +62,6 @@ class SessionResultHandlerTest {
                 new ConcurrentLinkedDeque<>(),
                 BLOCK_NUMBER,
                 BlockSource.PUBLISHER,
-                new ConcurrentSkipListSet<>(),
                 new SessionKey(BLOCK_NUMBER, 0L),
                 endOfBlockReceived);
     }

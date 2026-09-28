@@ -12,10 +12,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 /// @param key the composite key of the session
 /// @param priority the priority of the session
 /// @param source the source of the block the session verifies
-/// @param endOfBlockReceived whether the batch ending the block has been received
-public record SessionSnapshot(
-        SessionKey key, SessionPriority priority, BlockSource source, boolean endOfBlockReceived) {
-    /// Compact constructor, validates the reference components.
+public record SessionSnapshot(SessionKey key, SessionPriority priority, BlockSource source) {
+    /// Compact constructor, validates the components.
     public SessionSnapshot {
         Objects.requireNonNull(key);
         Objects.requireNonNull(priority);

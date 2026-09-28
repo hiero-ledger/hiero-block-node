@@ -6,8 +6,9 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
 /// This interface defines a verification session for a block.
-/// Sessions run async. They can be canceled. Once a session completes, it will
-/// report the result thereof to messaging.
+/// Sessions run async. They can be canceled. Once a session completes, it
+/// reports the result thereof to messaging and then removes itself from the
+/// active sessions buffer through the callback it was created with.
 public interface BlockVerificationSession {
     /// The key of the session.
     /// A composite key of block number and a unique session id.
@@ -28,6 +29,12 @@ public interface BlockVerificationSession {
     /// @return `true` once [#markEndOfBlockReceived()] has been called
     boolean isEndOfBlockReceived();
 
+    /// Whether the session has produced its result: a success, a failure or a
+    /// cancellation. A finished session consumes no more items and has
+    /// removed, or is about to remove, itself from the active sessions buffer.
+    /// @return `true` once the session has produced its result
+    boolean isFinished();
+
     /// Start the session.
     ///
     /// The verification process consists of four stages:
@@ -47,10 +54,11 @@ public interface BlockVerificationSession {
     /// than or equal to the last verified block!
     void start();
 
-    /// Cancel and stop the session.
+    /// Cancel and stop the session. This method never throws.
     ///
-    /// @return `true` if the session was running and is now cancelled,
-    ///     `false` if it had already produced its result
+    /// @return `true` if this call cancelled a running session, `false` if the
+    ///     session had already produced its result, was already cancelled, or
+    ///     was never started
     boolean cancel();
 
     /// Mark that the end of block has been received for this session.
@@ -66,15 +74,6 @@ public interface BlockVerificationSession {
     /// Get the block items deque.
     /// Through this deque, we are able to offer the next block items of the block.
     ConcurrentLinkedDeque<BlockItems> getBlockItemsDeque();
-
-    /// Complete a finished session.
-    ///
-    /// This method attempts to complete a finished session. If a session has
-    /// marked itself as finished, we attempt to get a result from the future
-    /// to gracefully complete the session. Iff the session is not done when
-    /// this method is called, we will return `false`.
-    /// @return a [Boolean] indicating whether the session was completed
-    boolean complete();
 
     /// A composite key for a [BlockVerificationSession].
     /// We allow multiple sessions for the same block.

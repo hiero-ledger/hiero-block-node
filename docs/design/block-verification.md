@@ -104,23 +104,31 @@ verified blocks buffer.
 
 ### BlockSessionHandler
 
-Creates, manages, and cancels verification sessions. It has one entry point per
-delivery path: live item batches from the publisher stream are routed to the
-active publisher session and start **high priority** sessions; whole blocks
-delivered at once (backfilled blocks today) each start a **low priority**
-session. It enforces the **active sessions buffer**: a configurable maximum
-number of simultaneously running sessions. When a new session pushes the buffer
-over that maximum, the handler asks the eviction policy which sessions to cancel
-and cancels them.
+Creates and starts verification sessions and routes block items to them. It
+has one entry point per delivery path: live item batches from the publisher
+stream are routed to the session currently receiving its block and start
+**high priority** sessions; whole blocks delivered at once (backfilled blocks
+today) each start a **low priority** session. A live block starting before the
+previous one ended supersedes the previous session, which is cancelled. Every
+started session is activated in the active sessions buffer.
+
+### ActiveSessionsBuffer
+
+The bounded buffer of running sessions, sized by `activeSessionsBufferSize`.
+It owns the lock that serializes activations, the protection rule, the
+eviction policy with the safety guards around every eviction, and the buffer
+metrics. Sessions remove themselves from it once their result has been
+handled; see the section on the active sessions buffer below.
 
 ### EvictionPolicy
 
 A pure selector: it receives an immutable snapshot of the active sessions
 buffer (every session with its key, priority and source, plus the last verified
-block, the ordering settings, the limit and the protected keys) and returns the
-keys to evict, in order. It has no side effects and never blocks. The default
+block, the ordering settings, the limit and the protected keys, which are the
+high priority sessions still receiving their block) and returns the keys to
+evict, in order. It has no side effects and never blocks. The default
 implementation is the `GapAwareEvictionPolicy` described below. A different
-policy is a new class, not a rewrite of the handler.
+policy is a new class, not a rewrite of the buffer.
 
 ### BackfilledBlockNotificationAdapter
 
@@ -213,22 +221,45 @@ stage skips the remaining work and goes straight to result handling.
 
 ### The Active Sessions Buffer
 
-The session handler keeps all running sessions in a bounded buffer, sized by
-`activeSessionsBufferSize`. Every new session is added to the buffer. Each
-session carries a **priority** derived from the path it came in on: sessions
-started from the live publisher stream are *high* priority, sessions started
-from whole blocks delivered at once (backfill) are *low* priority. One limit
-applies to both together, so either path may use the whole buffer.
+The session handler activates every started session in the **active sessions
+buffer**, a bounded buffer sized by `activeSessionsBufferSize` and owned by
+`ActiveSessionsBuffer`. Each session carries a **priority** derived from the
+path it came in on: sessions started from the live publisher stream are *high*
+priority, sessions started from whole blocks delivered at once (backfill) are
+*low* priority. One limit applies to both together, so either path may use the
+whole buffer.
 
-If adding a session pushes the buffer over its limit, the handler asks the
-**eviction policy** which sessions to cancel. Adding, checking and evicting
-happen under a lock held only for that in-memory work, so the two delivery
-threads never observe each other's half activated sessions. Every selected
-victim is checked again before it is cancelled: it must still be in the buffer
-and must not have produced its result already, since a session can complete
-between the selection and the cancellation. An evicted session reports a
-failure through the normal result handling path, `CANCELLED`, so that the
-publisher schedules a resend and backfill re-fetches the block later.
+Sessions leave the buffer in one of two ways. Every session removes itself
+once its result has been handled, whatever the outcome, through a callback
+chained right after the result handling stage; the buffer therefore never
+holds a finished session for longer than it takes to handle its result, and
+nothing has to sweep it. Or a session is evicted: if activating a session
+pushes the buffer over its limit, the buffer asks the **eviction policy** which
+sessions to cancel.
+
+Activation, the size check, the snapshot handed to the policy, the selection
+and the removal of the victims happen under a lock held only for that
+in-memory work, so at most one eviction round runs at a time and the two
+delivery threads never observe each other's half activated sessions. The
+cancellation of the removed sessions, which runs their result handling inline,
+happens after the lock is released. Every selected victim is checked again
+before it is removed: it must still be in the buffer, it must not have produced
+its result already (such a session is leaving on its own), and it must not be
+protected. A failure anywhere in a round is logged and evicts nothing, so an
+activation never fails because of eviction. A session that produced its result
+before it became visible to the buffer is removed on activation, so no
+interleaving of activation and self removal can leave a finished session
+behind. An evicted session reports a failure through the normal result handling
+path, `CANCELLED`, so that the publisher schedules a resend and backfill
+re-fetches the block later.
+
+One rule protects a session from eviction: a high priority session that has
+not yet received the batch ending its block is never evicted, since its
+cancellation would be reported as `CANCELLED_INCOMPLETE`, which the publisher
+does not act on, and the block would be lost. At most one such session exists,
+the one the live delivery thread is feeding; a new block starting before it
+ended supersedes it. Low priority sessions are never protected, and neither is
+the session whose activation triggered the round.
 
 The default policy, `GapAwareEvictionPolicy`, follows one principle: **only
 sessions that wait on something external are ever evicted**. A session that is
@@ -236,27 +267,20 @@ not subject to ordering, or whose block is at or below the next expected block,
 finishes on its own as soon as hashing and proof verification complete;
 evicting it would free nothing durable and only cost a resend or a re-fetch.
 Eviction exists to remove sessions that are, or will be, parked in the ordering
-stage waiting for a block that has not arrived. These are the *stuck* sessions.
-Among them, victims are chosen in tiers, always the highest block first, since
-the highest stuck block is the one furthest from being releasable and the one
-the fewest other sessions depend on:
+stage waiting for an earlier block that has not arrived. These are the
+*waiting* sessions, and the highest block among them is the *top of the
+waiting range*. Victims are taken from the top downwards, since the highest
+waiting block is the one furthest from being released and the one the fewest
+other sessions depend on, in three tiers:
 
-1. Low priority sessions that are not filling a gap some other stuck session
-   waits for.
-2. High priority sessions.
-3. Low priority sessions that do fill such a gap.
+1. A low priority session at the top of the waiting range: no other session
+   depends on it.
+2. The highest high priority session that is not protected.
+3. The highest remaining low priority session: it fills a gap a higher session
+   waits for, so it goes last.
 
-Two sessions are protected from selection: the session that was just activated
-and the publisher session still receiving live items, whose cancellation would
-be reported as `CANCELLED_INCOMPLETE` and ignored by the publisher. There is one
-exception: a low priority session so far ahead that it cannot be released
-before the whole buffer has turned over (`block > next expected + limit`) is
-never protected and evicts itself, so junk from a bad peer never forces a
-publisher eviction. The exception is disabled while the last verified block is
-unknown, so a node starting mid chain can seed it with its first success.
-
-Selection stops as soon as the buffer is back within its limit. When only
-non-stuck or protected sessions remain, the buffer is allowed to overshoot
+Selection stops as soon as the buffer is back within its limit. When only non
+waiting or protected sessions remain, the buffer is allowed to overshoot
 transiently: every remaining session is either about to finish on its own or
 protected, and the next activation runs the policy again. The overshoot is
 bounded by how many blocks the producers have in flight.
@@ -264,10 +288,16 @@ bounded by how many blocks the producers have in flight.
 Consequences worth knowing:
 
 - When block N fails and N+1.. keep arriving and parking, the buffer fills with
-  the chain above N. Each further arrival evicts the *top* of that chain, never
-  its base, so the moment N's resend verifies the whole base releases at once.
+  the chain above N. Each further live block is itself the top of that chain
+  once its complete block is received, so it is the one evicted, never the
+  base, and the moment N verifies the whole base releases at once. While the
+  base is missing, every live block beyond the window costs one resend; that is
+  inherent to a bounded buffer with strict ordering.
 - Blocks arriving in descending order never grow the buffer past its limit: the
   newest, lowest block is kept and the highest is evicted.
+- A low priority block so far ahead that it cannot be released before the
+  buffer turns over is the top of the waiting range on arrival and is evicted
+  at once, without touching any publisher session.
 - Historical backfill (blocks below the next expected block) is never evicted
   and keeps its full speed even while a publisher chain is parked.
 
@@ -394,21 +424,24 @@ How the active sessions buffer makes room:
 
 ```mermaid
 flowchart TD
-    NS[New session starts] --> ADD[Add to active sessions, under the activation lock]
-    ADD --> FULL{Buffer over its limit?}
+    NS[Session started and fed its first batch] --> ADD[Add to active sessions, under the buffer lock]
+    ADD --> DONE{Already produced its result?}
+    DONE -- yes --> GONE[Remove at once]
+    DONE -- no --> FULL{Buffer over its limit?}
     FULL -- no --> RUN[All sessions keep running]
     FULL -- yes --> SNAP[Snapshot buffer, last verified block, protected keys]
     SNAP --> POL[Eviction policy selects victims]
-    POL --> T1{"Stuck low priority session not filling a gap?"}
-    T1 -- yes --> EV["Evict highest such session (reports CANCELLED)"]
-    T1 -- no --> T2{"Stuck high priority session, not protected?"}
+    POL --> T1{"Low priority session at the top of the waiting range?"}
+    T1 -- yes --> EV["Remove, cancel after unlock (reports CANCELLED)"]
+    T1 -- no --> T2{"High priority session not still receiving its block?"}
     T2 -- yes --> EV
-    T2 -- no --> T3{"Stuck low priority session filling a gap?"}
+    T2 -- no --> T3{"Low priority session filling a gap?"}
     T3 -- yes --> EV
-    T3 -- no --> OVER[Only non-stuck or protected sessions remain: transient overshoot]
+    T3 -- no --> OVER[Only non waiting or protected sessions remain: transient overshoot]
     EV --> AGAIN{Still over the limit?}
     AGAIN -- yes --> T1
     AGAIN -- no --> RUN
+    RUN --> SELF[Each session removes itself once its result is handled]
 ```
 
 ## Configuration
@@ -469,7 +502,7 @@ in flight.
 #### `verification_active_sessions`
 
 The live size of the active sessions buffer, updated after every activation,
-completion and eviction round. It normally sits far below
+self removal and eviction round. It normally sits far below
 `activeSessionsBufferSize`; a value pinned at the limit means sessions are
 parked waiting for a block that has not arrived, and a value above the limit
 is a transient overshoot of sessions that will complete on their own.
@@ -594,12 +627,13 @@ ends in a verification notification, and the plugin keeps running.
    `false`, a backfilled block ahead of the last verified block reports
    success immediately; with `true`, it waits.
 6. **Active sessions buffer.** When more sessions are started than the buffer
-   allows, only sessions waiting for an earlier block are cancelled, low
-   priority ones first and the highest block first; the evicted session reports
-   `CANCELLED`; the newest session and the publisher session still receiving
-   items are never evicted; blocks arriving in descending order never grow the
-   buffer past its limit; sessions that will complete on their own are left
-   alone even if the buffer transiently exceeds its limit.
+   allows, only sessions waiting for an earlier block are cancelled, from the
+   top of the waiting range, low priority first; the evicted session reports
+   `CANCELLED`; the publisher session still receiving its block is never
+   evicted; blocks arriving in descending order never grow the buffer past its
+   limit; sessions that will complete on their own are left alone even if the
+   buffer transiently exceeds its limit; every session leaves the buffer on its
+   own once its result is handled.
 7. **Informational failures.** A failure for a block present in the recently
    verified buffer is reported as informational; the same failure for a block
    not in the buffer is standard.

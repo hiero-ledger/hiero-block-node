@@ -959,14 +959,15 @@ class VerificationServicePluginTest {
         }
 
         /// This test aims to verify that when the active sessions buffer is full and a new publisher
-        /// block arrives, the publisher session with the highest block that is not the one just
-        /// started is cancelled to make room, keeping the lowest block, which is the one that will
-        /// release the others once it completes.
+        /// block arrives that is the top of the waiting range, it is cancelled on its own activation to
+        /// make room, keeping the lower blocks, which are the ones that will release first once the
+        /// chain completes. Every block waits here because the last verified block is unknown.
         /// Because the evicted session had already received its complete block, the failure is reported
         /// with the CANCELLED failure type and not CANCELLED_INCOMPLETE, so the publisher schedules a resend.
         @Test
-        @DisplayName("Active Sessions Buffer - cancel highest non current publisher session when buffer full")
-        void testCancelHighestNonCurrentSessionWhenBufferFull() throws IOException, ParseException {
+        @DisplayName(
+                "Active Sessions Buffer - cancel the publisher session at the top of the waiting range when buffer full")
+        void testCancelHighestWaitingPublisherSessionWhenBufferFull() throws IOException, ParseException {
             final List<ResourceTestWRBBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRBBlocks);
             final ResourceTestWRBBlock block2 = loadedBlocks.get(2);
             final ResourceTestWRBBlock block3 = loadedBlocks.get(3);
@@ -981,19 +982,20 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
-                    .returns(block3.number(), VerificationNotification::blockNumber)
+                    .returns(block4.number(), VerificationNotification::blockNumber)
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
         }
 
         /// This test aims to assert that a publisher session which has not yet received the batch
-        /// that ends its block is protected from eviction triggered by backfilled blocks. Here block 2
-        /// is supplied by the publisher as a header only batch, so its session never receives the end
-        /// of the block. Blocks 3 and 4 are then supplied as backfilled blocks, filling the buffer.
-        /// The incomplete publisher session must survive, since cancelling it would be reported as
-        /// CANCELLED_INCOMPLETE, which the publisher does not act on; instead the backfilled block 3,
-        /// which fills the gap toward block 4, is evicted and reported CANCELLED with the backfill source.
+        /// that ends its block is protected from eviction triggered by backfilled blocks, even when it
+        /// is the top of the waiting range. Here block 4 is supplied by the publisher as a header only
+        /// batch, so its session never receives the end of the block. Blocks 2 and 3 are then supplied
+        /// as backfilled blocks, filling the buffer. The incomplete publisher session must survive, since
+        /// cancelling it would be reported as CANCELLED_INCOMPLETE, which the publisher does not act on;
+        /// instead the highest backfilled block below it, block 3, is evicted and reported CANCELLED with
+        /// the backfill source.
         @Test
         @DisplayName(
                 "Active Sessions Buffer - incomplete publisher session is protected, backfilled session is evicted")
@@ -1004,10 +1006,10 @@ class VerificationServicePluginTest {
             final ResourceTestWRBBlock block4 = loadedBlocks.get(4);
             updateAddressBook(block2.nodeAddressBook());
             final BlockItems headerOnly =
-                    new BlockItems(List.of(block2.getHeaderUnparsed()), block2.number(), true, false);
+                    new BlockItems(List.of(block4.getHeaderUnparsed()), block4.number(), true, false);
             plugin.handleBlockItemsReceived(headerOnly);
+            plugin.handleBackfilled(block2.asBackfilledNotification());
             plugin.handleBackfilled(block3.asBackfilledNotification());
-            plugin.handleBackfilled(block4.asBackfilledNotification());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)

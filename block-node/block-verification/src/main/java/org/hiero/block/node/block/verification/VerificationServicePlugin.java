@@ -8,7 +8,6 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.BlockRange;
@@ -17,6 +16,7 @@ import org.hiero.block.node.block.verification.BackfilledBlockNotificationAdapte
 import org.hiero.block.node.block.verification.BackfilledBlockNotificationAdapter.Ignored;
 import org.hiero.block.node.block.verification.BackfilledBlockNotificationAdapter.Rejected;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
+import org.hiero.block.node.block.verification.session.ActiveSessionsBuffer;
 import org.hiero.block.node.block.verification.session.BlockSessionHandler;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
 import org.hiero.block.node.block.verification.session.eviction.GapAwareEvictionPolicy;
@@ -87,6 +87,11 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
         this.metricsHolder = MetricsHolder.create(context.metricRegistry());
         this.verificationDataProvider = new VerificationDataProvider(context);
         this.badBlockDumper = new BadBlockDumper(verificationConfig, resolveHostname());
+        final ActiveSessionsBuffer activeSessionsBuffer = new ActiveSessionsBuffer(
+                verificationConfig,
+                lastVerifiedBlock,
+                new GapAwareEvictionPolicy(),
+                metricsHolder.sessionHandlerMetrics());
         this.sessionHandler = new BlockSessionHandler(
                 context,
                 metricsHolder,
@@ -94,10 +99,9 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 verificationDataProvider,
                 lastVerifiedBlock,
                 recentlyVerifiedBlocks,
-                new ConcurrentSkipListMap<>(),
                 executor,
                 badBlockDumper,
-                new GapAwareEvictionPolicy());
+                activeSessionsBuffer);
     }
 
     /// Uncaught exception handler method handle for verification pool.

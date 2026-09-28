@@ -10,13 +10,13 @@ import org.hiero.block.node.block.verification.session.BlockVerificationSession.
 /// immutable view of the active sessions buffer together with the ordering
 /// state and settings.
 ///
-/// @param sessions all active sessions, sorted by [SessionKey]
+/// @param sessions all active sessions that have not produced their result yet
 /// @param lastVerifiedBlock the last successfully verified block, `-1` when not yet known
 /// @param firstOrderedBlock the first block number that requires strict ordering
 /// @param allSourcesRequireOrdering whether sources other than the publisher are ordered
-/// @param limit the maximum number of sessions the buffer may hold
-/// @param protectedKeys keys of sessions a policy must not select, e.g. the
-///     session that was just activated
+/// @param limit the maximum number of sessions the buffer aims to hold
+/// @param protectedKeys keys of sessions a policy must never select: the high
+///     priority sessions still receiving their block
 public record EvictionSnapshot(
         List<SessionSnapshot> sessions,
         long lastVerifiedBlock,

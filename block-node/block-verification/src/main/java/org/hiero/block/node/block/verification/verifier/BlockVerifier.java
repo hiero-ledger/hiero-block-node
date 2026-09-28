@@ -54,7 +54,8 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
     /// Accept a valid [HashingResult] and verify the block proofs.
     /// When a block was successfully hashed, we then proceed to gather all proofs and pass verification
     /// on them. If any proof verification fails, the verification is unsuccessful. Otherwise, we pass
-    /// verification and can continue forward.
+    /// verification and can continue forward. Cancellation is observed before every proof, so a
+    /// cancelled session stops between proofs instead of verifying all of them.
     /// @throws VerificationSessionFailedException when a known failure occurs
     @Override
     public BlockVerificationResult apply(final HashingResult hashingResult) {
@@ -67,14 +68,20 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
                         hashingResult.blockSource());
             } else {
                 for (final ProofVerifier verifier : verifiers) {
-                    final SessionFailureType result = verifier.verify();
-                    if (result != null) {
+                    if (isCanceled()) {
+                        // the session was cancelled while an earlier proof was being verified
                         throw new VerificationSessionFailedException(
-                                hashingResult.blockNumber(),
-                                result,
-                                hashingResult.blockSource(),
-                                hashingResult.block().blockItems(),
-                                hashingResult.hapiProtoVersion());
+                                hashingResult.blockNumber(), SessionFailureType.CANCELLED, hashingResult.blockSource());
+                    } else {
+                        final SessionFailureType result = verifier.verify();
+                        if (result != null) {
+                            throw new VerificationSessionFailedException(
+                                    hashingResult.blockNumber(),
+                                    result,
+                                    hashingResult.blockSource(),
+                                    hashingResult.block().blockItems(),
+                                    hashingResult.hapiProtoVersion());
+                        }
                     }
                 }
                 // todo(3121) consider the below metric to only calculate verification time, not since
@@ -90,6 +97,11 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
                     hashingResult.blockSource(),
                     e);
         }
+    }
+
+    /// Returns true if the session has been canceled or the current thread interrupted.
+    private boolean isCanceled() {
+        return isCanceled.get() || Thread.currentThread().isInterrupted();
     }
 
     /// Create a [ProofVerifier] for each proof in the block.
