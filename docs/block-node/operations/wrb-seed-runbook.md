@@ -2,7 +2,7 @@
 
 ## Overview
 
-This runbook covers deploying a Local-Full-History (LFH) Block Node via Solo Provisioner and seeding it with a historical [Wrapped Record Block](../glossary.md#wrb-wrapped-record-block) (WRB) archive. The procedure applies to any environment (previewnet, testnet, mainnet) that uses the single-node Solo-Provisioner deployment shape; examples below use previewnet paths and values files, but substituting the equivalent `<env>-lfh-*.yaml` files and `<env>` profile targets the same steps at testnet or mainnet.
+This runbook covers deploying a Local-Full-History (LFH) Block Node via Solo Provisioner and seeding it with a historical [Wrapped Record Block](../glossary.md#wrb-wrapped-record-block) (WRB) archive. The procedure applies to any environment (previewnet, testnet, mainnet) that uses the single-node Solo-Provisioner deployment shape; the env-specific YAML files live in the private [hashgraph/block-node-infrastructure](https://github.com/hashgraph/block-node-infrastructure) repo under `deployments/prod/<env>/deployments/configs/BN/`, and this runbook references them by their file names inside that directory (`config.yaml`, `lfh.yaml`, etc.). Substituting the `<env>` profile targets the same steps across previewnet, testnet, and mainnet.
 
 **Audience**: Operators standing up a Tier 1 Block Node for the first time, or seeding an existing empty install with historical blocks.
 
@@ -18,10 +18,11 @@ This runbook covers deploying a Local-Full-History (LFH) Block Node via Solo Pro
 - `java` on PATH (JDK 25+)
 - A shaded tools jar (`tools-*-all.jar`) from the [Block Node releases](https://github.com/hiero-ledger/hiero-block-node/releases) staged on the VM
 - A local WRB archive directory to seed from
-- The values/config files staged on the VM (previewnet copies are checked in under `charts/block-node-server/values-overrides/`, testnet/mainnet copies follow the same `<env>-lfh-*.yaml` naming):
-  - `<env>-lfh-provisioner-config.yaml` (or the `-smoketest` variant for smaller-disk dev/CI boxes; see [Smoke-test variants](#smoke-test-variants))
-  - `<env>-lfh-values.yaml` (or the `-smoketest` variant)
-- `<env>-lfh-static-pvs.yaml` if the target cluster does not have a default `StorageClass` (see [Footgun 1](#footgun-1-persistencecreate-true-requires-a-default-storageclass) below)
+- The values/config files staged on the VM. Environment-specific copies live in the private `hashgraph/block-node-infrastructure` repo under `deployments/prod/<env>/deployments/configs/BN/`; a Hashgraph engineer will hand these to you if you are running an operator seed. The filenames used below are the names inside that directory:
+  - `config.yaml` — Solo Provisioner config for the production shape
+  - `lfh.yaml` — Helm values override for the production shape
+  - `config-smoketest.yaml` / `lfh-smoketest.yaml` — smaller-disk dev/CI variants (see [Smoke-test variants](#smoke-test-variants))
+  - `static-pvs.yaml` — only needed if the target cluster does not have a default `StorageClass` (see [Footgun 1](#footgun-1-persistencecreate-true-requires-a-default-storageclass) below)
 
 ---
 
@@ -32,7 +33,7 @@ This runbook covers deploying a Local-Full-History (LFH) Block Node via Solo Pro
 If the target cluster does not have a default `StorageClass`, pre-apply the static PVs before running `solo-provisioner install`. Otherwise the chart's `volumeClaimTemplate` PVCs stay `Pending` forever and the BN pod cannot schedule. This applies to any single-node Solo Provisioner install (not previewnet-specific); the stock Solo Provisioner cluster ships without a default `StorageClass`. See [Footgun 1](#footgun-1-persistencecreate-true-requires-a-default-storageclass) and the linked follow-up bug for the upstream fix.
 
 ```bash
-kubectl apply -f <env>-lfh-static-pvs.yaml
+kubectl apply -f static-pvs.yaml
 ```
 
 Verify PVs are `Available`:
@@ -48,8 +49,8 @@ kubectl get pv | grep pv-static
 ```bash
 sudo solo-provisioner block node install \
   -p <env> \
-  --config <env>-lfh-provisioner-config.yaml \
-  --values <env>-lfh-values.yaml \
+  --config config.yaml \
+  --values lfh.yaml \
   --non-interactive
 ```
 
@@ -58,8 +59,8 @@ sudo solo-provisioner block node install \
 ```bash
 sudo solo-provisioner block node install \
   -p <env> \
-  --config <env>-lfh-provisioner-config-smoketest.yaml \
-  --values <env>-lfh-values-smoketest.yaml \
+  --config config-smoketest.yaml \
+  --values lfh-smoketest.yaml \
   --skip-hardware-checks \
   --non-interactive
 ```
@@ -87,8 +88,8 @@ Wait for pod termination, then run the backfill:
 CLI_JAR=/path/to/tools-*-all.jar \
 sudo -E ./backfill-wrb-to-bn.sh --install-and-seed \
   --profile <env> \
-  --config <env>-lfh-provisioner-config.yaml \
-  --values <env>-lfh-values.yaml \
+  --config config.yaml \
+  --values lfh.yaml \
   /path/to/wrappedBlocks
 ```
 
@@ -157,7 +158,7 @@ If `serverStatus` returns `firstAvailableBlock: "18446744073709551615"` (UINT64_
 
 ## Smoke-test variants
 
-The `-smoketest` config/values pair (`<env>-lfh-provisioner-config-smoketest.yaml` + `<env>-lfh-values-smoketest.yaml`) exists so a Tier 1 install can be exercised end-to-end on a small dev/CI VM that does not meet the production hardware baseline. The differences from the production variant are:
+The `-smoketest` config/values pair (`config-smoketest.yaml` + `lfh-smoketest.yaml`) exists so a Tier 1 install can be exercised end-to-end on a small dev/CI VM that does not meet the production hardware baseline. The differences from the production variant are:
 
 - Smaller PV sizes (fits on the ~100 GiB scratch disks used in dev/CI images).
 - Reduced resource requests/limits on the pod.
@@ -178,7 +179,7 @@ Non-obvious behaviors an operator will encounter. Working around each is documen
 
 **Cause**: the values file sets `persistence.*.create: true`, which asks the chart to provision PVCs via the cluster's default `StorageClass`. Solo Provisioner's stock previewnet install does not create a default `StorageClass`, so no `PersistentVolume` is ever produced to bind those PVCs to.
 
-**Fix**: apply `<env>-lfh-static-pvs.yaml` (Step 1 above) BEFORE `solo-provisioner install`. The 5 PVs in that file are pre-bound (`spec.claimRef`) to the exact PVC names the chart's volumeClaimTemplate generates, so they bind on creation.
+**Fix**: apply `static-pvs.yaml` (Step 1 above) BEFORE `solo-provisioner install`. The 5 PVs in that file are pre-bound (`spec.claimRef`) to the exact PVC names the chart's volumeClaimTemplate generates, so they bind on creation.
 
 **Upstream fix pending** ([#3669](https://github.com/hiero-ledger/hiero-block-node/issues/3669)): Solo Provisioner should install `local-path-provisioner` (or equivalent) into its default cluster setup so `persistence.create: true` works out of the box and this runbook does not need to embed infrastructure assumptions.
 
@@ -241,4 +242,4 @@ After cleanup the plugin comes up cleanly and serves the (170-out-of-171) valid 
 - WRB streaming design: [Special-purpose WRB BN design](../../design/wrb-streaming/sp-wrb-bn-design.md)
 - Backfill script source: `tools-and-tests/tools/scripts/backfill-wrb-to-bn.sh`
 - BN endpoint checker: `tools-and-tests/scripts/node-operations/bn-endpoint-checker.sh`
-- Static PVs YAML: `charts/block-node-server/values-overrides/<env>-lfh-static-pvs.yaml`
+- Static PVs YAML: `charts/block-node-server/values-overrides/static-pvs.yaml`
