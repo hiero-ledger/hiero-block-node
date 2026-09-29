@@ -39,7 +39,7 @@ import org.hiero.block.node.base.Loggable;
  * are evicted least-recently-used first once this many are cached. Default is kept small: at any time there is
  * typically only one "hot" archive per active reader (occasionally two, around an archive boundary), so this
  * mainly needs headroom for a handful of concurrent sessions reading different archives at once, not a large
- * cache.
+ * cache. This should be set to roughly the number of concurrent backfilling blocknodes + 1.
  */
 @ConfigData("files.historic")
 public record FilesHistoricConfig(
