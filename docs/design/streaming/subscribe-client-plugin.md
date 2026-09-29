@@ -32,10 +32,14 @@ up older ranges; this plugin owns the live edge.
    `PriorityHealthBasedStrategy` selection).
 6. Provide operator instrumentation (metrics, logs) that make replication
    lag, reconnects, and failover visible.
-7. Tag every plugin-injected block with a distinct `BlockSource` value
-   (`SUBSCRIBER`) so downstream plugins can protect and prioritize
-   publisher-originated blocks over plugin-originated ones without
-   inspecting content.
+7. Tag every plugin-injected notification with a `BlockSource` value
+   (`SUBSCRIBER`) so downstream consumers can attribute the origin of
+   each block for metrics, dashboards, and their own routing decisions.
+   `BackfillPlugin` sets `BlockSource.BACKFILL` on the same ring when
+   it migrates onto the Unvalidated Blocks ring buffer, so the
+   `BlockSource` value on a ring notification is the plugin-injected
+   attribution and consumers can distinguish producers without content
+   inspection.
 
 ## Non-Goals
 
@@ -123,7 +127,7 @@ up older ranges; this plugin owns the live edge.
 
 - **`SubscribeClientPlugin`** implements `BlockNodePlugin`. Registers itself,
   starts the streaming loop on `start()`, tears it down on `stop()`.
-- **`SubscribeClientConfiguration`** — `@ConfigData("subscribe.client")`
+- **`SubscribeClientConfiguration`** -- `@ConfigData("subscribe.client")`
   record with mode toggle, peer-sources file path, thresholds, tuning knobs.
 - **`SubscribeClientConfigExtension`** implements
   `com.swirlds.config.api.ConfigurationExtension`, discovered via the JPMS
@@ -132,20 +136,20 @@ up older ranges; this plugin owns the live edge.
   `Set.of(SubscribeClientConfiguration.class)` from `getConfigDataTypes()`,
   which makes the `@ConfigData("subscribe.client")` record visible to the
   platform config framework and its values injectable into the plugin.
-- **`SubscribeSessionRunner`** — long-lived loop that owns active peer
+- **`SubscribeSessionRunner`** -- long-lived loop that owns active peer
   selection and drives one `BlockStreamSubscribeUnparsedClient` call at a
   time. Runs on a virtual thread.
-- **`SubscribedBlockPublisher`** — thin adapter that receives frames from
+- **`SubscribedBlockPublisher`** -- thin adapter that receives frames from
   the streaming callback and publishes `SubscribedBlockNotification`s onto
   the **Unvalidated Blocks ring buffer**. Two internal strategies:
-  - **`ImmediatePublishStrategy`** — emits one notification per received
+  - **`ImmediatePublishStrategy`** -- emits one notification per received
     `BlockItemSetUnparsed`.
-  - **`FullBlockPublishStrategy`** — buffers item sets keyed by block
+  - **`FullBlockPublishStrategy`** -- buffers item sets keyed by block
     number, emits one notification per `BlockUnparsed` when the block is
     complete (signalled by the peer's `BlockEnd`).
-- **`SourceHealth` / `PriorityHealthBasedStrategy`** — reused from
+- **`SourceHealth` / `PriorityHealthBasedStrategy`** -- reused from
   `backfill`. See Open Question #5 for shared-code location.
-- **`BlockNodeSourceConfig`** (proto) — reused as-is; peer's `subscribe_port`
+- **`BlockNodeSourceConfig`** (proto) -- reused as-is; peer's `subscribe_port`
   field is used to dial the subscribe endpoint.
 
 ## Design
@@ -177,7 +181,7 @@ a single active peer in four steps:
 
 1. Filter out peers currently in exponential backoff.
 2. Sort by `(priority ASC, healthScore ASC)`.
-3. Reduce to the set of **candidates** — peers whose pre-flight
+3. Reduce to the set of **candidates** -- peers whose pre-flight
    `serverStatus` returns successfully (reachable). The tip they
    advertise becomes each candidate's `start_block_number` when we open
    a stream against them.
@@ -187,18 +191,18 @@ a single active peer in four steps:
 
 **Failover triggers:**
 
-- **Unavailable** — the subscribe RPC returns a terminal error status
+- **Unavailable** -- the subscribe RPC returns a terminal error status
   (`ERROR`, `NOT_AVAILABLE`, `INVALID_*`), or the transport fails (HTTP/2
   RST, connection close, gRPC deadline exceeded). Peer is marked failed in
   `SourceHealth`, backoff timer starts, next candidate is selected.
 
-- **Meaningfully delayed** — the receiving side observes
+- **Meaningfully delayed** -- the receiving side observes
   `time_since_last_BlockEnd > staleThresholdMs`. Current stream is
-  cancelled, peer's `SourceHealth` is decremented (not fully failed — it
+  cancelled, peer's `SourceHealth` is decremented (not fully failed -- it
   may recover), and the next candidate is tried. Default threshold: 3×
   expected block interval (e.g. 3000 ms for a 1 s cadence).
 
-- **Peer-tip lag** — periodic `serverStatus` polls (`peerTipPollInterval`)
+- **Peer-tip lag** -- periodic `serverStatus` polls (`peerTipPollInterval`)
   of every backoff-free candidate. If any candidate's advertised tip is
   `peerTipLagThresholdBlocks` ahead of the active peer's advertised tip,
   cancel the current stream and re-select. Catches the case where the
@@ -216,7 +220,7 @@ Two modes, selected globally via `subscribe.client.deliveryMode`:
 | `full-block` (default) | one notification per assembled `BlockUnparsed`       | + one block interval | Consumer receives a whole block, ready to verify         |
 | `immediate`            | one notification per received `BlockItemSetUnparsed` | none added           | Consumer must reassemble; suitable for tools like Jasper |
 
-The mode is **strictly global on/off** — every configured peer uses the
+The mode is **strictly global on/off** -- every configured peer uses the
 same mode. Making mode per-peer is deferred (see Open Question #4).
 
 The `SubscribedBlockNotification` message carries the payload in a `oneof`:
@@ -237,7 +241,7 @@ handle both variants (see Pipeline Integration below).
 ### Pipeline Integration
 
 Injection is through the **Unvalidated Blocks ring buffer** (Epic #3612 /
-story #3614), not the existing item ring. This is deliberate — reworking
+story #3614), not the existing item ring. This is deliberate -- reworking
 the publisher/verification hot path or contending on its single-producer
 item ring would demand extensive testing and a longer development cycle.
 The new ring exists specifically for full-block payloads from backfill,
@@ -255,41 +259,53 @@ Flow per received frame:
      `BlockUnparsed` and emit one notification.
 3. Notification is published on the Unvalidated Blocks ring buffer.
 
-Downstream consumers of the Unvalidated Blocks ring:
+This plugin's contract ends at the ring publish call. Downstream
+consumers subscribe per their own contract; this design does not
+prescribe their behaviour.
 
-- **`VerificationServicePlugin`** — extended to handle
-  `SubscribedBlockNotification`. Verification logic is unchanged; a small
-  adapter registers a handler on the new ring and routes both `oneof`
-  variants into the existing per-block verification pathway. Considered
-  low complexity by the plugin owners.
-- Persistence tiers, archive, subscriber fan-out, and notifier continue to
-  receive their inputs downstream of verification (via the existing
-  `VerificationNotification` / `PersistedNotification` mechanism), so no
-  changes needed there.
+Known and expected consumers of the ring today:
 
-**Provenance — `BlockSource.SUBSCRIBER`.** Blocks injected by this plugin
-carry a new `BlockSource.SUBSCRIBER` enum value on the downstream
-`VerificationNotification` and `PersistedNotification` messages. This is a
-one-line addition to `BlockSource.java` (currently `UNKNOWN`, `PUBLISHER`,
-`BACKFILL`, `HISTORY`) so downstream plugins can:
+- **`VerificationServicePlugin`** consumes the `full_block` variant of
+  `SubscribedBlockNotification`; verified blocks flow through its
+  existing pathway onto the Block Validations ring (#3613) and then to
+  persistence, archive, notifier, and subscriber fan-out. Verification
+  does **not** subscribe to the `items` variant because verification
+  operates on complete blocks only. Adapting the plugin to consume the
+  `full_block` variant is considered low complexity by the plugin
+  owners.
+- The `items` variant is intended for latency-sensitive downstream
+  consumers that opt into partial-block streaming (e.g. Jasper, a Tier
+  2 RFH observer). Those consumers detect an incomplete block the same
+  way today's item-ring consumers do: a new block's start item arrives
+  before the current block's `BlockEnd`, so the partial in-flight
+  block is dropped.
+- Persistence tiers, archive, subscriber fan-out, and notifier are
+  fed downstream of verification via the existing
+  `VerificationNotification` / `PersistedNotification` mechanism; no
+  new subscriptions are added on this ring for them.
 
-- Prioritize `PUBLISHER` blocks over `SUBSCRIBER` blocks on shared
-  work-queues, matching the team's agreement to protect the publisher path.
-- Emit source-labeled metrics (`persist_duration_seconds{source=…}`,
-  `verification_failures_total{source=…}`).
-- Skip specific downstream behaviours (e.g. subscriber fan-out re-emission)
-  for `SUBSCRIBER` blocks if a downstream consumer wants replica-only
-  processing.
+**Provenance -- `BlockSource.SUBSCRIBER`.** Every
+`SubscribedBlockNotification` published by this plugin carries a
+`BlockSource` value that resolves to a new `SUBSCRIBER` entry on the
+existing `BlockSource` enum (currently `UNKNOWN`, `PUBLISHER`,
+`BACKFILL`, `HISTORY`). This is a one-line addition to
+`BlockSource.java`. `BlockSource` is set on the ring notification
+itself; downstream messages (`VerificationNotification`,
+`PersistedNotification`) may propagate the value if their owners choose
+to, but this plugin does not depend on any particular propagation and
+does not prescribe consumer behaviour.
 
-The value is set by `SubscribedBlockPublisher` when constructing the
-`SubscribedBlockNotification` and propagates through
-`VerificationServicePlugin` into the notification-ring events it emits.
+`BackfillPlugin` will do the same when it migrates onto the Unvalidated
+Blocks ring: notifications it publishes will carry `BlockSource.BACKFILL`.
+Coordinating the two migrations means the ring's producer set is
+uniformly attributed from day one, no orphan producers without a source
+tag.
 
 **Ordering guarantees.**
 
 - **Per-block, per-stream:** `SubscribeSessionRunner` is single-threaded
   (one active peer, one open subscribe RPC). Frames from the peer arrive
-  in wire order — items ascending within a block, `BlockEnd` marking
+  in wire order -- items ascending within a block, `BlockEnd` marking
   each block boundary, blocks ascending by block number. Multiple blocks'
   items therefore *cannot* interleave at the plugin's input.
 - **Immediate mode:** the plugin publishes one `SubscribedBlockNotification`
@@ -297,10 +313,15 @@ The value is set by `SubscribedBlockPublisher` when constructing the
   is single-threaded, items for block N always land on the Unvalidated
   Blocks ring before any items for block N+1. Each notification carries
   the explicit `block_number`, so a downstream consumer never needs to
-  infer boundaries from ordering alone — it can partition by
+  infer boundaries from ordering alone -- it can partition by
   `block_number` even if the ring reorders (it doesn't, but this is
-  defensive).
-- **Full-block mode:** trivially ordered — one notification per assembled
+  defensive). Detecting a block that never finishes is the same mechanism
+  the live-publisher item ring uses today: when a downstream consumer
+  sees the start of block N+1 before the `BlockEnd` for block N, it
+  drops the partial in-flight state for N. The plugin does not need to
+  emit an explicit abort marker because the block-start signal already
+  is one.
+- **Full-block mode:** trivially ordered -- one notification per assembled
   block, emitted only on `BlockEnd`, in ascending block number. The
   plugin's per-block buffer is drained in the same single thread.
 - **What `VerificationServicePlugin` already enforces on the item ring:**
@@ -324,13 +345,13 @@ The value is set by `SubscribedBlockPublisher` when constructing the
 Distinct plugins, distinct responsibilities, distinct data paths on the
 same new ring buffer:
 
-|    Concern     |                Subscribe Client                |                                   Backfill                                   |
-|----------------|------------------------------------------------|------------------------------------------------------------------------------|
-| Time horizon   | Peer tip → ∞ (`end_block_number = uint64_max`) | Historical gaps and cold-start catchup                                       |
-| Trigger        | Continuous open-ended stream                   | Gap detection + periodic sweep                                               |
-| RPC            | `subscribeBlockStream` (open-ended)            | `subscribeBlockStream` (bounded ranges)                                      |
-| Injection ring | Unvalidated Blocks (#3614)                     | Unvalidated Blocks (#3614) — migrated from `sendBackfilledBlockNotification` |
-| Coexist?       | Yes — non-overlapping block ranges             | Yes — non-overlapping block ranges                                           |
+|    Concern     |                Subscribe Client                 |                                   Backfill                                    |
+|----------------|-------------------------------------------------|-------------------------------------------------------------------------------|
+| Time horizon   | Peer tip -> ∞ (`end_block_number = uint64_max`) | Historical gaps and cold-start catchup                                        |
+| Trigger        | Continuous open-ended stream                    | Gap detection + periodic sweep                                                |
+| RPC            | `subscribeBlockStream` (open-ended)             | `subscribeBlockStream` (bounded ranges)                                       |
+| Injection ring | Unvalidated Blocks (#3614)                      | Unvalidated Blocks (#3614) -- migrated from `sendBackfilledBlockNotification` |
+| Coexist?       | Yes -- non-overlapping block ranges             | Yes -- non-overlapping block ranges                                           |
 
 On cold start, if the local BN is far behind, the two plugins run in
 parallel on non-overlapping ranges:
@@ -365,9 +386,12 @@ technically permitted:
 
 - Enabling both on the same BN can result in the local BN receiving the
   same blocks from two independent sources (direct consensus publisher +
-  peer BN mirror). The system will not corrupt state because verification
-  is idempotent and persistence deduplicates by block number, but it is
-  wasteful.
+  peer BN mirror). Local state stays correct: verification is idempotent
+  by block number, and persistence deduplicates the same way (a plugin
+  such as the fast NVMe live-store simply overwrites the same block with
+  the same content). The waste is on the *external* side: the peer BN
+  we subscribe to serves us blocks we already have from consensus, and
+  the local BN spends CPU on redundant verification.
 
 In practice, `SubscribeClientPlugin` is a Tier 2 plugin and
 `StreamPublisherPlugin` is a Tier 1 plugin, so operators following the
@@ -379,22 +403,22 @@ operating mode.
 
 Typical deployments:
 
-- **Tier 1 BN (primary)** — `StreamPublisherPlugin` deployed,
+- **Tier 1 BN (primary)** -- `StreamPublisherPlugin` deployed,
   `SubscribeClientPlugin` not deployed. Receives directly from consensus.
-- **Tier 2 BN (replica)** — `SubscribeClientPlugin` deployed,
+- **Tier 2 BN (replica)** -- `SubscribeClientPlugin` deployed,
   `StreamPublisherPlugin` not deployed. Mirrors a Tier 1 BN.
 
 ### Startup and Reconnection
 
 Plugin lifecycle follows the standard `BlockNodePlugin` split:
 
-- **`init()`** — parse and validate the peer-sources JSON file, register
+- **`init()`** -- parse and validate the peer-sources JSON file, register
   the config-data type via `SubscribeClientConfigExtension`, and prepare
   the `SubscribeSessionRunner` (but do not start it). Fail-fast on any
   validation error before the plugin transitions to running.
-- **`start()`** — launch the `SubscribeSessionRunner` on its dedicated
+- **`start()`** -- launch the `SubscribeSessionRunner` on its dedicated
   thread. This is where the subscribe RPC is actually opened.
-- **`stop()`** — signal the runner to shut down, cancel the active stream,
+- **`stop()`** -- signal the runner to shut down, cancel the active stream,
   and release the `BlockNodeClient`.
 
 Per session (one iteration of the streaming loop, driven inside `start()`):
@@ -403,16 +427,16 @@ Per session (one iteration of the streaming loop, driven inside `start()`):
 2. Call the peer's `serverStatus` for a pre-flight availability check.
    This confirms the peer is reachable, records the RTT for latency-based
    selection, and reads the peer's current tip.
-3. Compute `start_block_number = peer_tip` — the stream always begins at
+3. Compute `start_block_number = peer_tip` -- the stream always begins at
    the peer's current tip. Backfill is responsible for filling any gap
    between the local BN's tip and this start block.
 4. Open `subscribeBlockStream` with `start_block_number` and
    `end_block_number = uint64_max`.
 5. Consume the response stream:
-   - `BlockItemSet` → hand to `SubscribedBlockPublisher`.
-   - `BlockEnd` → in full-block mode, trigger notification emit; reset
+   - `BlockItemSet` -> hand to `SubscribedBlockPublisher`.
+   - `BlockEnd` -> in full-block mode, trigger notification emit; reset
      stale-watchdog timer.
-   - Terminal `Code` (any) → mark peer per code; fall through to reconnect.
+   - Terminal `Code` (any) -> mark peer per code; fall through to reconnect.
 6. Periodically (`peerTipPollInterval`) re-issue `serverStatus` against
    the active peer and each backoff-free candidate; if a candidate's tip
    is `peerTipLagThresholdBlocks` ahead of the active peer's tip, close
@@ -446,7 +470,9 @@ flowchart TB
     SPP["StreamPublisherPlugin"]
     BFP["BackfillPlugin"]
 
-    VER["VerificationServicePlugin<br/>(handles SubscribedBlockNotification)"]
+    VER["VerificationServicePlugin<br/>(consumes full_block variant only)"]
+
+    JAS["Jasper / Tier 2 RFH observer<br/>(consumes items variant, opt-in)"]
 
     subgraph Downstream["Existing downstream (unchanged)"]
       SUB["Subscriber sessions"]
@@ -463,7 +489,8 @@ flowchart TB
   BFP -.->|"migrating from<br/>sendBackfilledBlockNotification"| UR
   SPP --> IR
   IR --> VER
-  UR --> VER
+  UR -->|"full_block only"| VER
+  UR -.->|"items, opt-in"| JAS
   VER --> VR
   VR --> PER
   VR --> ARC
@@ -505,7 +532,7 @@ sequenceDiagram
 
 |            Field            |                Type                |   Default    |                                                                    Purpose                                                                    |
 |-----------------------------|------------------------------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| `deliveryMode`              | enum (`full-block` or `immediate`) | `full-block` | Global mode. Strictly on/off — not per-peer.                                                                                                  |
+| `deliveryMode`              | enum (`full-block` or `immediate`) | `full-block` | Global mode. Strictly on/off -- not per-peer.                                                                                                 |
 | `blockNodeSourcesPath`      | String                             | `""`         | Path to peer-sources JSON (parsed as PBJ `BlockNodeSource`).                                                                                  |
 | `staleThresholdMs`          | long                               | `3000`       | Time since last `BlockEnd` before failing over.                                                                                               |
 | `initialRetryDelayMs`       | long                               | `500`        | Base for exponential per-peer backoff.                                                                                                        |
@@ -517,7 +544,7 @@ sequenceDiagram
 | `enableTLS`                 | boolean                            | `false`      | TLS toggle. Follows Backfill's convention.                                                                                                    |
 | `maxIncomingBufferSize`     | int                                | `4194304`    | Helidon client incoming buffer.                                                                                                               |
 
-Pre-flight `serverStatus` calls are unconditional — there is no toggle to
+Pre-flight `serverStatus` calls are unconditional -- there is no toggle to
 skip them because every reconnect must confirm the peer is up and holds
 the required block range before opening the stream.
 
@@ -536,27 +563,28 @@ from the ones below is omitted.
 |----------------------------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `subscribe_client_active_peer`         | ObservableGauge | `node_id` of the currently-active peer (or `-1` if none). Value comes from `BlockNodeSourceConfig.node_id` in the peer-sources JSON, which is operator-assigned and stable across upgrades. Answers "which peer are we on now". |
 | `subscribe_client_blocks_received`     | LongCounter     | Blocks with a `BlockEnd` received from the peer. Throughput signal.                                                                                                                                                             |
-| `subscribe_client_stream_terminations` | LongCounter     | All stream ends, labeled by cause (`clean`, `error`, `transport`, `stale`). One metric covers both "how many streams ended" and "why" — subsumes a separate failovers counter.                                                  |
+| `subscribe_client_stream_terminations` | LongCounter     | All stream ends, labeled by cause (`clean`, `error`, `transport`, `stale`). One metric covers both "how many streams ended" and "why" -- subsumes a separate failovers counter.                                                 |
 | `subscribe_client_lag_ms`              | ObservableGauge | `now - lastBlockEndReceivedAt`. Primary operator health signal: rising lag = peer or transport in trouble.                                                                                                                      |
 | `subscribe_client_last_block_number`   | ObservableGauge | Highest block number for which a notification was emitted. Cross-check with the local BN's tip and (optionally) a peer's `serverStatus` to see how far behind consensus we are.                                                 |
 
 ## Exceptions
 
-|                                 Situation                                  |                                                 Handling                                                  |
-|----------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| Peer returns terminal `Code != SUCCESS`                                    | Mark peer failed in `SourceHealth`, log at WARN with code + peer id, start backoff, reconnect.            |
-| HTTP/2 transport failure (RST, connection reset, timeout)                  | Same as above; wrapped as failure in the streaming callback.                                              |
-| Ring-buffer publish throws                                                 | Log at ERROR, cancel stream, mark peer failed (defensively), backoff, reconnect. Do NOT swallow silently. |
-| No peer selectable (all in backoff, or empty file)                         | Sleep `reconnectMinDelayMs × factor`, retry selection. Log at WARN with a rate-limited cadence.           |
-| Config validation: `blockNodeSourcesPath` missing / unreadable / malformed | Fail-fast at `init()`.                                                                                    |
-| Config validation: peer JSON file has zero entries and plugin enabled      | Fail-fast at `init()` — misconfiguration.                                                                 |
+|                                            Situation                                             |                                                                                                                         Handling                                                                                                                         |
+|--------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Peer returns terminal `Code != SUCCESS`                                                          | Mark peer failed in `SourceHealth`, log at WARN with code + peer id, start backoff, reconnect.                                                                                                                                                           |
+| HTTP/2 transport failure (RST, connection reset, timeout)                                        | Same as above; wrapped as failure in the streaming callback.                                                                                                                                                                                             |
+| Ring-buffer publish throws                                                                       | Log at ERROR, cancel stream, mark peer failed (defensively), backoff, reconnect. Do NOT swallow silently.                                                                                                                                                |
+| No peer selectable (all in backoff, or empty file)                                               | Sleep `reconnectMinDelayMs × factor`, retry selection. Log at WARN with a rate-limited cadence.                                                                                                                                                          |
+| Config validation: `blockNodeSourcesPath` missing / unreadable / malformed                       | Fail-fast at `init()`.                                                                                                                                                                                                                                   |
+| Config validation: peer JSON file has zero entries and plugin enabled                            | Fail-fast at `init()` -- misconfiguration.                                                                                                                                                                                                               |
+| Plugin never reaches a healthy state (init failure, or every peer stays in backoff indefinitely) | Reported via the block-node health plugin once its API is finalised. A plugin that cannot make progress must surface as unhealthy rather than silently no-op. Wiring is out of scope for this design and lands with the health-plugin integration story. |
 
 ## Security
 
 - Peer authentication and transport encryption follow the same pattern as
   Backfill (`enableTLS` toggle). No new key material is introduced.
 - Every block from a peer is verified locally by
-  `VerificationServicePlugin` on the Unvalidated Blocks ring — this is a
+  `VerificationServicePlugin` on the Unvalidated Blocks ring -- this is a
   general BN invariant, not a peer-specific mitigation. A compromised or
   byzantine peer produces repeated verification failures and eventual
   peer eviction; local state is not corruptible via this path.
@@ -565,19 +593,23 @@ from the ones below is omitted.
 
 ## Dependencies
 
-This plugin depends on Epic **#3612 — Expand Ring Buffer Architecture in
+This plugin depends on Epic **#3612 -- Expand Ring Buffer Architecture in
 Block Messaging Facility**:
 
-- **#3614** (required) — new **Unvalidated Blocks ring buffer**. Injection
+- **#3614** (required) -- new **Unvalidated Blocks ring buffer**. Injection
   point for this plugin. Must merge before this plugin can be implemented.
-- **#3615** (recommended) — ring-buffer sizing/back-pressure tuning across
+- **#3615** (recommended) -- ring-buffer sizing/back-pressure tuning across
   all four rings. This plugin's realistic throughput ceiling should be
   informed by whatever size/wait strategy #3615 lands on.
-- **#3613** (indirect) — new **Block Validations ring buffer**. Doesn't
-  affect this plugin directly, but the downstream verification →
-  persistence flow lands on that ring, which is the path our
-  `SubscribedBlockNotification`s take after `VerificationServicePlugin`
-  processes them.
+- **#3613** (indirect) -- new **Block Validations ring buffer** for
+  verified blocks that reach persistence, archive, subscriber fan-out,
+  and notifier. This plugin does not read or write it, but the
+  `full_block` variant of `SubscribedBlockNotification` reaches that
+  ring after `VerificationServicePlugin` finishes verification, so
+
+  # 3613 is on the downstream path even though this plugin is oblivious
+
+  to it.
 
 `BackfillPlugin` will migrate `sendBackfilledBlockNotification` onto the
 Unvalidated Blocks ring as part of #3614. Coordinating this migration
@@ -604,16 +636,16 @@ land on the ring at the same version.
 7. Config validation: missing peer file fails `init()`; zero-entry peer
    file fails `init()`; both-plugins-enabled logs WARN but does NOT fail.
 
-**Integration** (uses the `block-node-e2e-tests` harness — the existing
+**Integration** (uses the `block-node-e2e-tests` harness -- the existing
 JUnit-driven Testcontainers harness under
 `tools-and-tests/block-node-e2e-tests/` that spins up BNs via the block
 node chart and drives them with the `blocks` CLI):
 
-1. **Tier 1 → Tier 2, full-block mode.** One Tier 1 BN (publisher-enabled)
+1. **Tier 1 -> Tier 2, full-block mode.** One Tier 1 BN (publisher-enabled)
    and one Tier 2 BN (subscribe-client-enabled, `deliveryMode=full-block`).
    Blocks pushed to Tier 1 appear on Tier 2 through the Unvalidated Blocks
-   → Verification path with lag under threshold.
-2. **Tier 1 → Tier 2, immediate mode.** Same as (1) but
+   -> Verification path with lag under threshold.
+2. **Tier 1 -> Tier 2, immediate mode.** Same as (1) but
    `deliveryMode=immediate`. Item sets appear at the verification stage
    before the block is complete.
 3. **Mid-stream Tier 1 death.** Kill the Tier 1 peer mid-stream. Tier 2
@@ -649,7 +681,7 @@ node chart and drives them with the `blocks` CLI):
 
 1. **Immediate-mode consumers.** Full-block mode has a clear downstream
    (verification then persistence). Immediate mode's primary consumers
-   are Tier 2 RFH BNs and Jasper — a Tier 1 shipping `BlockItemSet`s to
+   are Tier 2 RFH BNs and Jasper -- a Tier 1 shipping `BlockItemSet`s to
    a Tier 2 with sub-block latency is one of the key drivers for this
    plugin. Confirmed as in-scope for v1. Any additional in-tree consumer
    (beyond the RFH and Jasper cases) is a later add.
