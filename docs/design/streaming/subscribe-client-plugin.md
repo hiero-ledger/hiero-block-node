@@ -85,7 +85,7 @@ up older ranges; this plugin owns the live edge.
       is forwarded downstream as soon as it arrives. Lowest end-to-end latency;
       downstream consumers must handle partial-block streams and there is no
       claim this BN has verified the block. Legitimate use case for
-      latency-sensitive downstream consumers such as a Tier 2 RFH BN and Jasper.</dd>
+      latency-sensitive downstream consumers such as a Tier 2 RFH BN.</dd>
 
   <dt>Full-Block Mode</dt>
   <dd>Delivery mode where item sets are accumulated by the
@@ -215,10 +215,10 @@ capped at `maxBackoffMs`. Reset on successful reconnect.
 
 Two modes, selected globally via `subscribe.client.deliveryMode`:
 
-|          Mode          |                        Emits                         |       Latency        |                   Downstream contract                    |
-|------------------------|------------------------------------------------------|----------------------|----------------------------------------------------------|
-| `full-block` (default) | one notification per assembled `BlockUnparsed`       | + one block interval | Consumer receives a whole block, ready to verify         |
-| `immediate`            | one notification per received `BlockItemSetUnparsed` | none added           | Consumer must reassemble; suitable for tools like Jasper |
+|          Mode          |                        Emits                         |       Latency        |                     Downstream contract                      |
+|------------------------|------------------------------------------------------|----------------------|--------------------------------------------------------------|
+| `full-block` (default) | one notification per assembled `BlockUnparsed`       | + one block interval | Consumer receives a whole block, ready to verify             |
+| `immediate`            | one notification per received `BlockItemSetUnparsed` | none added           | Consumer must reassemble; suitable for a Tier 2 RFH observer |
 
 The mode is **strictly global on/off** -- every configured peer uses the
 same mode. Making mode per-peer is deferred (see Open Question #4).
@@ -274,11 +274,36 @@ Known and expected consumers of the ring today:
   `full_block` variant is considered low complexity by the plugin
   owners.
 - The `items` variant is intended for latency-sensitive downstream
-  consumers that opt into partial-block streaming (e.g. Jasper, a Tier
-  2 RFH observer). Those consumers detect an incomplete block the same
+  consumers that opt into partial-block streaming (e.g. a Tier 2 RFH
+  observer). Those consumers detect an incomplete block the same
   way today's item-ring consumers do: a new block's start item arrives
   before the current block's `BlockEnd`, so the partial in-flight
   block is dropped.
+- **No-gaps invariant on `items` publishes.**
+  `BlockStreamSubscriberSession` (and other downstream consumers that
+  fan the ring out onto their own subscribers) depend on the rule that
+  "there are no gaps between blocks" on the sequence they observe. The
+  plugin honours that invariant on the `items` variant by holding
+  publishes for block N+1 until block N is completely accounted for on
+  the ring, where "accounted for" means one of:
+  1. this plugin already emitted its `BlockEnd`-terminated last
+     `items` frame for N (i.e. Subscribe Client saw N start to finish
+     on the wire), or
+  2. a `full_block` notification for N has already been published on
+     the ring, from either this plugin (when both modes are on) or
+     from `BackfillPlugin` after its gap fill catches N.
+
+  On stream failure mid-block, the plugin drops the partial in-flight
+  state for N and marks N as pending. Items already published for N
+  cannot be un-published, and the abort is signalled to downstream by
+  the standard "new block-start before previous `BlockEnd`" transition
+  (see the abort-detection note in the Ordering guarantees section).
+  Subsequent `items` frames for M > N are held in the plugin's
+  per-block buffer until every block between the last-fully-forwarded
+  block and M has appeared on the ring, at which point the buffer is
+  drained and immediate publishing resumes. In practice, that wait is
+  bounded by Backfill's gap-fill latency on N..M-1.
+
 - Persistence tiers, archive, subscriber fan-out, and notifier are
   fed downstream of verification via the existing
   `VerificationNotification` / `PersistedNotification` mechanism; no
@@ -472,7 +497,7 @@ flowchart TB
 
     VER["VerificationServicePlugin<br/>(consumes full_block variant only)"]
 
-    JAS["Jasper / Tier 2 RFH observer<br/>(consumes items variant, opt-in)"]
+    JAS["Tier 2 RFH observer<br/>(consumes items variant, opt-in)"]
 
     subgraph Downstream["Existing downstream (unchanged)"]
       SUB["Subscriber sessions"]
@@ -601,15 +626,14 @@ Block Messaging Facility**:
 - **#3615** (recommended) -- ring-buffer sizing/back-pressure tuning across
   all four rings. This plugin's realistic throughput ceiling should be
   informed by whatever size/wait strategy #3615 lands on.
-- **#3613** (indirect) -- new **Block Validations ring buffer** for
-  verified blocks that reach persistence, archive, subscriber fan-out,
-  and notifier. This plugin does not read or write it, but the
-  `full_block` variant of `SubscribedBlockNotification` reaches that
-  ring after `VerificationServicePlugin` finishes verification, so
-
-  # 3613 is on the downstream path even though this plugin is oblivious
-
-  to it.
+- [#3613](https://github.com/hiero-ledger/hiero-block-node/issues/3613)
+  (indirect) -- new **Block Validations ring buffer** for verified
+  blocks that reach persistence, archive, subscriber fan-out, and
+  notifier. This plugin does not read or write it, but the `full_block`
+  variant of `SubscribedBlockNotification` reaches that ring after
+  `VerificationServicePlugin` finishes verification, so
+  [#3613](https://github.com/hiero-ledger/hiero-block-node/issues/3613)
+  is on the downstream path even though this plugin is oblivious to it.
 
 `BackfillPlugin` will migrate `sendBackfilledBlockNotification` onto the
 Unvalidated Blocks ring as part of #3614. Coordinating this migration
@@ -681,10 +705,10 @@ node chart and drives them with the `blocks` CLI):
 
 1. **Immediate-mode consumers.** Full-block mode has a clear downstream
    (verification then persistence). Immediate mode's primary consumers
-   are Tier 2 RFH BNs and Jasper -- a Tier 1 shipping `BlockItemSet`s to
+   are Tier 2 RFH BNs -- a Tier 1 shipping `BlockItemSet`s to
    a Tier 2 with sub-block latency is one of the key drivers for this
    plugin. Confirmed as in-scope for v1. Any additional in-tree consumer
-   (beyond the RFH and Jasper cases) is a later add.
+   is a later add.
 
 2. **Persistence of already-verified blocks.** Backfill re-verifies
    fetched blocks locally. This plugin's flow does the same via the
