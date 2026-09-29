@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
@@ -14,7 +15,6 @@ import java.io.InputStream;
 import java.lang.System.Logger;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.function.Consumer;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
@@ -46,8 +46,6 @@ final class CachedZipBlockAccessor implements BlockAccessor {
     private final long blockNumber;
     /** The shared, reference-counted handle to this block's archive filesystem. */
     private final ZipBlockArchive.ArchiveHandle archiveHandle;
-    /** Releases this accessor's reference to {@link #archiveHandle} on {@link #close()}. */
-    private final Consumer<ZipBlockArchive.ArchiveHandle> releaseArchive;
     /** Whether this accessor has been closed. */
     private volatile boolean closed = false;
 
@@ -55,17 +53,14 @@ final class CachedZipBlockAccessor implements BlockAccessor {
      * Constructs a CachedZipBlockAccessor for a block resolved within an already-acquired archive handle.
      *
      * @param blockPath the resolved block path
-     * @param archiveHandle the caller's reference to the shared archive filesystem, acquired for this accessor
-     * @param releaseArchive callback invoked exactly once, on {@link #close()}, to release the reference
+     * @param archiveHandle the caller's reference to the shared archive filesystem, acquired for this accessor;
+     *                      released via {@link ZipBlockArchive.ArchiveHandle#close()} on {@link #close()}
      */
     CachedZipBlockAccessor(
-            @NonNull final BlockPath blockPath,
-            @NonNull final ZipBlockArchive.ArchiveHandle archiveHandle,
-            @NonNull final Consumer<ZipBlockArchive.ArchiveHandle> releaseArchive) {
+            @NonNull final BlockPath blockPath, @NonNull final ZipBlockArchive.ArchiveHandle archiveHandle) {
         blockPathData = requireNonNull(blockPath);
         blockNumber = blockPath.blockNumber();
         this.archiveHandle = requireNonNull(archiveHandle);
-        this.releaseArchive = requireNonNull(releaseArchive);
     }
 
     @Override
@@ -147,7 +142,13 @@ final class CachedZipBlockAccessor implements BlockAccessor {
     public void close() {
         if (!closed) {
             closed = true;
-            releaseArchive.accept(archiveHandle);
+            try {
+                archiveHandle.close();
+            } catch (final RuntimeException e) {
+                // Failing to release/close a cached archive handle is not critical to the caller closing this
+                // accessor; log for operator visibility rather than throwing out of close().
+                LOGGER.log(INFO, "Failed to release archive handle for block " + blockNumber, e);
+            }
         }
     }
 

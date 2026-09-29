@@ -18,6 +18,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.UUID;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
@@ -64,32 +65,30 @@ final class ZipBlockAccessor implements BlockAccessor {
         zipFileLink = createTempLink(linkBase);
     }
 
+    /** Bound on retry attempts in {@link #createTempLink}; see its javadoc for why this can stay small. */
+    private static final int MAX_LINK_ATTEMPTS = 10;
+
     /**
-     * Creates a hard link at a name derived from {@code linkBase}, retrying with the next candidate name on a
-     * collision instead of checking existence first: a separate exists-check followed by a create is not atomic,
-     * so two accessors racing to link the same block concurrently could otherwise both pick the same free-looking
-     * name and have one lose with {@link FileAlreadyExistsException}. Letting {@link Files#createLink} itself be
-     * the single source of truth for "is this name taken" removes that race.
+     * Creates a hard link at a name derived from {@code linkBase}, appending a random suffix on every attempt
+     * rather than an incrementing counter, and letting {@link Files#createLink} itself be the single source of
+     * truth for "is this name taken" (no separate exists-check, which would race two accessors linking the same
+     * block concurrently). A previous version used a plain incrementing counter for the suffix, which meant
+     * concurrent accessors racing for the same block name could keep landing on the same next candidate and
+     * colliding again on retry. A random suffix instead makes any single attempt collide with another
+     * concurrent accessor only by extremely unlucky chance, so {@link #MAX_LINK_ATTEMPTS} can stay small.
      */
     @NonNull
     private Path createTempLink(final Path linkBase) throws IOException {
-        int count = 0;
-        Path candidateLink = linkBase;
-        while (true) {
+        for (int attempt = 0; attempt < MAX_LINK_ATTEMPTS; attempt++) {
+            final Path candidateLink = linkBase.getParent().resolve(linkBase.getFileName() + "." + UUID.randomUUID());
             try {
                 return Files.createLink(candidateLink, absoluteZipFilePath);
-            } catch (final FileAlreadyExistsException e) {
-                if (count >= Integer.MAX_VALUE - 1) {
-                    final String message = "Unable to create link; more than %d links already created for %s";
-                    throw new IOException(message.formatted(count, linkBase), e);
-                }
-                candidateLink = getTempFilePath(linkBase, count++);
+            } catch (final FileAlreadyExistsException ignored) {
+                // Vanishingly unlikely with a random suffix; try again with a fresh name.
             }
         }
-    }
-
-    private Path getTempFilePath(Path baseFile, int currentCount) {
-        return baseFile.getParent().resolve(baseFile.getFileName() + "." + currentCount);
+        final String message = "Unable to create link after %d attempts for %s";
+        throw new IOException(message.formatted(MAX_LINK_ATTEMPTS, linkBase));
     }
 
     @Override

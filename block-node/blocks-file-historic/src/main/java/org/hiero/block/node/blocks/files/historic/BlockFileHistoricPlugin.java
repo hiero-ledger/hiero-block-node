@@ -294,8 +294,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
      */
     @Override
     public void stop() {
-        if (zipBlockArchive != null) {
-            zipBlockArchive.close();
+        // Snapshot the field locally: reading it twice (once in the check, once in the call) would not be
+        // guaranteed to observe the same value if it could change between the two reads.
+        final ZipBlockArchive localArchive = zipBlockArchive;
+        if (localArchive != null) {
+            localArchive.close();
         }
     }
 
