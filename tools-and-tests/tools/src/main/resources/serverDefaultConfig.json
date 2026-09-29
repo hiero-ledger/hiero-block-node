@@ -1,8 +1,8 @@
 {
   "initialWindowSize": 8388608,
   "maxFrameSize": 8388608,
-  "maxConcurrentStreams": 8,
-  "flowControlTimeoutMillis": 500,
+  "maxConcurrentStreams": 100,
+  "flowControlTimeoutMillis": 10000,
   "sendBufferSize": 131072,
   "receiveBufferSize": 8388608,
   "maxMessageSizeBytes": 131072000,
