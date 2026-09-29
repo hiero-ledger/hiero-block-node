@@ -2,7 +2,7 @@
 
 ## Overview
 
-This runbook covers deploying a Local-Full-History (LFH) Block Node via Solo Provisioner and seeding it with a historical [Wrapped Record Block](../glossary.md#wrb-wrapped-record-block) (WRB) archive. The procedure applies to any environment (previewnet, testnet, mainnet) that uses the single-node Solo-Provisioner deployment shape; the env-specific YAML files live in the private [hashgraph/block-node-infrastructure](https://github.com/hashgraph/block-node-infrastructure) repo under `deployments/prod/<env>/deployments/configs/BN/`, and this runbook references them by their file names inside that directory (`config.yaml`, `lfh.yaml`, etc.). Substituting the `<env>` profile targets the same steps across previewnet, testnet, and mainnet.
+This runbook covers deploying a Local-Full-History (LFH) Block Node via Solo Provisioner and seeding it with a historical [Wrapped Record Block](../glossary.md#wrb-wrapped-record-block) (WRB) archive. The procedure applies to any environment (previewnet, testnet, mainnet) that uses the single-node Solo-Provisioner deployment shape; the env-specific YAML files live in the private [hashgraph/block-node-infrastructure](https://github.com/hashgraph/block-node-infrastructure) repo under `deployments/<env>/configs/BN/wrb/`, and this runbook references them by their file names inside that directory (`config.yaml`, `lfh.yaml`, etc.). Substituting the `<env>` profile targets the same steps across previewnet, testnet, and mainnet.
 
 **Audience**: Operators standing up a Tier 1 Block Node for the first time, or seeding an existing empty install with historical blocks.
 
@@ -18,7 +18,7 @@ This runbook covers deploying a Local-Full-History (LFH) Block Node via Solo Pro
 - `java` on PATH (JDK 25+)
 - A shaded tools jar (`tools-*-all.jar`) from the [Block Node releases](https://github.com/hiero-ledger/hiero-block-node/releases) staged on the VM
 - A local WRB archive directory to seed from
-- The values/config files staged on the VM. Environment-specific copies live in the private `hashgraph/block-node-infrastructure` repo under `deployments/prod/<env>/deployments/configs/BN/`; a Hashgraph engineer will hand these to you if you are running an operator seed. The filenames used below are the names inside that directory:
+- The values/config files staged on the VM. Environment-specific copies live in the private `hashgraph/block-node-infrastructure` repo under `deployments/<env>/configs/BN/wrb/`; a Hashgraph engineer will hand these to you if you are running an operator seed. The filenames used below are the names inside that directory:
   - `config.yaml` — Solo Provisioner config for the production shape
   - `lfh.yaml` — Helm values override for the production shape
   - `config-smoketest.yaml` / `lfh-smoketest.yaml` — smaller-disk dev/CI variants (see [Smoke-test variants](#smoke-test-variants))
