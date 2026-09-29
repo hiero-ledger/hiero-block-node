@@ -698,6 +698,46 @@ function ensure_wraps_keys_cached {
   done
 }
 
+# Undo Solo's rewrite of the block-stream properties we pass via --application-properties.
+# Since Solo 0.87 (still true in 0.91), when Block Nodes are deployed Solo forces
+# blockStream.streamWrappedRecordBlocks=false whenever streamMode=BOTH, and resolves
+# BOTH with WRB off to BLOCKS on CN >= 0.74 (helpers.ts ensureWrappedRecordBlocksDisabled /
+# resolveBlockStreamModeForConsensusVersion). That leaves rsa-wrb topologies streaming TSS
+# blocks the BN cannot verify, and TSS topologies writing no record files.
+# Solo rewrites the file on the CN pod in `network deploy` and again in `node setup`
+# (updateBlockNodesJson), so this has to run after `node setup` and before `node start`,
+# which starts the JVM in the running pod. A later pod restart re-copies Solo's ConfigMap.
+# On each Solo bump, check the rewrite still exists; drop this once Solo honors our values.
+function restore_cn_block_stream_properties {
+  local cn_app_properties="${1}"
+  local config_path="/opt/hgcapp/services-hedera/HapiApp2.0/data/config/application.properties"
+  # Fail rather than create a stray file if the CN layout ever moves the config.
+  local sed_script="test -f ${config_path} || exit 1; "
+  local expected=""
+  local key=""
+  local line=""
+  for key in blockStream.streamMode blockStream.streamWrappedRecordBlocks; do
+    line=$(grep -E "^${key}=" "${cn_app_properties}" | tail -1)
+    [[ -z "${line}" ]] && fail "ERROR: ${key} missing from ${cn_app_properties}" 1
+    sed_script="${sed_script}if grep -q '^${key}=' ${config_path}; then sed -i 's/^${key}=.*/${line}/' ${config_path}; else echo '${line}' >> ${config_path}; fi; "
+    expected="${expected}${line}"$'\n'
+  done
+  expected=$(sort <<< "${expected%$'\n'}")
+
+  local alias=""
+  local actual=""
+  for alias in ${NODE_ALIASES//,/ }; do
+    start_task "Restoring block-stream properties on network-${alias}-0"
+    actual=$(kubectl exec "network-${alias}-0" -n "${NAMESPACE}" -c root-container -- bash -c \
+      "${sed_script} grep -E '^blockStream\.(streamMode|streamWrappedRecordBlocks)=' ${config_path}" | sort)
+    if [[ "${actual}" != "${expected}" ]]; then
+      end_task "FAILED"
+      fail "ERROR: network-${alias}-0 ${config_path} has '${actual//$'\n'/ }', expected '${expected//$'\n'/ }'" 1
+    fi
+    end_task
+  done
+}
+
 function deploy_consensus_nodes {
   log_line ""
   log_line "Deploying Consensus Nodes"
@@ -760,6 +800,8 @@ function deploy_consensus_nodes {
     ${cn_local_build_args} \
     ${cn_args} || fail "ERROR: Failed to setup consensus nodes" 1
   end_task
+
+  restore_cn_block_stream_properties "${cn_app_properties}"
 
   start_task "Starting consensus nodes"
   local start_status=0

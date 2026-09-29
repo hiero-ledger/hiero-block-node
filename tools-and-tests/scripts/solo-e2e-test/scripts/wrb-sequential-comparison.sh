@@ -226,6 +226,12 @@ importer:
             sourceType: BLOCK_NODE
             stream:
               maxStreamResponseSize: 36MB
+          # Solo >= 0.88 no longer disables the record downloader when TSS is off, and the
+          # importer refuses to start with both it and block.enabled ("Cannot enable both
+          # block source and record downloader").
+          downloader:
+            record:
+              enabled: false
           startBlockNumber: 0
           stream:
             maxSubscribeAttempts: 10
