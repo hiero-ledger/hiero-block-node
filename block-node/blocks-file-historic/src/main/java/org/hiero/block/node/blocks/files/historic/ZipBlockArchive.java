@@ -322,18 +322,14 @@ class ZipBlockArchive {
         if (!Files.isRegularFile(zipFilePath)) {
             return null;
         }
-        final ArchiveHandle handle;
-        try {
-            handle = acquireArchive(zipFilePath);
-        } catch (final IOException | RuntimeException e) {
-            LOGGER.log(INFO, "Could not open zip archive", e);
-            return null;
-        }
         // Tracks whether this method still owns handle's reference on the way out: cleared only once the
         // reference has been handed off to a returned accessor, so every other exit (including exceptions)
         // releases it here instead of leaking it.
-        boolean releaseOnExit = true;
+        boolean releaseOnExit = false;
+        ArchiveHandle handle = null;
         try {
+            handle = acquireArchive(zipFilePath);
+            releaseOnExit = true;
             final BlockPath blockPath = computeExistingBlockPath(config, blockNumber, handle.fileSystem());
             if (blockPath == null) {
                 return null;
@@ -342,11 +338,10 @@ class ZipBlockArchive {
             releaseOnExit = false;
             return accessor;
         } catch (final IOException | RuntimeException e) {
-            // Resilient by design: see legacyBlockAccessor.
             LOGGER.log(INFO, "Could not create zip block accessor", e);
             return null;
         } finally {
-            if (releaseOnExit) {
+            if (handle != null && releaseOnExit) {
                 handle.close();
             }
         }
