@@ -167,14 +167,15 @@ The Gradle wrapper is included - no separate Gradle installation required.
 
 ### Repository layout
 
-|        Directory         |                                         What it contains                                          |
-|--------------------------|---------------------------------------------------------------------------------------------------|
-| `block-node/`            | Core Block Node application and plugin modules                                                    |
-| `simulator/`             | Block stream simulator for local testing - [docs](docs/simulator/)                                |
-| `tools-and-tests/tools/` | Command-line tools for working with block stream files - [docs](tools-and-tests/tools/README.md)  |
-| `suites/`                | End-to-end test suites                                                                            |
-| `charts/`                | Helm chart for Kubernetes deployment                                                              |
-| `docs/`                  | Source for all documentation (synced to [docs.hiero.org](https://docs.hiero.org/block-node-home)) |
+|          Directory           |                                         What it contains                                          |
+|------------------------------|---------------------------------------------------------------------------------------------------|
+| `block-node/`                | Core Block Node application and plugin modules                                                    |
+| `common/`                    | Shared utilities, types, and literals used across modules                                         |
+| `tools-and-tests/simulator/` | Block stream simulator for local testing - [docs](docs/simulator/)                                |
+| `tools-and-tests/tools/`     | Command-line tools for working with block stream files - [docs](tools-and-tests/tools/README.md)  |
+| `tools-and-tests/suites/`    | End-to-end test suites                                                                            |
+| `charts/`                    | Helm chart for Kubernetes deployment                                                              |
+| `docs/`                      | Source for all documentation (synced to [docs.hiero.org](https://docs.hiero.org/block-node-home)) |
 
 ---
 
