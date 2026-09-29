@@ -201,7 +201,7 @@ blockNode:
     # JAVA_TOOL_OPTIONS is merged with auto-generated metrics and logging flags.
     # Add extra JVM flags here (e.g., debug agent, profiler).
     JAVA_TOOL_OPTIONS: ""
-    JAVA_OPTS: '-Xms16G -Xmx16G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+    JAVA_OPTS: '-Xms10G -Xmx10G -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
     # PRODUCER_TYPE: "NO_OP"
     # PERSISTENCE_STORAGE_TYPE: "NO_OP"
     # VERIFICATION_TYPE: "NO_OP"

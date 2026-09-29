@@ -169,6 +169,45 @@ Applying the block size model at lower TPS:
 Actual testnet block sizes vary with transaction mix; these figures serve as
 planning estimates. Storage requirements are significantly smaller than mainnet.
 
+### Kubernetes resource sizing
+
+When deploying the Block Node in Kubernetes, container resource requests and limits must be set
+consistently and must account for JVM heap overhead inside the container.
+
+The [Helm chart](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values.yaml)
+ships with the following defaults:
+
+|                Helm value                 |                   Default                   |
+|-------------------------------------------|---------------------------------------------|
+| `resources.requests.cpu`                  | `4`                                         |
+| `resources.requests.memory`               | `12Gi`                                      |
+| `resources.limits.cpu`                    | `4`                                         |
+| `resources.limits.memory`                 | `15Gi`                                      |
+| `blockNode.config.JAVA_OPTS` (heap flags) | `-Xms10G -Xmx10G -XX:MaxMetaspaceSize=512m` |
+
+Set the JVM heap (`-Xmx`) to between 75-90% of the container memory limit, leaving the
+remainder for JVM non-heap overhead (metaspace, code cache, native threads). For testnet
+workloads, a memory limit matching the [recommended VM sizing](#recommended-vm-sizing) above
+(32 GB) is a reasonable starting point:
+
+```yaml
+resources:
+  requests:
+    memory: "32Gi"
+  limits:
+    memory: "32Gi"
+blockNode:
+  config:
+    JAVA_OPTS: '-Xms24G -Xmx24G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+```
+
+To diagnose OOM-killed pods:
+
+```bash
+kubectl -n block-node describe pod <pod-name> | grep -A 3 "Last State"
+kubectl -n block-node logs <pod-name> --previous
+```
+
 ---
 
 ## Storage Benchmark Targets
