@@ -19,7 +19,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,11 +71,11 @@ class ZipBlockArchive {
      * <p>
      * A lock (rather than a {@code ConcurrentHashMap.computeIfAbsent}) is needed here because acquiring an
      * archive is not just a get-or-create: it also has to (a) atomically bump the handle's ref count as part of
-     * the same operation, so a concurrent {@link #evictIfNeededLocked()} can never observe a handle as unused
-     * between its creation/lookup and the ref count update, and (b) maintain true LRU eviction order, which
-     * needs {@link #openArchives} to be a {@link LinkedHashMap} in access order -- a data structure that is not
-     * thread-safe and has no lock-free equivalent with the same ordering guarantee. The lock only guards this
-     * bookkeeping (map/ref-count mutation); it is never held while reading block bytes, so it does not
+     * the same operation, so a concurrent eviction (see {@link #openArchives}) can never observe a handle as
+     * unused between its creation/lookup and the ref count update, and (b) maintain true LRU eviction order,
+     * which needs {@link #openArchives} to be a {@link LinkedHashMap} in access order -- a data structure that
+     * is not thread-safe and has no lock-free equivalent with the same ordering guarantee. The lock only guards
+     * this bookkeeping (map/ref-count mutation); it is never held while reading block bytes, so it does not
      * serialize the actual I/O.
      */
     private final ReentrantLock archiveCacheLock = new ReentrantLock();
@@ -84,8 +83,28 @@ class ZipBlockArchive {
      * Cache of open zip filesystems, keyed by archive path, access-ordered so the eldest (least-recently-used)
      * entry is evicted first. Guarded by {@link #archiveCacheLock}. Only used when {@link CachedZipBlockAccessor}
      * is enabled.
+     * <p>
+     * Eviction is driven by {@link LinkedHashMap#removeEldestEntry}, the standard JDK-documented mechanism for a
+     * bounded LRU cache, rather than manual iteration: it is only ever asked about the single eldest entry, and
+     * only right after a {@code put()} adds a new one, so it is safe by construction (no iterator to misuse) as
+     * long as it only runs while {@link #archiveCacheLock} is held -- true here since the only {@code put()} is
+     * in {@link #acquireArchive}. If that eldest entry is still referenced, eviction is skipped for this call
+     * (an archive is never force-evicted out from under an active reader); it is reconsidered on the next
+     * {@code put()} once it is either released or no longer the eldest. This means the cache can briefly sit
+     * above {@link FilesHistoricConfig#maxCachedZipArchives()} while its eldest entry is in active use even if a
+     * younger, already-unused entry exists further down the order -- an accepted, self-correcting looseness in
+     * exchange for not needing a full-sweep iteration.
      */
-    private final Map<Path, ArchiveHandle> openArchives = new LinkedHashMap<>(16, 0.75f, true);
+    private final Map<Path, ArchiveHandle> openArchives = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(final Map.Entry<Path, ArchiveHandle> eldest) {
+            if (size() <= config.maxCachedZipArchives() || eldest.getValue().refCount != 0) {
+                return false;
+            }
+            closeQuietly(eldest.getKey(), eldest.getValue());
+            return true;
+        }
+    };
 
     /**
      * Constructor for ZipBlockArchive.
@@ -148,7 +167,6 @@ class ZipBlockArchive {
                 openArchives.put(zipFilePath, handle);
             }
             handle.refCount++;
-            evictIfNeededLocked();
             return handle;
         } finally {
             archiveCacheLock.unlock();
@@ -166,28 +184,6 @@ class ZipBlockArchive {
             handle.refCount--;
         } finally {
             archiveCacheLock.unlock();
-        }
-    }
-
-    /**
-     * Evicts the least-recently-used cached archives, oldest first, while the cache exceeds its configured bound
-     * and skipping any archive that is still actively referenced. Must be called while holding
-     * {@link #archiveCacheLock}: {@code iterator.remove()} on a plain {@link LinkedHashMap} is only safe because
-     * the lock guarantees no other thread can be concurrently reading or mutating {@link #openArchives}.
-     */
-    private void evictIfNeededLocked() {
-        final int maxCachedZipArchives = config.maxCachedZipArchives();
-        if (openArchives.size() <= maxCachedZipArchives) {
-            return;
-        }
-        final Iterator<Map.Entry<Path, ArchiveHandle>> iterator =
-                openArchives.entrySet().iterator();
-        while (openArchives.size() > maxCachedZipArchives && iterator.hasNext()) {
-            final Map.Entry<Path, ArchiveHandle> entry = iterator.next();
-            if (entry.getValue().refCount == 0) {
-                iterator.remove();
-                closeQuietly(entry.getKey(), entry.getValue());
-            }
         }
     }
 

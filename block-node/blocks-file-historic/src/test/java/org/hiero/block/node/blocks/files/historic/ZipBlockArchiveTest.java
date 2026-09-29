@@ -487,7 +487,7 @@ class ZipBlockArchiveTest {
          */
         @Test
         @DisplayName("Test cache evicts least-recently-used archives once the configured bound is exceeded")
-        void testEvictIfNeededLockedEvictsLeastRecentlyUsedArchive() throws IOException {
+        void testCacheEvictsLeastRecentlyUsedArchive() throws IOException {
             // 10 blocks per zip (powersOfTenPerZipFileContents=1), so 0, 10, 20, 30 are four distinct archives
             createAndAddBlockEntry(0L);
             createAndAddBlockEntry(10L);
