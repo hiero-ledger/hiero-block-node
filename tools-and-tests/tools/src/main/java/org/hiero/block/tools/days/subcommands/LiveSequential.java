@@ -1704,9 +1704,6 @@ public class LiveSequential implements Runnable {
      * Refreshes GCS listings for all days plus a specific day.
      */
     private void refreshListingsForDay(LocalDate day, NetworkConfig netConfig) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        boolean isToday = day.equals(today);
-
         UpdateDayListingsCommand.updateDayListings(
                 listingDir.toPath(),
                 CACHE_DIR.toPath(),
@@ -1718,7 +1715,7 @@ public class LiveSequential implements Runnable {
         UpdateDayListingsCommand.updateListingsForSingleDay(
                 listingDir.toPath(),
                 CACHE_DIR.toPath(),
-                !isToday,
+                !isRecent(day),
                 netConfig.minNodeAccountId(),
                 netConfig.maxNodeAccountId(),
                 DownloadConstants.GCP_PROJECT_ID,
@@ -1729,17 +1726,30 @@ public class LiveSequential implements Runnable {
      * Refreshes GCS listings for only the given day (skips the global all-days refresh).
      */
     private void refreshListingsForSingleDay(LocalDate day, NetworkConfig netConfig) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        boolean isToday = day.equals(today);
-
         UpdateDayListingsCommand.updateListingsForSingleDay(
                 listingDir.toPath(),
                 CACHE_DIR.toPath(),
-                !isToday,
+                !isRecent(day),
                 netConfig.minNodeAccountId(),
                 netConfig.maxNodeAccountId(),
                 DownloadConstants.GCP_PROJECT_ID,
                 day);
+    }
+
+    /**
+     * A day is "recent" when it is today or yesterday in UTC. Recent days must never be served
+     * from the GCPBucketLister list-cache on an explicit refresh call because the last few blocks
+     * of a UTC day trickle in for a while after midnight (issue #3716); trusting a cache written
+     * before those signature files landed leaves the "Insufficient signatures for block N"
+     * retry loop stalled indefinitely until an operator deletes the cache file by hand. Older
+     * days are safe to cache because their tails have settled.
+     *
+     * @param day the day the caller is about to refresh
+     * @return {@code true} when {@code day} is today or yesterday in UTC
+     */
+    private static boolean isRecent(LocalDate day) {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        return !day.isBefore(today.minusDays(1));
     }
 
     /** Resolve the ordered download file list from a group of listing files. */
