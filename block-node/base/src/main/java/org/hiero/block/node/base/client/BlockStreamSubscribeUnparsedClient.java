@@ -133,11 +133,11 @@ public class BlockStreamSubscribeUnparsedClient {
             try {
                 if (timeoutMs > 0) {
                     if (!done.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                        final String msg =
+                                "BACKFILL_GRPC_OVERALL_TIMEOUT=%d, exceeded for Block range starting with block %d"
+                                        .formatted(timeoutMs, expectedBlockNumber);
                         // Warn that the BACKFILL_GRPC_OVERALL_TIMEOUT was exceeded
-                        LOGGER.log(
-                                WARNING,
-                                "BACKFILL_GRPC_OVERALL_TIMEOUT=" + timeoutMs
-                                        + ", exceeded for Block range starting with block " + expectedBlockNumber);
+                        LOGGER.log(WARNING, msg);
                         fail(new RuntimeException("Timed out waiting for block stream response"));
                     }
                 } else {
