@@ -276,6 +276,10 @@ function generate_bn_overlay {
     if [[ "${peer_count}" -gt 0 ]]; then
       echo "  config:"
       echo "    BACKFILL_BLOCK_NODE_SOURCES_PATH: \"/opt/hiero/block-node/backfill/block-node-sources.json\""
+      # Same file feeds roster-bootstrap-tss, so a peered node can fetch a public key from its
+      # backfill peers. Without it roster.bootstrap.tss.blockNodeSourcesPath stays empty and every
+      # backfilled block fails verification, with no signal other than a metric.
+      echo "    ROSTER_BOOTSTRAP_TSS_BLOCK_NODE_SOURCES_PATH: \"/opt/hiero/block-node/backfill/block-node-sources.json\""
       echo "    BACKFILL_GREEDY: \"${greedy_mode}\""
       echo "    BACKFILL_SCAN_INTERVAL: \"${scan_interval}\""
       echo "  backfill:"

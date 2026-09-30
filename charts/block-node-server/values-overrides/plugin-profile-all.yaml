@@ -1,2 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Plugin profile with every plugin enabled: lfh plus cloud-storage archiving.
+# Local storage and cloud archive coexist, so a block is both served locally and archived.
 plugins:
   names: "backfill,block-access-service,block-verification,blocks-file-historic,blocks-file-recent,cloud-storage-archive,cloud-storage-expanded,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber"
