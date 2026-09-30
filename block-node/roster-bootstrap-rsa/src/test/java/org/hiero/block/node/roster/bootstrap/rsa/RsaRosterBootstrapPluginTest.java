@@ -752,8 +752,10 @@ class RsaRosterBootstrapPluginTest
             assertNotNull(currentAddressBookHistory);
             assertEquals(1, currentAddressBookHistory.addressBooks().size());
             assertEquals(0L, currentAddressBookHistory.addressBooks().getFirst().startBlock());
-            assertEquals(-1L, currentAddressBookHistory.addressBooks().getFirst().endBlock());
-            final NodeAddressBook era0 = currentAddressBookHistory.addressBooks().getFirst().addressBook();
+            assertEquals(
+                    -1L, currentAddressBookHistory.addressBooks().getFirst().endBlock());
+            final NodeAddressBook era0 =
+                    currentAddressBookHistory.addressBooks().getFirst().addressBook();
             assertEquals(1, era0.nodeAddress().size());
             assertEquals("aabbcc", era0.nodeAddress().getFirst().rsaPubKey());
         }
