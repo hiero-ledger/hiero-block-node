@@ -449,7 +449,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         TssData current;
         do {
             current = currentTssData.get();
-            if (tssData == null || (current != null && tssData.validFromBlock() <= current.validFromBlock())) {
+            if (tssData == null || tssData.equals(current)) {
                 return;
             }
         } while (!currentTssData.compareAndSet(current, tssData));
