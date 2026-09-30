@@ -153,7 +153,11 @@ curl -s "http://$PRIMARY_BN_HOST:16007/metrics" | grep -E "backfill_pending_bloc
 ```
 
 - `blocknode_backfill_pending_blocks` declining to `0` and `blocknode_backfill_blocks_backfilled_total` increasing confirms the gap is closing.
-- If both remain at `0` with no movement, the backfill source is not configured. Add the secondary as a source entry under `blockNode.backfill.sources` in the primary's Helm values and redeploy - the chart creates the sources file and sets `BACKFILL_BLOCK_NODE_SOURCES_PATH` automatically. If backfill is not configured, the upgrade-window gap will not be automatically filled.
+- If both remain at `0` with no movement, the backfill source is not configured. Set both
+  `blockNode.backfill.sources` in your Helm values **and** `BACKFILL_BLOCK_NODE_SOURCES_PATH`
+  under `blockNode.config` (e.g. `/opt/hiero/block-node/backfill/block-node-sources.json`).
+  The chart creates the sources file at that path but does not set the environment variable
+  automatically - both are required to close the upgrade-window gap.
 
 **Re-run `serverStatus` on the primary:**
 
