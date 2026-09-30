@@ -509,6 +509,9 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         try {
             messageForwarder.submit(send);
         } catch (final RejectedExecutionException e) {
+            if (!messageForwarder.isShutdown()) {
+                throw e;
+            }
             LOGGER.log(DEBUG, "Messaging facility is stopped, dropping notification");
         }
     }
