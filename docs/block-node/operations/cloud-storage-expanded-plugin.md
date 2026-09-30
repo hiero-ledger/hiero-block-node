@@ -101,53 +101,27 @@ blockNode:
 ```
 
 > **Note:** `blockNode.config` entries are stored in a Kubernetes ConfigMap (unencrypted).
-> Never put credentials in `blockNode.config` - use `blockNode.secretRef` instead (see the
-> credential strategies below).
+> Never put credentials in `blockNode.config` - use `blockNode.secretRef` instead.
 
-Three credential strategies are supported, evaluated in this order:
+Set `CLOUD_STORAGE_EXPANDED_ACCESS_KEY` and `CLOUD_STORAGE_EXPANDED_SECRET_KEY` via a
+Kubernetes Secret. The chart injects all Secret keys as pod environment variables, which
+Swirlds Config maps to the corresponding plugin properties.
 
-1. **Config properties** - set `CLOUD_STORAGE_EXPANDED_ACCESS_KEY` and
-   `CLOUD_STORAGE_EXPANDED_SECRET_KEY` via a Kubernetes Secret. The chart injects all Secret
-   keys as pod environment variables, which Swirlds Config maps to the corresponding plugin
-   properties.
+Create the secret:
 
-   Create the secret:
+```bash
+kubectl create secret generic s3-credentials \
+  -n block-node \
+  --from-literal=CLOUD_STORAGE_EXPANDED_ACCESS_KEY=your-access-key \
+  --from-literal=CLOUD_STORAGE_EXPANDED_SECRET_KEY=your-secret-key
+```
 
-   ```bash
-   kubectl create secret generic s3-credentials \
-     -n block-node \
-     --from-literal=CLOUD_STORAGE_EXPANDED_ACCESS_KEY=your-access-key \
-     --from-literal=CLOUD_STORAGE_EXPANDED_SECRET_KEY=your-secret-key
-   ```
+Reference it in your Helm override file:
 
-   Reference it in your Helm override file:
-
-   ```yaml
-   blockNode:
-     secretRef: s3-credentials
-   ```
-2. **S3 client env var fallback** - if `CLOUD_STORAGE_EXPANDED_ACCESS_KEY` and
-   `CLOUD_STORAGE_EXPANDED_SECRET_KEY` are not set, the S3 client reads
-   `CLOUD_EXPANDED_ACCESS_KEY` and `CLOUD_EXPANDED_SECRET_KEY` directly from the pod
-   environment. These are different env var names from the Swirlds Config mapping: they are
-   read by the underlying S3 library when the config properties are blank. Inject them via a
-   Kubernetes Secret:
-
-   ```bash
-   kubectl create secret generic s3-credentials \
-     -n block-node \
-     --from-literal=CLOUD_EXPANDED_ACCESS_KEY=your-access-key \
-     --from-literal=CLOUD_EXPANDED_SECRET_KEY=your-secret-key
-   ```
-
-   ```yaml
-   blockNode:
-     secretRef: s3-credentials
-   ```
-3. **IAM / Workload Identity** - leave all credential settings unset and attach an IAM role
-   (EC2 / ECS) or Workload Identity binding (GKE) with `s3:PutObject` permission on the
-   bucket. This is the recommended approach for cloud-native deployments. No credential
-   configuration is needed beyond the endpoint settings above.
+```yaml
+blockNode:
+  secretRef: s3-credentials
+```
 
 ---
 
