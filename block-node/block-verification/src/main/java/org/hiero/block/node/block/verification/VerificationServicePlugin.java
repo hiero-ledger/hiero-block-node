@@ -20,6 +20,7 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.base.ParseHelper;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
 import org.hiero.block.node.block.verification.session.BlockSessionHandler;
+import org.hiero.block.node.block.verification.session.OrderAwareEvictionPolicy;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -96,6 +97,8 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                 lastVerifiedBlock,
                 recentlyVerifiedBlocks,
                 new ConcurrentSkipListMap<>(),
+                new ConcurrentSkipListMap<>(),
+                new OrderAwareEvictionPolicy(verificationConfig),
                 executor,
                 badBlockDumper);
     }
