@@ -36,7 +36,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         type: string
-        default: "0.88.1"
+        default: "0.91.0"
       solo-source:
         description: "Solo install source: 'npm' or 'git' (build an approved fork/branch)"
         type: string
@@ -141,7 +141,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         required: false
-        default: "0.88.1"
+        default: "0.91.0"
       solo-source:
         description: "Solo install source"
         required: false
@@ -1089,7 +1089,7 @@ jobs:
             echo "Collected file logs for mirror-1-importer from pod ${MN_POD}"
           fi
 
-          # Pinger logs - it crash-loops at startup on Solo 0.88.1 (#3649). The previous
+          # Pinger logs - it has crash-looped at startup since Solo 0.88.1 (#3649). The previous
           # container's log holds the exit reason; the current one may be empty.
           PINGER_POD=$(kubectl --context "${CONTEXT}" get pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=pinger" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
           if [[ -n "$PINGER_POD" ]]; then
