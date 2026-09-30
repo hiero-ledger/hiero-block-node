@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.block.verification.session;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -10,6 +12,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
@@ -19,14 +22,23 @@ import org.hiero.block.node.block.verification.session.BlockVerificationSession.
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.metrics.LongCounter;
 
 /// Handler for [BlockVerificationSession]s.
 /// This handler is responsible for creating, managing, and canceling
 /// [BlockVerificationSession]s.
 /// The handler is also able to receive data from multiple sources and forward it to the correct session.
-/// We have a limited number of sessions we can have running simultaneously, configurable via
-/// [VerificationConfig#activeSessionsBufferSize()]. When the buffer fills up and a new session has to be started,
-/// the session verifying the lowest block will be canceled to make room for the new one.
+///
+/// Active sessions live in two lanes, see [SessionLane]: a high priority lane for the
+/// sessions started from the publisher's live stream and a low priority lane for the
+/// sessions started from any other channel. The lanes share one limit, configurable
+/// via [VerificationConfig#activeSessionsBufferSize()], which applies to their
+/// combined count. When a new session is activated and the
+/// combined count exceeds the limit, room is made by a [SessionEvictionPolicy]: the
+/// policy selects sessions from an immutable [ActiveSessionsSnapshot], and this handler
+/// removes, cancels and accounts for them, once per admission. Eviction runs under a
+/// lock so that the two ingress threads never evict at the same time; everything else
+/// is lock free, as before.
 public final class BlockSessionHandler {
     /// Logger for the handler.
     private static final System.Logger LOGGER = System.getLogger(BlockSessionHandler.class.getName());
@@ -46,8 +58,14 @@ public final class BlockSessionHandler {
     private final AtomicLong nextUniqueSessionIdentifier;
     /// The executor used to run sessions.
     private final ExecutorService executor;
-    /// All currently active sessions, keyed and ordered by [SessionKey].
-    private final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions;
+    /// The high priority lane: active sessions started from the publisher's live stream, ordered by [SessionKey].
+    private final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> highPrioritySessions;
+    /// The low priority lane: active sessions started from any other channel, ordered by [SessionKey].
+    private final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> lowPrioritySessions;
+    /// The policy that selects the sessions to evict when the lanes hold more sessions than allowed.
+    private final SessionEvictionPolicy evictionPolicy;
+    /// Guards the eviction so that the two ingress threads never evict at the same time.
+    private final ReentrantLock evictionLock;
     /// Provider of the verification data, passed to created sessions.
     private final VerificationDataProvider verificationDataProvider;
     /// The session currently receiving live items from the publisher, if any.
@@ -65,7 +83,9 @@ public final class BlockSessionHandler {
     /// @param verificationDataProvider provider of the verification data, must not be null
     /// @param lastVerifiedBlock the last successfully verified block, must not be null
     /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
-    /// @param activeSessions the map to hold active sessions, must not be null
+    /// @param highPrioritySessions the map to hold the high priority lane, must not be null
+    /// @param lowPrioritySessions the map to hold the low priority lane, must not be null
+    /// @param evictionPolicy the policy that selects sessions to evict, must not be null
     /// @param executor the executor used to run sessions, must not be null
     /// @param badBlockDumper the bad block dumper for diagnostics, must not be null
     public BlockSessionHandler(
@@ -75,7 +95,9 @@ public final class BlockSessionHandler {
             final VerificationDataProvider verificationDataProvider,
             final AtomicLong lastVerifiedBlock,
             final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
-            final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> activeSessions,
+            final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> highPrioritySessions,
+            final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> lowPrioritySessions,
+            final SessionEvictionPolicy evictionPolicy,
             final ExecutorService executor,
             final BadBlockDumper badBlockDumper) {
         this.context = Objects.requireNonNull(context);
@@ -86,7 +108,10 @@ public final class BlockSessionHandler {
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
         this.executor = Objects.requireNonNull(executor);
-        this.activeSessions = Objects.requireNonNull(activeSessions);
+        this.highPrioritySessions = Objects.requireNonNull(highPrioritySessions);
+        this.lowPrioritySessions = Objects.requireNonNull(lowPrioritySessions);
+        this.evictionPolicy = Objects.requireNonNull(evictionPolicy);
+        this.evictionLock = new ReentrantLock();
         this.nextUniqueSessionIdentifier = new AtomicLong(0);
         this.activePublisherSession = new AtomicReference<>();
         this.finishedSessions = new ConcurrentSkipListSet<>();
@@ -111,19 +136,41 @@ public final class BlockSessionHandler {
 
     /// Attempt to complete finished sessions.
     /// Every session that has marked itself finished is asked to complete; when it
-    /// does, it is removed from the finished set and the active sessions buffer.
+    /// does, it is removed from the finished set and from its lane. A finished key
+    /// whose session is in no lane belongs to a session that was evicted after it
+    /// finished; only the key is left, so it is dropped.
     private void completeFinishedSessions() {
         for (final SessionKey candidate : finishedSessions) {
-            final BlockVerificationSession sessionToComplete = activeSessions.get(candidate);
-            if (sessionToComplete != null) {
-                if (sessionToComplete.complete()) {
+            final BlockVerificationSession inHighPriorityLane = highPrioritySessions.get(candidate);
+            if (inHighPriorityLane != null) {
+                completeFinishedSession(candidate, inHighPriorityLane, highPrioritySessions);
+            } else {
+                final BlockVerificationSession inLowPriorityLane = lowPrioritySessions.get(candidate);
+                if (inLowPriorityLane != null) {
+                    completeFinishedSession(candidate, inLowPriorityLane, lowPrioritySessions);
+                } else {
                     finishedSessions.remove(candidate);
-                    activeSessions.remove(candidate);
-                    activePublisherSession.compareAndSet(sessionToComplete, null);
                 }
             }
         }
-        sessionHandlerMetrics.verificationActiveSessions().set(activeSessions.size());
+        sessionHandlerMetrics.verificationActiveSessions().set(activeSessionCount());
+    }
+
+    /// Complete one finished session and, when it completes, remove it from the
+    /// finished set and from its lane.
+    ///
+    /// @param key the key of the session
+    /// @param session the session to complete
+    /// @param lane the lane holding the session
+    private void completeFinishedSession(
+            final SessionKey key,
+            final BlockVerificationSession session,
+            final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> lane) {
+        if (session.complete()) {
+            finishedSessions.remove(key);
+            lane.remove(key);
+            activePublisherSession.compareAndSet(session, null);
+        }
     }
 
     /// Process the reception of live blocks from the publisher. Publisher supplied [BlockItems] can only
@@ -150,7 +197,7 @@ public final class BlockSessionHandler {
                 // CANCELLED instead of CANCELLED_INCOMPLETE
                 local.markEndOfBlockReceived();
             }
-            activateSession(local);
+            activateSession(local, SessionLane.HIGH_PRIORITY);
         }
         // check if we have an active publisher session, if not, then disregard the items
         if (local != null) {
@@ -178,7 +225,7 @@ public final class BlockSessionHandler {
         // the concurrent publisher thread, so an eviction cancel reports
         // CANCELLED instead of CANCELLED_INCOMPLETE
         session.markEndOfBlockReceived();
-        activateSession(session);
+        activateSession(session, SessionLane.LOW_PRIORITY);
         session.getBlockItemsDeque().offer(blockItems);
     }
 
@@ -215,23 +262,139 @@ public final class BlockSessionHandler {
                 badBlockDumper);
     }
 
-    /// Activate a new session.
-    /// This method will activate the session and potentially cancel the one verifying the lowest
-    /// block if the buffer for maximum allowed sessions is full, unless that is the session that
-    /// was just activated.
+    /// Activate a new session in its lane.
+    /// When the combined count of both lanes then exceeds the configured limit,
+    /// room is made under the eviction lock, see [#makeRoom()].
     ///
     /// @param session the session to activate
-    private void activateSession(final BlockVerificationSession session) {
-        activeSessions.put(session.sessionKey(), session);
-        final SessionKey candidateSessionKey = activeSessions.firstKey();
-        if (activeSessions.size() > verificationConfig.activeSessionsBufferSize()
-                && candidateSessionKey != session.sessionKey()) {
-            final BlockVerificationSession removed = activeSessions.remove(candidateSessionKey);
-            if (removed != null) {
-                removed.cancel();
-                activePublisherSession.compareAndSet(removed, null);
+    /// @param lane the lane the session belongs to
+    private void activateSession(final BlockVerificationSession session, final SessionLane lane) {
+        laneOf(lane).put(session.sessionKey(), session);
+        if (isOverLimit()) {
+            evictionLock.lock();
+            try {
+                makeRoom();
+            } finally {
+                evictionLock.unlock();
             }
         }
-        sessionHandlerMetrics.verificationActiveSessions().set(activeSessions.size());
+        sessionHandlerMetrics.verificationActiveSessions().set(activeSessionCount());
+    }
+
+    /// Make room in the lanes, called with the eviction lock held, once per admission.
+    /// Finished sessions are reaped first, because sessions may have finished
+    /// while waiting for the lock, and the count is checked again before the
+    /// policy is consulted: the other ingress thread may already have made room.
+    /// Every session the policy selects is then evicted when it is still present.
+    /// One pass pays for one admission: the admission added one session, and the
+    /// pass removes the selected session, or finds that the count is already
+    /// within the limit, or finds that the selected session was reaped meanwhile,
+    /// which lowered the count as well. An admission in flight on the other
+    /// ingress thread pays for itself in its own pass, so the time spent under the
+    /// lock is bounded by one reap, one policy consultation and the evictions it
+    /// selected.
+    private void makeRoom() {
+        completeFinishedSessions();
+        if (isOverLimit()) {
+            final List<SessionKey> selected = evictionPolicy.selectForEviction(snapshot());
+            for (final SessionKey key : selected) {
+                evict(key);
+            }
+        }
+    }
+
+    /// Evict one session: remove it from its lane, cancel it, and account for it.
+    /// A session that is in no lane any more was reaped by the other ingress
+    /// thread since the snapshot was taken, which lowered the count already, and
+    /// is left alone.
+    ///
+    /// @param key the key of the session to evict
+    private void evict(final SessionKey key) {
+        final BlockVerificationSession fromHighPriorityLane = highPrioritySessions.remove(key);
+        if (fromHighPriorityLane != null) {
+            finishEviction(key, fromHighPriorityLane, SessionLane.HIGH_PRIORITY);
+        } else {
+            final BlockVerificationSession fromLowPriorityLane = lowPrioritySessions.remove(key);
+            if (fromLowPriorityLane != null) {
+                finishEviction(key, fromLowPriorityLane, SessionLane.LOW_PRIORITY);
+            }
+        }
+    }
+
+    /// Cancel a session that was just removed from its lane and do the bookkeeping.
+    /// Cancelling runs the session's result handling on this thread, so the
+    /// cancellation notification has been sent and the key has been added to the
+    /// finished set when the call returns; the key is dropped again because the
+    /// session is no longer in any lane. A session whose cancellation returns
+    /// false had already produced its result on its own and is not counted as
+    /// evicted.
+    ///
+    /// @param key the key of the removed session
+    /// @param session the removed session
+    /// @param lane the lane it was removed from
+    private void finishEviction(final SessionKey key, final BlockVerificationSession session, final SessionLane lane) {
+        final boolean cancelled = session.cancel();
+        finishedSessions.remove(key);
+        activePublisherSession.compareAndSet(session, null);
+        if (cancelled) {
+            evictedSessions(lane).increment();
+            LOGGER.log(
+                    DEBUG,
+                    "Evicted the session for block {0} from the {1} lane, the active sessions buffer is over its limit of {2}",
+                    key.blockNumber(),
+                    lane,
+                    verificationConfig.activeSessionsBufferSize());
+        }
+    }
+
+    /// Take an immutable view of both lanes for the eviction policy.
+    ///
+    /// @return the snapshot
+    private ActiveSessionsSnapshot snapshot() {
+        final BlockVerificationSession active = activePublisherSession.get();
+        final SessionKey activeKey;
+        if (active != null) {
+            activeKey = active.sessionKey();
+        } else {
+            activeKey = null;
+        }
+        return new ActiveSessionsSnapshot(
+                highPrioritySessions.keySet(), lowPrioritySessions.keySet(), activeKey, lastVerifiedBlock.get());
+    }
+
+    /// The combined number of sessions in both lanes.
+    ///
+    /// @return the combined count
+    private int activeSessionCount() {
+        return highPrioritySessions.size() + lowPrioritySessions.size();
+    }
+
+    /// Whether the combined count exceeds the configured limit.
+    ///
+    /// @return true when over the limit
+    private boolean isOverLimit() {
+        return activeSessionCount() > verificationConfig.activeSessionsBufferSize();
+    }
+
+    /// The map holding a lane.
+    ///
+    /// @param lane the lane
+    /// @return its map
+    private ConcurrentSkipListMap<SessionKey, BlockVerificationSession> laneOf(final SessionLane lane) {
+        return switch (lane) {
+            case HIGH_PRIORITY -> highPrioritySessions;
+            case LOW_PRIORITY -> lowPrioritySessions;
+        };
+    }
+
+    /// The evictions counter of a lane.
+    ///
+    /// @param lane the lane
+    /// @return its counter
+    private LongCounter.Measurement evictedSessions(final SessionLane lane) {
+        return switch (lane) {
+            case HIGH_PRIORITY -> sessionHandlerMetrics.verificationSessionsEvictedHighPriority();
+            case LOW_PRIORITY -> sessionHandlerMetrics.verificationSessionsEvictedLowPriority();
+        };
     }
 }
