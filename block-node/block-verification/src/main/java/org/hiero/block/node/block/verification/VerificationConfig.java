@@ -14,9 +14,12 @@ import org.hiero.block.node.base.Loggable;
 ///     the oldest one will be removed from the buffer, which is essentially a queue. The queue is used to keep
 ///     track of the blocks that have been recently verified, and failures of verification for blocks that have
 ///     been recently verified will result in an informational failure rather than a standard one.
-/// @param activeSessionsBufferSize size of maximum allowed active sessions. When full and a new session needs to
-///     start, room will be made for it by canceling the one with the lowest block being verified, except when
-///     the session we just started is the one with the lowest block being verified.
+/// @param activeSessionsBufferSize maximum number of simultaneously active sessions, counted across the high
+///     priority lane (the publisher's live stream) and the low priority lane (every other channel) together. When a
+///     new session makes the count exceed this size, the eviction policy makes room: first a low priority session
+///     that no other session is waiting for (a session for a block at or below the last verified block, or the
+///     highest session nobody waits for), then the highest high priority session other than the one the publisher
+///     is still streaming. The session still being streamed by the publisher is never evicted.
 /// @param firstOrderedBlock the first block number that will require strict ordering. All blocks below this
 ///     setting will not await order, and successful verification will be reported immediately.
 /// @param allSourcesRequireOrdering if true, strict ordering of the next expected block to verify will be enforced

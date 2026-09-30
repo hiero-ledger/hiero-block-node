@@ -33,7 +33,10 @@ public interface BlockVerificationSession {
     void start();
 
     /// Cancel and stop the session.
-    void cancel();
+    ///
+    /// @return true if this call stopped the session, false if the session had already
+    ///     produced its result before the call
+    boolean cancel();
 
     /// Mark that the end of block has been received for this session.
     ///
