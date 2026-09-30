@@ -77,7 +77,7 @@ Key plugins include:
 - **ServerStatusServicePlugin:** Provides block node status API endpoints.
 - **StreamPublisherPlugin:** Provides a block stream publishing API as documented in the [communication protocol](./../../design/communication-protocol/README.md).
 - **SubscriberServicePlugin:** Provides an _unverified_ Block Subscription API.
-- **VerificationServicePlugin:** Verifies incoming blocks for integrity prior to persistence.
+- **VerificationServicePlugin:** Verifies incoming blocks for integrity prior to persistence (previously named `BlockVerificationServicePlugin`).
 
 For additional details on plugins, refer to the [Plugins](./plugins.md).
 
