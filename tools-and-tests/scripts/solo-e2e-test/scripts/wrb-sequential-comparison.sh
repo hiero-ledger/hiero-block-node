@@ -407,7 +407,10 @@ function download_record_files_from_minio {
     # skipping anything a previous poll already downloaded).
     local skipped=0
     local wanted_paths=()
-    local -A wanted_basenames=()
+    # Dedup set of basenames seen so far, stored as a delimited string rather
+    # than `declare -A`/`local -A` (associative arrays need bash 4+; macOS
+    # ships bash 3.2, see wrb-distribution/assert-bn-emb.sh for the same fix).
+    local wanted_basenames="|"
     while IFS= read -r line; do
         if [[ "$line" =~ \.rcd ]]; then
             local file_path=$(echo "$line" | awk '{print $NF}')
@@ -452,10 +455,10 @@ function download_record_files_from_minio {
             # not just implicitly at download/write time via the last-node-wins
             # output_dir collision -- so max_files reflects the actual number
             # of unique files fetched.
-            if [[ -n "${wanted_basenames[${filename}]:-}" ]]; then
+            if [[ "${wanted_basenames}" == *"|${filename}|"* ]]; then
                 continue
             fi
-            wanted_basenames[${filename}]=1
+            wanted_basenames="${wanted_basenames}${filename}|"
 
             wanted_paths+=("${file_path}")
             if [ ${#wanted_paths[@]} -ge ${max_files} ]; then
