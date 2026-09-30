@@ -289,20 +289,21 @@ final class BackfillRunner {
                         "Chunk [{0}] persistence attempt [{1}/{2}] incomplete for [{3}] block(s), continuing to "
                                 + "wait on the same in-flight session(s)";
                 logger.log(DEBUG, retryingChunkMsg, chunk, attempt, config.maxRetries(), stillPending.size());
-                // awaitPersistence always clears its own bookkeeping entry once it returns (success,
-                // failure, timeout, or interrupt alike), so without re-tracking here the next await call
-                // would immediately report "already persisted or not tracked" for a block that may still
-                // actually be in flight. A block that definitively failed is re-tracked too and burns
-                // another perBlockProcessingTimeout on a latch nothing will release; that is accepted,
-                // since giving it its own outcome state costs more than the rare extra wait.
-                for (long blockNumber : stillPending) {
-                    persistenceAwaiter.trackBlock(blockNumber);
-                }
+                // awaitPersistence never clears its own bookkeeping entry, so the next attempt simply
+                // re-awaits the same latch instead of needing to re-track here, and a notification that
+                // lands between attempts - or a failure already reported - is never lost or forgotten.
                 LockSupport.parkNanos(
                         TimeUnit.MILLISECONDS.toNanos(Math.max(0, (long) config.initialRetryDelay() * attempt)));
             }
         }
-        return stillPending.isEmpty();
+        boolean persisted = stillPending.isEmpty();
+        // Every block's fate for this chunk is now settled - persisted, definitively failed, or the retry
+        // budget was exhausted while still unresolved - so stop tracking all of them here; awaitPersistence
+        // itself never does, and a persisted block's entry would otherwise remain in the map forever.
+        for (long blockNumber : blockNumbers) {
+            persistenceAwaiter.stopTracking(blockNumber);
+        }
+        return persisted;
     }
 
     /**
