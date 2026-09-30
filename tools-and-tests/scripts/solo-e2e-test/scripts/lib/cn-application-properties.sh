@@ -8,6 +8,7 @@
 #
 # Reads:
 #   TSS_ENABLED  — "true" enables tss.hintsEnabled/historyEnabled/wrapsEnabled
+#                  and tss.wrapsProvingKeyDownloadEnabled
 #   WRB_RSA      — "true" appends blockStream.streamWrappedRecordBlocks=true
 
 generate_cn_application_properties() {
@@ -64,6 +65,10 @@ tss.hintsEnabled=true
 tss.historyEnabled=true
 tss.forceMockSignatures=false
 tss.wrapsEnabled=true
+# CN <= v0.77.x defaults this to false, which also skips verifying and
+# extracting the tarball Solo pre-stages at data/keys/wraps.tar.gz, so WRAPS
+# never starts. Its hash matches tss.wrapsProvingKeyHash, so nothing is downloaded.
+tss.wrapsProvingKeyDownloadEnabled=true
 EOF
   fi
 

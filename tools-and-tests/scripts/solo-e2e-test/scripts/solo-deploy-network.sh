@@ -666,7 +666,8 @@ function deploy_block_nodes {
 # pod: the extracted .bin files (TSS_LIB_WRAPS_ARTIFACTS_PATH, used by CN v0.75.x) and the tarball
 # at data/keys/wraps.tar.gz (tss.wrapsProvingKeyPath, used by CN >= v0.76 at genesis). Keeping the
 # tarball is what lets CN >= v0.76 load the proving key at genesis instead of racing a runtime
-# download — see project-patterns.md (WRAPS on solo-e2e).
+# download — see project-patterns.md (WRAPS on solo-e2e). CN >= v0.76 only verifies and extracts
+# the tarball when tss.wrapsProvingKeyDownloadEnabled=true (set in cn-application-properties.sh).
 WRAPS_DOWNLOAD_URL="https://builds.hedera.com/tss/hiero/wraps/v1.0/wraps-v1.0.0.tar.gz"
 WRAPS_KEYS_DIR="${HOME}/.solo/cache/wraps-v1.0.0-keys"
 WRAPS_KEY_FILES="decider_pp.bin decider_vp.bin nova_pp.bin nova_vp.bin"
@@ -722,8 +723,9 @@ function deploy_consensus_nodes {
   end_task
 
   # Pre-stage the WRAPS v1.0.0 keys via --wraps-key-path so the library is ready at genesis (CN
-  # runtime download is too late on CN v0.75.x and the WRAPS proof gets dropped). CN-side download
-  # stays disabled in cn-application.properties. --tss is kept so Solo still patches
+  # runtime download is too late on CN v0.75.x and the WRAPS proof gets dropped). The CN-side
+  # download flag is on in cn-application.properties, but the staged tarball's hash matches, so the
+  # CN installs it without downloading. --tss is kept so Solo still patches
   # block-nodes.json with the TSS message-size limits the large WRAPS genesis block needs.
   local wraps_key_args=""
   if [[ "${TSS_ENABLED}" == "true" ]]; then
