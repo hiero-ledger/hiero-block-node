@@ -446,16 +446,14 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// and dispatching the notification happen on the ApplicationStateDispatcher thread.
     @Override
     public void updateTssData(TssData tssData) {
-        while (true) {
-            final TssData current = currentTssData.get();
+        TssData current;
+        do {
+            current = currentTssData.get();
             if (tssData == null || (current != null && tssData.validFromBlock() <= current.validFromBlock())) {
-                break;
+                return;
             }
-            if (currentTssData.compareAndSet(current, tssData)) {
-                runOnDispatcherThread(this::syncTssData);
-                break;
-            }
-        }
+        } while (!currentTssData.compareAndSet(current, tssData));
+        runOnDispatcherThread(this::syncTssData);
     }
 
     /// Runs one of the sync methods on the ApplicationStateDispatcher thread, or inline before that
