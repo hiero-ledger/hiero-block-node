@@ -402,6 +402,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             // Stop the application state facility only once the servers are closed. It stops the
             // messaging facility, and stopping that while gRPC is still accepting would drop inbound
             // blocks into a halted ring buffer and reject every notification send.
+            // This will be removed once ApplicationStateFacility is made into a plugin.
             stopApplicationStateFacility();
             // Stop remaining plugins; messaging facility (index 0) already stopped by stopApplicationStateFacility.
             for (BlockNodePlugin plugin : loadedPlugins.subList(1, loadedPlugins.size())) {
