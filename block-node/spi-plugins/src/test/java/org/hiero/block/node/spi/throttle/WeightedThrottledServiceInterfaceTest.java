@@ -79,6 +79,25 @@ class WeightedThrottledServiceInterfaceTest {
     }
 
     @Test
+    @DisplayName("A rejected request still completes the delegate's inbound pipeline, instead of leaving it "
+            + "dangling with no terminal signal")
+    void rejectedRequestCompletesDelegateInboundPipeline() {
+        // maxConcurrentPerClient=0 for STANDARD means every standard call is rejected.
+        final WeightedThrottledServiceInterface throttled =
+                throttledWith(new ThrottlePolicy(100, 10, 0, 5), new ThrottlePolicy(100, 10, 5, 5));
+        final Pipeline<? super Bytes> inbound =
+                throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
+
+        inbound.onNext(STANDARD_REQUEST);
+
+        assertEquals(
+                1,
+                recordingService.inboundCompletions,
+                "the delegate's own open()-built pipeline already exists by rejection time — it must be told the "
+                        + "call is over, not left with no terminal signal at all");
+    }
+
+    @Test
     @DisplayName("Standard and heavy requests from the same client are throttled independently")
     void standardAndHeavyAreThrottledIndependently() {
         // HEAVY allows only 1 concurrent call; STANDARD allows 5. Both start from the same client.
@@ -171,9 +190,12 @@ class WeightedThrottledServiceInterfaceTest {
     /// A fake delegate whose returned pipeline, on `onNext`, records that business logic ran and
     /// captures the outgoing pipeline it was given — but does *not* auto-complete the call, so
     /// tests can hold a call "in flight" to exercise concurrency-ceiling rejection, and complete it
-    /// explicitly (via [#lastCapturedReplies]) when they need to free the permit.
+    /// explicitly (via [#lastCapturedReplies]) when they need to free the permit. Also records
+    /// whether its inbound pipeline was ever completed, to verify a rejected call still signals a
+    /// terminal to the delegate rather than leaving its inbound pipeline dangling forever.
     private static final class RecordingWeightedService implements ServiceInterface {
         private int businessLogicInvocations;
+        private int inboundCompletions;
         private Pipeline<? super Bytes> lastCapturedReplies;
 
         @Override
@@ -208,7 +230,9 @@ class WeightedThrottledServiceInterfaceTest {
                 public void onError(final Throwable throwable) {}
 
                 @Override
-                public void onComplete() {}
+                public void onComplete() {
+                    inboundCompletions++;
+                }
             };
         }
     }
