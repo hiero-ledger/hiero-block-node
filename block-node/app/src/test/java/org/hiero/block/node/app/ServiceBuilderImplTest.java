@@ -422,9 +422,8 @@ class ServiceBuilderImplTest {
 
         @Override
         public java.util.List<Method> methods() {
-            // A throttled service's SingleWeightThrottle has no method dimension in its admission
-            // state, so ThrottledServiceInterface/WeightedThrottledServiceInterface require exactly
-            // one method — see ThrottleMetrics#forInstance.
+            // Every real throttled ServiceInterface exposes at least one method; this double
+            // mirrors that instead of the unrealistic empty list.
             return java.util.List.of(() -> "testMethod");
         }
 
