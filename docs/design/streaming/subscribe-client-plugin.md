@@ -138,17 +138,17 @@ up older ranges; this plugin owns the live edge.
 
 ## Entities
 
-- **`SubscribeClientPlugin`** implements `BlockNodePlugin`. Registers itself,
+- **`RealTimeBlockSubscribePlugin`** implements `BlockNodePlugin`. Registers itself,
   starts the streaming loop on `start()`, tears it down on `stop()`.
-- **`SubscribeClientConfiguration`** -- `@ConfigData("subscribe.client")`
+- **`RealTimeBlockSubscribeConfiguration`** -- `@ConfigData("realTimeBlockSubscribe")`
   record with peer-sources file path, thresholds, tuning knobs. No
   delivery-mode toggle in v1 (slow path is the only mode shipped).
-- **`SubscribeClientConfigExtension`** implements
+- **`RealTimeBlockSubscribeConfigExtension`** implements
   `com.swirlds.config.api.ConfigurationExtension`, discovered via the JPMS
   `provides` clause in `module-info.java` (same pattern
   `BackfillConfigExtension` uses). Its sole job is to return
-  `Set.of(SubscribeClientConfiguration.class)` from `getConfigDataTypes()`,
-  which makes the `@ConfigData("subscribe.client")` record visible to the
+  `Set.of(RealTimeBlockSubscribeConfiguration.class)` from `getConfigDataTypes()`,
+  which makes the `@ConfigData("realTimeBlockSubscribe")` record visible to the
   platform config framework and its values injectable into the plugin.
 - **`SubscribeSessionRunner`** -- long-lived loop that owns active peer
   selection and drives one `BlockStreamSubscribeUnparsedClient` call at a
@@ -172,7 +172,7 @@ up older ranges; this plugin owns the live edge.
 ### Peer Configuration
 
 Peers are configured in an external JSON file whose path is set via
-`subscribe.client.blockNodeSourcesPath`. The file is parsed into the shared
+`realTimeBlockSubscribe.blockNodeSourcesPath`. The file is parsed into the shared
 PBJ message `BlockNodeSource` (from
 `protobuf-sources/src/main/proto/internal/block_node_source.proto`), which
 wraps `repeated BlockNodeSourceConfig nodes`. Each entry carries:
@@ -382,7 +382,7 @@ runner picks up a new tip from the next `serverStatus`, and reopens.
 
 ### Coexistence with the Publisher Plugin
 
-`StreamPublisherPlugin` and `SubscribeClientPlugin` publish onto
+`StreamPublisherPlugin` and `RealTimeBlockSubscribePlugin` publish onto
 **different** ring buffers (existing item ring vs new Unvalidated Blocks
 ring), so they do not interfere at the messaging-facility layer. Both may
 be enabled simultaneously.
@@ -399,7 +399,7 @@ technically permitted:
   we subscribe to serves us blocks we already have from consensus, and
   the local BN spends CPU on redundant verification.
 
-In practice, `SubscribeClientPlugin` is a Tier 2 plugin and
+In practice, `RealTimeBlockSubscribePlugin` is a Tier 2 plugin and
 `StreamPublisherPlugin` is a Tier 1 plugin, so operators following the
 prescribed chart plugin combinations do not enable both on the same BN
 and no startup warning is needed. The plugins remain safe together in
@@ -410,8 +410,8 @@ operating mode.
 Typical deployments:
 
 - **Tier 1 BN (primary)** -- `StreamPublisherPlugin` deployed,
-  `SubscribeClientPlugin` not deployed. Receives directly from consensus.
-- **Tier 2 BN (replica)** -- `SubscribeClientPlugin` deployed,
+  `RealTimeBlockSubscribePlugin` not deployed. Receives directly from consensus.
+- **Tier 2 BN (replica)** -- `RealTimeBlockSubscribePlugin` deployed,
   `StreamPublisherPlugin` not deployed. Mirrors a Tier 1 BN.
 
 ### Startup and Reconnection
@@ -419,7 +419,7 @@ Typical deployments:
 Plugin lifecycle follows the standard `BlockNodePlugin` split:
 
 - **`init()`** -- parse and validate the peer-sources JSON file, register
-  the config-data type via `SubscribeClientConfigExtension`, and prepare
+  the config-data type via `RealTimeBlockSubscribeConfigExtension`, and prepare
   the `SubscribeSessionRunner` (but do not start it). Fail-fast on any
   validation error before the plugin transitions to running.
 - **`start()`** -- launch the `SubscribeSessionRunner` on its dedicated
@@ -459,7 +459,7 @@ flowchart TB
   end
 
   subgraph Local["Local Block Node"]
-    subgraph Plugin["SubscribeClientPlugin"]
+    subgraph Plugin["RealTimeBlockSubscribePlugin"]
       SSR["SubscribeSessionRunner<br/>(virtual thread)"]
       SBP["SubscribedBlockPublisher<br/>(FullBlock strategy, v1)"]
       SEL["PriorityHealthBasedStrategy"]
@@ -509,7 +509,7 @@ Sequence for a healthy stream with mid-stream failover (v1 slow path):
 
 ```mermaid
 sequenceDiagram
-    participant SC as SubscribeClientPlugin
+    participant SC as RealTimeBlockSubscribePlugin
     participant P1 as Peer A (priority 1)
     participant P2 as Peer B (priority 2)
     participant UR as Unvalidated Blocks ring
@@ -531,7 +531,7 @@ sequenceDiagram
 
 ## Configuration
 
-`@ConfigData("subscribe.client")` record:
+`@ConfigData("realTimeBlockSubscribe")` record:
 
 |            Field            |   Type   |  Default  |                                                                    Purpose                                                                    |
 |-----------------------------|----------|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------|
@@ -561,13 +561,13 @@ Category: `blocknode`. All names use snake_case. Trimmed to the metrics
 with a concrete operator use case; anything the caller can already infer
 from the ones below is omitted.
 
-|                 Metric                 |      Type       |                                                                                                             Meaning                                                                                                             |
-|----------------------------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `subscribe_client_active_peer`         | ObservableGauge | `node_id` of the currently-active peer (or `-1` if none). Value comes from `BlockNodeSourceConfig.node_id` in the peer-sources JSON, which is operator-assigned and stable across upgrades. Answers "which peer are we on now". |
-| `subscribe_client_blocks_received`     | LongCounter     | Blocks with a `BlockEnd` received from the peer. Throughput signal.                                                                                                                                                             |
-| `subscribe_client_stream_terminations` | LongCounter     | All stream ends, labeled by cause (`clean`, `error`, `transport`, `stale`). One metric covers both "how many streams ended" and "why" -- subsumes a separate failovers counter.                                                 |
-| `subscribe_client_lag_ms`              | ObservableGauge | `now - lastBlockEndReceivedAt`. Primary operator health signal: rising lag = peer or transport in trouble.                                                                                                                      |
-| `subscribe_client_last_block_number`   | ObservableGauge | Highest block number for which a notification was emitted. Cross-check with the local BN's tip and (optionally) a peer's `serverStatus` to see how far behind consensus we are.                                                 |
+|                     Metric                      |      Type       |                                                                                                             Meaning                                                                                                             |
+|-------------------------------------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `real_time_block_subscribe_active_peer`         | ObservableGauge | `node_id` of the currently-active peer (or `-1` if none). Value comes from `BlockNodeSourceConfig.node_id` in the peer-sources JSON, which is operator-assigned and stable across upgrades. Answers "which peer are we on now". |
+| `real_time_block_subscribe_blocks_received`     | LongCounter     | Blocks with a `BlockEnd` received from the peer. Throughput signal.                                                                                                                                                             |
+| `real_time_block_subscribe_stream_terminations` | LongCounter     | All stream ends, labeled by cause (`clean`, `error`, `transport`, `stale`). One metric covers both "how many streams ended" and "why" -- subsumes a separate failovers counter.                                                 |
+| `real_time_block_subscribe_lag_ms`              | ObservableGauge | `now - lastBlockEndReceivedAt`. Primary operator health signal: rising lag = peer or transport in trouble.                                                                                                                      |
+| `real_time_block_subscribe_last_block_number`   | ObservableGauge | Highest block number for which a notification was emitted. Cross-check with the local BN's tip and (optionally) a peer's `serverStatus` to see how far behind consensus we are.                                                 |
 
 ## Exceptions
 
@@ -662,7 +662,7 @@ node chart and drives them with the `blocks` CLI):
 6. **Overlap race.** Backfill and Subscribe Client both target the same
    block number briefly (Backfill nearing the range Subscribe Client is
    currently on). Verification dedupes, persistence writes each block
-   once, `subscribe_client_blocks_received` and Backfill counters both
+   once, `real_time_block_subscribe_blocks_received` and Backfill counters both
    increment for the overlap.
 7. **Mid-block stream drop.** Peer stops sending mid-block after
    emitting one or two `BlockItemSet`s. Tier 2 discards the partial
@@ -670,7 +670,7 @@ node chart and drives them with the `blocks` CLI):
    session starts at the new peer's tip; Backfill fills the resulting
    gap on its own cadence.
 8. **Both plugins enabled on the same BN.** Enable both
-   `StreamPublisherPlugin` and `SubscribeClientPlugin` on one BN, feed
+   `StreamPublisherPlugin` and `RealTimeBlockSubscribePlugin` on one BN, feed
    blocks via both paths for the same range. Verification does not
    double-persist (dedupe holds), and metrics reflect blocks arriving
    from both `PUBLISHER` and `SUBSCRIBER` sources.
@@ -751,5 +751,5 @@ Tracked as a follow-up ticket under epic #3597; not required for
    than a hard coupling. Action: audit the current `BlockNodeClient`
    construction path and, if the fallback is real, tighten it to
    read from the calling plugin's own `grpcOverallTimeout`
-   (`subscribe.client.grpcOverallTimeout` is already in the Config
+   (`realTimeBlockSubscribe.grpcOverallTimeout` is already in the Config
    table). If it is only a stale comment, update the proto docstring.
