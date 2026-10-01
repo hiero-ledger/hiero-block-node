@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -554,7 +555,7 @@ class ZipBlockArchiveTest {
 
             final BlockAccessor held = cachedArchive.blockAccessor(0L);
             assertThat(held).isNotNull();
-            // distinct archives push the cache over its bound of 1 while the eldest (archive of block 0) is in use
+            // distinct archives push the cache over its bound of 1 while archive 0 is in use
             try (final BlockAccessor other = cachedArchive.blockAccessor(10L)) {
                 assertThat(other).isNotNull();
             }
@@ -564,18 +565,71 @@ class ZipBlockArchiveTest {
             // the held archive was not closed under its reader
             assertThat(held.blockUnparsed())
                     .isEqualTo(TestBlockBuilder.generateBlockWithNumber(0L).blockUnparsed());
+            // archive 10 was idle when 20 was added, so it was evicted even though older archive 0 is pinned;
+            // the cache is still over its bound of 1 because archive 0 cannot be evicted
+            assertThat(cachedArchive.cachedArchiveCount()).isEqualTo(2);
             held.close();
 
-            // the cache is over its bound of 1 (skipped evictions leave 0, 10 and 20 cached)
-            assertThat(cachedArchive.cachedArchiveCount()).isEqualTo(3);
-
-            // once released, the next new archive evicts the now-idle eldest entry. Eviction removes at most one
-            // entry per insertion, so the cache shrinks back toward its bound gradually, not all at once.
+            // once released, the next new archive evicts every idle archive needed to get back to the bound
             createAndAddBlockEntry(30L);
             try (final BlockAccessor other = cachedArchive.blockAccessor(30L)) {
                 assertThat(other).isNotNull();
             }
-            assertThat(cachedArchive.cachedArchiveCount()).isEqualTo(3);
+            assertThat(cachedArchive.cachedArchiveCount()).isEqualTo(1);
+        }
+
+        /**
+         * This test aims to exercise the race where several threads miss the cache for the same, not yet cached
+         * archive and all open its filesystem at once (the open happens without any exclusion). Exactly one
+         * handle must end up cached, every thread must read correct content, and the reference counts must balance:
+         * the cached archive becomes evictable only once every accessor has been closed, which proves neither the
+         * losers' redundant filesystems nor their references leaked into the winner's count.
+         * <p>
+         * The race cannot be forced deterministically, so a barrier releases all threads together against a cold
+         * cache, repeated over many rounds with a fresh {@link ZipBlockArchive} each time.
+         */
+        @Test
+        @DisplayName("Test concurrent first access to the same uncached archive caches exactly one handle")
+        void testConcurrentOpenOfSameUncachedArchive() throws Exception {
+            createAndAddBlockEntry(0L);
+            final BlockUnparsed expected =
+                    TestBlockBuilder.generateBlockWithNumber(0L).blockUnparsed();
+            final int threadCount = 8;
+            final int rounds = 50;
+            final ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+            try {
+                for (int round = 0; round < rounds; round++) {
+                    final ZipBlockArchive cachedArchive = new ZipBlockArchive(
+                            testContext, createCachedTestConfiguration(testConfig.rootPath(), 1, 4));
+                    final CyclicBarrier startBarrier = new CyclicBarrier(threadCount);
+                    // keeps every accessor open until all threads hold one, so their references overlap
+                    final CyclicBarrier allHeldBarrier = new CyclicBarrier(threadCount);
+                    final List<Callable<Void>> tasks = new ArrayList<>();
+                    for (int t = 0; t < threadCount; t++) {
+                        tasks.add(() -> {
+                            startBarrier.await(10, TimeUnit.SECONDS);
+                            try (final BlockAccessor accessor = cachedArchive.blockAccessor(0L)) {
+                                assertThat(accessor).isNotNull();
+                                allHeldBarrier.await(10, TimeUnit.SECONDS);
+                                assertThat(accessor.blockUnparsed()).isEqualTo(expected);
+                            }
+                            return null;
+                        });
+                    }
+                    for (final Future<Void> future : executor.invokeAll(tasks, 30, TimeUnit.SECONDS)) {
+                        // get() rethrows any assertion failure or exception raised inside the task
+                        future.get();
+                    }
+
+                    assertThat(cachedArchive.cachedArchiveCount()).isEqualTo(1);
+                    // evictArchive() only removes a handle whose ref count is back to zero
+                    cachedArchive.evictArchive(
+                            BlockPath.computeBlockPath(testConfig, 0L).zipFilePath());
+                    assertThat(cachedArchive.cachedArchiveCount()).isZero();
+                }
+            } finally {
+                executor.shutdownNow();
+            }
         }
 
         /**
@@ -602,7 +656,7 @@ class ZipBlockArchiveTest {
         /**
          * See {@link #testBlockAccessorConcurrentAccess()}; this variant exercises the same scenario with
          * {@link FilesHistoricConfig#cachedZipAccessorEnabled()} turned on, so many threads share one
-         * reference-counted {@link ZipBlockArchive.ArchiveHandle} per archive concurrently.
+         * reference-counted {@link ZipArchiveCache.ArchiveHandle} per archive concurrently.
          */
         @Test
         @DisplayName("Test blockAccessor() is safe under concurrent access with caching enabled")

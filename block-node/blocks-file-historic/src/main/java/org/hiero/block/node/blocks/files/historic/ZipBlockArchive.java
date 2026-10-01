@@ -12,19 +12,14 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
 import java.util.zip.Deflater;
@@ -47,7 +42,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
  *   <li>{@link ZipBlockAccessor} (default): each accessor opens (and indexes) its own filesystem via a
  *   temporary hard link, so concurrent readers of the same archive never share a filesystem instance.</li>
  *   <li>{@link CachedZipBlockAccessor}: reads share a small, bounded cache of open zip filesystems (see
- *   {@link #openArchives}), keyed by archive path and reference-counted across concurrently active
+ *   {@link ZipArchiveCache}), keyed by archive path and reference-counted across concurrently active
  *   accessors, so that consecutive reads from the same archive (the common case, since archives typically
  *   hold many thousands of blocks) reuse one open filesystem instead of each accessor opening and indexing
  *   its own.</li>
@@ -66,46 +61,8 @@ class ZipBlockArchive {
     private final Path linksRootPath;
     /** The format for the blocks. */
     private final Format format;
-    /**
-     * Guards all access to {@link #openArchives}. Only used when {@link CachedZipBlockAccessor} is enabled.
-     * <p>
-     * A lock (rather than a {@code ConcurrentHashMap.computeIfAbsent}) is needed here because acquiring an
-     * archive is not just a get-or-create: it also has to (a) atomically bump the handle's ref count as part of
-     * the same operation, so a concurrent eviction (see {@link #openArchives}) can never observe a handle as
-     * unused between its creation/lookup and the ref count update, and (b) maintain true LRU eviction order,
-     * which needs {@link #openArchives} to be a {@link LinkedHashMap} in access order -- a data structure that
-     * is not thread-safe and has no lock-free equivalent with the same ordering guarantee. The lock only guards
-     * this bookkeeping (map/ref-count mutation); it is never held while reading block bytes, so it does not
-     * serialize the actual I/O.
-     */
-    private final ReentrantLock archiveCacheLock = new ReentrantLock();
-    /**
-     * Cache of open zip filesystems, keyed by archive path, access-ordered so the eldest (least-recently-used)
-     * entry is evicted first. Guarded by {@link #archiveCacheLock}. Only used when {@link CachedZipBlockAccessor}
-     * is enabled.
-     * <p>
-     * Eviction is driven by {@link LinkedHashMap#removeEldestEntry}, the standard JDK-documented mechanism for a
-     * bounded LRU cache, rather than manual iteration: it is only ever asked about the single eldest entry, and
-     * only right after a {@code put()} adds a new one, so it is safe by construction (no iterator to misuse) as
-     * long as it only runs while {@link #archiveCacheLock} is held -- true here since the only {@code put()} is
-     * in {@link #acquireArchive}. If that eldest entry is still referenced, eviction is skipped for this call
-     * (an archive is never force-evicted out from under an active reader); it is reconsidered on the next
-     * {@code put()} once it is either released or no longer the eldest. This means the cache can briefly sit
-     * above {@link FilesHistoricConfig#maxCachedZipArchives()} while its eldest entry is in active use even if a
-     * younger, already-unused entry exists further down the order -- an accepted, self-correcting looseness in
-     * exchange for not needing a full-sweep iteration.
-     */
-    private final Map<Path, ArchiveHandle> openArchives = new LinkedHashMap<>(16, 0.75f, true) {
-        @Override
-        protected boolean removeEldestEntry(final Map.Entry<Path, ArchiveHandle> eldest) {
-            if (size() <= config.maxCachedZipArchives() || eldest.getValue().refCount != 0) {
-                return false;
-            }
-            closeQuietly(eldest.getKey(), eldest.getValue());
-            return true;
-        }
-    };
-
+    /** Bounded cache of open zip filesystems, used only when {@link CachedZipBlockAccessor} is enabled. */
+    private final ZipArchiveCache archiveCache;
     /**
      * Constructor for ZipBlockArchive.
      *
@@ -116,6 +73,7 @@ class ZipBlockArchive {
         this.context = Objects.requireNonNull(context);
         this.config = Objects.requireNonNull(filesHistoricConfig);
         linksRootPath = config.rootPath().resolve("links");
+        archiveCache = new ZipArchiveCache(config.maxCachedZipArchives());
         format = switch (this.config.compression()) {
             case ZSTD -> Format.ZSTD_PROTOBUF;
             case NONE -> Format.PROTOBUF;
@@ -123,124 +81,34 @@ class ZipBlockArchive {
     }
 
     /**
-     * A shared, reference-counted handle to an open zip archive filesystem. Multiple concurrent
-     * {@link CachedZipBlockAccessor}s reading from the same archive hold a reference to the same handle.
-     * <p>
-     * Implements {@link AutoCloseable} so callers can pair acquisition with release using try-with-resources
-     * (or an explicit {@link #close()} on early-return paths); {@link #close()} releases this caller's
-     * reference rather than necessarily closing the underlying filesystem -- see {@link #releaseArchive}.
-     * Not {@code static} so it can call back into the enclosing {@link ZipBlockArchive} to release itself.
+     * Acquires a shared reference to the cached filesystem for the given archive; see
+     * {@link ZipArchiveCache#acquire}. Every successful call must be paired with exactly one
+     * {@link ZipArchiveCache.ArchiveHandle#close()}.
      */
-    final class ArchiveHandle implements AutoCloseable {
-        private final FileSystem fileSystem;
-        /** Guarded by {@link #archiveCacheLock}. */
-        private int refCount;
-
-        private ArchiveHandle(@NonNull final FileSystem fileSystem) {
-            this.fileSystem = fileSystem;
-        }
-
-        FileSystem fileSystem() {
-            return fileSystem;
-        }
-
-        @Override
-        public void close() {
-            releaseArchive(this);
-        }
+    private ZipArchiveCache.ArchiveHandle acquireArchive(@NonNull final Path zipFilePath) throws IOException {
+        return archiveCache.acquire(zipFilePath);
     }
 
     /**
-     * Acquires a shared reference to the open filesystem for the given archive, opening and caching it if it is
-     * not already cached. Every successful call must be paired with exactly one {@link ArchiveHandle#close()}
-     * call.
-     *
-     * @param zipFilePath the path to the zip archive, must already be known to exist
-     * @return a handle with an active reference already counted for the caller
-     */
-    private ArchiveHandle acquireArchive(@NonNull final Path zipFilePath) throws IOException {
-        archiveCacheLock.lock();
-        try {
-            ArchiveHandle handle = openArchives.get(zipFilePath);
-            if (handle == null) {
-                handle = new ArchiveHandle(FileSystems.newFileSystem(zipFilePath));
-                openArchives.put(zipFilePath, handle);
-            }
-            handle.refCount++;
-            return handle;
-        } finally {
-            archiveCacheLock.unlock();
-        }
-    }
-
-    /**
-     * Releases a reference previously acquired via {@link #acquireArchive}. The underlying filesystem is not
-     * necessarily closed immediately: it stays cached for reuse until evicted. Called from
-     * {@link ArchiveHandle#close()}; not invoked directly.
-     */
-    private void releaseArchive(@NonNull final ArchiveHandle handle) {
-        archiveCacheLock.lock();
-        try {
-            handle.refCount--;
-        } finally {
-            archiveCacheLock.unlock();
-        }
-    }
-
-    private void closeQuietly(@NonNull final Path zipFilePath, @NonNull final ArchiveHandle handle) {
-        try {
-            handle.fileSystem().close();
-        } catch (final IOException e) {
-            // Not expected to cause problems for the running system; INFO so operators still see it happening.
-            LOGGER.log(INFO, "Failed to close cached zip archive filesystem for: %s".formatted(zipFilePath), e);
-        }
-    }
-
-    /**
-     * Evicts and closes the cached filesystem for the given archive path, if cached and not currently in use by
-     * an active accessor. Intended to be called right after the archive's zip file has been deleted (e.g. by
-     * retention policy pruning), so the cache does not keep holding a filesystem open for a file that no longer
-     * exists on disk any longer than necessary. If the archive is still actively referenced, this is a no-op;
-     * it will be cleaned up by the normal LRU eviction once released.
+     * Evicts the cached filesystem for an archive whose zip file has been deleted, if it is not in use; see
+     * {@link ZipArchiveCache#evict}.
      *
      * @param zipFilePath the path to the archive that was deleted
      */
     void evictArchive(@NonNull final Path zipFilePath) {
-        archiveCacheLock.lock();
-        try {
-            final ArchiveHandle handle = openArchives.get(zipFilePath);
-            if (handle != null && handle.refCount == 0) {
-                openArchives.remove(zipFilePath);
-                closeQuietly(zipFilePath, handle);
-            }
-        } finally {
-            archiveCacheLock.unlock();
-        }
+        archiveCache.evict(zipFilePath);
     }
 
     /**
      * Closes every cached archive filesystem. Should be called when the owning plugin stops.
      */
     void close() {
-        archiveCacheLock.lock();
-        try {
-            for (final Map.Entry<Path, ArchiveHandle> entry : openArchives.entrySet()) {
-                closeQuietly(entry.getKey(), entry.getValue());
-            }
-            openArchives.clear();
-        } finally {
-            archiveCacheLock.unlock();
-        }
+        archiveCache.close();
     }
 
     /** Returns the number of archive filesystems currently cached. Package-private for testing. */
     int cachedArchiveCount() {
-        archiveCacheLock.lock();
-        try {
-            return openArchives.size();
-        } finally {
-            archiveCacheLock.unlock();
-        }
+        return archiveCache.size();
     }
 
     /**
@@ -326,7 +194,7 @@ class ZipBlockArchive {
         // reference has been handed off to a returned accessor, so every other exit (including exceptions)
         // releases it here instead of leaking it.
         boolean releaseOnExit = false;
-        ArchiveHandle handle = null;
+        ZipArchiveCache.ArchiveHandle handle = null;
         try {
             handle = acquireArchive(zipFilePath);
             releaseOnExit = true;
@@ -377,7 +245,7 @@ class ZipBlockArchive {
                             }));
                     if (zipFilePath.isPresent()) {
                         final Path candidateZip = zipFilePath.get();
-                        ArchiveHandle handle = null;
+                        ZipArchiveCache.ArchiveHandle handle = null;
                         try {
                             // Route through the shared archive cache rather than opening the real zip path
                             // directly: a concurrent block read could already have this same archive cached
@@ -447,7 +315,7 @@ class ZipBlockArchive {
                             }));
                     if (zipFilePath.isPresent()) {
                         final Path candidateZip = zipFilePath.get();
-                        ArchiveHandle handle = null;
+                        ZipArchiveCache.ArchiveHandle handle = null;
                         try {
                             // See minStoredBlockNumber() for why this goes through the shared archive cache
                             // rather than opening the real zip path directly.
