@@ -174,7 +174,9 @@ for most methods it runs synchronously inside `open()`; for `getBlock` and `subs
 pipeline's `onNext` instead, since classifying a call's weight needs request bytes `open()` doesn't have yet — see
 [Component A](#component-a--per-client-admission-gate)'s "Content-aware weighting" for why.
 
-Either way, the plugin's real implementation never runs until admission passes. Because the decorator sits at the
+Either way, the plugin's own business logic never runs until admission passes — though for weighted methods, the
+plugin's `open()` itself already has, before that decision is made; see "Content-aware weighting" below for why,
+and for the constraint that imposes on weighted-method implementations. Because the decorator sits at the
 `ServiceInterface` level rather than inside a specific web server's request-routing layer, the mechanism doesn't
 depend on which web server hosts the gRPC service.
 
@@ -196,9 +198,11 @@ For every call, in order — the first check that rejects wins, and no later che
    A call that's going to be rejected by a cheaper check must not be allowed to consume a rate-limiting slot first.
 
 If every check passes, the call is admitted: both concurrency counters are incremented, and the real service's
-`open()` is invoked. If any check fails, the call is rejected immediately (see [Exceptions](#exceptions)) and the
-real service method is never invoked. (For `getBlock` and `subscribeBlockStream`, these checks run later — in
-`onNext`, not `open()` — see "Content-aware weighting" below.)
+business logic is invoked. If any check fails, the call is rejected immediately (see [Exceptions](#exceptions)) and
+that business logic is never invoked. For `getBlock` and `subscribeBlockStream`, this describes when the admission
+*decision* happens, not when the delegate's `open()` runs — their delegate's `open()` always runs immediately,
+regardless of the eventual decision, since it runs before the decision is made; see "Content-aware weighting" below
+for why, and for the constraint that imposes on weighted-method implementations.
 
 **Overload prevention vs. single-consumer abuse are different guarantees.** The global concurrency check above,
 and `BlockReadBulkhead` (Component B), are identity-agnostic: they cap total in-flight work regardless of who's
@@ -234,10 +238,28 @@ plugin's own retention boundary, so the weigher doesn't depend on a specific sto
 the two are expected to match, but nothing enforces it.
 
 Because classification needs the request bytes, which aren't available until `onNext`, a weighted method's
-`open()` doesn't gate anything — it only extracts the client key and builds the delegate's pipeline. Classification
-and all three checks then run together in the wrapping pipeline's `onNext`, before the delegate's `onNext` is
-called. The outcome matches the unweighted case (a rejected call's business logic never runs, nothing is charged
-twice); only the point where that decision happens moves, from `open()` to `onNext`.
+`open()` doesn't gate anything — it only extracts the client key and calls the delegate's own `open()` to build its
+inbound pipeline, unconditionally, before admission is known. Classification and all three checks then run
+together in the wrapping pipeline's `onNext`, before the delegate's `onNext` is called. The outcome matches the
+unweighted case (a rejected call's business logic never runs, nothing is charged twice); only the point where that
+decision happens moves, from `open()` to `onNext`.
+
+**Weighted-method delegates must keep `open()` side-effect-free.** Since the delegate's `open()` always runs before
+admission is decided, a weighted method's delegate must not acquire resources, perform I/O, or start any business
+logic inside `open()` — only inside its own `onNext`/handler logic, once called. Every current delegate satisfies
+this because PBJ's `Pipelines` helper only constructs a `Pipeline` object in `open()`; this is a constraint any
+future weighted-method delegate implementation must uphold, not something the decorator enforces or can detect. If
+a future delegate's `open()` ever acquired a resource eagerly, a rejected call would strand it, since a rejection
+never reaches that delegate's `onNext`.
+
+**A rejected call still completes the delegate's inbound pipeline — it isn't left dangling.** The delegate's
+inbound pipeline already exists by the time a weighted call is rejected (built by its `open()` above), but a
+rejection means it will never receive `onNext`. Rather than leaving that pipeline with no terminal signal at all,
+the decorator gives it a normal, empty completion (`onComplete`, with zero preceding `onNext` calls) immediately
+after rejecting the call — valid per `java.util.concurrent.Flow.Subscriber`, where a subscriber may complete having
+received no items. This keeps "a rejected call never reaches the delegate's business logic" true while still giving
+the delegate's inbound pipeline a definite end, rather than depending on it being silently abandoned and
+garbage-collected.
 
 ### Component B — shared backend block-read bulkhead
 
@@ -292,11 +314,18 @@ that per-plugin and node-wide numbers agree with each other — in one place.
 
 ### Client-state bookkeeping
 
-Per-client rate and concurrency state is held in a bounded, concurrent map keyed by client key and method. Left
-unmanaged, this map's key space would grow without bound as new clients connect over time — which would recreate,
-inside the throttling system itself, the same kind of unbounded resource growth this system exists to prevent.
-Entries are evicted lazily when a stale entry is encountered on the read path, backed by a low-frequency full sweep
-that catches clients who are never looked up again.
+Per-client rate and concurrency state is held in a bounded, concurrent map keyed by client key only — there is no
+method dimension in the key. One such map exists per `(service, weight class)` combination (see "How the entities
+relate" above), not one shared map and not one keyed by `(client, method)`. Where a service exposes more than one
+method — `BlockNodeService`'s `serverStatus` and `serverStatusDetail`, today's only such case — those methods share
+one map, and therefore one rate bucket and one concurrency ceiling, per client; admission does not distinguish
+between them. Method identity is used only to label metrics (see [Metrics](#metrics)), never to partition this
+state or vary the admission decision.
+
+Left unmanaged, this map's key space would grow without bound as new clients connect over time — which would
+recreate, inside the throttling system itself, the same kind of unbounded resource growth this system exists to
+prevent. Entries are evicted lazily when a stale entry is encountered on the read path, backed by a low-frequency
+full sweep that catches clients who are never looked up again.
 
 ### Performance
 
@@ -431,7 +460,8 @@ sequenceDiagram
     D->>D: GCRA rate check (weight class's policy)
     alt any check rejects
         D-->>C: onError(RESOURCE_EXHAUSTED)
-        Note over P: plugin's onNext is never called — its business logic never runs
+        D->>P: onComplete() — empty completion, zero onNext calls
+        Note over P: plugin's onNext is never called — its business logic never runs,<br/>but its inbound pipeline still gets a terminal signal
     else admitted
         D->>P: onNext(requestBytes)
         P-->>D: streams/returns response(s)
@@ -494,14 +524,27 @@ by the target deployment's storage characteristics.
 
 ## Metrics
 
-|          Metric           |                          Type                          |                                   Meaning                                   |
-|---------------------------|--------------------------------------------------------|-----------------------------------------------------------------------------|
-| Admitted calls            | Counter, labeled by service/method/weight class        | Calls that passed all admission checks                                      |
-| Rejected calls            | Counter, labeled by service/method/weight class/reason | Calls rejected, broken down by which check rejected them                    |
-| Per-client in-flight      | Gauge, labeled by service/method                       | Distinct clients currently holding at least one in-flight call for a method |
-| Node-wide in-flight       | Gauge, labeled by service/method                       | Current node-wide concurrent call count per method                          |
-| Client-state table size   | Gauge                                                  | Size of the per-client bookkeeping table, to catch unexpected growth        |
-| Block-read bulkhead usage | Gauge (in-use / available)                             | Current utilization of the shared backend read permit pool                  |
+Admitted/rejected counters are labeled by `service`, `method`, and `weightClass`, resolved from the specific method
+each call hit — not assumed from the service's declared method list — so two methods sharing one `(service, weight
+class)` throttle instance (see [Client-state bookkeeping](#client-state-bookkeeping)) still get independent counts.
+Rejections are three separately-named counters, one per check that can reject a call, rather than one counter with
+a `reason` label. The client-state-table-size gauge, by contrast, is labeled by `service` and `weightClass` only,
+with no `method` label: it reflects the size of the shared state table itself, a property of the whole `(service,
+weight class)` instance, not of any one method's traffic.
+
+|                  Metric                 |                         Type                          |                                         Meaning                                         |
+|------------------------------------------|--------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| Admitted calls                          | Counter, labeled by `service`/`method`/`weightClass`  | Calls admitted by the throttle                                                          |
+| Rejected calls — node-wide concurrency  | Counter, labeled by `service`/`method`/`weightClass`  | Calls rejected by the node-wide concurrency ceiling                                     |
+| Rejected calls — per-client concurrency | Counter, labeled by `service`/`method`/`weightClass`  | Calls rejected by the per-client concurrency ceiling                                    |
+| Rejected calls — rate limit             | Counter, labeled by `service`/`method`/`weightClass`  | Calls rejected by the per-client rate limit                                             |
+| Client-state table size                 | Gauge, labeled by `service`/`weightClass`             | Number of distinct clients tracked by one throttle instance, to catch unexpected growth |
+| Block-read bulkhead usage               | Gauge (in-use / available)                            | Current utilization of the shared backend read permit pool                             |
+
+Per-client and node-wide in-flight call counts (referenced by [Acceptance Test](#acceptance-tests) 6) are not yet
+emitted as their own gauges in the current mechanism — only the counters and client-state gauge above exist today.
+Tracked as a follow-up; in the interim, in-flight counts are derivable from admitted-minus-completed accounting
+external to this mechanism.
 
 ## Exceptions
 
