@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.subscribeclient;
+package org.hiero.block.node.realtimeblocksubscribe;
 
 import com.swirlds.config.api.ConfigurationExtension;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Set;
 
 /** Registers this module's configuration data types for auto-discovery. */
-public class SubscribeClientConfigExtension implements ConfigurationExtension {
+public class RealTimeBlockSubscribeConfigExtension implements ConfigurationExtension {
 
     /** Explicitly defined constructor. */
-    public SubscribeClientConfigExtension() {
+    public RealTimeBlockSubscribeConfigExtension() {
         super();
     }
 
     @NonNull
     @Override
     public Set<Class<? extends Record>> getConfigDataTypes() {
-        return Set.of(SubscribeClientConfiguration.class);
+        return Set.of(RealTimeBlockSubscribeConfiguration.class);
     }
 }

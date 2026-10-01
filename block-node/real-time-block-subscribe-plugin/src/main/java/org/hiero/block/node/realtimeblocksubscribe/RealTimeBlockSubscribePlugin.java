@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.subscribeclient;
+package org.hiero.block.node.realtimeblocksubscribe;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
@@ -17,7 +17,7 @@ import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
 /**
- * Subscribe Client Plugin. Consumes a peer BN's {@code BlockStreamSubscribeService.subscribeBlockStream}
+ * Real-Time Block Subscribe Plugin. Consumes a peer BN's {@code BlockStreamSubscribeService.subscribeBlockStream}
  * RPC as an open-ended live tail and publishes the received blocks onto the Unvalidated Blocks
  * ring buffer for the local BN to verify and persist. See the design at
  * {@code docs/design/streaming/subscribe-client-plugin.md}.
@@ -28,63 +28,66 @@ import org.hiero.metrics.core.MetricRegistry;
  * {@link #start()} logs that the plugin is enabled and leaves the runner un-started so the
  * module can be loaded safely in test deployments.
  */
-public class RealTimeBlockStreamingClientPlugin implements BlockNodePlugin {
+public class RealTimeBlockSubscribePlugin implements BlockNodePlugin {
 
     /** Logger for the plugin. */
-    private static final System.Logger LOGGER = System.getLogger(RealTimeBlockStreamingClientPlugin.class.getName());
+    private static final System.Logger LOGGER = System.getLogger(RealTimeBlockSubscribePlugin.class.getName());
 
     // --- Metrics (per design, section: Metrics). Values are placeholders until the session
     // runner lands; the metric keys are registered now so dashboards can be wired against them
     // without waiting for the full implementation.
 
     /** {@code node_id} of the currently-active peer; {@code -1} when no peer is active. */
-    public static final MetricKey<ObservableGauge> METRIC_SUBSCRIBE_CLIENT_ACTIVE_PEER =
-            MetricKey.of("subscribe_client_active_peer", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<ObservableGauge> METRIC_REAL_TIME_BLOCK_SUBSCRIBE_ACTIVE_PEER = MetricKey.of(
+                    "real_time_block_subscribe_active_peer", ObservableGauge.class)
+            .addCategory(METRICS_CATEGORY);
 
     /** Blocks with a {@code BlockEnd} received from the peer. Throughput signal. */
-    public static final MetricKey<LongCounter> METRIC_SUBSCRIBE_CLIENT_BLOCKS_RECEIVED =
-            MetricKey.of("subscribe_client_blocks_received", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_REAL_TIME_BLOCK_SUBSCRIBE_BLOCKS_RECEIVED = MetricKey.of(
+                    "real_time_block_subscribe_blocks_received", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
 
     /** All stream ends, labeled by cause ({@code clean}, {@code error}, {@code transport}, {@code stale}). */
-    public static final MetricKey<LongCounter> METRIC_SUBSCRIBE_CLIENT_STREAM_TERMINATIONS = MetricKey.of(
-                    "subscribe_client_stream_terminations", LongCounter.class)
+    public static final MetricKey<LongCounter> METRIC_REAL_TIME_BLOCK_SUBSCRIBE_STREAM_TERMINATIONS = MetricKey.of(
+                    "real_time_block_subscribe_stream_terminations", LongCounter.class)
             .addCategory(METRICS_CATEGORY);
 
     /** {@code now - lastBlockEndReceivedAt}. Primary operator health signal. */
-    public static final MetricKey<ObservableGauge> METRIC_SUBSCRIBE_CLIENT_LAG_MS =
-            MetricKey.of("subscribe_client_lag_ms", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<ObservableGauge> METRIC_REAL_TIME_BLOCK_SUBSCRIBE_LAG_MS = MetricKey.of(
+                    "real_time_block_subscribe_lag_ms", ObservableGauge.class)
+            .addCategory(METRICS_CATEGORY);
 
     /** Highest block number for which a notification was emitted onto the Unvalidated Blocks ring. */
-    public static final MetricKey<ObservableGauge> METRIC_SUBSCRIBE_CLIENT_LAST_BLOCK_NUMBER = MetricKey.of(
-                    "subscribe_client_last_block_number", ObservableGauge.class)
+    public static final MetricKey<ObservableGauge> METRIC_REAL_TIME_BLOCK_SUBSCRIBE_LAST_BLOCK_NUMBER = MetricKey.of(
+                    "real_time_block_subscribe_last_block_number", ObservableGauge.class)
             .addCategory(METRICS_CATEGORY);
 
     // --- Plugin state
 
     /** Config loaded in {@link #init}. */
-    private SubscribeClientConfiguration configuration;
+    private RealTimeBlockSubscribeConfiguration configuration;
 
     /** True once {@link #init} has validated the peer-sources file. */
     private boolean peerSourcesReady;
 
-    /** Backing field for {@link #METRIC_SUBSCRIBE_CLIENT_ACTIVE_PEER}; set by the session runner. */
+    /** Backing field for {@link #METRIC_REAL_TIME_BLOCK_SUBSCRIBE_ACTIVE_PEER}; set by the session runner. */
     private final AtomicLong activePeerNodeId = new AtomicLong(-1);
 
-    /** Backing field for {@link #METRIC_SUBSCRIBE_CLIENT_LAG_MS}; set by the session runner. */
+    /** Backing field for {@link #METRIC_REAL_TIME_BLOCK_SUBSCRIBE_LAG_MS}; set by the session runner. */
     private final AtomicLong lastBlockEndReceivedAtEpochMillis = new AtomicLong(0);
 
-    /** Backing field for {@link #METRIC_SUBSCRIBE_CLIENT_LAST_BLOCK_NUMBER}; set by the session runner. */
+    /** Backing field for {@link #METRIC_REAL_TIME_BLOCK_SUBSCRIBE_LAST_BLOCK_NUMBER}; set by the session runner. */
     private final AtomicLong lastBlockNumberEmitted = new AtomicLong(-1);
 
     /** Default no-arg constructor required by the plugin SPI. */
-    public RealTimeBlockStreamingClientPlugin() {
+    public RealTimeBlockSubscribePlugin() {
         super();
     }
 
     /** {@inheritDoc} */
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
-        configuration = context.configuration().getConfigData(SubscribeClientConfiguration.class);
+        configuration = context.configuration().getConfigData(RealTimeBlockSubscribeConfiguration.class);
 
         initMetrics(context.metricRegistry());
 
@@ -138,17 +141,17 @@ public class RealTimeBlockStreamingClientPlugin implements BlockNodePlugin {
 
     /** Register all metrics on the plugin's registry. Called from {@link #init}. */
     private void initMetrics(@NonNull final MetricRegistry metrics) {
-        metrics.register(LongCounter.builder(METRIC_SUBSCRIBE_CLIENT_BLOCKS_RECEIVED)
+        metrics.register(LongCounter.builder(METRIC_REAL_TIME_BLOCK_SUBSCRIBE_BLOCKS_RECEIVED)
                 .setDescription("Blocks with a BlockEnd received from the active peer."));
-        metrics.register(LongCounter.builder(METRIC_SUBSCRIBE_CLIENT_STREAM_TERMINATIONS)
+        metrics.register(LongCounter.builder(METRIC_REAL_TIME_BLOCK_SUBSCRIBE_STREAM_TERMINATIONS)
                 .setDescription("Subscribe-stream terminations, labelled by cause (clean, error, transport, stale)."));
-        metrics.register(ObservableGauge.builder(METRIC_SUBSCRIBE_CLIENT_ACTIVE_PEER)
+        metrics.register(ObservableGauge.builder(METRIC_REAL_TIME_BLOCK_SUBSCRIBE_ACTIVE_PEER)
                 .setDescription("node_id of the currently-active peer; -1 when none.")
                 .observe(activePeerNodeId::get));
-        metrics.register(ObservableGauge.builder(METRIC_SUBSCRIBE_CLIENT_LAG_MS)
+        metrics.register(ObservableGauge.builder(METRIC_REAL_TIME_BLOCK_SUBSCRIBE_LAG_MS)
                 .setDescription("Milliseconds since the last BlockEnd was received from the active peer.")
                 .observe(this::lagMillis));
-        metrics.register(ObservableGauge.builder(METRIC_SUBSCRIBE_CLIENT_LAST_BLOCK_NUMBER)
+        metrics.register(ObservableGauge.builder(METRIC_REAL_TIME_BLOCK_SUBSCRIBE_LAST_BLOCK_NUMBER)
                 .setDescription("Highest block number this plugin has emitted a notification for.")
                 .observe(lastBlockNumberEmitted::get));
     }

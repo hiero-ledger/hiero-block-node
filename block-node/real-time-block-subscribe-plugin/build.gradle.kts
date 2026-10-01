@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 plugins { id("org.hiero.gradle.module.library") }
 
-description = "Hiero Block Node Subscribe Client Plugin"
+description = "Hiero Block Node Real-Time Block Subscribe Plugin"
 
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 

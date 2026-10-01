@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.subscribeclient;
+package org.hiero.block.node.realtimeblocksubscribe;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
@@ -13,7 +13,7 @@ import org.hiero.block.node.base.Loggable;
 // spotless:off
 
 /**
- * Configuration for the Subscribe Client Plugin. Field defaults and semantics match the
+ * Configuration for the Real-Time Block Subscribe Plugin. Field defaults and semantics match the
  * design document at docs/design/streaming/subscribe-client-plugin.md (section: Configuration).
  *
  * @param deliveryMode Global delivery mode. {@code FULL_BLOCK} delivers one notification per
@@ -36,8 +36,8 @@ import org.hiero.block.node.base.Loggable;
  * @param enableTLS TLS toggle for peer connections. Follows Backfill's convention.
  * @param maxIncomingBufferSize Helidon client incoming buffer size in bytes.
  */
-@ConfigData("subscribe.client")
-public record SubscribeClientConfiguration(
+@ConfigData("realTimeBlockSubscribe")
+public record RealTimeBlockSubscribeConfiguration(
         @Loggable @ConfigProperty(defaultValue = "FULL_BLOCK") DeliveryMode deliveryMode,
         @Loggable @ConfigProperty(defaultValue = "") String blockNodeSourcesPath,
         @Loggable @ConfigProperty(defaultValue = "3000") @Min(100) long staleThresholdMs,

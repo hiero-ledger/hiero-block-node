@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-import org.hiero.block.node.subscribeclient.RealTimeBlockStreamingClientPlugin;
-import org.hiero.block.node.subscribeclient.SubscribeClientConfigExtension;
+import org.hiero.block.node.realtimeblocksubscribe.RealTimeBlockSubscribeConfigExtension;
+import org.hiero.block.node.realtimeblocksubscribe.RealTimeBlockSubscribePlugin;
 
-module org.hiero.block.node.subscribeclient {
+module org.hiero.block.node.realtimeblocksubscribe {
     // export configuration classes to the config module and app
-    exports org.hiero.block.node.subscribeclient to
+    exports org.hiero.block.node.realtimeblocksubscribe to
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
             org.hiero.block.node.app;
@@ -20,7 +20,7 @@ module org.hiero.block.node.subscribeclient {
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
     provides com.swirlds.config.api.ConfigurationExtension with
-            SubscribeClientConfigExtension;
+            RealTimeBlockSubscribeConfigExtension;
     provides org.hiero.block.node.spi.BlockNodePlugin with
-            RealTimeBlockStreamingClientPlugin;
+            RealTimeBlockSubscribePlugin;
 }
