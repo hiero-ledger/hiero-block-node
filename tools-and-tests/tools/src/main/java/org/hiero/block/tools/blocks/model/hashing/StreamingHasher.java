@@ -4,7 +4,8 @@ package org.hiero.block.tools.blocks.model.hashing;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
-import static org.hiero.block.tools.utils.Sha384.sha384Digest;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
+import static org.hiero.block.tools.utils.Sha256.sha256Digest;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedInputStream;
@@ -64,7 +65,7 @@ import java.util.List;
  * @see HashingUtils
  */
 public class StreamingHasher implements Hasher {
-    /** SHA-384 message digest for computing all hashes. */
+    /** SHA-256 message digest for computing all hashes. */
     private final MessageDigest digest;
 
     /**
@@ -80,7 +81,7 @@ public class StreamingHasher implements Hasher {
 
     /** Creates a new StreamingHasher with an empty state. */
     public StreamingHasher() {
-        digest = sha384Digest();
+        digest = sha256Digest();
     }
 
     /**
@@ -103,7 +104,7 @@ public class StreamingHasher implements Hasher {
      * <ul>
      *   <li>8 bytes: leaf count (long)</li>
      *   <li>4 bytes: hash count (int)</li>
-     *   <li>48 bytes × hash count: the pending subtree root hashes</li>
+     *   <li>32 bytes × hash count: the pending subtree root hashes</li>
      * </ul>
      *
      * @param filePath the path to the file where the state will be saved
@@ -116,7 +117,7 @@ public class StreamingHasher implements Hasher {
                 new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(tmpPath), 8192))) {
             out.writeLong(leafCount);
             out.writeInt(hashList.size());
-            for (byte[] hash : hashList) { // all hashes are 48 bytes (SHA-384)
+            for (byte[] hash : hashList) { // all hashes are 32 bytes (SHA-256)
                 out.write(hash);
             }
         }
@@ -137,7 +138,7 @@ public class StreamingHasher implements Hasher {
             newLeafCount = din.readLong();
             int hashCount = din.readInt();
             for (int i = 0; i < hashCount; i++) {
-                byte[] hash = new byte[48]; // SHA-384 produces 48-byte hashes
+                byte[] hash = new byte[SHA_256_HASH_SIZE]; // SHA-256 produces 32-byte hashes
                 din.readFully(hash);
                 newHashList.add(hash);
             }
@@ -204,9 +205,9 @@ public class StreamingHasher implements Hasher {
      * <p>Time complexity: O(log n) where n is the leaf count.
      *
      * <p>For an empty tree (no leaves added), this method returns the predefined
-     * {@link HashingUtils#EMPTY_TREE_HASH} which is {@code sha384Hash(new byte[]{0x00})}.
+     * {@link HashingUtils#EMPTY_TREE_HASH} which is {@code sha256Hash(new byte[]{0x00})}.
      *
-     * @return the 48-byte SHA-384 Merkle tree root hash, or {@link HashingUtils#EMPTY_TREE_HASH}
+     * @return the 32-byte SHA-256 Merkle tree root hash, or {@link HashingUtils#EMPTY_TREE_HASH}
      *         if no leaves have been added
      */
     @Override

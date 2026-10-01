@@ -11,7 +11,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
-import org.hiero.block.tools.utils.Sha384;
+import org.hiero.block.tools.utils.Sha256;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -21,7 +21,7 @@ import org.junit.jupiter.api.io.TempDir;
  * Unit tests for {@link HasherStateFiles} covering the atomic save, fallback load, and
  * hasher reconciliation patterns used by {@code ToWrappedBlocksCommand}.
  *
- * <p>No real block data is required: tests use synthetic 48-byte hashes created by
+ * <p>No real block data is required: tests use synthetic 32-byte hashes created by
  * {@link #fakeHash(int)}.
  */
 @DisplayName("HasherStateFiles")
@@ -35,11 +35,11 @@ class HasherStateFilesTest {
     // -------------------------------------------------------------------------
 
     /**
-     * Creates a deterministic 48-byte block hash filled with {@code value}.
+     * Creates a deterministic 32-byte block hash filled with {@code value}.
      * Good enough to exercise Merkle tree logic without real block data.
      */
     private static byte[] fakeHash(int value) {
-        byte[] hash = new byte[Sha384.SHA_384_HASH_SIZE];
+        byte[] hash = new byte[Sha256.SHA_256_HASH_SIZE];
         Arrays.fill(hash, (byte) value);
         return hash;
     }

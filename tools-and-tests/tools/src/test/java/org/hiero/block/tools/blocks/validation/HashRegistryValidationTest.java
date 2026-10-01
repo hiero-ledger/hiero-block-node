@@ -3,6 +3,7 @@ package org.hiero.block.tools.blocks.validation;
 
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -82,7 +83,7 @@ class HashRegistryValidationTest {
 
         // Write a different (wrong) hash to the registry
         Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
-        byte[] wrongHash = new byte[48];
+        byte[] wrongHash = new byte[SHA_256_HASH_SIZE];
         wrongHash[0] = (byte) 0xFF;
         try (RandomAccessFile raf = new RandomAccessFile(registryPath.toFile(), "rw")) {
             raf.write(wrongHash);
@@ -136,7 +137,7 @@ class HashRegistryValidationTest {
     void doesNotRequireGenesisStart(@TempDir Path tempDir) throws IOException {
         Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
         try (RandomAccessFile raf = new RandomAccessFile(registryPath.toFile(), "rw")) {
-            raf.write(new byte[48]); // dummy
+            raf.write(new byte[SHA_256_HASH_SIZE]); // dummy
         }
         BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(registryPath);
         HashRegistryValidation validation = new HashRegistryValidation(registry, new BlockChainValidation());

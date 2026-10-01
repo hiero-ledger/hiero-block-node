@@ -3,6 +3,7 @@ package org.hiero.block.tools.blocks.validation;
 
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -105,7 +106,7 @@ class StreamingMerkleTreeValidationTest {
 
         // Save a different streaming hasher (with a different leaf) to the file
         StreamingHasher differentHasher = new StreamingHasher();
-        differentHasher.addNodeByHash(new byte[48]); // different hash
+        differentHasher.addNodeByHash(new byte[SHA_256_HASH_SIZE]); // different hash
         Path stateFile = tempDir.resolve("streamingMerkleTree.bin");
         differentHasher.save(stateFile);
 

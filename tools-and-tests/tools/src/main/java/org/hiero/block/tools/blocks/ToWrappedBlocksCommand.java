@@ -1131,19 +1131,19 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
      * <p>File format:
      * <ul>
      *   <li>Block number (8 bytes, long)</li>
-     *   <li>Previous block root hash (48 bytes, SHA-384)</li>
-     *   <li>Consensus timestamp hash (48 bytes, SHA-384) — leaf hash of the block's first consensus timestamp</li>
-     *   <li>Output items tree root hash (48 bytes, SHA-384) — streaming merkle root of all output items</li>
+     *   <li>Previous block root hash (32 bytes, SHA-256)</li>
+     *   <li>Consensus timestamp hash (32 bytes, SHA-256) — leaf hash of the block's first consensus timestamp</li>
+     *   <li>Output items tree root hash (32 bytes, SHA-256) — streaming merkle root of all output items</li>
      *   <li>Streaming hasher leaf count (8 bytes, long)</li>
      *   <li>Streaming hasher hash count (4 bytes, int)</li>
-     *   <li>Streaming hasher pending subtree hashes (48 bytes x hash count)</li>
+     *   <li>Streaming hasher pending subtree hashes (32 bytes x hash count)</li>
      * </ul>
      *
      * @param file the file to write to
      * @param blockNumber the block number
-     * @param blockHash the block hash (SHA-384, 48 bytes) - this is the previous block root hash
-     * @param consensusTimestampHash the consensus timestamp leaf hash (SHA-384, 48 bytes)
-     * @param outputItemsTreeRootHash the output items tree root hash (SHA-384, 48 bytes)
+     * @param blockHash the block hash (SHA-256, 32 bytes) - this is the previous block root hash
+     * @param consensusTimestampHash the consensus timestamp leaf hash (SHA-256, 32 bytes)
+     * @param outputItemsTreeRootHash the output items tree root hash (SHA-256, 32 bytes)
      * @param streamingHasher the streaming hasher containing the merkle tree state
      */
     static void saveJumpstartData(
@@ -1158,7 +1158,7 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
             // Block number and hash (previous block root hash for the next block)
             out.writeLong(blockNumber);
             out.write(blockHash);
-            // Consensus timestamp hash (SHA-384 leaf hash of the block's first consensus timestamp)
+            // Consensus timestamp hash (SHA-256 leaf hash of the block's first consensus timestamp)
             out.write(consensusTimestampHash);
             // Output items tree root hash (streaming merkle root of all output items)
             out.write(outputItemsTreeRootHash);

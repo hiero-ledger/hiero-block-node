@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
-import org.hiero.block.tools.utils.Sha384;
+import org.hiero.block.tools.utils.Sha256;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -20,9 +20,9 @@ class BlockStreamBlockHashRegistryTest {
     @TempDir
     Path tempDir;
 
-    /** Create a 48-byte hash filled with the given byte value. */
+    /** Create a 32-byte hash filled with the given byte value. */
     private static byte[] fakeHash(int value) {
-        byte[] hash = new byte[Sha384.SHA_384_HASH_SIZE];
+        byte[] hash = new byte[Sha256.SHA_256_HASH_SIZE];
         Arrays.fill(hash, (byte) value);
         return hash;
     }

@@ -53,7 +53,7 @@ import picocli.CommandLine.Help.Ansi;
  * covered by the hash registry but whose entry count is below the expected maximum, then
  * re-wraps each missing block from its original source record-file day archive.
  *
- * <p>Because the block hash registry ({@code blockStreamBlockHashes.bin}) stores a SHA-384 hash
+ * <p>Because the block hash registry ({@code blockStreamBlockHashes.bin}) stores a SHA-256 hash
  * for every block ever processed, missing blocks can be reconstructed at any point without
  * reprocessing from block zero — the streaming Merkle-tree hasher is fast-replayed from a
  * checkpoint to the first affected block, then advanced one block at a time while re-wrapping.</p>
