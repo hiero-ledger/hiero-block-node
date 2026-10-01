@@ -9,7 +9,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 /// The default implementation ([RemoteAddressKeyExtractor]) keys by network address. This
 /// interface exists specifically so that an authenticated-identity-based implementation (an mTLS
 /// client certificate, or an API key) can replace it later without any change to
-/// [ThrottledServiceInterface], [ThrottlePolicy], or any plugin configuration.
+/// [ThrottledServiceInterface], [ThrottleSpec], or any plugin configuration.
 /// [RequestOptions#remoteCertificateChain()] already exists today, unused, as exactly what a
 /// future certificate-based extractor would read.
 public interface ClientKeyExtractor {

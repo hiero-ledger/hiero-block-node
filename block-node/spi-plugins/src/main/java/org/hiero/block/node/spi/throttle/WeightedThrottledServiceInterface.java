@@ -9,8 +9,11 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Duration;
 import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -32,25 +35,33 @@ import java.util.concurrent.atomic.AtomicReference;
 /// dangling with no terminal signal at all, so its business logic never runs, but it is still told
 /// the call is over.
 ///
-/// Like [ThrottledServiceInterface], this class is deliberately the only place (besides
-/// [ContentAwareWeigher] implementations, which only parse request bytes) that references PBJ's
-/// `ServiceInterface`/`Pipeline` types — the actual decision logic lives entirely in
-/// [SingleWeightThrottle], which knows nothing about gRPC or how it's attached to a call. Preserve
-/// that split; see [ThrottledServiceInterface]'s class documentation for why.
+/// Like [ThrottledServiceInterface], every `(method, weight class)` pair named in {@code
+/// perClientSettings} gets its own [SingleWeightThrottle]; a classified call with no matching
+/// entry falls back to that method's `WeightClass.STANDARD` entry, and a method with no entries
+/// at all falls back further still, to the shared [GlobalConcurrencyGate] for whichever weight
+/// class the weigher produced — see [ThrottleSpec#perClientSettings].
+///
+/// This class is deliberately the only place (besides [ContentAwareWeigher] implementations,
+/// which only parse request bytes) that references PBJ's `ServiceInterface`/`Pipeline` types —
+/// the actual decision logic lives entirely in [SingleWeightThrottle], which knows nothing about
+/// gRPC or how it's attached to a call. Preserve that split; see [ThrottledServiceInterface]'s
+/// class documentation for why.
 public final class WeightedThrottledServiceInterface implements ServiceInterface, StaleClientSweepable {
     private final ServiceInterface delegate;
     private final ClientKeyExtractor keyExtractor;
     private final ContentAwareWeigher weigher;
-    private final Map<WeightClass, SingleWeightThrottle> throttlesByWeight;
+    private final ThrottleMetrics throttleMetrics;
+    private final Map<WeightClass, GlobalConcurrencyGate> globalGates;
+    private final Map<MethodWeight, SingleWeightThrottle> throttles;
 
-    /// @param delegate the real plugin service implementation to protect. If it exposes more than
-    ///     one method, they share each weight class's rate bucket, concurrency ceiling, and
-    ///     client-state table — see [SingleWeightThrottle]'s class documentation — but each is
-    ///     still labeled separately in metrics, since [AdmissionGatingPipeline#onNext] passes the
-    ///     specific method each call hit.
-    /// @param policiesByWeight one policy per weight class this service's weigher can classify
-    ///     into; must contain an entry for {@link WeightClass#STANDARD}, used as the fallback if
-    ///     the weigher ever returns a class with no configured policy
+    /// @param delegate the real plugin service implementation to protect
+    /// @param perClientSettings per-`(method, weight class)` settings — see
+    ///     [ThrottleSpec#perClientSettings]. For every method with at least one entry, one of its
+    ///     entries must use {@link WeightClass#STANDARD}, used as that method's fallback if the
+    ///     weigher ever returns a class with no configured entry for it
+    /// @param globalConcurrencyCeilings this service's node-wide ceiling per weight class — see
+    ///     [ThrottleSpec#globalConcurrencyCeilings]; must cover every weight class {@code weigher}
+    ///     can produce
     /// @param keyExtractor derives the per-client key from each call's request options
     /// @param weigher classifies each call's request content into a weight class
     /// @param throttleMetrics the shared, once-registered metrics this instance's calls report into
@@ -58,7 +69,8 @@ public final class WeightedThrottledServiceInterface implements ServiceInterface
     ///     last-seen call before it becomes eligible for eviction
     public WeightedThrottledServiceInterface(
             @NonNull final ServiceInterface delegate,
-            @NonNull final Map<WeightClass, ThrottlePolicy> policiesByWeight,
+            @NonNull final Map<MethodWeight, PerClientThrottleSettings> perClientSettings,
+            @NonNull final Map<WeightClass, Integer> globalConcurrencyCeilings,
             @NonNull final ClientKeyExtractor keyExtractor,
             @NonNull final ContentAwareWeigher weigher,
             @NonNull final ThrottleMetrics throttleMetrics,
@@ -66,16 +78,46 @@ public final class WeightedThrottledServiceInterface implements ServiceInterface
         this.delegate = delegate;
         this.keyExtractor = keyExtractor;
         this.weigher = weigher;
-        if (!policiesByWeight.containsKey(WeightClass.STANDARD)) {
-            throw new IllegalArgumentException("policiesByWeight must contain an entry for WeightClass.STANDARD");
+        this.throttleMetrics = throttleMetrics;
+
+        final Map<WeightClass, GlobalConcurrencyGate> gates = new EnumMap<>(WeightClass.class);
+        for (final Map.Entry<WeightClass, Integer> entry : globalConcurrencyCeilings.entrySet()) {
+            gates.put(entry.getKey(), new GlobalConcurrencyGate(entry.getValue()));
         }
-        this.throttlesByWeight = new EnumMap<>(WeightClass.class);
-        for (final Map.Entry<WeightClass, ThrottlePolicy> entry : policiesByWeight.entrySet()) {
-            throttlesByWeight.put(
-                    entry.getKey(),
+        this.globalGates = Map.copyOf(gates);
+
+        final Set<String> methodsSeen = new HashSet<>();
+        final Set<String> methodsWithStandard = new HashSet<>();
+        final Map<MethodWeight, SingleWeightThrottle> built = new HashMap<>();
+        for (final Map.Entry<MethodWeight, PerClientThrottleSettings> entry : perClientSettings.entrySet()) {
+            final MethodWeight key = entry.getKey();
+            methodsSeen.add(key.method());
+            if (key.weightClass() == WeightClass.STANDARD) {
+                methodsWithStandard.add(key.method());
+            }
+            final GlobalConcurrencyGate gate = globalGates.get(key.weightClass());
+            if (gate == null) {
+                throw new IllegalArgumentException("No globalConcurrencyCeilings entry for weight class "
+                        + key.weightClass() + " (" + key + ") on " + delegate.serviceName());
+            }
+            built.put(
+                    key,
                     new SingleWeightThrottle(
-                            entry.getValue(), throttleMetrics, delegate.serviceName(), entry.getKey(), clientStateTtl));
+                            entry.getValue(),
+                            gate,
+                            throttleMetrics,
+                            delegate.serviceName(),
+                            key.method(),
+                            key.weightClass(),
+                            clientStateTtl));
         }
+        if (!methodsWithStandard.containsAll(methodsSeen)) {
+            methodsSeen.removeAll(methodsWithStandard);
+            throw new IllegalArgumentException("perClientSettings for " + delegate.serviceName()
+                    + " must include a WeightClass.STANDARD entry for every configured method; missing for "
+                    + methodsSeen);
+        }
+        this.throttles = Map.copyOf(built);
     }
 
     @NonNull
@@ -109,11 +151,31 @@ public final class WeightedThrottledServiceInterface implements ServiceInterface
         return new AdmissionGatingPipeline(delegateInbound, replies, releasePermit, clientKey, method);
     }
 
+    /// Admits a call to a method with no entry for its classified weight class — see
+    /// [ThrottleSpec#perClientSettings]. Only the shared node-wide concurrency ceiling for that
+    /// weight class applies.
+    @NonNull
+    private AdmissionResult globalOnlyAdmit(@NonNull final String method, @NonNull final WeightClass weightClass) {
+        final GlobalConcurrencyGate gate = globalGates.get(weightClass);
+        final AdmissionResult result = (gate != null)
+                ? gate.tryAdmit(delegate.serviceName() + "." + method)
+                : AdmissionResult.rejected(
+                        "no node-wide concurrency ceiling configured for weight class " + weightClass);
+        throttleMetrics.recordCall(
+                delegate.serviceName(),
+                method,
+                weightClass,
+                result.admitted()
+                        ? ThrottleMetrics.Outcome.ADMITTED
+                        : ThrottleMetrics.Outcome.REJECTED_GLOBAL_CONCURRENCY);
+        return result;
+    }
+
     /// {@inheritDoc}
     @Override
     public int sweepStaleClients(final long nowNanos) {
         int evicted = 0;
-        for (final SingleWeightThrottle throttle : throttlesByWeight.values()) {
+        for (final SingleWeightThrottle throttle : throttles.values()) {
             evicted += throttle.sweepStaleClients(nowNanos);
         }
         return evicted;
@@ -151,9 +213,14 @@ public final class WeightedThrottledServiceInterface implements ServiceInterface
         @Override
         public void onNext(final Bytes requestBytes) {
             final WeightClass weightClass = weigher.classify(method, requestBytes);
-            final SingleWeightThrottle throttle =
-                    throttlesByWeight.getOrDefault(weightClass, throttlesByWeight.get(WeightClass.STANDARD));
-            final AdmissionResult result = throttle.tryAdmit(clientKey, method.name(), System.nanoTime());
+            final String methodName = method.name();
+            SingleWeightThrottle throttle = throttles.get(new MethodWeight(methodName, weightClass));
+            if (throttle == null) {
+                throttle = throttles.get(new MethodWeight(methodName, WeightClass.STANDARD));
+            }
+            final AdmissionResult result = (throttle != null)
+                    ? throttle.tryAdmit(clientKey, System.nanoTime())
+                    : globalOnlyAdmit(methodName, weightClass);
             if (!result.admitted()) {
                 rejected = true;
                 replies.onError(new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED, result.rejectionReason()));

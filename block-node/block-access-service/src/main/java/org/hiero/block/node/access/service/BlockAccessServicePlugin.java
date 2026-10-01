@@ -29,6 +29,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
+import org.hiero.block.node.spi.throttle.MethodWeight;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.WeightClass;
@@ -60,7 +61,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     /** The shared block-storage read bulkhead (Component B); protects storage independent of client identity */
     private BlockReadBulkhead blockReadBulkhead;
     /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
-    private volatile Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight;
+    private volatile Map<MethodWeight, PerClientThrottleSettings> throttleSettingsByMethod;
     /** This service's node-wide concurrency ceiling, computed once in {@link #init}; see {@link ThrottleSpec}. */
     private volatile Map<WeightClass, Integer> globalConcurrencyCeilingsByWeight;
     /** This service's content-aware weigher, computed once in {@link #init}; see {@link ThrottleSpec}. */
@@ -226,21 +227,17 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 context.configuration().getConfigData(GetBlockLiveThrottleConfig.class);
         final GetBlockHistoricalThrottleConfig historicalThrottleConfig =
                 context.configuration().getConfigData(GetBlockHistoricalThrottleConfig.class);
-        final Map<WeightClass, PerClientThrottleSettings> resolvedThrottleSettingsByWeight =
-                new EnumMap<>(WeightClass.class);
-        resolvedThrottleSettingsByWeight.put(
-                WeightClass.STANDARD,
+        this.throttleSettingsByMethod = Map.of(
+                new MethodWeight("getBlock", WeightClass.STANDARD),
                 new PerClientThrottleSettings(
                         liveThrottleConfig.ratePerSecond(),
                         liveThrottleConfig.burstTolerance(),
-                        liveThrottleConfig.maxConcurrentPerClient()));
-        resolvedThrottleSettingsByWeight.put(
-                WeightClass.HEAVY,
+                        liveThrottleConfig.maxConcurrentPerClient()),
+                new MethodWeight("getBlock", WeightClass.HEAVY),
                 new PerClientThrottleSettings(
                         historicalThrottleConfig.ratePerSecond(),
                         historicalThrottleConfig.burstTolerance(),
                         historicalThrottleConfig.maxConcurrentPerClient()));
-        this.throttleSettingsByWeight = resolvedThrottleSettingsByWeight;
         final GlobalThrottleConfig globalThrottleConfig =
                 context.configuration().getConfigData(GlobalThrottleConfig.class);
         final Map<WeightClass, Integer> resolvedGlobalConcurrencyCeilingsByWeight = new EnumMap<>(WeightClass.class);
@@ -256,8 +253,8 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     /// {@inheritDoc}
     @NonNull
     @Override
-    public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
-        return throttleSettingsByWeight;
+    public Map<MethodWeight, PerClientThrottleSettings> perClientSettings() {
+        return throttleSettingsByMethod;
     }
 
     /// {@inheritDoc}

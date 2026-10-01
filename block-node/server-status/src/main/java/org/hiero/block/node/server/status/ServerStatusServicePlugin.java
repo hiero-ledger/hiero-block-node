@@ -21,6 +21,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.MethodWeight;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.WeightClass;
@@ -52,7 +53,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     /** Counter for the number of detail requests */
     private LongCounter.Measurement requestDetailCounter;
     /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
-    private volatile Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight;
+    private volatile Map<MethodWeight, PerClientThrottleSettings> throttleSettingsByMethod;
     /** This service's node-wide concurrency ceiling, computed once in {@link #init}; see {@link ThrottleSpec}. */
     private volatile Map<WeightClass, Integer> globalConcurrencyCeilingsByWeight;
 
@@ -192,12 +193,20 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                 context.configuration().getConfigData(ServerStatusConfig.class).port();
         final ServerStatusThrottleConfig throttleConfig =
                 context.configuration().getConfigData(ServerStatusThrottleConfig.class);
-        this.throttleSettingsByWeight = Map.of(
-                WeightClass.STANDARD,
-                new PerClientThrottleSettings(
-                        throttleConfig.ratePerSecond(),
-                        throttleConfig.burstTolerance(),
-                        throttleConfig.maxConcurrentPerClient()));
+        // serverStatus and serverStatusDetail each get their own independent rate bucket and
+        // concurrency ceiling now, rather than being forced to share one — configured here with
+        // the same numbers for both, which is a deliberate choice to keep today's effective
+        // limits unchanged in shape (same numeric ceiling per method), not a claim that the two
+        // methods must always be configured identically going forward.
+        final PerClientThrottleSettings settings = new PerClientThrottleSettings(
+                throttleConfig.ratePerSecond(),
+                throttleConfig.burstTolerance(),
+                throttleConfig.maxConcurrentPerClient());
+        this.throttleSettingsByMethod = Map.of(
+                new MethodWeight("serverStatus", WeightClass.STANDARD),
+                settings,
+                new MethodWeight("serverStatusDetail", WeightClass.STANDARD),
+                settings);
         final GlobalThrottleConfig globalThrottleConfig =
                 context.configuration().getConfigData(GlobalThrottleConfig.class);
         this.globalConcurrencyCeilingsByWeight =
@@ -208,8 +217,8 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     /// {@inheritDoc}
     @NonNull
     @Override
-    public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
-        return throttleSettingsByWeight;
+    public Map<MethodWeight, PerClientThrottleSettings> perClientSettings() {
+        return throttleSettingsByMethod;
     }
 
     /// {@inheritDoc}
