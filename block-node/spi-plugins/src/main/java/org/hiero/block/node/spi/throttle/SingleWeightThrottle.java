@@ -65,8 +65,6 @@ final class SingleWeightThrottle implements StaleClientSweepable {
     /// @return the admission result — see [AdmissionResult]
     @NonNull
     AdmissionResult tryAdmit(@NonNull final String clientKey, @NonNull final String method, final long nowNanos) {
-        final ThrottleMetrics.Counters counters = throttleMetrics.countersFor(service, method, weightClass);
-
         // Atomic per-key compute: either reuse a live/still-fresh entry, or replace a stale,
         // currently-unused one with a fresh limiter. A client that hasn't been seen in a while
         // deserves a clean rate-limit history, not one artificially constrained by ancient calls.
@@ -80,21 +78,23 @@ final class SingleWeightThrottle implements StaleClientSweepable {
 
         final String description = service + "." + method;
         if (globalInFlight.get() >= policy.maxConcurrentGlobal()) {
-            counters.rejectedGlobalConcurrency().increment();
+            throttleMetrics.recordCall(
+                    service, method, weightClass, ThrottleMetrics.Outcome.REJECTED_GLOBAL_CONCURRENCY);
             return AdmissionResult.rejected("node-wide concurrency limit reached for " + description);
         }
         if (state.inFlight.get() >= policy.maxConcurrentPerClient()) {
-            counters.rejectedClientConcurrency().increment();
+            throttleMetrics.recordCall(
+                    service, method, weightClass, ThrottleMetrics.Outcome.REJECTED_CLIENT_CONCURRENCY);
             return AdmissionResult.rejected("per-client concurrency limit reached for " + description);
         }
         if (!state.limiter.tryAcquire(nowNanos)) {
-            counters.rejectedRate().increment();
+            throttleMetrics.recordCall(service, method, weightClass, ThrottleMetrics.Outcome.REJECTED_RATE);
             return AdmissionResult.rejected("rate limit exceeded for " + description);
         }
 
         globalInFlight.incrementAndGet();
         state.inFlight.incrementAndGet();
-        counters.admitted().increment();
+        throttleMetrics.recordCall(service, method, weightClass, ThrottleMetrics.Outcome.ADMITTED);
 
         final AtomicBoolean released = new AtomicBoolean(false);
         final Runnable releasePermit = () -> {
