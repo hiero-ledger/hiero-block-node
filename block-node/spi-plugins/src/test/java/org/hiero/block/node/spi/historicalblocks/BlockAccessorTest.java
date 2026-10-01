@@ -39,6 +39,7 @@ public class BlockAccessorTest {
                             new SemanticVersion(4, 5, 6, "c", "d"),
                             123,
                             new Timestamp(123L, 456),
+                            // @todo(3688) declare SHA2_256 once the consensus node proto defines it
                             BlockHashAlgorithm.SHA2_384))),
             new BlockItem(new OneOf<>(ItemOneOfType.ROUND_HEADER, new RoundHeader(827))),
             new BlockItem(new OneOf<>(

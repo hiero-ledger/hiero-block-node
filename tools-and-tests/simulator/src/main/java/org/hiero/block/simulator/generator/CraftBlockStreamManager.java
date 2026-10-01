@@ -6,7 +6,7 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
-import static org.hiero.block.common.hasher.HashingUtilities.EMPTY_TREE_HASH;
+import static org.hiero.block.simulator.Constants.BLOCK_HASH_ALGORITHM;
 
 import com.hedera.hapi.block.stream.output.protoc.BlockFooter;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
@@ -16,7 +16,6 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.lang.System.Logger;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -58,6 +57,8 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private final Logger LOGGER = System.getLogger(getClass().getName());
 
     private static final int MAX_PARSE_DEPTH = 256;
+    /** The previous block hash of block 0 and the all blocks root before any block: the empty tree hash. */
+    private static final Bytes ZERO_BLOCK_HASH = BLOCK_HASH_ALGORITHM.emptyTreeHash();
 
     // Service
     private final Random random;
@@ -92,8 +93,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private final SimulatorStartupData simulatorStartupData;
     private final TssBlockSigner blockSigner;
 
-    StreamingHasher rootHashOfAllBlockHashesTreeHasher;
-    Bytes ZERO_BLOCK_HASH = Bytes.wrap(EMPTY_TREE_HASH);
+    private StreamingHasher rootHashOfAllBlockHashesTreeHasher;
 
     /**
      * Constructs a new CraftBlockStreamManager with the specified configuration.
@@ -116,13 +116,13 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.invalidBlockHash = blockGeneratorConfig.invalidBlockHash();
         this.endBlockNumber = blockGeneratorConfig.endBlockNumber();
         this.random = new Random();
-        this.previousStateRootHash = new byte[StreamingTreeHasher.HASH_LENGTH];
-        this.currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
-        this.inputTreeHasher = new NaiveStreamingTreeHasher();
-        this.outputTreeHasher = new NaiveStreamingTreeHasher();
-        this.consensusHeaderHasher = new NaiveStreamingTreeHasher();
-        this.stateChangesHasher = new NaiveStreamingTreeHasher();
-        this.traceDataHasher = new NaiveStreamingTreeHasher();
+        this.previousStateRootHash = new byte[BLOCK_HASH_ALGORITHM.hashSize()];
+        this.currentBlockHash = new byte[BLOCK_HASH_ALGORITHM.hashSize()];
+        this.inputTreeHasher = new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM);
+        this.outputTreeHasher = new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM);
+        this.consensusHeaderHasher = new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM);
+        this.stateChangesHasher = new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM);
+        this.traceDataHasher = new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM);
         this.simulatorStartupData = simulatorStartupData;
         // Deterministic so that every simulator instance (e.g. multiple publishers in one test) shares
         // one roster: the node self-provisions from any publisher's genesis block, and duplicate blocks
@@ -135,6 +135,9 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         // root hash of all block hashes tree hasher
         this.currentBlockNumber = 0;
         this.previousBlockHash = ZERO_BLOCK_HASH.toByteArray();
+        // the all previous block hashes tree hasher must exist before any block is crafted,
+        // unordered streaming crafts its whole sequence right here in the constructor
+        this.rootHashOfAllBlockHashesTreeHasher = new StreamingHasher(BLOCK_HASH_ALGORITHM);
         LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management");
 
         // Unordered streaming
@@ -143,25 +146,9 @@ public class CraftBlockStreamManager implements BlockStreamManager {
             initUnorderedStreaming(simulatorStartupData, unorderedStreamConfig);
         }
 
-        // init root hash of all block hashes tree hasher
-        initRootHashOfAllBlockHashesTreeHasher();
-
         if (simulatorStartupData.getLatestAckBlockNumber() >= 0) {
             final long targetBlock = simulatorStartupData.getLatestAckBlockNumber() + 1L;
             resetToBlock(targetBlock);
-        }
-    }
-
-    /***
-     * Initializes the hasher for the root hash of all block hashes tree.
-     * currently only supports from genesis, in the future we might consider
-     * initializing from saved state on file.
-     */
-    private void initRootHashOfAllBlockHashesTreeHasher() {
-        try {
-            this.rootHashOfAllBlockHashesTreeHasher = new StreamingHasher();
-        } catch (NoSuchAlgorithmException e) {
-            LOGGER.log(ERROR, "Error initializing rootHashOfAllBlockHashesTreeHasher", e);
         }
     }
 
@@ -245,7 +232,8 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                 resetState();
                 currentBlockNumber = 0;
                 previousBlockHash = ZERO_BLOCK_HASH.toByteArray();
-                initRootHashOfAllBlockHashesTreeHasher();
+                // the all blocks tree restarts from genesis together with the chain
+                rootHashOfAllBlockHashesTreeHasher = new StreamingHasher(BLOCK_HASH_ALGORITHM);
             }
 
             while (currentBlockNumber < block) {
@@ -304,14 +292,9 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         processBlockItems(blockItemsUnparsed);
 
-        byte[] rootHashOfAllBlockHashesTree = null;
-        if (rootHashOfAllBlockHashesTreeHasher != null) {
-            // When the hasher has no leaves yet (block 0), the protocol defines the value as ZERO_BLOCK_HASH
-            rootHashOfAllBlockHashesTree = rootHashOfAllBlockHashesTreeHasher.leafCount() == 0
-                    ? ZERO_BLOCK_HASH.toByteArray()
-                    : rootHashOfAllBlockHashesTreeHasher.computeRootHash();
-        }
-        ItemHandler footerItemHandler = new BlockFooterHandler(previousBlockHash, rootHashOfAllBlockHashesTree);
+        // When the hasher has no leaves yet (block 0), the all blocks root is the empty tree hash
+        final byte[] rootHashOfAllBlockHashesTree = rootHashOfAllBlockHashesTreeHasher.computeRootHash();
+        final ItemHandler footerItemHandler = new BlockFooterHandler(previousBlockHash, rootHashOfAllBlockHashesTree);
         items.add(footerItemHandler);
         currentBlockFooter = footerItemHandler.getItem().getBlockFooter();
 
@@ -320,7 +303,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         // if the block hash is invalid, generate a random hash and overwrite the legitimate one
         if (invalidBlockHash) {
-            currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
+            currentBlockHash = new byte[BLOCK_HASH_ALGORITHM.hashSize()];
             random.nextBytes(currentBlockHash);
         }
 
@@ -328,9 +311,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         items.add(proofItemHandler);
         LOGGER.log(DEBUG, "Created block number {0} with hash {1}", currentBlockNumber, Bytes.wrap(currentBlockHash));
 
-        if (rootHashOfAllBlockHashesTreeHasher != null) {
-            rootHashOfAllBlockHashesTreeHasher.addNodeByHash(currentBlockHash);
-        }
+        rootHashOfAllBlockHashesTreeHasher.addNodeByHash(currentBlockHash);
 
         resetState();
 
@@ -348,6 +329,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                         Bytes.wrap(currentBlockFooter.toByteArray()), false, MAX_PARSE_DEPTH);
 
         currentBlockHash = HashingUtilities.computeFinalBlockHash(
+                        BLOCK_HASH_ALGORITHM,
                         blockHeader.blockTimestamp(),
                         blockFooter.previousBlockRootHash(),
                         blockFooter.rootHashOfAllBlockHashesTree(),
@@ -357,19 +339,19 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                         consensusHeaderHasher,
                         stateChangesHasher,
                         traceDataHasher,
-                        new NaiveStreamingTreeHasher(),
-                        new NaiveStreamingTreeHasher(),
-                        new NaiveStreamingTreeHasher(),
-                        new NaiveStreamingTreeHasher(),
-                        new NaiveStreamingTreeHasher(),
-                        new NaiveStreamingTreeHasher(),
-                        new NaiveStreamingTreeHasher(),
-                        new NaiveStreamingTreeHasher())
+                        new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM),
+                        new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM),
+                        new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM),
+                        new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM),
+                        new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM),
+                        new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM),
+                        new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM),
+                        new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM))
                 .toByteArray();
     }
 
     private void processBlockItems(List<BlockItemUnparsed> blockItems) {
-        Hashes hashes = HashingUtilities.getBlockHashes(blockItems);
+        final Hashes hashes = HashingUtilities.getBlockHashes(BLOCK_HASH_ALGORITHM, blockItems);
         while (hashes.inputHashes().hasRemaining()) {
             inputTreeHasher.addLeaf(hashes.inputHashes());
         }
@@ -389,11 +371,11 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
     private void resetState() {
         // Reset the hasher states for the next block
-        inputTreeHasher = new NaiveStreamingTreeHasher();
-        outputTreeHasher = new NaiveStreamingTreeHasher();
-        consensusHeaderHasher = new NaiveStreamingTreeHasher();
-        stateChangesHasher = new NaiveStreamingTreeHasher();
-        traceDataHasher = new NaiveStreamingTreeHasher();
+        inputTreeHasher = new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM);
+        outputTreeHasher = new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM);
+        consensusHeaderHasher = new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM);
+        stateChangesHasher = new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM);
+        traceDataHasher = new NaiveStreamingTreeHasher(BLOCK_HASH_ALGORITHM);
         // Reset the previous root hash to the current block hash
         currentBlockNumber++;
         previousBlockHash = currentBlockHash;

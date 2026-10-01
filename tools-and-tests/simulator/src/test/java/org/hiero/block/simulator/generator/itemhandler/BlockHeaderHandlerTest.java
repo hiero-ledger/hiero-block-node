@@ -31,6 +31,7 @@ class BlockHeaderHandlerTest {
         assertTrue(item.hasBlockHeader());
 
         BlockHeader header = item.getBlockHeader();
+        // @todo(3688) declare SHA2_256 once the consensus node proto defines it
         assertEquals(BlockHashAlgorithm.SHA2_384, header.getHashAlgorithm());
         assertEquals(blockNumber, header.getNumber());
         assertNotNull(header.getBlockTimestamp());

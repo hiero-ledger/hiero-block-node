@@ -21,10 +21,16 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
+import org.hiero.block.node.block.verification.hasher.BlockHasher;
 import org.hiero.block.node.block.verification.metrics.ProofVerificationMetrics;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
 
 /// State proof verifier.
+///
+/// The merkle paths of a state proof are reconstructed with the block root algorithm,
+/// [BlockHasher#HASH_ALGORITHM], because the signed block root ties the state tree and the
+/// block tree together: every leaf and every sibling of the proof is one digest of that
+/// algorithm.
 public final class StateProofVerifier implements ProofVerifier {
     /// Logger for the verifier.
     private static final Logger LOGGER = System.getLogger(StateProofVerifier.class.getName());
@@ -180,9 +186,12 @@ public final class StateProofVerifier implements ProofVerifier {
                 }
                 yield hash;
             }
-            case STATE_ITEM_LEAF -> hashLeaf(leaf.stateItemLeaf().toByteArray());
-            case BLOCK_ITEM_LEAF -> hashLeaf(leaf.blockItemLeaf().toByteArray());
-            case TIMESTAMP_LEAF -> hashLeaf(leaf.timestampLeaf().toByteArray());
+            case STATE_ITEM_LEAF ->
+                hashLeaf(BlockHasher.HASH_ALGORITHM, leaf.stateItemLeaf().toByteArray());
+            case BLOCK_ITEM_LEAF ->
+                hashLeaf(BlockHasher.HASH_ALGORITHM, leaf.blockItemLeaf().toByteArray());
+            case TIMESTAMP_LEAF ->
+                hashLeaf(BlockHasher.HASH_ALGORITHM, leaf.timestampLeaf().toByteArray());
         };
     }
 
@@ -226,10 +235,12 @@ public final class StateProofVerifier implements ProofVerifier {
                                     blockNumber);
                             return SessionFailureType.BAD_BLOCK_PROOF;
                         } else if (checkpoint.startIndex < lowestStartingIndex) {
-                            currentResult = hashInternalNode(checkpoint.currentHash, currentResult);
+                            currentResult =
+                                    hashInternalNode(BlockHasher.HASH_ALGORITHM, checkpoint.currentHash, currentResult);
                             lowestStartingIndex = checkpoint.startIndex;
                         } else {
-                            currentResult = hashInternalNode(currentResult, checkpoint.currentHash);
+                            currentResult =
+                                    hashInternalNode(BlockHasher.HASH_ALGORITHM, currentResult, checkpoint.currentHash);
                         }
                         currentResult = mergeSiblings(nextPath, currentResult);
                         currentJoinPointIndex = nextPath.nextPathIndex();
@@ -274,7 +285,7 @@ public final class StateProofVerifier implements ProofVerifier {
         byte[] result = content;
         for (final SiblingNode sibling : path.siblings()) {
             if (sibling.hash() == null || sibling.hash().equals(Bytes.EMPTY)) {
-                result = hashInternalNodeSingleChild(result);
+                result = hashInternalNodeSingleChild(BlockHasher.HASH_ALGORITHM, result);
             } else {
                 result = combineSibling(result, sibling);
             }
@@ -306,9 +317,10 @@ public final class StateProofVerifier implements ProofVerifier {
     /// Combine a sibling node with the provided content.
     private byte[] combineSibling(final byte[] content, final SiblingNode sibling) {
         if (sibling.isLeft()) {
-            return hashInternalNode(sibling.hash().toByteArray(), content);
+            return hashInternalNode(BlockHasher.HASH_ALGORITHM, sibling.hash().toByteArray(), content);
         } else {
-            return hashInternalNode(content, sibling.hash().toByteArray());
+            return hashInternalNode(
+                    BlockHasher.HASH_ALGORITHM, content, sibling.hash().toByteArray());
         }
     }
 

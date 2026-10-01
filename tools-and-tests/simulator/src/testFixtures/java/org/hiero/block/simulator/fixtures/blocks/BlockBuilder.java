@@ -37,6 +37,7 @@ public class BlockBuilder {
                         .setSeconds(123)
                         .setNanos(456)
                         .build())
+                // @todo(3688) declare SHA2_256 once the consensus node proto defines it
                 .setHashAlgorithm(BlockHashAlgorithm.SHA2_384)
                 .build();
     }

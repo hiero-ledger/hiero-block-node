@@ -8,15 +8,18 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.hedera.hapi.block.stream.output.protoc.BlockFooter;
 import com.hedera.hapi.block.stream.protoc.Block;
+import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import org.hiero.block.common.hasher.StreamingTreeHasher;
+import org.hiero.block.simulator.Constants;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
@@ -46,7 +49,8 @@ class CraftBlockStreamManagerTest {
         Mockito.when(unorderedStreamConfigMock.enabled()).thenReturn(false);
         startupDataMock = Mockito.mock(SimulatorStartupData.class);
         Mockito.when(startupDataMock.getLatestAckBlockNumber()).thenReturn((long) START_BLOCK_NUMBER);
-        Mockito.when(startupDataMock.getLatestAckBlockHash()).thenReturn(new byte[StreamingTreeHasher.HASH_LENGTH]);
+        Mockito.when(startupDataMock.getLatestAckBlockHash())
+                .thenReturn(new byte[Constants.BLOCK_HASH_ALGORITHM.hashSize()]);
         manager = new CraftBlockStreamManager(generatorConfigMock, startupDataMock, unorderedStreamConfigMock);
     }
 
@@ -99,6 +103,38 @@ class CraftBlockStreamManagerTest {
         assertNotNull(block2);
         assertNotEquals(0, block1.getItemsCount());
         assertNotEquals(0, block2.getItemsCount());
+    }
+
+    /**
+     * This test aims to assert that the footer of every crafted block carries hashes of exactly one digest of the
+     * block hash algorithm: the previous block root hash, the root of the all previous block hashes tree and the
+     * start of block state root hash. It also asserts that a block after the first crafted one chains to its
+     * predecessor: its previous block root hash is a real block hash, not the empty tree hash the chain starts from.
+     */
+    @Test
+    void testFooterHashesHaveDigestSizeOfBlockHashAlgorithm()
+            throws IOException, BlockSimulatorParsingException, ParseException {
+        final int hashSize = Constants.BLOCK_HASH_ALGORITHM.hashSize();
+        final Block first = manager.getNextBlock();
+        final Block second = manager.getNextBlock();
+        for (final Block block : List.of(first, second)) {
+            final BlockFooter footer = footerOf(block);
+            assertEquals(hashSize, footer.getPreviousBlockRootHash().size());
+            assertEquals(hashSize, footer.getRootHashOfAllBlockHashesTree().size());
+            assertEquals(hashSize, footer.getStartOfBlockStateRootHash().size());
+        }
+        final Bytes secondPreviousBlockRootHash =
+                Bytes.wrap(footerOf(second).getPreviousBlockRootHash().toByteArray());
+        assertNotEquals(Constants.BLOCK_HASH_ALGORITHM.emptyTreeHash(), secondPreviousBlockRootHash);
+    }
+
+    /** Returns the footer item of the given block. */
+    private static BlockFooter footerOf(final Block block) {
+        return block.getItemsList().stream()
+                .filter(BlockItem::hasBlockFooter)
+                .map(BlockItem::getBlockFooter)
+                .findFirst()
+                .orElseThrow();
     }
 
     @Test

@@ -15,7 +15,6 @@ import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.UnknownField;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -26,6 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
 import org.hiero.block.api.TssData;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -53,6 +53,13 @@ public final class BlockHasher implements Supplier<HashingResult> {
     /// [#FIRST_FORWARD_COMPATIBLE_FIELD_NUMBER] or above, the hashing category is the field
     /// number modulo this value.
     private static final int CATEGORY_MODULUS = 20;
+    /// The hash algorithm every block root tree computation of this node uses: the leaf hash of
+    /// each item, the subtree folds, the fixed 16 leaf block root tree and the final root. The
+    /// producing network computes the same tree with the same algorithm, so this value changes
+    /// only together with the networks the node verifies. The record file signatures carried by
+    /// a wrapped record block are verified over SHA-384 payloads by the RSA proof verifier; that
+    /// path does not use this constant.
+    public static final HashAlgorithm HASH_ALGORITHM = HashAlgorithm.SHA2_256;
     /// The number of the block being hashed.
     private final long blockNumber;
     /// The source of the block, carried through to the result and failures.
@@ -80,8 +87,8 @@ public final class BlockHasher implements Supplier<HashingResult> {
     /// Extension 0 subtree hasher, leaf position 9 of the fixed 16 leaf block root tree
     /// ("Merkle Mountain Top" in HIP-1424). The eight extension leaf positions (9 to 16) are
     /// permanently defined in the tree; each hasher below is bound to its position and is
-    /// always instantiated. An extension hasher with no items produces {@code EMPTY_TREE_HASH}
-    /// via the same fold as every other subtree, which is what its slot contributes to the
+    /// always instantiated. An extension hasher with no items produces the empty tree hash of
+    /// [#HASH_ALGORITHM] via the same fold as every other subtree, which is what its slot contributes to the
     /// Merkle Mountain Top. See issue #3377.
     private final NaiveStreamingTreeHasher extensionHasherZero;
     /// Extension 1 subtree hasher, leaf position 10. See [#extensionHasherZero].
@@ -142,19 +149,19 @@ public final class BlockHasher implements Supplier<HashingResult> {
         this.blockItemsRecordsDeque = Objects.requireNonNull(blockItemsDeque);
         this.accumulatedBlockItems = new ArrayList<>();
         this.blockProofs = new ArrayList<>();
-        this.inputTreeHasher = new NaiveStreamingTreeHasher();
-        this.outputTreeHasher = new NaiveStreamingTreeHasher();
-        this.consensusHeaderHasher = new NaiveStreamingTreeHasher();
-        this.stateChangesHasher = new NaiveStreamingTreeHasher();
-        this.traceDataHasher = new NaiveStreamingTreeHasher();
-        this.extensionHasherZero = new NaiveStreamingTreeHasher();
-        this.extensionHasherOne = new NaiveStreamingTreeHasher();
-        this.extensionHasherTwo = new NaiveStreamingTreeHasher();
-        this.extensionHasherThree = new NaiveStreamingTreeHasher();
-        this.extensionHasherFour = new NaiveStreamingTreeHasher();
-        this.extensionHasherFive = new NaiveStreamingTreeHasher();
-        this.extensionHasherSix = new NaiveStreamingTreeHasher();
-        this.extensionHasherSeven = new NaiveStreamingTreeHasher();
+        this.inputTreeHasher = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.outputTreeHasher = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.consensusHeaderHasher = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.stateChangesHasher = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.traceDataHasher = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.extensionHasherZero = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.extensionHasherOne = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.extensionHasherTwo = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.extensionHasherThree = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.extensionHasherFour = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.extensionHasherFive = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.extensionHasherSix = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        this.extensionHasherSeven = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
     }
 
     /// This method keeps polling for block items received and dynamically hashes the items.
@@ -196,9 +203,6 @@ public final class BlockHasher implements Supplier<HashingResult> {
         } catch (final ParseException e) {
             throw new VerificationSessionFailedException(
                     blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource, e);
-        } catch (final NoSuchAlgorithmException e) {
-            throw new VerificationSessionFailedException(
-                    blockNumber, SessionFailureType.MISSING_VERIFICATION_DATA, blockSource, e);
         }
     }
 
@@ -242,17 +246,17 @@ public final class BlockHasher implements Supplier<HashingResult> {
                         if (this.hapiProtoVersion == null) {
                             yield SessionFailureType.MISSING_MANDATORY_FIELD;
                         } else {
-                            outputTreeHasher.addLeaf(getBlockItemHash(item));
+                            outputTreeHasher.addLeaf(getBlockItemHash(HASH_ALGORITHM, item));
                             yield null;
                         }
                     }
                 }
                 case ROUND_HEADER, EVENT_HEADER -> {
-                    consensusHeaderHasher.addLeaf(getBlockItemHash(item));
+                    consensusHeaderHasher.addLeaf(getBlockItemHash(HASH_ALGORITHM, item));
                     yield null;
                 }
                 case SIGNED_TRANSACTION -> {
-                    inputTreeHasher.addLeaf(getBlockItemHash(item));
+                    inputTreeHasher.addLeaf(getBlockItemHash(HASH_ALGORITHM, item));
                     if (itemsBlockNumber == 0 && !verificationDataProvider.hasTssData()) {
                         final LedgerIdPublicationTransactionBody publication =
                                 findLedgerIdPublication(item.signedTransaction());
@@ -265,15 +269,15 @@ public final class BlockHasher implements Supplier<HashingResult> {
                     yield null;
                 }
                 case TRANSACTION_RESULT, TRANSACTION_OUTPUT -> {
-                    outputTreeHasher.addLeaf(getBlockItemHash(item));
+                    outputTreeHasher.addLeaf(getBlockItemHash(HASH_ALGORITHM, item));
                     yield null;
                 }
                 case STATE_CHANGES -> {
-                    stateChangesHasher.addLeaf(getBlockItemHash(item));
+                    stateChangesHasher.addLeaf(getBlockItemHash(HASH_ALGORITHM, item));
                     yield null;
                 }
                 case TRACE_DATA -> {
-                    traceDataHasher.addLeaf(getBlockItemHash(item));
+                    traceDataHasher.addLeaf(getBlockItemHash(HASH_ALGORITHM, item));
                     yield null;
                 }
                 case RECORD_FILE -> {
@@ -283,7 +287,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
                         yield SessionFailureType.UNSUPPORTED_STREAM_FORMAT;
                     } else {
                         this.recordFileItemSeen = true;
-                        outputTreeHasher.addLeaf(getBlockItemHash(item));
+                        outputTreeHasher.addLeaf(getBlockItemHash(HASH_ALGORITHM, item));
                         yield null;
                     }
                 }
@@ -378,18 +382,16 @@ public final class BlockHasher implements Supplier<HashingResult> {
     /// @param hasher the subtree hasher the item's category maps to
     /// @return always null, the item was hashed successfully
     private SessionFailureType hashFutureItem(final BlockItemUnparsed item, final NaiveStreamingTreeHasher hasher) {
-        hasher.addLeaf(getBlockItemHash(item));
+        hasher.addLeaf(getBlockItemHash(HASH_ALGORITHM, item));
         hashingMetrics.futureItemsHashed().increment();
         return null;
     }
 
-    /// Returns the given extension subtree hasher, or a new one when it does not exist yet.
-    /// @param hasher the current extension subtree hasher, or null when not yet created
     /// Finish the hashing operation.
     /// This method will finalize the hashing process. Root hash will be calculated and
     /// a [HashingResult] will be returned.
     /// @throws VerificationSessionFailedException in case a known failure occurs
-    private HashingResult finalHashingResult() throws NoSuchAlgorithmException {
+    private HashingResult finalHashingResult() {
         final HashingResult hashingResult;
         if (blockHeader == null || blockFooter == null || blockProofs.isEmpty()) {
             throw new VerificationSessionFailedException(
@@ -401,6 +403,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
             final Bytes startOfBlockStateRootHash = blockFooter.startOfBlockStateRootHash();
             if (validFields(timestamp, rootOfAllPreviousBlockHashes, previousBlockHash, startOfBlockStateRootHash)) {
                 final Bytes blockRootHash = HashingUtilities.computeFinalBlockHash(
+                        HASH_ALGORITHM,
                         timestamp,
                         previousBlockHash,
                         rootOfAllPreviousBlockHashes,

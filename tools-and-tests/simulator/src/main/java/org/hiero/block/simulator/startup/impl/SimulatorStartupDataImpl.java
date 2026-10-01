@@ -2,6 +2,7 @@
 package org.hiero.block.simulator.startup.impl;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static org.hiero.block.simulator.Constants.BLOCK_HASH_ALGORITHM;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -11,7 +12,6 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.inject.Inject;
-import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
@@ -35,7 +35,7 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
         this.latestAckBlockNumberPath = simulatorStartupDataConfig.latestAckBlockNumberPath();
         this.latestAckBlockHashPath = simulatorStartupDataConfig.latestAckBlockHashPath();
         long localStartupDataBlockNumber = blockGeneratorConfig.startBlockNumber() - 1L;
-        byte[] localStartupDataBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
+        byte[] localStartupDataBlockHash = new byte[BLOCK_HASH_ALGORITHM.hashSize()];
         if (enabled) {
             try {
                 final int existsLatestAckBlockNumberFile = Files.exists(latestAckBlockNumberPath) ? 1 : 0;
@@ -71,7 +71,7 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
                         if (blockNumberEmpty && blockHashEmpty) {
                             LOGGER.log(DEBUG, "Both startup data files are empty, treating as initial state");
                         } else if (!blockNumberEmpty
-                                && previousHashFromFile.length == StreamingTreeHasher.HASH_LENGTH) {
+                                && previousHashFromFile.length == BLOCK_HASH_ALGORITHM.hashSize()) {
                             localStartupDataBlockNumber = Long.parseLong(blockNumberFromFile);
                             localStartupDataBlockHash = previousHashFromFile;
                         } else {
