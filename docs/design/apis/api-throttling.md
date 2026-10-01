@@ -524,25 +524,28 @@ by the target deployment's storage characteristics.
 
 ## Metrics
 
-Admitted/rejected counters are labeled by `service`, `method`, and `weightClass`, resolved from the specific method
-each call hit — not assumed from the service's declared method list — so two methods sharing one `(service, weight
-class)` throttle instance (see [Client-state bookkeeping](#client-state-bookkeeping)) still get independent counts.
-Rejections are three separately-named counters, one per check that can reject a call, rather than one counter with
-a `reason` label. The client-state-table-size gauge, by contrast, is labeled by `service` and `weightClass` only,
-with no `method` label: it reflects the size of the shared state table itself, a property of the whole `(service,
-weight class)` instance, not of any one method's traffic.
+Every call outcome — admitted, or rejected by one of the three checks — is recorded against one counter,
+`throttle_calls_total`, labeled by `service`, `method`, `weightClass`, and `outcome`, rather than a separately-named
+counter per outcome. Cardinality is identical either way (the same `service × method × weightClass × outcome`
+combinations exist regardless of how they're split across metric names); one counter means a query for "total
+calls" or "rejection rate" for a given service/method sums one metric name instead of enumerating every outcome's
+own metric name — and stays correct if a new rejection reason is ever added, where a hardcoded list of metric names
+would not. Labels are resolved from the specific method each call hit, not assumed from the service's declared
+method list, so two methods sharing one `(service, weight class)` throttle instance (see
+[Client-state bookkeeping](#client-state-bookkeeping)) still get independent counts.
 
-|                  Metric                 |                         Type                          |                                         Meaning                                         |
-|------------------------------------------|--------------------------------------------------------|--------------------------------------------------------------------------------------------|
-| Admitted calls                          | Counter, labeled by `service`/`method`/`weightClass`  | Calls admitted by the throttle                                                          |
-| Rejected calls — node-wide concurrency  | Counter, labeled by `service`/`method`/`weightClass`  | Calls rejected by the node-wide concurrency ceiling                                     |
-| Rejected calls — per-client concurrency | Counter, labeled by `service`/`method`/`weightClass`  | Calls rejected by the per-client concurrency ceiling                                    |
-| Rejected calls — rate limit             | Counter, labeled by `service`/`method`/`weightClass`  | Calls rejected by the per-client rate limit                                             |
-| Client-state table size                 | Gauge, labeled by `service`/`weightClass`             | Number of distinct clients tracked by one throttle instance, to catch unexpected growth |
-| Block-read bulkhead usage               | Gauge (in-use / available)                            | Current utilization of the shared backend read permit pool                             |
+The client-state-table-size gauge, by contrast, is labeled by `service` and `weightClass` only, with no `method` or
+`outcome` label: it reflects the size of the shared state table itself, a property of the whole `(service, weight
+class)` instance, not of any one method's traffic or any one call's outcome.
+
+|           Metric          |                              Type                              |                                                                 Meaning                                                                  |
+|---------------------------|------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| Calls                     | Counter, labeled by `service`/`method`/`weightClass`/`outcome` | Every call to a throttled method, by outcome (`admitted`, `rejected_global_concurrency`, `rejected_client_concurrency`, `rejected_rate`) |
+| Client-state table size   | Gauge, labeled by `service`/`weightClass`                      | Number of distinct clients tracked by one throttle instance, to catch unexpected growth                                                  |
+| Block-read bulkhead usage | Gauge (in-use / available)                                     | Current utilization of the shared backend read permit pool                                                                               |
 
 Per-client and node-wide in-flight call counts (referenced by [Acceptance Test](#acceptance-tests) 6) are not yet
-emitted as their own gauges in the current mechanism — only the counters and client-state gauge above exist today.
+emitted as their own gauges in the current mechanism — only the counter and client-state gauge above exist today.
 Tracked as a follow-up; in the interim, in-flight counts are derivable from admitted-minus-completed accounting
 external to this mechanism.
 
