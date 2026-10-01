@@ -12,7 +12,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
@@ -36,6 +35,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
+import org.hiero.block.node.spi.throttle.MethodWeight;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.WeightClass;
@@ -69,7 +69,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     /** A handler for client requests */
     private SubscribeBlockStreamHandler clientHandler;
     /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
-    private volatile Map<WeightClass, PerClientThrottleSettings> throttleSettingsByWeight;
+    private volatile Map<MethodWeight, PerClientThrottleSettings> throttleSettingsByMethod;
     /** This service's node-wide concurrency ceiling, computed once in {@link #init}; see {@link ThrottleSpec}. */
     private volatile Map<WeightClass, Integer> globalConcurrencyCeilingsByWeight;
     /** This service's content-aware weigher, computed once in {@link #init}; see {@link ThrottleSpec}. */
@@ -90,21 +90,17 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                 context.configuration().getConfigData(SubscriberConfig.class).port();
         final SubscribeThrottleConfig throttleConfig =
                 context.configuration().getConfigData(SubscribeThrottleConfig.class);
-        final Map<WeightClass, PerClientThrottleSettings> resolvedThrottleSettingsByWeight =
-                new EnumMap<>(WeightClass.class);
-        resolvedThrottleSettingsByWeight.put(
-                WeightClass.STANDARD,
+        this.throttleSettingsByMethod = Map.of(
+                new MethodWeight("subscribeBlockStream", WeightClass.STANDARD),
                 new PerClientThrottleSettings(
                         throttleConfig.liveRatePerSecond(),
                         throttleConfig.liveBurstTolerance(),
-                        throttleConfig.liveMaxConcurrentPerClient()));
-        resolvedThrottleSettingsByWeight.put(
-                WeightClass.HEAVY,
+                        throttleConfig.liveMaxConcurrentPerClient()),
+                new MethodWeight("subscribeBlockStream", WeightClass.HEAVY),
                 new PerClientThrottleSettings(
                         throttleConfig.historicalRatePerSecond(),
                         throttleConfig.historicalBurstTolerance(),
                         throttleConfig.historicalMaxConcurrentPerClient()));
-        this.throttleSettingsByWeight = resolvedThrottleSettingsByWeight;
         // A subscription is a standing resource for the life of the session, so live and historical
         // sessions draw from one shared node-wide ceiling rather than two.
         final GlobalThrottleConfig globalThrottleConfig =
@@ -120,8 +116,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     /// {@inheritDoc}
     @NonNull
     @Override
-    public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
-        return throttleSettingsByWeight;
+    public Map<MethodWeight, PerClientThrottleSettings> perClientSettings() {
+        return throttleSettingsByMethod;
     }
 
     /// {@inheritDoc}

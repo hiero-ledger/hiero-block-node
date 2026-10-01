@@ -18,7 +18,6 @@ import io.helidon.webserver.http2.Http2Config;
 import java.net.StandardSocketOptions;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -37,12 +36,12 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
+import org.hiero.block.node.spi.throttle.MethodWeight;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
 import org.hiero.block.node.spi.throttle.StaleClientSweepable;
 import org.hiero.block.node.spi.throttle.ThrottleExempt;
 import org.hiero.block.node.spi.throttle.ThrottleMetrics;
-import org.hiero.block.node.spi.throttle.ThrottlePolicy;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
 import org.hiero.block.node.spi.throttle.WeightClass;
@@ -122,15 +121,15 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     /// is far more likely to be an oversight than a deliberate choice, and nothing else here would
     /// otherwise make that omission visible.
     ///
-    /// If `service` also implements [ThrottleSpec], merges its per-weight-class per-client settings
-    /// with its own reported [ThrottleSpec#globalConcurrencyCeilings], and registers the resulting
-    /// [ThrottledServiceInterface] or [WeightedThrottledServiceInterface] in place of the raw service.
-    /// A spec with no [ThrottleSpec#weigher] gets the lighter-weight [ThrottledServiceInterface], which
-    /// decides admission synchronously inside `open()` rather than deferring to `onNext()` — the same
-    /// latency characteristic a single-tier service always had before this method was unified. Adding
-    /// a new throttled method means the plugin implementing [ThrottleSpec] end to end, including its
-    /// own [ThrottleSpec#globalConcurrencyCeilings] lookup against the centrally-owned
-    /// [GlobalThrottleConfig] — nothing in this class needs to change.
+    /// If `service` also implements [ThrottleSpec], passes its per-`(method, weight class)` settings
+    /// through, together with its own reported [ThrottleSpec#globalConcurrencyCeilings], and
+    /// registers the resulting [ThrottledServiceInterface] or [WeightedThrottledServiceInterface] in
+    /// place of the raw service. A spec with no [ThrottleSpec#weigher] gets the lighter-weight
+    /// [ThrottledServiceInterface], which decides admission synchronously inside `open()` rather than
+    /// deferring to `onNext()` — the same latency characteristic a single-tier service always had
+    /// before this method was unified. Adding a new throttled method means the plugin implementing
+    /// [ThrottleSpec] end to end, including its own [ThrottleSpec#globalConcurrencyCeilings] lookup
+    /// against the centrally-owned [GlobalThrottleConfig] — nothing in this class needs to change.
     @Override
     public void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service) {
         if (service instanceof ThrottleSpec spec) {
@@ -157,20 +156,15 @@ public class ServiceBuilderImpl implements ServiceBuilder {
 
     private void registerThrottledGrpcService(
             @Nullable final Integer port, @NonNull final ServiceInterface service, @NonNull final ThrottleSpec spec) {
-        final Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight = spec.perClientSettingsByWeight();
+        final Map<MethodWeight, PerClientThrottleSettings> perClientSettings = spec.perClientSettings();
         final Map<WeightClass, Integer> globalConcurrencyCeilings = spec.globalConcurrencyCeilings();
         final Optional<ContentAwareWeigher> weigher = spec.weigher();
         final ServiceInterface throttled;
         if (weigher.isPresent()) {
-            final Map<WeightClass, ThrottlePolicy> policiesByWeight = new EnumMap<>(WeightClass.class);
-            for (final Entry<WeightClass, PerClientThrottleSettings> entry : perClientSettingsByWeight.entrySet()) {
-                final int maxConcurrentGlobal =
-                        requireGlobalCeiling(service, entry.getKey(), globalConcurrencyCeilings);
-                policiesByWeight.put(entry.getKey(), ThrottlePolicy.merge(entry.getValue(), maxConcurrentGlobal));
-            }
             final WeightedThrottledServiceInterface weightedThrottled = new WeightedThrottledServiceInterface(
                     service,
-                    policiesByWeight,
+                    perClientSettings,
+                    globalConcurrencyCeilings,
                     new RemoteAddressKeyExtractor(),
                     weigher.get(),
                     throttleMetrics,
@@ -178,18 +172,13 @@ public class ServiceBuilderImpl implements ServiceBuilder {
             throttledServices.add(weightedThrottled);
             throttled = weightedThrottled;
         } else {
-            final PerClientThrottleSettings perClientSettings = perClientSettingsByWeight.get(WeightClass.STANDARD);
-            if (perClientSettings == null) {
-                throw new IllegalArgumentException(
-                        "ThrottleSpec with no weigher must supply WeightClass.STANDARD settings for "
-                                + service.serviceName());
-            }
             final int maxConcurrentGlobal =
                     requireGlobalCeiling(service, WeightClass.STANDARD, globalConcurrencyCeilings);
-            final ThrottlePolicy policy = ThrottlePolicy.merge(perClientSettings, maxConcurrentGlobal);
             final ThrottledServiceInterface simpleThrottled = new ThrottledServiceInterface(
                     service,
-                    policy,
+                    perClientSettings,
+                    spec.defaultPerClientSettings(),
+                    maxConcurrentGlobal,
                     new RemoteAddressKeyExtractor(),
                     throttleMetrics,
                     Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
@@ -202,8 +191,8 @@ public class ServiceBuilderImpl implements ServiceBuilder {
 
     /// Looks up one weight class's node-wide ceiling from a [ThrottleSpec]'s own reported map,
     /// failing clearly if the spec's [ThrottleSpec#globalConcurrencyCeilings] doesn't cover a weight
-    /// class its own [ThrottleSpec#perClientSettingsByWeight] declares — a plugin-authoring mistake,
-    /// not something this class can resolve on the plugin's behalf.
+    /// class its own [ThrottleSpec#perClientSettings] declares — a plugin-authoring mistake, not
+    /// something this class can resolve on the plugin's behalf.
     private static int requireGlobalCeiling(
             @NonNull final ServiceInterface service,
             @NonNull final WeightClass weightClass,
