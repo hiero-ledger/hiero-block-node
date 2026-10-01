@@ -10,11 +10,9 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Duration;
 import java.util.EnumMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicReference;
-import org.hiero.metrics.core.MetricRegistry;
 
 /// Wraps a plugin's [ServiceInterface] the same way [ThrottledServiceInterface] does, except a
 /// [ContentAwareWeigher] first classifies each call into a [WeightClass], and the corresponding
@@ -45,13 +43,17 @@ public final class WeightedThrottledServiceInterface implements ServiceInterface
     private final ContentAwareWeigher weigher;
     private final Map<WeightClass, SingleWeightThrottle> throttlesByWeight;
 
-    /// @param delegate the real plugin service implementation to protect
+    /// @param delegate the real plugin service implementation to protect. If it exposes more than
+    ///     one method, they share each weight class's rate bucket, concurrency ceiling, and
+    ///     client-state table — see [SingleWeightThrottle]'s class documentation — but each is
+    ///     still labeled separately in metrics, since [AdmissionGatingPipeline#onNext] passes the
+    ///     specific method each call hit.
     /// @param policiesByWeight one policy per weight class this service's weigher can classify
     ///     into; must contain an entry for {@link WeightClass#STANDARD}, used as the fallback if
     ///     the weigher ever returns a class with no configured policy
     /// @param keyExtractor derives the per-client key from each call's request options
     /// @param weigher classifies each call's request content into a weight class
-    /// @param metricRegistry the registry to register this instance's metrics with
+    /// @param throttleMetrics the shared, once-registered metrics this instance's calls report into
     /// @param clientStateTtl how long a client's state is kept, per weight class, after its
     ///     last-seen call before it becomes eligible for eviction
     public WeightedThrottledServiceInterface(
@@ -59,7 +61,7 @@ public final class WeightedThrottledServiceInterface implements ServiceInterface
             @NonNull final Map<WeightClass, ThrottlePolicy> policiesByWeight,
             @NonNull final ClientKeyExtractor keyExtractor,
             @NonNull final ContentAwareWeigher weigher,
-            @NonNull final MetricRegistry metricRegistry,
+            @NonNull final ThrottleMetrics throttleMetrics,
             @NonNull final Duration clientStateTtl) {
         this.delegate = delegate;
         this.keyExtractor = keyExtractor;
@@ -69,13 +71,10 @@ public final class WeightedThrottledServiceInterface implements ServiceInterface
         }
         this.throttlesByWeight = new EnumMap<>(WeightClass.class);
         for (final Map.Entry<WeightClass, ThrottlePolicy> entry : policiesByWeight.entrySet()) {
-            final String tierName = entry.getKey().name().toLowerCase(Locale.ROOT);
-            final String metricPrefix = "throttle_" + delegate.serviceName() + "_" + tierName;
-            final String description = delegate.serviceName() + " (" + tierName + ")";
             throttlesByWeight.put(
                     entry.getKey(),
                     new SingleWeightThrottle(
-                            entry.getValue(), metricRegistry, metricPrefix, description, clientStateTtl));
+                            entry.getValue(), throttleMetrics, delegate.serviceName(), entry.getKey(), clientStateTtl));
         }
     }
 
@@ -154,7 +153,7 @@ public final class WeightedThrottledServiceInterface implements ServiceInterface
             final WeightClass weightClass = weigher.classify(method, requestBytes);
             final SingleWeightThrottle throttle =
                     throttlesByWeight.getOrDefault(weightClass, throttlesByWeight.get(WeightClass.STANDARD));
-            final AdmissionResult result = throttle.tryAdmit(clientKey, System.nanoTime());
+            final AdmissionResult result = throttle.tryAdmit(clientKey, method.name(), System.nanoTime());
             if (!result.admitted()) {
                 rejected = true;
                 replies.onError(new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED, result.rejectionReason()));
