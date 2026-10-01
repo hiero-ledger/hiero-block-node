@@ -40,6 +40,7 @@ import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
 import org.hiero.block.node.spi.throttle.StaleClientSweepable;
 import org.hiero.block.node.spi.throttle.ThrottleExempt;
+import org.hiero.block.node.spi.throttle.ThrottleMetrics;
 import org.hiero.block.node.spi.throttle.ThrottlePolicy;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
@@ -78,6 +79,8 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private ScheduledExecutorService clientStateSweepExecutor;
     /** The single, shared block-read bulkhead every plugin's [#blockReadBulkhead] call returns. */
     private final BlockReadBulkhead blockReadBulkhead;
+    /** The throttle mechanism's shared, once-registered metrics — see {@link ThrottleMetrics}. */
+    private final ThrottleMetrics throttleMetrics;
 
     public ServiceBuilderImpl(
             final ServerConfig serverConfig,
@@ -94,6 +97,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         this.metricRegistry = metricRegistry;
         this.threadPoolManager = threadPoolManager;
         this.blockReadBulkhead = new BlockReadBulkhead(blockReadBulkheadConfig.permits(), metricRegistry);
+        this.throttleMetrics = new ThrottleMetrics(metricRegistry);
         additionalWebservers = new LinkedHashSet<>();
     }
 
@@ -168,7 +172,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
                     policiesByWeight,
                     new RemoteAddressKeyExtractor(),
                     weigher.get(),
-                    metricRegistry,
+                    throttleMetrics,
                     Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
             throttledServices.add(weightedThrottled);
             throttled = weightedThrottled;
@@ -186,7 +190,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
                     service,
                     policy,
                     new RemoteAddressKeyExtractor(),
-                    metricRegistry,
+                    throttleMetrics,
                     Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
             throttledServices.add(simpleThrottled);
             throttled = simpleThrottled;

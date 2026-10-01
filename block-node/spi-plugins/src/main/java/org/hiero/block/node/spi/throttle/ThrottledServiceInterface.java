@@ -11,7 +11,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
-import org.hiero.metrics.core.MetricRegistry;
 
 /// Wraps a plugin's [ServiceInterface] with a single per-client rate/concurrency admission policy,
 /// as described in `docs/design/apis/api-throttling.md`. For a service whose methods have more
@@ -30,25 +29,29 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
     private final ClientKeyExtractor keyExtractor;
     private final SingleWeightThrottle throttle;
 
-    /// Wraps {@code delegate} with admission control, registering metrics under names derived
-    /// from the delegate's own service name so multiple throttled services don't collide.
+    /// Wraps {@code delegate} with admission control, labeling this instance's metrics with the
+    /// delegate's own service name so multiple throttled services are distinguishable in the
+    /// shared metrics [ThrottleMetrics] registers. If {@code delegate} exposes more than one
+    /// method, they share this one instance's rate bucket, concurrency ceiling, and client-state
+    /// table — see [SingleWeightThrottle]'s class documentation — but each is still labeled
+    /// separately in metrics, since [#open] passes the specific method each call hit.
     ///
     /// @param delegate the real plugin service implementation to protect
-    /// @param policy the resolved per-client + node-wide policy for this service's methods
+    /// @param policy the resolved per-client + node-wide policy for this service
     /// @param keyExtractor derives the per-client key from each call's request options
-    /// @param metricRegistry the registry to register this instance's metrics with
+    /// @param throttleMetrics the shared, once-registered metrics this instance's calls report into
     /// @param clientStateTtl how long a client's state is kept after its last-seen call before it
     ///     becomes eligible for eviction (lazily on next lookup, or via [#sweepStaleClients])
     public ThrottledServiceInterface(
             @NonNull final ServiceInterface delegate,
             @NonNull final ThrottlePolicy policy,
             @NonNull final ClientKeyExtractor keyExtractor,
-            @NonNull final MetricRegistry metricRegistry,
+            @NonNull final ThrottleMetrics throttleMetrics,
             @NonNull final Duration clientStateTtl) {
         this.delegate = delegate;
         this.keyExtractor = keyExtractor;
         this.throttle = new SingleWeightThrottle(
-                policy, metricRegistry, "throttle_" + delegate.serviceName(), delegate.serviceName(), clientStateTtl);
+                policy, throttleMetrics, delegate.serviceName(), WeightClass.STANDARD, clientStateTtl);
     }
 
     @NonNull
@@ -76,7 +79,7 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
             @NonNull final RequestOptions options,
             @NonNull final Pipeline<? super Bytes> replies) {
         final String clientKey = keyExtractor.extractKey(options);
-        final AdmissionResult result = throttle.tryAdmit(clientKey, System.nanoTime());
+        final AdmissionResult result = throttle.tryAdmit(clientKey, method.name(), System.nanoTime());
         if (!result.admitted()) {
             replies.onError(new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED, result.rejectionReason()));
             return Pipelines.noop();
