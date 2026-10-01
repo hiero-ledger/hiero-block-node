@@ -53,11 +53,11 @@ class ThrottleMetricsTest {
     }
 
     @Test
-    @DisplayName("Two methods sharing one service/weightClass (e.g. BlockNodeService) still get independent counts")
+    @DisplayName("Two methods on the same service/weightClass (e.g. BlockNodeService) get independent counts")
     void differentMethodsOfSameServiceGetIndependentCounts() {
-        // Mirrors BlockNodeService, whose serverStatus and serverStatusDetail methods share one
-        // SingleWeightThrottle instance (one rate bucket, one concurrency ceiling) but must still
-        // be distinguishable in metrics.
+        // Mirrors BlockNodeService's serverStatus and serverStatusDetail methods, each with their
+        // own SingleWeightThrottle instance (own rate bucket, own concurrency ceiling) — still
+        // worth covering explicitly, since method is part of this counter's label set.
         final LongCounter.Measurement serverStatus = throttleMetrics.recordCall(
                 "BlockNodeService", "serverStatus", WeightClass.STANDARD, ThrottleMetrics.Outcome.ADMITTED);
         final LongCounter.Measurement serverStatusDetail = throttleMetrics.recordCall(
@@ -65,11 +65,7 @@ class ThrottleMetricsTest {
 
         assertNotSame(serverStatus, serverStatusDetail);
         assertEquals(1, serverStatus.get());
-        assertEquals(
-                1,
-                serverStatusDetail.get(),
-                "an admitted call for one method must not count against a different method sharing the same "
-                        + "throttle instance");
+        assertEquals(1, serverStatusDetail.get(), "an admitted call for one method must not count against another");
     }
 
     @Test
@@ -120,23 +116,22 @@ class ThrottleMetricsTest {
     }
 
     @Test
-    @DisplayName(
-            "The client-state-count gauge is labeled by service/weightClass only, with no method or outcome dimension")
-    void clientStateGaugeHasNoMethodOrOutcomeLabel() {
-        // Registering the gauge for the same (service, weightClass) twice is the observable proxy
-        // for "this has no method/outcome label": a per-method or per-outcome label would let
-        // multiple observers register without conflict, but the client-state table is a property
-        // of the whole (service, weightClass) instance, so a second registration for the same
-        // combination must collide.
-        throttleMetrics.gaugeFor("BlockNodeService", WeightClass.STANDARD).accept(() -> 0L);
+    @DisplayName("The client-state-count gauge is labeled by service/method/weightClass, with no outcome dimension")
+    void clientStateGaugeHasMethodButNoOutcomeLabel() {
+        // Two different methods at the same (service, weightClass) must not collide: each
+        // SingleWeightThrottle instance now registers its own gauge observer.
+        throttleMetrics
+                .gaugeFor("BlockNodeService", "serverStatus", WeightClass.STANDARD)
+                .accept(() -> 0L);
+        throttleMetrics
+                .gaugeFor("BlockNodeService", "serverStatusDetail", WeightClass.STANDARD)
+                .accept(() -> 0L);
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> throttleMetrics
-                        .gaugeFor("BlockNodeService", WeightClass.STANDARD)
-                        .accept(() -> 0L),
-                "a second observer for the same (service, weightClass) must collide, since "
-                        + "SingleWeightThrottle only ever registers one per instance");
+        // But a second observer for the exact same (service, method, weightClass) must collide,
+        // since SingleWeightThrottle only ever registers one per instance.
+        assertThrows(IllegalArgumentException.class, () -> throttleMetrics
+                .gaugeFor("BlockNodeService", "serverStatus", WeightClass.STANDARD)
+                .accept(() -> 0L));
     }
 
     /// A no-op metrics exporter so tests don't need a real metrics backend.

@@ -21,9 +21,9 @@ import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
+import org.hiero.block.node.spi.throttle.MethodWeight;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
-import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.metrics.core.MetricRegistry;
 
 /// A [ServiceBuilder] test fixture that records every call and every input instead of creating
@@ -70,28 +70,30 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     public record GrpcServiceRegistration(
             @Nullable Integer port, @NonNull ServiceInterface service) {}
 
-    /// A single recorded throttled {@link #registerGrpcService(Integer, ServiceInterface, PerClientThrottleSettings)}
-    /// invocation.
+    /// A single recorded throttled {@link #registerGrpcService} invocation with no weigher — one
+    /// or more methods, each independently gated at {@code WeightClass.STANDARD}.
     ///
     /// @param port the port exactly as supplied (may be {@code null}, meaning "use the default port")
     /// @param service the gRPC service supplied
-    /// @param perClientSettings the per-client throttle settings supplied
+    /// @param perClientSettings the per-`(method, weight class)` throttle settings supplied — see
+    ///     {@link ThrottleSpec#perClientSettings}
     public record ThrottledGrpcServiceRegistration(
             @Nullable Integer port,
             @NonNull ServiceInterface service,
-            @NonNull PerClientThrottleSettings perClientSettings) {}
+            @NonNull Map<MethodWeight, PerClientThrottleSettings> perClientSettings) {}
 
     /// A single recorded weighted throttled
-    /// {@link #registerGrpcService(Integer, ServiceInterface, Map, ContentAwareWeigher)} invocation.
+    /// {@link #registerGrpcService} (with a weigher) invocation.
     ///
     /// @param port the port exactly as supplied (may be {@code null}, meaning "use the default port")
     /// @param service the gRPC service supplied
-    /// @param perClientSettingsByWeight the per-weight-class throttle settings supplied
+    /// @param perClientSettings the per-`(method, weight class)` throttle settings supplied — see
+    ///     {@link ThrottleSpec#perClientSettings}
     /// @param weigher the content-aware weigher supplied
     public record WeightedThrottledGrpcServiceRegistration(
             @Nullable Integer port,
             @NonNull ServiceInterface service,
-            @NonNull Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight,
+            @NonNull Map<MethodWeight, PerClientThrottleSettings> perClientSettings,
             @NonNull ContentAwareWeigher weigher) {}
 
     /// A single recorded {@link #registerHttpNewServer} invocation (either overload).
@@ -131,9 +133,9 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     private final List<HttpServiceRegistration> httpServiceRegistrations = new ArrayList<>();
     /** Every {@link #registerGrpcService} invocation, in call order. */
     private final List<GrpcServiceRegistration> grpcServiceRegistrations = new ArrayList<>();
-    /** Every throttled {@link #registerGrpcService(Integer, ServiceInterface, PerClientThrottleSettings)} invocation. */
+    /** Every throttled {@link #registerGrpcService} (no weigher) invocation. */
     private final List<ThrottledGrpcServiceRegistration> throttledGrpcServiceRegistrations = new ArrayList<>();
-    /** Every weighted throttled {@link #registerGrpcService(Integer, ServiceInterface, Map, ContentAwareWeigher)} invocation. */
+    /** Every weighted throttled {@link #registerGrpcService} (with a weigher) invocation. */
     private final List<WeightedThrottledGrpcServiceRegistration> weightedThrottledGrpcServiceRegistrations =
             new ArrayList<>();
     /** Every two-argument {@link #registerHttpNewServer(TreeMap, CommonSocketValues)} invocation, in call order. */
@@ -189,15 +191,14 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     public void registerGrpcService(@Nullable final Integer port, @NonNull final ServiceInterface service) {
         grpcServiceRegistrations.add(new GrpcServiceRegistration(port, service));
         if (service instanceof ThrottleSpec spec) {
-            final Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight =
-                    spec.perClientSettingsByWeight();
+            final Map<MethodWeight, PerClientThrottleSettings> perClientSettings = spec.perClientSettings();
             final Optional<ContentAwareWeigher> weigher = spec.weigher();
             if (weigher.isPresent()) {
-                weightedThrottledGrpcServiceRegistrations.add(new WeightedThrottledGrpcServiceRegistration(
-                        port, service, perClientSettingsByWeight, weigher.get()));
+                weightedThrottledGrpcServiceRegistrations.add(
+                        new WeightedThrottledGrpcServiceRegistration(port, service, perClientSettings, weigher.get()));
             } else {
-                throttledGrpcServiceRegistrations.add(new ThrottledGrpcServiceRegistration(
-                        port, service, perClientSettingsByWeight.get(WeightClass.STANDARD)));
+                throttledGrpcServiceRegistrations.add(
+                        new ThrottledGrpcServiceRegistration(port, service, perClientSettings));
             }
         }
     }
@@ -310,14 +311,14 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     }
 
     /// @return an immutable snapshot of every recorded throttled
-    ///     {@link #registerGrpcService(Integer, ServiceInterface, PerClientThrottleSettings)} invocation
+    ///     {@link #registerGrpcService} (no weigher) invocation
     @NonNull
     public List<ThrottledGrpcServiceRegistration> throttledGrpcServiceRegistrations() {
         return List.copyOf(throttledGrpcServiceRegistrations);
     }
 
     /// @return an immutable snapshot of every recorded weighted throttled
-    ///     {@link #registerGrpcService(Integer, ServiceInterface, Map, ContentAwareWeigher)} invocation
+    ///     {@link #registerGrpcService} (with a weigher) invocation
     @NonNull
     public List<WeightedThrottledGrpcServiceRegistration> weightedThrottledGrpcServiceRegistrations() {
         return List.copyOf(weightedThrottledGrpcServiceRegistrations);
