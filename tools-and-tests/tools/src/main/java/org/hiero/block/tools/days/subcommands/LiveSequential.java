@@ -1704,9 +1704,6 @@ public class LiveSequential implements Runnable {
      * Refreshes GCS listings for all days plus a specific day.
      */
     private void refreshListingsForDay(LocalDate day, NetworkConfig netConfig) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        boolean isToday = day.equals(today);
-
         UpdateDayListingsCommand.updateDayListings(
                 listingDir.toPath(),
                 CACHE_DIR.toPath(),
@@ -1718,7 +1715,7 @@ public class LiveSequential implements Runnable {
         UpdateDayListingsCommand.updateListingsForSingleDay(
                 listingDir.toPath(),
                 CACHE_DIR.toPath(),
-                !isToday,
+                isCacheSafeForDay(day, Instant.now()),
                 netConfig.minNodeAccountId(),
                 netConfig.maxNodeAccountId(),
                 DownloadConstants.GCP_PROJECT_ID,
@@ -1729,17 +1726,43 @@ public class LiveSequential implements Runnable {
      * Refreshes GCS listings for only the given day (skips the global all-days refresh).
      */
     private void refreshListingsForSingleDay(LocalDate day, NetworkConfig netConfig) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        boolean isToday = day.equals(today);
-
         UpdateDayListingsCommand.updateListingsForSingleDay(
                 listingDir.toPath(),
                 CACHE_DIR.toPath(),
-                !isToday,
+                isCacheSafeForDay(day, Instant.now()),
                 netConfig.minNodeAccountId(),
                 netConfig.maxNodeAccountId(),
                 DownloadConstants.GCP_PROJECT_ID,
                 day);
+    }
+
+    /**
+     * Buffer after a UTC day ends before its on-disk GCPBucketLister list-cache is considered safe
+     * to reuse. The last few signature files of a day trickle onto GCS for a while after midnight;
+     * a cache file written before those objects land is stale and reusing it stalls the
+     * "Insufficient signatures for block N" retry loop indefinitely (issue #3716).
+     * Thirty minutes is comfortably larger than the observed tail-of-day settle window on mainnet.
+     */
+    static final Duration CACHE_SETTLE_BUFFER = Duration.ofMinutes(30);
+
+    /**
+     * Whether the on-disk listing cache for {@code blockDay} is safe to reuse at the caller's
+     * current instant. A day becomes safe only after {@link #CACHE_SETTLE_BUFFER} has elapsed since
+     * the end of that UTC day. Before that window, the block-node retry loop must bypass the cache
+     * and refetch from GCS every sweep so that late-arriving tail signatures are picked up
+     * (issue #3716).
+     *
+     * <p>Package-private and clock-injectable so unit tests can assert the boundary behaviour
+     * deterministically.
+     *
+     * @param blockDay the UTC day the caller is about to refresh
+     * @param now the caller's current instant (in production, {@link Instant#now()})
+     * @return {@code true} when the cache for {@code blockDay} is safe to reuse
+     */
+    static boolean isCacheSafeForDay(LocalDate blockDay, Instant now) {
+        Instant endOfBlockDay =
+                blockDay.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        return Duration.between(endOfBlockDay, now).compareTo(CACHE_SETTLE_BUFFER) >= 0;
     }
 
     /** Resolve the ordered download file list from a group of listing files. */
