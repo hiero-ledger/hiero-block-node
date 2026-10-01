@@ -510,6 +510,75 @@ class ZipBlockArchiveTest {
         }
 
         /**
+         * This test aims to verify that repeatedly reading blocks from the same zip archive does not cause
+         * eviction: closing an accessor only releases its reference, and the archive stays cached and is reused.
+         * Eviction is only considered when a new, distinct archive is added to the cache.
+         */
+        @Test
+        @DisplayName("Test reading many blocks from the same archive does not evict it")
+        void testRepeatedReadsOfSameArchiveDoNotEvict() throws IOException {
+            // blocks 0-9 all live in the same zip (powersOfTenPerZipFileContents=1)
+            for (long blockNumber = 0; blockNumber < 10; blockNumber++) {
+                createAndAddBlockEntry(blockNumber);
+            }
+            // bound of 1 is the tightest case: any eviction would drop the only cached archive
+            final ZipBlockArchive cachedArchive =
+                    new ZipBlockArchive(testContext, createCachedTestConfiguration(testConfig.rootPath(), 1, 1));
+
+            for (int round = 0; round < 3; round++) {
+                for (long blockNumber = 0; blockNumber < 10; blockNumber++) {
+                    try (final BlockAccessor accessor = cachedArchive.blockAccessor(blockNumber)) {
+                        assertThat(accessor).isNotNull();
+                        assertThat(accessor.blockUnparsed())
+                                .isEqualTo(TestBlockBuilder.generateBlockWithNumber(blockNumber)
+                                        .blockUnparsed());
+                    }
+                    assertThat(cachedArchive.cachedArchiveCount()).isEqualTo(1);
+                }
+            }
+        }
+
+        /**
+         * This test aims to verify that an archive still referenced by an open accessor is never force-evicted
+         * out from under its reader, even when the cache is over its configured bound, and that it becomes
+         * evictable once the accessor is closed.
+         */
+        @Test
+        @DisplayName("Test an archive in use by an open accessor is not evicted")
+        void testInUseArchiveIsNotEvicted() throws IOException {
+            createAndAddBlockEntry(0L);
+            createAndAddBlockEntry(10L);
+            createAndAddBlockEntry(20L);
+            final ZipBlockArchive cachedArchive =
+                    new ZipBlockArchive(testContext, createCachedTestConfiguration(testConfig.rootPath(), 1, 1));
+
+            final BlockAccessor held = cachedArchive.blockAccessor(0L);
+            assertThat(held).isNotNull();
+            // distinct archives push the cache over its bound of 1 while the eldest (archive of block 0) is in use
+            try (final BlockAccessor other = cachedArchive.blockAccessor(10L)) {
+                assertThat(other).isNotNull();
+            }
+            try (final BlockAccessor other = cachedArchive.blockAccessor(20L)) {
+                assertThat(other).isNotNull();
+            }
+            // the held archive was not closed under its reader
+            assertThat(held.blockUnparsed())
+                    .isEqualTo(TestBlockBuilder.generateBlockWithNumber(0L).blockUnparsed());
+            held.close();
+
+            // the cache is over its bound of 1 (skipped evictions leave 0, 10 and 20 cached)
+            assertThat(cachedArchive.cachedArchiveCount()).isEqualTo(3);
+
+            // once released, the next new archive evicts the now-idle eldest entry. Eviction removes at most one
+            // entry per insertion, so the cache shrinks back toward its bound gradually, not all at once.
+            createAndAddBlockEntry(30L);
+            try (final BlockAccessor other = cachedArchive.blockAccessor(30L)) {
+                assertThat(other).isNotNull();
+            }
+            assertThat(cachedArchive.cachedArchiveCount()).isEqualTo(3);
+        }
+
+        /**
          * This test aims to verify that {@link ZipBlockArchive#blockAccessor(long)} is safe to call
          * concurrently from many threads against the same archive -- both for the same block number and for
          * different block numbers spread across more than one archive. Every read must return exactly the
