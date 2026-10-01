@@ -38,14 +38,15 @@ class WeightedThrottledServiceInterfaceTest {
             (method, requestBytes) -> HEAVY_REQUEST.equals(requestBytes) ? WeightClass.HEAVY : WeightClass.STANDARD;
 
     private RecordingWeightedService recordingService;
-    private MetricRegistry metricRegistry;
+    private ThrottleMetrics throttleMetrics;
 
     @BeforeEach
     void setUp() {
         recordingService = new RecordingWeightedService();
-        metricRegistry = MetricRegistry.builder()
+        final MetricRegistry metricRegistry = MetricRegistry.builder()
                 .setMetricsExporter(new NoOpMetricsExporter())
                 .build();
+        throttleMetrics = new ThrottleMetrics(metricRegistry);
     }
 
     @Test
@@ -155,7 +156,7 @@ class WeightedThrottledServiceInterfaceTest {
                 policies,
                 new RemoteAddressKeyExtractor(),
                 WEIGHER,
-                metricRegistry,
+                throttleMetrics,
                 Duration.ofDays(1));
     }
 

@@ -34,14 +34,15 @@ class ThrottledServiceInterfaceTest {
     private static final ServiceInterface.Method ONLY_METHOD = () -> "onlyMethod";
 
     private RecordingService recordingService;
-    private MetricRegistry metricRegistry;
+    private ThrottleMetrics throttleMetrics;
 
     @BeforeEach
     void setUp() {
         recordingService = new RecordingService();
-        metricRegistry = MetricRegistry.builder()
+        final MetricRegistry metricRegistry = MetricRegistry.builder()
                 .setMetricsExporter(new NoOpMetricsExporter())
                 .build();
+        throttleMetrics = new ThrottleMetrics(metricRegistry);
     }
 
     @Test
@@ -211,7 +212,7 @@ class ThrottledServiceInterfaceTest {
 
     private ThrottledServiceInterface throttledWith(final ThrottlePolicy policy, final Duration clientStateTtl) {
         return new ThrottledServiceInterface(
-                recordingService, policy, new RemoteAddressKeyExtractor(), metricRegistry, clientStateTtl);
+                recordingService, policy, new RemoteAddressKeyExtractor(), throttleMetrics, clientStateTtl);
     }
 
     private static ServiceInterface.RequestOptions optionsFor(final String ipAddress) {
