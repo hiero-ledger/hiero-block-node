@@ -634,16 +634,37 @@ function deploy_block_nodes {
       log_line "  Applying topology overlay for block-node-${i}: %s" "${bn_topology_overlay#${SCRIPT_DIR}/../}"
     fi
 
-    # Apply cloud-storage archive overlay for BNs that have archive.backend: rustfs in the topology.
-    # plugin-profile-cloud.yaml sets plugins.names; the generated overlay sets env vars + storage.
     local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
+
+    # Apply a shipped plugin profile when the topology names one via plugin_profile:.
+    # The plugin profile overlay sets plugins.names, and it lands AFTER the per-topology overlay
+    # above -- a plugins.names in overrides/<topology>/ would be silently overridden.
+    # Only the archive overlay below is applied later and can still win.
+    local plugin_profile
+    plugin_profile=$(yq ".block_nodes[\"block-node-${i}\"].plugin_profile // \"\"" "${topology_file}" 2>/dev/null)
+    if [[ -n "${plugin_profile}" ]]; then
+      local plugin_profile_file="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-${plugin_profile}.yaml"
+      [[ ! -f "${plugin_profile_file}" ]] && fail "ERROR: Unknown BN plugin profile '${plugin_profile}' for block-node-${i}: ${plugin_profile_file} not found" 1
+      overlay_args="${overlay_args} -f ${plugin_profile_file}"
+      log_line "  Applying plugin profile '%s' to block-node-${i}" "${plugin_profile}"
+    fi
+
+    # Apply cloud-storage archive overlay for BNs that have archive.backend set in the topology.
+    # The plugin profile that enables cloud-storage-archive/expanded must be declared via plugin_profile:.
     local archive_backend
     archive_backend=$(yq ".block_nodes[\"block-node-${i}\"].archive.backend // \"\"" "${topology_file}" 2>/dev/null)
+    [[ "${archive_backend}" == "null" ]] && archive_backend=""
+    if [[ -n "${archive_backend}" && "${archive_backend}" != "rustfs" ]]; then
+      fail "ERROR: block-node-${i} has unknown archive.backend: '${archive_backend}' -- only 'rustfs' is supported" 1
+    fi
+    if [[ "${archive_backend}" == "rustfs" ]] &&
+      { [[ -z "${plugin_profile}" ]] || ! grep -q "cloud-storage-archive" "${plugin_profile_file}"; }; then
+      fail "ERROR: block-node-${i} has archive.backend: ${archive_backend} but plugin profile '${plugin_profile:-<unset>}' does not enable the cloud-storage plugins -- use a plugin profile (e.g. rfh, all) that includes cloud-storage-archive" 1
+    fi
     if [[ "${archive_backend}" == "rustfs" ]]; then
       local cloud_overlay="${overlay_dir}/bn-block-node-${i}-cloud-archive.yaml"
       generate_s3_archive_overlay "${cloud_overlay}"
-      local plugin_profile="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/plugin-profile-cloud.yaml"
-      overlay_args="${overlay_args} -f ${plugin_profile} -f ${cloud_overlay}"
+      overlay_args="${overlay_args} -f ${cloud_overlay}"
       log_line "  Enabling cloud-storage archive plugins on block-node-${i}"
     fi
 
@@ -695,6 +716,46 @@ function ensure_wraps_keys_cached {
 
   for f in ${WRAPS_KEY_FILES}; do
     [[ -f "${keys_dir}/${f}" ]] || fail "ERROR: WRAPS v1.0.0 key ${f} missing after extract" 1
+  done
+}
+
+# Undo Solo's rewrite of the block-stream properties we pass via --application-properties.
+# Since Solo 0.87 (still true in 0.91), when Block Nodes are deployed Solo forces
+# blockStream.streamWrappedRecordBlocks=false whenever streamMode=BOTH, and resolves
+# BOTH with WRB off to BLOCKS on CN >= 0.74 (helpers.ts ensureWrappedRecordBlocksDisabled /
+# resolveBlockStreamModeForConsensusVersion). That leaves rsa-wrb topologies streaming TSS
+# blocks the BN cannot verify, and TSS topologies writing no record files.
+# Solo rewrites the file on the CN pod in `network deploy` and again in `node setup`
+# (updateBlockNodesJson), so this has to run after `node setup` and before `node start`,
+# which starts the JVM in the running pod. A later pod restart re-copies Solo's ConfigMap.
+# On each Solo bump, check the rewrite still exists; drop this once Solo honors our values.
+function restore_cn_block_stream_properties {
+  local cn_app_properties="${1}"
+  local config_path="/opt/hgcapp/services-hedera/HapiApp2.0/data/config/application.properties"
+  # Fail rather than create a stray file if the CN layout ever moves the config.
+  local sed_script="test -f ${config_path} || exit 1; "
+  local expected=""
+  local key=""
+  local line=""
+  for key in blockStream.streamMode blockStream.streamWrappedRecordBlocks; do
+    line=$(grep -E "^${key}=" "${cn_app_properties}" | tail -1)
+    [[ -z "${line}" ]] && fail "ERROR: ${key} missing from ${cn_app_properties}" 1
+    sed_script="${sed_script}if grep -q '^${key}=' ${config_path}; then sed -i 's/^${key}=.*/${line}/' ${config_path}; else echo '${line}' >> ${config_path}; fi; "
+    expected="${expected}${line}"$'\n'
+  done
+  expected=$(sort <<< "${expected%$'\n'}")
+
+  local alias=""
+  local actual=""
+  for alias in ${NODE_ALIASES//,/ }; do
+    start_task "Restoring block-stream properties on network-${alias}-0"
+    actual=$(kubectl exec "network-${alias}-0" -n "${NAMESPACE}" -c root-container -- bash -c \
+      "${sed_script} grep -E '^blockStream\.(streamMode|streamWrappedRecordBlocks)=' ${config_path}" | sort)
+    if [[ "${actual}" != "${expected}" ]]; then
+      end_task "FAILED"
+      fail "ERROR: network-${alias}-0 ${config_path} has '${actual//$'\n'/ }', expected '${expected//$'\n'/ }'" 1
+    fi
+    end_task
   done
 }
 
@@ -760,6 +821,8 @@ function deploy_consensus_nodes {
     ${cn_local_build_args} \
     ${cn_args} || fail "ERROR: Failed to setup consensus nodes" 1
   end_task
+
+  restore_cn_block_stream_properties "${cn_app_properties}"
 
   start_task "Starting consensus nodes"
   local start_status=0

@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Plugin profile for block nodes whose only job is cloud storage archiving.
+# No local block-storage plugins: cloud-storage-archive/cloud-storage-expanded read block
+# bytes straight off VerificationNotification.
+# No stream-publisher/stream-subscriber either: such a node takes no live stream from a
+# Consensus Node and serves no downstream client. Blocks arrive solely via backfill.
 plugins:
   names: "backfill,block-verification,cloud-storage-archive,cloud-storage-expanded,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status"
 

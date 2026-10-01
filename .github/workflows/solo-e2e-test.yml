@@ -36,7 +36,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         type: string
-        default: "0.88.1"
+        default: "0.91.0"
       solo-source:
         description: "Solo install source: 'npm' or 'git' (build an approved fork/branch)"
         type: string
@@ -82,7 +82,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, high-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, high-load, node-restart-resilience, full-history-backfill, archive-backfill, plugin-profiles, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-cli-jumpstart-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
         type: string
         default: "none"
     outputs:
@@ -104,6 +104,8 @@ on:
         options:
           - single # 1 CN, 1 BN
           - 2cn-2bn-backfill # 2 CN, 2 BN with backfill
+          - 2cn-2bn-archive # 2 CN streaming to BN2; BN1 backfills from BN2 and archives to RustFS
+          - 2cn-3bn-plugin-profiles # 2 CN, 3 BN exercising the lfh, minimal and all plugin profiles
           - paired-3 # 3 CN, 3 BN
           - fan-out-3cn-2bn # 3 CN, 2 BN
           - 3cn-1bn # 3 CN, 1 BN
@@ -141,7 +143,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         required: false
-        default: "0.88.1"
+        default: "0.91.0"
       solo-source:
         description: "Solo install source"
         required: false
@@ -200,7 +202,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, high-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, high-load, node-restart-resilience, full-history-backfill, archive-backfill, plugin-profiles, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-cli-jumpstart-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
         required: false
         default: "none"
 
@@ -1089,7 +1091,7 @@ jobs:
             echo "Collected file logs for mirror-1-importer from pod ${MN_POD}"
           fi
 
-          # Pinger logs - it crash-loops at startup on Solo 0.88.1 (#3649). The previous
+          # Pinger logs - it has crash-looped at startup since Solo 0.88.1 (#3649). The previous
           # container's log holds the exit reason; the current one may be empty.
           PINGER_POD=$(kubectl --context "${CONTEXT}" get pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=pinger" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
           if [[ -n "$PINGER_POD" ]]; then
