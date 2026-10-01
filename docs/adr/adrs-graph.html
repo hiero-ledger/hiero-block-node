@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ADR Dependency Graph — Hiero Block Node</title>
+<style>
+  :root {
+    --text: #1f2937;
+    --muted: #5b6471;
+    --bg: #f6f8fb;
+    --bg-card: #ffffff;
+    --border: #d7dde6;
+    --tier1: #2d5b8c;
+    --tier1-bg: #dbe7f2;
+    --tier2: #2a7a8a;
+    --tier2-bg: #d3e9ed;
+    --tier3: #2f7a47;
+    --tier3-bg: #d6ecdd;
+    --tier4: #a36a13;
+    --tier4-bg: #f5e3c0;
+    --tier5: #6c5b9c;
+    --tier5-bg: #e2d9ed;
+    --deprecated: #8c97a8;
+    --deprecated-bg: #eef1f5;
+    --arrow: #5b6471;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    margin: 0;
+    padding: 32px 24px 60px;
+    line-height: 1.5;
+    font-size: 14px;
+  }
+  .container {
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+  header {
+    margin-bottom: 18px;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 14px;
+  }
+  header h1 {
+    margin: 0 0 6px;
+    font-size: 24px;
+    color: var(--tier1);
+  }
+  header .meta {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .legend {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin: 14px 0 8px;
+    font-size: 12.5px;
+  }
+  .legend .item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .legend .swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1.5px solid;
+  }
+  .swatch.t1 { background: var(--tier1-bg); border-color: var(--tier1); }
+  .swatch.t2 { background: var(--tier2-bg); border-color: var(--tier2); }
+  .swatch.t3 { background: var(--tier3-bg); border-color: var(--tier3); }
+  .swatch.t4 { background: var(--tier4-bg); border-color: var(--tier4); }
+  .swatch.t5 { background: var(--tier5-bg); border-color: var(--tier5); }
+  .swatch.dep { background: var(--deprecated-bg); border-color: var(--deprecated); border-style: dashed; }
+  .graph-wrap {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+    margin-bottom: 18px;
+    overflow-x: auto;
+  }
+  svg { display: block; min-width: 1400px; }
+  /* SVG node styles */
+  .node rect {
+    transition: filter 0.12s ease, stroke-width 0.12s ease;
+    cursor: default;
+  }
+  .node:hover rect {
+    filter: drop-shadow(0 3px 8px rgba(31, 41, 55, 0.25));
+    stroke-width: 2.5;
+  }
+  .node text.num {
+    font-weight: 700;
+    font-size: 13px;
+    pointer-events: none;
+  }
+  .node text.title {
+    font-size: 10.5px;
+    font-weight: 500;
+    pointer-events: none;
+  }
+  .node text.status {
+    font-size: 9px;
+    font-style: italic;
+    pointer-events: none;
+  }
+  .edge {
+    fill: none;
+    stroke: var(--arrow);
+    stroke-width: 1;
+    opacity: 0.35;
+    pointer-events: none;
+  }
+  .tier-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    fill: var(--muted);
+  }
+  .tier-band {
+    fill: none;
+    stroke: var(--border);
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+    opacity: 0.5;
+  }
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 10px 0;
+  }
+  details summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--tier1);
+  }
+  details ul { margin: 8px 0 0; padding-left: 20px; }
+  details li { margin-bottom: 3px; }
+  footer {
+    margin-top: 26px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+  }
+  a { color: var(--tier1); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>ADR Dependency Graph</h1>
+  <div class="meta">
+    21 architecture decisions arranged in 5 impact tiers, top to bottom.
+    Lower-numbered ADRs are more foundational; arrows point from a dependent ADR
+    to the foundation it builds on. Companion to
+    <a href="adrs-matrix.md"><code>adrs-matrix.md</code></a>.
+  </div>
+</header>
+
+<div class="legend">
+  <div class="item"><span class="swatch t1"></span>Tier 1 — Program-defining foundations (0001-0005)</div>
+  <div class="item"><span class="swatch t2"></span>Tier 2 — Cutover &amp; cryptography (0006-0009)</div>
+  <div class="item"><span class="swatch t3"></span>Tier 3 — Operations &amp; topology counts (0010-0013)</div>
+  <div class="item"><span class="swatch t4"></span>Tier 4 — Operational modes &amp; endpoints (0014-0017)</div>
+  <div class="item"><span class="swatch t5"></span>Tier 5 — Implementation architecture (0018-0021)</div>
+  <div class="item"><span class="swatch dep"></span>Deprecated</div>
+</div>
+
+<div class="graph-wrap">
+<svg viewBox="0 0 1400 990" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Block Node ADR dependency graph: 21 ADRs arranged in 5 horizontal impact tiers (0001-0005 foundations, 0006-0009 cutover and crypto, 0010-0013 operations, 0014-0017 modes, 0018-0021 implementation), with dependency arrows from each ADR pointing up to the ADRs it depends on.">
+
+  <!-- ===== Tier bands ===== -->
+  <rect class="tier-band" x="30" y="80"  width="1340" height="120" rx="8"/>
+  <rect class="tier-band" x="30" y="240" width="1340" height="120" rx="8"/>
+  <rect class="tier-band" x="30" y="400" width="1340" height="120" rx="8"/>
+  <rect class="tier-band" x="30" y="560" width="1340" height="120" rx="8"/>
+  <rect class="tier-band" x="30" y="720" width="1340" height="120" rx="8"/>
+
+  <text class="tier-label" x="40" y="100" >TIER 1 &middot; FOUNDATIONS</text>
+  <text class="tier-label" x="40" y="260">TIER 2 &middot; CUTOVER &amp; CRYPTO</text>
+  <text class="tier-label" x="40" y="420">TIER 3 &middot; OPERATIONS</text>
+  <text class="tier-label" x="40" y="580">TIER 4 &middot; MODES &amp; ENDPOINTS</text>
+  <text class="tier-label" x="40" y="740">TIER 5 &middot; IMPLEMENTATION</text>
+
+  <!-- ===== Arrowhead marker ===== -->
+  <defs>
+    <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b6471" opacity="0.55"/>
+    </marker>
+  </defs>
+
+  <!-- ===== Edges (dependency arrows, drawn before nodes so nodes overlay them) =====
+       Coordinate convention: arrow goes from dependent's top-center to foundation's bottom-center.
+       Box layout: x=col, y=tier-top+30 ; box w=130 h=60 ; top-center = (col+65, tier-top+30) ; bottom-center = (col+65, tier-top+90)
+       Tier tops: T1=110, T2=270, T3=430, T4=590, T5=750
+       Column centers: c1=130+65=195, c2=410+65=475, c3=690+65=755, c4=970+65=1035, c5=1250+65=1315
+       For intra-tier edges (same Y), draw a curve dipping below the band. -->
+
+  <g stroke="#5b6471" stroke-width="1" fill="none" opacity="0.45" marker-end="url(#arrowhead)">
+    <!-- Tier 1 intra-tier edges (use loop-below curves) -->
+    <!-- 0002 (475,140) -> 0001 (195,200)  curve loops below band -->
+    <path d="M 475 140 C 475 215, 195 215, 195 200" class="edge"/>
+    <!-- 0003 (755,140) -> 0002 (475,200) -->
+    <path d="M 755 140 C 755 215, 475 215, 475 200" class="edge"/>
+    <!-- 0004 (1035,140) -> 0001 (195,200) -->
+    <path d="M 1035 140 C 1035 225, 195 225, 195 200" class="edge"/>
+    <!-- 0004 (1035,140) -> 0003 (755,200) -->
+    <path d="M 1035 140 C 1035 215, 755 215, 755 200" class="edge"/>
+    <!-- 0005 (1315,140) -> 0001 (195,200) -->
+    <path d="M 1315 140 C 1315 230, 195 230, 195 200" class="edge"/>
+    <!-- 0005 (1315,140) -> 0004 (1035,200) -->
+    <path d="M 1315 140 C 1315 215, 1035 215, 1035 200" class="edge"/>
+
+    <!-- Tier 2 -> Tier 1 -->
+    <!-- 0006 (195,300) -> 0001 (195,200) straight up -->
+    <path d="M 195 300 L 195 200" class="edge"/>
+    <!-- 0007 (475,300) -> 0001 (195,200) -->
+    <path d="M 475 300 C 475 250, 195 250, 195 200" class="edge"/>
+    <!-- 0007 (475,300) -> 0006 (195,360) — within Tier 2: 0007 depends on 0006 -->
+    <path d="M 475 300 C 475 375, 195 375, 195 360" class="edge"/>
+    <!-- 0008 (755,300) -> 0005 (1035,200) — wait, 0005's bottom is at (1315,200) not (1035). Let me fix: col5 is 1315, so 0005 bottom = (1315, 200). 0008 col = c3 = 755. -->
+    <path d="M 755 300 C 755 250, 1315 250, 1315 200" class="edge"/>
+    <!-- 0008 (755,300) -> 0006 (195,360) intra-tier -->
+    <path d="M 755 300 C 755 375, 195 375, 195 360" class="edge"/>
+    <!-- 0009 (1035,300) -> 0008 (755,360) intra-tier -->
+    <path d="M 1035 300 C 1035 375, 755 375, 755 360" class="edge"/>
+
+    <!-- Tier 3 -> Tier 1/2 -->
+    <!-- 0010 (195,460) -> 0002 (475,200) -->
+    <path d="M 195 460 C 195 350, 475 350, 475 200" class="edge"/>
+    <!-- 0010 (195,460) -> 0007 (475,360) -->
+    <path d="M 195 460 C 195 410, 475 410, 475 360" class="edge"/>
+    <!-- 0011 (475,460) -> 0002 (475,200) straight up -->
+    <path d="M 475 460 L 475 200" class="edge"/>
+    <!-- 0011 (475,460) -> 0007 (475,360) straight up -->
+    <path d="M 475 460 L 475 360" class="edge"/>
+    <!-- 0012 (755,460) -> 0002 (475,200) -->
+    <path d="M 755 460 C 755 330, 475 330, 475 200" class="edge"/>
+    <!-- 0013 (1035,460) -> 0012 (755,520) intra-tier -->
+    <path d="M 1035 460 C 1035 535, 755 535, 755 520" class="edge"/>
+
+    <!-- Tier 4 -> Tier 1/2/3 -->
+    <!-- 0014 (195,620) -> 0002 (475,200) -->
+    <path d="M 195 620 C 195 410, 475 410, 475 200" class="edge"/>
+    <!-- 0014 (195,620) -> 0010 (195,520) straight up -->
+    <path d="M 195 620 L 195 520" class="edge"/>
+    <!-- 0015 (475,620) -> 0014 (195,680) intra-tier -->
+    <path d="M 475 620 C 475 695, 195 695, 195 680" class="edge"/>
+    <!-- 0016 (755,620) -> 0007 (475,360) -->
+    <path d="M 755 620 C 755 490, 475 490, 475 360" class="edge"/>
+    <!-- 0016 (755,620) -> 0008 (755,360) straight -->
+    <path d="M 755 620 L 755 360" class="edge"/>
+    <!-- 0016 (755,620) -> 0009 (1035,360) -->
+    <path d="M 755 620 C 755 490, 1035 490, 1035 360" class="edge"/>
+    <!-- 0017 (1035,620) -> 0001 (195,200) -->
+    <path d="M 1035 620 C 1035 410, 195 410, 195 200" class="edge"/>
+    <!-- 0017 (1035,620) -> 0007 (475,360) -->
+    <path d="M 1035 620 C 1035 490, 475 490, 475 360" class="edge"/>
+
+    <!-- Tier 5 -> Tier 1/2/3/4 -->
+    <!-- 0018 (195,780) -> 0001 (195,200) straight -->
+    <path d="M 195 780 L 195 200" class="edge"/>
+    <!-- 0018 (195,780) -> 0011 (475,520) -->
+    <path d="M 195 780 C 195 650, 475 650, 475 520" class="edge"/>
+    <!-- 0019 (475,780) -> 0004 (1035,200) -->
+    <path d="M 475 780 C 475 490, 1035 490, 1035 200" class="edge"/>
+    <!-- 0019 (475,780) -> 0018 (195,840) intra-tier -->
+    <path d="M 475 780 C 475 855, 195 855, 195 840" class="edge"/>
+    <!-- 0019 (475,780) -> 0011 (475,520) straight up -->
+    <path d="M 475 780 L 475 520" class="edge"/>
+    <!-- 0020 (755,780) -> 0001 (195,200) -->
+    <path d="M 755 780 C 755 490, 195 490, 195 200" class="edge"/>
+    <!-- 0021 (1035,780) -> 0003 (755,200) -->
+    <path d="M 1035 780 C 1035 490, 755 490, 755 200" class="edge"/>
+    <!-- 0021 (1035,780) -> 0012 (755,520) -->
+    <path d="M 1035 780 C 1035 650, 755 650, 755 520" class="edge"/>
+  </g>
+
+  <!-- ===== Nodes (drawn last so they overlap edges) ===== -->
+  <!-- Tier 1: y=140 (top), col x=130 to 1250 step 280, box=130x60 -->
+  <g class="node" id="adr-0001">
+    <title>ADR 0001 — Block Stream Format Replaces Record Streams. Foundation: the unified block stream format (HIP-1056) that replaces record/event/sidecar/signature files.</title>
+    <rect x="130" y="140" width="130" height="60" rx="6" fill="#dbe7f2" stroke="#2d5b8c" stroke-width="1.5"/>
+    <text class="num" x="195" y="161" text-anchor="middle" fill="#2d5b8c">0001</text>
+    <text class="title" x="195" y="178" text-anchor="middle" fill="#1f3a5c">Block Stream</text>
+    <text class="title" x="195" y="192" text-anchor="middle" fill="#1f3a5c">Format</text>
+  </g>
+  <g class="node" id="adr-0002">
+    <title>ADR 0002 — Block Node Tiered Network Topology. Tier 1 (council, CN-fed) and Tier 2 (downstream). Tier 2 role refined by ADR-0011.</title>
+    <rect x="410" y="140" width="130" height="60" rx="6" fill="#dbe7f2" stroke="#2d5b8c" stroke-width="1.5"/>
+    <text class="num" x="475" y="161" text-anchor="middle" fill="#2d5b8c">0002</text>
+    <text class="title" x="475" y="178" text-anchor="middle" fill="#1f3a5c">Tiered</text>
+    <text class="title" x="475" y="192" text-anchor="middle" fill="#1f3a5c">Topology</text>
+  </g>
+  <g class="node" id="adr-0003">
+    <title>ADR 0003 — Block Stream Traffic Direction. CN pushes to BN, MN pulls from BN, BN backfill from peer BNs.</title>
+    <rect x="690" y="140" width="130" height="60" rx="6" fill="#dbe7f2" stroke="#2d5b8c" stroke-width="1.5"/>
+    <text class="num" x="755" y="161" text-anchor="middle" fill="#2d5b8c">0003</text>
+    <text class="title" x="755" y="178" text-anchor="middle" fill="#1f3a5c">Traffic</text>
+    <text class="title" x="755" y="192" text-anchor="middle" fill="#1f3a5c">Direction</text>
+  </g>
+  <g class="node" id="adr-0004">
+    <title>ADR 0004 — gRPC Chunked Block Items Protocol. Items batched in chunks (~1000/msg target); proof is final chunk.</title>
+    <rect x="970" y="140" width="130" height="60" rx="6" fill="#dbe7f2" stroke="#2d5b8c" stroke-width="1.5"/>
+    <text class="num" x="1035" y="161" text-anchor="middle" fill="#2d5b8c">0004</text>
+    <text class="title" x="1035" y="178" text-anchor="middle" fill="#1f3a5c">gRPC</text>
+    <text class="title" x="1035" y="192" text-anchor="middle" fill="#1f3a5c">Chunked</text>
+  </g>
+  <g class="node" id="adr-0005">
+    <title>ADR 0005 — Block Hash 4-Leaf Merkle Tree. Streaming Merkle over inputs/outputs/state, SHA-384.</title>
+    <rect x="1250" y="140" width="130" height="60" rx="6" fill="#dbe7f2" stroke="#2d5b8c" stroke-width="1.5"/>
+    <text class="num" x="1315" y="161" text-anchor="middle" fill="#2d5b8c">0005</text>
+    <text class="title" x="1315" y="178" text-anchor="middle" fill="#1f3a5c">4-Leaf</text>
+    <text class="title" x="1315" y="192" text-anchor="middle" fill="#1f3a5c">Merkle</text>
+  </g>
+
+  <!-- Tier 2: y=300 -->
+  <g class="node" id="adr-0006">
+    <title>ADR 0006 — Staged WRB → Full Block Stream Cutover. Phase 2a (RSA proofs, WRBs) before Phase 2b (TSS, full block streams).</title>
+    <rect x="130" y="300" width="130" height="60" rx="6" fill="#d3e9ed" stroke="#2a7a8a" stroke-width="1.5"/>
+    <text class="num" x="195" y="321" text-anchor="middle" fill="#2a7a8a">0006</text>
+    <text class="title" x="195" y="338" text-anchor="middle" fill="#1f4a52">Staged</text>
+    <text class="title" x="195" y="352" text-anchor="middle" fill="#1f4a52">Cutover</text>
+  </g>
+  <g class="node" id="adr-0007">
+    <title>ADR 0007 — Historical Record File Wrapping. Wraps history into WRB format with block number continuity at cutover.</title>
+    <rect x="410" y="300" width="130" height="60" rx="6" fill="#d3e9ed" stroke="#2a7a8a" stroke-width="1.5"/>
+    <text class="num" x="475" y="321" text-anchor="middle" fill="#2a7a8a">0007</text>
+    <text class="title" x="475" y="338" text-anchor="middle" fill="#1f4a52">Historical</text>
+    <text class="title" x="475" y="352" text-anchor="middle" fill="#1f4a52">Wrapping</text>
+  </g>
+  <g class="node" id="adr-0008">
+    <title>ADR 0008 — TSS Aggregate Signatures Replace Per-Node RSA. Constant-size proofs from a threshold of node shares.</title>
+    <rect x="690" y="300" width="130" height="60" rx="6" fill="#d3e9ed" stroke="#2a7a8a" stroke-width="1.5"/>
+    <text class="num" x="755" y="321" text-anchor="middle" fill="#2a7a8a">0008</text>
+    <text class="title" x="755" y="338" text-anchor="middle" fill="#1f4a52">TSS</text>
+    <text class="title" x="755" y="352" text-anchor="middle" fill="#1f4a52">Aggregate</text>
+  </g>
+  <g class="node" id="adr-0009">
+    <title>ADR 0009 — hinTS as the TSS Scheme. HIP-1200 BLS-based threshold signatures with publicly verifiable key aggregation.</title>
+    <rect x="970" y="300" width="130" height="60" rx="6" fill="#d3e9ed" stroke="#2a7a8a" stroke-width="1.5"/>
+    <text class="num" x="1035" y="321" text-anchor="middle" fill="#2a7a8a">0009</text>
+    <text class="title" x="1035" y="338" text-anchor="middle" fill="#1f4a52">hinTS</text>
+    <text class="title" x="1035" y="352" text-anchor="middle" fill="#1f4a52">Scheme</text>
+  </g>
+
+  <!-- Tier 3: y=460 -->
+  <g class="node" id="adr-0010">
+    <title>ADR 0010 — Tier 1 BN Minimum Count and Diversity. Original "5 BN minimum (2 RFH + 3 LFH)" target. Reframed by ADR-0011.</title>
+    <rect x="130" y="460" width="130" height="60" rx="6" fill="#d6ecdd" stroke="#2f7a47" stroke-width="1.5"/>
+    <text class="num" x="195" y="481" text-anchor="middle" fill="#2f7a47">0010</text>
+    <text class="title" x="195" y="498" text-anchor="middle" fill="#1c4a2b">T1 Min Count</text>
+    <text class="status" x="195" y="512" text-anchor="middle" fill="#5b6471">target reframed</text>
+  </g>
+  <g class="node" id="adr-0011">
+    <title>ADR 0011 — Tier 2 RFH Deployment Posture. 3 private RFHs (HG-GCP + 2 grant-funded); pull-backfill from any LFH; stateless.</title>
+    <rect x="410" y="460" width="130" height="60" rx="6" fill="#d6ecdd" stroke="#2f7a47" stroke-width="1.5"/>
+    <text class="num" x="475" y="481" text-anchor="middle" fill="#2f7a47">0011</text>
+    <text class="title" x="475" y="498" text-anchor="middle" fill="#1c4a2b">Tier 2 RFH</text>
+    <text class="title" x="475" y="512" text-anchor="middle" fill="#1c4a2b">Posture</text>
+  </g>
+  <g class="node" id="adr-0012">
+    <title>ADR 0012 — Tier 1 Public Access Model. Public IPs with bandwidth-group split (design intent; enforcement now infra-layer).</title>
+    <rect x="690" y="460" width="130" height="60" rx="6" fill="#d6ecdd" stroke="#2f7a47" stroke-width="1.5"/>
+    <text class="num" x="755" y="481" text-anchor="middle" fill="#2f7a47">0012</text>
+    <text class="title" x="755" y="498" text-anchor="middle" fill="#1c4a2b">Public</text>
+    <text class="title" x="755" y="512" text-anchor="middle" fill="#1c4a2b">Access</text>
+  </g>
+  <g class="node" id="adr-0013">
+    <title>ADR 0013 — Monetization Must Precede Public BN Access. No open-access BNs ship before HBAR-denominated streaming is in place.</title>
+    <rect x="970" y="460" width="130" height="60" rx="6" fill="#d6ecdd" stroke="#2f7a47" stroke-width="1.5"/>
+    <text class="num" x="1035" y="481" text-anchor="middle" fill="#2f7a47">0013</text>
+    <text class="title" x="1035" y="498" text-anchor="middle" fill="#1c4a2b">Monetization</text>
+    <text class="title" x="1035" y="512" text-anchor="middle" fill="#1c4a2b">Before Launch</text>
+  </g>
+
+  <!-- Tier 4: y=620 -->
+  <g class="node" id="adr-0014">
+    <title>ADR 0014 — Full-History vs No-History Operating Modes. Same codebase, configurable retention depth (full from genesis vs rolling window).</title>
+    <rect x="130" y="620" width="130" height="60" rx="6" fill="#f5e3c0" stroke="#a36a13" stroke-width="1.5"/>
+    <text class="num" x="195" y="641" text-anchor="middle" fill="#a36a13">0014</text>
+    <text class="title" x="195" y="658" text-anchor="middle" fill="#5e3d0a">Full vs</text>
+    <text class="title" x="195" y="672" text-anchor="middle" fill="#5e3d0a">No-History</text>
+  </g>
+  <g class="node" id="adr-0015">
+    <title>ADR 0015 — CN Reconnect via Block Nodes. BNs serve saved-state snapshots + block replay; whitelisted CN access only.</title>
+    <rect x="410" y="620" width="130" height="60" rx="6" fill="#f5e3c0" stroke="#a36a13" stroke-width="1.5"/>
+    <text class="num" x="475" y="641" text-anchor="middle" fill="#a36a13">0015</text>
+    <text class="title" x="475" y="658" text-anchor="middle" fill="#5e3d0a">CN</text>
+    <text class="title" x="475" y="672" text-anchor="middle" fill="#5e3d0a">Reconnect</text>
+  </g>
+  <g class="node" id="adr-0016">
+    <title>ADR 0016 — BN Status Endpoint Exposes TSS Bootstrap. ledger_id, roster, wraps_verification_key on /status for peer BN bootstrap.</title>
+    <rect x="690" y="620" width="130" height="60" rx="6" fill="#f5e3c0" stroke="#a36a13" stroke-width="1.5"/>
+    <text class="num" x="755" y="641" text-anchor="middle" fill="#a36a13">0016</text>
+    <text class="title" x="755" y="658" text-anchor="middle" fill="#5e3d0a">Status</text>
+    <text class="title" x="755" y="672" text-anchor="middle" fill="#5e3d0a">TSS Bootstrap</text>
+  </g>
+  <g class="node" id="adr-0017">
+    <title>ADR 0017 — New Cloud Bucket Path for Block Streams. Separate path from legacy record-stream buckets; recent-blocks bucket has 1-month retention.</title>
+    <rect x="970" y="620" width="130" height="60" rx="6" fill="#f5e3c0" stroke="#a36a13" stroke-width="1.5"/>
+    <text class="num" x="1035" y="641" text-anchor="middle" fill="#a36a13">0017</text>
+    <text class="title" x="1035" y="658" text-anchor="middle" fill="#5e3d0a">Bucket</text>
+    <text class="title" x="1035" y="672" text-anchor="middle" fill="#5e3d0a">Path</text>
+  </g>
+
+  <!-- Tier 5: y=780 -->
+  <g class="node" id="adr-0018">
+    <title>ADR 0018 — Plugin SPI for BN Extension Architecture. BlockNodePlugin + BlockNodeContext + ServiceLoader-based JPMS discovery.</title>
+    <rect x="130" y="780" width="130" height="60" rx="6" fill="#e2d9ed" stroke="#6c5b9c" stroke-width="1.5"/>
+    <text class="num" x="195" y="801" text-anchor="middle" fill="#6c5b9c">0018</text>
+    <text class="title" x="195" y="818" text-anchor="middle" fill="#3a2d6a">Plugin</text>
+    <text class="title" x="195" y="832" text-anchor="middle" fill="#3a2d6a">SPI</text>
+  </g>
+  <g class="node" id="adr-0019">
+    <title>ADR 0019 — LMAX Disruptor as Inter-Plugin Block Messaging Bus. High-throughput ring buffers, back-pressure vs no-back-pressure handlers, 80% slow-consumer threshold.</title>
+    <rect x="410" y="780" width="130" height="60" rx="6" fill="#e2d9ed" stroke="#6c5b9c" stroke-width="1.5"/>
+    <text class="num" x="475" y="801" text-anchor="middle" fill="#6c5b9c">0019</text>
+    <text class="title" x="475" y="818" text-anchor="middle" fill="#3a2d6a">LMAX</text>
+    <text class="title" x="475" y="832" text-anchor="middle" fill="#3a2d6a">Disruptor</text>
+  </g>
+  <g class="node" id="adr-0020">
+    <title>ADR 0020 — On-Disk Block Archive Format. Zstd-compressed individual blocks packed in uncompressed ZIP archives of 1000 blocks each.</title>
+    <rect x="690" y="780" width="130" height="60" rx="6" fill="#e2d9ed" stroke="#6c5b9c" stroke-width="1.5"/>
+    <text class="num" x="755" y="801" text-anchor="middle" fill="#6c5b9c">0020</text>
+    <text class="title" x="755" y="818" text-anchor="middle" fill="#3a2d6a">Archive</text>
+    <text class="title" x="755" y="832" text-anchor="middle" fill="#3a2d6a">Format</text>
+  </g>
+  <g class="node" id="adr-0021">
+    <title>ADR 0021 — Separate Ingress/Egress Ports (Deprecated). Single port adopted; shaping deferred to infrastructure layer.</title>
+    <rect x="970" y="780" width="130" height="60" rx="6" fill="#eef1f5" stroke="#8c97a8" stroke-width="1.5" stroke-dasharray="5 3"/>
+    <text class="num" x="1035" y="801" text-anchor="middle" fill="#8c97a8">0021</text>
+    <text class="title" x="1035" y="818" text-anchor="middle" fill="#5b6471">Separate</text>
+    <text class="title" x="1035" y="832" text-anchor="middle" fill="#5b6471">Ports</text>
+    <text class="status" x="1035" y="850" text-anchor="middle" fill="#8c97a8">deprecated</text>
+  </g>
+
+</svg>
+</div>
+
+<details open>
+  <summary>How to read this graph</summary>
+  <ul>
+    <li>Each box is an ADR; the number is the canonical ID (also the filename prefix).</li>
+    <li>Hover over a box to see the ADR's title and a one-line summary (via the SVG <code>&lt;title&gt;</code> element).</li>
+    <li>Arrows point from a dependent ADR <em>up</em> to the ADR it depends on. ADR numbers increase as you read downward, so the arrows always point upward by intent.</li>
+    <li>Colours indicate impact tier (1 highest, 5 narrowest). A dashed outline marks a deprecated ADR (currently only 0021).</li>
+    <li>Some intra-tier arrows dip below the tier band to avoid overlapping with node boxes.</li>
+  </ul>
+</details>
+
+<details>
+  <summary>Dependency edges enumerated</summary>
+  <ul>
+    <li>0002 → 0001 (Topology builds on the Block Stream Format that flows through it)</li>
+    <li>0003 → 0002 (Traffic direction is defined within the Tiered topology)</li>
+    <li>0004 → 0001, 0003 (gRPC chunked protocol carries the Block Stream in the CN-push/MN-pull direction)</li>
+    <li>0005 → 0001, 0004 (Merkle hash structure is the cryptographic seal of each Block Stream block, computed during chunked emission)</li>
+    <li>0006 → 0001, 0008 (Staged cutover transitions to the new Format and adopts TSS in Phase 2b)</li>
+    <li>0007 → 0001, 0006 (Historical wrapping creates WRBs of the new Format ahead of the cutover)</li>
+    <li>0008 → 0005, 0006 (TSS aggregate signature signs the Merkle root; adopted at Phase 2b)</li>
+    <li>0009 → 0008 (hinTS is the specific scheme behind TSS aggregation)</li>
+    <li>0010 → 0002, 0007 (Tier 1 BN count depends on topology; references wrapping BN role)</li>
+    <li>0011 → 0002, 0007 (Tier 2 RFH is a topology refinement; references wrapping BN for context)</li>
+    <li>0012 → 0002 (Public access policy applies to Tier 1 BNs from the topology)</li>
+    <li>0013 → 0012 (Monetization gates public access)</li>
+    <li>0014 → 0002, 0010 (Operating modes are profiles for Tier 1 BNs at the chosen count)</li>
+    <li>0015 → 0014 (CN reconnect can be served from no-history BNs)</li>
+    <li>0016 → 0007, 0008, 0009 (Status endpoint exposes TSS bootstrap data, served by the wrapping BN)</li>
+    <li>0017 → 0001, 0007 (Bucket path is for the new Block Stream Format and complements wrapped history)</li>
+    <li>0018 → 0001, 0011 (Plugin SPI hosts plugins that process the Block Stream; RFH note about in-process tradeoff)</li>
+    <li>0019 → 0004, 0018, 0011 (Disruptor carries block items at gRPC chunk rate within the Plugin SPI host; RFH cross-process note)</li>
+    <li>0020 → 0001 (Archive format stores the Block Stream at rest)</li>
+    <li>0021 → 0003, 0012 (Separate ports for ingress/egress directions and access-model enforcement — Deprecated)</li>
+  </ul>
+</details>
+
+<footer>
+  Companion to <a href="adrs-matrix.md"><code>adrs-matrix.md</code></a> (table view) and the
+  individual ADRs under <code>docs/adr/</code>. For decisions still under consideration, see
+  <a href="possible-adrs.md"><code>possible-adrs.md</code></a>.
+</footer>
+
+</div>
+</body>
+</html>
