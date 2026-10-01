@@ -29,8 +29,10 @@ import org.hiero.metrics.core.MetricRegistry;
 /// This class therefore always calls the delegate's `open()` immediately (cheap: for these call
 /// shapes that only builds a pipeline, it does not run business logic yet) and defers the
 /// admission decision to its own wrapper pipeline's `onNext`, once the real request bytes are in
-/// hand. If rejected there, the delegate's pipeline never receives `onNext` (or anything else) at
-/// all, so its business logic never runs.
+/// hand. If rejected there, the delegate's inbound pipeline is given a normal, empty completion
+/// (`onNext` is never called on it, immediately followed by `onComplete`) rather than being left
+/// dangling with no terminal signal at all, so its business logic never runs, but it is still told
+/// the call is over.
 ///
 /// Like [ThrottledServiceInterface], this class is deliberately the only place (besides
 /// [ContentAwareWeigher] implementations, which only parse request bytes) that references PBJ's
@@ -156,6 +158,12 @@ public final class WeightedThrottledServiceInterface implements ServiceInterface
             if (!result.admitted()) {
                 rejected = true;
                 replies.onError(new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED, result.rejectionReason()));
+                // delegateInbound already exists (open() built it before admission was known, see
+                // the class-level documentation on why that's unavoidable) but will never receive
+                // onNext now — give it a normal, empty completion instead of leaving it dangling
+                // with no terminal signal at all. Valid per Flow.Subscriber: onComplete with zero
+                // onNext calls is a normal empty stream, not an error condition.
+                delegateInbound.onComplete();
                 return;
             }
             releasePermit.set(result.releasePermit());
