@@ -15,7 +15,6 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -53,7 +52,7 @@ class WeightedThrottledServiceInterfaceTest {
     @DisplayName("An admitted standard request reaches the delegate's business logic")
     void admittedStandardRequestReachesDelegate() {
         final WeightedThrottledServiceInterface throttled =
-                throttledWith(new ThrottlePolicy(100, 10, 5, 5), new ThrottlePolicy(100, 10, 5, 5));
+                throttledWith(new Tier(100, 10, 5, 5), new Tier(100, 10, 5, 5));
         final Pipeline<? super Bytes> inbound =
                 throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
 
@@ -67,7 +66,7 @@ class WeightedThrottledServiceInterfaceTest {
     void rejectedRequestNeverReachesDelegate() {
         // maxConcurrentPerClient=0 for STANDARD means every standard call is rejected.
         final WeightedThrottledServiceInterface throttled =
-                throttledWith(new ThrottlePolicy(100, 10, 0, 5), new ThrottlePolicy(100, 10, 5, 5));
+                throttledWith(new Tier(100, 10, 0, 5), new Tier(100, 10, 5, 5));
         final CapturingPipeline replies = new CapturingPipeline();
         final Pipeline<? super Bytes> inbound = throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), replies);
 
@@ -85,7 +84,7 @@ class WeightedThrottledServiceInterfaceTest {
     void rejectedRequestCompletesDelegateInboundPipeline() {
         // maxConcurrentPerClient=0 for STANDARD means every standard call is rejected.
         final WeightedThrottledServiceInterface throttled =
-                throttledWith(new ThrottlePolicy(100, 10, 0, 5), new ThrottlePolicy(100, 10, 5, 5));
+                throttledWith(new Tier(100, 10, 0, 5), new Tier(100, 10, 5, 5));
         final Pipeline<? super Bytes> inbound =
                 throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
 
@@ -103,7 +102,7 @@ class WeightedThrottledServiceInterfaceTest {
     void standardAndHeavyAreThrottledIndependently() {
         // HEAVY allows only 1 concurrent call; STANDARD allows 5. Both start from the same client.
         final WeightedThrottledServiceInterface throttled =
-                throttledWith(new ThrottlePolicy(100, 10, 5, 5), new ThrottlePolicy(100, 10, 1, 5));
+                throttledWith(new Tier(100, 10, 5, 5), new Tier(100, 10, 1, 5));
 
         // First heavy call holds HEAVY's one permit.
         final Pipeline<? super Bytes> firstHeavyInbound =
@@ -129,7 +128,7 @@ class WeightedThrottledServiceInterfaceTest {
     @DisplayName("A permit is released via the outgoing pipeline, freeing that weight class for a new call")
     void permitReleaseFreesTheWeightClass() {
         final WeightedThrottledServiceInterface throttled =
-                throttledWith(new ThrottlePolicy(100, 10, 5, 5), new ThrottlePolicy(100, 10, 1, 5));
+                throttledWith(new Tier(100, 10, 5, 5), new Tier(100, 10, 1, 5));
 
         final Pipeline<? super Bytes> firstInbound =
                 throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
@@ -147,18 +146,58 @@ class WeightedThrottledServiceInterfaceTest {
         assertEquals(2, recordingService.businessLogicInvocations);
     }
 
-    private WeightedThrottledServiceInterface throttledWith(final ThrottlePolicy standard, final ThrottlePolicy heavy) {
-        final Map<WeightClass, ThrottlePolicy> policies = new EnumMap<>(WeightClass.class);
-        policies.put(WeightClass.STANDARD, standard);
-        policies.put(WeightClass.HEAVY, heavy);
+    @Test
+    @DisplayName("A method with no configured entries at all still gets the shared global concurrency ceiling")
+    void unconfiguredMethodFallsBackToGlobalCeilingOnly() {
+        // No perClientSettings entries at all — not even a STANDARD fallback — only global
+        // ceilings are declared. (A method with *some* entries always falls back to its own
+        // STANDARD entry first; this path only applies when the method has none.)
+        final WeightedThrottledServiceInterface throttled = new WeightedThrottledServiceInterface(
+                recordingService,
+                Map.of(),
+                Map.of(WeightClass.STANDARD, 5, WeightClass.HEAVY, 1),
+                new RemoteAddressKeyExtractor(),
+                WEIGHER,
+                throttleMetrics,
+                Duration.ofDays(1));
+
+        // First heavy call from client A consumes the one global HEAVY permit; never completed.
+        throttled
+                .open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline())
+                .onNext(HEAVY_REQUEST);
+
+        // A heavy call from a *different* client is still rejected: with no per-client gate for
+        // this method at all, only the shared global ceiling applies, and it's already exhausted.
+        final CapturingPipeline secondReplies = new CapturingPipeline();
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.2"), secondReplies).onNext(HEAVY_REQUEST);
+
+        assertEquals(1, secondReplies.errors.size());
+    }
+
+    private WeightedThrottledServiceInterface throttledWith(final Tier standard, final Tier heavy) {
+        final Map<MethodWeight, PerClientThrottleSettings> perClientSettings = Map.of(
+                new MethodWeight(ONLY_METHOD.name(), WeightClass.STANDARD),
+                new PerClientThrottleSettings(
+                        standard.ratePerSecond(), standard.burstTolerance(), standard.maxConcurrentPerClient()),
+                new MethodWeight(ONLY_METHOD.name(), WeightClass.HEAVY),
+                new PerClientThrottleSettings(
+                        heavy.ratePerSecond(), heavy.burstTolerance(), heavy.maxConcurrentPerClient()));
+        final Map<WeightClass, Integer> globalConcurrencyCeilings = Map.of(
+                WeightClass.STANDARD, standard.maxConcurrentGlobal(), WeightClass.HEAVY, heavy.maxConcurrentGlobal());
         return new WeightedThrottledServiceInterface(
                 recordingService,
-                policies,
+                perClientSettings,
+                globalConcurrencyCeilings,
                 new RemoteAddressKeyExtractor(),
                 WEIGHER,
                 throttleMetrics,
                 Duration.ofDays(1));
     }
+
+    /// Per-client settings plus the node-wide ceiling, bundled together purely so call sites in
+    /// this test file stay compact; production code keeps these two concerns separate (see
+    /// [ThrottleSpec#globalConcurrencyCeilings] for why).
+    private record Tier(int ratePerSecond, int burstTolerance, int maxConcurrentPerClient, int maxConcurrentGlobal) {}
 
     private static ServiceInterface.RequestOptions optionsFor(final String ipAddress) {
         final InetSocketAddress address = new InetSocketAddress(loopbackLike(ipAddress), 40840);

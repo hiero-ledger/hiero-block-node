@@ -15,6 +15,7 @@ import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Flow;
 import org.hiero.metrics.core.MetricRegistry;
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.Test;
 class ThrottledServiceInterfaceTest {
 
     private static final ServiceInterface.Method ONLY_METHOD = () -> "onlyMethod";
+    private static final ServiceInterface.Method OTHER_METHOD = () -> "otherMethod";
 
     private RecordingService recordingService;
     private ThrottleMetrics throttleMetrics;
@@ -48,7 +50,7 @@ class ThrottledServiceInterfaceTest {
     @Test
     @DisplayName("An admitted call is passed through to the delegate")
     void admittedCallReachesDelegate() {
-        final ThrottledServiceInterface throttled = throttledWith(new ThrottlePolicy(100, 10, 5, 5));
+        final ThrottledServiceInterface throttled = throttledWith(new Tier(100, 10, 5, 5));
         final CapturingPipeline replies = new CapturingPipeline();
 
         throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), replies);
@@ -60,7 +62,7 @@ class ThrottledServiceInterfaceTest {
     @Test
     @DisplayName("The per-client concurrency ceiling rejects a second concurrent call from the same client")
     void perClientConcurrencyCeilingRejectsSecondCall() {
-        final ThrottledServiceInterface throttled = throttledWith(new ThrottlePolicy(100, 10, 1, 5));
+        final ThrottledServiceInterface throttled = throttledWith(new Tier(100, 10, 1, 5));
         final CapturingPipeline firstCallReplies = new CapturingPipeline();
         final CapturingPipeline secondCallReplies = new CapturingPipeline();
 
@@ -77,7 +79,7 @@ class ThrottledServiceInterfaceTest {
     @Test
     @DisplayName("A different client is not affected by another client's concurrency ceiling")
     void differentClientsHaveIndependentCeilings() {
-        final ThrottledServiceInterface throttled = throttledWith(new ThrottlePolicy(100, 10, 1, 5));
+        final ThrottledServiceInterface throttled = throttledWith(new Tier(100, 10, 1, 5));
         final CapturingPipeline clientAReplies = new CapturingPipeline();
         final CapturingPipeline clientBReplies = new CapturingPipeline();
 
@@ -93,7 +95,7 @@ class ThrottledServiceInterfaceTest {
     @DisplayName("Completing the outgoing responses pipeline releases the permit; completing the delegate's "
             + "unrelated returned pipeline does not")
     void permitReleaseAttachesToOutgoingPipelineNotTheReturnValue() {
-        final ThrottledServiceInterface throttled = throttledWith(new ThrottlePolicy(100, 10, 1, 5));
+        final ThrottledServiceInterface throttled = throttledWith(new Tier(100, 10, 1, 5));
         final CapturingPipeline firstCallReplies = new CapturingPipeline();
 
         final Pipeline<? super Bytes> returnedFromOpen =
@@ -120,7 +122,7 @@ class ThrottledServiceInterfaceTest {
     @Test
     @DisplayName("An error on the outgoing responses pipeline also releases the permit exactly once")
     void errorOnOutgoingPipelineReleasesPermitOnce() {
-        final ThrottledServiceInterface throttled = throttledWith(new ThrottlePolicy(100, 10, 1, 5));
+        final ThrottledServiceInterface throttled = throttledWith(new Tier(100, 10, 1, 5));
         final CapturingPipeline firstCallReplies = new CapturingPipeline();
         throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), firstCallReplies);
 
@@ -138,7 +140,7 @@ class ThrottledServiceInterfaceTest {
     @Test
     @DisplayName("The node-wide concurrency ceiling rejects calls once reached, regardless of client")
     void globalConcurrencyCeilingRejectsAcrossClients() {
-        final ThrottledServiceInterface throttled = throttledWith(new ThrottlePolicy(100, 10, 5, 1));
+        final ThrottledServiceInterface throttled = throttledWith(new Tier(100, 10, 5, 1));
         final CapturingPipeline clientAReplies = new CapturingPipeline();
         final CapturingPipeline clientBReplies = new CapturingPipeline();
 
@@ -153,7 +155,7 @@ class ThrottledServiceInterfaceTest {
     @DisplayName("A client calling faster than its rate limit is rejected without reaching the delegate")
     void rateLimitRejectsFastCalls() {
         // Rate of 1/s with no burst tolerance and a generous concurrency ceiling isolates the rate check.
-        final ThrottledServiceInterface throttled = throttledWith(new ThrottlePolicy(1, 0, 100, 100));
+        final ThrottledServiceInterface throttled = throttledWith(new Tier(1, 0, 100, 100));
         final CapturingPipeline firstCallReplies = new CapturingPipeline();
         final CapturingPipeline secondCallReplies = new CapturingPipeline();
 
@@ -170,8 +172,7 @@ class ThrottledServiceInterfaceTest {
     void lazyEvictionReplacesStaleClientState() throws InterruptedException {
         // Rate of 1/s with no burst tolerance: an immediate second call from the same client would
         // normally be rejected by the rate limiter, unless its state was reset by TTL-based eviction.
-        final ThrottledServiceInterface throttled =
-                throttledWith(new ThrottlePolicy(1, 0, 100, 100), Duration.ofMillis(20));
+        final ThrottledServiceInterface throttled = throttledWith(new Tier(1, 0, 100, 100), Duration.ofMillis(20));
         throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
         recordingService.capturedReplies.onComplete(); // free the concurrency slot
 
@@ -188,8 +189,7 @@ class ThrottledServiceInterfaceTest {
     @Test
     @DisplayName("sweepStaleClients evicts idle entries but never one with a call still in flight")
     void sweepStaleClientsRespectsInFlightCalls() {
-        final ThrottledServiceInterface throttled =
-                throttledWith(new ThrottlePolicy(100, 10, 5, 5), Duration.ofMillis(10));
+        final ThrottledServiceInterface throttled = throttledWith(new Tier(100, 10, 5, 5), Duration.ofMillis(10));
 
         // Client A: opens and completes immediately, so it is idle with nothing in flight.
         throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
@@ -204,16 +204,136 @@ class ThrottledServiceInterfaceTest {
         assertEquals(1, evicted, "only the idle client should be evicted; the in-flight client must be kept");
     }
 
-    private ThrottledServiceInterface throttledWith(final ThrottlePolicy policy) {
+    @Test
+    @DisplayName("A method with no configured per-client settings is never rejected by a per-client limit")
+    void unconfiguredMethodGetsNoPerClientGate() {
+        final ThrottledServiceInterface throttled = throttledWithOnlyGlobalCeiling(100);
+
+        for (int i = 0; i < 20; i++) {
+            // Every one of these would be rejected by any reasonable per-client concurrency
+            // ceiling, since none of them ever complete — but with no per-client gate configured,
+            // only the generous global ceiling (100) applies.
+            final CapturingPipeline replies = new CapturingPipeline();
+            throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), replies);
+            assertTrue(replies.errors.isEmpty(), "call " + i + " should be admitted; no per-client gate exists");
+        }
+    }
+
+    @Test
+    @DisplayName("Two independently configured methods get independent per-client concurrency ceilings")
+    void independentlyConfiguredMethodsDoNotSharePerClientState() {
+        final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
+                recordingService,
+                Map.of(
+                        new MethodWeight(ONLY_METHOD.name(), WeightClass.STANDARD),
+                        new PerClientThrottleSettings(100, 10, 1),
+                        new MethodWeight(OTHER_METHOD.name(), WeightClass.STANDARD),
+                        new PerClientThrottleSettings(100, 10, 1)),
+                Optional.empty(),
+                100,
+                new RemoteAddressKeyExtractor(),
+                throttleMetrics,
+                Duration.ofDays(1));
+
+        // Exhaust ONLY_METHOD's one per-client concurrency slot for this client...
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
+        final CapturingPipeline secondOnlyMethodReplies = new CapturingPipeline();
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), secondOnlyMethodReplies);
+        assertEquals(1, secondOnlyMethodReplies.errors.size(), "ONLY_METHOD's own ceiling should reject this");
+
+        // ...but the same client calling OTHER_METHOD is unaffected, since it has its own table.
+        final CapturingPipeline otherMethodReplies = new CapturingPipeline();
+        throttled.open(OTHER_METHOD, optionsFor("10.0.0.1"), otherMethodReplies);
+        assertTrue(
+                otherMethodReplies.errors.isEmpty(),
+                "OTHER_METHOD must not be affected by ONLY_METHOD's per-client ceiling");
+    }
+
+    @Test
+    @DisplayName("Unconfigured methods on the same service share one global concurrency pool, not independent ones")
+    void unconfiguredMethodsShareOneGlobalCeiling() {
+        final ThrottledServiceInterface throttled = throttledWithOnlyGlobalCeiling(1);
+
+        // Client A calls ONLY_METHOD, consuming the one global permit. Never completed, so it
+        // stays held.
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
+
+        // A completely different client calling a completely different (also unconfigured)
+        // method must still be rejected: the global ceiling is one shared pool for the whole
+        // service, not one per method.
+        final CapturingPipeline replies = new CapturingPipeline();
+        throttled.open(OTHER_METHOD, optionsFor("10.0.0.2"), replies);
+
+        assertEquals(
+                1,
+                replies.errors.size(),
+                "the global ceiling must be shared across every method on this service, configured or not");
+    }
+
+    @Test
+    @DisplayName("defaultPerClientSettings gates an otherwise-unconfigured method instead of leaving it global-only")
+    void defaultPerClientSettingsGatesUnconfiguredMethods() {
+        final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
+                recordingService,
+                Map.of(
+                        new MethodWeight(ONLY_METHOD.name(), WeightClass.STANDARD),
+                        new PerClientThrottleSettings(100, 10, 5)),
+                Optional.of(new PerClientThrottleSettings(100, 10, 1)), // default: 1 concurrent per client
+                100,
+                new RemoteAddressKeyExtractor(),
+                throttleMetrics,
+                Duration.ofDays(1));
+
+        // OTHER_METHOD was never named in perClientSettings, but the default fills the gap, so it
+        // gets a real per-client gate — not just the global-only fallback.
+        throttled.open(OTHER_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
+        final CapturingPipeline secondReplies = new CapturingPipeline();
+        throttled.open(OTHER_METHOD, optionsFor("10.0.0.1"), secondReplies);
+
+        assertEquals(
+                1,
+                secondReplies.errors.size(),
+                "the default per-client settings should give OTHER_METHOD a real concurrency ceiling of 1");
+    }
+
+    private ThrottledServiceInterface throttledWith(final Tier policy) {
         // A TTL far longer than any test could run keeps eviction (covered separately below) out of
         // the way of every test that isn't specifically exercising it.
         return throttledWith(policy, Duration.ofDays(1));
     }
 
-    private ThrottledServiceInterface throttledWith(final ThrottlePolicy policy, final Duration clientStateTtl) {
+    private ThrottledServiceInterface throttledWith(final Tier policy, final Duration clientStateTtl) {
         return new ThrottledServiceInterface(
-                recordingService, policy, new RemoteAddressKeyExtractor(), throttleMetrics, clientStateTtl);
+                recordingService,
+                Map.of(
+                        new MethodWeight(ONLY_METHOD.name(), WeightClass.STANDARD),
+                        new PerClientThrottleSettings(
+                                policy.ratePerSecond(), policy.burstTolerance(), policy.maxConcurrentPerClient())),
+                Optional.empty(),
+                policy.maxConcurrentGlobal(),
+                new RemoteAddressKeyExtractor(),
+                throttleMetrics,
+                clientStateTtl);
     }
+
+    /// A method with no entry in `perClientSettings` and no `defaultPerClientSettings` gets no
+    /// per-client gate at all — only the shared node-wide ceiling applies.
+    private ThrottledServiceInterface throttledWithOnlyGlobalCeiling(final int maxConcurrentGlobal) {
+        return new ThrottledServiceInterface(
+                recordingService,
+                Map.of(),
+                Optional.empty(),
+                maxConcurrentGlobal,
+                new RemoteAddressKeyExtractor(),
+                throttleMetrics,
+                Duration.ofDays(1));
+    }
+
+    /// Per-client settings local to this test file — the equivalent of the production
+    /// `PerClientThrottleSettings` plus the node-wide ceiling, bundled together purely so call
+    /// sites here stay compact; production code keeps these two concerns separate (see
+    /// [ThrottleSpec#globalConcurrencyCeilings] for why).
+    private record Tier(int ratePerSecond, int burstTolerance, int maxConcurrentPerClient, int maxConcurrentGlobal) {}
 
     private static ServiceInterface.RequestOptions optionsFor(final String ipAddress) {
         final InetSocketAddress address = new InetSocketAddress(loopbackLike(ipAddress), 40840);
@@ -250,6 +370,7 @@ class ThrottledServiceInterfaceTest {
     private static final class RecordingService implements ServiceInterface {
         private int openCalls;
         private Pipeline<? super Bytes> capturedReplies;
+        private final Map<String, Pipeline<? super Bytes>> capturedRepliesByMethod = new java.util.HashMap<>();
 
         @Override
         public String serviceName() {
@@ -263,7 +384,7 @@ class ThrottledServiceInterfaceTest {
 
         @Override
         public List<Method> methods() {
-            return List.of(ONLY_METHOD);
+            return List.of(ONLY_METHOD, OTHER_METHOD);
         }
 
         @Override
@@ -271,6 +392,7 @@ class ThrottledServiceInterfaceTest {
                 final Method method, final RequestOptions options, final Pipeline<? super Bytes> replies) {
             openCalls++;
             this.capturedReplies = replies;
+            capturedRepliesByMethod.put(method.name(), replies);
             return new InertPipeline();
         }
     }

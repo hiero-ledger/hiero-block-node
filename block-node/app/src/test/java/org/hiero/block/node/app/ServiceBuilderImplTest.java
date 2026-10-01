@@ -33,6 +33,7 @@ import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
+import org.hiero.block.node.spi.throttle.MethodWeight;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.ThrottleExempt;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
@@ -327,7 +328,7 @@ class ServiceBuilderImplTest {
     void registerGrpcService_throttleSpec_wrapsServiceUsingReportedGlobalCeiling() {
         final ServiceInterface testService = new TestThrottledService(
                 "TestService",
-                Map.of(WeightClass.STANDARD, new PerClientThrottleSettings(10, 5, 3)),
+                Map.of(new MethodWeight("testMethod", WeightClass.STANDARD), new PerClientThrottleSettings(10, 5, 3)),
                 Map.of(WeightClass.STANDARD, 100),
                 Optional.empty());
         final PbjRouting.Builder spyBuilder = injectGrpcBuilderSpy(CONSUMER_PORT);
@@ -346,9 +347,9 @@ class ServiceBuilderImplTest {
         final Map<WeightClass, Integer> globalCeilings = new EnumMap<>(WeightClass.class);
         globalCeilings.put(WeightClass.STANDARD, 100);
         globalCeilings.put(WeightClass.HEAVY, 20);
-        final Map<WeightClass, PerClientThrottleSettings> perClientSettings = new EnumMap<>(WeightClass.class);
-        perClientSettings.put(WeightClass.STANDARD, new PerClientThrottleSettings(10, 5, 3));
-        perClientSettings.put(WeightClass.HEAVY, new PerClientThrottleSettings(2, 1, 1));
+        final Map<MethodWeight, PerClientThrottleSettings> perClientSettings = Map.of(
+                new MethodWeight("testMethod", WeightClass.STANDARD), new PerClientThrottleSettings(10, 5, 3),
+                new MethodWeight("testMethod", WeightClass.HEAVY), new PerClientThrottleSettings(2, 1, 1));
         final ServiceInterface testService = new TestThrottledService(
                 "TestWeightedService", perClientSettings, globalCeilings, Optional.of(mock(ContentAwareWeigher.class)));
         final PbjRouting.Builder spyBuilder = injectGrpcBuilderSpy(CONSUMER_PORT);
@@ -366,8 +367,8 @@ class ServiceBuilderImplTest {
     void registerGrpcService_throttleSpecMissingGlobalCeiling_throwsIllegalArgumentException() {
         final ServiceInterface testService = new TestThrottledService(
                 "TestService",
-                Map.of(WeightClass.STANDARD, new PerClientThrottleSettings(10, 5, 3)),
-                Map.of(), // no STANDARD entry, even though perClientSettingsByWeight declares one
+                Map.of(new MethodWeight("testMethod", WeightClass.STANDARD), new PerClientThrottleSettings(10, 5, 3)),
+                Map.of(), // no STANDARD entry, even though perClientSettings declares one
                 Optional.empty());
         injectGrpcBuilderSpy(CONSUMER_PORT);
 
@@ -395,17 +396,17 @@ class ServiceBuilderImplTest {
     /// compiled into this module has no such restriction.
     private static final class TestThrottledService implements ServiceInterface, ThrottleSpec {
         private final String serviceName;
-        private final Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight;
+        private final Map<MethodWeight, PerClientThrottleSettings> perClientSettings;
         private final Map<WeightClass, Integer> globalConcurrencyCeilings;
         private final Optional<ContentAwareWeigher> weigher;
 
         TestThrottledService(
                 final String serviceName,
-                final Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight,
+                final Map<MethodWeight, PerClientThrottleSettings> perClientSettings,
                 final Map<WeightClass, Integer> globalConcurrencyCeilings,
                 final Optional<ContentAwareWeigher> weigher) {
             this.serviceName = serviceName;
-            this.perClientSettingsByWeight = perClientSettingsByWeight;
+            this.perClientSettings = perClientSettings;
             this.globalConcurrencyCeilings = globalConcurrencyCeilings;
             this.weigher = weigher;
         }
@@ -436,8 +437,8 @@ class ServiceBuilderImplTest {
         }
 
         @Override
-        public Map<WeightClass, PerClientThrottleSettings> perClientSettingsByWeight() {
-            return perClientSettingsByWeight;
+        public Map<MethodWeight, PerClientThrottleSettings> perClientSettings() {
+            return perClientSettings;
         }
 
         @Override
