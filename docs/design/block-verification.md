@@ -168,10 +168,13 @@ stage skips the remaining work and goes straight to result handling.
 
 1. **Hashing.** The `BlockHasher` consumes the block's item batches as they
    arrive and incrementally hashes them into the block's subtrees, producing the
-   block root hash together with the collected block data and proofs. The block
-   root tree has a fixed 16-leaf shape — every position always contributes,
-   using `EMPTY_TREE_HASH` when a subtree, state root, or extension slot is
-   absent — so Merkle proof paths are stable across presence patterns. How
+   block root hash together with the collected block data and proofs. Every hash
+   of the block root tree is SHA-256 (`BlockHasher.HASH_ALGORITHM`); the record
+   file signatures of a wrapped record block are verified over SHA-384 payloads
+   by the RSA proof verifier, the only SHA-384 computation left in the node. The
+   block root tree has a fixed 16-leaf shape: every position always contributes,
+   using the empty tree hash when a subtree, state root, or extension slot is
+   absent, so Merkle proof paths are stable across presence patterns. How
    items map to subtrees, and how this stage remains forward compatible with
    future item types, is described in
    [Block Stream Forward Compatibility](./block-stream-forward-compatibility.md).

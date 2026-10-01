@@ -15,7 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -62,11 +61,7 @@ public final class StateProofChainBuilder {
         this.signer = signer;
         this.verificationDataProvider = verificationDataProvider;
         this.metricsHolder = metricsHolder;
-        try {
-            this.allBlocksHasher = new StreamingHasher();
-        } catch (final Exception e) {
-            throw new IllegalStateException("SHA-384 unavailable", e);
-        }
+        this.allBlocksHasher = new StreamingHasher(BlockHasher.HASH_ALGORITHM);
     }
 
     /** Factory with an isolated MetricRegistry, safe to call inside plugin-based tests. */
@@ -117,13 +112,12 @@ public final class StateProofChainBuilder {
     }
 
     private TestBlock withChainedFooter(final TestBlock draft) {
-        final byte[] prev = previousBlockRootHash != null ? previousBlockRootHash : HashingUtilities.EMPTY_TREE_HASH;
-        final byte[] allBlocksRoot =
-                allBlocksHasher.leafCount() > 0 ? allBlocksHasher.computeRootHash() : HashingUtilities.EMPTY_TREE_HASH;
+        final Bytes emptyTreeHash = BlockHasher.HASH_ALGORITHM.emptyTreeHash();
+        final Bytes prev = previousBlockRootHash != null ? Bytes.wrap(previousBlockRootHash) : emptyTreeHash;
         final BlockFooter footer = BlockFooter.newBuilder()
-                .previousBlockRootHash(Bytes.wrap(prev))
-                .rootHashOfAllBlockHashesTree(Bytes.wrap(allBlocksRoot))
-                .startOfBlockStateRootHash(Bytes.wrap(HashingUtilities.EMPTY_TREE_HASH))
+                .previousBlockRootHash(prev)
+                .rootHashOfAllBlockHashesTree(Bytes.wrap(allBlocksHasher.computeRootHash()))
+                .startOfBlockStateRootHash(emptyTreeHash)
                 .build();
         final BlockItemUnparsed footerItem = BlockItemUnparsed.newBuilder()
                 .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
@@ -132,25 +126,29 @@ public final class StateProofChainBuilder {
     }
 
     private TestBlock withStateProof(final TestBlock draft, final long blockNumber, final Bytes rootHash) {
-        // Path 0: TIMESTAMP_LEAF + one right sibling. Deterministic zero-filled placeholders.
-        final byte[] timestampBytes = new byte[48];
-        final byte[] path0SiblingHash = new byte[48];
+        // Path 0: TIMESTAMP_LEAF + one right sibling. Deterministic zero-filled placeholders of
+        // one digest of the block hash algorithm.
+        final int hashSize = BlockHasher.HASH_ALGORITHM.hashSize();
+        final byte[] timestampBytes = new byte[hashSize];
+        final byte[] path0SiblingHash = new byte[hashSize];
         // Path 1: HASH == gap block root + one left sibling.
-        final byte[] path1SiblingHash = new byte[48];
+        final byte[] path1SiblingHash = new byte[hashSize];
 
         final SiblingNode path0Sibling = new SiblingNode(false, Bytes.wrap(path0SiblingHash));
         final SiblingNode path1Sibling = new SiblingNode(true, Bytes.wrap(path1SiblingHash));
 
         // Reconstruct the same signed root the verifier would compute.
-        // result0 = combineSibling(hashLeaf(timestamp), path0Sibling) — right sibling → parent = hash(content, sibling)
-        final byte[] leaf0Content = hashLeaf(timestampBytes);
-        final byte[] result0 =
-                hashInternalNode(leaf0Content, path0Sibling.hash().toByteArray());
-        // result1 = combineSibling(gapBlockRoot, path1Sibling) — left sibling → parent = hash(sibling, content)
+        // result0 = combineSibling(hashLeaf(timestamp), path0Sibling): a right sibling gives parent = hash(content,
+        // sibling)
+        final byte[] leaf0Content = hashLeaf(BlockHasher.HASH_ALGORITHM, timestampBytes);
+        final byte[] result0 = hashInternalNode(
+                BlockHasher.HASH_ALGORITHM, leaf0Content, path0Sibling.hash().toByteArray());
+        // result1 = combineSibling(gapBlockRoot, path1Sibling): a left sibling gives parent = hash(sibling, content)
         final byte[] leaf1Content = rootHash.toByteArray();
-        final byte[] result1 = hashInternalNode(path1Sibling.hash().toByteArray(), leaf1Content);
+        final byte[] result1 =
+                hashInternalNode(BlockHasher.HASH_ALGORITHM, path1Sibling.hash().toByteArray(), leaf1Content);
         // Path 2 (join) has no siblings, so the reconstructed signed root is hashInternalNode(result0, result1).
-        final byte[] signedRoot = hashInternalNode(result0, result1);
+        final byte[] signedRoot = hashInternalNode(BlockHasher.HASH_ALGORITHM, result0, result1);
 
         final BlockProof signedProof = signer.signBlockProof(blockNumber, Bytes.wrap(signedRoot));
         final TssSignedBlockProof tssSigned = signedProof.signedBlockProof();

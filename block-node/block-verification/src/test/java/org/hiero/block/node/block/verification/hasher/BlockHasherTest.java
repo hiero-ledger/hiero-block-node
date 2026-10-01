@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlock;
@@ -324,6 +325,26 @@ class BlockHasherTest {
             final HashingResult actual = toTest.get();
             assertThat(actual.blockProofs()).hasSize(1);
         }
+
+        /// This test aims to assert that the root hash of a successfully hashed block has the
+        /// digest size of the block hash algorithm, [BlockHasher#HASH_ALGORITHM], so every hash
+        /// the node reports and chains into the next block is one digest of that algorithm.
+        @Test
+        @DisplayName("get() root hash has the digest size of the block hash algorithm")
+        void testRootHashHasDigestSizeOfAlgorithm() {
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER);
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockHasher toTest = new BlockHasher(
+                    new AtomicBoolean(false),
+                    blockItemsDeque,
+                    metrics.hashingMetrics(),
+                    block.number(),
+                    BlockSource.PUBLISHER,
+                    verificationDataProvider);
+            blockItemsDeque.add(block.asBlockItems());
+            final HashingResult actual = toTest.get();
+            assertThat(actual.rootHash().length()).isEqualTo(BlockHasher.HASH_ALGORITHM.hashSize());
+        }
     }
 
     /// Negative tests for [BlockHasher] class.
@@ -609,6 +630,33 @@ class BlockHasherTest {
                                         SessionFailureType.MISSING_MANDATORY_ITEM,
                                         VerificationSessionFailedException::getFailureType);
                     });
+        }
+
+        /// This test aims to assert that a block whose footer hashes have the digest size of
+        /// another algorithm (here the size of a SHA-384 digest, where the block hash algorithm
+        /// produces 32 byte digests) is refused: such a block was hashed by a network computing
+        /// with another algorithm, and folding its footer hashes into this tree would silently
+        /// truncate them. The hashing stage reports it as an illegal argument today, which the
+        /// session result handler turns into an unknown error notification.
+        @Test
+        @DisplayName("get() refuses footer hashes of another digest size")
+        void testFooterHashesOfOtherDigestSizeRefused() throws ParseException {
+            final long blockNumber = 0;
+            final Bytes otherSizeHash = Bytes.wrap(new byte[HashAlgorithm.SHA2_384.hashSize()]);
+            final BlockItemUnparsed footer = TestBlockBuilder.convertToUnparsedItem(new BlockItem(new OneOf<>(
+                    ItemOneOfType.BLOCK_FOOTER, new BlockFooter(otherSizeHash, otherSizeHash, otherSizeHash))));
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber)
+                    .replace(BlockItemUnparsed::hasBlockFooter, footer);
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockHasher toTest = new BlockHasher(
+                    new AtomicBoolean(false),
+                    blockItemsDeque,
+                    metrics.hashingMetrics(),
+                    block.number(),
+                    BlockSource.PUBLISHER,
+                    verificationDataProvider);
+            blockItemsDeque.offer(block.asBlockItems());
+            assertThatThrownBy(toTest::get).isInstanceOf(IllegalArgumentException.class);
         }
     }
 
@@ -1269,7 +1317,7 @@ class BlockHasherTest {
     /// fixed assignment, unknown types by field number modulo 20), each category is folded
     /// with the streaming merkle tree algorithm, and the category roots are combined into the
     /// fixed 16 leaf block root tree, where every empty subtree and the absent state root
-    /// contribute the empty tree hash (SHA-384 of a single 0x00 byte).
+    /// contribute the empty tree hash (SHA-256 of a single 0x00 byte).
     private static Bytes referenceRootHash(final List<BlockItemUnparsed> items) throws ParseException {
         final List<byte[]> consensusLeaves = new ArrayList<>();
         final List<byte[]> inputLeaves = new ArrayList<>();
@@ -1319,8 +1367,8 @@ class BlockHasherTest {
             }
         }
         // Merkle Mountain Top: always feed all 16 leaves in fixed positional order.
-        // Absent state root and empty subtrees contribute EMPTY_TREE_HASH (SHA-384(0x00)).
-        final byte[] emptyTreeHash = refSha384(new byte[] {0x00});
+        // Absent state root and empty subtrees contribute the empty tree hash (SHA-256(0x00)).
+        final byte[] emptyTreeHash = refSha256(new byte[] {0x00});
         final byte[] stateRoot = footer.startOfBlockStateRootHash().length() == 0
                 ? emptyTreeHash
                 : footer.startOfBlockStateRootHash().toByteArray();
@@ -1347,7 +1395,7 @@ class BlockHasherTest {
     /// tree is the hash of a single zero byte.
     private static byte[] refStreamingRoot(final List<byte[]> leafHashes) {
         if (leafHashes.isEmpty()) {
-            return refSha384(new byte[] {0x00});
+            return refSha256(new byte[] {0x00});
         }
         final List<byte[]> hashList = new ArrayList<>();
         for (int i = 0; i < leafHashes.size(); i++) {
@@ -1365,40 +1413,21 @@ class BlockHasherTest {
         return root;
     }
 
-    /// Reference hash of an internal node whose children may be absent.
-    private static byte[] refCombineOptional(final byte[] left, final byte[] right) {
-        final byte[] node;
-        if (left == null && right == null) {
-            node = null;
-        } else if (left == null) {
-            node = refSingle(right);
-        } else if (right == null) {
-            node = refSingle(left);
-        } else {
-            node = refNode(left, right);
-        }
-        return node;
-    }
-
     /// Reference leaf hash with the 0x00 domain separation prefix.
     private static byte[] refLeaf(final byte[] data) {
-        return refSha384(new byte[] {0x00}, data);
-    }
-
-    /// Reference single child internal node hash with the 0x01 domain separation prefix.
-    private static byte[] refSingle(final byte[] child) {
-        return refSha384(new byte[] {0x01}, child);
+        return refSha256(new byte[] {0x00}, data);
     }
 
     /// Reference two children internal node hash with the 0x02 domain separation prefix.
     private static byte[] refNode(final byte[] left, final byte[] right) {
-        return refSha384(new byte[] {0x02}, left, right);
+        return refSha256(new byte[] {0x02}, left, right);
     }
 
-    /// SHA-384 over the concatenation of the given parts.
-    private static byte[] refSha384(final byte[]... parts) {
+    /// SHA-256 over the concatenation of the given parts, the block hash algorithm spelled out
+    /// here so the reference stays independent of the production code.
+    private static byte[] refSha256(final byte[]... parts) {
         try {
-            final MessageDigest digest = MessageDigest.getInstance("SHA-384");
+            final MessageDigest digest = MessageDigest.getInstance("SHA-256");
             for (final byte[] part : parts) {
                 digest.update(part);
             }
@@ -1416,7 +1445,7 @@ class BlockHasherTest {
 
     private BlockItemUnparsed headerWithNoTimestamp(final long blockNumber) throws ParseException {
         final BlockHeader headerWithNoTimestamp = new BlockHeader(
-                SemanticVersion.DEFAULT, SemanticVersion.DEFAULT, blockNumber, null, BlockHashAlgorithm.SHA2_384);
+                SemanticVersion.DEFAULT, SemanticVersion.DEFAULT, blockNumber, null, BlockHashAlgorithm.SHA2_256);
         return TestBlockBuilder.convertToUnparsedItem(
                 new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, headerWithNoTimestamp)));
     }
@@ -1429,9 +1458,9 @@ class BlockHasherTest {
                 new SemanticVersion(1, 0, 0, "", ""),
                 0,
                 new Timestamp(1_500_000_000L, 0),
-                BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer =
-                new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]));
+                BlockHashAlgorithm.SHA2_256);
+        final Bytes zeroHash = Bytes.wrap(new byte[BlockHasher.HASH_ALGORITHM.hashSize()]);
+        final BlockFooter footer = new BlockFooter(zeroHash, zeroHash, zeroHash);
         final BlockProof proof = BlockProof.newBuilder()
                 .block(0)
                 .signedRecordFileProof(new SignedRecordFileProof(proofVersion, List.of()))

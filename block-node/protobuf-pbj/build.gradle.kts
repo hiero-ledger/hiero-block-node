@@ -29,9 +29,15 @@ pbj { generateTestClasses = false }
 sourceSets {
     main {
         pbj {
-            // Local overrides take precedence - adds RecordFileItem.amendments field not yet in CN
-            // TODO: Remove this once we upgrade the protobuf version to include amendments field
-            srcDir(layout.projectDirectory.dir("../../protobuf-sources/src/main/proto-overrides"))
+            // Local overrides from 'protobuf-sources/src/main/proto-overrides' (the
+            // RecordFileItem.amendments
+            // field and the BlockHashAlgorithm.SHA2_256 value, not yet in the CN protobuf release)
+            // are applied
+            // into 'block-node-protobuf' by the generateBlockNodeProtoArtifact script; they must
+            // not be a
+            // second source directory here, a duplicate of a file other protos import breaks the
+            // PBJ lookup.
+            // TODO: Remove the overrides once we upgrade the protobuf version to include both
             // use sources from 'protobuf' module
             srcDir(layout.projectDirectory.dir("../../protobuf-sources/src/main/proto"))
             // use sources from CN repository cloned by 'protobuf' module (see task dependency)

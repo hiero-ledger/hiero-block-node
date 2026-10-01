@@ -39,7 +39,7 @@ public class BlockAccessorTest {
                             new SemanticVersion(4, 5, 6, "c", "d"),
                             123,
                             new Timestamp(123L, 456),
-                            BlockHashAlgorithm.SHA2_384))),
+                            BlockHashAlgorithm.SHA2_256))),
             new BlockItem(new OneOf<>(ItemOneOfType.ROUND_HEADER, new RoundHeader(827))),
             new BlockItem(new OneOf<>(
                     ItemOneOfType.BLOCK_PROOF,

@@ -11,7 +11,7 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.hiero.block.common.hasher.StreamingTreeHasher;
+import org.hiero.block.simulator.Constants;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,8 +31,8 @@ class SimulatorStartupDataImplTest {
 
     @BeforeEach
     void setup() {
-        validSimulatedBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
-        for (byte i = 0; i < StreamingTreeHasher.HASH_LENGTH; i++) {
+        validSimulatedBlockHash = new byte[Constants.BLOCK_HASH_ALGORITHM.hashSize()];
+        for (byte i = 0; i < Constants.BLOCK_HASH_ALGORITHM.hashSize(); i++) {
             validSimulatedBlockHash[i] = i;
         }
         latestAckBlockNumberPath = tempDir.resolve("latestAckBlockNumber");
@@ -115,7 +115,7 @@ class SimulatorStartupDataImplTest {
         assertThat(toTest)
                 .returns(-1L, from(SimulatorStartupDataImpl::getLatestAckBlockNumber))
                 .returns(
-                        new byte[StreamingTreeHasher.HASH_LENGTH],
+                        new byte[Constants.BLOCK_HASH_ALGORITHM.hashSize()],
                         from(SimulatorStartupDataImpl::getLatestAckBlockHash));
     }
 
@@ -132,7 +132,7 @@ class SimulatorStartupDataImplTest {
         assertThat(toTest)
                 .returns(-1L, from(SimulatorStartupDataImpl::getLatestAckBlockNumber))
                 .returns(
-                        new byte[StreamingTreeHasher.HASH_LENGTH],
+                        new byte[Constants.BLOCK_HASH_ALGORITHM.hashSize()],
                         from(SimulatorStartupDataImpl::getLatestAckBlockHash));
     }
 
@@ -149,7 +149,7 @@ class SimulatorStartupDataImplTest {
         assertThat(toTest)
                 .returns(-1L, from(SimulatorStartupDataImpl::getLatestAckBlockNumber))
                 .returns(
-                        new byte[StreamingTreeHasher.HASH_LENGTH],
+                        new byte[Constants.BLOCK_HASH_ALGORITHM.hashSize()],
                         from(SimulatorStartupDataImpl::getLatestAckBlockHash));
     }
 
@@ -210,7 +210,7 @@ class SimulatorStartupDataImplTest {
     @Test
     void testFailedInitializationWrongHashLength() throws IOException {
         Files.write(latestAckBlockNumberPath, "1".getBytes());
-        Files.write(latestAckBlockHashPath, new byte[StreamingTreeHasher.HASH_LENGTH - 1]);
+        Files.write(latestAckBlockHashPath, new byte[Constants.BLOCK_HASH_ALGORITHM.hashSize() - 1]);
         assertThatIllegalStateException().isThrownBy(() -> newInstanceToTest(true));
     }
 

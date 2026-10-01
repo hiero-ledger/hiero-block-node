@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -36,6 +37,13 @@ import org.jspecify.annotations.NonNull;
  * A utility class to create sample BlockItem objects for testing purposes.
  */
 public final class TestBlockBuilder {
+    /**
+     * The algorithm the footer hashes of the blocks built here are sized for. It mirrors
+     * {@code BlockHasher.HASH_ALGORITHM} of the block-verification module, which this fixtures module
+     * cannot see. The headers built here declare the matching {@code BlockHashAlgorithm.SHA2_256}.
+     */
+    private static final HashAlgorithm BLOCK_HASH_ALGORITHM = HashAlgorithm.SHA2_256;
+
     private static final Bytes RANDOM_HALF_MB;
 
     static {
@@ -54,7 +62,7 @@ public final class TestBlockBuilder {
                 new SemanticVersion(4, 5, 6, "c", "d"),
                 blockNumber,
                 new Timestamp(123L, 456),
-                BlockHashAlgorithm.SHA2_384);
+                BlockHashAlgorithm.SHA2_256);
     }
 
     public static BlockItem sampleHeader(final long blockNumber) {
@@ -72,7 +80,7 @@ public final class TestBlockBuilder {
                         new SemanticVersion(4, 5, 6, "c", "d"),
                         blockNumber,
                         new Timestamp(consensusTime.getEpochSecond(), consensusTime.getNano()),
-                        BlockHashAlgorithm.SHA2_384)));
+                        BlockHashAlgorithm.SHA2_256)));
     }
 
     public static Bytes createHeaderUnparsed(final long blockNumber) {
@@ -126,13 +134,15 @@ public final class TestBlockBuilder {
     }
 
     public static BlockFooter createFooter(final long blockNumber) {
-        // Slot 0 (previousBlockRootHash) and slot 1 (rootHashOfAllBlockHashesTree) MUST be
-        // exactly 48 bytes (SHA-384). Zero-filled placeholders satisfy the length guard while
-        // remaining deterministic. Slot 2 (startOfBlockStateRootHash) may be empty per HIP-1424.
+        // Every slot must be exactly one digest of the block hash algorithm: the hasher refuses a
+        // previous block root hash, an all blocks root or a non-empty state root of another size.
+        // Zero-filled placeholders satisfy the size guard while remaining deterministic. Slot 2
+        // (startOfBlockStateRootHash) may also be empty per HIP-1424.
+        final Bytes zeroHash = Bytes.wrap(new byte[BLOCK_HASH_ALGORITHM.hashSize()]);
         return BlockFooter.newBuilder()
-                .previousBlockRootHash(Bytes.wrap(new byte[48]))
-                .rootHashOfAllBlockHashesTree(Bytes.wrap(new byte[48]))
-                .startOfBlockStateRootHash(Bytes.wrap(new byte[48]))
+                .previousBlockRootHash(zeroHash)
+                .rootHashOfAllBlockHashesTree(zeroHash)
+                .startOfBlockStateRootHash(zeroHash)
                 .build();
     }
 

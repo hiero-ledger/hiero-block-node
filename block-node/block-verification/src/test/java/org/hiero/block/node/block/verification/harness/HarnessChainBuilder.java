@@ -11,7 +11,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -28,7 +27,7 @@ import org.hiero.block.signing.TssBlockSigner;
  * Builds a chain of TSS-signed {@link TestBlock}s that pass end-to-end verification
  * against the real {@link org.hiero.block.node.block.verification.verifier.TSSVerifier}.
  *
- * <p>Each call to {@link #next(long)} — or {@link #genesisWithPublication()} for block 0 —
+ * <p>Each call to {@link #next(long)}, or {@link #genesisWithPublication()} for block 0,
  * emits a block whose {@code previousBlockRootHash} chains to the previous emission,
  * whose {@code rootHashOfAllBlockHashesTree} matches the running all-previous-blocks tree,
  * and whose {@link BlockProof} carries a real signature over the computed block root hash.
@@ -51,11 +50,7 @@ public final class HarnessChainBuilder {
         this.signer = signer;
         this.verificationDataProvider = verificationDataProvider;
         this.metricsHolder = metricsHolder;
-        try {
-            this.allBlocksHasher = new StreamingHasher();
-        } catch (final Exception e) {
-            throw new IllegalStateException("SHA-384 unavailable", e);
-        }
+        this.allBlocksHasher = new StreamingHasher(BlockHasher.HASH_ALGORITHM);
     }
 
     /**
@@ -118,13 +113,12 @@ public final class HarnessChainBuilder {
     }
 
     private TestBlock withChainedFooter(final TestBlock draft) {
-        final byte[] prev = previousBlockRootHash != null ? previousBlockRootHash : HashingUtilities.EMPTY_TREE_HASH;
-        final byte[] allBlocksRoot =
-                allBlocksHasher.leafCount() > 0 ? allBlocksHasher.computeRootHash() : HashingUtilities.EMPTY_TREE_HASH;
+        final Bytes emptyTreeHash = BlockHasher.HASH_ALGORITHM.emptyTreeHash();
+        final Bytes prev = previousBlockRootHash != null ? Bytes.wrap(previousBlockRootHash) : emptyTreeHash;
         final BlockFooter footer = BlockFooter.newBuilder()
-                .previousBlockRootHash(Bytes.wrap(prev))
-                .rootHashOfAllBlockHashesTree(Bytes.wrap(allBlocksRoot))
-                .startOfBlockStateRootHash(Bytes.wrap(HashingUtilities.EMPTY_TREE_HASH))
+                .previousBlockRootHash(prev)
+                .rootHashOfAllBlockHashesTree(Bytes.wrap(allBlocksHasher.computeRootHash()))
+                .startOfBlockStateRootHash(emptyTreeHash)
                 .build();
         final BlockItemUnparsed footerItem = BlockItemUnparsed.newBuilder()
                 .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
