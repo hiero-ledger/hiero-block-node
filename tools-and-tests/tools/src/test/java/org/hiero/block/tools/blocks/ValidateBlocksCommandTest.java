@@ -100,7 +100,6 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertEquals(0, exitCode, "Should pass validation. Output:\n" + output);
-        assertTrue(output.contains("VALIDATION PASSED"), "Should report PASSED. Output:\n" + output);
         assertTrue(output.contains("Blocks validated: 5"), "Should validate 5 blocks. Output:\n" + output);
     }
 
@@ -118,9 +117,8 @@ class ValidateBlocksCommandTest {
         int exitCode = (int) result[0];
         String output = (String) result[1];
 
-        assertEquals(0, exitCode); // picocli returns 0 for Runnable
+        assertEquals(1, exitCode, "Should exit non-zero on failure. Output:\n" + output);
         assertTrue(output.contains("Block Chain"), "Should detect hash chain error. Output:\n" + output);
-        assertTrue(output.contains("VALIDATION FAILED"), "Should report FAILED. Output:\n" + output);
     }
 
     // ── Block structure validation ──
@@ -136,7 +134,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertTrue(output.contains("Required Items"), "Should detect missing header. Output:\n" + output);
-        assertTrue(output.contains("VALIDATION FAILED"), "Should report FAILED. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
     }
 
     @Test
@@ -150,6 +148,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertTrue(output.contains("Required Items"), "Should detect missing footer. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
     }
 
     @Test
@@ -163,6 +162,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertTrue(output.contains("Required Items"), "Should detect missing record file. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
     }
 
     @Test
@@ -176,6 +176,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertTrue(output.contains("Required Items"), "Should detect missing proof. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
     }
 
     @Test
@@ -189,6 +190,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertTrue(output.contains("Block Structure"), "Should detect duplicate header. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
     }
 
     @Test
@@ -202,6 +204,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertTrue(output.contains("Block Structure"), "Should detect items out of order. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
     }
 
     // ── Historical tree root validation ──
@@ -217,7 +220,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertTrue(output.contains("Historical Block Tree"), "Should detect tree root mismatch. Output:\n" + output);
-        assertTrue(output.contains("VALIDATION FAILED"), "Should report FAILED. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
     }
 
     // ── Signature verification ──
@@ -232,7 +235,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(output.contains("VALIDATION PASSED"), "All signatures should pass. Output:\n" + output);
+        assertEquals(0, (int) result[0], "All signatures should pass. Output:\n" + output);
     }
 
     @Test
@@ -249,6 +252,7 @@ class ValidateBlocksCommandTest {
         assertTrue(
                 output.contains("Insufficient valid signatures") || output.contains("Signatures"),
                 "Should detect insufficient signatures. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
     }
 
     @Test
@@ -263,7 +267,7 @@ class ValidateBlocksCommandTest {
 
         // Even with 1 corrupt sig, 4 remaining still pass threshold of 2
         // So this should still pass
-        assertTrue(output.contains("VALIDATION PASSED"), "4/5 valid sigs should meet threshold. Output:\n" + output);
+        assertEquals(0, (int) result[0], "4/5 valid sigs should meet threshold. Output:\n" + output);
     }
 
     // ── 50 billion HBAR supply ──
@@ -284,7 +288,7 @@ class ValidateBlocksCommandTest {
         assertTrue(
                 output.contains("HBAR Supply") || output.contains("Signatures"),
                 "Should detect HBAR supply mismatch or signature failure. Output:\n" + output);
-        assertTrue(output.contains("VALIDATION FAILED"), "Should report FAILED. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
     }
 
     // ── Gap detection ──
@@ -301,6 +305,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertTrue(output.contains("Gap detected"), "Should detect gap in block numbers. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
     }
 
     // ── Missing address book ──
@@ -318,8 +323,9 @@ class ValidateBlocksCommandTest {
         // genesis address book. Signature validation will fail because the test blocks
         // use different keys than the genesis address book.
         assertTrue(
-                output.contains("Using genesis address book") || output.contains("VALIDATION FAILED"),
-                "Should fall back to genesis address book or fail with signature mismatch. Output:\n" + output);
+                output.contains("Using genesis address book"),
+                "Should fall back to genesis address book. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
     }
 
     // ── Checkpoint/resume ──
@@ -335,7 +341,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(output.contains("VALIDATION FAILED"), "Should report FAILED. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should report FAILED. Output:\n" + output);
         // Check checkpoint was saved
         assertTrue(output.contains("Checkpoint saved"), "Should save checkpoint on error. Output:\n" + output);
         assertTrue(
@@ -396,7 +402,7 @@ class ValidateBlocksCommandTest {
 
         Object[] result1 = runValidate("--no-resume");
         String output1 = (String) result1[1];
-        assertTrue(output1.contains("VALIDATION FAILED"), "First run should fail. Output:\n" + output1);
+        assertEquals(1, (int) result1[0], "First run should fail. Output:\n" + output1);
         assertTrue(
                 Files.exists(tempDir.resolve("validateCheckpoint/validateProgress.json")),
                 "Checkpoint should exist after first run");
@@ -420,7 +426,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate();
         String output = (String) result[1];
 
-        assertTrue(output.contains("VALIDATION PASSED"), "Should pass validation. Output:\n" + output);
+        assertEquals(0, (int) result[0], "Should pass validation. Output:\n" + output);
 
         // Checkpoint should be preserved on success so that future runs can resume
         Path checkpointDir = tempDir.resolve("validateCheckpoint");
@@ -447,6 +453,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertTrue(output.contains("must be >= 1"), "Should reject --threads 0. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should exit non-zero. Output:\n" + output);
     }
 
     @Test
@@ -459,6 +466,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertTrue(output.contains("must be >= 1"), "Should reject --prefetch 0. Output:\n" + output);
+        assertEquals(1, (int) result[0], "Should exit non-zero. Output:\n" + output);
     }
 
     @Test
@@ -526,7 +534,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(output.contains("VALIDATION PASSED"), "Should pass. Output:\n" + output);
+        assertEquals(0, (int) result[0], "Should pass. Output:\n" + output);
         assertTrue(output.contains("Blocks validated: 5"), "Should validate all 5 blocks. Output:\n" + output);
         assertFalse(
                 output.contains("Resuming from checkpoint"), "Should NOT resume from checkpoint. Output:\n" + output);
@@ -556,7 +564,6 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertEquals(0, exitCode, "Should pass validation. Output:\n" + output);
-        assertTrue(output.contains("VALIDATION PASSED"), "Should report PASSED. Output:\n" + output);
 
         Path binPath = tempDir.resolve("tss-enablement.bin");
         Path jsonPath = tempDir.resolve("tss-bootstrap-roster.json");
@@ -577,7 +584,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(output.contains("VALIDATION PASSED"), "Should pass. Output:\n" + output);
+        assertEquals(0, (int) result[0], "Should pass. Output:\n" + output);
         assertFalse(
                 Files.exists(tempDir.resolve("tss-enablement.bin")),
                 "tss-enablement.bin should not be written without a LedgerIdPublication transaction");
