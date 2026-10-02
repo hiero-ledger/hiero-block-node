@@ -290,6 +290,19 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     }
 
     /**
+     * On plugin stop, close any zip archive filesystems cached by {@link ZipBlockArchive}.
+     */
+    @Override
+    public void stop() {
+        // Snapshot the field locally: reading it twice (once in the check, once in the call) would not be
+        // guaranteed to observe the same value if it could change between the two reads.
+        final ZipBlockArchive localArchive = zipBlockArchive;
+        if (localArchive != null) {
+            localArchive.close();
+        }
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override
@@ -508,6 +521,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                             // what we should decrement the total bytes stored by
                             final long zipFileSize = Files.size(zipToDelete);
                             Files.delete(zipToDelete);
+                            zipBlockArchive.evictArchive(zipToDelete);
                             totalBytesStored.addAndGet(-zipFileSize);
                             availableBlocks.remove(
                                     minBlockNumberStored, minBlockNumberStored + numberOfBlocksPerZipFile - 1);

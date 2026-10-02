@@ -233,8 +233,8 @@ class BlockPathTest {
             final Path expectedZipFilePath = jimfs.getPath(dataRoot + expectedRelativeZipFilePathStr);
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test, resolve paths with jimfs
-            final FilesHistoricConfig testConfig =
-                    new FilesHistoricConfig(dataRoot, expectedCompressionType, digitsPerZipFileContents, 0L, 3, false);
+            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
+                    dataRoot, expectedCompressionType, digitsPerZipFileContents, 0L, 3, false, false, 8);
             final BlockPath actual = BlockPath.computeBlockPath(testConfig, blockNumber);
             assertThat(actual)
                     .isNotNull()
@@ -269,8 +269,8 @@ class BlockPathTest {
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test, resolve paths temp dir as jimfs does not support
             // the File abstraction
-            final FilesHistoricConfig testConfig =
-                    new FilesHistoricConfig(dataRoot, expectedCompressionType, digitsPerZipFileContents, 0L, 3, false);
+            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
+                    dataRoot, expectedCompressionType, digitsPerZipFileContents, 0L, 3, false, false, 8);
             // create the zip file and directory and add entry
             createZipAndAddEntry(expectedDirPath, expectedZipFilePath, expectedBlockFileName);
             // call
@@ -317,8 +317,8 @@ class BlockPathTest {
                     .orElseThrow();
             // create the config to use for the test, resolve paths temp dir as jimfs does not support
             // the File abstraction
-            final FilesHistoricConfig testConfig =
-                    new FilesHistoricConfig(dataRoot, differentCompressionType, digitsPerZipFileContents, 0L, 3, false);
+            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
+                    dataRoot, differentCompressionType, digitsPerZipFileContents, 0L, 3, false, false, 8);
             // create the zip file and directory and add entry
             createZipAndAddEntry(expectedDirPath, expectedZipFilePath, expectedBlockFileName);
             // call
@@ -348,8 +348,8 @@ class BlockPathTest {
             final Long blockNumber = argAccessor.getLong(3);
             final CompressionType expectedCompressionType = argAccessor.get(4, CompressionType.class);
             final int digitsPerZipFileContents = argAccessor.getInteger(5);
-            final FilesHistoricConfig testConfig =
-                    new FilesHistoricConfig(dataRoot, expectedCompressionType, digitsPerZipFileContents, 0L, 3, false);
+            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
+                    dataRoot, expectedCompressionType, digitsPerZipFileContents, 0L, 3, false, false, 8);
             // call
             final BlockPath actual = BlockPath.computeExistingBlockPath(testConfig, blockNumber);
             assertThat(actual).isNull();
@@ -376,8 +376,8 @@ class BlockPathTest {
             final Path expectedZipFilePath = dataRoot.resolve(dataRoot + expectedRelativeZipFilePathStr);
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test
-            final FilesHistoricConfig testConfig =
-                    new FilesHistoricConfig(dataRoot, expectedCompressionType, digitsPerZipFileContents, 0L, 3, false);
+            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
+                    dataRoot, expectedCompressionType, digitsPerZipFileContents, 0L, 3, false, false, 8);
             // create the zip file and directory and add entry
             createZipAndAddEntry(expectedDirPath, expectedZipFilePath, "nonexistent.blk.zstd");
             // call
@@ -428,7 +428,7 @@ class BlockPathTest {
                 for (int configIdx = 0; configIdx < compressionTypes.length; configIdx++) {
                     // Use config with compression type j (matching the file extension)
                     final BlockPath blockPathSameConfigCompression = BlockPath.computeExistingBlockPath(
-                            new FilesHistoricConfig(dataRoot, compressionTypes[configIdx], 4, 0L, 3, false),
+                            new FilesHistoricConfig(dataRoot, compressionTypes[configIdx], 4, 0L, 3, false, false, 8),
                             compressionIdx + configIdx);
                     // Verify that the actual compression type i is detected from magic bytes or lack thereof
                     assertThat(blockPathSameConfigCompression)

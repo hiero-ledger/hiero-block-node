@@ -101,60 +101,80 @@ record BlockPath(
         // compute the path to the block file based on current configuration
         final BlockPath computed = computeBlockPath(config, blockNumber);
         // check if the zip file exists
-        if (Files.exists(computed.zipFilePath)) {
-            try (final FileSystem zipFS = FileSystems.newFileSystem(computed.zipFilePath)) {
-                final CompressionType[] compressionOpts =
-                        config.compression().getDeclaringClass().getEnumConstants();
-                // check if the block file exists
-                if (Files.exists(zipFS.getPath(computed.blockFileName))) {
-                    // Check what is the compression type based on the magic bytes
-                    final CompressionType magicBytesCT = Objects.requireNonNullElse(
-                            determineCompressionByMagicBytes(zipFS.getPath(computed.blockFileName), compressionOpts),
-                            CompressionType.NONE);
-                    if (computed.compressionType.equals(magicBytesCT)) {
-                        // If the current compression type matches the magic bytes compression type,
-                        // return the computed block path
-                        return computed;
-                    } else {
-                        // Otherwise return a new block path with the compression type computed by magic bytes
+        if (!Files.exists(computed.zipFilePath)) {
+            // if none found, return null as we could not find the block existing
+            return null;
+        }
+        try (final FileSystem zipFS = FileSystems.newFileSystem(computed.zipFilePath)) {
+            return computeExistingBlockPath(config, blockNumber, zipFS);
+        }
+    }
+
+    /**
+     * Same as {@link #computeExistingBlockPath(FilesHistoricConfig, long)}, but resolves the entry against an
+     * already-open zip filesystem rather than opening (and closing) its own. Callers that read many blocks from
+     * the same archive can share a single open filesystem across those lookups instead of paying for a fresh
+     * open per block.
+     *
+     * @param config      The configuration for the block provider, must be non-null
+     * @param blockNumber The block number, must be a whole number
+     * @param zipFS       an already-open filesystem for the archive that would contain this block's zip file
+     *
+     * @return The existing block path, or {@code null} if the block cannot be found in the given archive
+     */
+    static BlockPath computeExistingBlockPath(
+            @NonNull final FilesHistoricConfig config, final long blockNumber, @NonNull final FileSystem zipFS)
+            throws IOException {
+        final BlockPath computed = computeBlockPath(config, blockNumber);
+        final CompressionType[] compressionOpts =
+                config.compression().getDeclaringClass().getEnumConstants();
+        // check if the block file exists
+        if (Files.exists(zipFS.getPath(computed.blockFileName))) {
+            // Check what is the compression type based on the magic bytes
+            final CompressionType magicBytesCT = Objects.requireNonNullElse(
+                    determineCompressionByMagicBytes(zipFS.getPath(computed.blockFileName), compressionOpts),
+                    CompressionType.NONE);
+            if (computed.compressionType.equals(magicBytesCT)) {
+                // If the current compression type matches the magic bytes compression type,
+                // return the computed block path
+                return computed;
+            } else {
+                // Otherwise return a new block path with the compression type computed by magic bytes
+                return new BlockPath(
+                        computed.dirPath,
+                        computed.zipFilePath,
+                        computed.blockNumStr,
+                        computed.blockFileName,
+                        magicBytesCT);
+            }
+        } else {
+            // if happy path not found, check if persisted with another
+            // compression extension.
+
+            // noinspection ForLoopReplaceableByForEach
+            for (int i = 0; i < compressionOpts.length; i++) {
+                final CompressionType currentOpt = compressionOpts[i];
+                if (!currentOpt.equals(config.compression())) {
+                    final String newFileName = computed.blockNumStr + BLOCK_FILE_EXTENSION + currentOpt.extension();
+                    final Path blockFilePath = zipFS.getPath(newFileName);
+
+                    // Check whether a file with the current compression extension exists
+                    if (Files.exists(blockFilePath)) {
+                        // Check whether the file with the current compression extension was compressed with
+                        // magic bytes
+                        // in front (possibly by another compression than the configured)
+                        final CompressionType compressionByMagicBytes =
+                                determineCompressionByMagicBytes(blockFilePath, compressionOpts);
+                        // The above method returns null if no known magic bytes found in the file,
+                        // so falling back to compression which extension matches the file extension
+                        final CompressionType compressionType =
+                                Objects.requireNonNullElse(compressionByMagicBytes, currentOpt);
                         return new BlockPath(
                                 computed.dirPath,
                                 computed.zipFilePath,
                                 computed.blockNumStr,
-                                computed.blockFileName,
-                                magicBytesCT);
-                    }
-                } else {
-                    // if happy path not found, check if persisted with another
-                    // compression extension.
-
-                    // noinspection ForLoopReplaceableByForEach
-                    for (int i = 0; i < compressionOpts.length; i++) {
-                        final CompressionType currentOpt = compressionOpts[i];
-                        if (!currentOpt.equals(config.compression())) {
-                            final String newFileName =
-                                    computed.blockNumStr + BLOCK_FILE_EXTENSION + currentOpt.extension();
-                            final Path blockFilePath = zipFS.getPath(newFileName);
-
-                            // Check whether a file with the current compression extension exists
-                            if (Files.exists(blockFilePath)) {
-                                // Check whether the file with the current compression extension was compressed with
-                                // magic bytes
-                                // in front (possibly by another compression than the configured)
-                                final CompressionType compressionByMagicBytes =
-                                        determineCompressionByMagicBytes(blockFilePath, compressionOpts);
-                                // The above method returns null if no known magic bytes found in the file,
-                                // so falling back to compression which extension matches the file extension
-                                final CompressionType compressionType =
-                                        Objects.requireNonNullElse(compressionByMagicBytes, currentOpt);
-                                return new BlockPath(
-                                        computed.dirPath,
-                                        computed.zipFilePath,
-                                        computed.blockNumStr,
-                                        newFileName,
-                                        compressionType);
-                            }
-                        }
+                                newFileName,
+                                compressionType);
                     }
                 }
             }
