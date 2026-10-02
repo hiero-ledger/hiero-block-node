@@ -153,19 +153,40 @@ A more robust pattern for fully operator-managed plugins is to mount a pre-popul
 
 ### Cloud Storage Archive Plugin Configuration
 
-| ENV Variable                                       | Description                                                                                                                                                                                              |    Default |
-|:---------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------:|
-| CLOUD_STORAGE_ARCHIVE_GROUPING_LEVEL               | Files per archive in powers of ten (1=10, 2=100, …, 6=1,000,000).                                                                                                                                        |          5 |
-| CLOUD_STORAGE_ARCHIVE_PART_SIZE_MB                 | The size of each multi-part upload part in megabytes. Minimum value is 5, maximum value is 2047                                                                                                          |         10 |
-| CLOUD_STORAGE_ARCHIVE_ENDPOINT_URL                 | Endpoint URL for the cloud archive service (e.g., `https://s3.amazonaws.com/`).                                                                                                                          |         "" |
-| CLOUD_STORAGE_ARCHIVE_BUCKET_NAME                  | Bucket name where cloud archive files are stored.                                                                                                                                                        |         "" |
-| CLOUD_STORAGE_ARCHIVE_OBJECT_KEY_PREFIX            | Optional prefix prepended to every S3 object key (e.g. `blocks`). When set, the full key format is `{prefix}/AAAA/BBBB/CCCC/DDDD/EEE.tar`. Leave empty for no prefix.                                    |         "" |
-| CLOUD_STORAGE_ARCHIVE_STORAGE_CLASS                | Storage class (e.g., STANDARD, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE). Values available at [AWS S3 storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html) | "STANDARD" |
-| CLOUD_STORAGE_ARCHIVE_REGION_NAME                  | Region for the cloud archive service (e.g., `us-east-1`).                                                                                                                                                |         "" |
-| CLOUD_STORAGE_ARCHIVE_ACCESS_KEY                   | Access key for the archive service.                                                                                                                                                                      |         "" |
-| CLOUD_STORAGE_ARCHIVE_SECRET_KEY                   | Secret key for the archive service.                                                                                                                                                                      |         "" |
-| CLOUD_STORAGE_ARCHIVE_MAX_CONCURRENT_TEMP_ARCHIVES | Maximum number of temporary archive uploads that may run in parallel. Must be between 1 and 16.                                                                                                          |          4 |
-| CLOUD_STORAGE_ARCHIVE_GAP_BUFFER_SIZE              | Number of blocks to buffer when a gap is detected before triggering recovery. Must be between 1 and 10.                                                                                                  |          5 |
+`CLOUD_STORAGE_ARCHIVE_ENDPOINT_URL`, `_REGION_NAME`, `_ACCESS_KEY`, `_SECRET_KEY`, and
+`_BUCKET_NAME` are all required. If any one of them is blank, the plugin logs a WARNING at
+startup naming the empty settings and stays inactive: it registers no notification handler and
+archives nothing.
+
+| ENV Variable                                       | Description                                                                                                                                                                                                                                                                                                                           |    Default |
+|:---------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------:|
+| CLOUD_STORAGE_ARCHIVE_GROUPING_LEVEL               | Files per archive in powers of ten (1=10, 2=100, …, 6=1,000,000).                                                                                                                                                                                                                                                                     |          5 |
+| CLOUD_STORAGE_ARCHIVE_PART_SIZE_MB                 | The size of each multi-part upload part in megabytes. Minimum value is 5, maximum value is 2047                                                                                                                                                                                                                                       |         10 |
+| CLOUD_STORAGE_ARCHIVE_ENDPOINT_URL                 | Endpoint URL for the cloud archive service (e.g., `https://s3.amazonaws.com/`).                                                                                                                                                                                                                                                       |         "" |
+| CLOUD_STORAGE_ARCHIVE_BUCKET_NAME                  | Bucket name where cloud archive files are stored.                                                                                                                                                                                                                                                                                     |         "" |
+| CLOUD_STORAGE_ARCHIVE_OBJECT_KEY_PREFIX            | Optional prefix prepended to every S3 object key (e.g. `blocks`). Leave empty for no prefix. See the key format note below.                                                                                                                                                                                                           |         "" |
+| CLOUD_STORAGE_ARCHIVE_STORAGE_CLASS                | Storage class (e.g., STANDARD, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE, ARCHIVE). Values available at [AWS S3 storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html). `ARCHIVE` is not an AWS class: it is the native Google Cloud Storage class, reached through the S3-compatible API. | "STANDARD" |
+| CLOUD_STORAGE_ARCHIVE_REGION_NAME                  | Region for the cloud archive service (e.g., `us-east-1`).                                                                                                                                                                                                                                                                             |         "" |
+| CLOUD_STORAGE_ARCHIVE_ACCESS_KEY                   | Access key for the archive service.                                                                                                                                                                                                                                                                                                   |         "" |
+| CLOUD_STORAGE_ARCHIVE_SECRET_KEY                   | Secret key for the archive service.                                                                                                                                                                                                                                                                                                   |         "" |
+| CLOUD_STORAGE_ARCHIVE_MAX_CONCURRENT_TEMP_ARCHIVES | Maximum number of temporary archive uploads that may run in parallel. Must be between 1 and 16.                                                                                                                                                                                                                                       |          4 |
+| CLOUD_STORAGE_ARCHIVE_GAP_BUFFER_SIZE              | Number of blocks to buffer when a gap is detected before triggering recovery. Must be between 1 and 10.                                                                                                                                                                                                                               |          5 |
+
+**Object key format.** An archive key is derived from the first block number of the group, not
+from a single block, so it does *not* use the expanded plugin's fixed
+`{prefix}/AAAA/BBBB/CCCC/DDDD/EEE` shape. The 19-digit zero-padded group start has its
+`CLOUD_STORAGE_ARCHIVE_GROUPING_LEVEL` trailing digits dropped (they are always zero) and the
+remainder is split into 4-character segments, so the number of segments varies with the grouping
+level:
+
+| Grouping level | Group start | Object key                           |
+|:---------------|:------------|:-------------------------------------|
+| 2              | 1 200       | `{prefix}/0000/0000/0000/0001/2.tar` |
+| 5 (default)    | 1 200 000   | `{prefix}/0000/0000/0000/12.tar`     |
+
+**Temporary objects.** The plugin writes in-progress archives under `{prefix}/tmp/` as
+`{firstBlock:019d}.tmp` plus a `.meta` companion, and reads them back at startup to resume an
+interrupted group. Bucket lifecycle rules over the prefix must not delete objects under `tmp/`.
 
 ### Backfill Plugin Configuration
 
@@ -244,19 +265,6 @@ for the JSON schema.
 |:----------------------------------------|:------------------------------------------------------------------------------------------|--------:|
 | MESSAGING_BLOCK_ITEM_QUEUE_SIZE         | Max messages in block item queue. Each batch ~100 items. Must be power of 2.              |     512 |
 | MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE | Max block notifications queued. Each may hold a full block in memory. Must be power of 2. |      32 |
-
-### Archive Plugin Configuration (S3 Archive)
-
-| ENV Variable            | Description                                                                 |            Default |
-|:------------------------|:----------------------------------------------------------------------------|-------------------:|
-| ARCHIVE_BLOCKS_PER_FILE | Number of blocks per archive file. Must be a positive power of 10.          |             100000 |
-| ARCHIVE_ENDPOINT_URL    | Endpoint URL for the archive service (e.g., `https://s3.amazonaws.com/`).   |                 "" |
-| ARCHIVE_BUCKET_NAME     | Bucket name where archive files are stored.                                 | block-node-archive |
-| ARCHIVE_BASE_PATH       | Base path inside the bucket for archive files.                              |             blocks |
-| ARCHIVE_STORAGE_CLASS   | Storage class (e.g., STANDARD, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE). |           STANDARD |
-| ARCHIVE_REGION_NAME     | Region for the archive service (e.g., `us-east-1`).                         |          us-east-1 |
-| ARCHIVE_ACCESS_KEY      | Access key for the archive service.                                         |                 "" |
-| ARCHIVE_SECRET_KEY      | Secret key for the archive service.                                         |                 "" |
 
 ### Server Status Plugin Configuration
 
@@ -350,23 +358,25 @@ for the JSON schema.
 ### Cloud Storage Expanded Plugin Configuration
 
 Uploads each [verified block](./glossary.md#verified-block) as a single ZSTD-compressed `.blk.zstd` object to any
-S3-compatible store (AWS S3, GCS S3-interop, MinIO, etc.). The plugin is **disabled by
-default** — setting `CLOUD_EXPANDED_ENDPOINT_URL` to a non-empty value activates it.
+S3-compatible store (AWS S3, GCS S3-interop, MinIO, etc.). The plugin is loaded only when
+`cloud-storage-expanded` appears in `plugins.names`; an endpoint URL alone does not activate it.
+Once loaded, it needs all five required settings below; a blank one leaves it loaded but
+inactive, logging a WARNING at startup and uploading nothing.
 
-| ENV Variable                                    | Description                                                                                                       |  Default |
-|:------------------------------------------------|:------------------------------------------------------------------------------------------------------------------|---------:|
-| CLOUD_STORAGE_EXPANDED_ENDPOINT_URL             | S3-compatible endpoint URL. **Blank disables the plugin.**                                                        |       "" |
-| CLOUD_STORAGE_EXPANDED_BUCKET_NAME              | Name of the S3 bucket where blocks are stored. Required; must not be blank.                                       |       "" |
-| CLOUD_STORAGE_EXPANDED_OBJECT_KEY_PREFIX        | Prefix prepended to every object key (e.g. `blocks`). Set to `""` for no prefix.                                  |       "" |
-| CLOUD_STORAGE_EXPANDED_STORAGE_CLASS            | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version.                   | STANDARD |
-| CLOUD_STORAGE_EXPANDED_REGION_NAME              | AWS / S3-compatible region name. Required; must not be blank.                                                     |       "" |
-| CLOUD_STORAGE_EXPANDED_ACCESS_KEY               | S3 access key (not logged).                                                                                       |       "" |
-| CLOUD_STORAGE_EXPANDED_SECRET_KEY               | S3 secret key (not logged).                                                                                       |       "" |
-| CLOUD_STORAGE_EXPANDED_UPLOAD_TIMEOUT_SECONDS   | Max seconds per block upload before treating the upload as failed.                                                |       60 |
-| CLOUD_STORAGE_EXPANDED_RETRY_ENABLED            | Hold failed uploads in memory and retry them in the background instead of failing immediately. Never disk-backed. |     true |
-| CLOUD_STORAGE_EXPANDED_RETRY_INTERVAL_SECONDS   | Fixed interval at which the background retry tick re-attempts every buffered block.                               |       10 |
-| CLOUD_STORAGE_EXPANDED_RETRY_MAX_AGE_SECONDS    | Maximum time a block may remain buffered for retry before it is dropped as a terminal failure.                    |       60 |
-| CLOUD_STORAGE_EXPANDED_RETRY_MAX_PENDING_BLOCKS | Maximum number of blocks held in the in-memory retry buffer at once.                                              |       30 |
+| ENV Variable                                    | Description                                                                                                                                                                |  Default |
+|:------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------:|
+| CLOUD_STORAGE_EXPANDED_ENDPOINT_URL             | S3-compatible endpoint URL. Required; must not be blank.                                                                                                                   |       "" |
+| CLOUD_STORAGE_EXPANDED_BUCKET_NAME              | Name of the S3 bucket where blocks are stored. Required; must not be blank.                                                                                                |       "" |
+| CLOUD_STORAGE_EXPANDED_OBJECT_KEY_PREFIX        | Prefix prepended to every object key (e.g. `blocks`). Set to `""` for no prefix.                                                                                           |       "" |
+| CLOUD_STORAGE_EXPANDED_STORAGE_CLASS            | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version.                                                                            | STANDARD |
+| CLOUD_STORAGE_EXPANDED_REGION_NAME              | AWS / S3-compatible region name. Required; must not be blank.                                                                                                              |       "" |
+| CLOUD_STORAGE_EXPANDED_ACCESS_KEY               | S3 access key (not logged). Required; must not be blank.                                                                                                                   |       "" |
+| CLOUD_STORAGE_EXPANDED_SECRET_KEY               | S3 secret key (not logged). Required; must not be blank.                                                                                                                   |       "" |
+| CLOUD_STORAGE_EXPANDED_UPLOAD_TIMEOUT_SECONDS   | Max seconds `stop()` waits for in-flight uploads to drain. There is no per-upload timeout.                                                                                 |       60 |
+| CLOUD_STORAGE_EXPANDED_RETRY_ENABLED            | Hold failed uploads in memory and retry them in the background instead of failing immediately. Never disk-backed.                                                          |     true |
+| CLOUD_STORAGE_EXPANDED_RETRY_INTERVAL_SECONDS   | Period of the background retry tick, and the per-block backoff after a failed attempt. Each tick re-attempts only the blocks whose backoff has elapsed.                    |       10 |
+| CLOUD_STORAGE_EXPANDED_RETRY_MAX_AGE_SECONDS    | Maximum time a block may remain buffered for retry before it is dropped as a terminal failure.                                                                             |       60 |
+| CLOUD_STORAGE_EXPANDED_RETRY_MAX_PENDING_BLOCKS | Maximum number of blocks held in the in-memory retry buffer at once. At capacity a new failure evicts the longest-buffered block, which is reported as a terminal failure. |       30 |
 
 Object keys follow the format `{prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`, where the
 19-digit zero-padded block number is split into a 4/4/4/4/3 folder hierarchy:
