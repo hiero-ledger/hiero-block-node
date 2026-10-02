@@ -136,6 +136,7 @@ dependencies {
 
     // Extended functionality
     blockNodePlugins(project(":backfill"))
+    blockNodePlugins(project(":real-time-block-subscribe-plugin"))
     // when running the BN locally, we don't need or want to have the S3 plugins by default
     // blockNodePlugins(project(":cloud-storage-expanded"))
     // blockNodePlugins(project(":cloud-storage-archive"))
@@ -206,6 +207,7 @@ testModuleInfo {
     runtimeOnly("org.hiero.block.node.cloud.storage.expanded")
     runtimeOnly("org.hiero.block.node.health")
     runtimeOnly("org.hiero.block.node.messaging")
+    runtimeOnly("org.hiero.block.node.realtimeblocksubscribe")
     runtimeOnly("org.hiero.block.node.roster.bootstrap.rsa")
     runtimeOnly("org.hiero.block.node.roster.bootstrap.tss")
     runtimeOnly("org.hiero.block.node.server.status")
