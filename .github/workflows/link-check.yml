@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   internal-links:
@@ -40,7 +41,7 @@ jobs:
           fi
 
       - name: Check internal links
-        run: ./lychee --config .lychee.toml --offline --no-progress '**/*.md'
+        run: ./lychee --config .lychee.toml --offline --include-fragments --no-progress '**/*.md'
 
   anchor-links:
     name: Anchor links
@@ -75,8 +76,43 @@ jobs:
             ! -path "./protobuf-sources/*")
           exit $status
 
+  external-links-pr:
+    name: External links in changed files (advisory)
+    if: github.event_name == 'pull_request'
+    runs-on: hl-bn-lin-md
+    continue-on-error: true
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install lychee (if not present)
+        run: |
+          if ! command -v lychee &>/dev/null; then
+            curl -sLO https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-musl.tar.gz
+            tar -xzf lychee-x86_64-unknown-linux-musl.tar.gz --strip-components=1 lychee-x86_64-unknown-linux-musl/lychee
+            chmod +x lychee
+          fi
+
+      - name: Check external links in changed files
+        run: |
+          CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD" | grep '\.md$' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No changed .md files — skipping external link check"
+            exit 0
+          fi
+          echo "Checking external links in: $CHANGED"
+          # xargs handles multiple files safely; lychee accepts a list of paths
+          echo "$CHANGED" | xargs ./lychee --config .lychee.toml --no-progress
+
   external-links:
-    name: External links (advisory)
+    name: External links — full scan (advisory)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: hl-bn-lin-md
     continue-on-error: true
@@ -98,4 +134,40 @@ jobs:
           fi
 
       - name: Check external links
-        run: ./lychee --config .lychee.toml --no-progress '**/*.md'
+        id: lychee
+        continue-on-error: true
+        run: ./lychee --config .lychee.toml --no-progress --output lychee-report.md --format markdown '**/*.md'
+
+      - name: Create or update issue for broken links
+        if: steps.lychee.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list \
+            --repo "${{ github.repository }}" \
+            --search "External link rot detected in:title" \
+            --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue edit "$EXISTING" --body-file lychee-report.md
+            echo "Updated existing issue #${EXISTING}"
+          else
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "External link rot detected" \
+              --body-file lychee-report.md
+          fi
+
+      - name: Close issue when all links are healthy
+        if: steps.lychee.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list \
+            --repo "${{ github.repository }}" \
+            --search "External link rot detected in:title" \
+            --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" \
+              --comment "All external links are now healthy — closing."
+            echo "Closed issue #${EXISTING}"
+          fi
