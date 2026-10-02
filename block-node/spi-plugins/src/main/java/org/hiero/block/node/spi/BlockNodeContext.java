@@ -1,14 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi;
 
-import com.hedera.hapi.node.base.NodeAddressBook;
 import com.swirlds.config.api.Configuration;
-import java.util.List;
 import org.hiero.block.api.BlockNodeVersions;
-import org.hiero.block.api.BlockRange;
-import org.hiero.block.api.RangedAddressBookHistory;
-import org.hiero.block.api.RangedNodeAddressBook;
-import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -29,6 +23,12 @@ import org.hiero.metrics.core.MetricRegistry;
  * signatures. It is aiming for the best balance between allowing future expansion, avoiding growth into a mess and
  * keeping the API clean.
  * </p>
+ * <p>
+ * Dynamic application state (TSS data, address-book history, stored blocks, available blocks) is no longer carried
+ * in this record. Plugins that need to react to those state changes should implement
+ * {@link org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler} and register with
+ * {@link BlockMessagingFacility#registerApplicationStateNotificationHandler}.
+ * </p>
  *
  * @param configuration the configuration of the block node
  * @param metricRegistry the metric registry of the block node
@@ -39,12 +39,6 @@ import org.hiero.metrics.core.MetricRegistry;
  * @param serviceLoader the service loader function to use to load services
  * @param threadPoolManager the thread pool manager for the block node
  * @param blockNodeVersions the version information associated with a block node
- * @param tssData the tss information needed for block verification
- * @param rangedAddressBookHistory the block-number-keyed RSA address book history for historical
- *     WRB verification; takes precedence over {@code nodeAddressBook} when non-{@code null}.
- *     {@code null} when no history file has been loaded.
- * @param storedBlocks the current range of stored blocks
- * @param availableBlocks the current range of available blocks
  */
 public record BlockNodeContext(
         Configuration configuration,
@@ -55,101 +49,4 @@ public record BlockNodeContext(
         ApplicationStateFacility applicationStateFacility,
         ServiceLoaderFunction serviceLoader,
         ThreadPoolManager threadPoolManager,
-        BlockNodeVersions blockNodeVersions,
-        TssData tssData,
-        RangedAddressBookHistory rangedAddressBookHistory,
-        List<BlockRange> storedBlocks,
-        List<BlockRange> availableBlocks) {
-
-    /// returns the most recent {@code NodeAddressBook} from the address book history
-    ///
-    /// @return The most recent {@code NodeAddressBook}
-    public NodeAddressBook nodeAddressBook() {
-        return rangedAddressBookHistory != null
-                ? rangedAddressBookHistory.addressBooks().getLast().addressBook()
-                : null;
-    }
-
-    // Static inner Builder class
-    public static class Builder {
-        Configuration configuration;
-        MetricRegistry metricRegistry;
-        HealthFacility serverHealth;
-        BlockMessagingFacility blockMessaging;
-        HistoricalBlockFacility historicalBlockProvider;
-        ApplicationStateFacility applicationStateFacility;
-        ServiceLoaderFunction serviceLoader;
-        ThreadPoolManager threadPoolManager;
-        BlockNodeVersions blockNodeVersions;
-        TssData tssData;
-        public RangedAddressBookHistory rangedAddressBookHistory;
-        List<BlockRange> storedBlocks;
-        List<BlockRange> availableBlocks;
-
-        public Builder(BlockNodeContext context) {
-            this.configuration = context.configuration;
-            this.metricRegistry = context.metricRegistry;
-            this.serverHealth = context.serverHealth;
-            this.blockMessaging = context.blockMessaging;
-            this.historicalBlockProvider = context.historicalBlockProvider;
-            this.applicationStateFacility = context.applicationStateFacility;
-            this.serviceLoader = context.serviceLoader;
-            this.threadPoolManager = context.threadPoolManager;
-            this.blockNodeVersions = context.blockNodeVersions;
-            this.tssData = context.tssData;
-            this.rangedAddressBookHistory = context.rangedAddressBookHistory;
-            this.storedBlocks = List.copyOf(context.storedBlocks);
-            this.availableBlocks = List.copyOf(context.availableBlocks);
-        }
-
-        public Builder tssData(TssData tssData) {
-            this.tssData = tssData;
-            return this;
-        }
-
-        /// Sets the rangedAddressBookHistory to a single era consisting of the NodeAddressBook
-        public Builder nodeAddressBook(NodeAddressBook nodeAddressBook) {
-            this.rangedAddressBookHistory = RangedAddressBookHistory.newBuilder()
-                    .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
-                            .addressBook(nodeAddressBook)
-                            .startBlock(0L)
-                            .endBlock(-1L)
-                            .build()))
-                    .build();
-
-            return this;
-        }
-
-        public Builder rangedAddressBookHistory(RangedAddressBookHistory rangedAddressBookHistory) {
-            this.rangedAddressBookHistory = rangedAddressBookHistory;
-            return this;
-        }
-
-        public Builder storedBlocks(List<BlockRange> storedBlocks) {
-            this.storedBlocks = storedBlocks;
-            return this;
-        }
-
-        public Builder availableBlocks(List<BlockRange> availableBlocks) {
-            this.availableBlocks = availableBlocks;
-            return this;
-        }
-
-        public BlockNodeContext build() {
-            return new BlockNodeContext(
-                    this.configuration,
-                    this.metricRegistry,
-                    this.serverHealth,
-                    this.blockMessaging,
-                    this.historicalBlockProvider,
-                    this.applicationStateFacility,
-                    this.serviceLoader,
-                    this.threadPoolManager,
-                    this.blockNodeVersions,
-                    this.tssData,
-                    this.rangedAddressBookHistory,
-                    this.storedBlocks,
-                    this.availableBlocks);
-        }
-    }
-}
+        BlockNodeVersions blockNodeVersions) {}

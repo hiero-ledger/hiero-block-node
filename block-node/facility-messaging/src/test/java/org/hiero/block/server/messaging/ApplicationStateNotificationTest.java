@@ -5,12 +5,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.locks.LockSupport;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
@@ -350,6 +353,74 @@ public class ApplicationStateNotificationTest {
                 counters.get(0),
                 "Block handler should only receive verification sentinel, not application state events");
         service.stop();
+    }
+
+    /**
+     * Documents the window in which a notification is lost: {@code messageForwarder} exists from
+     * {@code init()}, so anything published between {@code init()} and {@code start()} is already
+     * in the ring buffer when {@code start()} finally registers the pre-registered handlers.
+     * {@link ApplicationStateNotificationHandler} is non-gating, and a non-gating processor starts
+     * at the ring buffer's current cursor, so that earlier event is never replayed.
+     *
+     * <p>Plugins can still publish in that window, e.g. a block provider reporting from
+     * {@code init()}, which is why {@code BlockNodeApp} {@code startApplicationStateFacility()}
+     * re-dispatches the startup available and stored blocks after starting the messaging facility.
+     * This test pins the behaviour so the loss is a known, deliberate property rather than a surprise.
+     */
+    @Test
+    void notificationPublishedBeforeStartIsNotDeliveredToPreRegisteredHandler() throws InterruptedException {
+        final TssData early = TssData.newBuilder().validFromBlock(1).build();
+        final TssData late = TssData.newBuilder().validFromBlock(2).build();
+        final Queue<TssData> received = new ConcurrentLinkedQueue<>();
+        final CountDownLatch lateArrived = new CountDownLatch(1);
+        final ApplicationStateNotificationHandler handler = new ApplicationStateNotificationHandler() {
+            @Override
+            public void handleTssDataUpdate(final TssDataNotification n) {
+                received.add(n.tssData());
+                if (late.equals(n.tssData())) {
+                    lateArrived.countDown();
+                }
+            }
+        };
+
+        final BlockMessagingFacility service = new BlockMessagingFacilityImpl();
+        service.init(context, null);
+        // Published in the init()-to-start() window: goes into the ring buffer with no consumer yet.
+        service.sendTssDataUpdate(new TssDataNotification(early));
+        threadPoolManager.executor().executeSerially();
+
+        service.registerApplicationStateNotificationHandler(handler, false, "pre-reg");
+        service.start();
+
+        // Published after start(): must be delivered.
+        service.sendTssDataUpdate(new TssDataNotification(late));
+        threadPoolManager.executor().executeSerially();
+
+        assertTrue(lateArrived.await(20, TimeUnit.SECONDS), "Handler did not receive the post-start notification");
+        assertEquals(
+                List.of(late),
+                List.copyOf(received),
+                "Only the post-start notification is delivered; the pre-start one is skipped");
+        service.stop();
+    }
+
+    /**
+     * During shutdown {@code BlockNodeApp} stops the messaging facility before the other plugins, so a
+     * block provider still finishing a write can report state after {@code stop()} has shut the message
+     * forwarder down. Sending must then drop the notification rather than throw
+     * {@link java.util.concurrent.RejectedExecutionException} into the caller's persistence path.
+     */
+    @Test
+    void sendAfterStopIsDroppedWithoutThrowing() {
+        final BlockMessagingFacility service = new BlockMessagingFacilityImpl();
+        service.init(
+                TestConfig.generateContext(new TestThreadPoolManager<>(Executors.newSingleThreadExecutor(), null)),
+                null);
+        service.start();
+        service.stop();
+
+        sendAllApplicationStateNotifications(service);
+        service.sendBlockPersisted(new PersistedNotification(1L, true, 0, BlockSource.PUBLISHER));
     }
 
     // ---- helpers ----

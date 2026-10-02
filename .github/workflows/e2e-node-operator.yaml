@@ -428,6 +428,16 @@ jobs:
           # --timeout 20m: chart's resolve-plugins init container pulls Maven artifacts even with
           # PLUGIN_NAMES="" set, and Sonatype Snapshots is slow enough on shared runners that the
           # snapshot upgrade routinely takes 15+ minutes.
+          # The chart resolves plugins from Maven (main's published snapshot), not this PR. When the PR
+          # changes the SPI the old plugins fail with NoSuchMethodError, so swap in the jars built above.
+          # Only possible when the image was built from this checkout (build-image=true).
+          INJECT_PID=""
+          if [[ "${{ inputs.build-image }}" != "false" ]]; then
+            bash tools-and-tests/scripts/e2e-node-operator/inject-pr-plugins.sh \
+              "${{ steps.versions.outputs.SNAP_VERSION }}" "${CLUSTER_NAME}" "${NAMESPACE}" "${RELEASE}" &
+            INJECT_PID=$!
+          fi
+
           set +e
           sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node upgrade \
             --profile=local --namespace="${NAMESPACE}" --release-name="${RELEASE}" --non-interactive \
@@ -440,6 +450,7 @@ jobs:
           set -e
 
           kill "${WATCH_PID}" 2>/dev/null || true
+          if [[ -n "${INJECT_PID}" ]]; then kill "${INJECT_PID}" 2>/dev/null || true; fi
           echo "===== post-upgrade snapshot (rc=${RC}) ====="
           kubectl get pods,pvc,svc,statefulset,endpoints -n "${NAMESPACE}" -o wide 2>/dev/null || true
           kubectl describe statefulset -n "${NAMESPACE}" 2>/dev/null || true

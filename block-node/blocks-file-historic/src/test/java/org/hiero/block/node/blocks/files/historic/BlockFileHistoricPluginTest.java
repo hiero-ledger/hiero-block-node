@@ -212,11 +212,7 @@ class BlockFileHistoricPluginTest {
                     new TestThreadPoolManager<>(
                             new BlockingExecutor(new LinkedBlockingQueue<>()),
                             new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
-                    null,
-                    null,
-                    null,
-                    new ArrayList<>(),
-                    new ArrayList<>());
+                    null);
             // call
             final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
             assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));

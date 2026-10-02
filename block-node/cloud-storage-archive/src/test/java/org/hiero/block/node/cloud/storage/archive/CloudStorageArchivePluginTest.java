@@ -284,11 +284,7 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     null,
-                    null,
-                    null,
-                    null,
-                    new ArrayList<>(),
-                    new ArrayList<>());
+                    null);
             final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
             assertThatNoException().isThrownBy(() -> plugin.init(testContext, null));
         }
@@ -313,11 +309,7 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     null,
-                    null,
-                    null,
-                    null,
-                    new ArrayList<>(),
-                    new ArrayList<>());
+                    null);
             final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
             plugin.init(testContext, null);
             assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
@@ -384,11 +376,7 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     invalidConfigThreadPoolManager,
-                    null,
-                    null,
-                    null,
-                    new ArrayList<>(),
-                    new ArrayList<>());
+                    null);
             final CloudStorageArchivePlugin invalidConfigPlugin = new CloudStorageArchivePlugin();
             invalidConfigPlugin.init(testContext, null);
             invalidConfigPlugin.start();
@@ -2699,11 +2687,7 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     testThreadPoolManager,
-                    null,
-                    null,
-                    null,
-                    new ArrayList<>(),
-                    new ArrayList<>());
+                    null);
             final CloudStorageArchivePlugin failingPlugin = new CloudStorageArchivePlugin();
             failingPlugin.init(failingContext, null);
             // start() submits the recovery task to the shared BlockingExecutor.
