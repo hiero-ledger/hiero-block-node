@@ -152,10 +152,9 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     }
 
     /// {@inheritDoc}
-    /// Lazily creates a single shared [BlockReadBulkhead], sized generously (see
-    /// [#DEFAULT_BLOCK_READ_BULKHEAD_PERMITS]) so plugin tests aren't inadvertently throttled by it.
-    /// A test that wants to exercise bulkhead denial can call this accessor directly and drain
-    /// permits with {@link BlockReadBulkhead#tryAcquire()} before invoking the plugin under test.
+    /// Lazily creates a single shared [BlockReadBulkhead]. A test that wants to exercise bulkhead
+    /// denial can call this accessor directly and drain permits with
+    /// {@link BlockReadBulkhead#tryAcquire()} before invoking the plugin under test.
     @NonNull
     @Override
     public BlockReadBulkhead blockReadBulkhead() {

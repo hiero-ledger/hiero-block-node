@@ -124,9 +124,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 responseCounterNotAvailable.increment();
                 return new BlockResponseUnparsed(Code.NOT_AVAILABLE, null);
             }
-            // A single, shared, non-client-keyed permit pool guarding every read against block
-            // storage. getBlock is a single request/response exchange, so it acquires without
-            // waiting and rejects immediately if the pool is exhausted, rather than queuing.
+            // A single request/response exchange: reject immediately if exhausted, rather than queuing.
             if (!blockReadBulkhead.tryAcquire()) {
                 throw new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED, "block storage read capacity exhausted");
             }
