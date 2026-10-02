@@ -453,14 +453,14 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /// and dispatching the notification happen on the ApplicationStateDispatcher thread.
     @Override
     public void updateTssData(TssData tssData) {
-        TssData current;
-        do {
-            current = currentTssData.get();
-            if (tssData == null || tssData.equals(current)) {
-                return;
-            }
-        } while (!currentTssData.compareAndSet(current, tssData));
-        runOnDispatcherThread(this::syncTssData);
+        if (tssData == null) {
+            return;
+        }
+        // An atomic swap needs no retry loop: only the caller that replaced a different value dispatches.
+        // Concurrent callers each publish the newest value because syncTssData re-reads it.
+        if (!tssData.equals(currentTssData.getAndSet(tssData))) {
+            runOnDispatcherThread(this::syncTssData);
+        }
     }
 
     /// Runs one of the sync methods on the ApplicationStateDispatcher thread, or inline before that
