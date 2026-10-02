@@ -283,6 +283,8 @@ class StateManagementE2ETests {
     }
 
     private void bootApp() throws Exception {
+        // Provision the verifier with the roster that signs blocks built by BlockItemBuilderUtils.
+        BlockItemBuilderUtils.provisionTssBootstrap();
         app = new BlockNodeApp(new ServiceLoaderFunction(), false);
         app.start();
         final long deadline = System.currentTimeMillis() + 15_000L;
