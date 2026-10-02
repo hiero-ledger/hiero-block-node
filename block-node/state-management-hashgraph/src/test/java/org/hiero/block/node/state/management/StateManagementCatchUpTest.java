@@ -6,13 +6,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.merkledb.config.MerkleDbConfig;
 import com.swirlds.virtualmap.config.VirtualMapConfig;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import io.helidon.webserver.http.HttpService;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -21,9 +19,9 @@ import java.util.stream.Stream;
 import org.hiero.block.api.StateMetadata;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
-import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -243,11 +241,5 @@ class StateManagementCatchUpTest {
         return plugin;
     }
 
-    private static final ServiceBuilder NOOP_SERVICE_BUILDER = new ServiceBuilder() {
-        @Override
-        public void registerHttpService(@NonNull final String path, final Integer port, final HttpService... service) {}
-
-        @Override
-        public void registerGrpcService(@NonNull final ServiceInterface service, final Integer port) {}
-    };
+    private static final RecordingServiceBuilder NOOP_SERVICE_BUILDER = new RecordingServiceBuilder();
 }
