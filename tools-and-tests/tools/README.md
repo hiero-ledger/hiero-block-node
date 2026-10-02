@@ -62,9 +62,14 @@ subcommands
 │   ├── json                  # Convert binary Block Stream to JSON
 │   ├── ls                    # List/inspect block files
 │   ├── validate              # Validate block hash chain and signatures
+│   ├── validate-sidecars     # Validate sidecar SHA-384 integrity for wrapped block streams
 │   ├── wrap                  # Convert record files to wrapped blocks
 │   ├── fetchBalanceCheckpoints # Fetch balance checkpoints from GCP
-│   └── repair-zips           # Repair corrupt zip CENs in wrapped-block dirs
+│   ├── repair-zips           # Repair corrupt zip CENs in wrapped-block dirs
+│   ├── find-block            # Locate a block by number inside WRB zip archives
+│   ├── bulk-load             # Bulk-load wrapped blocks into Block Node historic storage
+│   ├── push                  # Push wrapped blocks to a Block Node's publish endpoint
+│   └── convert-address-book-history # Convert AddressBookHistory JSON to BN roster history for WRB verification
 │
 ├── records                   # Tools for Record Stream files
 │   └── ls                    # List record file info
@@ -105,7 +110,8 @@ subcommands
 │   ├── generateAddressBookFromBin # Generate address book from binary file
 │   ├── compareAddressBooks   # Compare two address book files
 │   ├── generateTestnetAddressBook # Generate testnet genesis address book
-│   └── generateTestnetAddressBookHistory # Generate testnet address book history
+│   ├── generateTestnetAddressBookHistory # Generate testnet address book history
+│   └── generateBinFromAddressBookJson # Generate binary NodeAddressBook protobuf from addressBookHistory.json
 │
 ├── metadata                  # Works with metadata files
 │   ├── ls                    # Display metadata file summary
@@ -120,11 +126,18 @@ subcommands
 
 ## Running from Command Line
 
+If you don't want to build from source, download a pre-built JAR from the
+[GitHub Releases page](https://github.com/hiero-ledger/hiero-block-node/releases) - see
+[Download Pre-Built JAR](#download-pre-built-jar) below.
+
 ### Building the Tools JAR
 
 ```bash
 # Build the shadow JAR (all-in-one executable)
 ./gradlew :tools:shadowJar
+
+# Find the actual filename
+ls tools-and-tests/tools/build/libs/
 ```
 
 ### Running Commands
@@ -132,33 +145,36 @@ subcommands
 Typical invocation after building:
 
 ```bash
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar <command> <subcommand> [options]
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-all.jar <command> <subcommand> [options]
 ```
 
 For example:
 
 ```bash
 # Convert block files to JSON
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar blocks json path/to/blocks/
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-all.jar blocks json path/to/blocks/
 
 # List block file info
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar blocks ls path/to/blocks/
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-all.jar blocks ls path/to/blocks/
 
 # Validate day archives
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar days validate /path/to/compressedDays
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-all.jar days validate /path/to/compressedDays
 ```
 
 ### Testnet Examples
 
+> **Note:** Testnet commands that download from GCS require Google Cloud SDK with authentication
+> configured. Run `gcloud auth application-default login` before using these commands.
+
 ```bash
 # Update mirror metadata for testnet
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar mirror update --network testnet
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-all.jar mirror update --network testnet
 
 # Download testnet day archives
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar days download-days-v3 2024 2 1 2024 3 1 --network testnet
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-all.jar days download-days-v3 2024 2 1 2024 3 1 --network testnet
 
 # Wrap testnet record files into blocks
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar blocks wrap --network testnet
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-all.jar blocks wrap --network testnet
 ```
 
 > See the [Testnet Pipeline Guide](docs/testnet-guide.md) for a full end-to-end walkthrough.
@@ -183,13 +199,13 @@ The tools support multiple Hedera networks via the `--network` flag:
 | `previewnet` | Hedera previewnet (config-loaded). Loads from `~/.hiero/networks/previewnet-config.json` |
 | `other`      | Custom networks (config-loaded). Loads from path in `HIERO_NETWORK_CONFIG` env var.      |
 
-The `--network` flag is a **top-level inherited option** — it can be placed anywhere on the command line (before, between, or after subcommands). You only need to specify it once.
+The `--network` flag is a **top-level inherited option** - it can be placed anywhere on the command line (before, between, or after subcommands). You only need to specify it once.
 
 ```bash
-# Mainnet (default — --network can be omitted)
+# Mainnet (default - --network can be omitted)
 java -jar tools.jar mirror update
 
-# Testnet — all of these are equivalent:
+# Testnet - all of these are equivalent:
 java -jar tools.jar mirror update --network testnet
 java -jar tools.jar --network testnet mirror update
 java -jar tools.jar mirror --network testnet update
@@ -205,7 +221,7 @@ java -jar tools.jar blocks wrap --network other
 ### Built-in Networks (mainnet, testnet)
 
 When `--network testnet` is specified, the tools automatically use:
-- **GCS bucket**: `hedera-testnet-streams`
+- **GCS bucket**: `hedera-testnet-streams-2024-02`
 - **Mirror Node API**: `https://testnet.mirrornode.hedera.com/api/v1/`
 - **Node account IDs**: 0.0.3 through 0.0.9 (7 nodes)
 - **Genesis address book**: bundled as a classpath resource (no generation step needed)
@@ -244,16 +260,19 @@ For full, authoritative usage and all options for any command, run the tool with
 
 ```bash
 # Top-level help (lists all commands)
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar --help
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-all.jar --help
 
 # Help for a specific command
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar blocks --help
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-all.jar blocks --help
 
 # Help for a nested subcommand
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar days download-days-v2 --help
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-all.jar days download-days-v2 --help
 ```
 
 ## Docker / Compose
+
+This section applies only to the `networkCapacity` subcommand, which supports a server/client
+mode for gRPC throughput testing. Other subcommands do not use Docker.
 
 Build and run the tools using Docker:
 
@@ -337,6 +356,19 @@ gcloud auth login
 ```
 
 ## Install & Build
+
+### Download Pre-Built JAR
+
+A pre-built JAR is attached to every release on the
+[GitHub Releases page](https://github.com/hiero-ledger/hiero-block-node/releases).
+Download `block-stream-tools-<VERSION>.jar` and run it directly - no build required:
+
+```bash
+java -jar block-stream-tools-<VERSION>.jar <command> <subcommand> [options]
+
+# Example
+java -jar block-stream-tools-0.43.0.jar blocks ls path/to/blocks/
+```
 
 ### From Source
 

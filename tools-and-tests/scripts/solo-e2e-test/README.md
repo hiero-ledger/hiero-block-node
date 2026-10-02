@@ -39,18 +39,17 @@ The CI workflow (`.github/workflows/solo-e2e-test.yml`) deploys Hiero networks f
 |  |   +-- solo-metrics-summary.sh(Block Node metrics)                |
 |  |   +-- solo-test-runner.sh    (YAML test framework runner)        |
 |  |                                                                  |
-|  +-- topologies/                                                    |
+|  +-- topologies/              (network topology definitions)         |
 |  |   +-- single.yaml          (1 CN, 1 BN)                          |
 |  |   +-- paired-3.yaml        (3 CN, 3 BN)                          |
 |  |   +-- fan-out-3cn-2bn.yaml (3 CN, 2 BN)                          |
-|  |   +-- 3cn-1bn.yaml         (3 CN, 1 BN)                          |
 |  |   +-- minimal.yaml         (1 CN, 1 BN, no mirror/relay)         |
-|  |   +-- 7cn-3bn-distributed.yaml (7 CN, 3 BN)                      |
+|  |   +-- ... (see Topologies section for the full list)             |
 |  |                                                                  |
 |  +-- tests/                   (test definitions)                    |
 |  |   +-- smoke-test.yaml      (quick validation)                    |
 |  |   +-- basic-load.yaml      (load test with metrics)              |
-|  |   +-- node-restart-resilience.yaml (restart recovery)            |
+|  |   +-- ... (see Available Tests for the full list)                |
 |  |                                                                  |
 |  +-- Taskfile.yml  (local dev interface)                            |
 +---------------------------------------------------------------------+
@@ -72,16 +71,24 @@ The CI workflow (`.github/workflows/solo-e2e-test.yml`) deploys Hiero networks f
 
 ## Quick Start
 
+> **Before running `task up`:** copy `.env.example` to `.env` and set `CN_LOCAL_BUILD_PATH` to a
+> built `hedera-node/data` directory, or pin a released CN tag (`CN_VERSION=v0.79.0-alpha.1`) to
+> skip the local build. See [Consensus Node from `main`](#consensus-node-from-main-local-build).
+
 ```bash
 # 1. Check prerequisites
 task check
 
-# 2. Deploy network
+# 2. Copy and edit the env file
+cp .env.example .env
+# Edit .env: set CN_LOCAL_BUILD_PATH or pin CN_VERSION to a released tag
+
+# 3. Deploy network
 task up
 
-# 3. Verify it's working (see "Manual Testing" below)
+# 4. Verify it's working (see "Manual Testing" below)
 
-# 4. Tear down when done
+# 5. Tear down when done
 task down
 ```
 
@@ -255,7 +262,7 @@ cp .env.example .env
 ### Consensus Node from `main` (local build)
 
 **`CN_VERSION` defaults to `main` locally**, because no published CN tag yet carries the fixed
-16-slot block-root hashing rework — a released tag fails verification against a current Block Node
+16-slot block-root hashing rework - a released tag fails verification against a current Block Node
 and Mirror Node. That means a local `task up` requires `CN_LOCAL_BUILD_PATH`; the deploy fails fast
 if it is unset. Pin a released tag (`v0.79.0-alpha.1`, `v0.78.0-rc.2`) if you want to skip the build
 and don't need the new hashing.
@@ -283,12 +290,12 @@ cd -                        # back to solo-e2e-test
 task up CN_VERSION=main CN_LOCAL_BUILD_PATH=<cn-repo>/hedera-node/data
 ```
 
-`CN_LOCAL_BUILD_PATH` points at the `data` directory itself — Solo validates that it contains `apps/`
+`CN_LOCAL_BUILD_PATH` points at the `data` directory itself - Solo validates that it contains `apps/`
 and `lib/`. The release tag is still needed (staging-dir naming, Solo's TSS capability gate) but no
 longer has to match a published build; Solo explicitly tolerates the mismatch for local builds.
 
-`solo-deploy-network.sh` fails fast on both mistakes — a `-SNAPSHOT` `CN_VERSION` with no
-`CN_LOCAL_BUILD_PATH`, and a `CN_LOCAL_BUILD_PATH` that hasn't been built — rather than letting the
+`solo-deploy-network.sh` fails fast on both mistakes - a `-SNAPSHOT` `CN_VERSION` with no
+`CN_LOCAL_BUILD_PATH`, and a `CN_LOCAL_BUILD_PATH` that hasn't been built - rather than letting the
 404 surface after the cluster and Block Nodes are already up.
 
 > **Named CI tags don't work.** Tags like `sdpt-pass-00380` on the CN repo are git-only markers: no
@@ -313,12 +320,12 @@ Set `SOLO_SOURCE=git` and point at the fork:
 |    Variable     |                      Purpose                      |
 |-----------------|---------------------------------------------------|
 | `SOLO_SOURCE`   | `git` to build from source (`npm` is the default) |
-| `SOLO_GIT_REPO` | `owner/repo` — must be in the approved allowlist  |
+| `SOLO_GIT_REPO` | `owner/repo` - must be in the approved allowlist  |
 | `SOLO_GIT_REF`  | Branch, tag, or commit SHA to build               |
 
 **Approved repositories** (allowlist enforced by `scripts/solo-install.sh`): `hiero-ledger/solo`, `hashgraph/solo`, `AlfredoG87/solo`. Any other repo is rejected with a hard failure.
 
-The build mirrors Solo's own `build:compile` (`npm ci` → `npx tsc` → `node resources/post-build-script.js`) then `npm i -g .` from the clone. A bare `npm i github:owner/repo#ref -g` does **not** work — Solo's `prepare` script is not a build, so `dist/` would be missing.
+The build mirrors Solo's own `build:compile` (`npm ci` → `npx tsc` → `node resources/post-build-script.js`) then `npm i -g .` from the clone. A bare `npm i github:owner/repo#ref -g` does **not** work - Solo's `prepare` script is not a build, so `dist/` would be missing.
 
 **Local:**
 
@@ -332,7 +339,7 @@ The clone lands in `.solo-build/` (gitignored). The minimum-version check in the
 
 **CI:** dispatch the `Solo E2E Test` workflow with `solo-source=git`, `solo-git-repo=<approved fork>`, `solo-git-ref=<ref>`.
 
-> ⚠️ CI executes the cloned code (`npm ci` runs lifecycle scripts). The allowlist is the security boundary — keep it short and trusted.
+> **Warning:** CI executes the cloned code (`npm ci` runs lifecycle scripts). The allowlist is the security boundary - keep it short and trusted.
 
 ## Load Generation
 
@@ -471,25 +478,28 @@ and node2 has priority 2 (fallback).
 
 Topologies define network configuration. Located in `./topologies/`.
 
-|           Name            | CN | BN | MN | Relay | Explorer |                      Use Case                       |
-|---------------------------|----|----|:--:|:-----:|:--------:|-----------------------------------------------------|
-| `single`                  | 1  | 1  | 1  |   0   |    0     | Basic testing, fastest startup                      |
-| `paired-3`                | 3  | 3  | 1  |   0   |    0     | Multi-node testing, each CN->BN pair                |
-| `fan-out-3cn-2bn`         | 3  | 2  | 1  |   0   |    0     | Redundancy testing, all CNs->all BNs                |
-| `3cn-1bn`                 | 3  | 1  | 1  |   0   |    0     | Single BN receiving from multiple CNs               |
-| `minimal`                 | 1  | 1  | 0  |   0   |    0     | CN+BN only, no mirror/relay/explorer                |
-| `2cn-2bn-backfill`        | 2  | 2  | 1  |   0   |    0     | Backfill testing, BN recovery after data loss       |
-| `2cn-2bn-archive`         | 2  | 2  | 1  |   0   |    0     | RFH-profile BN archiving to RustFS via backfill     |
-| `2cn-3bn-plugin-profiles` | 2  | 3  | 1  |   0   |    0     | BN plugin profiles: lfh, minimal, all               |
-| `7cn-3bn-distributed`     | 7  | 3  | 1  |   0   |    0     | Distributed streaming, grouped CN->BN with backfill |
-| `single-wrb-rsa`          | 1  | 1  | 1  |   0   |    0     | WRB (wrapped record blocks) verified via RSA roster |
-| `3cn-2bn-wrb-rsa`         | 3  | 2  | 1  |   0   |    0     | WRB fan-out verified via RSA roster                 |
+|              Name               | CN | BN | MN | Relay | Explorer |                                Use Case                                 |
+|---------------------------------|----|----|:--:|:-----:|:--------:|-------------------------------------------------------------------------|
+| `single`                        | 1  | 1  | 1  |   0   |    0     | Basic testing, fastest startup                                          |
+| `paired-3`                      | 3  | 3  | 1  |   0   |    0     | Multi-node testing, each CN->BN pair                                    |
+| `fan-out-3cn-2bn`               | 3  | 2  | 1  |   0   |    0     | Redundancy testing, all CNs->all BNs                                    |
+| `3cn-1bn`                       | 3  | 1  | 1  |   0   |    0     | Single BN receiving from multiple CNs                                   |
+| `minimal`                       | 1  | 1  | 0  |   0   |    0     | CN+BN only, no mirror/relay/explorer                                    |
+| `2cn-2bn-backfill`              | 2  | 2  | 1  |   0   |    0     | Backfill testing, BN recovery after data loss                           |
+| `2cn-2bn-archive`               | 2  | 2  | 1  |   0   |    0     | RFH-profile BN archiving to RustFS via backfill                         |
+| `2cn-3bn-plugin-profiles`       | 2  | 3  | 1  |   0   |    0     | BN plugin profiles: lfh, minimal, all                                   |
+| `7cn-3bn-distributed`           | 7  | 3  | 1  |   0   |    0     | Distributed streaming, grouped CN->BN with backfill                     |
+| `single-wrb-rsa`                | 1  | 1  | 1  |   0   |    0     | WRB (wrapped record blocks) verified via RSA roster                     |
+| `3cn-2bn-wrb-rsa`               | 3  | 2  | 1  |   0   |    0     | WRB fan-out verified via RSA roster                                     |
+| `wrb-differential-test`         | 1  | 1  | 0  |   0   |    0     | WRB ingestion test; MN deployed dynamically by the test script          |
+| `wrb-differential-test-minimal` | 1  | 2  | 0  |   0   |    0     | WRB differential test: BN1 receives live blocks, BN2 serves pre-wrapped |
+| `wrb-distribution-steps1-12`    | 3  | 0  | 1  |   0   |    0     | WRB distribution E2E (steps 1-12); BNs deployed dynamically by test     |
 
 See `../network-topology-tool/README.md` for topology schema details.
 
 ### Enabling Optional Components
 
-Relay and Explorer are **off in every bundled topology** — none of them define a
+Relay and Explorer are **off in every bundled topology** - none of them define a
 `relay_nodes` or `explorer_nodes` entry. A component is deployed only when its section
 lists at least one node:
 
@@ -659,11 +669,10 @@ After deployment with port-forwards active:
 | Block Node gRPC     | 40840     | +1 per node (40841, 40842..)   |
 | Block Node Metrics  | 16007     | +1 per node (16008, 16009..)   |
 | Mirror REST API     | 5551      | +1 per node (5552, 5553..)     |
-| Mirror Monitor      | 5600      | -                              |
-| Mirror REST Java    | 8084      | -                              |
 | Relay JSON-RPC      | 7546      | +1 per node (7547, 7548..)     |
 | Explorer            | 8080      | -                              |
 | Grafana             | 3000      | If `ENABLE_LOCAL_METRICS=true` |
+| Prometheus          | 9090      | If `ENABLE_LOCAL_METRICS=true` |
 
 **Multi-node example:**
 
@@ -696,16 +705,23 @@ task test:validate TEST_FILE=tests/basic-load.yaml
 
 ### Available Tests
 
-|              Test File               |                     Description                      |
-|--------------------------------------|------------------------------------------------------|
-| `tests/smoke-test.yaml`              | Quick validation of network functionality            |
-| `tests/basic-load.yaml`              | Basic load test (1000 TPS cap)                       |
-| `tests/high-load.yaml`               | High load test (5000 TPS cap)                        |
-| `tests/node-restart-resilience.yaml` | BN recovery after restart during load                |
-| `tests/full-history-backfill.yaml`   | BN backfills history while ingesting live blocks     |
-| `tests/archive-backfill.yaml`        | RFH cloud-only loop, archiving with node replacement |
-| `tests/plugin-profiles.yaml`         | lfh / minimal / all plugin profiles                  |
-| `tests/rsa-roster-verification.yaml` | Blocks verified via the RSA roster (WRB topologies)  |
+|                 Test File                 |                                        Description                                        |
+|-------------------------------------------|-------------------------------------------------------------------------------------------|
+| `tests/smoke-test.yaml`                   | Quick validation of network functionality                                                 |
+| `tests/basic-load.yaml`                   | Basic load test (1000 TPS cap)                                                            |
+| `tests/high-load.yaml`                    | High load test (5000 TPS cap)                                                             |
+| `tests/node-restart-resilience.yaml`      | BN recovery after restart during load                                                     |
+| `tests/full-history-backfill.yaml`        | BN backfills history while ingesting live blocks                                          |
+| `tests/archive-backfill.yaml`             | RFH cloud-only loop, archiving with node replacement                                      |
+| `tests/plugin-profiles.yaml`              | lfh / minimal / all plugin profiles                                                       |
+| `tests/rsa-roster-verification.yaml`      | Blocks verified via the RSA roster (WRB topologies)                                       |
+| `tests/tss-signature-transition.yaml`     | Verify TSS signature transition from Schnorr to WRAPS                                     |
+| `tests/wrb-core-validation.yaml`          | WRB core validation - wrapping and serving without Mirror Nodes                           |
+| `tests/wrb-cli-wrapping-validation.yaml`  | Validate WRB CLI wrapping produces blocks identical to CN                                 |
+| `tests/wrb-cli-hash-validation.yaml`      | Validate WRB CLI block hashing matches Consensus Node hashing                             |
+| `tests/wrb-cli-jumpstart-validation.yaml` | Validate WRB CLI jumpstart.bin creation and contents                                      |
+| `tests/wrb-differential-test.yaml`        | Block ingestion test with separate namespace isolation                                    |
+| `tests/wrb-distribution-steps1-12.yaml`   | WRB distribution E2E (steps 1-12): full BN/MN distribution chain + TSS cutover validation |
 
 ### Test Definition Schema
 
@@ -784,7 +800,7 @@ assertions:                      # Validations to run after all events
 
 **Note:** The `blocks-increasing` assertion verifies a Block Node is actively receiving blocks. It measures baseline, waits `wait_seconds` (default: 60), verifies increase, retrying up to `max_attempts` (default: 3) times.
 
-**Note:** Entries under `assertions:` all run *after* every event, so they cannot check anything that is only true partway through a run. Time-sensitive checks belong in a `command` event instead — a failing `command` event fails the test just as a failing assertion does. `scripts/backfill/assert-backfill-during-live-stream.sh` and the `scripts/wrb-distribution/assert-*.sh` scripts follow this pattern.
+**Note:** Entries under `assertions:` all run *after* every event, so they cannot check anything that is only true partway through a run. Time-sensitive checks belong in a `command` event instead - a failing `command` event fails the test just as a failing assertion does. `scripts/backfill/assert-backfill-during-live-stream.sh` and the `scripts/wrb-distribution/assert-*.sh` scripts follow this pattern.
 
 ### Backfill With Live Tail (`full-history-backfill`)
 
@@ -798,7 +814,7 @@ assertions:                      # Validations to run after all events
 
 The `earliestManagedBlock` is the hinge. On a store-less start the publisher treats it as its next expected block: left at the default `0` the Block Node answers every offer from the Consensus Node with `BlockNodeBehind`, so live streaming only resumes once backfill has walked the whole chain. Raised above the chain head, the first offered block is accepted instead and everything below it becomes a `HISTORICAL` backfill gap.
 
-If the assertion times out reporting no publisher connection, the network most likely produced blocks past the chosen `earliestManagedBlock` before the pod was ready — re-run with a larger `EMB_OFFSET`.
+If the assertion times out reporting no publisher connection, the network most likely produced blocks past the chosen `earliestManagedBlock` before the pod was ready - re-run with a larger `EMB_OFFSET`.
 
 ### CI Integration
 
@@ -822,13 +838,13 @@ See `test-schema.yaml` for the complete schema documentation.
 
 ## Network Chaos / Latency Tests
 
-Inject configurable network latency between Consensus Nodes and Block Nodes during a test run, to exercise behavior under realistic cross-region conditions. Built on top of [Chaos Mesh](https://chaos-mesh.org/) v2.7.2. **Opt-in only** — the default workflow is unaffected.
+Inject configurable network latency between Consensus Nodes and Block Nodes during a test run, to exercise behavior under realistic cross-region conditions. Built on top of [Chaos Mesh](https://chaos-mesh.org/) v2.7.2. **Opt-in only** - the default workflow is unaffected.
 
 The framework supports three latency dimensions:
 
-- **CN ↔ CN** — gossip / consensus traffic
-- **BN ↔ BN** — peer backfill mesh
-- **CN ↔ BN** — live block-publish stream
+- **CN ↔ CN** - gossip / consensus traffic
+- **BN ↔ BN** - peer backfill mesh
+- **CN ↔ BN** - live block-publish stream
 
 For per-scenario details, thresholds, and how to add a new scenario, see [`docs/latency-scenarios.md`](docs/latency-scenarios.md).
 
@@ -837,19 +853,19 @@ For per-scenario details, thresholds, and how to add a new scenario, see [`docs/
 In addition to the usual prereqs:
 
 - **Solo CLI ≥ 0.63.0** (for the block-node label set Chaos Mesh selects on)
-- **Privileged Kubernetes** — Chaos Mesh's daemon runs `privileged=true`, `hostPID=true`, `mountHostLibModules=true`. Local Kind clusters allow this by default; hardened CI clusters may not.
+- **Privileged Kubernetes** - Chaos Mesh's daemon runs `privileged=true`, `hostPID=true`, `mountHostLibModules=true`. Local Kind clusters allow this by default; hardened CI clusters may not.
 
 ### First-time setup (per cluster session)
 
 ```bash
-# 1. Bring up a cluster (TSS is on by default — see note below).
+# 1. Bring up a cluster (TSS is on by default - see note below).
 task up TOPOLOGY=paired-3
 
 # 2. Install Chaos Mesh (opt-in)
 CHAOS_ENABLED=true task chaos:install
 ```
 
-`task chaos:install` is idempotent — re-running upgrades in place rather than failing.
+`task chaos:install` is idempotent - re-running upgrades in place rather than failing.
 
 > **TSS is on by default** (the supported mode). Solo CLI's `--wraps` flag requires CN ≥ v0.74.0-0; `CN_VERSION=latest` is min-enforced by `resolve-versions.sh` to a TSS-capable tag (currently `0.75.0-rc.4`), so `--wraps` deploys cleanly and TSS signatures verify under latency (confirmed: Schnorr→WRAPS transition). Only set `TSS_ENABLED=false` if you pin a `CN_VERSION` below the floor.
 
@@ -863,19 +879,19 @@ Available latency tests, grouped by **profile** (see [`docs/latency-scenarios.md
 
 |              Test File              | Profile  |                Description                 |
 |-------------------------------------|----------|--------------------------------------------|
-| `tests/chaos-foundation-smoke.yaml` | —        | Plumbing check (inject → confirm → clear)  |
+| `tests/chaos-foundation-smoke.yaml` | -        | Plumbing check (inject → confirm → clear)  |
 | `tests/latency-cn-to-cn.yaml`       | baseline | 100 ms ± 20 ms between Consensus Nodes     |
 | `tests/latency-bn-to-bn.yaml`       | baseline | 200 ms ± 40 ms between Block Nodes         |
 | `tests/latency-cn-to-bn.yaml`       | baseline | 150 ms ± 30 ms between CNs and BNs         |
 | `tests/latency-all-three.yaml`      | baseline | All three baseline rules concurrently      |
-| `tests/latency-stress.yaml`         | stress   | ~3× baseline, bursty — degrade & recover   |
-| `tests/latency-severe.yaml`         | severe   | ~5–6× baseline — survival & recovery probe |
+| `tests/latency-stress.yaml`         | stress   | ~3× baseline, bursty - degrade & recover   |
+| `tests/latency-severe.yaml`         | severe   | ~5–6× baseline - survival & recovery probe |
 
-- **baseline** — does the network tolerate normal latency with no visible impact? (steady block-rate floor holds)
-- **stress** — does it degrade gracefully and recover via backfill? (reduced floor)
-- **severe** — does it survive and recover near the breaking point? (recovery-only assertions)
+- **baseline** - does the network tolerate normal latency with no visible impact? (steady block-rate floor holds)
+- **stress** - does it degrade gracefully and recover via backfill? (reduced floor)
+- **severe** - does it survive and recover near the breaking point? (recovery-only assertions)
 
-> **CI concurrency:** the `solo-e2e-test` workflow uses `concurrency: solo-network-<topology>` with `cancel-in-progress: true`, so two `paired-3` chaos runs cannot run at once — the newer dispatch cancels the older. Run them one at a time. (A canceled run logs `kind/solo: command not found` in cleanup — that's cancellation noise, not a failure.)
+> **CI concurrency:** the `solo-e2e-test` workflow uses `concurrency: solo-network-<topology>` with `cancel-in-progress: true`, so two `paired-3` chaos runs cannot run at once - the newer dispatch cancels the older. Run them one at a time. (A canceled run logs `kind/solo: command not found` in cleanup - that's cancellation noise, not a failure.)
 
 ### Inspecting active chaos
 
@@ -1004,8 +1020,8 @@ Multiple tests run sequentially on the same deployment, reducing CI time.
 
 Up to **3 deployments run in parallel** within a scheduler run (`max-parallel: 3`). Each matrix
 entry gets its own runner and its own Kind cluster, so they do not contend with one another;
-the cap limits how many runners — and how many concurrent Consensus Node builds, when the
-resolved CN version is a `-SNAPSHOT` — a single run consumes.
+the cap limits how many runners - and how many concurrent Consensus Node builds, when the
+resolved CN version is a `-SNAPSHOT` - a single run consumes.
 
 > Every topology appears at most once per matrix, which matters: `solo-e2e-test.yml` keys its
 > concurrency group on `topology` with `cancel-in-progress: true`, so two parallel jobs sharing
