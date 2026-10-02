@@ -40,8 +40,11 @@ for _ in $(seq 1 300); do
       # timestamp, so match on the artifact id and the version's leading digits.
       if node sh -c "ls ${PLUGINS_DIR}/${artifact}-[0-9]*.jar >/dev/null 2>&1"; then
         node sh -c "rm -f ${PLUGINS_DIR}/${artifact}-[0-9]*.jar"
-        docker cp "${jar}" "${NODE}:${PLUGINS_DIR}/${name}"
-        node chmod 644 "${PLUGINS_DIR}/${name}"
+        # Stream the jar in: `docker cp` cannot write into the node's tmpfs-backed /tmp.
+        if ! docker exec -i "${NODE}" sh -c "cat > ${PLUGINS_DIR}/${name} && chmod 644 ${PLUGINS_DIR}/${name}" < "${jar}"; then
+          echo "inject-pr-plugins: failed to copy ${name}" >&2
+          exit 1
+        fi
         echo "inject-pr-plugins: replaced ${artifact} with ${name}"
       fi
     done
