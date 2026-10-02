@@ -10,6 +10,7 @@ import static java.util.Objects.requireNonNull;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.BlockNodeServiceInterface;
@@ -69,8 +70,12 @@ public class ServerStatusServicePlugin
     private volatile List<BlockRange> availableBlocks = List.of();
     private volatile TssData tssData = null;
     private volatile RangedAddressBookHistory rangedAddressBookHistory = null;
-    /** This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}. */
-    private volatile PerClientThrottleSettings throttleSettings;
+    /**
+     * This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}.
+     * {@code serverStatus} and {@code serverStatusDetail} get independent rate/concurrency tables from the
+     * same configured numbers, so traffic on one does not consume the other's budget.
+     */
+    private volatile Map<String, PerClientThrottleSettings> throttleSettings;
     /** This service's node-wide concurrency ceiling, computed once in {@link #init}; see {@link ThrottleSpec}. */
     private volatile int globalConcurrencyCeiling;
 
@@ -181,10 +186,13 @@ public class ServerStatusServicePlugin
 
         final ServerStatusThrottleConfig throttleConfig =
                 context.configuration().getConfigData(ServerStatusThrottleConfig.class);
-        this.throttleSettings = new PerClientThrottleSettings(
+        final PerClientThrottleSettings settings = new PerClientThrottleSettings(
                 throttleConfig.ratePerSecond(),
                 throttleConfig.burstTolerance(),
                 throttleConfig.maxConcurrentPerClient());
+        this.throttleSettings = Map.of(
+                BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatus.name(), settings,
+                BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatusDetail.name(), settings);
         this.globalConcurrencyCeiling = context.configuration()
                 .getConfigData(GlobalThrottleConfig.class)
                 .serverStatusMaxConcurrent();
@@ -199,7 +207,7 @@ public class ServerStatusServicePlugin
     /// {@inheritDoc}
     @NonNull
     @Override
-    public PerClientThrottleSettings perClientSettings() {
+    public Map<String, PerClientThrottleSettings> perClientSettings() {
         return throttleSettings;
     }
 

@@ -9,13 +9,23 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
-import org.hiero.metrics.core.MetricRegistry;
+import java.util.Map;
+import java.util.Optional;
 
 /// Wraps a plugin's [ServiceInterface] with a per-client rate/concurrency admission policy, as
 /// described in `docs/design/apis/api-throttling.md`. Attaches at `open()` — the one method every
 /// gRPC call, unary or streaming, passes through — so the mechanism doesn't depend on which web
 /// server hosts the service.
+///
+/// Each of `delegate`'s methods is gated independently: a method named in {@code
+/// perClientSettings} (or covered by {@code defaultPerClientSettings}) gets its own
+/// [ClientThrottle] — its own rate bucket, concurrency ceiling, and client-state table, entirely
+/// independent of any other method on the same service. A method with neither gets no per-client
+/// gate at all; it is still subject to the one shared [GlobalConcurrencyGate] every method on this
+/// service draws from — see [ThrottleSpec#perClientSettings] for why that ceiling is never split
+/// per method even though per-client settings now can be.
 ///
 /// The concurrency permit is released via the *outgoing* `responses` pipeline passed into
 /// `open()`, not the pipeline `open()` returns: for a server-streaming call, the returned pipeline
@@ -30,27 +40,56 @@ import org.hiero.metrics.core.MetricRegistry;
 public final class ThrottledServiceInterface implements ServiceInterface, StaleClientSweepable {
     private final ServiceInterface delegate;
     private final ClientKeyExtractor keyExtractor;
-    private final ClientThrottle throttle;
+    private final ThrottleMetrics throttleMetrics;
+    private final GlobalConcurrencyGate globalGate;
+    private final Map<String, ClientThrottle> perMethodThrottles;
 
-    /// Wraps {@code delegate} with admission control, registering metrics under names derived
-    /// from the delegate's own service name so multiple throttled services don't collide.
-    ///
     /// @param delegate the real plugin service implementation to protect
-    /// @param policy the resolved per-client + node-wide policy for this service's methods
+    /// @param perClientSettings per-method settings for the methods to gate individually, keyed
+    ///     by method name — see [ThrottleSpec#perClientSettings]
+    /// @param defaultPerClientSettings a fallback applied to any of {@code delegate}'s methods not
+    ///     named in {@code perClientSettings} — see [ThrottleSpec#defaultPerClientSettings]
+    /// @param maxConcurrentGlobal the node-wide concurrency ceiling shared by every method on this
+    ///     service, configured or not
     /// @param keyExtractor derives the per-client key from each call's request options
-    /// @param metricRegistry the registry to register this instance's metrics with
+    /// @param throttleMetrics the shared, once-registered metrics this instance's calls report into
     /// @param clientStateTtl how long a client's state is kept after its last-seen call before it
     ///     becomes eligible for eviction (lazily on next lookup, or via [#sweepStaleClients])
     public ThrottledServiceInterface(
             @NonNull final ServiceInterface delegate,
-            @NonNull final ThrottlePolicy policy,
+            @NonNull final Map<String, PerClientThrottleSettings> perClientSettings,
+            @NonNull final Optional<PerClientThrottleSettings> defaultPerClientSettings,
+            final int maxConcurrentGlobal,
             @NonNull final ClientKeyExtractor keyExtractor,
-            @NonNull final MetricRegistry metricRegistry,
+            @NonNull final ThrottleMetrics throttleMetrics,
             @NonNull final Duration clientStateTtl) {
         this.delegate = delegate;
         this.keyExtractor = keyExtractor;
-        this.throttle = new ClientThrottle(
-                policy, metricRegistry, "throttle_" + delegate.serviceName(), delegate.serviceName(), clientStateTtl);
+        this.throttleMetrics = throttleMetrics;
+        this.globalGate = new GlobalConcurrencyGate(maxConcurrentGlobal);
+
+        final Map<String, ClientThrottle> throttles = new HashMap<>();
+        for (final Map.Entry<String, PerClientThrottleSettings> entry : perClientSettings.entrySet()) {
+            final String method = entry.getKey();
+            throttles.put(
+                    method,
+                    new ClientThrottle(
+                            entry.getValue(),
+                            globalGate,
+                            throttleMetrics,
+                            delegate.serviceName(),
+                            method,
+                            clientStateTtl));
+        }
+        defaultPerClientSettings.ifPresent(defaults -> {
+            for (final Method method : delegate.methods()) {
+                throttles.computeIfAbsent(
+                        method.name(),
+                        name -> new ClientThrottle(
+                                defaults, globalGate, throttleMetrics, delegate.serviceName(), name, clientStateTtl));
+            }
+        });
+        this.perMethodThrottles = Map.copyOf(throttles);
     }
 
     @NonNull
@@ -77,8 +116,10 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
             @NonNull final Method method,
             @NonNull final RequestOptions options,
             @NonNull final Pipeline<? super Bytes> replies) {
-        final String clientKey = keyExtractor.extractKey(options);
-        final AdmissionResult result = throttle.tryAdmit(clientKey, System.nanoTime());
+        final ClientThrottle configured = perMethodThrottles.get(method.name());
+        final AdmissionResult result = (configured != null)
+                ? configured.tryAdmit(keyExtractor.extractKey(options), System.nanoTime())
+                : globalOnlyAdmit(method.name());
         if (!result.admitted()) {
             replies.onError(new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED, result.rejectionReason()));
             return Pipelines.noop();
@@ -86,9 +127,27 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
         return delegate.open(method, options, new ReleasingPipeline(replies, result.releasePermit()));
     }
 
+    /// Admits a call to a method with no per-client gate configured — see
+    /// [ThrottleSpec#perClientSettings]. Only the shared node-wide concurrency ceiling applies.
+    @NonNull
+    private AdmissionResult globalOnlyAdmit(@NonNull final String method) {
+        final AdmissionResult result = globalGate.tryAdmit(delegate.serviceName() + "." + method);
+        throttleMetrics.recordCall(
+                delegate.serviceName(),
+                method,
+                result.admitted()
+                        ? ThrottleMetrics.Outcome.ADMITTED
+                        : ThrottleMetrics.Outcome.REJECTED_GLOBAL_CONCURRENCY);
+        return result;
+    }
+
     /// {@inheritDoc}
     @Override
     public int sweepStaleClients(final long nowNanos) {
-        return throttle.sweepStaleClients(nowNanos);
+        int evicted = 0;
+        for (final ClientThrottle throttle : perMethodThrottles.values()) {
+            evicted += throttle.sweepStaleClients(nowNanos);
+        }
+        return evicted;
     }
 }
