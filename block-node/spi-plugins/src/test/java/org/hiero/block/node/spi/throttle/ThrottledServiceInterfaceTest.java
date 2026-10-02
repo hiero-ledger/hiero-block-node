@@ -296,21 +296,21 @@ class ThrottledServiceInterfaceTest {
                 "the default per-client settings should give OTHER_METHOD a real concurrency ceiling of 1");
     }
 
-    private ThrottledServiceInterface throttledWith(final Tier policy) {
+    private ThrottledServiceInterface throttledWith(final Tier tier) {
         // A TTL far longer than any test could run keeps eviction (covered separately below) out of
         // the way of every test that isn't specifically exercising it.
-        return throttledWith(policy, Duration.ofDays(1));
+        return throttledWith(tier, Duration.ofDays(1));
     }
 
-    private ThrottledServiceInterface throttledWith(final Tier policy, final Duration clientStateTtl) {
+    private ThrottledServiceInterface throttledWith(final Tier tier, final Duration clientStateTtl) {
         return new ThrottledServiceInterface(
                 recordingService,
                 Map.of(
                         new MethodWeight(ONLY_METHOD.name(), WeightClass.STANDARD),
                         new PerClientThrottleSettings(
-                                policy.ratePerSecond(), policy.burstTolerance(), policy.maxConcurrentPerClient())),
+                                tier.ratePerSecond(), tier.burstTolerance(), tier.maxConcurrentPerClient())),
                 Optional.empty(),
-                policy.maxConcurrentGlobal(),
+                tier.maxConcurrentGlobal(),
                 new RemoteAddressKeyExtractor(),
                 throttleMetrics,
                 clientStateTtl);
