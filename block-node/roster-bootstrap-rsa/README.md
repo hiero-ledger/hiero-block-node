@@ -22,22 +22,25 @@ and continues without failing startup - operators must ensure at least one sourc
 
 ## How it works
 
-1. **History file (pre-loaded by `BlockNodeApp`):** On startup `BlockNodeApp.loadApplicationState()` checks for a
-   local bootstrap file at `app.state.rsaBootstrapFilePath`. If a full address-book history is found, the plugin
-   records metrics and returns - no further fetching is scheduled.
-2. **Legacy single-book file (pre-loaded by `BlockNodeApp`):** If a legacy single-book file is found instead, the
-   plugin records metrics and schedules periodic peer block node and Mirror Node refreshes (see steps 3 and 4
-   below).
-3. **Peer block node gRPC query:** If `roster.bootstrap.rsa.blockNodeSourcesPath` is configured, the plugin queries
-   peer block nodes concurrently at `bnInitialQueryIntervalMillis` intervals until a valid address book is received.
-   On success, queries switch to `bnSubsequentQueryIntervalMillis` for periodic refresh.
-4. **Mirror Node fallback:** If `roster.bootstrap.rsa.mirrorNodeBaseUrl` is configured, the plugin queries the
-   Mirror Node REST API (`GET /api/v1/network/nodes`, paginated, `order=desc`) at `mnInitialQueryIntervalMillis`
-   intervals concurrently with peer queries. On each failure an error is logged and the query is retried - the
-   plugin does **not** abort startup. On success, queries switch to `mnSubsequentQueryIntervalMillis` for periodic
-   refresh.
-5. **Neither source configured:** If both `blockNodeSourcesPath` and `mirrorNodeBaseUrl` are blank and no file is
-   present, an INFO message is logged and the plugin continues without failing startup.
+1. **File-first:** `BlockNodeApp.loadApplicationState()` reads `app.state.rsaBootstrapFilePath`
+   before plugins start. The file is parsed as a `RangedAddressBookHistory`; if that yields no eras
+   it is parsed as a legacy single `NodeAddressBook` and wrapped into one open-ended era
+   (block 0 - ∞). A corrupt or invalid file aborts startup with `IllegalStateException`.
+2. **History present:** the plugin records metrics and does nothing further. Address-book history
+   updates are an operator concern.
+3. **Legacy single book present:** the plugin records metrics and schedules periodic peer and Mirror
+   Node refreshes (`bnSubsequentQueryIntervalMillis` / `mnSubsequentQueryIntervalMillis`).
+4. **No file:** the plugin starts the peer and Mirror Node queries concurrently, each retrying at its
+   `*InitialQueryIntervalMillis` until it succeeds.
+   - **Peer BN:** enabled only if `blockNodeSourcesPath` points to a valid `BlockNodeSource` JSON.
+     An invalid or missing file logs a WARNING and disables this path.
+   - **Mirror Node:** enabled only if `mirrorNodeBaseUrl` is set. It pages `/api/v1/network/nodes`
+     (`order=desc`) and resolves era timestamps to block ranges via `/api/v1/blocks`.
+5. **Persistence:** results go to `ApplicationStateFacility.updateAddressBookHistory()`, which
+   writes the history back to the bootstrap file for future restarts.
+6. **No source configured:** if there is no file, no `blockNodeSourcesPath` and no
+   `mirrorNodeBaseUrl`, the plugin logs INFO and does nothing. Startup does not fail, but WRBs
+   can't be verified.
 
 ---
 
