@@ -7,6 +7,7 @@ This directory contains performance tests for the application using [k6](https:/
 - Ensure you have [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) installed on your machine.
 - Ensure the [solo-e2e-test prerequisites](../scripts/solo-e2e-test/README.md#prerequisites) are met
   (the test runner uses `task up`/`task down` to spin up and tear down the test environment).
+- Node 22 (for the Spotless JS check) and a working Gradle/JDK setup.
 
 ## Setup
 

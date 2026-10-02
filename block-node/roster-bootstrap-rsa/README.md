@@ -18,29 +18,33 @@ WRBs are produced by Consensus Nodes during **Phase 2a** of the Hiero network up
 transition period where Consensus Nodes emit RSA-signed record files alongside the block stream.
 See the [design doc](../../docs/design/wrb-streaming/bootstrap-roster-plugin.md) for full context.
 WRBs carry a set of gossiped RSA signatures from every node in the current roster as their block
-proof. Without a populated roster the Block Node cannot accept any WRB, so the plugin fails
-startup fast when the roster cannot be loaded.
+proof. Without a populated roster the Block Node cannot verify any WRB. If no roster source is
+configured the plugin logs an INFO message and exits without failing startup - operators must
+ensure at least one source is configured before Phase 2a cutover.
 
 ---
 
 ## How it works
 
-The plugin loads the roster through the following priority sequence:
-
-1. **File-first:** On startup `BlockNodeApp.loadApplicationState()` checks for a local bootstrap file at
-   `app.state.rsaBootstrapFilePath` (default `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json`). If found,
-   the roster is parsed and made available in `BlockNodeContext` before any plugin is started.
-2. **Peer Block Node query:** If `roster.bootstrap.rsa.blockNodeSourcesPath` is set and the file exists,
-   the plugin queries a peer Block Node via gRPC to retrieve the address book.
-3. **Mirror Node fallback:** If no local file or peer query result is available and
-   `roster.bootstrap.rsa.mirrorNodeBaseUrl` is set, the plugin queries the Hedera Mirror Node REST API
-   (`GET /api/v1/network/nodes`, paginated, `order=desc`). The result is registered via
-   `ApplicationStateFacility.updateAddressBookHistory()` for future restarts.
-4. **Fail fast:** If `mirrorNodeBaseUrl` is configured but the Mirror Node is unreachable, startup is
-   aborted with a clear error log. If both `mirrorNodeBaseUrl` and `blockNodeSourcesPath` are blank
-   and no file is present, a WARNING is logged and the plugin exits without failing startup.
-5. **No runtime reload:** The roster is loaded once and does not change for the lifetime of the
-   BN instance. An address-book change requires a restart with a refreshed bootstrap file.
+1. **File-first:** `BlockNodeApp.loadApplicationState()` reads `app.state.rsaBootstrapFilePath`
+   before plugins start. The file is parsed as a `RangedAddressBookHistory`; if that yields no eras
+   it is parsed as a legacy single `NodeAddressBook` and wrapped into one open-ended era
+   (block 0 - ∞). A corrupt or invalid file aborts startup with `IllegalStateException`.
+2. **History present:** the plugin records metrics and does nothing further. Address-book history
+   updates are an operator concern.
+3. **Legacy single book present:** the plugin records metrics and schedules periodic peer and Mirror
+   Node refreshes (`bnSubsequentQueryIntervalMillis` / `mnSubsequentQueryIntervalMillis`).
+4. **No file:** the plugin starts the peer and Mirror Node queries concurrently, each retrying at its
+   `*InitialQueryIntervalMillis` until it succeeds.
+   - **Peer BN:** enabled only if `blockNodeSourcesPath` points to a valid `BlockNodeSource` JSON.
+     An invalid or missing file logs a WARNING and disables this path.
+   - **Mirror Node:** enabled only if `mirrorNodeBaseUrl` is set. It pages `/api/v1/network/nodes`
+     (`order=desc`) and resolves era timestamps to block ranges via `/api/v1/blocks`.
+5. **Persistence:** results go to `ApplicationStateFacility.updateAddressBookHistory()`, which
+   writes the history back to the bootstrap file for future restarts.
+6. **No source configured:** if there is no file, no `blockNodeSourcesPath` and no
+   `mirrorNodeBaseUrl`, the plugin logs INFO and does nothing. Startup does not fail, but WRBs
+   can't be verified.
 
 ---
 
