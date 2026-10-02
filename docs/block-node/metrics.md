@@ -152,6 +152,7 @@ Measures block‑verification throughput and success rate.
 |---------|-----------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
 | Counter | `verification_blocks_received`    | Blocks received for verification                                                                                               |
 | Gauge   | `verification_active_sessions`    | Currently active verification sessions (live size of the active sessions buffer)                                               |
+| Counter | `verification_sessions_evicted`   | Sessions evicted from the active sessions buffer, labels: `lane={high_priority,low_priority}`                                  |
 | Counter | `verification_blocks_verified`    | Blocks that passed verification                                                                                                |
 | Counter | `verification_blocks_failed`      | Blocks that failed verification                                                                                                |
 | Counter | `verification_blocks_error`       | Internal errors during verification                                                                                            |
