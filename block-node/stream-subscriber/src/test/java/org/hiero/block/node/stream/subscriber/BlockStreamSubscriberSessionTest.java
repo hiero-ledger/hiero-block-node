@@ -1502,7 +1502,10 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(-1L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, liveRequest, context), failingPipeline, context, sessionReadyLatch);
+                    SessionContext.create(clientId, liveRequest, context, TEST_BLOCK_READ_BULKHEAD),
+                    failingPipeline,
+                    context,
+                    sessionReadyLatch);
 
             try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
