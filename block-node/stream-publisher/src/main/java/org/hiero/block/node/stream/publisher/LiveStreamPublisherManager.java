@@ -309,7 +309,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         checkForStalledHandlers(blockNumber);
         // Check for new blocks to resend (previous method might have added one)
         // and send a resend response if there are blocks needing to resend.
-        final long blockToResend = nextBlockToResend();
+        final long blockToResend = nextBlockToResend(blockNumber);
         if (blockToResend != UNKNOWN_BLOCK_NUMBER) {
             return new ActionForBlock(BlockAction.RESEND, blockToResend);
         } else {
@@ -547,6 +547,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // @todo(#1841) reconsider this conditional in light of other changes.
                 // Persistence success (as from backfill) can also detect stalled handlers...
                 checkForStalledHandlers(blockNumber);
+                // A block that is persisted no longer needs to be resent, whichever copy of it
+                // was persisted (another publisher, or backfill). Left in place, the entry would
+                // clamp every acknowledgement below it and keep asking publishers to resend a
+                // block they may no longer hold. Only the exact block is removed; persisting a
+                // block says nothing about the blocks before it.
+                blocksToResend.remove(blockNumber);
                 if (blockNumber > lastPersistedBlockNumber.get()) {
                     // Drop stale resend entries that no publisher could realistically still
                     // supply. Without this, an entry left behind by a TOCTOU race between
@@ -962,21 +968,29 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
     }
 
-    /// This method will return the next block number for the next block that must be resent.
-    /// This method could also return {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} if no
-    /// more blocks are awaiting resend.
-    private long nextBlockToResend() {
-        long nextBlock;
-        if (!blocksToResend.isEmpty()) {
-            try {
-                // The blocksToResend set is a SortedSet, so first item will be the lowest one.
-                nextBlock = blocksToResend.first();
-            } catch (final NoSuchElementException e) {
-                // do nothing; we have no more blocks to resend.
-                nextBlock = UNKNOWN_BLOCK_NUMBER;
+    /// Returns the next block number that must be resent to the publisher that just
+    /// completed `completedBlockNumber`, or
+    /// {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} if there is none
+    /// that publisher can supply.
+    ///
+    /// A resend is only offered for a block at or below the block the publisher just
+    /// completed. A publisher that has not yet reached a block cannot resend it, and asking
+    /// publishers that are a few blocks behind the one that supplied the failed block
+    /// makes them close the connection (a failed resend of an unknown block). The entry
+    /// stays in the set so a publisher that has reached the block can still be asked.
+    ///
+    /// @param completedBlockNumber the block the requesting publisher just completed
+    private long nextBlockToResend(final long completedBlockNumber) {
+        long nextBlock = UNKNOWN_BLOCK_NUMBER;
+        try {
+            // The blocksToResend set is a SortedSet, so first item will be the lowest one.
+            // If the lowest is beyond what this publisher has produced, so is every other entry.
+            final long lowest = blocksToResend.first();
+            if (lowest <= completedBlockNumber) {
+                nextBlock = lowest;
             }
-        } else {
-            nextBlock = UNKNOWN_BLOCK_NUMBER;
+        } catch (final NoSuchElementException e) {
+            // do nothing; we have no more blocks to resend.
         }
         return nextBlock;
     }
