@@ -34,7 +34,7 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
 import org.hiero.block.node.spi.throttle.StaleClientSweepable;
 import org.hiero.block.node.spi.throttle.ThrottleExempt;
-import org.hiero.block.node.spi.throttle.ThrottlePolicy;
+import org.hiero.block.node.spi.throttle.ThrottleMetrics;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
 import org.hiero.metrics.core.MetricRegistry;
@@ -68,6 +68,8 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private final List<StaleClientSweepable> throttledServices = new ArrayList<>();
     /** Lazily created on the first throttled registration; runs the stale-client-state sweep. */
     private ScheduledExecutorService clientStateSweepExecutor;
+    /** The throttle mechanism's shared, once-registered metrics — see {@link ThrottleMetrics}. */
+    private final ThrottleMetrics throttleMetrics;
 
     public ServiceBuilderImpl(
             final ServerConfig serverConfig,
@@ -82,6 +84,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         this.globalThrottleConfig = globalThrottleConfig;
         this.metricRegistry = metricRegistry;
         this.threadPoolManager = threadPoolManager;
+        this.throttleMetrics = new ThrottleMetrics(metricRegistry);
         additionalWebservers = new LinkedHashSet<>();
     }
 
@@ -127,12 +130,13 @@ public class ServiceBuilderImpl implements ServiceBuilder {
 
     private void registerThrottledGrpcService(
             @Nullable final Integer port, @NonNull final ServiceInterface service, @NonNull final ThrottleSpec spec) {
-        final ThrottlePolicy policy = ThrottlePolicy.merge(spec.perClientSettings(), spec.globalConcurrencyCeiling());
         final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
                 service,
-                policy,
+                spec.perClientSettings(),
+                spec.defaultPerClientSettings(),
+                spec.globalConcurrencyCeiling(),
                 new RemoteAddressKeyExtractor(),
-                metricRegistry,
+                throttleMetrics,
                 Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
         throttledServices.add(throttled);
         ensureClientStateSweepStarted();
