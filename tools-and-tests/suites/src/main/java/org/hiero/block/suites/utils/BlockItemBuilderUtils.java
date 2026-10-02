@@ -490,12 +490,13 @@ public final class BlockItemBuilderUtils {
 
     /**
      * Creates a verifiable block carrying an explicit {@code startOfBlockStateRootHash} in its footer
-     * and (optionally) a {@code state_changes} item, with a block proof signature that
-     * {@code ExtendedMerkleTreeSession} accepts (legacy {@code SHA384(blockRootHash)} path).
-     * The block root hash is computed exactly as that session computes it — folding the header into the
-     * output subtree, the round header into the consensus subtree, the {@code state_changes} item into
-     * the state-changes subtree, and threading the chosen {@code startOfBlockStateRootHash} — so the
-     * block both verifies and drives a real state apply.
+     * and (optionally) a {@code state_changes} item, with a real TSS signature from the shared
+     * {@link #blockSigner()} (see {@link #createVerifiableBlockProof} for the equivalent state-free
+     * path) — provision the block node with that signer's roster via {@link #provisionTssBootstrap()}.
+     * The block root hash is computed exactly as the block-verification hasher computes it — folding
+     * the header into the output subtree, the round header into the consensus subtree, the
+     * {@code state_changes} item into the state-changes subtree, and threading the chosen
+     * {@code startOfBlockStateRootHash} — so the block both verifies and drives a real state apply.
      *
      * <p>Use {@link #computeBlockHashWithState} to chain the next block's {@code previousBlockHash}.
      *
@@ -522,7 +523,10 @@ public final class BlockItemBuilderUtils {
 
         final Bytes blockHash =
                 computeBlockHashWithState(blockNumber, previousBlockHash, startOfBlockStateRootHash, stateChanges);
-        final Bytes blockSignature = HashingUtilities.noThrowSha384HashOf(blockHash);
+        final Bytes blockSignature = blockSigner()
+                .signBlockProof(blockNumber, blockHash)
+                .signedBlockProof()
+                .blockSignature();
         final TssSignedBlockProof tssSignedBlockProof =
                 TssSignedBlockProof.newBuilder().blockSignature(blockSignature).build();
         final BlockProof blockProof = BlockProof.newBuilder()
