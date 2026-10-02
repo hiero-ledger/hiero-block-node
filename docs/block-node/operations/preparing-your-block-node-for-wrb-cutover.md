@@ -420,7 +420,6 @@ Set `roster.bootstrap.tss.blockNodeSourcesPath` (default: `""`) to the path of a
 > 40980 subscribe). Adjust to match your peer BN's actual configuration. When `status_port`
 > or `subscribe_port` is omitted, the plugin falls back to `port` for those calls.
 
-
 After the Block Node starts, confirm TSS data loaded by querying `serverStatusDetail` - the response should include a non-empty `tssData` field:
 
 ```bash
