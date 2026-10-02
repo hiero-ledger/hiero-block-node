@@ -434,8 +434,14 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     protected void startPlugins(List<BlockNodePlugin> plugins) {
         // Start all the facilities & plugins asynchronously
         // Asynchronously start the plugins
+        // Log any failure here: an exception escaping the parallel stream otherwise only reaches stderr
+        // (not the log file) and leaves the JVM alive on non-daemon threads without ever becoming ready.
         plugins.parallelStream().forEach(plugin -> {
-            plugin.start();
+            try {
+                plugin.start();
+            } catch (final Throwable e) {
+                LOGGER.log(WARNING, "Plugin " + plugin.name() + " failed to start", e);
+            }
         });
     }
 
