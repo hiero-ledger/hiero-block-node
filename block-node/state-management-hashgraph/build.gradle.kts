@@ -21,7 +21,6 @@ mainModuleInfo {
 
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
-    requires("io.helidon.webserver")
     requires("org.assertj.core")
     requires("org.junit.jupiter.api")
 
