@@ -45,7 +45,7 @@ grpcurl_err="${TMPDIR:-/tmp}/wrb-dist-bulk-load-assert-grpcurl.err"
 status_json=$(grpcurl -plaintext -emit-defaults \
     -import-path "${PROTO_PATH}" \
     -proto block-node/api/node_service.proto \
-    -d '{}' "localhost:${BN1_GRPC_PORT}" \
+    -d '{}' "127.0.0.1:${BN1_GRPC_PORT}" \
     org.hiero.block.api.BlockNodeService/serverStatus 2>"${grpcurl_err}") || {
         log "grpcurl query failed:"
         sed 's/^/  /' "${grpcurl_err}" || true

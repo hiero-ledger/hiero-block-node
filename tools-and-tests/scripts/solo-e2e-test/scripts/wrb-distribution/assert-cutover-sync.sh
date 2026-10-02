@@ -92,16 +92,18 @@ mn_last_block() {
     local port="$1"
     local body
     body=$(curl -s --max-time 10 "http://127.0.0.1:${port}/api/v1/blocks?limit=1&order=desc" 2>/tmp/wrb-dist-cutover.err) || return 0
-    # Distinguish "server reachable but no blocks yet" (return "0") from
-    # "server not reachable" (return "").  The /api/v1/blocks response is
-    # always a JSON object with a blocks array; an absent or null .blocks[0]
-    # means the importer has not yet ingested block 0, not that the pod is
-    # down.  Treating 0-block nodes as "missing" rather than "behind" prevents
-    # convergence from ever being declared when MN2 is still catching up.
-    if echo "${body}" | jq -e 'has("blocks")' >/dev/null 2>&1; then
-        echo "${body}" | jq -r '.blocks[0].number // "0"' 2>/dev/null || true
-    fi
-    # If jq can't parse the body at all the function returns empty (server error).
+    # Distinguish "server reachable but no blocks yet" (return "", i.e.
+    # missing) from "server reachable and reports block N" (return N). Do NOT
+    # fall back to "0" when .blocks[] is empty: block 0 is a real, valid value
+    # for a converged node, so collapsing "no blocks yet" to the same "0"
+    # makes a not-yet-ingested MN indistinguishable from one that's caught up.
+    # If a BN also briefly reports lastAvailableBlock=0 right after a CN
+    # restart, every node would read 0, spread would be 0, and the poll loop
+    # below would wrongly declare convergence while MN2 hasn't started
+    # importing at all.
+    echo "${body}" | jq -r 'if has("blocks") and (.blocks | length) > 0 then .blocks[0].number else empty end' 2>/dev/null || true
+    # If jq can't parse the body, or blocks is absent/empty, this returns
+    # empty, which the caller treats as "missing" (not yet reachable/ready).
 }
 
 names=(block-node-1 block-node-2 block-node-3 mirror-1 mirror-2)
