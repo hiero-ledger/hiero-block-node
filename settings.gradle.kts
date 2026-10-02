@@ -104,6 +104,22 @@ gradle.lifecycle.beforeProject {
                 requires("org.hiero.consensus.model")
                 requiresStatic("com.github.spotbugs.annotations")
             }
+            // consensus-roster's published module-info has the same com.hedera.node.hapi
+            // requirement as consensus-model/consensus-utility above; same substitution.
+            module("com.hedera.hashgraph:consensus-roster", "org.hiero.consensus.roster") {
+                patchRealModule()
+                exportAllPackages()
+                requires("com.hedera.pbj.runtime")
+                requires("com.swirlds.base")
+                requires("com.swirlds.metrics.api")
+                requires("com.swirlds.state.api")
+                requires("org.hiero.base.crypto")
+                requires("org.hiero.base.utility")
+                requires("org.hiero.block.protobuf.pbj")
+                requires("org.hiero.consensus.metrics")
+                requires("org.hiero.consensus.model")
+                requiresStatic("com.github.spotbugs.annotations")
+            }
         }
 
         // Use our protobuf-pbj rather than the upstream hapi jar so the package
