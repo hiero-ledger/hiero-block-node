@@ -11,9 +11,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 /// combination: one GCRA-rate-limited, concurrency-capped, TTL-evicted pool of client state.
 /// Shared by [ThrottledServiceInterface].
 ///
-/// The node-wide concurrency ceiling is deliberately **not** owned here — it's a
-/// [GlobalConcurrencyGate], shared across every method on this instance's service, configured or
-/// not, so that ceiling stays one pool regardless of how many methods draw from it.
+/// The node-wide concurrency ceiling is deliberately **not** owned here — see [GlobalConcurrencyGate]
+/// for why it's a separate, shared gate instead.
 ///
 /// On every [#tryAdmit] call, in order — the first check that rejects wins, and no later check
 /// runs: (1) the shared global concurrency ceiling, (2) the per-client concurrency ceiling, (3)
