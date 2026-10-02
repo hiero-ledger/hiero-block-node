@@ -34,16 +34,7 @@ gradle.lifecycle.beforeProject {
                 requires("org.apache.commons.compress")
             }
 
-            // Non-modular jars pulled in transitively by swirlds-state-impl / virtualmap.
-            module("com.goterl:lazysodium-java", "com.goterl.lazysodium") {
-                exportAllPackages()
-                requires("com.sun.jna")
-                requires("com.goterl.resourceloader")
-            }
-            module("com.goterl:resource-loader", "com.goterl.resourceloader") {
-                exportAllPackages()
-                requires("com.sun.jna")
-            }
+            // Non-modular jar pulled in transitively by swirlds-state-impl / virtualmap.
             module("net.java.dev.jna:jna", "com.sun.jna") { exportAllPackages() }
             module("io.prometheus:simpleclient", "simpleclient") {
                 exportAllPackages()

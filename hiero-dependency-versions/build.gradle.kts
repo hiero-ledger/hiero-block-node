@@ -84,21 +84,16 @@ dependencies.constraints {
     api("com.hedera.hashgraph:consensus-concurrent:$hederaVersion") {
         because("org.hiero.consensus.concurrent")
     }
-    api("com.hedera.hashgraph:consensus-reconnect:$hederaVersion") {
-        because("org.hiero.consensus.reconnect")
-    }
-    api("com.goterl:lazysodium-java:5.2.0") { because("com.goterl.lazysodium") }
-    api("com.goterl:resource-loader:2.1.0") { because("com.goterl.resourceloader") }
-    api("net.java.dev.jna:jna:5.18.1") { because("com.sun.jna") }
+    api("net.java.dev.jna:jna:5.19.0") { because("com.sun.jna") }
     api("org.json:json:20250517") { because("org.json") }
     api("io.prometheus:simpleclient:0.16.0") { because("simpleclient") }
     api("io.prometheus:simpleclient_common:0.16.0") { because("simpleclient.common") }
     api("io.prometheus:simpleclient_httpserver:0.16.0") { because("simpleclient.httpserver") }
     api("io.prometheus:simpleclient_tracer_common:0.16.0") { because("simpleclient.tracer.common") }
-    api("org.hyperledger.besu:besu-native-common:1.3.0") {
+    api("org.hyperledger.besu:besu-native-common:1.4.2") {
         because("org.hyperledger.besu.nativelib.common")
     }
-    api("org.hyperledger.besu:secp256k1:1.3.0") {
+    api("org.hyperledger.besu:secp256k1:1.4.2") {
         because("org.hyperledger.besu.nativelib.secp256k1")
     }
     api("com.hedera.hashgraph:hiero-metrics:$hederaVersion") { because("org.hiero.metrics") }
