@@ -23,9 +23,7 @@ import java.util.Optional;
 /// perClientSettings} (or covered by {@code defaultPerClientSettings}) gets its own
 /// [ClientThrottle] — its own rate bucket, concurrency ceiling, and client-state table, entirely
 /// independent of any other method on the same service. A method with neither gets no per-client
-/// gate at all; it is still subject to the one shared [GlobalConcurrencyGate] every method on this
-/// service draws from — see [ThrottleSpec#perClientSettings] for why that ceiling is never split
-/// per method even though per-client settings now can be.
+/// gate at all; it is still subject to the one shared [GlobalConcurrencyGate].
 ///
 /// The concurrency permit is released via the *outgoing* `responses` pipeline passed into
 /// `open()`, not the pipeline `open()` returns: for a server-streaming call, the returned pipeline
