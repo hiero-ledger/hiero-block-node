@@ -2,6 +2,7 @@
 package org.hiero.block.tools.blocks;
 
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
@@ -301,7 +302,7 @@ public final class TestBlockFactory {
     /** Returns a copy with a corrupted previousBlockRootHash in the footer. */
     public static Block withBrokenPreviousHash(Block block) {
         return replaceFooter(block, footer -> BlockFooter.newBuilder()
-                .previousBlockRootHash(Bytes.wrap(new byte[48]))
+                .previousBlockRootHash(Bytes.wrap(new byte[SHA_256_HASH_SIZE]))
                 .rootHashOfAllBlockHashesTree(footer.rootHashOfAllBlockHashesTree())
                 .startOfBlockStateRootHash(footer.startOfBlockStateRootHash())
                 .build());
@@ -311,7 +312,7 @@ public final class TestBlockFactory {
     public static Block withBrokenTreeRoot(Block block) {
         return replaceFooter(block, footer -> BlockFooter.newBuilder()
                 .previousBlockRootHash(footer.previousBlockRootHash())
-                .rootHashOfAllBlockHashesTree(Bytes.wrap(new byte[48]))
+                .rootHashOfAllBlockHashesTree(Bytes.wrap(new byte[SHA_256_HASH_SIZE]))
                 .startOfBlockStateRootHash(footer.startOfBlockStateRootHash())
                 .build());
     }

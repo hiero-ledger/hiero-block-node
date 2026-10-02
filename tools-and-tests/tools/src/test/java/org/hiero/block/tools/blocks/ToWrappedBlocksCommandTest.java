@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -138,7 +139,7 @@ class ToWrappedBlocksCommandTest {
             final Path regFile = tempDir.resolve("hashes.bin");
             try (BlockStreamBlockHashRegistry reg = new BlockStreamBlockHashRegistry(regFile)) {
                 for (int i = 0; i < 10; i++) {
-                    reg.addBlock(i, new byte[48]);
+                    reg.addBlock(i, new byte[SHA_256_HASH_SIZE]);
                 }
                 assertEquals(9, reg.highestBlockNumberStored());
                 reg.truncateTo(5);
@@ -152,7 +153,7 @@ class ToWrappedBlocksCommandTest {
             final Path regFile = tempDir.resolve("hashes.bin");
             try (BlockStreamBlockHashRegistry reg = new BlockStreamBlockHashRegistry(regFile)) {
                 for (int i = 0; i < 5; i++) {
-                    reg.addBlock(i, new byte[48]);
+                    reg.addBlock(i, new byte[SHA_256_HASH_SIZE]);
                 }
                 reg.truncateTo(-1);
                 assertEquals(-1, reg.highestBlockNumberStored());
@@ -163,7 +164,7 @@ class ToWrappedBlocksCommandTest {
         @DisplayName("truncateTo preserves hashes for retained blocks")
         void testTruncatePreservesHashes() throws Exception {
             final Path regFile = tempDir.resolve("hashes.bin");
-            final byte[][] hashes = new byte[10][48];
+            final byte[][] hashes = new byte[10][SHA_256_HASH_SIZE];
             for (int i = 0; i < 10; i++) {
                 hashes[i][0] = (byte) i;
             }
@@ -186,10 +187,10 @@ class ToWrappedBlocksCommandTest {
             final Path regFile = tempDir.resolve("hashes.bin");
             try (BlockStreamBlockHashRegistry reg = new BlockStreamBlockHashRegistry(regFile)) {
                 for (int i = 0; i < 10; i++) {
-                    reg.addBlock(i, new byte[48]);
+                    reg.addBlock(i, new byte[SHA_256_HASH_SIZE]);
                 }
                 reg.truncateTo(5);
-                final byte[] newHash = new byte[48];
+                final byte[] newHash = new byte[SHA_256_HASH_SIZE];
                 newHash[0] = 42;
                 reg.addBlock(6, newHash);
                 assertEquals(6, reg.highestBlockNumberStored());
@@ -203,7 +204,7 @@ class ToWrappedBlocksCommandTest {
             final Path regFile = tempDir.resolve("hashes.bin");
             try (BlockStreamBlockHashRegistry reg = new BlockStreamBlockHashRegistry(regFile)) {
                 for (int i = 0; i < 5; i++) {
-                    reg.addBlock(i, new byte[48]);
+                    reg.addBlock(i, new byte[SHA_256_HASH_SIZE]);
                 }
                 assertThrows(IllegalArgumentException.class, () -> reg.truncateTo(10));
                 assertThrows(IllegalArgumentException.class, () -> reg.truncateTo(-2));
@@ -216,7 +217,7 @@ class ToWrappedBlocksCommandTest {
             final Path regFile = tempDir.resolve("hashes.bin");
             try (BlockStreamBlockHashRegistry reg = new BlockStreamBlockHashRegistry(regFile)) {
                 for (int i = 0; i < 5; i++) {
-                    reg.addBlock(i, new byte[48]);
+                    reg.addBlock(i, new byte[SHA_256_HASH_SIZE]);
                 }
                 reg.truncateTo(4);
                 assertEquals(4, reg.highestBlockNumberStored());
@@ -227,11 +228,11 @@ class ToWrappedBlocksCommandTest {
         @DisplayName("mostRecentBlockHash updated after truncation")
         void testMostRecentHashUpdatedAfterTruncation() throws Exception {
             final Path regFile = tempDir.resolve("hashes.bin");
-            final byte[] hash3 = new byte[48];
+            final byte[] hash3 = new byte[SHA_256_HASH_SIZE];
             hash3[0] = 3;
             try (BlockStreamBlockHashRegistry reg = new BlockStreamBlockHashRegistry(regFile)) {
                 for (int i = 0; i < 5; i++) {
-                    final byte[] h = new byte[48];
+                    final byte[] h = new byte[SHA_256_HASH_SIZE];
                     h[0] = (byte) i;
                     reg.addBlock(i, h);
                 }
@@ -447,7 +448,7 @@ class ToWrappedBlocksCommandTest {
         @DisplayName("HasherStateFiles atomic save creates .bak and cleans .tmp")
         void testAtomicSavePattern() throws Exception {
             final StreamingHasher hasher = new StreamingHasher();
-            hasher.addNodeByHash(new byte[48]);
+            hasher.addNodeByHash(new byte[SHA_256_HASH_SIZE]);
 
             final Path primary = tempDir.resolve("hasher.bin");
             HasherStateFiles.saveAtomically(primary, hasher::save);
@@ -455,7 +456,7 @@ class ToWrappedBlocksCommandTest {
             assertFalse(Files.exists(Path.of(primary + ".tmp")));
 
             // Save again — should create .bak
-            hasher.addNodeByHash(new byte[48]);
+            hasher.addNodeByHash(new byte[SHA_256_HASH_SIZE]);
             HasherStateFiles.saveAtomically(primary, hasher::save);
             assertTrue(Files.exists(primary));
             assertTrue(Files.exists(Path.of(primary + ".bak")));
@@ -465,7 +466,7 @@ class ToWrappedBlocksCommandTest {
         @DisplayName("loadWithFallback loads from .bak when primary is missing")
         void testLoadWithFallbackFromBackup() throws Exception {
             final StreamingHasher original = new StreamingHasher();
-            original.addNodeByHash(new byte[48]);
+            original.addNodeByHash(new byte[SHA_256_HASH_SIZE]);
 
             final Path primary = tempDir.resolve("hasher.bin");
             final Path backup = Path.of(primary + ".bak");
@@ -717,8 +718,8 @@ class ToWrappedBlocksCommandTest {
                 final long blockNumber = in.readLong();
                 assertTrue(blockNumber >= 0, "Jumpstart block number should be non-negative");
 
-                // Block hash is 48 bytes (SHA-384)
-                final byte[] blockHash = new byte[48];
+                // Block hash is 32 bytes (SHA-256)
+                final byte[] blockHash = new byte[SHA_256_HASH_SIZE];
                 in.readFully(blockHash);
 
                 // Verify hash is non-empty (not all zeros)
@@ -731,12 +732,12 @@ class ToWrappedBlocksCommandTest {
                 }
                 assertFalse(allZero, "Jumpstart block hash should not be all zeros");
 
-                // Consensus timestamp hash is 48 bytes (SHA-384)
-                final byte[] consensusTimestampHash = new byte[48];
+                // Consensus timestamp hash is 32 bytes (SHA-256)
+                final byte[] consensusTimestampHash = new byte[SHA_256_HASH_SIZE];
                 in.readFully(consensusTimestampHash);
 
-                // Output items tree root hash is 48 bytes (SHA-384)
-                final byte[] outputItemsTreeRootHash = new byte[48];
+                // Output items tree root hash is 32 bytes (SHA-256)
+                final byte[] outputItemsTreeRootHash = new byte[SHA_256_HASH_SIZE];
                 in.readFully(outputItemsTreeRootHash);
 
                 // Streaming hasher state
@@ -747,7 +748,7 @@ class ToWrappedBlocksCommandTest {
                 final int hashListSize = in.readInt();
                 assertTrue(hashListSize >= 0, "Hash list size should be non-negative");
                 for (int i = 0; i < hashListSize; i++) {
-                    final byte[] hash = new byte[48];
+                    final byte[] hash = new byte[SHA_256_HASH_SIZE];
                     in.readFully(hash);
                 }
             }
@@ -1198,8 +1199,8 @@ class ToWrappedBlocksCommandTest {
             }
 
             final Path file = jumpstartDir.resolve("jumpstart.bin");
-            final byte[] consensusTimestampHash = new byte[48];
-            final byte[] outputItemsTreeRootHash = new byte[48];
+            final byte[] consensusTimestampHash = new byte[SHA_256_HASH_SIZE];
+            final byte[] outputItemsTreeRootHash = new byte[SHA_256_HASH_SIZE];
             ToWrappedBlocksCommand.saveJumpstartData(
                     file, 9, lastHash, consensusTimestampHash, outputItemsTreeRootHash, streamingHasher);
 
@@ -1207,15 +1208,15 @@ class ToWrappedBlocksCommandTest {
             try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
                 assertEquals(9, in.readLong(), "Block number should be 9");
 
-                final byte[] readHash = new byte[48];
+                final byte[] readHash = new byte[SHA_256_HASH_SIZE];
                 in.readFully(readHash);
                 assertArrayEquals(lastHash, readHash, "Block hash should match");
 
-                final byte[] readCtHash = new byte[48];
+                final byte[] readCtHash = new byte[SHA_256_HASH_SIZE];
                 in.readFully(readCtHash);
                 assertArrayEquals(consensusTimestampHash, readCtHash, "Consensus timestamp hash should match");
 
-                final byte[] readOitHash = new byte[48];
+                final byte[] readOitHash = new byte[SHA_256_HASH_SIZE];
                 in.readFully(readOitHash);
                 assertArrayEquals(outputItemsTreeRootHash, readOitHash, "Output items tree root hash should match");
 
@@ -1226,7 +1227,7 @@ class ToWrappedBlocksCommandTest {
                 assertEquals(intermediateState.size(), hashListSize, "Hash list size should match");
 
                 for (int i = 0; i < hashListSize; i++) {
-                    final byte[] readIntermediateHash = new byte[48];
+                    final byte[] readIntermediateHash = new byte[SHA_256_HASH_SIZE];
                     in.readFully(readIntermediateHash);
                     assertArrayEquals(intermediateState.get(i), readIntermediateHash, "Intermediate hash " + i);
                 }
@@ -1242,19 +1243,20 @@ class ToWrappedBlocksCommandTest {
             streamingHasher.addNodeByHash(blockHash);
 
             final Path file = jumpstartDir.resolve("jumpstart.bin");
-            ToWrappedBlocksCommand.saveJumpstartData(file, 0, blockHash, new byte[48], new byte[48], streamingHasher);
+            ToWrappedBlocksCommand.saveJumpstartData(
+                    file, 0, blockHash, new byte[SHA_256_HASH_SIZE], new byte[SHA_256_HASH_SIZE], streamingHasher);
 
             try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
                 assertEquals(0, in.readLong(), "Block number should be 0");
-                final byte[] readHash = new byte[48];
+                final byte[] readHash = new byte[SHA_256_HASH_SIZE];
                 in.readFully(readHash);
                 assertArrayEquals(blockHash, readHash);
-                final byte[] readCtHash = new byte[48];
+                final byte[] readCtHash = new byte[SHA_256_HASH_SIZE];
                 in.readFully(readCtHash);
-                assertArrayEquals(new byte[48], readCtHash, "Consensus timestamp hash should match");
-                final byte[] readOitHash = new byte[48];
+                assertArrayEquals(new byte[SHA_256_HASH_SIZE], readCtHash, "Consensus timestamp hash should match");
+                final byte[] readOitHash = new byte[SHA_256_HASH_SIZE];
                 in.readFully(readOitHash);
-                assertArrayEquals(new byte[48], readOitHash, "Output items tree root hash should match");
+                assertArrayEquals(new byte[SHA_256_HASH_SIZE], readOitHash, "Output items tree root hash should match");
                 assertEquals(1, in.readLong(), "Leaf count should be 1");
             }
         }
@@ -1271,7 +1273,8 @@ class ToWrappedBlocksCommandTest {
             }
 
             final Path file = jumpstartDir.resolve("jumpstart.bin");
-            ToWrappedBlocksCommand.saveJumpstartData(file, 5, hash5, new byte[48], new byte[48], hasher5);
+            ToWrappedBlocksCommand.saveJumpstartData(
+                    file, 5, hash5, new byte[SHA_256_HASH_SIZE], new byte[SHA_256_HASH_SIZE], hasher5);
 
             // Overwrite with block 10
             final StreamingHasher hasher10 = new StreamingHasher();
@@ -1280,7 +1283,8 @@ class ToWrappedBlocksCommandTest {
                 hash10 = BlockStreamBlockHasher.hashBlock(chain.get(i));
                 hasher10.addNodeByHash(hash10);
             }
-            ToWrappedBlocksCommand.saveJumpstartData(file, 10, hash10, new byte[48], new byte[48], hasher10);
+            ToWrappedBlocksCommand.saveJumpstartData(
+                    file, 10, hash10, new byte[SHA_256_HASH_SIZE], new byte[SHA_256_HASH_SIZE], hasher10);
 
             try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
                 assertEquals(10, in.readLong(), "Block number should be 10 after overwrite");

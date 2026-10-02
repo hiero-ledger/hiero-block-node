@@ -135,7 +135,7 @@ Validates wrapped block stream files produced by the `wrap` command. Walks all b
 At a high level:
 
 - **Hash chain continuity** — each block's `previousBlockRootHash` in the footer matches the computed hash of the preceding block.
-- **Genesis block** — first block has 48 zero bytes for previous hash.
+- **Genesis block** — first block has the empty-tree hash for previous hash.
 - **Historical block tree root** — the `rootHashOfAllBlockHashesTree` in the footer matches the expected merkle tree root computed from all preceding block hashes (only when starting from block 0).
 - **Required items** — every block contains at least one `BlockHeader`, `RecordFile`, `BlockFooter`, and `BlockProof`.
 - **Item ordering** — items appear in the correct order: `BlockHeader`, optional `StateChanges`, `RecordFile`, `BlockFooter`, one or more `BlockProof` items, with no duplicates or misplaced items.
@@ -679,36 +679,36 @@ Only dependency is a standard Python 3.
 |           Field           |         Size         |                                What it is                                 |
 |---------------------------|----------------------|---------------------------------------------------------------------------|
 | `blockNumber`             | 8 bytes (long)       | Highest wrapped block                                                     |
-| `blockHash`               | 48 bytes             | SHA-384 chain hash of that block                                          |
-| `consensusTimestampHash`  | 48 bytes             | SHA-384 leaf hash of the block's first consensus timestamp                |
-| `outputItemsTreeRootHash` | 48 bytes             | Streaming merkle root of all output items                                 |
+| `blockHash`               | 32 bytes             | SHA-256 chain hash of that block                                          |
+| `consensusTimestampHash`  | 32 bytes             | SHA-256 leaf hash of the block's first consensus timestamp                |
+| `outputItemsTreeRootHash` | 32 bytes             | Streaming merkle root of all output items                                 |
 | `leafCount`               | 8 bytes (long)       | Number of leaves in the streaming hasher                                  |
-| `hashCount`               | 4 bytes (int)        | Number of 48-byte hashes that follow (streaming hasher's open-root state) |
-| `hashes[]`                | 48 × hashCount bytes | Streaming hasher's internal node hashes                                   |
+| `hashCount`               | 4 bytes (int)        | Number of 32-byte hashes that follow (streaming hasher's open-root state) |
+| `hashes[]`                | 32 × hashCount bytes | Streaming hasher's internal node hashes                                   |
 
 #### Sample output
 
-Healthy dump from a completed full-mainnet wrap run:
+Healthy dump from a wrap of the mainnet genesis day (2019-09-13):
 
 ```
 $ ./tools-and-tests/tools/scripts/extractJumpstartData.py wrappedBlocks/jumpstart.bin
-blockNumber: 98236963
-blockHash: 952f122a53d9dafafc6247c3dac7096a8e1943020dbe29862f14ca9130f3af310ca483b45289ca8ffc5b4cabf0a02200
-consensusTimestampHash: 04082995241115f9b7e81c29b68fe6f09da9acfd32855bd4ff3a760728382fc3564b27ef4cde26a4c24a76f89aa39f02
-outputItemsTreeRootHash: 43ffaec8c07e038f7127c15e8931b7b55baaee8d491491545fda76c90e7539d7cac3e0a51c565395e0baa468394f6518
-leafCount: 98236964
-hashCount: 15
-  hash[0]:  03af2fb881bbadddcf592a9daaecceb32f2e8a687acb9cddeb8f188e0950e6ae221c322be6448f8371350f04dc785da8
+blockNumber: 1259
+blockHash: 940a5a7676624019a03e1c563e5d7f61e8c5dff4cf03e5c2757378b5b063d759
+consensusTimestampHash: 126f172ec269ddbfe775fbed0ad1080f6f6f3423c0d6a74bab56dadfff544fc9
+outputItemsTreeRootHash: 86f6f38f81262718946e49b3355b1eed6fe989483f22a0baad5394686b1dca27
+leafCount: 1260
+hashCount: 6
+  hash[0]: d08f1437f1c8f44fabafc9c72e6b9f02fdd1d582a34063e02d21259c57193413
   ...
-  hash[14]: ddefc67134cc0f7cf807474b8fd82b964cd87595320c3ee21e89b672fecb4228913197fd4c931fb2055512f27e6f2f9a
+  hash[5]: 217b5129a62eafe427d4e7f6ee9b2fa4602fbbc80dec18b615426d8a2635e4a7
 ```
 
 #### What to sanity-check in the output
 
 - **`leafCount == blockNumber + 1`** — blocks are 0-indexed, so a run that finished at block N shows `leafCount = N + 1`. If they don't line up, the wrap watermark and the streaming hasher are out of sync.
-- **`hashCount == popcount(leafCount)`** — the streaming merkle tree keeps one open root per set bit in `leafCount`. In the sample above, `leafCount=98236964` has 15 set bits in binary, so `hashCount=15`. A mismatch indicates streaming-hasher state corruption.
+- **`hashCount == popcount(leafCount)`** — the streaming merkle tree keeps one open root per set bit in `leafCount`. In the sample above, `leafCount=1260` has 6 set bits in binary, so `hashCount=6`. A mismatch indicates streaming-hasher state corruption.
 - **`blockHash` matches the last entry in `blockStreamBlockHashes.bin`** — if not, either `jumpstart.bin` was written from a different wrap run than the block registry, or one of the two files was manually edited. Cross-check with `blocks validate`'s [`HashRegistryValidation`](#hashregistryvalidation).
-- **All hashes are non-zero** — 48 all-zero bytes anywhere in the output means the writer never populated that field, which shouldn't happen for a completed wrap.
+- **All hashes are non-zero** — 32 all-zero bytes anywhere in the output means the writer never populated that field, which shouldn't happen for a completed wrap.
 
 #### When to reach for it
 
