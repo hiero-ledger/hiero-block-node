@@ -72,9 +72,8 @@ public interface ServiceBuilder {
     /// @param service the gRPC service to register
     void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service);
 
-    /// The single, shared bulkhead protecting block storage from combined read load across every
-    /// call path that reads from it, independent of client identity. Every plugin that reads
-    /// directly from block storage shares this one instance rather than creating its own.
+    /// The single, shared bulkhead protecting block storage; see [BlockReadBulkhead] for why it's
+    /// shared rather than per-plugin.
     ///
     /// @return the shared block-read bulkhead
     @NonNull

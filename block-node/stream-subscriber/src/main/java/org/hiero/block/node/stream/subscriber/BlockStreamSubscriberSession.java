@@ -465,10 +465,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // Don't send anything from history if this stream is interrupted, has sent
         // every requested block, or we can send the next block from "live".
         while (isHistoryPermitted()) {
-            // A single, shared, non-client-keyed permit pool guarding every read against block
-            // storage. A subscriber session is a standing resource, so unlike getBlock's immediate
-            // rejection, this waits briefly for a permit and, if none becomes available in time,
-            // simply retries on the next poll rather than disconnecting the session.
+            // A standing resource, so unlike getBlock's immediate rejection, this waits briefly for
+            // a permit and retries on the next poll rather than disconnecting the session.
             if (!sessionContext.blockReadBulkhead.tryAcquire(HISTORICAL_READ_PERMIT_WAIT)) {
                 awaitNewLiveEntries();
                 break;
