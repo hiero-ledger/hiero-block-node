@@ -96,10 +96,25 @@ client or API triggered it.
 
 ## Entities
 
-### `ThrottlePolicy`
+### `PerClientThrottleSettings`
 
-The runtime policy applied to one gRPC method for one client: a rate (requests per second), a burst tolerance, a
-per-client concurrency ceiling, and a node-wide concurrency ceiling.
+The per-client rate (requests per second), burst tolerance, and concurrency ceiling a plugin declares for one
+`(method, weight class)` combination — see [`MethodWeight`](#methodweight). Used directly, unmodified, as the
+operative per-client rule; nothing merges or resolves it into a separate runtime type.
+
+### `MethodWeight`
+
+A `(method, weight class)` pair — the key a plugin uses to declare [`PerClientThrottleSettings`](#perclientthrottlesettings)
+independently for each method it wants gated, rather than one setting shared by every method on the service. See
+["Configuration ownership"](#configuration-ownership) for why a method with no entry still isn't left completely
+unprotected.
+
+### `GlobalConcurrencyGate`
+
+The node-wide concurrency ceiling for one `(service, weight class)` combination — shared by every method at that
+weight class, configured or not. Deliberately *not* split per method: see
+["Client-state bookkeeping"](#client-state-bookkeeping) for why fragmenting it would silently multiply the node's
+total allocation for that weight class.
 
 ### `GcraLimiter`
 
@@ -134,12 +149,6 @@ and, if admitted, tracks the call's concurrency permit for its full lifetime.
 A single, shared, bounded permit pool protecting the block-storage read path. Not keyed by client — it protects the
 resource itself, independent of who is reading from it.
 
-### Per-API and global throttle configuration
-
-Each plugin owns a small configuration record describing its own per-client limits (rate, burst, per-client
-concurrency). Node-wide concurrency ceilings, which represent an allocation of shared node capacity across APIs,
-live in one shared, node-level configuration record.
-
 ### How the entities relate
 
 ![Class relationships for the new admission-control types, including the pluggable client-key-extraction point](../../assets/api/api-throttling-entities.svg)
@@ -147,13 +156,15 @@ live in one shared, node-level configuration record.
 The `ClientKeyExtractor` interface is deliberately factored out as its own pluggable type rather than inlined into
 the decorator, specifically so a future authenticated-identity mechanism (an mTLS client certificate, or an API key)
 can be introduced later as a new implementation of this one interface, without changing the admission decorator,
-`ThrottlePolicy`, or any configuration record. `RequestOptions.remoteCertificateChain()` already exists on the
-underlying request options today, unused — it is exactly what a future `TlsCertificateKeyExtractor` would read from.
+`PerClientThrottleSettings`, or any configuration record. `RequestOptions.remoteCertificateChain()` already exists
+on the underlying request options today, unused — it is exactly what a future `TlsCertificateKeyExtractor` would
+read from.
 
 Selection is wiring-driven, not configuration-driven: the registration point constructs the extractor directly,
 one instance per throttled service, so switching implementations needs a code change and a restart, not a config
-change. Each throttled service also owns its own isolated per-client state table, so two extractors producing the
-same key for different callers can only collide within calls to the *same* service, never across services.
+change. Each configured `(method, weight class)` owns its own isolated per-client state table (see
+["Client-state bookkeeping"](#client-state-bookkeeping)), so two extractors producing the same key for different
+callers can only collide within calls to the *same* method, never across methods or services.
 
 ## Design
 
@@ -189,13 +200,17 @@ and, if authenticated client identity is introduced later, the caller's certific
 
 For every call, in order — the first check that rejects wins, and no later check runs:
 
-1. **Global concurrency check** — is the node-wide concurrency ceiling for this method already reached? (a pure
-   read of shared state)
+1. **Global concurrency check** — is the node-wide concurrency ceiling for this weight class already reached? (a
+   pure read of shared state, via [`GlobalConcurrencyGate`](#globalconcurrencygate)) Always runs, regardless of
+   whether this method has any per-client configuration.
 2. **Per-client concurrency check** — has this client already reached its own concurrency ceiling for this method?
-   (a pure read of per-client state)
+   (a pure read of per-client state) **Skipped entirely** for a method with no
+   [`PerClientThrottleSettings`](#perclientthrottlesettings) configured — see
+   ["Configuration ownership"](#configuration-ownership).
 3. **Rate check (leaky bucket, via GCRA)** — is this client calling faster than its allowed rate? This check is the only
    one that mutates state (it advances the client's theoretical-arrival-time marker), so it deliberately runs last.
    A call that's going to be rejected by a cheaper check must not be allowed to consume a rate-limiting slot first.
+   Also skipped for an unconfigured method, for the same reason as check 2.
 
 If every check passes, the call is admitted: both concurrency counters are incremented, and the real service's
 business logic is invoked. If any check fails, the call is rejected immediately (see [Exceptions](#exceptions)) and
@@ -299,33 +314,56 @@ for recent reads (or skipping the bulkhead for reads served from an in-memory/wa
 Each gRPC method has exactly one plugin that implements it, so a client's rate and per-client concurrency limits for
 that method are naturally a concern of that one plugin — they require no coordination with any other plugin. Each
 plugin therefore declares its own per-client throttle configuration in its own module, following the same pattern
-already used for that plugin's other configuration.
+already used for that plugin's other configuration — **one entry per method it wants gated**, not one shared entry
+for the whole service. A service with several methods can configure each of them with independent numbers, configure
+only some of them, or configure none at all.
 
-A method's node-wide concurrency ceiling is different: it represents an allocation of one shared, node-wide capacity
-budget (connections, heap, disk I/O) across every API on the node, which is inherently a node-level view rather than
-something any single plugin can reason about on its own. Node-wide ceilings therefore live in one small, shared,
-node-level configuration record.
+A method with no entry (and no [`defaultPerClientSettings`](#extensibility) override — see below) gets **no
+per-client gate at all**: nothing tracks that specific client's rate or concurrency for it. It is still subject to
+the node-wide concurrency ceiling for its weight class, which is mandatory and always shared — see
+["Client-state bookkeeping"](#client-state-bookkeeping). This is a deliberate opt-in model: an operator decides
+which methods are worth individually tracking per client, rather than every method on a service being forced into
+the same bucket by construction.
+
+A method's node-wide concurrency ceiling is different from its per-client settings: it represents an allocation of
+one shared, node-wide capacity budget (connections, heap, disk I/O) across every API on the node, which is
+inherently a node-level view rather than something any single plugin can reason about on its own. Node-wide
+ceilings therefore live in one small, shared, node-level configuration record, one entry per weight class — never
+one per method, regardless of how many methods are individually configured with per-client settings at that weight
+class (see [`GlobalConcurrencyGate`](#globalconcurrencygate)).
 
 Enforcement stays centralized in the one place that already sees every plugin's service registration: a plugin
-hands its own per-client policy in at registration time, and the registration point merges it with the
-corresponding node-wide ceiling before applying the decorator described above. This keeps per-client tuning fully
-owned by the plugin that the limit governs, while keeping the actual enforcement logic — and the ability to validate
-that per-plugin and node-wide numbers agree with each other — in one place.
+hands in its own per-`(method, weight class)` settings at registration time, and the registration point resolves
+the corresponding node-wide ceiling independently — the two are never merged into one combined runtime value, since
+the ceiling is shared across methods that may each carry different per-client settings (or none at all). This keeps
+per-client tuning fully owned by the plugin that the limit governs, while keeping the actual enforcement logic — and
+the ability to validate that per-plugin and node-wide numbers agree with each other — in one place.
 
 ### Client-state bookkeeping
 
 Per-client rate and concurrency state is held in a bounded, concurrent map keyed by client key only — there is no
-method dimension in the key. One such map exists per `(service, weight class)` combination (see "How the entities
-relate" above), not one shared map and not one keyed by `(client, method)`. Where a service exposes more than one
-method — `BlockNodeService`'s `serverStatus` and `serverStatusDetail`, today's only such case — those methods share
-one map, and therefore one rate bucket and one concurrency ceiling, per client; admission does not distinguish
-between them. Method identity is used only to label metrics (see [Metrics](#metrics)), never to partition this
-state or vary the admission decision.
+method dimension in the key, because **one such map exists per configured `(service, method, weight class)`
+combination**, not one shared across a service's methods. Two methods on the same service, configured
+independently, get two entirely independent maps — independent rate buckets, independent concurrency ceilings —
+even if their configured numbers happen to be identical. A method with no configuration at all has no map: nothing
+is tracked per client for it.
 
-Left unmanaged, this map's key space would grow without bound as new clients connect over time — which would
-recreate, inside the throttling system itself, the same kind of unbounded resource growth this system exists to
-prevent. Entries are evicted lazily when a stale entry is encountered on the read path, backed by a low-frequency
-full sweep that catches clients who are never looked up again.
+`BlockNodeService`'s `serverStatus` and `serverStatusDetail` are both configured today, each with its own map — a
+client's traffic on one never affects its allowance on the other. This is different from treating the whole service
+as one bucket: it is a deliberate per-method choice (see ["Configuration ownership"](#configuration-ownership)), not
+an accident of how many methods happen to share a weight class.
+
+What *is* still shared across every method at a weight class — configured or not — is the node-wide concurrency
+ceiling itself, via [`GlobalConcurrencyGate`](#globalconcurrencygate). This is deliberately **not** split per method:
+if it were, two independently-configured methods at the same weight class would each carry their own copy of the
+ceiling, silently doubling the node's actual total allocation for that tier versus what the configured number says.
+Keeping it one shared gate per `(service, weight class)` is what makes "allocation of the node's shared capacity"
+in the previous section actually true, regardless of how many methods draw from it or how they're configured.
+
+Left unmanaged, each per-client map's key space would grow without bound as new clients connect over time — which
+would recreate, inside the throttling system itself, the same kind of unbounded resource growth this system exists
+to prevent. Entries are evicted lazily when a stale entry is encountered on the read path, backed by a
+low-frequency full sweep that catches clients who are never looked up again.
 
 ### Performance
 
@@ -360,13 +398,20 @@ small and bounded by construction:
 
 ### Extensibility
 
-Two extension points are designed in from the start, since both are anticipated future work:
+Three extension points are designed in from the start, since all three are anticipated future work:
 
 - **Client identification.** `ClientKeyExtractor` is a small, isolated interface specifically so that authenticated
   client identity — an API key, or an mTLS client certificate — can replace network-address-based identification
-  later by adding one new implementation, with no change needed to the admission decorator, `ThrottlePolicy`, or any
-  per-plugin configuration. `RequestOptions.remoteCertificateChain()` already exists today, unused, as exactly what
-  a future certificate-based extractor would read.
+  later by adding one new implementation, with no change needed to the admission decorator,
+  `PerClientThrottleSettings`, or any per-plugin configuration. `RequestOptions.remoteCertificateChain()` already
+  exists today, unused, as exactly what a future certificate-based extractor would read.
+- **A generous default instead of no per-client gate.** `ThrottleSpec.defaultPerClientSettings()` exists
+  specifically for this: empty today (preserving the behavior in
+  ["Configuration ownership"](#configuration-ownership) — an unconfigured method gets no per-client gate at all), but
+  a plugin can override it later to give every otherwise-unconfigured method a shared, generous default instead.
+  That's a config/wiring change for one plugin, not a change to the admission mechanism: any method resolved this
+  way gets a real per-client gate, built the same way as an explicitly-configured one, indistinguishable from it at
+  call time.
 - **Additional bulkheads for other shared resources.** `BlockReadBulkhead` is one instance of a general pattern: a
   bounded, non-client-keyed permit pool guarding a specific shared resource against combined load from every call
   path that uses it. Nothing in the design ties this pattern to block storage specifically — a future resource with
@@ -385,9 +430,10 @@ Two extension points are designed in from the start, since both are anticipated 
   per-bucket refill bookkeeping.
 - **Splitting the weighted admission decision — reject on global/per-client concurrency in `open()`, and defer
   only the rate check to `onNext` once classified.** Rejected: there's no weight-agnostic version of the
-  concurrency checks to split off in the first place. `maxConcurrentGlobal` and `maxConcurrentPerClient` are
-  fields on each weight class's own `ThrottlePolicy`, not a shared ceiling underneath them, so which ceiling
-  applies is unknown until classification happens in `onNext` regardless — there's nothing coherent to check
+  concurrency checks to split off in the first place. `maxConcurrentPerClient` is a field on each weight class's own
+  `PerClientThrottleSettings`, and even `maxConcurrentGlobal` — shared across weight classes as it is — is keyed by
+  weight class, not a single service-wide ceiling underneath them, so which ceiling applies is unknown until
+  classification happens in `onNext` regardless — there's nothing coherent to check
   earlier. Doing this anyway would mean inventing a new policy value with no counterpart elsewhere in this
   design, plus a provisional-admit-then-reconcile step once the real class is known: a release-then-reacquire
   window in which a concurrent call can take the freed capacity, transiently exceeding the intended ceiling.
@@ -422,9 +468,13 @@ sequenceDiagram
     participant P as Plugin Service
 
     C->>D: open(method, options, responses)
-    D->>D: global concurrency check
-    D->>D: per-client concurrency check
-    D->>D: GCRA rate check
+    D->>D: global concurrency check (always runs)
+    alt method has PerClientThrottleSettings configured
+        D->>D: per-client concurrency check
+        D->>D: GCRA rate check
+    else method not configured
+        Note over D: no per-client gate exists — only the global check above applies
+    end
     alt any check rejects
         D-->>C: RESOURCE_EXHAUSTED
     else admitted
@@ -455,9 +505,9 @@ sequenceDiagram
     C->>D: onNext(requestBytes)
     D->>W: classify(method, requestBytes)
     W-->>D: weight class
-    D->>D: global concurrency check (weight class's policy)
-    D->>D: per-client concurrency check (weight class's policy)
-    D->>D: GCRA rate check (weight class's policy)
+    D->>D: global concurrency check (this weight class's shared gate)
+    D->>D: per-client concurrency check (this method/weight class's settings, if configured)
+    D->>D: GCRA rate check (this method/weight class's settings, if configured)
     alt any check rejects
         D-->>C: onError(RESOURCE_EXHAUSTED)
         D->>P: onComplete() — empty completion, zero onNext calls
@@ -500,7 +550,8 @@ sequenceDiagram
 
 ## Configuration
 
-Each throttled API's own module declares its per-client settings:
+Each throttled API's own module declares its per-client settings, one entry per `(method, weight class)` it wants
+gated — see [`MethodWeight`](#methodweight):
 
 |         Property         |                                             Meaning                                              |
 |--------------------------|--------------------------------------------------------------------------------------------------|
@@ -510,7 +561,10 @@ Each throttled API's own module declares its per-client settings:
 
 Where a method's `ContentAwareWeigher` produces more than one weight class, each class gets its own full triple
 rather than sharing one — e.g. `getBlock` has independent live and historical per-client configuration — so each
-tier's tuning, including how much stricter the historical policy is, stays fully independent.
+tier's tuning, including how much stricter the historical policy is, stays fully independent. The same independence
+applies across methods on one service: `BlockNodeService` configures `serverStatus` and `serverStatusDetail`
+separately, each with its own triple, even though both currently use the same numbers. A method with no triple at
+all simply has no per-client gate — see ["Configuration ownership"](#configuration-ownership).
 
 A single shared, node-level configuration record holds one node-wide concurrency ceiling per (method, weight
 class) — e.g. `getBlock` has independent live and historical ceilings — since this represents an allocation of
@@ -524,24 +578,26 @@ by the target deployment's storage characteristics.
 
 ## Metrics
 
-Every call outcome — admitted, or rejected by one of the three checks — is recorded against one counter,
+Every call outcome — admitted, or rejected by one of the checks that ran for it (see
+["Where admission control attaches"](#where-admission-control-attaches)) — is recorded against one counter,
 `throttle_calls_total`, labeled by `service`, `method`, `weightClass`, and `outcome`, rather than a separately-named
 counter per outcome. Cardinality is identical either way (the same `service × method × weightClass × outcome`
 combinations exist regardless of how they're split across metric names); one counter means a query for "total
 calls" or "rejection rate" for a given service/method sums one metric name instead of enumerating every outcome's
 own metric name — and stays correct if a new rejection reason is ever added, where a hardcoded list of metric names
-would not. Labels are resolved from the specific method each call hit, not assumed from the service's declared
-method list, so two methods sharing one `(service, weight class)` throttle instance (see
-[Client-state bookkeeping](#client-state-bookkeeping)) still get independent counts.
+would not. Labels are resolved from the specific method each call hit — including for an unconfigured method,
+admitted only via the shared [`GlobalConcurrencyGate`](#globalconcurrencygate) — so every method remains visible in
+metrics independent of whether it has its own per-client gate.
 
-The client-state-table-size gauge, by contrast, is labeled by `service` and `weightClass` only, with no `method` or
-`outcome` label: it reflects the size of the shared state table itself, a property of the whole `(service, weight
-class)` instance, not of any one method's traffic or any one call's outcome.
+The client-state-table-size gauge is labeled by `service`, `method`, and `weightClass`, with no `outcome` label: it
+reflects the size of one configured method's own state table (see
+[Client-state bookkeeping](#client-state-bookkeeping)), not any one call's outcome. It only exists for methods that
+are actually configured — there is no table, and therefore no gauge, for an unconfigured method.
 
 |           Metric          |                              Type                              |                                                                 Meaning                                                                  |
 |---------------------------|------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | Calls                     | Counter, labeled by `service`/`method`/`weightClass`/`outcome` | Every call to a throttled method, by outcome (`admitted`, `rejected_global_concurrency`, `rejected_client_concurrency`, `rejected_rate`) |
-| Client-state table size   | Gauge, labeled by `service`/`weightClass`                      | Number of distinct clients tracked by one throttle instance, to catch unexpected growth                                                  |
+| Client-state table size   | Gauge, labeled by `service`/`method`/`weightClass`             | Number of distinct clients tracked by one configured method's throttle, to catch unexpected growth                                       |
 | Block-read bulkhead usage | Gauge (in-use / available)                                     | Current utilization of the shared backend read permit pool                                                                               |
 
 Per-client and node-wide in-flight call counts (referenced by [Acceptance Test](#acceptance-tests) 6) are not yet
@@ -578,3 +634,9 @@ produced. `publishBlockStream` is not subject to any admission check and is unaf
 10. The recent/historical boundary's default (`historicalThresholdBlocks`) tracks the recent-storage-tier plugin's
     own retention boundary closely enough in practice that newly-ingested blocks are not misclassified as
     historical under normal operation, despite the two values not being enforced to stay in sync.
+11. Two methods on the same service, each configured with its own `PerClientThrottleSettings`, enforce independent
+    per-client rate and concurrency limits — one client exhausting one method's ceiling does not affect its
+    allowance on the other.
+12. A method with no `PerClientThrottleSettings` configured is never rejected by a per-client limit, but is still
+    rejected once the service's shared node-wide concurrency ceiling for its weight class is reached — including
+    when that ceiling was reached by a *different*, also-unconfigured method on the same service.
