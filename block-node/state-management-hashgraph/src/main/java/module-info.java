@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import org.hiero.block.node.state.management.StateManagementConfigExtension;
 import org.hiero.block.node.state.management.StateManagementPlugin;
 
 module org.hiero.block.node.state.management {
@@ -26,6 +27,8 @@ module org.hiero.block.node.state.management {
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
             org.hiero.block.node.app;
+    provides com.swirlds.config.api.ConfigurationExtension with
+            StateManagementConfigExtension;
     provides org.hiero.block.node.spi.BlockNodePlugin with
             StateManagementPlugin;
 }

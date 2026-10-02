@@ -191,27 +191,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private volatile VirtualMapState attestedImmutable;
 
     /// {@inheritDoc}
-    @NonNull
-    @Override
-    public List<Class<? extends Record>> configDataTypes() {
-        // TODO: a plugin shouldn't own config records defined by an external
-        // library. Options under consideration:
-        //   (A) Foundation: ship META-INF/services entries on the swirlds jars so
-        //       BlockNodeApp.autoDiscoverExtensions picks them up automatically.
-        //   (B) Block-node base helper: a shared SwirldsStateConfigs.types() list every
-        //       state-consuming plugin includes, paired with idempotent registration so
-        //       multiple plugins don't collide.
-        //   (C) BlockNodeApp registers swirlds-state configs once at boot, invisible to
-        //       plugins.
-        // Until one of those lands, this list keeps the plugin functional.
-        return List.of(
-                StateManagementConfig.class,
-                com.swirlds.merkledb.config.MerkleDbConfig.class,
-                com.swirlds.virtualmap.config.VirtualMapConfig.class,
-                org.hiero.consensus.config.PathsConfig.class);
-    }
-
-    /// {@inheritDoc}
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = context;
@@ -242,7 +221,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         registerMetrics(context.metricRegistry());
         // Register the StateService gRPC surface on the configured port. A null port (the
         // default) shares the default server.port; a set port opens the API on its own port.
-        serviceBuilder.registerGrpcService(this, config.port());
+        serviceBuilder.registerGrpcService(config.port(), this);
     }
 
     /// Register the plugin's metrics with the block node's registry. Gauges observe
