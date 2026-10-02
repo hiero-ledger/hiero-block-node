@@ -456,11 +456,21 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (tssData == null) {
             return;
         }
-        // An atomic swap needs no retry loop: only the caller that replaced a different value dispatches.
-        // Concurrent callers each publish the newest value because syncTssData re-reads it.
-        if (!tssData.equals(currentTssData.getAndSet(tssData))) {
+        // getAndUpdate retries internally, so no loop is needed here. The update function is pure, so
+        // whether this call installed tssData can be recomputed from the value it replaced. Concurrent
+        // callers each publish the newest value because syncTssData re-reads it.
+        final TssData previous =
+                currentTssData.getAndUpdate(current -> shouldInstall(tssData, current) ? tssData : current);
+        if (shouldInstall(tssData, previous)) {
             runOnDispatcherThread(this::syncTssData);
         }
+    }
+
+    /// A candidate replaces the current TSS data only if it differs and is not valid from an earlier
+    /// block, so a stale datum can never overwrite a newer one.
+    private static boolean shouldInstall(final TssData candidate, final TssData current) {
+        return !candidate.equals(current)
+                && (current == null || candidate.validFromBlock() >= current.validFromBlock());
     }
 
     /// Runs one of the sync methods on the ApplicationStateDispatcher thread, or inline before that
