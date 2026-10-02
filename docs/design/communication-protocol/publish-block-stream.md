@@ -1,18 +1,5 @@
 # Block-Node Connect Protocol for `publishBlockStream`
 
-## Table of Contents
-
-1. [Abstract](#abstract)
-   1. [Reliability note](#reliability-note)
-2. [Definitions](#definitions)
-3. [Base Protocol](#base-protocol)
-   1. [Base Protocol Diagram](#base-protocol-diagram)
-4. [Multiple Publisher Extension](#multiple-publisher-extension)
-   1. [Multiple Publisher Diagram](#multiple-publisher-extension-diagram)
-   2. [Pipeline Example Diagram](#pipeline-example-diagram)
-5. [Error Handling](#error-handling)
-   1. [Error Handling Diagram](#error-handling-diagram)
-
 ## Abstract
 
 This protocol describes how a Publisher and Block-Node SHALL interact for
@@ -42,27 +29,17 @@ stream and retry (either to another Block-Node, or after a short delay).
 
 ## Definitions
 
-<dl>
-<dt>Block-Node</dt>
-<dd>A software system intended to store and process a Block Stream.  The API for
-    a Block-Node is defined in HIP 1056, among others.</dd>
-
-<dt>Block Number</dt>
-<dd>A monotonically increasing number assigned by consensus to each block produced
-  by the network.</dd>
-
-<dt>Publisher</dt>
-<dd>An entity publishing blocks to a Block-Node via the `publishBlockStream` API
-  This is typically a Consensus Node or another Block-Node.</dd>
-
-<dt>Subscriber</dt>
-<dd>An entity that subscribes to a verified or unverified Block Stream from a
-  Block-Node.</dd>
-
-<dt>Verified Block</dt>
-<dd>A verified block is a block for which a Block Proof is received and for which
-  the TSS signature of the network ledger ID is valid.</dd>
-</dl>
+* **Block-Node**: A software system intended to store and process a Block
+  Stream. The API for a Block-Node is defined in HIP 1056, among others.
+* **Block Number**: A monotonically increasing number assigned by consensus to
+  each block produced by the network.
+* **Publisher**: An entity publishing blocks to a Block-Node via the
+  `publishBlockStream` API. This is typically a Consensus Node or another
+  Block-Node.
+* **Subscriber**: An entity that subscribes to a verified or unverified Block
+  Stream from a Block-Node.
+* **Verified Block**: A block for which a Block Proof is received and for which
+  the TSS signature of the network ledger ID is valid.
 
 ## Base Protocol
 
@@ -348,6 +325,50 @@ gantt
       Block 10 Acknowledge :milestone, 031, 031
       Block 11 Acknowledge :milestone, 039, 039
       Block 12 Acknowledge :milestone, 042, 042
+```
+
+## Acknowledge Only Option
+
+A Publisher may need to determine if a block has been verified and persisted
+without sending the full block. For example, a Publisher that is simultaneously
+sending a block to another Block-Node and checking multiple block nodes to
+ensure that multiple block nodes have stored that block before removing the
+source data from a local cache, or a node that is reconnecting and must
+to confirm that the Block-Node already holds the target block, may send
+an `AcknowledgeOnly` message instead of a block header.
+
+### Behavior
+
+* Publisher sends `AcknowledgeOnly` with a block number `N`.
+  * If `N` is less than or equal to the last known verified block, the
+    Block-Node sends an `Acknowledgement` immediately.
+  * If `N` is greater than the last known verified block, the Block-Node sends
+    an `Acknowledgement` the next time a block is completed.
+  * The Block-Node sends exactly one `Acknowledgement` for each
+    `AcknowledgeOnly` received.
+* A Publisher may switch between sending blocks and sending `AcknowledgeOnly`
+  as desired.
+  * `AcknowledgeOnly` cancels any in-progress block. The Block-Node must
+    discard that partially received block, as it would for a `BlockHeader`
+    received before the `BlockEnd` of the current block.
+
+### Acknowledge Only Diagram
+
+```mermaid
+sequenceDiagram
+  participant Publisher
+  participant BlockNode
+
+  Publisher->>BlockNode: Send AcknowledgeOnly with block number N
+  Note over BlockNode: Any in-progress block from this Publisher is cancelled
+  alt N <= last known verified block
+    BlockNode-->>Publisher: Send Acknowledgement immediately
+  else N > last known verified block
+    Note over BlockNode: Wait until the next block is completed
+    BlockNode-->>Publisher: Send Acknowledgement
+  end
+  Note over BlockNode,Publisher: Exactly one Acknowledgement per AcknowledgeOnly
+  Publisher->>BlockNode: Resume sending blocks or send another AcknowledgeOnly
 ```
 
 ## Error Handling
