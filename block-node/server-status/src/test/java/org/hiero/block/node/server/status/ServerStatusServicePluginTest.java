@@ -331,7 +331,13 @@ public class ServerStatusServicePluginTest
                         "throttle.serverStatus.maxConcurrentPerClient", "3",
                         "throttle.global.serverStatusMaxConcurrent", "99"));
 
-        assertEquals(new PerClientThrottleSettings(42, 7, 3), localPlugin.perClientSettings());
+        final PerClientThrottleSettings expected = new PerClientThrottleSettings(42, 7, 3);
+        assertEquals(
+                Map.of(
+                        "serverStatus", expected,
+                        "serverStatusDetail", expected),
+                localPlugin.perClientSettings(),
+                "serverStatus and serverStatusDetail each get their own independent table from the same settings");
         assertEquals(99, localPlugin.globalConcurrencyCeiling());
     }
 

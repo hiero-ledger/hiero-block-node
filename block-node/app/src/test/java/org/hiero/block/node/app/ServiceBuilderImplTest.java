@@ -77,7 +77,7 @@ class ServiceBuilderImplTest {
     @DisplayName("registerGrpcService wraps a ThrottleSpec service using its own reported settings")
     void registerGrpcService_throttleSpec_wrapsService() {
         final ServiceInterface testService =
-                new TestThrottledService("TestService", new PerClientThrottleSettings(10, 5, 3), 100);
+                new TestThrottledService("TestService", Map.of("method", new PerClientThrottleSettings(10, 5, 3)), 100);
         final PbjRouting.Builder spyBuilder = injectGrpcBuilderSpy(CONSUMER_PORT);
 
         serviceBuilder.registerGrpcService(CONSUMER_PORT, testService);
@@ -106,12 +106,12 @@ class ServiceBuilderImplTest {
     /// module boundary. A real class compiled into this module has no such restriction.
     private static final class TestThrottledService implements ServiceInterface, ThrottleSpec {
         private final String serviceName;
-        private final PerClientThrottleSettings perClientSettings;
+        private final Map<String, PerClientThrottleSettings> perClientSettings;
         private final int globalConcurrencyCeiling;
 
         TestThrottledService(
                 final String serviceName,
-                final PerClientThrottleSettings perClientSettings,
+                final Map<String, PerClientThrottleSettings> perClientSettings,
                 final int globalConcurrencyCeiling) {
             this.serviceName = serviceName;
             this.perClientSettings = perClientSettings;
@@ -142,7 +142,7 @@ class ServiceBuilderImplTest {
         }
 
         @Override
-        public PerClientThrottleSettings perClientSettings() {
+        public Map<String, PerClientThrottleSettings> perClientSettings() {
             return perClientSettings;
         }
 
