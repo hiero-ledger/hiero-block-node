@@ -20,9 +20,9 @@ replicas: 1
 
 simulator:
   config:
-    # either CONSUMER or PUBLISHER
+    # either CONSUMER, PUBLISHER_CLIENT, or PUBLISHER_SERVER
     BLOCK_STREAM_SIMULATOR_MODE: "PUBLISHER_CLIENT"
-    GRPC_SERVER_ADDRESS: "my-bn-block-node-helm-chart"
+    GRPC_SERVER_ADDRESS: "my-bn-block-node-server"
     GRPC_PORT: 40840
     # GENERATOR_START_BLOCK_NUMBER: 0
     # GENERATOR_MIN_TRANSACTIONS_PER_EVENT: 500
