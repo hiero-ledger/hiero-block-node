@@ -153,20 +153,20 @@ whether to retry against a different Block-Node or wait.
   degraded until restart and there is no automatic rewind/replay.
 - Catch-up is sequential and synchronous within batches; very large catch-up
   windows block `ready=true` proportionally.
-- Plugin metrics (`apply_latency_ms`, `pending_blocks`, etc.) are not yet
-  wired through the metric registry; `hashMismatchTotal` is exposed only
-  as an in-process counter.
-- The plugin contributes swirlds-library config records via
-  `configDataTypes()` — see the TODO above
-  `StateManagementPlugin.configDataTypes()`.
+- The plugin declares three swirlds-library config records
+  (`MerkleDbConfig`, `VirtualMapConfig`, `PathsConfig`) alongside its own
+  `StateManagementConfig` in `StateManagementConfigExtension`, since the
+  swirlds jars don't self-register them. Cosmetic only (an operator could
+  assume these settings are specific to this plugin when they're not) —
+  not a correctness issue: a future plugin that also needs
+  `VirtualMapStateLifecycleManager` can safely declare the same three types
+  without any registration conflict.
 
 ## Roadmap
 
 Open follow-ups (see the design doc and expansion notes for detail):
 
 - Trim the swirlds dependency tree and surface upstream feedback.
-- Stop the plugin owning swirlds library config records.
 - Hash-mismatch recovery protocol.
 - Merkle proof RPC exposure.
-- Metric registry integration.
 - Strict genesis-block-0 gating (current implementation is permissive).

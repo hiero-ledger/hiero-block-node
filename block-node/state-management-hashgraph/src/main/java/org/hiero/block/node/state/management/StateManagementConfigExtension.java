@@ -7,10 +7,13 @@ import java.util.Set;
 
 /// Registers this module's configuration data types for auto-discovery.
 ///
-/// This also covers the swirlds-state-library config records
-/// (`MerkleDbConfig`, `VirtualMapConfig`, `PathsConfig`) the plugin depends on but does not
-/// itself own; see `docs/design/state/live-state.md` for the ownership follow-up tracked
-/// against this plugin leaving beta.
+/// Also declares the swirlds-state-library config records (`MerkleDbConfig`,
+/// `VirtualMapConfig`, `PathsConfig`) that `VirtualMapStateLifecycleManager` requires but the
+/// swirlds jars don't self-register — this plugin owns only `StateManagementConfig`. A future
+/// plugin that also needs `VirtualMapStateLifecycleManager` would need to declare these same
+/// three types too; that's safe to duplicate (config construction is a pure function of the
+/// global property set, so declaring the same type twice just rebuilds an identical value —
+/// `ConfigurationBuilder`'s registration has no uniqueness check and never throws on it).
 public class StateManagementConfigExtension implements ConfigurationExtension {
 
     /// Explicitly defined constructor.
