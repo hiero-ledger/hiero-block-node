@@ -20,8 +20,11 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
+import org.hiero.block.node.app.config.BlockReadBulkheadConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
+import org.hiero.metrics.core.MetricRegistry;
 
 /// Default implementation of [ServiceBuilder]. That builds HTTP and PBJ GRPC services.
 ///
@@ -42,13 +45,27 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private final SocketOptions socketOptions;
     private WebServerResult generalWebserver;
     private final LinkedHashSet<WebServerResult> additionalWebservers;
+    /** The single, shared block-read bulkhead every plugin's [#blockReadBulkhead] call returns. */
+    private final BlockReadBulkhead blockReadBulkhead;
 
     public ServiceBuilderImpl(
-            final ServerConfig serverConfig, final Http2Config http2Config, final SocketOptions socketOptions) {
+            final ServerConfig serverConfig,
+            final Http2Config http2Config,
+            final SocketOptions socketOptions,
+            final BlockReadBulkheadConfig blockReadBulkheadConfig,
+            final MetricRegistry metricRegistry) {
         this.serverConfig = serverConfig;
         this.http2Config = http2Config;
         this.socketOptions = socketOptions;
+        this.blockReadBulkhead = new BlockReadBulkhead(blockReadBulkheadConfig.permits(), metricRegistry);
         additionalWebservers = new LinkedHashSet<>();
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public BlockReadBulkhead blockReadBulkhead() {
+        return blockReadBulkhead;
     }
 
     /// {@inheritDoc}
