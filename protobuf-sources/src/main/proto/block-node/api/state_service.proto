@@ -65,9 +65,9 @@ message BinaryStateQuery {
     bytes key_bytes = 3;
 
     /**
-     * Zero-based queue index for `getBinaryQueue`. Set only when retrieving
-     * a single queue element; omit (or set to `0` with a queue having more
-     * than one element) to request the full queue.
+     * 1-indexed queue index for `getBinaryQueue`. Set to a value of `1` or greater to retrieve
+     * a single queue element (`1` is the first element); omit (or set to `0`) to request the
+     * full queue.
      */
     uint64 queue_index = 4;
 }
