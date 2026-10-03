@@ -42,3 +42,37 @@ message BlockEnd {
      */
     uint64 block_number = 1;
 }
+
+/**
+ * Metadata describing the latest live Hashgraph state held by a Block-Node.
+ *
+ * A Block-Node that operates the live-state plugin SHALL maintain a single,
+ * authoritative snapshot of the network state and expose it through this
+ * message on `BinaryStateQueryResponse`. Consumers MAY use it to decide whether
+ * to issue further binary state queries.
+ */
+message StateMetadata {
+    /**
+     * The block number of the latest verified block applied to the state.
+     */
+    uint64 block_number = 1;
+
+    /**
+     * The consensus round number recorded by the last `RoundHeader` block
+     * item applied. This SHALL be sourced from the `RoundHeader` and never
+     * from approximation.
+     */
+    uint64 round_number = 2;
+
+    /**
+     * The root hash of the underlying virtual map after all state changes
+     * from the block identified by `block_number` have been applied.
+     */
+    bytes state_root_hash = 3;
+
+    /**
+     * The number of leaves in the underlying virtual map. Equivalent to
+     * `VirtualMap.getMetadata().getSize()` in the consensus-node state-api.
+     */
+    uint64 state_size = 4;
+}
