@@ -19,7 +19,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.hiero.block.internal.BlockNodeSourceConfig;
@@ -737,6 +739,97 @@ class BackfillRunnerTest {
         }
 
         @Test
+        @DisplayName("should not lose a persisted notification landing in the untracked window between a "
+                + "timed-out await and its re-track")
+        void shouldNotLoseNotificationInUntrackedRetryWindow() throws Exception {
+            // given - regression test for the untracked window between a timed-out awaitPersistence call
+            // and whatever the caller does next: a persisted notification landing in that window must not
+            // be silently dropped. Rather than guessing a sleep duration that happens to land inside the
+            // window (fragile under CI scheduling jitter, which is what made the reported failure
+            // intermittent in the first place), coordinate deterministically with a latch: the notification
+            // is only sent once the first attempt has genuinely timed out inside the real implementation,
+            // and the runner thread is held right at that return boundary until the notification has been
+            // delivered - exactly where the reported scheduling delays landed.
+            CountDownLatch firstTimeoutObserved = new CountDownLatch(1);
+            CountDownLatch releaseFirstAttempt = new CountDownLatch(1);
+            BackfillPersistenceAwaiter gatedAwaiter = new BackfillPersistenceAwaiter() {
+                private final AtomicInteger callCount = new AtomicInteger(0);
+
+                @Override
+                public boolean awaitPersistence(long blockNumber, long timeoutMs) {
+                    boolean result = super.awaitPersistence(blockNumber, timeoutMs);
+                    if (callCount.incrementAndGet() == 1 && !result) {
+                        firstTimeoutObserved.countDown();
+                        try {
+                            assertTrue(
+                                    releaseFirstAttempt.await(5, TimeUnit.SECONDS),
+                                    "Notification thread should release the first attempt promptly");
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                    return result;
+                }
+            };
+
+            BackfillConfiguration retryConfig = BackfillPluginTest.BackfillConfigBuilder.NewBuilder()
+                    .delayBetweenBatches(0)
+                    .perBlockProcessingTimeout(50)
+                    .initialRetryDelay(0)
+                    .maxRetries(3)
+                    .buildRecord();
+            BackfillRunner retrySubject = new BackfillRunner(
+                    mockFetcher,
+                    retryConfig,
+                    messaging,
+                    logger,
+                    mockMetricsHolder,
+                    pendingBackfillBlocks,
+                    gatedAwaiter);
+
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
+            availability.put(nodeConfig, List.of(new LongRange(0, 0)));
+            BlockUnparsed testBlock = createTestBlock(0L);
+
+            when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L)));
+            when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(testBlock));
+
+            messaging.registerBlockNotificationHandler(gatedAwaiter, false, "persistence-awaiter");
+            messaging.registerBlockNotificationHandler(
+                    new BlockNotificationHandler() {
+                        @Override
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                            new Thread(() -> {
+                                        try {
+                                            assertTrue(
+                                                    firstTimeoutObserved.await(5, TimeUnit.SECONDS),
+                                                    "First attempt should time out");
+                                        } catch (InterruptedException ignored) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                        messaging.sendBlockPersisted(new PersistedNotification(
+                                                notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                                        releaseFirstAttempt.countDown();
+                                    })
+                                    .start();
+                        }
+                    },
+                    false,
+                    "gated-persistence-handler");
+
+            // when
+            long lastSuccessful = retrySubject.run(gap);
+
+            // then - the notification landed right after the first attempt's timeout and must not be lost
+            assertEquals(
+                    0L, lastSuccessful, "Notification landing in the untracked retry window should not be lost");
+        }
+
+        @Test
         @DisplayName("should stop the gap scan without advancing when a chunk never persists")
         void shouldStopGapWithoutAdvancingWhenChunkNeverPersists() throws Exception {
             // given - block 0 will never receive a persisted notification, so every retry
@@ -818,14 +911,17 @@ class BackfillRunnerTest {
         /**
          * Runs a single-block gap whose only block gets the given outcome published for it as soon as it
          * is dispatched. TestBlockMessagingFacility dispatches synchronously on the caller's thread, so
-         * the outcome always lands before the runner starts awaiting.
+         * the outcome always lands before the runner starts awaiting. Uses more than one retry attempt so
+         * a definitively failed block that gets re-awaited on a later attempt must keep reporting failure
+         * rather than being mistaken for an untracked (and therefore "already persisted") block.
          */
         private long runSingleBlockGapWithOutcome(
                 long blockNumber, Consumer<BackfilledBlockNotification> outcomePublisher) throws Exception {
             BackfillConfiguration singleAttemptConfig = BackfillPluginTest.BackfillConfigBuilder.NewBuilder()
                     .delayBetweenBatches(0)
-                    .perBlockProcessingTimeout(500)
-                    .maxRetries(1)
+                    .perBlockProcessingTimeout(50)
+                    .initialRetryDelay(10)
+                    .maxRetries(3)
                     .buildRecord();
             BackfillRunner failureSubject = new BackfillRunner(
                     mockFetcher,
