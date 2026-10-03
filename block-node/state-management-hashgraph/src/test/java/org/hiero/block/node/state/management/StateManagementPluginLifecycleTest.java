@@ -12,6 +12,7 @@ import com.swirlds.merkledb.config.MerkleDbConfig;
 import com.swirlds.virtualmap.config.VirtualMapConfig;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import org.hiero.block.api.StateMetadata;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -227,6 +228,73 @@ class StateManagementPluginLifecycleTest {
     }
 
     @Test
+    void snapshotPruneDeleteFailureDoesNotAbortSaveSnapshot(@TempDir final Path tmp) throws Exception {
+        // Retention=1 keeps only the current snapshot dir, so every saveSnapshot() after the
+        // first tries to delete every older one.
+        final Path metadataPath = tmp.resolve("stateMetadata.json");
+        final Path recentRoot = tmp.resolve("recent");
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, facility, 1);
+
+        // Apply block 1, confirm with block 2 (exposes block 1), snapshot it.
+        facility.sendBlockVerification(new VerificationNotification(
+                true, null, 1L, Bytes.fromHex("aabb"), buildBlock(1L, 11L), BlockSource.PUBLISHER));
+        plugin.applyPending();
+        facility.sendBlockVerification(new VerificationNotification(
+                true,
+                null,
+                2L,
+                Bytes.fromHex("aabb"),
+                buildBlock(2L, 22L, plugin.stagedStateRootHash()),
+                BlockSource.PUBLISHER));
+        plugin.applyPending();
+        plugin.saveSnapshot();
+        final Path firstSnapshotDir = recentRoot.resolve("1");
+        assertThat(Files.isDirectory(firstSnapshotDir)).isTrue();
+
+        // Remove write permission on recent/1 (read+execute only) so a later prune can still
+        // walk it but every Files.delete() of a child inside it fails with an IOException —
+        // simulating a transient delete failure (stale lock, permission blip, concurrent
+        // reader) without depending on one actually occurring.
+        Files.setPosixFilePermissions(firstSnapshotDir, PosixFilePermissions.fromString("r-x------"));
+        try {
+            // Apply block 3, confirm with block 4 (exposes block 3); this saveSnapshot() must
+            // prune recent/1 under retention=1 — the prune failing to delete it must not
+            // prevent the rest of saveSnapshot() (the new snapshot + metadata write) from
+            // completing, and must not throw out of the scheduled-task entry point.
+            facility.sendBlockVerification(new VerificationNotification(
+                    true,
+                    null,
+                    3L,
+                    Bytes.fromHex("aabb"),
+                    buildBlock(3L, 33L, plugin.stagedStateRootHash()),
+                    BlockSource.PUBLISHER));
+            plugin.applyPending();
+            facility.sendBlockVerification(new VerificationNotification(
+                    true,
+                    null,
+                    4L,
+                    Bytes.fromHex("aabb"),
+                    buildBlock(4L, 44L, plugin.stagedStateRootHash()),
+                    BlockSource.PUBLISHER));
+            plugin.applyPending();
+
+            plugin.saveSnapshot();
+
+            assertThat(Files.isDirectory(recentRoot.resolve("3")))
+                    .as("the new snapshot is still written even though pruning the old one failed")
+                    .isTrue();
+            assertThat(plugin.metadata().blockNumber())
+                    .as("metadata still advances even though pruning the old snapshot failed")
+                    .isEqualTo(3L);
+        } finally {
+            // Restore permissions so @TempDir cleanup can delete the directory tree afterward.
+            Files.setPosixFilePermissions(firstSnapshotDir, PosixFilePermissions.fromString("rwx------"));
+        }
+        plugin.stop();
+    }
+
+    @Test
     void unwritableStateDirRequestsShutdownWithoutThrowing(@TempDir final Path tmp) throws Exception {
         // Make the configured recent-snapshot path impossible to create: its parent is a
         // regular file, so directory creation fails (mirrors a non-writable /opt/hiero in a
@@ -295,6 +363,14 @@ class StateManagementPluginLifecycleTest {
 
     private static StateManagementPlugin startPlugin(
             final Path metadataPath, final Path recentRoot, final TestBlockMessagingFacility facility) {
+        return startPlugin(metadataPath, recentRoot, facility, 3);
+    }
+
+    private static StateManagementPlugin startPlugin(
+            final Path metadataPath,
+            final Path recentRoot,
+            final TestBlockMessagingFacility facility,
+            final int recentRetention) {
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
@@ -303,6 +379,7 @@ class StateManagementPluginLifecycleTest {
                 .withValue("state.management.stateMetadataPath", metadataPath.toString())
                 .withValue("state.management.stateSnapshotRecentPath", recentRoot.toString())
                 .withValue("state.management.snapshotIntervalMillis", "3600000") // suppress automatic snapshot
+                .withValue("state.management.stateSnapshotRecentRetentionCount", Integer.toString(recentRetention))
                 .build();
         final BlockNodeContext context = new BlockNodeContext(
                 configuration,

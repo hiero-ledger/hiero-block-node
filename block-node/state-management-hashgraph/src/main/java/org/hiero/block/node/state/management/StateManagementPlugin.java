@@ -1087,7 +1087,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                     try {
                         Files.delete(p);
                     } catch (final IOException e) {
-                        throw new RuntimeException("Failed to delete " + p, e);
+                        LOGGER.log(System.Logger.Level.WARNING, "Failed to delete " + p, e);
                     }
                 });
             }
