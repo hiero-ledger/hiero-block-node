@@ -300,7 +300,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
         stopApplyWorker();
         shutdownExecutor(snapshotExecutor);
-        if (metadata.blockNumber() > lastSnapshotBlock && metadata.blockNumber() > 0L) {
+        if (!StateMetadata.DEFAULT.equals(metadata) && metadata.blockNumber() > lastSnapshotBlock) {
             try {
                 saveSnapshot();
             } catch (final RuntimeException e) {

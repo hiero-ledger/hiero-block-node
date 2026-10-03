@@ -196,6 +196,37 @@ class StateManagementPluginLifecycleTest {
     }
 
     @Test
+    void stopWritesFinalSnapshotForExposedGenesisBlockZero(@TempDir final Path tmp) throws Exception {
+        // Edge case for the `> 0L` guard that used to exclude StateMetadata.DEFAULT: block 0
+        // is a legitimate, attestable block number, so a genuinely-exposed block 0 must not be
+        // mistaken for "nothing was ever applied" just because both have blockNumber == 0.
+        final Path metadataPath = tmp.resolve("stateMetadata.json");
+        final Path recentRoot = tmp.resolve("recent");
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, facility);
+
+        // Apply genesis block 0 and confirm it with block 1 so block 0 is exposed.
+        facility.sendBlockVerification(new VerificationNotification(
+                true, null, 0L, Bytes.fromHex("aabb"), buildBlock(0L, 0L), BlockSource.PUBLISHER));
+        plugin.applyPending();
+        facility.sendBlockVerification(new VerificationNotification(
+                true,
+                null,
+                1L,
+                Bytes.fromHex("aabb"),
+                buildBlock(1L, 11L, plugin.stagedStateRootHash()),
+                BlockSource.PUBLISHER));
+        plugin.applyPending();
+        assertThat(plugin.metadata().blockNumber()).isEqualTo(0L);
+        assertThat(plugin.metadata()).isNotEqualTo(StateMetadata.DEFAULT);
+
+        // No explicit saveSnapshot() here — stop() must write the final snapshot for the
+        // exposed genesis block, exactly as it does for any other exposed block.
+        plugin.stop();
+        assertThat(Files.isDirectory(recentRoot.resolve("0"))).isTrue();
+    }
+
+    @Test
     void restartAfterDegradeStartsClean(@TempDir final Path tmp) throws Exception {
         final Path metadataPath = tmp.resolve("stateMetadata.json");
         final Path recentRoot = tmp.resolve("recent");
