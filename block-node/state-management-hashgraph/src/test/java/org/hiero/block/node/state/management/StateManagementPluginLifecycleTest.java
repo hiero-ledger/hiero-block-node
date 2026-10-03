@@ -16,6 +16,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import org.hiero.block.api.StateMetadata;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -256,6 +257,82 @@ class StateManagementPluginLifecycleTest {
         assertThat(plugin2.isDegraded()).isFalse();
         assertThat(StateManagementPluginTestSupport.awaitReady(plugin2, 5_000L)).isTrue();
         plugin2.stop();
+    }
+
+    @Test
+    void pendingBlocksStopsGrowingOnceDegraded(@TempDir final Path tmp) throws Exception {
+        // handleVerification must stop staging new blocks once degraded, since applyPending()
+        // never drains pendingBlocks again until a restart — otherwise every subsequent
+        // verified block accumulates in memory without bound for the rest of the process's
+        // life. Reads the real state_pending_blocks gauge (an existing observer, not a new
+        // test-only accessor) via the established TestMetricsExporter pattern.
+        final TestMetricsExporter metricsExporter = new TestMetricsExporter();
+        final var configuration = ConfigurationBuilder.create()
+                .withConfigDataType(StateManagementConfig.class)
+                .withConfigDataType(MerkleDbConfig.class)
+                .withConfigDataType(VirtualMapConfig.class)
+                .withConfigDataType(PathsConfig.class)
+                .withValue(
+                        "state.management.stateMetadataPath",
+                        tmp.resolve("md.json").toString())
+                .withValue(
+                        "state.management.stateSnapshotRecentPath",
+                        tmp.resolve("recent").toString())
+                .withValue("state.management.snapshotIntervalMillis", "3600000")
+                .build();
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final BlockNodeContext context = new BlockNodeContext(
+                configuration,
+                MetricRegistry.builder().setMetricsExporter(metricsExporter).build(),
+                null,
+                facility,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+        final StateManagementPlugin plugin = new StateManagementPlugin();
+        plugin.init(context, NOOP_SERVICE_BUILDER);
+        plugin.start();
+        assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 5_000L)).isTrue();
+
+        // Degrade via the same hash-mismatch recipe as restartAfterDegradeStartsClean: apply
+        // genesis block 0, then deliver block 1 with a footer start hash that doesn't match.
+        facility.sendBlockVerification(new VerificationNotification(
+                true, null, 0L, Bytes.fromHex("aabb"), buildBlock(0L, 0L), BlockSource.PUBLISHER));
+        plugin.applyPending();
+        facility.sendBlockVerification(new VerificationNotification(
+                true,
+                null,
+                1L,
+                Bytes.fromHex("aabb"),
+                buildBlock(1L, 10L, Bytes.fromHex("deadbeef".repeat(12))),
+                BlockSource.PUBLISHER));
+        plugin.applyPending();
+        assertThat(plugin.isDegraded()).isTrue();
+
+        final long pendingAtDegraded =
+                metricsExporter.getMetricValue(StateManagementPlugin.METRIC_PENDING_BLOCKS.name());
+
+        // Deliver 100 more "verified" blocks after degrading — none of them must be staged.
+        for (long blockNumber = 2L; blockNumber <= 101L; blockNumber++) {
+            facility.sendBlockVerification(new VerificationNotification(
+                    true,
+                    null,
+                    blockNumber,
+                    Bytes.fromHex("aabb"),
+                    buildBlock(blockNumber, blockNumber * 10L),
+                    BlockSource.PUBLISHER));
+        }
+
+        assertThat(metricsExporter.getMetricValue(StateManagementPlugin.METRIC_PENDING_BLOCKS.name()))
+                .as("pendingBlocks must not grow once degraded")
+                .isEqualTo(pendingAtDegraded);
+        plugin.stop();
     }
 
     @Test

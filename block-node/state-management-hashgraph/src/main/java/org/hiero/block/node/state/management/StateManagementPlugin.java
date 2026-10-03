@@ -312,7 +312,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// {@inheritDoc}
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        if (!notification.success() || notification.block() == null) {
+        // Once degraded, applyPending() never drains pendingBlocks again until a restart (see
+        // STORY-22 for the recovery protocol) — staging more blocks in the meantime would only
+        // grow memory without bound, since nothing durable is lost: catchUpFromHistoricalBlocks()
+        // already re-derives pendingBlocks from historical storage on the next start, not from
+        // whatever happened to be buffered here. Checking degraded here is also forward-compatible
+        // with STORY-22: if a future recovery clears degraded, this simply stops gating again.
+        if (!notification.success() || notification.block() == null || degraded.get()) {
             return;
         }
         // Stage the block in the ordered gap buffer, then wake the apply worker. The put
