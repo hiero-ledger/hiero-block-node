@@ -187,6 +187,36 @@ class StateManagementAcceptanceTest {
     }
 
     @Test
+    void pruneDeletesNonNumericGarbageDirectoriesUnconditionally(@TempDir final Path tmp) throws java.io.IOException {
+        // A directory under recent/ whose name isn't a parseable block number (e.g. a stray
+        // leftover from an interrupted write) is treated as garbage and deleted unconditionally
+        // during prune — independent of, and not counted against, the retention budget that
+        // governs real block-numbered snapshot dirs.
+        final Fixture f = startPluginWithRecentRetention(tmp, 3);
+        f.deliverAndApply(0L, 0L); // staged; nothing exposed yet under lag-1
+        f.deliverAndApply(1L, 10L); // exposes block 0
+        f.plugin.saveSnapshot(); // writes recent/0
+
+        final java.nio.file.Path recent = tmp.resolve("recent");
+        final java.nio.file.Path garbage = recent.resolve("not-a-block-number");
+        java.nio.file.Files.createDirectories(garbage);
+        java.nio.file.Files.writeString(garbage.resolve("stray.txt"), "junk");
+        assertThat(java.nio.file.Files.isDirectory(garbage)).isTrue();
+
+        f.deliverAndApply(2L, 20L); // exposes block 1
+        f.plugin.saveSnapshot(); // writes recent/1; this prune pass sees the garbage dir
+
+        assertThat(java.nio.file.Files.isDirectory(garbage))
+                .as("non-numeric directories are deleted unconditionally during prune")
+                .isFalse();
+        assertThat(java.nio.file.Files.isDirectory(recent.resolve("0")))
+                .as("real snapshot dirs within the retention budget are unaffected")
+                .isTrue();
+        assertThat(java.nio.file.Files.isDirectory(recent.resolve("1"))).isTrue();
+        f.plugin.stop();
+    }
+
+    @Test
     void scenario6_refusesApplyOnHashMismatch(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
 
