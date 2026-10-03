@@ -344,12 +344,18 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (!matchesLatestBlock(request)) {
             return out.status(Code.NOT_FOUND).build();
         }
-        // gRPC reads always go off the attested immutable state.
-        final Bytes value = mapGet(StateSource.IMMUTABLE, (int) request.stateId(), request.keyBytes());
-        if (value == null) {
+        final int stateId = (int) request.stateId();
+        try {
+            // gRPC reads always go off the attested immutable state.
+            final Bytes value = mapGet(StateSource.IMMUTABLE, stateId, request.keyBytes());
+            if (value == null) {
+                return out.status(Code.NOT_FOUND).build();
+            }
+            return out.status(Code.SUCCESS).kvBytes(value).build();
+        } catch (final RuntimeException e) {
+            LOGGER.log(System.Logger.Level.DEBUG, "KV lookup for state {0} failed", stateId, e);
             return out.status(Code.NOT_FOUND).build();
         }
-        return out.status(Code.SUCCESS).kvBytes(value).build();
     }
 
     /// {@inheritDoc}
@@ -372,11 +378,17 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (!matchesLatestBlock(request)) {
             return out.status(Code.NOT_FOUND).build();
         }
-        final Bytes value = singletonGet(StateSource.IMMUTABLE, (int) request.stateId());
-        if (value == null) {
+        final int stateId = (int) request.stateId();
+        try {
+            final Bytes value = singletonGet(StateSource.IMMUTABLE, stateId);
+            if (value == null) {
+                return out.status(Code.NOT_FOUND).build();
+            }
+            return out.status(Code.SUCCESS).singletonBytes(value).build();
+        } catch (final RuntimeException e) {
+            LOGGER.log(System.Logger.Level.DEBUG, "Singleton lookup for state {0} failed", stateId, e);
             return out.status(Code.NOT_FOUND).build();
         }
-        return out.status(Code.SUCCESS).singletonBytes(value).build();
     }
 
     /// {@inheritDoc}

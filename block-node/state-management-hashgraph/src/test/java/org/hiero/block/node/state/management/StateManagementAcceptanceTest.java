@@ -349,6 +349,44 @@ class StateManagementAcceptanceTest {
         second.plugin.stop();
     }
 
+    @Test
+    void unknownOrOutOfRangeStateIdReturnsNotFoundAgainstRealBackend(@TempDir final Path tmp) {
+        // getBinaryQueue already guards its lookup with a try/catch (RuntimeException ->
+        // NOT_FOUND); getBinaryKV/getBinarySingleton now do the same for defensive
+        // consistency. This pins the behavior against the real VirtualMapStateLifecycleManager
+        // backend (not the InMemoryBinaryState test double, whose plain map lookups can't
+        // exercise whatever the real backend's getKv/getSingleton actually do for a
+        // stateId nothing ever registered) — an unknown or out-of-range stateId must come
+        // back as a structured NOT_FOUND, never an uncaught exception.
+        final Fixture f = startPlugin(tmp);
+        f.deliverAndApply(0L, 0L);
+        f.confirm(1L, 10L);
+
+        final BinaryStateQueryResponse kvUnknown = f.plugin.getBinaryKV(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(99L)
+                .keyBytes(Bytes.fromHex("01"))
+                .build());
+        assertThat(kvUnknown.status()).isEqualTo(Code.NOT_FOUND);
+
+        final BinaryStateQueryResponse kvNegative = f.plugin.getBinaryKV(BinaryStateQuery.newBuilder()
+                .retrieveLatest(true)
+                .stateId(-1L)
+                .keyBytes(Bytes.fromHex("01"))
+                .build());
+        assertThat(kvNegative.status()).isEqualTo(Code.NOT_FOUND);
+
+        final BinaryStateQueryResponse singletonUnknown = f.plugin.getBinarySingleton(
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(99L).build());
+        assertThat(singletonUnknown.status()).isEqualTo(Code.NOT_FOUND);
+
+        final BinaryStateQueryResponse singletonNegative = f.plugin.getBinarySingleton(
+                BinaryStateQuery.newBuilder().retrieveLatest(true).stateId(-1L).build());
+        assertThat(singletonNegative.status()).isEqualTo(Code.NOT_FOUND);
+
+        f.plugin.stop();
+    }
+
     // ── Fixtures ───────────────────────────────────────────────────────────
 
     private record Fixture(StateManagementPlugin plugin, TestBlockMessagingFacility facility) {
