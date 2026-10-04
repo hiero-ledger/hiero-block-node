@@ -19,7 +19,7 @@ dependencies.constraints {
     val s3MockVersion = "4.11.0"
     val jUnitVersion = "6.1.2"
 
-    api("com.github.luben:zstd-jni:1.5.7-12") { because("com.github.luben.zstd_jni") }
+    api("com.github.luben:zstd-jni:1.5.7-13") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.10.2") {
         because("com.github.spotbugs.annotations")
     }
