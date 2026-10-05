@@ -218,17 +218,28 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // for the new publisher.
         metrics.currentPublisherCount().set(handlers.size());
         sendPublisherStatusUpdate(UpdateType.PUBLISHER_CONNECTED, handlers);
-        // Acknowledge the latest persisted block immediately, so a publisher
-        // holding blocks this node already has (persisted from another
-        // publisher) can release them without streaming anything. Without this,
-        // a publisher with a full buffer and no new block to send is never
-        // acknowledged and stays blocked.
-        final long latestPersisted = lastPersistedBlockNumber.get();
-        if (latestPersisted >= 0) {
-            newHandler.sendAcknowledgement(latestPersisted);
+        // Acknowledge the latest block this node holds immediately, so a
+        // publisher holding blocks this node already has (persisted from
+        // another publisher) can release them without streaming anything.
+        // Without this, a publisher with a full buffer and no new block to send
+        // is never acknowledged and stays blocked.
+        final long blockToAcknowledge = latestLocallyAvailableBlock();
+        if (blockToAcknowledge >= 0) {
+            newHandler.sendAcknowledgement(blockToAcknowledge);
         }
-        LOGGER.log(DEBUG, "Added new handler {0}, acknowledged block {1}", handlerId, latestPersisted);
+        LOGGER.log(DEBUG, "Added new handler {0}, acknowledged block {1}", handlerId, blockToAcknowledge);
         return newHandler;
+    }
+
+    /// The latest persisted block, capped at the latest block in local
+    /// history. The persisted watermark is seeded from `storedBlocks()`, which
+    /// may report blocks this node does not hold locally (e.g. a cloud archive
+    /// group claimed complete at startup); acknowledging those would let a
+    /// publisher drop blocks that no block node holds.
+    private long latestLocallyAvailableBlock() {
+        final long localMax =
+                serverContext.historicalBlockProvider().availableBlocks().max();
+        return Math.min(lastPersistedBlockNumber.get(), localMax);
     }
 
     /// Method to wait for a boolean value to be false.

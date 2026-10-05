@@ -3263,18 +3263,43 @@ class LiveStreamPublisherManagerTest {
             @Test
             @DisplayName("addHandler() acknowledges the latest persisted block on connect")
             void testAddHandlerAcknowledgesLatestPersistedBlock() {
-                final BlockNodeContext context = new BlockNodeContext.Builder(
-                                generateContext(historicalBlockFacility, threadPoolManager, messagingFacility))
-                        .storedBlocks(List.of(new BlockRange(0L, 50L)))
-                        .build();
-                final LiveStreamPublisherManager seededManager =
-                        new LiveStreamPublisherManager(context, generateManagerMetrics());
+                final LiveStreamPublisherManager seededManager = createManagerWithBlocks(50L, 50L);
                 seededManager.addHandler(responsePipeline, sharedHandlerMetrics, null);
                 assertThat(responsePipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
                         .returns(50L, acknowledgementBlockNumberExtractor);
+            }
+
+            /// This test aims to assert that the acknowledgement sent on
+            /// connect never exceeds the latest block in local history, even
+            /// when `storedBlocks()` reports more (e.g. a cloud archive group
+            /// claimed complete at startup). Acknowledging blocks this node
+            /// does not hold would let a publisher drop them.
+            @Test
+            @DisplayName("addHandler() caps the acknowledgement at the latest locally available block")
+            void testAddHandlerCapsAcknowledgementAtLocalHistory() {
+                final LiveStreamPublisherManager seededManager = createManagerWithBlocks(50L, 40L);
+                seededManager.addHandler(responsePipeline, sharedHandlerMetrics, null);
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(40L, acknowledgementBlockNumberExtractor);
+            }
+
+            /// Creates a manager whose `storedBlocks()` end at `storedEnd` and
+            /// whose local history holds blocks `0..localEnd`.
+            private LiveStreamPublisherManager createManagerWithBlocks(final long storedEnd, final long localEnd) {
+                final SimpleBlockRangeSet localAvailable = new SimpleBlockRangeSet();
+                localAvailable.add(0L, localEnd);
+                historicalBlockFacility.setTemporaryAvailableBlocks(localAvailable);
+                final BlockNodeContext context = new BlockNodeContext.Builder(
+                                generateContext(historicalBlockFacility, threadPoolManager, messagingFacility))
+                        .storedBlocks(List.of(new BlockRange(0L, storedEnd)))
+                        .build();
+                return new LiveStreamPublisherManager(context, generateManagerMetrics());
             }
 
             /// This test aims to assert that registering a new handler
