@@ -12,12 +12,14 @@ import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
+import java.net.StandardSocketOptions;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import org.hiero.block.node.app.config.ServerConfig;
@@ -216,6 +218,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         builder.addProtocol(http2Config);
         builder.addProtocol(pbjConfig);
         builder.connectionOptions(socketOptions);
+        applyListenerReceiveBuffer(builder, socketOptions);
         builder.backlog(socketValues.backlogSize());
         builder.writeQueueLength(socketValues.writeQueueLength());
         builder.maxTcpConnections(socketValues.maxTcpConnections());
@@ -239,6 +242,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         builder.addProtocol(http2Config);
         builder.addProtocol(pbjConfig);
         builder.connectionOptions(socketOptions);
+        applyListenerReceiveBuffer(builder, socketOptions);
         builder.backlog(socketValues.backlogSize());
         builder.writeQueueLength(socketValues.writeQueueLength());
         builder.maxTcpConnections(socketValues.maxTcpConnections());
@@ -248,5 +252,22 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         if (http != null) builder.addRouting(http);
         final PbjRouting.Builder grpc = grpcBuilders.get(port);
         if (grpc != null) builder.addRouting(grpc);
+    }
+
+    /// Sets `SO_RCVBUF` on the listening socket so accepted connections inherit it at the TCP handshake.
+    ///
+    /// Helidon applies `connectionOptions` after `accept()`. Linux fixes the receive-window clamp at the handshake
+    /// from the listener's buffer, and a later `SO_RCVBUF` also turns off receive-buffer autotuning, so without
+    /// this every connection's window stays at about 32 KB (half the 64 KB kernel default). That caps a publisher
+    /// stream at 32 KB per round trip, about 51 Mbit/s at a 5 ms RTT, which is all that 10k TPS leaves room for.
+    ///
+    /// @param builder the listener (or default web server listener) being configured
+    /// @param socketOptions the connection socket options holding the configured receive buffer size
+    static void applyListenerReceiveBuffer(
+            @NonNull final ListenerConfig.BuilderBase<?, ?> builder, @NonNull final SocketOptions socketOptions) {
+        final Optional<Integer> receiveBufferSize = socketOptions.socketReceiveBufferSize();
+        if (receiveBufferSize.isPresent()) {
+            builder.putListenerSocketOption(StandardSocketOptions.SO_RCVBUF, receiveBufferSize.get());
+        }
     }
 }
