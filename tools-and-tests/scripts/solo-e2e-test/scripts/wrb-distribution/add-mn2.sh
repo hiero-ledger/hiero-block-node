@@ -126,8 +126,20 @@ address_book_b64=""
 mn2_ab_json="${TMPDIR:-/tmp}/wrb-dist-mn2-addressbook-history.json"
 mn2_ab_bin="${TMPDIR:-/tmp}/wrb-dist-mn2-addressbook.bin"
 log "Generating MN2's initial address book from the Solo CN's real RSA keys..."
+# Use the CN's actual genesis time (exported by install-and-run-wrb-cli.sh into
+# ENV_FILE) as the era's blockTimestamp, not "now". MN2 has to verify blocks
+# produced earlier in the run (from genesis onward); an era that starts at
+# script-run time (~340s into the test) puts those earlier blocks outside
+# every era, and BlockStreamVerifier can never find an address book for them,
+# stalling verification forever. Fall back to "now" only if the genesis time
+# wasn't available (e.g. ENV_FILE missing), which reproduces the old behavior.
+if [[ -z "${GENESIS_TS_SECONDS:-}" ]]; then
+    log "  WARNING: GENESIS_TS_SECONDS not set (missing/stale ${ENV_FILE}?); falling back to current time for the address-book era, which may stall MN2 verification of pre-existing blocks"
+fi
+: "${GENESIS_TS_SECONDS:=$(date -u +%s)}"
+: "${GENESIS_TS_NANOS:=0}"
 if bash "${SCRIPT_DIR}/../extract-solo-ab-and-generate.sh" \
-    "${NAMESPACE}" "$(date -u +%s).0" "${mn2_ab_json}"; then
+    "${NAMESPACE}" "${GENESIS_TS_SECONDS}.${GENESIS_TS_NANOS}" "${mn2_ab_json}"; then
     if [[ -d "${CLI_LIB}" ]]; then
         if java -cp "${CLI_LIB}/*" org.hiero.block.tools.BlockStreamTool mirror generateBinFromAddressBookJson \
             "${mn2_ab_json}" -o "${mn2_ab_bin}"; then

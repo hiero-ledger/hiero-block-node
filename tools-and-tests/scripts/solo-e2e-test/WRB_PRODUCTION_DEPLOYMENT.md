@@ -251,7 +251,7 @@ gsutil -m rsync -r \
 
 ```bash
 # Block Node health
-curl http://localhost:40840/healthz/readyz
+curl http://localhost:40983/healthz/readyz
 
 # Verify blocks are accessible
 curl http://localhost:40840/api/v1/blocks/0

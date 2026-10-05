@@ -76,7 +76,9 @@ mkdir -p "${pf_log_dir}"
 setsid_prefix=""
 command -v setsid >/dev/null 2>&1 && setsid_prefix="setsid"
 
-pkill -f "port-forward svc/block-node-1.*${BN1_LOCAL_GRPC_PORT}:" 2>/dev/null || true
+# Anchor with a trailing space so this only matches svc/block-node-1 itself,
+# not svc/block-node-10, -11, etc. once the suite scales past 9 BNs.
+pkill -f "port-forward svc/block-node-1[[:space:]].*${BN1_LOCAL_GRPC_PORT}:" 2>/dev/null || true
 sleep 1
 nohup ${setsid_prefix} kubectl --context "${CONTEXT}" --namespace "${NAMESPACE}" \
     port-forward svc/block-node-1 "${BN1_LOCAL_GRPC_PORT}:40840" \
@@ -107,10 +109,15 @@ if [[ -n "${WRB_DIST_WORK_DIR:-}" && -n "${CLI_LIB:-}" ]]; then
     wrapped_dir="${WRB_DIST_WORK_DIR}/wrappedBlocks"
     if [[ -d "${wrapped_dir}" ]]; then
         log "Running blocks push to catch up BN1 with all wrapped blocks..."
+        # 127.0.0.1, not localhost: kubectl port-forward binds IPv4 only on
+        # macOS, but Java's InetAddress.getByName("localhost") can resolve to
+        # [::1], causing connection refused. Same fix already applied to the
+        # other peer scripts here (add-mn2.sh, assert-bn-tss-data.sh,
+        # assert-cutover-sync.sh).
         java -cp "${CLI_LIB}/*" \
             org.hiero.block.tools.BlockStreamTool blocks push \
                 --input-dir "${wrapped_dir}" \
-                --bn-host localhost \
+                --bn-host 127.0.0.1 \
                 --bn-port "${BN1_LOCAL_GRPC_PORT}" \
             && log "Catch-up push completed." \
             || log "WARNING: blocks push returned non-zero; live-push worker will retry on its next poll."
