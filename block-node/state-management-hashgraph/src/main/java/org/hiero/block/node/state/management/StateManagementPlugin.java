@@ -81,10 +81,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     static final MetricKey<ObservableGauge> METRIC_READY =
             MetricKey.of("state_ready", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
-    /// `blocknode:state_degraded` — `1` when the plugin has degraded (e.g. footer
+    /// `blocknode:state_apply_halted` — `1` when block apply has halted (e.g. footer
     /// hash mismatch), else `0`.
-    static final MetricKey<ObservableGauge> METRIC_DEGRADED =
-            MetricKey.of("state_degraded", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    static final MetricKey<ObservableGauge> METRIC_APPLY_HALTED =
+            MetricKey.of("state_apply_halted", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
     /// `blocknode:state_apply_latency_ms` — wall-clock duration of the most recent
     /// block apply, in milliseconds.
@@ -116,7 +116,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private final ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks = new ConcurrentSkipListMap<>();
     private final AtomicBoolean stateIsCaughtUp = new AtomicBoolean(false);
     private final AtomicBoolean stopping = new AtomicBoolean(false);
-    private final AtomicBoolean degraded = new AtomicBoolean(false);
+    private final AtomicBoolean applyHalted = new AtomicBoolean(false);
     private final AtomicLong hashMismatchTotal = new AtomicLong();
 
     /// Wall-clock duration of the most recent block apply, exported via
@@ -226,7 +226,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// Register the plugin's metrics with the block node's registry. Gauges observe
     /// the live plugin fields (committed block, state size, pending depth, readiness,
-    /// degraded flag, last apply latency); the hash-mismatch counter is stored so the
+    /// apply-halted flag, last apply latency); the hash-mismatch counter is stored so the
     /// apply path can increment it.
     ///
     /// @param metrics the block node metric registry
@@ -243,9 +243,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         metrics.register(ObservableGauge.builder(METRIC_READY)
                 .setDescription("1 once start-up catch-up is complete, else 0")
                 .observe(() -> isReady() ? 1L : 0L));
-        metrics.register(ObservableGauge.builder(METRIC_DEGRADED)
-                .setDescription("1 when the plugin has degraded (e.g. footer hash mismatch), else 0")
-                .observe(() -> degraded.get() ? 1L : 0L));
+        metrics.register(ObservableGauge.builder(METRIC_APPLY_HALTED)
+                .setDescription("1 when block apply has halted (e.g. footer hash mismatch), else 0")
+                .observe(() -> applyHalted.get() ? 1L : 0L));
         metrics.register(ObservableGauge.builder(METRIC_APPLY_LATENCY_MS)
                 .setDescription("Wall-clock duration of the most recent block apply in ms")
                 .observe(() -> lastApplyDurationMs));
@@ -312,13 +312,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// {@inheritDoc}
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        // Once degraded, applyPending() never drains pendingBlocks again until a restart (see
-        // STORY-22 for the recovery protocol) — staging more blocks in the meantime would only
-        // grow memory without bound, since nothing durable is lost: catchUpFromHistoricalBlocks()
+        // Once apply is halted, applyPending() never drains pendingBlocks again until a restart
+        // (see STORY-22 for the recovery protocol) — staging more blocks in the meantime would
+        // only grow memory without bound, since nothing durable is lost: catchUpFromHistoricalBlocks()
         // already re-derives pendingBlocks from historical storage on the next start, not from
-        // whatever happened to be buffered here. Checking degraded here is also forward-compatible
-        // with STORY-22: if a future recovery clears degraded, this simply stops gating again.
-        if (!notification.success() || notification.block() == null || degraded.get()) {
+        // whatever happened to be buffered here. Checking applyHalted here is also forward-compatible
+        // with STORY-22: if a future recovery clears applyHalted, this simply stops gating again.
+        if (!notification.success() || notification.block() == null || applyHalted.get()) {
             return;
         }
         // Stage the block in the ordered gap buffer, then wake the apply worker. The put
@@ -599,13 +599,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// Drain the pending-blocks queue in strict block-number order, applying each
     /// contiguous next block via `applyBlockStateChanges`. Stops on the first gap
-    /// (next expected block not yet present), when stopping, or when degraded.
+    /// (next expected block not yet present), when stopping, or when apply is halted.
     /// Blocks are removed only after a successful apply so failures leave the block
     /// queued for inspection / retry.
     void applyPending() {
         applyLock.lock();
         try {
-            while (!pendingBlocks.isEmpty() && !stopping.get() && !degraded.get()) {
+            while (!pendingBlocks.isEmpty() && !stopping.get() && !applyHalted.get()) {
                 final boolean atGenesis = lastAppliedBlock < 0L
                         && metadata.blockNumber() == 0L
                         && metadata.stateRootHash().length() == 0L;
@@ -623,14 +623,14 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 } catch (final RuntimeException e) {
                     LOGGER.log(
                             System.Logger.Level.WARNING,
-                            "applyBlockStateChanges threw for block {0}; degrading plugin (block retained in queue)",
+                            "applyBlockStateChanges threw for block {0}; halting apply (block retained in queue)",
                             expectedNext,
                             e);
-                    degraded.set(true);
+                    applyHalted.set(true);
                     return;
                 }
                 if (!applied) {
-                    // Block-specific failure already logged + degraded set (e.g. hash
+                    // Block-specific failure already logged + applyHalted set (e.g. hash
                     // mismatch); leave the block in the queue and stop draining.
                     return;
                 }
@@ -706,7 +706,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             }
             final int batchSize = Math.max(1, config.historicCatchUpBatchSize());
             long cursor = start;
-            while (cursor <= latest && !stopping.get() && !degraded.get()) {
+            while (cursor <= latest && !stopping.get() && !applyHalted.get()) {
                 final long batchEnd = Math.min(cursor + batchSize - 1L, latest);
                 for (long i = cursor; i <= batchEnd; i++) {
                     if (pendingBlocks.containsKey(i)) {
@@ -720,7 +720,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         } catch (final RuntimeException e) {
             LOGGER.log(System.Logger.Level.WARNING, "Catch-up failed; plugin remains not ready", e);
         } finally {
-            // Even if catch-up hit a gap or a degraded state, the plugin is in the best
+            // Even if catch-up hit a gap or an apply-halted state, the plugin is in the best
             // shape it can be — start serving queries against whatever applied.
             stateIsCaughtUp.set(true);
         }
@@ -761,7 +761,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// 1. Pull `BlockFooter.startOfBlockStateRootHash` from N (cheap reverse scan).
     /// 2. Hash state 2 (`hashingImmutable`, post-(N-1)) NOW — the single point at which we
     ///    hash a state, on promotion — and validate N's footer against it. A match means N's
-    ///    footer attests post-(N-1). Mismatch ⇒ degrade without mutating.
+    ///    footer attests post-(N-1). Mismatch ⇒ halt apply without mutating.
     /// 3. Promote state 2 → state 1 (`attestedImmutable`, visible to queries) and record its
     ///    metadata with the just-computed hash.
     /// 4. Apply N's `state_changes` to the live mutable (state 3), then `copyMutableState()`
@@ -782,7 +782,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                     System.Logger.Level.WARNING,
                     "Refusing to apply block {0}: missing a parseable BlockFooter",
                     incomingBlock);
-            degraded.set(true);
+            applyHalted.set(true);
             return false;
         }
         // Hash state 2 (post-(lastAppliedBlock)) exactly here, as we attempt to promote it —
@@ -792,12 +792,12 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (!validateStartHash(startHash, attestedHash)) {
             hashMismatchTotal.incrementAndGet();
             hashMismatchMetric.increment();
-            degraded.set(true);
+            applyHalted.set(true);
             LOGGER.log(
                     System.Logger.Level.ERROR,
                     "State hash mismatch applying block {0}: footer.startOfBlockStateRootHash ({1}) diverges "
                             + "from the last applied state's root hash ({2}, post-block {3}); plugin marked "
-                            + "degraded (state not exposed)",
+                            + "apply-halted (state not exposed)",
                     incomingBlock,
                     startHash.toHex(),
                     attestedHash.toHex(),
@@ -825,7 +825,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         final StateChangeApplier.ApplyResult result = applier.applyBlock(mutable, block);
         if (result.blockNumber() < 0L) {
             LOGGER.log(System.Logger.Level.WARNING, "Block had unparseable header; treating as failed apply");
-            degraded.set(true);
+            applyHalted.set(true);
             return false;
         }
         lifecycleManager.copyMutableState();
@@ -903,12 +903,12 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return hashMismatchTotal.get();
     }
 
-    /// Whether the plugin has entered the degraded (stopped-applying) state.
+    /// Whether block apply has halted (stopped-applying state).
     /// Visible to tests.
     ///
-    /// @return `true` if the plugin is degraded
-    boolean isDegraded() {
-        return degraded.get();
+    /// @return `true` if apply is halted
+    boolean isApplyHalted() {
+        return applyHalted.get();
     }
 
     /// Write a snapshot of the *attested* state (the committed block named by
@@ -1073,7 +1073,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return Bytes.wrap(state.getRoot().getHash().copyToByteArray());
         } catch (final RuntimeException e) {
             // Returning empty is fail-safe — the next block's footer validation will not
-            // match an empty hash, so we degrade rather than expose a wrong root. Log the
+            // match an empty hash, so we halt apply rather than expose a wrong root. Log the
             // cause at WARNING so a hashing/lifecycle bug is diagnosable instead of silent.
             LOGGER.log(System.Logger.Level.WARNING, "Failed to read state root hash; treating as empty", e);
             return Bytes.EMPTY;

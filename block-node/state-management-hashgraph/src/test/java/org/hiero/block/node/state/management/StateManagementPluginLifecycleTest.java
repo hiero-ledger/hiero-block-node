@@ -133,18 +133,18 @@ class StateManagementPluginLifecycleTest {
         final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, facility);
 
         assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
-        assertThat(plugin.isDegraded()).isFalse();
+        assertThat(plugin.isApplyHalted()).isFalse();
         plugin.stop();
     }
 
     @Test
-    void malformedStateChangesDegradesWithoutApplying(@TempDir final Path tmp) throws Exception {
+    void malformedStateChangesHaltsApplyWithoutApplying(@TempDir final Path tmp) throws Exception {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final StateManagementPlugin plugin = startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), facility);
 
         // Genesis block 0 with a valid header/footer (empty start hash passes genesis
         // validation) but a state_changes item carrying invalid protobuf bytes. The
-        // applier throws; applyPending must degrade and leave the block unapplied.
+        // applier throws; applyPending must halt apply and leave the block unapplied.
         final BlockUnparsed badBlock = BlockUnparsed.newBuilder()
                 .blockItems(
                         BlockItemUnparsed.newBuilder()
@@ -164,7 +164,7 @@ class StateManagementPluginLifecycleTest {
                 new VerificationNotification(true, null, 0L, Bytes.fromHex("aabb"), badBlock, BlockSource.PUBLISHER));
         plugin.applyPending();
 
-        assertThat(plugin.isDegraded()).isTrue();
+        assertThat(plugin.isApplyHalted()).isTrue();
         assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
         plugin.stop();
     }
@@ -228,14 +228,14 @@ class StateManagementPluginLifecycleTest {
     }
 
     @Test
-    void restartAfterDegradeStartsClean(@TempDir final Path tmp) throws Exception {
+    void restartAfterApplyHaltStartsClean(@TempDir final Path tmp) throws Exception {
         final Path metadataPath = tmp.resolve("stateMetadata.json");
         final Path recentRoot = tmp.resolve("recent");
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, facility);
 
         // Apply genesis block 0 (staged), then deliver block 1 whose footer start hash does
-        // not match post-0 — a hash mismatch that degrades the plugin.
+        // not match post-0 — a hash mismatch that halts apply.
         facility.sendBlockVerification(new VerificationNotification(
                 true, null, 0L, Bytes.fromHex("aabb"), buildBlock(0L, 0L), BlockSource.PUBLISHER));
         plugin.applyPending();
@@ -247,25 +247,25 @@ class StateManagementPluginLifecycleTest {
                 buildBlock(1L, 10L, Bytes.fromHex("deadbeef".repeat(12))),
                 BlockSource.PUBLISHER));
         plugin.applyPending();
-        assertThat(plugin.isDegraded()).isTrue();
+        assertThat(plugin.isApplyHalted()).isTrue();
         plugin.stop();
 
-        // Degraded state is in-memory only (the documented recovery is a restart). A fresh
+        // Apply-halted state is in-memory only (the documented recovery is a restart). A fresh
         // instance must start clean and reach readiness.
         final TestBlockMessagingFacility facility2 = new TestBlockMessagingFacility();
         final StateManagementPlugin plugin2 = startPlugin(metadataPath, recentRoot, facility2);
-        assertThat(plugin2.isDegraded()).isFalse();
+        assertThat(plugin2.isApplyHalted()).isFalse();
         assertThat(StateManagementPluginTestSupport.awaitReady(plugin2, 5_000L)).isTrue();
         plugin2.stop();
     }
 
     @Test
-    void pendingBlocksStopsGrowingOnceDegraded(@TempDir final Path tmp) throws Exception {
-        // handleVerification must stop staging new blocks once degraded, since applyPending()
-        // never drains pendingBlocks again until a restart — otherwise every subsequent
-        // verified block accumulates in memory without bound for the rest of the process's
-        // life. Reads the real state_pending_blocks gauge (an existing observer, not a new
-        // test-only accessor) via the established TestMetricsExporter pattern.
+    void pendingBlocksStopsGrowingOnceApplyHalted(@TempDir final Path tmp) throws Exception {
+        // handleVerification must stop staging new blocks once apply is halted, since
+        // applyPending() never drains pendingBlocks again until a restart — otherwise every
+        // subsequent verified block accumulates in memory without bound for the rest of the
+        // process's life. Reads the real state_pending_blocks gauge (an existing observer, not
+        // a new test-only accessor) via the established TestMetricsExporter pattern.
         final TestMetricsExporter metricsExporter = new TestMetricsExporter();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
@@ -300,8 +300,9 @@ class StateManagementPluginLifecycleTest {
         plugin.start();
         assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 5_000L)).isTrue();
 
-        // Degrade via the same hash-mismatch recipe as restartAfterDegradeStartsClean: apply
-        // genesis block 0, then deliver block 1 with a footer start hash that doesn't match.
+        // Halt apply via the same hash-mismatch recipe as restartAfterApplyHaltStartsClean:
+        // apply genesis block 0, then deliver block 1 with a footer start hash that doesn't
+        // match.
         facility.sendBlockVerification(new VerificationNotification(
                 true, null, 0L, Bytes.fromHex("aabb"), buildBlock(0L, 0L), BlockSource.PUBLISHER));
         plugin.applyPending();
@@ -313,12 +314,12 @@ class StateManagementPluginLifecycleTest {
                 buildBlock(1L, 10L, Bytes.fromHex("deadbeef".repeat(12))),
                 BlockSource.PUBLISHER));
         plugin.applyPending();
-        assertThat(plugin.isDegraded()).isTrue();
+        assertThat(plugin.isApplyHalted()).isTrue();
 
-        final long pendingAtDegraded =
+        final long pendingAtApplyHalted =
                 metricsExporter.getMetricValue(StateManagementPlugin.METRIC_PENDING_BLOCKS.name());
 
-        // Deliver 100 more "verified" blocks after degrading — none of them must be staged.
+        // Deliver 100 more "verified" blocks after halting apply — none of them must be staged.
         for (long blockNumber = 2L; blockNumber <= 101L; blockNumber++) {
             facility.sendBlockVerification(new VerificationNotification(
                     true,
@@ -330,8 +331,8 @@ class StateManagementPluginLifecycleTest {
         }
 
         assertThat(metricsExporter.getMetricValue(StateManagementPlugin.METRIC_PENDING_BLOCKS.name()))
-                .as("pendingBlocks must not grow once degraded")
-                .isEqualTo(pendingAtDegraded);
+                .as("pendingBlocks must not grow once apply is halted")
+                .isEqualTo(pendingAtApplyHalted);
         plugin.stop();
     }
 

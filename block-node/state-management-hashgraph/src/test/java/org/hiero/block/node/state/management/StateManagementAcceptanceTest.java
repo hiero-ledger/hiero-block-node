@@ -66,7 +66,7 @@ class StateManagementAcceptanceTest {
         // Block 1's footer attests post-0, exposing block 0 to readers.
         f.confirm(1L, 10L);
         assertThat(f.plugin.metadata().blockNumber()).isZero();
-        assertThat(f.plugin.isDegraded()).isFalse();
+        assertThat(f.plugin.isApplyHalted()).isFalse();
         f.plugin.stop();
     }
 
@@ -231,7 +231,7 @@ class StateManagementAcceptanceTest {
         f.plugin.applyPending();
 
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
-        assertThat(f.plugin.isDegraded()).isTrue();
+        assertThat(f.plugin.isApplyHalted()).isTrue();
         assertThat(f.plugin.hashMismatchTotal()).isEqualTo(1L);
         f.plugin.stop();
     }

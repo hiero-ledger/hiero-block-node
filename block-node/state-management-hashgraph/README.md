@@ -38,7 +38,7 @@ management, gRPC queries, and an SPI notification on top.
    - **Hash state 2** (post-(N-1)) *now* — the single point at which a state is hashed, on
      promotion, never eagerly at seal and never on the mutable — and validate N's
      `BlockFooter.startOfBlockStateRootHash` against it. On mismatch the plugin sets
-     `degraded=true`, increments `hashMismatchTotal`, refuses further applies, and exposes
+     `applyHalted=true`, increments `hashMismatchTotal`, refuses further applies, and exposes
      nothing.
    - On match, N's footer has attested post-(N-1): promote state 2 → `attestedImmutable`
      (reserving its reference so the next `copyMutableState()` doesn't release it) and
@@ -133,8 +133,8 @@ whether to retry against a different Block-Node or wait.
   it does not refuse to start.
 - **Hash mismatch.** When a block's `BlockFooter.startOfBlockStateRootHash`
   doesn't equal the current live root hash, the plugin increments
-  `hashMismatchTotal`, sets `degraded=true`, logs at `ERROR`, and the apply
-  loop short-circuits on `degraded` for every subsequent block.
+  `hashMismatchTotal`, sets `applyHalted=true`, logs at `ERROR`, and the apply
+  loop short-circuits on `applyHalted` for every subsequent block.
 - **Malformed `state_changes` item.** Raises `IllegalStateException` from the
   applier; the plugin logs and does **not** advance metadata.
 - **Concurrent gap.** A block arriving out of order parks in the pending
@@ -149,8 +149,8 @@ whether to retry against a different Block-Node or wait.
 - Latest applied state only; no historical state queries.
 - Merkle proof RPCs (`getKvPath`, `getMerkleProof`) are not yet exposed
   through the plugin even though the backing `BinaryState` supports them.
-- Hash-mismatch recovery requires operator intervention; the plugin stays
-  degraded until restart and there is no automatic rewind/replay.
+- Hash-mismatch recovery requires operator intervention; apply stays
+  halted until restart and there is no automatic rewind/replay.
 - Catch-up is sequential and synchronous within batches; very large catch-up
   windows block `ready=true` proportionally.
 - The plugin declares three swirlds-library config records
