@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -16,9 +17,11 @@ import static org.mockito.Mockito.verify;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import io.helidon.common.socket.SocketOptions;
+import io.helidon.webserver.ListenerConfig;
 import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
+import java.net.StandardSocketOptions;
 import java.util.Map;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.junit.jupiter.api.BeforeEach;
@@ -310,5 +313,35 @@ class ServiceBuilderImplTest {
             fail("Failed to inject gRPC builder spy: " + e.getMessage());
             throw new AssertionError("unreachable");
         }
+    }
+
+    @Test
+    @DisplayName("applyListenerReceiveBuffer sets SO_RCVBUF on the listening socket")
+    void applyListenerReceiveBuffer_setsListenerReceiveBuffer() {
+        final int receiveBufferSize = 8_388_608;
+        final SocketOptions socketOptions = SocketOptions.builder()
+                .socketReceiveBufferSize(receiveBufferSize)
+                .build();
+        final ListenerConfig.Builder listener = ListenerConfig.builder();
+
+        ServiceBuilderImpl.applyListenerReceiveBuffer(listener, socketOptions);
+
+        assertEquals(
+                receiveBufferSize,
+                listener.listenerSocketOptions().get(StandardSocketOptions.SO_RCVBUF),
+                "the listener must carry the receive buffer so accepted connections inherit it at the handshake");
+    }
+
+    @Test
+    @DisplayName("applyListenerReceiveBuffer leaves the listener alone when no receive buffer is configured")
+    void applyListenerReceiveBuffer_withoutReceiveBuffer_leavesListenerUnchanged() {
+        final ListenerConfig.Builder listener = ListenerConfig.builder();
+
+        ServiceBuilderImpl.applyListenerReceiveBuffer(
+                listener, SocketOptions.builder().build());
+
+        assertFalse(
+                listener.listenerSocketOptions().containsKey(StandardSocketOptions.SO_RCVBUF),
+                "without a configured size the kernel default must stay in place");
     }
 }
