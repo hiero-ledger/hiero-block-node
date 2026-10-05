@@ -3254,6 +3254,38 @@ class LiveStreamPublisherManagerTest {
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
                         .isEqualTo(1);
             }
+
+            /// This test aims to assert that registering a new handler
+            /// via [LiveStreamPublisherManager#addHandler] when blocks are
+            /// already persisted immediately acknowledges the latest
+            /// persisted block, so a publisher holding those blocks can
+            /// release them without streaming anything.
+            @Test
+            @DisplayName("addHandler() acknowledges the latest persisted block on connect")
+            void testAddHandlerAcknowledgesLatestPersistedBlock() {
+                final BlockNodeContext context = new BlockNodeContext.Builder(
+                                generateContext(historicalBlockFacility, threadPoolManager, messagingFacility))
+                        .storedBlocks(List.of(new BlockRange(0L, 50L)))
+                        .build();
+                final LiveStreamPublisherManager seededManager =
+                        new LiveStreamPublisherManager(context, generateManagerMetrics());
+                seededManager.addHandler(responsePipeline, sharedHandlerMetrics, null);
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(50L, acknowledgementBlockNumberExtractor);
+            }
+
+            /// This test aims to assert that registering a new handler
+            /// via [LiveStreamPublisherManager#addHandler] sends nothing
+            /// when no block has been persisted yet.
+            @Test
+            @DisplayName("addHandler() sends no acknowledgement when no block is persisted")
+            void testAddHandlerSendsNoAcknowledgementWhenNothingPersisted() {
+                toTest.addHandler(responsePipeline, sharedHandlerMetrics, null);
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+            }
         }
 
         /// Tests for [LiveStreamPublisherManager#removeHandler(long)].

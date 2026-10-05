@@ -218,7 +218,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // for the new publisher.
         metrics.currentPublisherCount().set(handlers.size());
         sendPublisherStatusUpdate(UpdateType.PUBLISHER_CONNECTED, handlers);
-        LOGGER.log(DEBUG, "Added new handler {0}", handlerId);
+        // Acknowledge the latest persisted block immediately, so a publisher
+        // holding blocks this node already has (persisted from another
+        // publisher) can release them without streaming anything. Without this,
+        // a publisher with a full buffer and no new block to send is never
+        // acknowledged and stays blocked.
+        final long latestPersisted = lastPersistedBlockNumber.get();
+        if (latestPersisted >= 0) {
+            newHandler.sendAcknowledgement(latestPersisted);
+        }
+        LOGGER.log(DEBUG, "Added new handler {0}, acknowledged block {1}", handlerId, latestPersisted);
         return newHandler;
     }
 
