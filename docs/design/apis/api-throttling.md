@@ -594,8 +594,8 @@ reflects the size of one configured method's own state table (see
 [Client-state bookkeeping](#client-state-bookkeeping)), not any one call's outcome. It only exists for methods that
 are actually configured — there is no table, and therefore no gauge, for an unconfigured method.
 
-|           Metric          |                              Type                              |                                                                 Meaning                                                                  |
-|---------------------------|------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+|          Metric           |                              Type                              |                                                                 Meaning                                                                  |
+|---------------------------|----------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
 | Calls                     | Counter, labeled by `service`/`method`/`weightClass`/`outcome` | Every call to a throttled method, by outcome (`admitted`, `rejected_global_concurrency`, `rejected_client_concurrency`, `rejected_rate`) |
 | Client-state table size   | Gauge, labeled by `service`/`method`/`weightClass`             | Number of distinct clients tracked by one configured method's throttle, to catch unexpected growth                                       |
 | Block-read bulkhead usage | Gauge (in-use / available)                                     | Current utilization of the shared backend read permit pool                                                                               |
