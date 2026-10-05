@@ -326,11 +326,11 @@ which methods are worth individually tracking per client, rather than every meth
 the same bucket by construction.
 
 A method's node-wide concurrency ceiling is different from its per-client settings: it represents an allocation of
-one shared, node-wide capacity budget (connections, heap, disk I/O) across every API on the node, which is
-inherently a node-level view rather than something any single plugin can reason about on its own. Node-wide
-ceilings therefore live in one small, shared, node-level configuration record, one entry per weight class — never
-one per method, regardless of how many methods are individually configured with per-client settings at that weight
-class (see [`GlobalConcurrencyGate`](#globalconcurrencygate)).
+one shared, node-wide capacity budget (connections, heap, disk I/O), which is inherently a node-level view rather
+than something any single plugin can reason about on its own. Node-wide ceilings therefore live in one small,
+shared, node-level configuration record, one entry per `(service, weight class)` — never one per method, regardless
+of how many methods on that service are individually configured with per-client settings at that weight class (see
+[`GlobalConcurrencyGate`](#globalconcurrencygate)).
 
 Enforcement stays centralized in the one place that already sees every plugin's service registration: a plugin
 hands in its own per-`(method, weight class)` settings at registration time, and the registration point resolves
@@ -566,10 +566,12 @@ applies across methods on one service: `BlockNodeService` configures `serverStat
 separately, each with its own triple, even though both currently use the same numbers. A method with no triple at
 all simply has no per-client gate — see ["Configuration ownership"](#configuration-ownership).
 
-A single shared, node-level configuration record holds one node-wide concurrency ceiling per (method, weight
-class) — e.g. `getBlock` has independent live and historical ceilings — since this represents an allocation of
-shared node capacity across APIs rather than a single plugin's own concern. A method with only one weight class
-has just one ceiling.
+A single shared, node-level configuration record holds one node-wide concurrency ceiling per `(service, weight
+class)` — e.g. `serverStatus` and `serverStatusDetail` share one ceiling for `BlockNodeService`, even though each
+gets its own per-client triple above, since the ceiling represents an allocation of shared node capacity rather than
+a single plugin's own concern. `getBlock`'s live and historical ceilings look per-method only because
+`BlockAccessService` happens to have one method; the ceiling is still scoped to the service, not the method. A
+service with only one weight class has just one ceiling.
 
 The shared block-read bulkhead has its own single configuration value: the number of permits in the pool, informed
 by the target deployment's storage characteristics.
@@ -600,10 +602,12 @@ are actually configured — there is no table, and therefore no gauge, for an un
 | Client-state table size   | Gauge, labeled by `service`/`method`/`weightClass`             | Number of distinct clients tracked by one configured method's throttle, to catch unexpected growth                                       |
 | Block-read bulkhead usage | Gauge (in-use / available)                                     | Current utilization of the shared backend read permit pool                                                                               |
 
-Per-client and node-wide in-flight call counts (referenced by [Acceptance Test](#acceptance-tests) 6) are not yet
-emitted as their own gauges in the current mechanism — only the counter and client-state gauge above exist today.
-Tracked as a follow-up; in the interim, in-flight counts are derivable from admitted-minus-completed accounting
-external to this mechanism.
+The `weightClass` label above describes the full, weighted design; it is not yet emitted by either metric today,
+since no method has more than one weight class until content-aware weighing lands — the counter and gauge are
+currently labeled `service`/`method`/`outcome` and `service`/`method` respectively. Per-client and node-wide
+in-flight call counts (referenced by [Acceptance Test](#acceptance-tests) 6) are also not yet emitted as their own
+gauges. Both are tracked as follow-ups; in the interim, in-flight counts are derivable from admitted-minus-completed
+accounting external to this mechanism.
 
 ## Exceptions
 
