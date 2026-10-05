@@ -67,6 +67,7 @@ import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
+import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
@@ -331,7 +332,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             if (blockNumber > lastPersistedBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
                 final String message = "Block {0} will be resent due to handler {1} ending mid block";
                 LOGGER.log(DEBUG, message, blockNumber, handlerId);
-                blocksToResend.add(blockNumber);
+                scheduleResend(blockNumber);
             }
         }
     }
@@ -797,14 +798,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     && activeStreamHandlerByBlock.remove(candidateBlock, handlerId)) {
                 // This thread won the CAS — execute the stall action.
                 endStalledBlock(completedBlockNumber, handlerId, candidateBlock, STALL_DETECTED_LOG_MESSAGE);
-                blocksToResend.add(candidateBlock);
+                scheduleResend(candidateBlock);
             } else if (isResendingLive(candidateBlock)
                     && activeResendBlocks.containsKey(candidateBlock)
                     && completedBlockNumber > activeResendBlocks.get(candidateBlock) + maxBlocksBeforeStalled
                     && activeStreamHandlerByBlock.remove(candidateBlock, handlerId)) {
                 activeResendBlocks.remove(candidateBlock);
                 endStalledBlock(completedBlockNumber, handlerId, candidateBlock, RESEND_STALL_LOG_MESSAGE);
-                blocksToResend.add(candidateBlock);
+                scheduleResend(candidateBlock);
             }
         }
     }
@@ -932,6 +933,34 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 }
             }
         }
+    }
+
+    /// Schedules a resend of a block, unless this node already holds it. A failed copy of a
+    /// block can arrive after another copy (for example from backfill) was persisted; asking
+    /// publishers to resend it would be futile, and the entry would clamp every
+    /// acknowledgement below it until pruned.
+    ///
+    /// The check follows the add on purpose. A persist makes the block available before it
+    /// notifies us, and [#handlePersisted] clears the resend entry after that, so either that
+    /// clear sees this entry or this check sees the block available. No lock is needed.
+    ///
+    /// @param blockNumber the block to schedule for resend
+    private void scheduleResend(final long blockNumber) {
+        blocksToResend.add(blockNumber);
+        if (isStored(blockNumber)) {
+            blocksToResend.remove(blockNumber);
+        }
+    }
+
+    /// Whether this block node already holds the block, according to the live available blocks.
+    ///
+    /// @param blockNumber the block to look for
+    /// @return true if the block is available from any block provider
+    private boolean isStored(final long blockNumber) {
+        final HistoricalBlockFacility historicalBlocks = serverContext.historicalBlockProvider();
+        return historicalBlocks != null
+                && historicalBlocks.availableBlocks() != null
+                && historicalBlocks.availableBlocks().contains(blockNumber);
     }
 
     /// Removes any entry in {@link #blocksToResend} whose block number is more than
@@ -1604,7 +1633,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // no resend is scheduled for it.
             if (shouldResend && !failureInfo.isInformational()) {
                 // Schedule a resend for the block before any end of stream message
-                manager.blocksToResend.add(blockNumber);
+                manager.scheduleResend(blockNumber);
             }
             switch (scope) {
                 case NO_STREAM_ACTION -> {

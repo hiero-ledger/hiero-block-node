@@ -1505,6 +1505,39 @@ class LiveStreamPublisherManagerTest {
                 assertThat(toTest.endOfBlock(1L)).returns(BlockAction.ACCEPT, ActionForBlock::action);
             }
 
+            /// A failed publisher copy of a block can arrive after another copy was already
+            /// persisted (for example by backfill). The manager must not schedule a resend
+            /// for a block it already holds, as that entry would clamp every acknowledgement
+            /// below it and ask publishers to resend a block no longer needed.
+            @Test
+            @DisplayName("handleVerification() schedules no resend for a block persisted before the failure arrived")
+            void testHandleVerificationNoResendForAlreadyPersistedBlock() {
+                assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                assertThat(toTest.getActionForBlock(2L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                // Block 1 fails first, so a resend is scheduled and clamps the acknowledgement.
+                toTest.handleVerification(new VerificationNotification(
+                        false, FailureInfo.standard(FailureType.CANCELLED), 1L, null, null, BlockSource.PUBLISHER));
+                // Block 2 is persisted by backfill: it becomes available, then the manager is told.
+                final SimpleBlockRangeSet available = new SimpleBlockRangeSet();
+                available.add(2L, 2L);
+                historicalBlockFacility.setTemporaryAvailableBlocks(available);
+                toTest.handlePersisted(new PersistedNotification(2L, true, 0, BlockSource.BACKFILL));
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(0L);
+                // The publisher's copy of block 2 then fails verification, after the persist.
+                toTest.handleVerification(new VerificationNotification(
+                        false, FailureInfo.standard(FailureType.CANCELLED), 2L, null, null, BlockSource.PUBLISHER));
+                // Block 1 is now persisted too, which clears its own resend.
+                available.add(1L, 1L);
+                toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.BACKFILL));
+                // No publisher is asked to resend block 2, which is already stored.
+                assertThat(toTest.endOfBlock(2L)).returns(BlockAction.ACCEPT, ActionForBlock::action);
+            }
+
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
             /// does not schedule a resend for a failed verification whose
