@@ -271,9 +271,13 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * <br>
      * NOTE: This method is to be called only once, immediately after
      * determining that the request is for live blocks only!
+     * <p>
+     * Stops as soon as the session is closed (e.g. the client disconnected while no live
+     * block had yet reached the head of the queue), otherwise this would park the session's
+     * thread forever waiting for a live block that may never arrive, leaking the session.
      */
     private void resolveLiveNextBlockToSend() {
-        while (nextBlockToSend.get() == UNKNOWN_BLOCK_NUMBER) {
+        while (!interruptedStream.get() && nextBlockToSend.get() == UNKNOWN_BLOCK_NUMBER) {
             final BlockItems head = liveBlockQueue.peek();
             if (head != null) {
                 if (!head.isStartOfNewBlock()) {
