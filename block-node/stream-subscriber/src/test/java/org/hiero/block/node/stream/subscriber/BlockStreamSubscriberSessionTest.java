@@ -1476,6 +1476,46 @@ class BlockStreamSubscriberSessionTest {
     }
 
     /**
+     * Tests for how a session waiting to resolve the first live block reacts to being closed.
+     */
+    @Nested
+    @DisplayName("Live Tip Cancellation Tests")
+    class LiveTipCancellationTests {
+        /** Upper bound for waits, so a regression fails the test instead of hanging it. */
+        private static final long WAIT_TIMEOUT_SECONDS = 10L;
+
+        /**
+         * This test verifies that a live-stream session that is closed before any live block
+         * has reached the head of the queue still terminates. Before the fix, the wait for the
+         * first live block ignored the closed/interrupted flag and parked forever, leaking the
+         * session (and its thread) whenever a client disconnected while no block was flowing yet.
+         */
+        @Test
+        @DisplayName("should stop waiting for the first live block once the session is closed")
+        void testResolveLiveNextBlockStopsOnClose() throws Exception {
+            final SubscribeStreamRequest liveRequest = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(-1L)
+                    .endBlockNumber(-1L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, liveRequest, blockNodeContext),
+                    responsePipeline,
+                    blockNodeContext,
+                    sessionReadyLatch);
+
+            try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+                assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                // No live block is ever sent, so without the fix the session would park here forever.
+                session.close(Code.SUCCESS);
+
+                assertThatNoException().isThrownBy(() -> sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    /**
      * Response pipeline that fails every send. The first send blocks until
      * released, like a stream waiting for an HTTP/2 window update that never
      * arrives, so the test can queue more batches before the failure.
