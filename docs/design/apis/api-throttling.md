@@ -381,12 +381,13 @@ small and bounded by construction:
   extra allocation are introduced on the ingest path at all.
 - **Two implementation details are worth calling out explicitly, since they are the parts most likely to erode this
   if done carelessly:**
-  - **Client-key derivation runs once per call, not once per connection.** Once per connection would be preferred,
-    however, there's a PBJ constraint. `ServiceInterface.open()` fires once per HTTP/2 stream, so a connection kept
-    alive across many sequential unary calls (e.g. many `getBlock` requests) re-derives the key on every one; PBJ
-    exposes no stable per-connection identity on `RequestOptions` to cache against. Today's cost is small as the
-    default extractor reads address data the transport has already resolved, with no DNS lookup. An improvement
-    would see an updated PBJ API change to allow a caller to easily determine a long-lived connection.
+  - **Client-key derivation must stay a cheap, already-resolved-data read.** `ClientKeyExtractor` derives its key
+    fresh on every call from `RequestOptions.remoteAddress()` — no DNS lookup, no parsing, just reading data the
+    transport already resolved. There's no connection-scoped cache to build here: the default extractor
+    deliberately keys by client, not by connection (it strips the port so a client's reconnection still maps to
+    the same key — see [`ClientKeyExtractor`](#clientkeyextractor)), and the per-client state map that matters
+    already exists with its own TTL-based eviction. Keep any future extractor this cheap; don't introduce a
+    second cache alongside the one that already does this job.
   - **Content-aware weighing must not require a full protobuf deserialization.** A weigher only needs to read one or
     two fields (e.g. a block number) to classify a request. It should do a targeted read of that field directly from
     the wire format, not fully deserialize the request message before the real handler does its own full parse —
