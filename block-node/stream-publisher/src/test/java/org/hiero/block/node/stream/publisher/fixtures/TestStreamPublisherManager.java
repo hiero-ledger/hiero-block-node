@@ -4,6 +4,7 @@ package org.hiero.block.node.stream.publisher.fixtures;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
@@ -61,6 +63,10 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     private final NavigableSet<Long> endOfBlocksReceived = new ConcurrentSkipListSet<>();
     private final NavigableSet<Long> blocksEndedMidBlock = new ConcurrentSkipListSet<>();
     private final ConcurrentMap<Long, Deque<BlockItemSetUnparsed>> queueByBlockMap = new ConcurrentSkipListMap<>();
+    private final ConcurrentMap<Long, Bytes> cachedBlockRootHashes = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, Boolean> handlerPassiveMode = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, Long> passiveHandlerLastBlock = new ConcurrentHashMap<>();
+    private volatile long latestAckedBlockNumber = -1L;
 
     public TestStreamPublisherManager(
             final TestBlockMessagingFacility testBlockMessagingFacility,
@@ -209,6 +215,49 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
             throw new IllegalStateException(
                     PERSISTED_NOTIFICATION_ILLEGAL_STATE_MESSAGE.formatted(latestBlockNumber, newLastPersistedBlock));
         }
+    }
+
+    @Override
+    public Bytes getCachedBlockRootHash(final long blockNumber) {
+        final Bytes cached = cachedBlockRootHashes.get(blockNumber);
+        return cached != null ? cached : Bytes.EMPTY;
+    }
+
+    @Override
+    public long getLatestAckedBlockNumber() {
+        return latestAckedBlockNumber;
+    }
+
+    @Override
+    public void recordPassiveHandlerAck(final long handlerId, final long blockNumber) {
+        passiveHandlerLastBlock.merge(handlerId, blockNumber, Math::max);
+    }
+
+    @Override
+    public void notifyHandlerModeChange(final long handlerId, final boolean passive) {
+        handlerPassiveMode.put(handlerId, passive);
+    }
+
+    /// Fixture method. Insert a block root hash into the ack cache for the given block.
+    public void setCachedBlockRootHash(final long blockNumber, final Bytes rootHash) {
+        cachedBlockRootHashes.put(blockNumber, Objects.requireNonNull(rootHash));
+    }
+
+    /// Fixture method. Set the latest acked block number returned by [#getLatestAckedBlockNumber()].
+    public void setLatestAckedBlockNumber(final long blockNumber) {
+        this.latestAckedBlockNumber = blockNumber;
+    }
+
+    /// Fixture method. Returns the recorded passive-mode flag for the given handler, or null if
+    /// no transition has been observed.
+    public Boolean getHandlerPassiveMode(final long handlerId) {
+        return handlerPassiveMode.get(handlerId);
+    }
+
+    /// Fixture method. Returns the latest recorded passive-handler block number for the given handler,
+    /// or null if none has been recorded.
+    public Long getPassiveHandlerLastBlock(final long handlerId) {
+        return passiveHandlerLastBlock.get(handlerId);
     }
 
     /// Fixture method to get the number of calls to closeBlock for a handler.

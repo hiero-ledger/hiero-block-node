@@ -17,6 +17,7 @@ message PublishStreamRequestUnparsed {
         BlockItemSetUnparsed block_items = 1;
         org.hiero.block.api.PublishStreamRequest.EndStream end_stream = 2;
         org.hiero.block.api.BlockEnd end_of_block = 3;
+        org.hiero.block.api.PublishStreamRequest.AcknowledgeOnly acknowledge_only = 4;
     }
 }
 
