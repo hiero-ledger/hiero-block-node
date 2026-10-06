@@ -287,7 +287,7 @@ Tracks RSA address book loading and peer requests used to bootstrap the consensu
 ### roster-bootstrap-tss
 
 **Plugin:** `roster-bootstrap-tss`
-Tracks [TSS](./glossary.md#tss-hintsts) data requests used to bootstrap the consensus node roster.
+Tracks [TSS](./glossary.md#tss-hints) data requests used to bootstrap the consensus node roster.
 
 |  Type   |        Name         |            Description             |
 |---------|---------------------|------------------------------------|
