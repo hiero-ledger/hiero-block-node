@@ -55,6 +55,50 @@ message PublishStreamRequest {
          * A message indicating the end of a block.
          */
         BlockEnd end_of_block = 3;
+
+        /**
+         * A lightweight acknowledgement-only request.
+         * <p>
+         * A Publisher that is currently "passive" MAY send an `AcknowledgeOnly`
+         * message in place of streaming the full block items for a block,
+         * requesting that the Block-Node acknowledge that it already holds the
+         * named block.<br/>
+         * The Block-Node SHALL treat a received `AcknowledgeOnly` as a signal
+         * that the Publisher has transitioned to passive for this connection:
+         * it SHALL NOT wait for `block_items`, a `BlockProof`, or
+         * `end_of_block` for the named block from this Publisher.<br/>
+         * The Block-Node SHALL respond with an immediate `Acknowledge` if the
+         * named block is at or before the current latest-acknowledged block.
+         * The Block-Node SHALL NOT emit `SKIP` or `DUPLICATE` responses in
+         * response to an `AcknowledgeOnly` request.<br/>
+         * A Publisher that subsequently sends `block_items` on the same
+         * connection transitions back to active for that connection.
+         */
+        AcknowledgeOnly acknowledge_only = 4;
+    }
+
+    /**
+     * A lightweight acknowledgement-only request from a Publisher.
+     *
+     * This message is used by a Publisher that wishes to confirm the
+     * Block-Node holds a given block without sending the full block items
+     * for that block. It is the signal that converts an active Publisher
+     * connection into a passive one (and keeps a passive connection
+     * passive) for the purposes of the Block-Node's publisher state
+     * tracking.
+     */
+    message AcknowledgeOnly {
+        /**
+         * The block number that the Publisher is requesting the Block-Node
+         * to acknowledge.
+         * <p>
+         * This value SHALL be set to a block number that the Publisher
+         * believes the Block-Node already holds. The Block-Node SHALL
+         * respond with an `Acknowledge` for the named block if the block
+         * is at or before the current latest-acknowledged block, and
+         * SHALL NOT respond with `SKIP` or `DUPLICATE`.
+         */
+        uint64 block_number = 1;
     }
 
     /**
@@ -235,6 +279,24 @@ message PublishStreamResponse {
          * one greater than this value.
          */
         uint64 block_number = 1;
+
+        /**
+         * The root hash of the acknowledged block.
+         * <p>
+         * Best-effort: when the Block-Node has the root hash available (e.g.
+         * the acknowledged block is still in the recent-ack cache) this field
+         * SHALL be populated with the raw hash bytes, and the Publisher MAY
+         * use it to verify the acknowledgement. When the Block-Node cannot
+         * produce the hash this field SHALL be empty, and the acknowledgement
+         * is still valid.<br/>
+         * Receivers MUST treat an empty value (<code>block_root_hash.length ==
+         * 0</code>) as "no hash provided", and SHALL NOT reject the
+         * acknowledgement on that basis.<br/>
+         * Hash width is determined by the block's declared
+         * <code>BlockHashAlgorithm</code> (today <code>SHA2_384</code>, 48
+         * bytes).
+         */
+        bytes block_root_hash = 2;
     }
 
     /**
