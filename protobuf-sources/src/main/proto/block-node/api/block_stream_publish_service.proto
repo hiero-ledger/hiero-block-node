@@ -58,21 +58,7 @@ message PublishStreamRequest {
 
         /**
          * A lightweight acknowledgement-only request.
-         * <p>
-         * A Publisher that is currently "passive" MAY send an `AcknowledgeOnly`
-         * message in place of streaming the full block items for a block,
-         * requesting that the Block-Node acknowledge that it already holds the
-         * named block.<br/>
-         * The Block-Node SHALL treat a received `AcknowledgeOnly` as a signal
-         * that the Publisher has transitioned to passive for this connection:
-         * it SHALL NOT wait for `block_items`, a `BlockProof`, or
-         * `end_of_block` for the named block from this Publisher.<br/>
-         * The Block-Node SHALL respond with an immediate `Acknowledge` if the
-         * named block is at or before the current latest-acknowledged block.
-         * The Block-Node SHALL NOT emit `SKIP` or `DUPLICATE` responses in
-         * response to an `AcknowledgeOnly` request.<br/>
-         * A Publisher that subsequently sends `block_items` on the same
-         * connection transitions back to active for that connection.
+         * See the `AcknowledgeOnly` message definition for semantics.
          */
         AcknowledgeOnly acknowledge_only = 4;
     }
@@ -80,12 +66,20 @@ message PublishStreamRequest {
     /**
      * A lightweight acknowledgement-only request from a Publisher.
      *
-     * This message is used by a Publisher that wishes to confirm the
-     * Block-Node holds a given block without sending the full block items
-     * for that block. It is the signal that converts an active Publisher
-     * connection into a passive one (and keeps a passive connection
-     * passive) for the purposes of the Block-Node's publisher state
-     * tracking.
+     * A Publisher that is currently "passive" MAY send an `AcknowledgeOnly`
+     * message in place of streaming the full block items for a block,
+     * requesting that the Block-Node acknowledge that it already holds the
+     * named block. It converts an active Publisher connection into a
+     * passive one (and keeps a passive connection passive) for the
+     * purposes of the Block-Node's publisher state tracking.<br/>
+     * The Block-Node SHALL treat a received `AcknowledgeOnly` as a signal
+     * that the Publisher has transitioned to passive for this connection:
+     * it SHALL NOT wait for `block_items`, a `BlockProof`, or
+     * `end_of_block` for the named block from this Publisher.<br/>
+     * The Block-Node SHALL NOT emit `SKIP` or `DUPLICATE` responses in
+     * response to an `AcknowledgeOnly` request.<br/>
+     * A Publisher that subsequently sends `block_items` on the same
+     * connection transitions back to active for that connection.
      */
     message AcknowledgeOnly {
         /**
@@ -93,10 +87,17 @@ message PublishStreamRequest {
          * to acknowledge.
          * <p>
          * This value SHALL be set to a block number that the Publisher
-         * believes the Block-Node already holds. The Block-Node SHALL
-         * respond with an `Acknowledge` for the named block if the block
-         * is at or before the current latest-acknowledged block, and
-         * SHALL NOT respond with `SKIP` or `DUPLICATE`.
+         * believes the Block-Node already holds.<br/>
+         * When `block_number` is at or before the Block-Node's current
+         * latest-acknowledged block, the Block-Node SHALL respond with an
+         * immediate `Acknowledge` for that block.<br/>
+         * When `block_number` is greater than the current latest-acknowledged
+         * block, the Block-Node SHALL NOT send an immediate response; it
+         * records the Publisher as passive and will emit the next
+         * `Acknowledge` through the normal verification path once the
+         * acknowledged watermark advances to or past `block_number`.<br/>
+         * In either case the Block-Node SHALL NOT respond with `SKIP` or
+         * `DUPLICATE`.
          */
         uint64 block_number = 1;
     }
@@ -293,8 +294,7 @@ message PublishStreamResponse {
          * 0</code>) as "no hash provided", and SHALL NOT reject the
          * acknowledgement on that basis.<br/>
          * Hash width is determined by the block's declared
-         * <code>BlockHashAlgorithm</code> (today <code>SHA2_384</code>, 48
-         * bytes).
+         * <code>BlockHashAlgorithm</code> (<code>SHA2_256</code>, 32 bytes).
          */
         bytes block_root_hash = 2;
     }
