@@ -41,8 +41,7 @@ public class BlockHeaderHandler extends AbstractBlockItemHandler {
         return BlockHeader.newBuilder()
                 .setHapiProtoVersion(getSemanticVersion())
                 .setSoftwareVersion(getSemanticVersion())
-                // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                .setHashAlgorithm(BlockHashAlgorithm.SHA2_384)
+                .setHashAlgorithm(BlockHashAlgorithm.SHA2_256)
                 .setBlockTimestamp(getTimestamp())
                 .setNumber(currentBlockNumber)
                 .build();

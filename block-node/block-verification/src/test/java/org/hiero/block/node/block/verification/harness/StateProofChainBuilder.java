@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -48,6 +49,9 @@ import org.hiero.block.signing.TssBlockSigner;
  */
 public final class StateProofChainBuilder {
 
+    /** The algorithm the chain is hashed with, the one the headers of the test blocks declare. */
+    private static final HashAlgorithm ALGORITHM = TestBlockBuilder.BLOCK_HASH_ALGORITHM;
+
     private final TssBlockSigner signer;
     private final VerificationDataProvider verificationDataProvider;
     private final MetricsHolder metricsHolder;
@@ -61,7 +65,7 @@ public final class StateProofChainBuilder {
         this.signer = signer;
         this.verificationDataProvider = verificationDataProvider;
         this.metricsHolder = metricsHolder;
-        this.allBlocksHasher = new StreamingHasher(BlockHasher.HASH_ALGORITHM);
+        this.allBlocksHasher = new StreamingHasher(ALGORITHM);
     }
 
     /** Factory with an isolated MetricRegistry, safe to call inside plugin-based tests. */
@@ -112,7 +116,7 @@ public final class StateProofChainBuilder {
     }
 
     private TestBlock withChainedFooter(final TestBlock draft) {
-        final Bytes emptyTreeHash = BlockHasher.HASH_ALGORITHM.emptyTreeHash();
+        final Bytes emptyTreeHash = ALGORITHM.emptyTreeHash();
         final Bytes prev = previousBlockRootHash != null ? Bytes.wrap(previousBlockRootHash) : emptyTreeHash;
         final BlockFooter footer = BlockFooter.newBuilder()
                 .previousBlockRootHash(prev)
@@ -128,7 +132,7 @@ public final class StateProofChainBuilder {
     private TestBlock withStateProof(final TestBlock draft, final long blockNumber, final Bytes rootHash) {
         // Path 0: TIMESTAMP_LEAF + one right sibling. Deterministic zero-filled placeholders of
         // one digest of the block hash algorithm.
-        final int hashSize = BlockHasher.HASH_ALGORITHM.hashSize();
+        final int hashSize = ALGORITHM.hashSize();
         final byte[] timestampBytes = new byte[hashSize];
         final byte[] path0SiblingHash = new byte[hashSize];
         // Path 1: HASH == gap block root + one left sibling.
@@ -140,15 +144,14 @@ public final class StateProofChainBuilder {
         // Reconstruct the same signed root the verifier would compute.
         // result0 = combineSibling(hashLeaf(timestamp), path0Sibling): a right sibling gives parent = hash(content,
         // sibling)
-        final byte[] leaf0Content = hashLeaf(BlockHasher.HASH_ALGORITHM, timestampBytes);
-        final byte[] result0 = hashInternalNode(
-                BlockHasher.HASH_ALGORITHM, leaf0Content, path0Sibling.hash().toByteArray());
+        final byte[] leaf0Content = hashLeaf(ALGORITHM, timestampBytes);
+        final byte[] result0 =
+                hashInternalNode(ALGORITHM, leaf0Content, path0Sibling.hash().toByteArray());
         // result1 = combineSibling(gapBlockRoot, path1Sibling): a left sibling gives parent = hash(sibling, content)
         final byte[] leaf1Content = rootHash.toByteArray();
-        final byte[] result1 =
-                hashInternalNode(BlockHasher.HASH_ALGORITHM, path1Sibling.hash().toByteArray(), leaf1Content);
+        final byte[] result1 = hashInternalNode(ALGORITHM, path1Sibling.hash().toByteArray(), leaf1Content);
         // Path 2 (join) has no siblings, so the reconstructed signed root is hashInternalNode(result0, result1).
-        final byte[] signedRoot = hashInternalNode(BlockHasher.HASH_ALGORITHM, result0, result1);
+        final byte[] signedRoot = hashInternalNode(ALGORITHM, result0, result1);
 
         final BlockProof signedProof = signer.signBlockProof(blockNumber, Bytes.wrap(signedRoot));
         final TssSignedBlockProof tssSigned = signedProof.signedBlockProof();
@@ -185,6 +188,7 @@ public final class StateProofChainBuilder {
     private Bytes computeRootHash(final TestBlock block, final long blockNumber) {
         final ConcurrentLinkedDeque<BlockItems> deque = new ConcurrentLinkedDeque<>();
         final BlockHasher hasher = new BlockHasher(
+                ALGORITHM,
                 new AtomicBoolean(false),
                 deque,
                 metricsHolder.hashingMetrics(),

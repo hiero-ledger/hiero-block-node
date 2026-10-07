@@ -34,8 +34,9 @@ blockNode:
     applicationStatePath: /tmp/bn/application-state
     applicationStateSize: 500Mi
     # solo-provisioner always provisions + mounts a plugins PVC (read-only) over
-    # /opt/hiero/block-node/app-<ver>/plugins, even if omitted here. With the solo-dev image that empty PVC
-    # would hide the baked-in plugins, so the seed-plugins init container in solo-ci-values.yaml copies the
-    # image's plugins into it first. Sized to comfortably hold the full plugin set + deps.
+    # /opt/hiero/block-node/app-<ver>/plugins, even if omitted here. The chart's resolve-plugins init
+    # container fills it from Maven with the profile's plugins (solo-ci-values.yaml); for the snapshot
+    # phase the workflow then swaps in the jars built from the checkout (inject-pr-plugins.sh), since
+    # Maven only has main's published snapshot. Sized to comfortably hold the full plugin set + deps.
     pluginsPath: /tmp/bn/plugins
     pluginsSize: 2Gi

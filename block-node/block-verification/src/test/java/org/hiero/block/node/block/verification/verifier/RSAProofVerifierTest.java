@@ -43,6 +43,7 @@ import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRB;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestWRBBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.hasher.BlockHasher;
 import org.hiero.block.node.block.verification.hasher.HashingResult;
@@ -142,8 +143,7 @@ class RSAProofVerifierTest {
     /// @return list of unparsed block items ready to pass to `processBlockItems`
     private static List<BlockItemUnparsed> buildWrbBlock(final List<RecordFileSignature> signatures) {
         final BlockHeader header =
-                // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
         final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
         final BlockProof proof = BlockProof.newBuilder()
                 .block(BLOCK_NUMBER)
@@ -168,8 +168,7 @@ class RSAProofVerifierTest {
     private static List<BlockItemUnparsed> buildWrbBlockWithCustomRecordFile(
             final Bytes customRecordFileBytes, final List<RecordFileSignature> signatures) {
         final BlockHeader header =
-                // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
         final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
         final BlockProof proof = BlockProof.newBuilder()
                 .block(BLOCK_NUMBER)
@@ -240,6 +239,7 @@ class RSAProofVerifierTest {
         final VerificationDataProvider verificationDataProvider = new VerificationDataProvider(context);
         final AtomicBoolean isCanceled = new AtomicBoolean(false);
         return new BlockHasher(
+                TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                 isCanceled,
                 blockItemsDeque,
                 metricsHolder.hashingMetrics(),
@@ -460,8 +460,7 @@ class RSAProofVerifierTest {
     @DisplayName("record file proof without a RECORD_FILE item is rejected")
     void testMissingRecordFileItemRejected() throws Exception {
         final BlockHeader header =
-                // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
         final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
         final BlockProof proof = BlockProof.newBuilder()
                 .block(BLOCK_NUMBER)
@@ -493,8 +492,7 @@ class RSAProofVerifierTest {
         final List<BlockItemUnparsed> items;
         {
             final BlockHeader header = new BlockHeader(
-                    // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                    HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+                    HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
             final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
             final BlockProof proof = BlockProof.newBuilder()
                     .block(BLOCK_NUMBER)
@@ -537,8 +535,7 @@ class RSAProofVerifierTest {
         final List<BlockItemUnparsed> items;
         {
             final BlockHeader header = new BlockHeader(
-                    // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                    HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+                    HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
             final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
             final BlockProof proof = BlockProof.newBuilder()
                     .block(BLOCK_NUMBER)
@@ -649,8 +646,7 @@ class RSAProofVerifierTest {
                 final Bytes recordFileItemProtoBytes,
                 final List<RecordFileSignature> signatures) {
             final BlockHeader header = new BlockHeader(
-                    // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                    hapiVersion, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+                    hapiVersion, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
             final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
             final BlockProof proof = BlockProof.newBuilder()
                     .block(BLOCK_NUMBER)
@@ -778,8 +774,7 @@ class RSAProofVerifierTest {
             final byte[] v5Payload = RecordFileSignedPayload.computeSignedPayload(5, V5_HAPI, contentsBytes);
             final byte[] v6Payload = RecordFileSignedPayload.computeSignedPayload(6, V5_HAPI, contentsBytes);
             final BlockHeader header =
-                    // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                    new BlockHeader(V5_HAPI, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+                    new BlockHeader(V5_HAPI, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
             final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
             final BlockProof v5Proof = BlockProof.newBuilder()
                     .block(BLOCK_NUMBER)
@@ -884,6 +879,6 @@ class RSAProofVerifierTest {
     /// A zero-filled hash of one digest of the block hash algorithm, the footer placeholder the
     /// hasher accepts for the previous block root hash, the all blocks root and the state root.
     private static Bytes zeroHash() {
-        return Bytes.wrap(new byte[BlockHasher.HASH_ALGORITHM.hashSize()]);
+        return Bytes.wrap(new byte[TestBlockBuilder.BLOCK_HASH_ALGORITHM.hashSize()]);
     }
 }

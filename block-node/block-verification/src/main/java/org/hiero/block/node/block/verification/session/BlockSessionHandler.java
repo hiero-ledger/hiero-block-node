@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
@@ -99,11 +100,15 @@ public final class BlockSessionHandler {
     ///
     /// @param blockItems the block items to process, must be validated beforehand
     /// @param blockSource the source the items were received from
-    public void processBlockItems(final BlockItems blockItems, final BlockSource blockSource) {
+    /// @param hashAlgorithm the algorithm the block is hashed with, resolved from its
+    ///     header by the caller; required when the items start a new block, ignored and
+    ///     may be `null` when the items continue a block whose session is already running
+    public void processBlockItems(
+            final BlockItems blockItems, final BlockSource blockSource, final HashAlgorithm hashAlgorithm) {
         completeFinishedSessions();
         switch (blockSource) {
-            case PUBLISHER -> processPublisherLiveItems(blockItems);
-            case BACKFILL -> processBackfilledItems(blockItems);
+            case PUBLISHER -> processPublisherLiveItems(blockItems, hashAlgorithm);
+            case BACKFILL -> processBackfilledItems(blockItems, hashAlgorithm);
             case null, default ->
                 LOGGER.log(INFO, "Received block items from unknown or unsupported source: {0}", blockSource);
         }
@@ -135,13 +140,15 @@ public final class BlockSessionHandler {
     /// assume we have moved on.
     ///
     /// @param blockItems the publisher supplied block items to process
-    private void processPublisherLiveItems(final BlockItems blockItems) {
+    /// @param hashAlgorithm the algorithm the block is hashed with, used only when the
+    ///     items start a new block
+    private void processPublisherLiveItems(final BlockItems blockItems, final HashAlgorithm hashAlgorithm) {
         BlockVerificationSession local = activePublisherSession.get();
         if (blockItems.isStartOfNewBlock()) {
             if (local != null) {
                 local.cancel();
             }
-            local = startNewSession(blockItems, BlockSource.PUBLISHER);
+            local = startNewSession(blockItems, BlockSource.PUBLISHER, hashAlgorithm);
             activePublisherSession.set(local);
             if (blockItems.isEndOfBlock()) {
                 // the batch carries the complete block, mark it complete before
@@ -171,8 +178,9 @@ public final class BlockSessionHandler {
     /// [BlockItems]. We must simply start a session for the block we just received.
     ///
     /// @param blockItems to process
-    private void processBackfilledItems(final BlockItems blockItems) {
-        final BlockVerificationSession session = startNewSession(blockItems, BlockSource.BACKFILL);
+    /// @param hashAlgorithm the algorithm the block is hashed with
+    private void processBackfilledItems(final BlockItems blockItems, final HashAlgorithm hashAlgorithm) {
+        final BlockVerificationSession session = startNewSession(blockItems, BlockSource.BACKFILL, hashAlgorithm);
         // a backfilled block always arrives complete in a single batch, mark it
         // complete before activation makes the session visible for eviction by
         // the concurrent publisher thread, so an eviction cancel reports
@@ -186,9 +194,11 @@ public final class BlockSessionHandler {
     ///
     /// @param blockItems the first block items of the block to verify
     /// @param blockSource the source of the block
+    /// @param hashAlgorithm the algorithm the block is hashed with
     /// @return the started session
-    private BlockVerificationSession startNewSession(final BlockItems blockItems, final BlockSource blockSource) {
-        final BlockVerificationSession session = createSession(blockItems, blockSource);
+    private BlockVerificationSession startNewSession(
+            final BlockItems blockItems, final BlockSource blockSource, final HashAlgorithm hashAlgorithm) {
+        final BlockVerificationSession session = createSession(blockItems, blockSource, hashAlgorithm);
         session.start();
         sessionHandlerMetrics.verificationBlocksReceived().increment();
         return session;
@@ -198,13 +208,16 @@ public final class BlockSessionHandler {
     ///
     /// @param blockItems the first block items of the block to verify
     /// @param blockSource the source of the block
+    /// @param hashAlgorithm the algorithm the block is hashed with
     /// @return a new, not yet started session
-    private CompletableVerificationSession createSession(final BlockItems blockItems, final BlockSource blockSource) {
+    private CompletableVerificationSession createSession(
+            final BlockItems blockItems, final BlockSource blockSource, final HashAlgorithm hashAlgorithm) {
         return new CompletableVerificationSession(
                 nextUniqueSessionIdentifier.getAndIncrement(),
                 blockItems.blockNumber(),
                 metricsHolder,
                 blockSource,
+                hashAlgorithm,
                 verificationDataProvider,
                 lastVerifiedBlock,
                 recentlyVerifiedBlocks,

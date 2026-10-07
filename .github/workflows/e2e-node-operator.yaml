@@ -220,6 +220,19 @@ jobs:
           echo "SNAP_VERSION=${SNAP}" >> "$GITHUB_OUTPUT"
           echo "Installing ${BASE}; upgrading to ${SNAP}"
 
+          # Block hashing moved from SHA-384 to SHA-256 in 0.45.0 (#3688). A base release from before
+          # that verifies SHA-384 blocks only, so the install phase pushes a chain hashed with SHA-384
+          # to it; the post-upgrade and post-reset phases push the SHA-256 chain the snapshot verifies.
+          BASE_MAJOR="${BASE%%.*}"
+          BASE_MINOR="$(echo "${BASE}" | cut -d. -f2)"
+          if (( BASE_MAJOR == 0 && BASE_MINOR < 45 )); then
+            BASE_HASH_ALGORITHM="SHA2_384"
+          else
+            BASE_HASH_ALGORITHM="SHA2_256"
+          fi
+          echo "BASE_HASH_ALGORITHM=${BASE_HASH_ALGORITHM}" >> "$GITHUB_OUTPUT"
+          echo "Base ${BASE} verifies ${BASE_HASH_ALGORITHM} blocks"
+
           # Plugin profile -> comma-separated plugin names Maven resolves into the plugins PVC.
           # all -> empty (provisioner skips the PVC; baked plugins from solo-dev image are used).
           # lfh -> read plugins.names from the profile file.
@@ -286,8 +299,11 @@ jobs:
 
       - name: Extract test blocks 0-4
         run: |
-          # Blocks are generated via the harness (HarnessChainBuilder -> TssBlockSigner) so no
-          # committed fixture set is required. Emits <BLOCKS_DIR>/0.blk.gz..4.blk.gz.
+          # Blocks are generated via the harness (HarnessChainBuilder with TssBlockSigner) so no
+          # committed fixture set is required. Emits <BLOCKS_DIR>/0.blk.gz..4.blk.gz hashed with the
+          # snapshot's algorithm (SHA-256). When the base release verifies another algorithm, a second
+          # chain hashed with that algorithm is emitted into <BLOCKS_DIR>-base for the install phase; both
+          # chains come from the same deterministic signer, so one TSS bootstrap (block 0) covers both.
           mkdir -p "${BLOCKS_DIR}"
           ./gradlew :block-verification:generateHarnessBlocks \
             -PoutputDir="${BLOCKS_DIR}" -Pcount=5 --no-daemon
@@ -295,6 +311,20 @@ jobs:
             gunzip -f "${BLOCKS_DIR}/${i}.blk.gz"
           done
           ls -l "${BLOCKS_DIR}"
+          BASE_ALGORITHM="${{ steps.versions.outputs.BASE_HASH_ALGORITHM }}"
+          if [[ "${BASE_ALGORITHM}" == "SHA2_256" ]]; then
+            BASE_BLOCKS_DIR="${BLOCKS_DIR}"
+          else
+            BASE_BLOCKS_DIR="${BLOCKS_DIR}-base"
+            mkdir -p "${BASE_BLOCKS_DIR}"
+            ./gradlew :block-verification:generateHarnessBlocks \
+              -PoutputDir="${BASE_BLOCKS_DIR}" -Pcount=3 -Palgorithm="${BASE_ALGORITHM}" --no-daemon
+            for i in 0 1 2; do
+              gunzip -f "${BASE_BLOCKS_DIR}/${i}.blk.gz"
+            done
+            ls -l "${BASE_BLOCKS_DIR}"
+          fi
+          echo "BASE_BLOCKS_DIR=${BASE_BLOCKS_DIR}" >> "$GITHUB_ENV"
 
       # ── PHASE 1: Install (base version) ────────────────────────────────────
       - name: Install block node (base version)
@@ -350,14 +380,15 @@ jobs:
       # currentTssData is set; pushing block 0 in its own step (separate JVM invocation) ensures this.
       - name: Push block 0 (TSS bootstrap)
         run: |
+          # The base release verifies the chain hashed with its own algorithm (BASE_BLOCKS_DIR).
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
-            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/0.blk" \
+            BN_E2E_BLOCK_FILES="${BASE_BLOCKS_DIR}/0.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
 
       - name: Push blocks 1-2
         run: |
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
-            BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/1.blk,${BLOCKS_DIR}/2.blk" \
+            BN_E2E_BLOCK_FILES="${BASE_BLOCKS_DIR}/1.blk,${BASE_BLOCKS_DIR}/2.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar
 
       # ── PHASE 3: Verify (post-install) ─────────────────────────────────────
@@ -428,6 +459,17 @@ jobs:
           # --timeout 20m: chart's resolve-plugins init container pulls Maven artifacts even with
           # PLUGIN_NAMES="" set, and Sonatype Snapshots is slow enough on shared runners that the
           # snapshot upgrade routinely takes 15+ minutes.
+          # The chart resolves plugins from Maven (main's published snapshot), not this PR. When the PR
+          # changes an API shared by the core modules and the plugins (the SPI, or common as in #3688),
+          # the old plugins fail with NoSuchMethodError, so swap in the jars built above. Only possible
+          # when the image was built from this checkout (build-image=true).
+          INJECT_PID=""
+          if [[ "${{ inputs.build-image }}" != "false" ]]; then
+            bash tools-and-tests/scripts/e2e-node-operator/inject-pr-plugins.sh \
+              "${{ steps.versions.outputs.SNAP_VERSION }}" "${CLUSTER_NAME}" "${NAMESPACE}" "${RELEASE}" &
+            INJECT_PID=$!
+          fi
+
           set +e
           sudo KUBECONFIG="$KUBECONFIG" solo-provisioner block node upgrade \
             --profile=local --namespace="${NAMESPACE}" --release-name="${RELEASE}" --non-interactive \
@@ -440,6 +482,16 @@ jobs:
           set -e
 
           kill "${WATCH_PID}" 2>/dev/null || true
+          # A successful upgrade means the plugins were resolved, so the swap has finished or is about to:
+          # collect its result and fail here rather than later with the NoSuchMethodError it prevents. A
+          # failed upgrade may never resolve plugins and the swap would keep waiting, so stop it instead.
+          if [[ -n "${INJECT_PID}" ]]; then
+            if [[ "${RC}" -eq 0 ]]; then
+              wait "${INJECT_PID}" || RC=$?
+            else
+              kill "${INJECT_PID}" 2>/dev/null || true
+            fi
+          fi
           echo "===== post-upgrade snapshot (rc=${RC}) ====="
           kubectl get pods,pvc,svc,statefulset,endpoints -n "${NAMESPACE}" -o wide 2>/dev/null || true
           kubectl describe statefulset -n "${NAMESPACE}" 2>/dev/null || true
@@ -449,8 +501,10 @@ jobs:
       - name: Wait for BN ready + port-forward (post-upgrade)
         run: bash tools-and-tests/scripts/e2e-node-operator/bn-kind-port-forward.sh "${RELEASE}" "${NAMESPACE}" "${SERVER_PORT}" "${SERVER_PORT}"
 
-      # Confirm the upgraded pod seeded only the snapshot's plugins (no stale base-version jars),
-      # reads /application-state, and loaded the base-persisted tss-bootstrap-roster.json so new TSS blocks verify.
+      # Confirm the upgraded pod seeded only the snapshot's plugins (no stale base-version jars), that the
+      # plugin jars are the ones built from this checkout (swapped in by inject-pr-plugins.sh during the
+      # upgrade; build-image=true only), reads /application-state, and loaded the base-persisted
+      # tss-bootstrap-roster.json so new TSS blocks verify.
       - name: Inspect plugins + TSS state after upgrade
         run: |
           POD="${RELEASE}-block-node-server-0"
@@ -458,6 +512,28 @@ jobs:
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
             sh -c 'ls -1 /opt/hiero/block-node/app-*/plugins | grep -E "^block-verification-.*\.jar$" || true'
           echo "::endgroup::"
+          if [[ "${{ inputs.build-image }}" != "false" ]]; then
+            echo "::group::Plugin jars on the upgraded pod are the jars built from this checkout"
+            SNAP="${{ steps.versions.outputs.SNAP_VERSION }}"
+            POD_SUMS=$(kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
+              sh -c 'cd /opt/hiero/block-node/app-*/plugins && sha256sum *.jar')
+            for jar in block-node/app/build/docker/plugins/*-"${SNAP}".jar; do
+              name=$(basename "${jar}")
+              artifact="${name%-${SNAP}.jar}"
+              # Only the profile's plugins are on the pod. Maven names a SNAPSHOT jar with the base version
+              # or a timestamp, so look for the artifact id first and only then require the exact PR jar.
+              if grep -qE " ${artifact}-[0-9][^ ]*\.jar$" <<< "${POD_SUMS}"; then
+                EXPECTED="$(sha256sum "${jar}" | cut -d' ' -f1)  ${name}"
+                if grep -qxF "${EXPECTED}" <<< "${POD_SUMS}"; then
+                  echo "${name}: matches the jar built from this checkout"
+                else
+                  echo "::error::${artifact} on the upgraded pod is not the jar built from this checkout"
+                  exit 1
+                fi
+              fi
+            done
+            echo "::endgroup::"
+          fi
           echo "::group::State mount + TSS load on the upgraded pod"
           kubectl exec -n "${NAMESPACE}" "${POD}" -c block-node-server -- \
             sh -c 'ls -la /opt/hiero/block-node/application-state 2>&1 || true'
@@ -472,6 +548,10 @@ jobs:
 
       - name: Push blocks 3-4 (post-upgrade ingestion)
         run: |
+          # The snapshot verifies the SHA-256 chain (BLOCKS_DIR). It checks that block 3 follows the last
+          # verified block 2 by number and never compares the previous block root hash with its stored
+          # history, so new blocks append to a retained history of the other algorithm, which is what an
+          # in-place migration to this release looks like.
           SERVER_PORT="${SERVER_PORT}" BN_E2E_MODE=PUSH \
             BN_E2E_BLOCK_FILES="${BLOCKS_DIR}/3.blk,${BLOCKS_DIR}/4.blk" \
             java -jar tools-and-tests/suites/build/libs/block-pusher.jar

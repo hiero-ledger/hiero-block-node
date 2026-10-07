@@ -120,6 +120,7 @@ class BlockHasherTest {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -143,6 +144,7 @@ class BlockHasherTest {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -169,6 +171,7 @@ class BlockHasherTest {
             final List<BlockSource> sources = List.of(BlockSource.PUBLISHER, BlockSource.BACKFILL);
             final BlockSource source = sources.get(random.nextInt(sources.size()));
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -192,6 +195,7 @@ class BlockHasherTest {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -215,6 +219,7 @@ class BlockHasherTest {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -238,6 +243,7 @@ class BlockHasherTest {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -261,6 +267,7 @@ class BlockHasherTest {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -287,6 +294,7 @@ class BlockHasherTest {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -311,6 +319,7 @@ class BlockHasherTest {
         void testWrbContentsAndProofVersionNotInspected() {
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -327,14 +336,15 @@ class BlockHasherTest {
         }
 
         /// This test aims to assert that the root hash of a successfully hashed block has the
-        /// digest size of the block hash algorithm, [BlockHasher#HASH_ALGORITHM], so every hash
-        /// the node reports and chains into the next block is one digest of that algorithm.
+        /// digest size of the algorithm the block is hashed with, so every hash the node reports
+        /// and chains into the next block is one digest of that algorithm.
         @Test
         @DisplayName("get() root hash has the digest size of the block hash algorithm")
         void testRootHashHasDigestSizeOfAlgorithm() {
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER);
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -343,7 +353,35 @@ class BlockHasherTest {
                     verificationDataProvider);
             blockItemsDeque.add(block.asBlockItems());
             final HashingResult actual = toTest.get();
-            assertThat(actual.rootHash().length()).isEqualTo(BlockHasher.HASH_ALGORITHM.hashSize());
+            assertThat(actual.rootHash().length()).isEqualTo(TestBlockBuilder.BLOCK_HASH_ALGORITHM.hashSize());
+        }
+
+        /// This test aims to assert that the hasher hashes with the algorithm it is given: a block
+        /// whose footer hashes have the SHA-384 digest size, which a hasher for SHA2_256 refuses, is
+        /// hashed by a hasher constructed for SHA2_384 into a root hash of the SHA-384 digest size.
+        /// The verification plugin resolves the algorithm from the block header; the hasher itself
+        /// computes with whatever algorithm it is constructed for.
+        @Test
+        @DisplayName("get() hashes with the algorithm given to the constructor")
+        void testAlgorithmConstructorHashesWithGivenAlgorithm() throws ParseException {
+            final long blockNumber = 0;
+            final Bytes sha384SizedHash = Bytes.wrap(new byte[HashAlgorithm.SHA2_384.hashSize()]);
+            final BlockItemUnparsed footer = TestBlockBuilder.convertToUnparsedItem(new BlockItem(new OneOf<>(
+                    ItemOneOfType.BLOCK_FOOTER, new BlockFooter(sha384SizedHash, sha384SizedHash, sha384SizedHash))));
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber)
+                    .replace(BlockItemUnparsed::hasBlockFooter, footer);
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockHasher toTest = new BlockHasher(
+                    HashAlgorithm.SHA2_384,
+                    new AtomicBoolean(false),
+                    blockItemsDeque,
+                    metrics.hashingMetrics(),
+                    block.number(),
+                    BlockSource.PUBLISHER,
+                    verificationDataProvider);
+            blockItemsDeque.add(block.asBlockItems());
+            final HashingResult actual = toTest.get();
+            assertThat(actual.rootHash().length()).isEqualTo(HashAlgorithm.SHA2_384.hashSize());
         }
     }
 
@@ -360,6 +398,7 @@ class BlockHasherTest {
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -391,6 +430,7 @@ class BlockHasherTest {
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -422,6 +462,7 @@ class BlockHasherTest {
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -455,6 +496,7 @@ class BlockHasherTest {
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -486,6 +528,7 @@ class BlockHasherTest {
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -518,6 +561,7 @@ class BlockHasherTest {
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -548,6 +592,7 @@ class BlockHasherTest {
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final long blockNumber = 0L;
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -578,6 +623,7 @@ class BlockHasherTest {
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -607,6 +653,7 @@ class BlockHasherTest {
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -649,6 +696,7 @@ class BlockHasherTest {
                     .replace(BlockItemUnparsed::hasBlockFooter, footer);
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
+                    TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                     new AtomicBoolean(false),
                     blockItemsDeque,
                     metrics.hashingMetrics(),
@@ -1232,6 +1280,7 @@ class BlockHasherTest {
     private HashingResult hashBlockItems(final List<BlockItemUnparsed> items) {
         final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
         final BlockHasher toTest = new BlockHasher(
+                TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                 new AtomicBoolean(false),
                 blockItemsDeque,
                 metrics.hashingMetrics(),
@@ -1248,6 +1297,7 @@ class BlockHasherTest {
         final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
         final BlockSource blockSource = BlockSource.PUBLISHER;
         final BlockHasher toTest = new BlockHasher(
+                TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                 new AtomicBoolean(false),
                 blockItemsDeque,
                 metrics.hashingMetrics(),
@@ -1445,8 +1495,7 @@ class BlockHasherTest {
 
     private BlockItemUnparsed headerWithNoTimestamp(final long blockNumber) throws ParseException {
         final BlockHeader headerWithNoTimestamp = new BlockHeader(
-                // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                SemanticVersion.DEFAULT, SemanticVersion.DEFAULT, blockNumber, null, BlockHashAlgorithm.SHA2_384);
+                SemanticVersion.DEFAULT, SemanticVersion.DEFAULT, blockNumber, null, BlockHashAlgorithm.SHA2_256);
         return TestBlockBuilder.convertToUnparsedItem(
                 new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, headerWithNoTimestamp)));
     }
@@ -1459,9 +1508,8 @@ class BlockHasherTest {
                 new SemanticVersion(1, 0, 0, "", ""),
                 0,
                 new Timestamp(1_500_000_000L, 0),
-                // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                BlockHashAlgorithm.SHA2_384);
-        final Bytes zeroHash = Bytes.wrap(new byte[BlockHasher.HASH_ALGORITHM.hashSize()]);
+                BlockHashAlgorithm.SHA2_256);
+        final Bytes zeroHash = Bytes.wrap(new byte[TestBlockBuilder.BLOCK_HASH_ALGORITHM.hashSize()]);
         final BlockFooter footer = new BlockFooter(zeroHash, zeroHash, zeroHash);
         final BlockProof proof = BlockProof.newBuilder()
                 .block(0)

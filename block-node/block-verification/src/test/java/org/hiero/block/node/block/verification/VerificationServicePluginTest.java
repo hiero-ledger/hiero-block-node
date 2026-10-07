@@ -8,9 +8,13 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.SignedRecordFileProof;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -20,6 +24,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.assertj.core.api.ObjectAssert;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
@@ -32,6 +37,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.block.verification.harness.HarnessChainBuilder;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -1228,6 +1234,170 @@ class VerificationServicePluginTest {
                     .returns(BlockSource.BACKFILL, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
+        }
+    }
+
+    /// Tests for the hash algorithm the plugin resolves from the block header and hands to
+    /// the session started for the block.
+    @Nested
+    @DisplayName("Header Declared Hash Algorithm Tests")
+    class HeaderDeclaredHashAlgorithmTests
+            extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        HeaderDeclaredHashAlgorithmTests() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility());
+        }
+
+        /// This test aims to assert that the plugin hashes a block with the algorithm its header
+        /// declares: a chain built and signed for SHA2_384, whose headers declare SHA2_384 and
+        /// whose hashes have the SHA-384 digest size, passes verification over the live path and
+        /// every reported block hash is the SHA-384 root the chain was signed over.
+        @Test
+        @DisplayName("Blocks declaring SHA2_384 are hashed with SHA-384 and verify - Live RB")
+        void testDeclaredSha384ChainVerifiesLiveRB() {
+            final HarnessChainBuilder builder =
+                    HarnessChainBuilder.create(TssBlockSigner.create(), HashAlgorithm.SHA2_384);
+            final List<HarnessChainBuilder.Signed> chain = List.of(builder.genesisWithPublication(), builder.next(1L));
+            for (final HarnessChainBuilder.Signed signed : chain) {
+                assertThat(signed.rootHash().length()).isEqualTo(HashAlgorithm.SHA2_384.hashSize());
+            }
+            // the genesis block provisions the TSS data the next block is verified with, so it
+            // must complete before the next block is received
+            plugin.handleBlockItemsReceived(chain.getFirst().block().asBlockItems());
+            blockMessaging.getSentVerificationNotifications(1);
+            plugin.handleBlockItemsReceived(chain.getLast().block().asBlockItems());
+            final List<VerificationNotification> notifications =
+                    blockMessaging.getSentVerificationNotifications(chain.size());
+            assertThat(notifications).hasSize(chain.size());
+            for (int i = 0; i < chain.size(); i++) {
+                final HarnessChainBuilder.Signed signed = chain.get(i);
+                assertThat(notifications.get(i))
+                        .returns(true, VerificationNotification::success)
+                        .returns(null, VerificationNotification::failureInfo)
+                        .returns(signed.block().number(), VerificationNotification::blockNumber)
+                        .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                        .returns(signed.block().blockUnparsed(), VerificationNotification::block)
+                        .returns(signed.rootHash(), VerificationNotification::blockHash);
+            }
+        }
+
+        /// This test aims to assert that the plugin hashes a backfilled block with the algorithm
+        /// its header declares: the genesis block of a chain built and signed for SHA2_384 passes
+        /// verification over the backfill path and the reported block hash is its SHA-384 root.
+        @Test
+        @DisplayName("Block declaring SHA2_384 is hashed with SHA-384 and verifies - Backfill")
+        void testDeclaredSha384BlockVerifiesBackfill() {
+            final HarnessChainBuilder.Signed genesis = HarnessChainBuilder.create(
+                            TssBlockSigner.create(), HashAlgorithm.SHA2_384)
+                    .genesisWithPublication();
+            plugin.handleBackfilled(genesis.block().asBackfilledNotification());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(true, VerificationNotification::success)
+                    .returns(null, VerificationNotification::failureInfo)
+                    .returns(genesis.block().number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.BACKFILL, VerificationNotification::source)
+                    .returns(genesis.block().blockUnparsed(), VerificationNotification::block)
+                    .returns(genesis.rootHash(), VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that the declared algorithm, not the size of the hashes the
+        /// block carries, drives hashing: a block built for SHA2_256 whose header is rewritten to
+        /// declare SHA2_384 is hashed with SHA-384, which refuses its footer hashes of the SHA-256
+        /// digest size, so the session fails instead of hashing with the algorithm the hashes fit.
+        @Test
+        @DisplayName("Block declaring SHA2_384 but carrying SHA-256 sized hashes fails")
+        void testDeclaredAlgorithmDrivesHashing() {
+            final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0);
+            final TestBlock declaringSha384 = block0.replace(
+                    BlockItemUnparsed::hasBlockHeader, headerDeclaring(block0, BlockHashAlgorithm.SHA2_384));
+            plugin.handleBlockItemsReceived(declaringSha384.asBlockItems());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(FailureInfo.standard(FailureType.UNKNOWN_ERROR), VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source);
+        }
+
+        /// This test aims to assert that a block whose header declares a hash algorithm the node
+        /// does not recognize is refused before any session is started: the node cannot hash such
+        /// a block into a meaningful root, so the live path reports `UNSUPPORTED_STREAM_FORMAT`
+        /// with no block and no hash. The header carries the enumeration value 7, which no release
+        /// of the block stream defines.
+        @Test
+        @DisplayName("Block declaring an unrecognized hash algorithm is refused - Live RB")
+        void testUnrecognizedAlgorithmRefusedLiveRB() {
+            final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0);
+            final TestBlock unrecognized =
+                    block0.replace(BlockItemUnparsed::hasBlockHeader, headerDeclaringUnrecognized(block0));
+            plugin.handleBlockItemsReceived(unrecognized.asBlockItems());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.UNSUPPORTED_STREAM_FORMAT),
+                            VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that a backfilled block whose header declares a hash
+        /// algorithm the node does not recognize is refused before any session is started, with
+        /// an `UNSUPPORTED_STREAM_FORMAT` failure carrying no block and no hash.
+        @Test
+        @DisplayName("Block declaring an unrecognized hash algorithm is refused - Backfill")
+        void testUnrecognizedAlgorithmRefusedBackfill() {
+            final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0);
+            final TestBlock unrecognized =
+                    block0.replace(BlockItemUnparsed::hasBlockHeader, headerDeclaringUnrecognized(block0));
+            plugin.handleBackfilled(unrecognized.asBackfilledNotification());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.UNSUPPORTED_STREAM_FORMAT),
+                            VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.BACKFILL, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// Returns a header item of the block declaring the given algorithm.
+        private static BlockItemUnparsed headerDeclaring(final TestBlock block, final BlockHashAlgorithm declared) {
+            final BlockHeader header =
+                    block.header().copyBuilder().hashAlgorithm(declared).build();
+            return BlockItemUnparsed.newBuilder()
+                    .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                    .build();
+        }
+
+        /// Returns a header item of the block declaring a hash algorithm value no release defines.
+        /// The serialized header is extended with field 5, `hash_algorithm`, set to 7, which parses
+        /// as `UNRECOGNIZED`. The block's own header declares the default value, which proto3 does
+        /// not serialize, so the appended field is the only occurrence.
+        private static BlockItemUnparsed headerDeclaringUnrecognized(final TestBlock block) {
+            final byte[] declared =
+                    block.getHeaderUnparsed().blockHeaderOrThrow().toByteArray();
+            final byte[] extended = Arrays.copyOf(declared, declared.length + 2);
+            extended[declared.length] = 0x28;
+            extended[declared.length + 1] = 0x07;
+            return BlockItemUnparsed.newBuilder()
+                    .blockHeader(Bytes.wrap(extended))
+                    .build();
         }
     }
 

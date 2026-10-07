@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
@@ -33,6 +34,8 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     private final long blockNumber;
     /// The source of the block.
     private final BlockSource blockSource;
+    /// The algorithm the block is hashed with, as declared by its header.
+    private final HashAlgorithm hashAlgorithm;
     /// The executor the stage chain runs on.
     private final ExecutorService executor;
     /// Cancellation flag shared with all stages of the session.
@@ -66,6 +69,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     /// @param blockNumber the number of the block to verify, must be non-negative
     /// @param metricsHolder the holder for all verification metrics, must not be null
     /// @param blockSource the source of the block, must not be null
+    /// @param hashAlgorithm the algorithm the block is hashed with, must not be null
     /// @param verificationDataProvider provider of the verification data, must not be null
     /// @param lastVerifiedBlock the last successfully verified block, must not be null
     /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
@@ -79,6 +83,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
             final long blockNumber,
             final MetricsHolder metricsHolder,
             final BlockSource blockSource,
+            final HashAlgorithm hashAlgorithm,
             final VerificationDataProvider verificationDataProvider,
             final AtomicLong lastVerifiedBlock,
             final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
@@ -98,6 +103,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         this.verificationDataProvider = Objects.requireNonNull(verificationDataProvider);
         this.metricsHolder = Objects.requireNonNull(metricsHolder);
         this.blockSource = Objects.requireNonNull(blockSource);
+        this.hashAlgorithm = Objects.requireNonNull(hashAlgorithm);
         this.executor = Objects.requireNonNull(executor);
         this.isCancelled = new AtomicBoolean(false);
         this.endOfBlockReceived = new AtomicBoolean(false);
@@ -132,6 +138,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     @Override
     public void start() {
         final BlockHasher hasher = new BlockHasher(
+                hashAlgorithm,
                 isCancelled,
                 blockItemsDeque,
                 metricsHolder.hashingMetrics(),

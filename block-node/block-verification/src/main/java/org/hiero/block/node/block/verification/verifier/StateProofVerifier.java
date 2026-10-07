@@ -20,17 +20,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
-import org.hiero.block.node.block.verification.hasher.BlockHasher;
 import org.hiero.block.node.block.verification.metrics.ProofVerificationMetrics;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
 
 /// State proof verifier.
 ///
-/// The merkle paths of a state proof are reconstructed with the block root algorithm,
-/// [BlockHasher#HASH_ALGORITHM], because the signed block root ties the state tree and the
-/// block tree together: every leaf and every sibling of the proof is one digest of that
-/// algorithm.
+/// The merkle paths of a state proof are reconstructed with the algorithm the block root
+/// hash was computed with, because the signed block root ties the state tree and the block
+/// tree together: every leaf and every sibling of the proof is one digest of that algorithm.
 public final class StateProofVerifier implements ProofVerifier {
     /// Logger for the verifier.
     private static final Logger LOGGER = System.getLogger(StateProofVerifier.class.getName());
@@ -44,6 +43,8 @@ public final class StateProofVerifier implements ProofVerifier {
     private final StateProof stateProof;
     /// The computed root hash of the block being verified.
     private final Bytes rootHash;
+    /// The algorithm the root hash was computed with, used to reconstruct the proof paths.
+    private final HashAlgorithm hashAlgorithm;
     /// Provider of the TSS data required for the final signature verification.
     private final VerificationDataProvider verificationDataProvider;
     /// Pending merge checkpoints, keyed by join point index. See [MergeCheckpoint].
@@ -60,6 +61,7 @@ public final class StateProofVerifier implements ProofVerifier {
     /// @param blockNumber the number of the block being verified
     /// @param stateProof the state proof to verify, must not be null
     /// @param rootHash the computed root hash of the block being verified, must not be null
+    /// @param hashAlgorithm the algorithm the root hash was computed with, must not be null
     /// @param verificationDataProvider provider of the TSS data for the final signature
     ///     verification, must not be null
     public StateProofVerifier(
@@ -68,12 +70,14 @@ public final class StateProofVerifier implements ProofVerifier {
             final long blockNumber,
             final StateProof stateProof,
             final Bytes rootHash,
+            final HashAlgorithm hashAlgorithm,
             final VerificationDataProvider verificationDataProvider) {
         this.isCanceled = Objects.requireNonNull(isCanceled);
         this.proofVerificationMetrics = Objects.requireNonNull(proofVerificationMetrics);
         this.blockNumber = blockNumber;
         this.stateProof = Objects.requireNonNull(stateProof);
         this.rootHash = Objects.requireNonNull(rootHash);
+        this.hashAlgorithm = Objects.requireNonNull(hashAlgorithm);
         this.verificationDataProvider = Objects.requireNonNull(verificationDataProvider);
         this.checkpoints = new HashMap<>();
     }
@@ -186,12 +190,9 @@ public final class StateProofVerifier implements ProofVerifier {
                 }
                 yield hash;
             }
-            case STATE_ITEM_LEAF ->
-                hashLeaf(BlockHasher.HASH_ALGORITHM, leaf.stateItemLeaf().toByteArray());
-            case BLOCK_ITEM_LEAF ->
-                hashLeaf(BlockHasher.HASH_ALGORITHM, leaf.blockItemLeaf().toByteArray());
-            case TIMESTAMP_LEAF ->
-                hashLeaf(BlockHasher.HASH_ALGORITHM, leaf.timestampLeaf().toByteArray());
+            case STATE_ITEM_LEAF -> hashLeaf(hashAlgorithm, leaf.stateItemLeaf().toByteArray());
+            case BLOCK_ITEM_LEAF -> hashLeaf(hashAlgorithm, leaf.blockItemLeaf().toByteArray());
+            case TIMESTAMP_LEAF -> hashLeaf(hashAlgorithm, leaf.timestampLeaf().toByteArray());
         };
     }
 
@@ -235,12 +236,10 @@ public final class StateProofVerifier implements ProofVerifier {
                                     blockNumber);
                             return SessionFailureType.BAD_BLOCK_PROOF;
                         } else if (checkpoint.startIndex < lowestStartingIndex) {
-                            currentResult =
-                                    hashInternalNode(BlockHasher.HASH_ALGORITHM, checkpoint.currentHash, currentResult);
+                            currentResult = hashInternalNode(hashAlgorithm, checkpoint.currentHash, currentResult);
                             lowestStartingIndex = checkpoint.startIndex;
                         } else {
-                            currentResult =
-                                    hashInternalNode(BlockHasher.HASH_ALGORITHM, currentResult, checkpoint.currentHash);
+                            currentResult = hashInternalNode(hashAlgorithm, currentResult, checkpoint.currentHash);
                         }
                         currentResult = mergeSiblings(nextPath, currentResult);
                         currentJoinPointIndex = nextPath.nextPathIndex();
@@ -285,7 +284,7 @@ public final class StateProofVerifier implements ProofVerifier {
         byte[] result = content;
         for (final SiblingNode sibling : path.siblings()) {
             if (sibling.hash() == null || sibling.hash().equals(Bytes.EMPTY)) {
-                result = hashInternalNodeSingleChild(BlockHasher.HASH_ALGORITHM, result);
+                result = hashInternalNodeSingleChild(hashAlgorithm, result);
             } else {
                 result = combineSibling(result, sibling);
             }
@@ -317,10 +316,9 @@ public final class StateProofVerifier implements ProofVerifier {
     /// Combine a sibling node with the provided content.
     private byte[] combineSibling(final byte[] content, final SiblingNode sibling) {
         if (sibling.isLeft()) {
-            return hashInternalNode(BlockHasher.HASH_ALGORITHM, sibling.hash().toByteArray(), content);
+            return hashInternalNode(hashAlgorithm, sibling.hash().toByteArray(), content);
         } else {
-            return hashInternalNode(
-                    BlockHasher.HASH_ALGORITHM, content, sibling.hash().toByteArray());
+            return hashInternalNode(hashAlgorithm, content, sibling.hash().toByteArray());
         }
     }
 

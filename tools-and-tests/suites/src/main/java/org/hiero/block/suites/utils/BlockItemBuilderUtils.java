@@ -39,8 +39,7 @@ import org.hiero.block.signing.TssBlockSigner;
 public final class BlockItemBuilderUtils {
     /// The algorithm the blocks built here are hashed with. It must match the algorithm of the Block Node
     /// image under test (`BlockHasher.HASH_ALGORITHM` in the block-verification module). The headers built
-    /// here still declare `BlockHashAlgorithm.SHA2_384` because the HAPI enum defines no other value yet;
-    /// the hasher never reads that field.
+    /// here declare the matching `BlockHashAlgorithm.SHA2_256`; the hasher never reads that field.
     private static final HashAlgorithm HASH_ALGORITHM = HashAlgorithm.SHA2_256;
 
     private static final Bytes RANDOM_HALF_MB;
@@ -90,8 +89,7 @@ public final class BlockItemBuilderUtils {
                 new SemanticVersion(4, 5, 6, "c", "d"),
                 blockNumber,
                 new Timestamp(123L, 456),
-                // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                BlockHashAlgorithm.SHA2_384);
+                BlockHashAlgorithm.SHA2_256);
     }
 
     public static Bytes createBlockHeaderUnparsed(final long blockNumber) {
@@ -153,8 +151,7 @@ public final class BlockItemBuilderUtils {
                         new SemanticVersion(4, 5, 6, "c", "d"),
                         blockNumber,
                         new Timestamp(consensusTime.getEpochSecond(), consensusTime.getNano()),
-                        // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                        BlockHashAlgorithm.SHA2_384)));
+                        BlockHashAlgorithm.SHA2_256)));
     }
 
     /**

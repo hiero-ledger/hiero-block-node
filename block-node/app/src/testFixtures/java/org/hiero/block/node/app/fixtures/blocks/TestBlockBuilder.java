@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Random;
 import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -38,12 +39,11 @@ import org.jspecify.annotations.NonNull;
  */
 public final class TestBlockBuilder {
     /**
-     * The algorithm the footer hashes of the blocks built here are sized for. It mirrors
-     * {@code BlockHasher.HASH_ALGORITHM} of the block-verification module, which this fixtures module
-     * cannot see. The headers built here still declare {@code BlockHashAlgorithm.SHA2_384} because the
-     * HAPI enum defines no other value yet; the hasher never reads that field.
+     * The algorithm the blocks built here are hashed with: their headers declare it and their
+     * footer hashes are sized for it. The Block Node resolves the algorithm of a block from the
+     * block header, so a test block must declare the algorithm its hashes are computed with.
      */
-    private static final HashAlgorithm BLOCK_HASH_ALGORITHM = HashAlgorithm.SHA2_256;
+    public static final HashAlgorithm BLOCK_HASH_ALGORITHM = HashAlgorithm.SHA2_256;
 
     private static final Bytes RANDOM_HALF_MB;
 
@@ -57,14 +57,26 @@ public final class TestBlockBuilder {
     // Required to quiet warnings.
     private TestBlockBuilder() {}
 
+    /**
+     * Returns the block header enumeration value declaring the given algorithm.
+     *
+     * @param algorithm the algorithm a block is hashed with, must not be null
+     * @return the value a block header declares for that algorithm
+     */
+    public static BlockHashAlgorithm declaredHashAlgorithm(final HashAlgorithm algorithm) {
+        return switch (Objects.requireNonNull(algorithm)) {
+            case SHA2_256 -> BlockHashAlgorithm.SHA2_256;
+            case SHA2_384 -> BlockHashAlgorithm.SHA2_384;
+        };
+    }
+
     public static BlockHeader createHeader(final long blockNumber) {
         return new BlockHeader(
                 new SemanticVersion(1, 2, 3, "a", "b"),
                 new SemanticVersion(4, 5, 6, "c", "d"),
                 blockNumber,
                 new Timestamp(123L, 456),
-                // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                BlockHashAlgorithm.SHA2_384);
+                declaredHashAlgorithm(BLOCK_HASH_ALGORITHM));
     }
 
     public static BlockItem sampleHeader(final long blockNumber) {
@@ -82,8 +94,7 @@ public final class TestBlockBuilder {
                         new SemanticVersion(4, 5, 6, "c", "d"),
                         blockNumber,
                         new Timestamp(consensusTime.getEpochSecond(), consensusTime.getNano()),
-                        // @todo(3688) declare SHA2_256 once the consensus node proto defines it
-                        BlockHashAlgorithm.SHA2_384)));
+                        declaredHashAlgorithm(BLOCK_HASH_ALGORITHM))));
     }
 
     public static Bytes createHeaderUnparsed(final long blockNumber) {
