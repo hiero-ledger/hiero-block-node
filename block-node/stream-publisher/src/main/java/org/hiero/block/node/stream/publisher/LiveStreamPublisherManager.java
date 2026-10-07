@@ -56,6 +56,7 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -67,7 +68,6 @@ import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
-import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
@@ -142,6 +142,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentSkipListMap<Long, BlockItemUnparsed> blockProofs;
     private final ConcurrentSkipListSet<Long> endBlocksReceived;
     private final ConcurrentSkipListSet<Long> blocksToResend;
+    /// Blocks successfully persisted (by any source) that the acknowledgement tracker has not
+    /// yet moved past. A verification failure or stall for one of these blocks concerns a block
+    /// this node already holds, so no resend may be scheduled for it. Kept as ranges so a long
+    /// run of blocks costs almost nothing. Entries are dropped once acknowledged, or when they
+    /// fall more than {@link #staleResendPruneBuffer} behind.
+    private final ConcurrentLongRangeSet persistedAheadOfAck;
     private final ConcurrentSkipListMap<Long, Long> activeResendBlocks;
     /// Flow state per handler ID; created in addHandler, removed in removeHandler.
     private final ConcurrentSkipListMap<Long, HandlerFlowState> handlerFlowState;
@@ -180,6 +186,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         blockProofs = new ConcurrentSkipListMap<>();
         endBlocksReceived = new ConcurrentSkipListSet<>();
         blocksToResend = new ConcurrentSkipListSet<>();
+        persistedAheadOfAck = new ConcurrentLongRangeSet();
         activeResendBlocks = new ConcurrentSkipListMap<>();
         activeStreamHandlerByBlock = new ConcurrentSkipListMap<>();
         handlerFlowState = new ConcurrentSkipListMap<>();
@@ -548,6 +555,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // @todo(#1841) reconsider this conditional in light of other changes.
                 // Persistence success (as from backfill) can also detect stalled handlers...
                 checkForStalledHandlers(blockNumber);
+                // Record the block as stored _before_ clearing any scheduled resend, so a
+                // concurrent scheduleResend either sees it stored or is cleaned up below.
+                // Blocks at or below the acknowledged number (such as historic backfill) are
+                // not tracked, they cannot be scheduled for resend in the first place.
+                if (blockNumber > lastPersistedBlockNumber.get()) {
+                    persistedAheadOfAck.add(blockNumber);
+                }
                 // A block that is persisted no longer needs to be resent, whichever copy of it
                 // was persisted (another publisher, or backfill). Left in place, the entry would
                 // clamp every acknowledgement below it and keep asking publishers to resend a
@@ -577,6 +591,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                             handler.sendAcknowledgement(lastPersistedBlockNumber.get());
                         });
                         metrics.latestBlockNumberAcknowledged.set(blockToAcknowledge);
+                    }
+                    // Forget blocks the ack tracker has passed, and any that fell too far behind.
+                    final long forgetThrough =
+                            Math.max(lastPersistedBlockNumber.get(), blockNumber - staleResendPruneBuffer);
+                    if (forgetThrough >= 0) {
+                        persistedAheadOfAck.remove(0, forgetThrough);
                     }
                     // This needs to advance regardless, because we must handle that
                     // backfill might be _ahead_ of the current blocks...
@@ -940,27 +960,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// publishers to resend it would be futile, and the entry would clamp every
     /// acknowledgement below it until pruned.
     ///
-    /// The check follows the add on purpose. A persist makes the block available before it
-    /// notifies us, and [#handlePersisted] clears the resend entry after that, so either that
-    /// clear sees this entry or this check sees the block available. No lock is needed.
+    /// The check follows the add on purpose. [#handlePersisted] records the block as stored
+    /// before it clears the resend entry, so either that clear sees this entry or this check
+    /// sees the block stored. No lock is needed.
     ///
     /// @param blockNumber the block to schedule for resend
     private void scheduleResend(final long blockNumber) {
         blocksToResend.add(blockNumber);
-        if (isStored(blockNumber)) {
+        if (persistedAheadOfAck.contains(blockNumber)) {
             blocksToResend.remove(blockNumber);
         }
-    }
-
-    /// Whether this block node already holds the block, according to the live available blocks.
-    ///
-    /// @param blockNumber the block to look for
-    /// @return true if the block is available from any block provider
-    private boolean isStored(final long blockNumber) {
-        final HistoricalBlockFacility historicalBlocks = serverContext.historicalBlockProvider();
-        return historicalBlocks != null
-                && historicalBlocks.availableBlocks() != null
-                && historicalBlocks.availableBlocks().contains(blockNumber);
     }
 
     /// Removes any entry in {@link #blocksToResend} whose block number is more than
