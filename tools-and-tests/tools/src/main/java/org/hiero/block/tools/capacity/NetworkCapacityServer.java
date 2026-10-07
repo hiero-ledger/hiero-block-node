@@ -67,10 +67,10 @@ public class NetworkCapacityServer {
                         .socketReceiveBufferSize(config.receiveBufferSize())
                         .tcpNoDelay(config.tcpNoDelay())
                         .build())
-                // Helidon applies connectionOptions after accept(); the listener must carry the buffers so accepted
-                // connections inherit them at the handshake, otherwise the receive window stays at ~32 KB.
+                // Helidon applies connectionOptions after accept(); the listener must carry the receive buffer so
+                // accepted connections inherit it at the handshake, otherwise the receive window stays at ~32 KB.
+                // SO_SNDBUF is not a valid server socket option, so the send buffer stays in connectionOptions.
                 .putListenerSocketOption(StandardSocketOptions.SO_RCVBUF, config.receiveBufferSize())
-                .putListenerSocketOption(StandardSocketOptions.SO_SNDBUF, config.sendBufferSize())
                 .backlog(config.backlogSize())
                 .writeQueueLength(config.writeQueueLength())
                 .build();

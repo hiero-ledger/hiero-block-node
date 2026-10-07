@@ -322,15 +322,15 @@ class ServiceBuilderImplTest {
     }
 
     @Test
-    @DisplayName("applyListenerSocketBuffers sets SO_RCVBUF on the listening socket")
-    void applyListenerSocketBuffers_setsListenerReceiveBuffer() {
+    @DisplayName("applyListenerReceiveBuffer sets SO_RCVBUF on the listening socket")
+    void applyListenerReceiveBuffer_setsListenerReceiveBuffer() {
         final int receiveBufferSize = 8_388_608;
         final SocketOptions socketOptions = SocketOptions.builder()
                 .socketReceiveBufferSize(receiveBufferSize)
                 .build();
         final ListenerConfig.Builder listener = ListenerConfig.builder();
 
-        ServiceBuilderImpl.applyListenerSocketBuffers(listener, socketOptions);
+        ServiceBuilderImpl.applyListenerReceiveBuffer(listener, socketOptions);
 
         assertEquals(
                 receiveBufferSize,
@@ -339,28 +339,12 @@ class ServiceBuilderImplTest {
     }
 
     @Test
-    @DisplayName("applyListenerSocketBuffers sets SO_SNDBUF on the listening socket")
-    void applyListenerSocketBuffers_setsListenerSendBuffer() {
-        final int sendBufferSize = 8_388_608;
-        final SocketOptions socketOptions =
-                SocketOptions.builder().socketSendBufferSize(sendBufferSize).build();
+    @DisplayName("applyListenerReceiveBuffer leaves the listener alone when no receive buffer is configured")
+    void applyListenerReceiveBuffer_withoutReceiveBuffer_leavesListenerUnchanged() {
         final ListenerConfig.Builder listener = ListenerConfig.builder();
 
-        ServiceBuilderImpl.applyListenerSocketBuffers(listener, socketOptions);
-
-        assertEquals(
-                sendBufferSize,
-                listener.listenerSocketOptions().get(StandardSocketOptions.SO_SNDBUF),
-                "the listener must carry the send buffer so accepted connections inherit it at the handshake");
-    }
-
-    @Test
-    @DisplayName("applyListenerSocketBuffers leaves SO_RCVBUF unset when no receive buffer is configured")
-    void applyListenerSocketBuffers_withoutReceiveBuffer_leavesReceiveBufferUnset() {
-        final ListenerConfig.Builder listener = ListenerConfig.builder();
-
-        ServiceBuilderImpl.applyListenerSocketBuffers(
-                listener, SocketOptions.builder().socketSendBufferSize(131_072).build());
+        ServiceBuilderImpl.applyListenerReceiveBuffer(
+                listener, SocketOptions.builder().build());
 
         assertFalse(
                 listener.listenerSocketOptions().containsKey(StandardSocketOptions.SO_RCVBUF),
@@ -368,17 +352,17 @@ class ServiceBuilderImplTest {
     }
 
     @Test
-    @DisplayName("applyListenerSocketBuffers leaves SO_SNDBUF unset when no send buffer is configured")
-    void applyListenerSocketBuffers_withoutSendBuffer_leavesSendBufferUnset() {
+    @DisplayName("applyListenerReceiveBuffer never sets SO_SNDBUF, which a server socket rejects")
+    void applyListenerReceiveBuffer_withSendBuffer_leavesListenerSendBufferUnset() {
         final ListenerConfig.Builder listener = ListenerConfig.builder();
 
-        ServiceBuilderImpl.applyListenerSocketBuffers(
+        ServiceBuilderImpl.applyListenerReceiveBuffer(
                 listener,
-                SocketOptions.builder().socketReceiveBufferSize(131_072).build());
+                SocketOptions.builder().socketSendBufferSize(8_388_608).build());
 
         assertFalse(
                 listener.listenerSocketOptions().containsKey(StandardSocketOptions.SO_SNDBUF),
-                "without a configured size the kernel default must stay in place");
+                "ServerSocketChannel throws UnsupportedOperationException for SO_SNDBUF, failing the listener bind");
     }
 
     @Test
