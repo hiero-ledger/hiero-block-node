@@ -18,12 +18,18 @@ import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.ListenerConfig;
+import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
+import io.helidon.webserver.spi.ProtocolConfig;
 import java.net.StandardSocketOptions;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.hiero.block.node.app.config.ServerConfig;
+import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -316,15 +322,15 @@ class ServiceBuilderImplTest {
     }
 
     @Test
-    @DisplayName("applyListenerReceiveBuffer sets SO_RCVBUF on the listening socket")
-    void applyListenerReceiveBuffer_setsListenerReceiveBuffer() {
+    @DisplayName("applyListenerSocketBuffers sets SO_RCVBUF on the listening socket")
+    void applyListenerSocketBuffers_setsListenerReceiveBuffer() {
         final int receiveBufferSize = 8_388_608;
         final SocketOptions socketOptions = SocketOptions.builder()
                 .socketReceiveBufferSize(receiveBufferSize)
                 .build();
         final ListenerConfig.Builder listener = ListenerConfig.builder();
 
-        ServiceBuilderImpl.applyListenerReceiveBuffer(listener, socketOptions);
+        ServiceBuilderImpl.applyListenerSocketBuffers(listener, socketOptions);
 
         assertEquals(
                 receiveBufferSize,
@@ -333,15 +339,96 @@ class ServiceBuilderImplTest {
     }
 
     @Test
-    @DisplayName("applyListenerReceiveBuffer leaves the listener alone when no receive buffer is configured")
-    void applyListenerReceiveBuffer_withoutReceiveBuffer_leavesListenerUnchanged() {
+    @DisplayName("applyListenerSocketBuffers sets SO_SNDBUF on the listening socket")
+    void applyListenerSocketBuffers_setsListenerSendBuffer() {
+        final int sendBufferSize = 8_388_608;
+        final SocketOptions socketOptions =
+                SocketOptions.builder().socketSendBufferSize(sendBufferSize).build();
         final ListenerConfig.Builder listener = ListenerConfig.builder();
 
-        ServiceBuilderImpl.applyListenerReceiveBuffer(
-                listener, SocketOptions.builder().build());
+        ServiceBuilderImpl.applyListenerSocketBuffers(listener, socketOptions);
+
+        assertEquals(
+                sendBufferSize,
+                listener.listenerSocketOptions().get(StandardSocketOptions.SO_SNDBUF),
+                "the listener must carry the send buffer so accepted connections inherit it at the handshake");
+    }
+
+    @Test
+    @DisplayName("applyListenerSocketBuffers leaves SO_RCVBUF unset when no receive buffer is configured")
+    void applyListenerSocketBuffers_withoutReceiveBuffer_leavesReceiveBufferUnset() {
+        final ListenerConfig.Builder listener = ListenerConfig.builder();
+
+        ServiceBuilderImpl.applyListenerSocketBuffers(
+                listener, SocketOptions.builder().socketSendBufferSize(131_072).build());
 
         assertFalse(
                 listener.listenerSocketOptions().containsKey(StandardSocketOptions.SO_RCVBUF),
                 "without a configured size the kernel default must stay in place");
+    }
+
+    @Test
+    @DisplayName("applyListenerSocketBuffers leaves SO_SNDBUF unset when no send buffer is configured")
+    void applyListenerSocketBuffers_withoutSendBuffer_leavesSendBufferUnset() {
+        final ListenerConfig.Builder listener = ListenerConfig.builder();
+
+        ServiceBuilderImpl.applyListenerSocketBuffers(
+                listener,
+                SocketOptions.builder().socketReceiveBufferSize(131_072).build());
+
+        assertFalse(
+                listener.listenerSocketOptions().containsKey(StandardSocketOptions.SO_SNDBUF),
+                "without a configured size the kernel default must stay in place");
+    }
+
+    @Test
+    @DisplayName("a named Http2Config is the only HTTP/2 protocol config on the default listener")
+    void buildWebServer_namedHttp2Config_isOnlyHttp2ConfigOnDefaultListener() {
+        final ServiceBuilderImpl builder = newServiceBuilderWithNamedHttp2Config();
+
+        final WebServerConfig webServerConfig = builder.buildWebServer(Set.of(PUBLISHER_PORT), Map.of())
+                .serverCreated()
+                .prototype();
+
+        assertEquals(
+                1,
+                countHttp2Configs(webServerConfig.protocols()),
+                "Helidon must not append a discovered default Http2Config behind ours");
+    }
+
+    @Test
+    @DisplayName("a named Http2Config is the only HTTP/2 protocol config on an additional port's listener")
+    void buildWebServer_namedHttp2Config_isOnlyHttp2ConfigOnNamedListener() {
+        final ServiceBuilderImpl builder = newServiceBuilderWithNamedHttp2Config();
+        final Set<Integer> ports = new LinkedHashSet<>(List.of(PUBLISHER_PORT, CONSUMER_PORT));
+
+        final WebServerConfig webServerConfig =
+                builder.buildWebServer(ports, Map.of()).serverCreated().prototype();
+
+        assertEquals(
+                1,
+                countHttp2Configs(
+                        webServerConfig.sockets().get("port-" + CONSUMER_PORT).protocols()),
+                "Helidon must not append a discovered default Http2Config behind ours");
+    }
+
+    private static ServiceBuilderImpl newServiceBuilderWithNamedHttp2Config() {
+        final Http2Config http2Config = Http2Config.builder()
+                .name(WebServerHttp2Config.HELIDON_PROTOCOL_CONFIG_NAME)
+                .build();
+        final ServerConfig serverConfig =
+                new ServerConfig(1_048_576, 32_768, 32_768, PUBLISHER_PORT, 0, 1_000, 1, 1, true, 1_024, 32);
+        return new ServiceBuilderImpl(
+                serverConfig, http2Config, SocketOptions.builder().build());
+    }
+
+    private static long countHttp2Configs(final List<ProtocolConfig> protocols) {
+        long count = 0;
+        for (final ProtocolConfig protocol : protocols) {
+            if (protocol instanceof Http2Config) {
+                count++;
+            }
+        }
+        return count;
     }
 }

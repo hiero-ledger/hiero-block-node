@@ -184,6 +184,7 @@ public class HealthServicePlugin implements BlockNodePlugin {
     private static Http2Config getHttp2Config(final Configuration configuration) {
         WebServerHttp2Config webServerHttp2Config = configuration.getConfigData(WebServerHttp2Config.class);
         return Http2Config.builder()
+                .name(WebServerHttp2Config.HELIDON_PROTOCOL_CONFIG_NAME)
                 .flowControlTimeout(Duration.ofMillis(webServerHttp2Config.flowControlTimeout()))
                 .initialWindowSize(webServerHttp2Config.initialWindowSize())
                 .maxConcurrentStreams(webServerHttp2Config.maxConcurrentStreams())

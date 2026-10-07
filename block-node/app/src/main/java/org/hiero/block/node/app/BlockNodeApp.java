@@ -275,6 +275,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // Http2 Config more info at
         // https://helidon.io/docs/v4/apidocs/io.helidon.webserver.http2/io/helidon/webserver/http2/Http2Config.html
         final Http2Config http2Config = Http2Config.builder()
+                .name(WebServerHttp2Config.HELIDON_PROTOCOL_CONFIG_NAME)
                 .flowControlTimeout(Duration.ofMillis(webServerHttp2Config.flowControlTimeout()))
                 .initialWindowSize(webServerHttp2Config.initialWindowSize())
                 .maxConcurrentStreams(webServerHttp2Config.maxConcurrentStreams())
@@ -291,6 +292,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .socketReceiveBufferSize(serverConfig.socketReceiveBufferSizeBytes())
                 .tcpNoDelay(serverConfig.tcpNoDelay())
                 .build();
+        SocketBufferCheck.warnIfCapped(new SocketBufferCheck.BufferSizes(
+                serverConfig.socketReceiveBufferSizeBytes(), serverConfig.socketSendBufferSizeBytes()));
 
         // Create HTTP & GRPC routing builders; null port in plugin registrations resolves to server.port
         serviceBuilder = new ServiceBuilderImpl(serverConfig, http2Config, socketOptions);

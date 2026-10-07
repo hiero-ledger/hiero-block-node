@@ -29,7 +29,7 @@ the design.
 | ENV Variable                            | Description                                                                                                            | Default     |
 |:----------------------------------------|:-----------------------------------------------------------------------------------------------------------------------|:------------|
 | SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2. Also the cumulative byte ceiling for a single block on the publish stream.        | 131,072,000 |
-| SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).                                                                                              | 131,072     |
+| SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes). Override to 131072 for memory-constrained deployments (see `values-overrides/nano.yaml`).    | 8,388,608   |
 | SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes). Override to 131072 for memory-constrained deployments (see `values-overrides/nano.yaml`). | 8,388,608   |
 | SERVER_PORT                             | Default port for all services. Individual plugins may bind to a different port via their own config.                   | 40840       |
 | SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).                                                                                            | 500         |
@@ -38,7 +38,12 @@ the design.
 | SERVER_IDLE_CONNECTION_TIMEOUT_MINUTES  | Timeout for idle connections (minutes).                                                                                | 30          |
 | SERVER_TCP_NO_DELAY                     | Disable Nagle's algorithm (TCP_NODELAY). Reduces latency for small, frequent writes.                                   | true        |
 | SERVER_BACKLOG_SIZE                     | Maximum length of the queue of incoming connections on the server socket.                                              | 8,192       |
-| SERVER_WRITE_QUEUE_LENGTH               | Number of write buffers queued for write operations.                                                                   | 8,192       |
+| SERVER_WRITE_QUEUE_LENGTH               | Number of write buffers queued for write operations. HTTP/1.1 only; HTTP/2 (gRPC) frames bypass this queue.            | 8,192       |
+
+The kernel silently caps both socket buffers at `net.core.rmem_max` / `net.core.wmem_max` (Linux default 212,992 bytes),
+and an explicit size turns off buffer autotuning, so a capped buffer limits every stream to about that much data per
+round trip. Set both sysctls on the host to at least the configured sizes (8,388,608 by default). The Block Node logs a
+WARNING at startup when the kernel grants less than configured.
 
 ### WebServerHttp2 Configuration
 

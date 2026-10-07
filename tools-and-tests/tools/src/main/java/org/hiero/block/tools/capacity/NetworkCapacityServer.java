@@ -16,6 +16,7 @@ import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http2.Http2Config;
 import java.net.SocketException;
+import java.net.StandardSocketOptions;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Flow;
@@ -66,6 +67,10 @@ public class NetworkCapacityServer {
                         .socketReceiveBufferSize(config.receiveBufferSize())
                         .tcpNoDelay(config.tcpNoDelay())
                         .build())
+                // Helidon applies connectionOptions after accept(); the listener must carry the buffers so accepted
+                // connections inherit them at the handshake, otherwise the receive window stays at ~32 KB.
+                .putListenerSocketOption(StandardSocketOptions.SO_RCVBUF, config.receiveBufferSize())
+                .putListenerSocketOption(StandardSocketOptions.SO_SNDBUF, config.sendBufferSize())
                 .backlog(config.backlogSize())
                 .writeQueueLength(config.writeQueueLength())
                 .build();
