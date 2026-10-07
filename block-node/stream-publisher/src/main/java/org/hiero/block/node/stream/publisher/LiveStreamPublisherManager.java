@@ -1006,29 +1006,27 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
     }
 
-    /// Returns the next block number that must be resent to the publisher that just
-    /// completed `completedBlockNumber`, or
-    /// {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} if there is none
-    /// that publisher can supply.
-    ///
-    /// A resend is only offered for a block at or below the block the publisher just
-    /// completed. A publisher that has not yet reached a block cannot resend it, and asking
-    /// publishers that are a few blocks behind the one that supplied the failed block
-    /// makes them close the connection (a failed resend of an unknown block). The entry
-    /// stays in the set so a publisher that has reached the block can still be asked.
-    ///
-    /// @param completedBlockNumber the block the requesting publisher just completed
+    /// This method will return the next block number for the next block that must be resent to the
+    /// publisher that just completed `completedBlockNumber`. A resend is only offered for a block
+    /// at or below the one that publisher completed, because a publisher that has not reached a
+    /// block cannot resend it and closes the connection when asked. The entry stays in the set so
+    /// a publisher that has reached the block can still be asked.
+    /// This method could also return {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} if no
+    /// more blocks are awaiting resend, or none that publisher can supply.
     private long nextBlockToResend(final long completedBlockNumber) {
-        long nextBlock = UNKNOWN_BLOCK_NUMBER;
-        try {
-            // The blocksToResend set is a SortedSet, so first item will be the lowest one.
-            // If the lowest is beyond what this publisher has produced, so is every other entry.
-            final long lowest = blocksToResend.first();
-            if (lowest <= completedBlockNumber) {
-                nextBlock = lowest;
+        long nextBlock;
+        if (!blocksToResend.isEmpty()) {
+            try {
+                // The blocksToResend set is a SortedSet, so first item will be the lowest one.
+                // If the lowest is beyond what this publisher has produced, so is every other entry.
+                final long lowest = blocksToResend.first();
+                nextBlock = lowest <= completedBlockNumber ? lowest : UNKNOWN_BLOCK_NUMBER;
+            } catch (final NoSuchElementException e) {
+                // do nothing; we have no more blocks to resend.
+                nextBlock = UNKNOWN_BLOCK_NUMBER;
             }
-        } catch (final NoSuchElementException e) {
-            // do nothing; we have no more blocks to resend.
+        } else {
+            nextBlock = UNKNOWN_BLOCK_NUMBER;
         }
         return nextBlock;
     }
