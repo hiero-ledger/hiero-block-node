@@ -79,7 +79,7 @@ client or API triggered it.
   it immediately.
 - **Client key** — An identifier used to group a caller's requests for the purpose of per-client limits. Derived from
   the caller's network address in this design.
-- **Weight class** — A cost tier assigned to a request (e.g. LIGHT, MODERATE, HEAVY) that determines which
+- **Weight class** — A cost tier assigned to a request (today, `STANDARD` or `HEAVY`) that determines which
   rate/concurrency policy applies to it.
 - **Content-aware weigher** — A per-API function that inspects a request's content (e.g. the requested block number)
   to classify it into a weight class before admission, rather than relying on a single static weight for the whole
@@ -540,7 +540,7 @@ sequenceDiagram
         B-->>G: rejected
     end
 
-    S->>B: acquireWithBoundedWait(timeout)
+    S->>B: tryAcquire(timeout)
     alt permit becomes available in time
         B-->>S: acquired
         S->>Store: read block
