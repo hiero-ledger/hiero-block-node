@@ -11,7 +11,6 @@ import io.helidon.webserver.http2.Http2Config;
 import java.util.Set;
 import java.util.TreeMap;
 import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
-import org.hiero.block.node.spi.throttle.ThrottleSpec;
 
 /// ServiceBuilder is an interface that defines the contract for registering HTTP and gRPC services
 /// with the web server during initialization.
