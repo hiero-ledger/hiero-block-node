@@ -196,9 +196,9 @@ Specialization of `BlockNodePlugin` for block storage backends. Each provider de
     a. Transition to SHUTTING_DOWN.
     b. Wait for configurable shutdown delay.
     c. Stop WebServer.
-    d. Stop ApplicationStateFacility (flushes queued updates, persists block
-       ranges), then BlockMessagingFacility, then call plugin.stop() for every
-       remaining plugin.
+    d. Call plugin.stop() for every plugin other than the two facilities, then
+       stop ApplicationStateFacility (flushes queued updates, persists block
+       ranges), then BlockMessagingFacility.
     e. Close MetricRegistry.
     f. Exit JVM.
 ```

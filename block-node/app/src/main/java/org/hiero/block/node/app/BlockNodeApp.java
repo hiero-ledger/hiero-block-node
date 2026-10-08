@@ -316,16 +316,17 @@ public class BlockNodeApp implements HealthFacility {
             // wait for the shutdown delay
             LockSupport.parkNanos(serverConfig.shutdownDelayMillis() * 1_000_000L);
             serviceBuilder.stopAll();
-            // Stop the application state facility, then the messaging facility, only once the servers are
-            // closed. Stopping messaging while gRPC is still accepting would drop inbound blocks into a
-            // halted ring buffer and reject every notification send.
-            applicationStateFacility.stop();
-            blockMessagingFacility.stop();
-            // Stop remaining plugins; the messaging and application state facilities are already stopped.
+            // Stop the other plugins first: they use the facilities from their own stop(), e.g. to
+            // unregister handlers or report final state.
             for (BlockNodePlugin plugin : loadedPlugins.subList(STARTUP_FACILITY_COUNT, loadedPlugins.size())) {
                 LOGGER.log(INFO, "\t{0}", plugin.name());
                 plugin.stop();
             }
+            // Then stop the facilities in the reverse of their start order. The application state facility
+            // goes before messaging because it sends notifications while it flushes, and it persists the
+            // block ranges last so they include anything reported by the plugins above.
+            applicationStateFacility.stop();
+            blockMessagingFacility.stop();
             // Stop metrics
             blockNodeContext.metricRegistry().close();
             LOGGER.log(DEBUG, "Metric registry successfully closed.");
