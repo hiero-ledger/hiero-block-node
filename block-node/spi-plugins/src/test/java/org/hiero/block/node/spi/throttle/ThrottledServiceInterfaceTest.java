@@ -17,7 +17,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.BrokenBarrierException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -296,6 +304,82 @@ class ThrottledServiceInterfaceTest {
                 1,
                 secondReplies.errors.size(),
                 "the default per-client settings should give OTHER_METHOD a real concurrency ceiling of 1");
+    }
+
+    @Test
+    @DisplayName("Concurrent admissions never collectively exceed the global concurrency ceiling")
+    void concurrentAdmissionsNeverExceedGlobalCeiling() throws InterruptedException, BrokenBarrierException {
+        // A regression test for a non-atomic check-then-increment race: concurrent callers could
+        // previously all observe capacity available before any of them committed, overshooting
+        // the ceiling. Rate and per-client limits are set far above callerCount so only the global
+        // ceiling can reject here, and every caller is a distinct client so the per-client check
+        // never fires either — each caller calls exactly once, so GCRA's initial state admits it
+        // regardless of the configured rate.
+        //
+        // Repeated over several rounds, each with its own fresh gate: natural OS thread scheduling
+        // rarely lines up callers within the few-nanosecond check-then-increment window on its
+        // own, so every worker prepares everything it needs and then rendezvouses on a
+        // CyclicBarrier — which releases all parties simultaneously — immediately before the one
+        // racy call, maximizing real contention on the shared counter at the instant it matters.
+        final int ceiling = 5;
+        final int callerCount = 200;
+        final int rounds = 10;
+
+        for (int round = 0; round < rounds; round++) {
+            // A fresh MetricRegistry per round: ThrottleMetrics and RemoteAddressKeyExtractor each
+            // register a metric name exactly once, so reusing the shared registry across rounds
+            // would throw on round 2.
+            final MetricRegistry roundMetricRegistry = MetricRegistry.builder()
+                    .setMetricsExporter(new NoOpMetricsExporter())
+                    .build();
+            final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
+                    recordingService,
+                    Map.of(
+                            new MethodWeight(ONLY_METHOD.name(), WeightClass.STANDARD),
+                            new PerClientThrottleSettings(1_000_000, 1_000_000, callerCount)),
+                    Optional.empty(),
+                    ceiling,
+                    new RemoteAddressKeyExtractor(roundMetricRegistry),
+                    new ThrottleMetrics(roundMetricRegistry),
+                    Duration.ofDays(1));
+            final CyclicBarrier barrier = new CyclicBarrier(callerCount);
+            final CountDownLatch doneLatch = new CountDownLatch(callerCount);
+            final AtomicInteger admittedCount = new AtomicInteger();
+            final ExecutorService executor = Executors.newFixedThreadPool(callerCount);
+            try {
+                for (int i = 0; i < callerCount; i++) {
+                    final String clientIp = "10.0." + (i / 256) + "." + (i % 256);
+                    executor.submit(() -> {
+                        final CapturingPipeline replies = new CapturingPipeline();
+                        final ServiceInterface.RequestOptions options = optionsFor(clientIp);
+                        try {
+                            barrier.await(10, TimeUnit.SECONDS);
+                            throttled.open(ONLY_METHOD, options, replies);
+                            if (replies.errors.isEmpty()) {
+                                admittedCount.incrementAndGet();
+                            }
+                        } catch (final InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        } catch (final BrokenBarrierException | TimeoutException e) {
+                            throw new IllegalStateException(e);
+                        } finally {
+                            doneLatch.countDown();
+                        }
+                    });
+                }
+                assertTrue(
+                        doneLatch.await(10, TimeUnit.SECONDS),
+                        "all concurrent callers should finish within the timeout");
+            } finally {
+                executor.shutdownNow();
+            }
+
+            assertEquals(
+                    ceiling,
+                    admittedCount.get(),
+                    "round " + round + ": exactly " + ceiling + " of " + callerCount
+                            + " concurrent calls should be admitted, no more");
+        }
     }
 
     private ThrottledServiceInterface throttledWith(final Tier tier) {
