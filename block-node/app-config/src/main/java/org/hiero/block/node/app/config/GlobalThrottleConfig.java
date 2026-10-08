@@ -7,7 +7,9 @@ import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.node.base.Loggable;
 
 /**
- * Node-wide concurrency ceilings for throttled gRPC methods, one field per method.
+ * Node-wide concurrency ceilings for throttled gRPC services, one field per service — shared by every
+ * method on that service, not split per method (e.g. {@code serverStatusMaxConcurrent} covers both
+ * {@code serverStatus} and {@code serverStatusDetail}).
  *
  * <p>A ceiling here represents an allocation of the node's total shared capacity (connections,
  * heap, disk I/O) across every throttled API, which is inherently a node-level view rather than
