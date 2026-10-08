@@ -18,6 +18,7 @@ import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.throttle.ThrottleExempt;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -41,7 +42,13 @@ import org.hiero.metrics.core.MetricRegistry;
 /// in advance by other publishers, and also manages notification handling so
 /// that messaging sends one notification and, if needed, all handlers can send
 /// appropriate responses to their publishers.
-public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStreamPublishServiceInterface {
+///
+/// Deliberately implements [ThrottleExempt], not [org.hiero.block.node.spi.throttle.ThrottleSpec]:
+/// the ingest path has its own size/compatibility validation rather than the per-client
+/// rate/concurrency admission model that interface implements — this marker exists so
+/// registration logs that omission as an intentional choice rather than a silent gap.
+public final class StreamPublisherPlugin
+        implements BlockNodePlugin, BlockStreamPublishServiceInterface, ThrottleExempt {
 
     /// Maximum length for the correlation ID header value.
     /// Chosen to accommodate current formats (e.g. `N#-STR#`, `N#-STR#-BLK#-REQ#`) and
