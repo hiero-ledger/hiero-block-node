@@ -26,6 +26,7 @@ import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.http2.Http2Config;
 import java.io.IOException;
@@ -287,11 +288,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .build();
 
         // Build socket options shared by both servers
-        final SocketOptions socketOptions = SocketOptions.builder()
-                .socketSendBufferSize(serverConfig.socketSendBufferSizeBytes())
-                .socketReceiveBufferSize(serverConfig.socketReceiveBufferSizeBytes())
-                .tcpNoDelay(serverConfig.tcpNoDelay())
-                .build();
+        final SocketOptions socketOptions = buildSocketOptions(serverConfig);
         SocketBufferCheck.warnIfCapped(new SocketBufferCheck.BufferSizes(
                 serverConfig.socketReceiveBufferSizeBytes(), serverConfig.socketSendBufferSizeBytes()));
 
@@ -325,6 +322,23 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .setDescription("The current version of the BlockNode App, set only on startup")
                 .addStaticLabels(versionString));
         versionMetricInstance = versionMetric.getOrCreateNotLabeled();
+    }
+
+    /// Builds the socket options shared by the servers.
+    ///
+    /// A buffer size of `0` is left unset, so no `setsockopt` is issued and the kernel autotunes that buffer.
+    ///
+    /// @param serverConfig the server configuration
+    /// @return the socket options
+    static SocketOptions buildSocketOptions(@NonNull final ServerConfig serverConfig) {
+        final SocketOptions.Builder builder = SocketOptions.builder().tcpNoDelay(serverConfig.tcpNoDelay());
+        if (serverConfig.socketSendBufferSizeBytes() > 0) {
+            builder.socketSendBufferSize(serverConfig.socketSendBufferSizeBytes());
+        }
+        if (serverConfig.socketReceiveBufferSizeBytes() > 0) {
+            builder.socketReceiveBufferSize(serverConfig.socketReceiveBufferSizeBytes());
+        }
+        return builder.build();
     }
 
     /// Build the BlockNodeVersions for this BlockNodeServer

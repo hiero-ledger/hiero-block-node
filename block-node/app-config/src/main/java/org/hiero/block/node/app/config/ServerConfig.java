@@ -13,8 +13,12 @@ import org.hiero.block.node.base.Loggable;
  * <p>ServerConfig will have settings for the server.
  *
  * @param maxMessageSizeBytes the PBJ max message size in bytes
- * @param socketSendBufferSizeBytes the socket send buffer size in bytes
- * @param socketReceiveBufferSizeBytes the socket receive buffer size in bytes
+ * @param socketSendBufferSizeBytes the socket send buffer size in bytes; {@code 0} (the default and recommended)
+ *     leaves it unset so the kernel autotunes it, a positive value fixes the size, turns off autotuning and is capped
+ *     at {@code net.core.wmem_max}
+ * @param socketReceiveBufferSizeBytes the socket receive buffer size in bytes; {@code 0} (the default and recommended)
+ *     leaves it unset so the kernel autotunes it, a positive value fixes the size, turns off autotuning and is capped
+ *     at {@code net.core.rmem_max}
  * @param port the default port all services listen on; individual plugins may override this by
  *     passing an explicit port to {@link org.hiero.block.node.spi.ServiceBuilder}, or pass
  *     {@code null} to fall back to this value
@@ -34,8 +38,8 @@ import org.hiero.block.node.base.Loggable;
 @ConfigData("server")
 public record ServerConfig(
         @Loggable @ConfigProperty(defaultValue = "131_072_000") @Min(1_048_576) @Max(1_610_612_736) int maxMessageSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = "8_388_608") @Min(32768) @Max(Integer.MAX_VALUE) int socketSendBufferSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = "8_388_608") @Min(32768) @Max(Integer.MAX_VALUE) int socketReceiveBufferSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = "0") @Min(0) @Max(Integer.MAX_VALUE) int socketSendBufferSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = "0") @Min(0) @Max(Integer.MAX_VALUE) int socketReceiveBufferSizeBytes,
         @Loggable @ConfigProperty(defaultValue = "40840") @Min(1024) @Max(65_535) int port,
         @Loggable @ConfigProperty(defaultValue = "500") int shutdownDelayMillis,
         @Loggable @ConfigProperty(defaultValue = "1000") int maxTcpConnections,

@@ -14,13 +14,14 @@ import java.util.List;
 ///
 /// The kernel silently truncates `SO_RCVBUF`/`SO_SNDBUF` to `net.core.rmem_max`/`net.core.wmem_max`, and an explicit
 /// size also turns off buffer autotuning. On a host with the default limits (212,992 bytes) an 8 MB request ends up
-/// as a ~200 KB buffer, which caps every stream at about that much data per round trip.
+/// as a ~200 KB buffer, which caps every stream at about that much data per round trip. A size of `0` is not set on
+/// the socket (the kernel autotunes it), so it is never checked.
 final class SocketBufferCheck {
     private static final System.Logger LOGGER = System.getLogger(SocketBufferCheck.class.getName());
     /// Small enough that no kernel caps it, so the reported value shows how the platform scales reported sizes.
     private static final int CALIBRATION_BYTES = 65_536;
 
-    /// Receive and send buffer sizes of one socket, in bytes.
+    /// Receive and send buffer sizes of one socket, in bytes; `0` means the size is not set.
     ///
     /// @param receiveBytes the `SO_RCVBUF` size
     /// @param sendBytes the `SO_SNDBUF` size
@@ -32,6 +33,9 @@ final class SocketBufferCheck {
     ///
     /// @param requested the configured buffer sizes
     static void warnIfCapped(@NonNull final BufferSizes requested) {
+        if (requested.receiveBytes() == 0 && requested.sendBytes() == 0) {
+            return;
+        }
         try {
             for (final String shortfall : findShortfalls(requested, readGranted(requested))) {
                 LOGGER.log(WARNING, shortfall);
@@ -45,7 +49,7 @@ final class SocketBufferCheck {
     ///
     /// @param requested the configured buffer sizes
     /// @param granted the sizes the kernel granted, already normalized by [#toGranted]
-    /// @return the shortfall messages, empty when both buffers are at least the requested size
+    /// @return the shortfall messages, empty when every buffer that is set is at least the requested size
     static List<String> findShortfalls(@NonNull final BufferSizes requested, @NonNull final BufferSizes granted) {
         final List<String> shortfalls = new ArrayList<>();
         if (granted.receiveBytes() < requested.receiveBytes()) {
@@ -86,8 +90,12 @@ final class SocketBufferCheck {
         try (Socket socket = new Socket()) {
             socket.setOption(StandardSocketOptions.SO_RCVBUF, CALIBRATION_BYTES);
             final int calibrationReportedBytes = socket.getOption(StandardSocketOptions.SO_RCVBUF);
-            socket.setOption(StandardSocketOptions.SO_RCVBUF, requested.receiveBytes());
-            socket.setOption(StandardSocketOptions.SO_SNDBUF, requested.sendBytes());
+            if (requested.receiveBytes() > 0) {
+                socket.setOption(StandardSocketOptions.SO_RCVBUF, requested.receiveBytes());
+            }
+            if (requested.sendBytes() > 0) {
+                socket.setOption(StandardSocketOptions.SO_SNDBUF, requested.sendBytes());
+            }
             final BufferSizes reported = new BufferSizes(
                     socket.getOption(StandardSocketOptions.SO_RCVBUF),
                     socket.getOption(StandardSocketOptions.SO_SNDBUF));

@@ -240,13 +240,14 @@ Key environment variables:
 |                 Variable                  |       Default        |           Purpose            |
 |-------------------------------------------|----------------------|------------------------------|
 | `SERVER_MAX_MESSAGE_SIZE_BYTES`           | 131,072,000 (125 MB) | Max HTTP/2 message size      |
-| `SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES`    | 8,388,608            | TCP send buffer              |
-| `SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES` | 8,388,608            | TCP receive buffer           |
+| `SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES`    | 0 (kernel autotune)  | TCP send buffer              |
+| `SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES` | 0 (kernel autotune)  | TCP receive buffer           |
 | `SERVER_MAX_TCP_CONNECTIONS`              | 1,000                | Max simultaneous connections |
 | `BACKFILL_MAX_INCOMING_BUFFER_SIZE`       | 104,857,600 (100 MB) | Backfill gRPC receive buffer |
 
-The host must allow these socket buffer sizes: set `net.core.rmem_max` and `net.core.wmem_max` to at least
-8,388,608. Otherwise the kernel silently caps them and the Block Node logs a WARNING at startup.
+With `0`, the kernel autotunes the socket buffers up to the maximum in `net.ipv4.tcp_rmem` / `net.ipv4.tcp_wmem`. A
+positive size turns off autotuning and is capped at `net.core.rmem_max` / `net.core.wmem_max`, so raise those to at
+least the configured size. Otherwise the kernel silently caps them and the Block Node logs a WARNING at startup.
 
 > See [Configuration Reference](../configuration.md) for full details.
 
