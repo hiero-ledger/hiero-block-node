@@ -9,11 +9,11 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.Consumer;
-import org.hiero.block.tools.utils.Sha384;
+import org.hiero.block.tools.utils.Sha256;
 
 /**
  * A registry for the history of block stream block root hashes. It is designed to store on disk all hashes for block
- * from block 0 on. To allow random read by block number. Blocks are stored in a binary file of 48 byte hashes at index
+ * from block 0 on. To allow random read by block number. Blocks are stored in a binary file of 32 byte hashes at index
  * by block number. As if it was a giant array of hash byte[]s, like byte[][].
  */
 public class BlockStreamBlockHashRegistry implements AutoCloseable {
@@ -39,7 +39,7 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
             randomAccessFile = new RandomAccessFile(blockHashesFilePath.toFile(), "rw");
             if (Files.exists(blockHashesFilePath) && randomAccessFile.length() > 0) {
                 long fileLength = randomAccessFile.length();
-                long remainder = fileLength % Sha384.SHA_384_HASH_SIZE;
+                long remainder = fileLength % Sha256.SHA_256_HASH_SIZE;
                 if (remainder != 0) {
                     // Partial write detected — truncate to last complete record
                     long truncatedLength = fileLength - remainder;
@@ -51,7 +51,7 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
                 }
                 if (fileLength > 0) {
                     // compute the highestBlockNumberStored based on file size
-                    highestBlockNumberStored = (fileLength / Sha384.SHA_384_HASH_SIZE) - 1;
+                    highestBlockNumberStored = (fileLength / Sha256.SHA_256_HASH_SIZE) - 1;
                     // read mostRecentBlockHash
                     mostRecentBlockHash = getBlockHash(highestBlockNumberStored);
                 }
@@ -75,7 +75,7 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
                     "Block number " + blockNumber + " is not the next block after " + highestBlockNumberStored);
         }
         try {
-            randomAccessFile.seek(blockNumber * Sha384.SHA_384_HASH_SIZE);
+            randomAccessFile.seek(blockNumber * Sha256.SHA_256_HASH_SIZE);
             randomAccessFile.write(blockHash);
             highestBlockNumberStored = blockNumber;
             mostRecentBlockHash = blockHash;
@@ -96,8 +96,8 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
                     + " is out of range. Highest block stored is " + highestBlockNumberStored);
         }
         try {
-            randomAccessFile.seek(blockNumber * Sha384.SHA_384_HASH_SIZE);
-            byte[] hash = new byte[Sha384.SHA_384_HASH_SIZE];
+            randomAccessFile.seek(blockNumber * Sha256.SHA_256_HASH_SIZE);
+            byte[] hash = new byte[Sha256.SHA_256_HASH_SIZE];
             randomAccessFile.readFully(hash);
             return hash;
         } catch (IOException e) {
@@ -141,7 +141,7 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
                     "Cannot truncate to block " + blockNumber + "; highest stored is " + highestBlockNumberStored);
         }
         try {
-            final long newLength = (blockNumber + 1) * Sha384.SHA_384_HASH_SIZE;
+            final long newLength = (blockNumber + 1) * Sha256.SHA_256_HASH_SIZE;
             randomAccessFile.setLength(newLength);
             highestBlockNumberStored = blockNumber;
             mostRecentBlockHash = blockNumber >= 0 ? getBlockHash(blockNumber) : EMPTY_TREE_HASH;
@@ -163,13 +163,13 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
 
     /**
      * Reads block hashes sequentially from {@code fromBlock} to {@code toBlock} (inclusive),
-     * passing each 48-byte hash to the given consumer. This is much faster than per-hash
+     * passing each 32-byte hash to the given consumer. This is much faster than per-hash
      * {@link #getBlockHash(long)} calls for bulk replay, especially on spinning disks,
      * because it performs a single seek followed by sequential reads with a large buffer.
      *
      * @param fromBlock the first block number to read (inclusive)
      * @param toBlock the last block number to read (inclusive)
-     * @param hashConsumer consumer that receives each 48-byte block hash
+     * @param hashConsumer consumer that receives each 32-byte block hash
      */
     @SuppressWarnings("unused")
     public void readSequential(long fromBlock, long toBlock, Consumer<byte[]> hashConsumer) {
@@ -178,11 +178,11 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
                     + highestBlockNumberStored);
         }
         try {
-            randomAccessFile.seek(fromBlock * Sha384.SHA_384_HASH_SIZE);
-            // Use a 1 MiB read buffer (holds ~21,845 hashes) for efficient sequential I/O
+            randomAccessFile.seek(fromBlock * Sha256.SHA_256_HASH_SIZE);
+            // Use a 1 MiB read buffer (holds 32,768 hashes) for efficient sequential I/O
             final int bufferSize = 1 << 20;
             final byte[] buffer = new byte[bufferSize];
-            long remaining = (toBlock - fromBlock + 1) * (long) Sha384.SHA_384_HASH_SIZE;
+            long remaining = (toBlock - fromBlock + 1) * (long) Sha256.SHA_256_HASH_SIZE;
             int leftover = 0;
 
             while (remaining > 0) {
@@ -191,11 +191,11 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
                 if (bytesRead <= 0) break;
                 int available = leftover + bytesRead;
                 int offset = 0;
-                while (offset + Sha384.SHA_384_HASH_SIZE <= available) {
-                    byte[] hash = new byte[Sha384.SHA_384_HASH_SIZE];
-                    System.arraycopy(buffer, offset, hash, 0, Sha384.SHA_384_HASH_SIZE);
+                while (offset + Sha256.SHA_256_HASH_SIZE <= available) {
+                    byte[] hash = new byte[Sha256.SHA_256_HASH_SIZE];
+                    System.arraycopy(buffer, offset, hash, 0, Sha256.SHA_256_HASH_SIZE);
                     hashConsumer.accept(hash);
-                    offset += Sha384.SHA_384_HASH_SIZE;
+                    offset += Sha256.SHA_256_HASH_SIZE;
                 }
                 leftover = available - offset;
                 if (leftover > 0) {

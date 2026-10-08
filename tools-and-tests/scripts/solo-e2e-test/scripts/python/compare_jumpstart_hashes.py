@@ -20,6 +20,8 @@ import sys
 from pathlib import Path
 from typing import Dict, Any
 
+HASH_SIZE = 32  # SHA-256
+
 
 class JumpstartFile:
     """Represents a jumpstart.bin file with parsed contents."""
@@ -33,12 +35,12 @@ class JumpstartFile:
 
         Format:
             - Block number (8 bytes, big-endian long)
-            - Block hash (48 bytes - SHA-384)
-            - Consensus timestamp hash (48 bytes - SHA-384)
-            - Output items tree root hash (48 bytes - SHA-384)
+            - Block hash (32 bytes - SHA-256)
+            - Consensus timestamp hash (32 bytes - SHA-256)
+            - Output items tree root hash (32 bytes - SHA-256)
             - Streaming hasher leaf count (8 bytes, big-endian long)
             - Hash count (4 bytes, big-endian int)
-            - Pending subtree hashes (48 bytes each)
+            - Pending subtree hashes (32 bytes each)
         """
         self.file_path = file_path
 
@@ -46,10 +48,10 @@ class JumpstartFile:
             # Read block number
             self.block_number = struct.unpack('>Q', f.read(8))[0]
 
-            # Read hashes (48 bytes each - SHA-384)
-            self.block_hash = f.read(48).hex()
-            self.consensus_timestamp_hash = f.read(48).hex()
-            self.output_items_tree_root_hash = f.read(48).hex()
+            # Read hashes (32 bytes each - SHA-256)
+            self.block_hash = f.read(HASH_SIZE).hex()
+            self.consensus_timestamp_hash = f.read(HASH_SIZE).hex()
+            self.output_items_tree_root_hash = f.read(HASH_SIZE).hex()
 
             # Read streaming hasher state
             self.leaf_count = struct.unpack('>Q', f.read(8))[0]
@@ -58,11 +60,11 @@ class JumpstartFile:
             # Read pending subtree hashes
             self.pending_hashes = []
             for i in range(self.hash_count):
-                hash_bytes = f.read(48)
-                if len(hash_bytes) == 48:
+                hash_bytes = f.read(HASH_SIZE)
+                if len(hash_bytes) == HASH_SIZE:
                     self.pending_hashes.append(hash_bytes.hex())
                 else:
-                    print(f"WARNING: Expected 48 bytes for hash {i}, got {len(hash_bytes)}", file=sys.stderr)
+                    print(f"WARNING: Expected {HASH_SIZE} bytes for hash {i}, got {len(hash_bytes)}", file=sys.stderr)
                     break
 
     def to_dict(self) -> Dict[str, Any]:

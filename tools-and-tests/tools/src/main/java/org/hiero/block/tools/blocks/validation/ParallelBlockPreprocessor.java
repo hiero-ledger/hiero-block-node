@@ -14,7 +14,7 @@ import org.jspecify.annotations.Nullable;
  * Stateless, thread-safe utility that pre-computes expensive per-block data in the
  * decompression pool. This moves three costly operations off the main validation thread:
  * <ol>
- *   <li>{@code hashBlock()} — builds a 16-leaf SHA-384 merkle tree (most expensive per-block op)</li>
+ *   <li>{@code hashBlock()} — builds a 16-leaf SHA-256 merkle tree (most expensive per-block op)</li>
  *   <li>{@code extractBlockInstant()} — parses the BlockHeader for the block timestamp</li>
  *   <li>{@code extractRecordFileBytes()} — finds the RecordFile item bytes</li>
  * </ol>

@@ -5,7 +5,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
 
 /**
- * Interface for a binary Merkle tree hasher using SHA-384 hashes.
+ * Interface for a binary Merkle tree hasher using SHA-256 hashes.
  *
  * <p>Implementations of this interface compute Merkle tree root hashes following the
  * Block &amp; State Merkle Tree Design specification. The design uses domain-separated
@@ -63,7 +63,7 @@ public interface Hasher {
      * Add a pre-hashed node to the Merkle tree. This is needed for a tree of other trees. Where each node at the
      * bottom of this tree is the root hash of another tree.
      *
-     * @param hash the 48-byte SHA-384 hash of the node to add (must already include the prefixing)
+     * @param hash the 32-byte SHA-256 hash of the node to add (must already include the prefixing)
      */
     void addNodeByHash(byte[] hash);
 
@@ -74,14 +74,14 @@ public interface Hasher {
      * and more leaves can be added afterward. For a tree with n leaves, this operation
      * combines at most O(log n) pending subtree roots using right-to-left folding.
      *
-     * <p>The returned hash is a 48-byte SHA-384 hash following the domain-separated
+     * <p>The returned hash is a 32-byte SHA-256 hash following the domain-separated
      * prefixing scheme from the design specification.
      *
      * <p>For an empty tree (no leaves added), this method returns the predefined
-     * {@link HashingUtils#EMPTY_TREE_HASH} which is {@code sha384Hash(new byte[]{0x00})}.
+     * {@link HashingUtils#EMPTY_TREE_HASH} which is {@code sha256Hash(new byte[]{0x00})}.
      * This provides a consistent, well-defined hash for the empty tree case.
      *
-     * @return the 48-byte SHA-384 Merkle tree root hash, or {@link HashingUtils#EMPTY_TREE_HASH}
+     * @return the 32-byte SHA-256 Merkle tree root hash, or {@link HashingUtils#EMPTY_TREE_HASH}
      *         if no leaves have been added
      */
     byte[] computeRootHash();

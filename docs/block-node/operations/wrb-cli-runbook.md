@@ -442,9 +442,9 @@ The wrapping process produces several auxiliary files in addition to the wrapped
 
 **Contents**:
 - Current block number
-- Block hash (SHA-384)
-- Consensus timestamp hash (SHA-384)
-- Output items tree root hash (SHA-384)
+- Block hash (SHA-256)
+- Consensus timestamp hash (SHA-256)
+- Output items tree root hash (SHA-256)
 - Streaming hasher state (for incremental hash verification)
 
 **When created**: Generated during `blocks wrap` and `days live-sequential` operations.

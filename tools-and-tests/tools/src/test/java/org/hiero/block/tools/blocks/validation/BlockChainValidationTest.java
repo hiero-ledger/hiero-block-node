@@ -4,6 +4,7 @@ package org.hiero.block.tools.blocks.validation;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -69,7 +70,7 @@ class BlockChainValidationTest {
     void firstBlock_withWrongHash_fails() {
         BlockChainValidation validation = new BlockChainValidation();
         // Create a block with a non-empty-tree previousBlockRootHash
-        byte[] wrongHash = new byte[48];
+        byte[] wrongHash = new byte[SHA_256_HASH_SIZE];
         wrongHash[0] = (byte) 0xFF;
         BlockItem wrongFooter = BlockItem.newBuilder()
                 .blockFooter(com.hedera.hapi.block.stream.output.BlockFooter.newBuilder()
@@ -139,7 +140,7 @@ class BlockChainValidationTest {
 
     @Test
     void firstBlockWithEmptyPreviousHashPasses() {
-        // Genesis block's previousBlockRootHash is the empty tree hash (SHA-384(0x00)) —
+        // Genesis block's previousBlockRootHash is the empty tree hash (SHA-256(0x00)) —
         // there is no previous block, so the "empty" convention applies.
         BlockChainValidation validation = new BlockChainValidation();
         BlockItem emptyHashFooter = BlockItem.newBuilder()
@@ -162,7 +163,7 @@ class BlockChainValidationTest {
 
         BlockItem emptyHashFooter = BlockItem.newBuilder()
                 .blockFooter(com.hedera.hapi.block.stream.output.BlockFooter.newBuilder()
-                        .previousBlockRootHash(Bytes.wrap(new byte[48]))
+                        .previousBlockRootHash(Bytes.wrap(new byte[SHA_256_HASH_SIZE]))
                         .rootHashOfAllBlockHashesTree(Bytes.wrap(EMPTY_TREE_HASH))
                         .startOfBlockStateRootHash(Bytes.wrap(EMPTY_TREE_HASH))
                         .build())
