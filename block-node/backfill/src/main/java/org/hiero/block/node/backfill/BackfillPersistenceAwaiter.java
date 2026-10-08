@@ -102,6 +102,13 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
      * A {@code false} result means "not persisted", covering a timeout, an interrupt, and a reported
      * persistence or verification failure alike. All of those leave the block still missing, which is
      * the only distinction the caller acts on.
+     * <p>
+     * This method never removes the block's tracking entry itself - not on timeout, not on a reported
+     * failure, and not on interrupt - so the outcome (unresolved, resolved-succeeded, or
+     * resolved-failed) is preserved for whichever attempt calls this next, and a notification that
+     * lands between two calls is never silently dropped. A caller that is done with a block, whether it
+     * persisted, definitively failed, or its retry budget is exhausted, must call
+     * {@link #stopTracking(long)} to release it.
      *
      * @param blockNumber the block number to wait for
      * @param timeoutMs maximum time to wait in milliseconds
@@ -133,8 +140,6 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
             final String waitInterruptedMsg = "Block [%s] persistence wait interrupted".formatted(blockNumber);
             LOGGER.log(DEBUG, waitInterruptedMsg, e);
             return false;
-        } finally {
-            pendingBlocks.remove(blockNumber);
         }
     }
 
@@ -195,6 +200,17 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
                 pending.complete(false);
             }
         }
+    }
+
+    /**
+     * Stops tracking a block. Used once a caller is done with a block - whether it persisted,
+     * definitively failed, or its retry budget was exhausted while still unresolved - so its entry
+     * does not remain in the map indefinitely.
+     *
+     * @param blockNumber the block number to stop tracking
+     */
+    public void stopTracking(long blockNumber) {
+        pendingBlocks.remove(blockNumber);
     }
 
     /**

@@ -151,8 +151,8 @@ class BackfillPersistenceAwaiterTest {
         }
 
         @Test
-        @DisplayName("should remove block from pending after await completes")
-        void shouldRemoveBlockAfterAwait() {
+        @DisplayName("should keep returning the resolved outcome on repeated awaits without stopTracking")
+        void shouldKeepReturningResolvedOutcomeOnRepeatedAwaits() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -163,10 +163,49 @@ class BackfillPersistenceAwaiterTest {
             // when
             boolean firstAwait = subject.awaitPersistence(blockNumber, 100);
 
-            // then - first await succeeds, second await returns true immediately (not tracked)
+            // then - the block stays tracked with its resolved outcome, so a second await (e.g. a retry
+            // racing with an already-resolved block) observes the same success immediately, rather than
+            // blocking or being mistaken for an untracked block
             assertTrue(firstAwait);
             boolean secondAwait = subject.awaitPersistence(blockNumber, 50);
-            assertTrue(secondAwait); // returns true because block is no longer tracked
+            assertTrue(secondAwait);
+        }
+
+        @Test
+        @DisplayName("should remain tracked after a timeout so a notification landing before the next await "
+                + "is not lost")
+        void shouldRemainTrackedAfterTimeout() {
+            // given
+            long blockNumber = 100L;
+            subject.trackBlock(blockNumber);
+
+            // when - first wait times out without a notification
+            assertFalse(subject.awaitPersistence(blockNumber, 50));
+
+            // and - the notification arrives afterward, with nothing actively awaiting it
+            subject.handlePersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.BACKFILL));
+
+            // then - a later await for the same block still observes it, instead of treating a block that
+            // merely timed out once as no longer tracked
+            assertTrue(subject.awaitPersistence(blockNumber, 50));
+        }
+
+        @Test
+        @DisplayName("should keep reporting failure on repeated awaits instead of reverting to 'not tracked'")
+        void shouldKeepReportingFailureOnRepeatedAwaits() {
+            // given - a block that definitively failed to persist
+            long blockNumber = 100L;
+            subject.trackBlock(blockNumber);
+            subject.handlePersisted(new PersistedNotification(blockNumber, false, 1, BlockSource.BACKFILL));
+
+            // when
+            boolean firstAwait = subject.awaitPersistence(blockNumber, 50);
+
+            // then - a second await for the same still-tracked block must keep reporting the failure; if
+            // the entry were removed after the first attempt, this would wrongly report "not tracked" (and
+            // therefore success) instead of the recorded failure
+            assertFalse(firstAwait);
+            assertFalse(subject.awaitPersistence(blockNumber, 50));
         }
     }
 
@@ -410,6 +449,28 @@ class BackfillPersistenceAwaiterTest {
             assertTrue(subject.awaitPersistence(block1, 50));
             assertTrue(subject.awaitPersistence(block2, 50));
             assertTrue(subject.awaitPersistence(block3, 50));
+        }
+    }
+
+    @Nested
+    @DisplayName("stopTracking Tests")
+    class StopTrackingTests {
+
+        @Test
+        @DisplayName("should stop tracking so a later notification and await no longer observe the block")
+        void shouldStopTrackingAbandonedBlock() {
+            // given - a block that timed out once and is still tracked
+            long blockNumber = 100L;
+            subject.trackBlock(blockNumber);
+            assertFalse(subject.awaitPersistence(blockNumber, 50));
+
+            // when - the caller gives up on the block
+            subject.stopTracking(blockNumber);
+
+            // then - a late notification is a no-op, and awaiting reports true immediately (not tracked)
+            // instead of waiting out the timeout
+            subject.handlePersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.BACKFILL));
+            assertTrue(subject.awaitPersistence(blockNumber, 50));
         }
     }
 
