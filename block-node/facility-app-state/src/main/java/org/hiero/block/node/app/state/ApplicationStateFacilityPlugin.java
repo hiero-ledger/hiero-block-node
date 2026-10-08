@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -114,10 +115,11 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     private final AtomicReference<NetworkData> backfillSources = new AtomicReference<>(NetworkData.DEFAULT);
     /// Block count at the time of the last scheduled persist; only read/written by the dispatcher thread
     private long lastPersistedBlockCount = 0;
-    /// The ScheduledExecutorService used by this facility to run the periodic block-range
-    /// persist check and the queued TSS data and address book syncs.
-    /// Volatile because the update methods submit to it from arbitrary plugin threads.
-    private volatile ScheduledExecutorService applicationStateExecutor;
+    /// The single thread executor that runs every persist and notification sync, so writes are
+    /// serialized and notifications go out in order. Created in [#init], shut down in [#stop].
+    private volatile ExecutorService dispatcher;
+    /// A timer that submits the periodic block-range persist check to the dispatcher. Created in [#start].
+    private volatile ScheduledExecutorService persistTimer;
     /// The next expected block for publishers, used by Server Status plugins
     /// and set by Publisher plugins
     private volatile long nextExpectedBlock = -1L;
@@ -129,6 +131,9 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = context;
         this.appStateConfig = context.configuration().getConfigData(ApplicationStateConfig.class);
+        this.dispatcher = context.threadPoolManager()
+                .createSingleThreadExecutor(
+                        "ApplicationStateDispatcher", ApplicationStateUtility::uncaughtExceptionHandler);
         final HistoricalBlockFacility historicalBlocks = context.historicalBlockProvider();
         context.metricRegistry()
                 .register(ObservableGauge.builder(METRIC_APP_HISTORICAL_OLDEST_BLOCK)
@@ -144,10 +149,7 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     ///
     /// Loads the persisted state, dispatching initial notifications directly as each datum is loaded,
     /// then dispatches the available and stored blocks the providers loaded during `init()`. Finally
-    /// creates the dispatcher thread and schedules the block-range persist-interval check on it.
-    ///
-    /// The dispatcher is created last on purpose: the load is single threaded, so its updates
-    /// persist and dispatch inline rather than being handed to a thread that does not exist yet.
+    /// schedules the block-range persist-interval check.
     @Override
     public void start() {
         loadApplicationState();
@@ -159,12 +161,13 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
         currentStoredBlocks.set(List.of());
         updateAvailableBlocks();
 
-        // Create the dispatcher thread and schedule the periodic block-range persist-interval check on it.
-        applicationStateExecutor = context.threadPoolManager()
-                .createVirtualThreadScheduledExecutor(
-                        1, "ApplicationStateDispatcher", ApplicationStateUtility::uncaughtExceptionHandler);
-        applicationStateExecutor.scheduleAtFixedRate(
-                this::persistBlockRangesIfDue,
+        // Periodically hand the persist-interval check to the dispatcher, so it never runs concurrently
+        // with the other syncs.
+        persistTimer = context.threadPoolManager()
+                .createSingleThreadScheduledExecutor(
+                        "ApplicationStatePersistTimer", ApplicationStateUtility::uncaughtExceptionHandler);
+        persistTimer.scheduleAtFixedRate(
+                () -> dispatch(this::persistBlockRangesIfDue),
                 appStateConfig.updateInitialDelay(),
                 appStateConfig.updateScanInterval(),
                 TimeUnit.MILLISECONDS);
@@ -177,22 +180,19 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     /// application after this plugin.
     @Override
     public void stop() {
-        final ScheduledExecutorService executor = applicationStateExecutor;
-        if (executor != null) {
-            // Clear the field first so that an update arriving during shutdown syncs inline
-            // instead of being handed to an executor that is going away.
-            applicationStateExecutor = null;
-            // shutdown() cancels the periodic persist check but still runs the syncs already queued
-            // and lets a running write finish, so nothing needs to be redone here.
-            executor.shutdown();
-            try {
-                if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    final String executorTerminationMsg = "applicationStateExecutor did not terminate in time";
-                    LOGGER.log(INFO, executorTerminationMsg);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+        final ScheduledExecutorService timer = persistTimer;
+        if (timer != null) {
+            timer.shutdownNow();
+        }
+        // shutdown() still runs the syncs already queued and lets a running write finish; any update
+        // arriving afterwards is kept in memory but not synced, see dispatch().
+        dispatcher.shutdown();
+        try {
+            if (!dispatcher.awaitTermination(5, TimeUnit.SECONDS)) {
+                LOGGER.log(INFO, "applicationStateDispatcher did not terminate in time");
             }
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
         // Persist all block ranges at shutdown regardless of threshold.
         persistBlockRanges();
@@ -226,7 +226,7 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
         final TssData previous =
                 currentTssData.getAndUpdate(current -> shouldInstall(tssData, current) ? tssData : current);
         if (shouldInstall(tssData, previous)) {
-            runOnDispatcherThread(this::syncTssData);
+            dispatch(this::syncTssData);
         }
     }
 
@@ -237,22 +237,20 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
                 && (current == null || candidate.validFromBlock() >= current.validFromBlock());
     }
 
-    /// Runs one of the sync methods on the ApplicationStateDispatcher thread, or inline before that
-    /// thread exists (startup) and after it is gone (shutdown). The executor is read once because
-    /// it is volatile and shutdown clears it. Shutdown can still stop the executor between that read
-    /// and the hand-off, so a rejected hand-off also runs inline rather than throwing into the caller.
+    /// Hands one of the sync methods to the dispatcher. Once [#stop] has shut the dispatcher down the
+    /// sync is dropped rather than throwing [RejectedExecutionException] into the caller: plugins that
+    /// are stopped after this facility may still report state. The update itself is already installed in
+    /// memory by then.
     ///
-    /// @param sync the sync method to run
-    private void runOnDispatcherThread(final Runnable sync) {
-        final ScheduledExecutorService executor = applicationStateExecutor;
-        if (executor == null) {
-            sync.run();
-        } else {
-            try {
-                executor.execute(sync);
-            } catch (final RejectedExecutionException e) {
-                sync.run();
+    /// @param sync the sync method to run on the dispatcher thread
+    private void dispatch(final Runnable sync) {
+        try {
+            dispatcher.execute(sync);
+        } catch (final RejectedExecutionException e) {
+            if (!dispatcher.isShutdown()) {
+                throw e;
             }
+            LOGGER.log(DEBUG, "Application state facility is stopped, dropping sync");
         }
     }
 
@@ -334,25 +332,31 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     /// @return {@code true} if accepted, {@code false} if rejected
     @Override
     public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
-        boolean updated = false;
-        while (true) {
-            final AddressBookState current = addressBookState.get();
-            if (history == null || history.equals(current.history()) || !isNewerHistory(history, current.history())) {
-                break;
-            }
-            if (addressBookState.compareAndSet(
-                    current, new AddressBookState(history, AddressBookHistoryLookup.buildIndex(history)))) {
-                // Update knownPublishers immediately on the caller's thread so that publisher
-                // authentication reflects the new address book before this method returns.
-                // The dispatcher also calls updateKnownPublishersFromAddressBook in
-                // syncAddressBookHistory, where it reads the current (possibly newer) value.
-                updateKnownPublishersFromAddressBook(history);
-                runOnDispatcherThread(this::syncAddressBookHistory);
-                updated = true;
-                break;
-            }
+        if (history == null || !shouldInstall(history, addressBookState.get().history())) {
+            return false;
         }
-        return updated;
+        final AddressBookState candidate = new AddressBookState(history, AddressBookHistoryLookup.buildIndex(history));
+        // getAndUpdate retries internally, so no loop is needed here. The update function is pure, so
+        // whether this call installed the history can be recomputed from the state it replaced.
+        final AddressBookState previous = addressBookState.getAndUpdate(
+                current -> shouldInstall(history, current.history()) ? candidate : current);
+        final boolean installed = shouldInstall(history, previous.history());
+        if (installed) {
+            // Update knownPublishers immediately on the caller's thread so that publisher
+            // authentication reflects the new address book before this method returns.
+            // The dispatcher also calls updateKnownPublishersFromAddressBook in
+            // syncAddressBookHistory, where it reads the current (possibly newer) value.
+            updateKnownPublishersFromAddressBook(history);
+            dispatch(this::syncAddressBookHistory);
+        }
+        return installed;
+    }
+
+    /// A candidate history replaces the current one only if it differs and is newer, so a stale
+    /// history can never overwrite a newer one.
+    private static boolean shouldInstall(
+            final RangedAddressBookHistory candidate, final RangedAddressBookHistory current) {
+        return !candidate.equals(current) && isNewerHistory(candidate, current);
     }
 
     /// Persists the current address book history, derives the known publishers from it and
@@ -379,18 +383,11 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     }
 
     private void refreshAvailableBlocks(BlockRangeSet availableBlocks) {
-        while (true) {
-            final List<BlockRange> current = currentAvailableBlocks.get();
-            final List<BlockRange> candidate = toBlockRange(availableBlocks);
-            if (candidate.equals(current)) {
-                // Nothing changed, either because there was no update or because another thread
-                // already installed an identical snapshot; there is nothing to notify.
-                break;
-            }
-            if (currentAvailableBlocks.compareAndSet(current, candidate)) {
-                runOnDispatcherThread(this::syncAvailableBlocks);
-                break;
-            }
+        final List<BlockRange> candidate = toBlockRange(availableBlocks);
+        // Nothing to notify if there was no change, either because there was no update or because
+        // another thread already installed an identical snapshot.
+        if (!candidate.equals(currentAvailableBlocks.getAndSet(candidate))) {
+            dispatch(this::syncAvailableBlocks);
         }
     }
 
@@ -403,16 +400,15 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     }
 
     private void refreshStoredBlocks(BlockRangeSet availableBlocks) {
-        while (true) {
-            final List<BlockRange> current = currentStoredBlocks.get();
+        // The merge is recomputed on each internal retry, so a range added concurrently by another
+        // provider thread is never lost. The function returns the very same list when nothing changed,
+        // so a different reference afterwards means a change was installed.
+        final List<BlockRange> previous = currentStoredBlocks.getAndUpdate(current -> {
             final List<BlockRange> candidate = mergeRanges(storedBlocks, availableBlocks);
-            if (candidate.equals(current)) {
-                break;
-            }
-            if (currentStoredBlocks.compareAndSet(current, candidate)) {
-                runOnDispatcherThread(this::syncStoredBlocks);
-                break;
-            }
+            return candidate.equals(current) ? current : candidate;
+        });
+        if (currentStoredBlocks.get() != previous) {
+            dispatch(this::syncStoredBlocks);
         }
     }
 

@@ -17,7 +17,6 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
@@ -32,7 +31,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.api.BlockNodeVersions;
@@ -141,7 +139,7 @@ class ApplicationStateFacilityPluginTest {
         final TestHistoricalBlockFacility historical = new TestHistoricalBlockFacility();
         final TestMetricsExporter metricsExporter = new TestMetricsExporter();
         final TestThreadPoolManager<?, ?> threadPoolManager = new TestThreadPoolManager<>(
-                Executors.newVirtualThreadPerTaskExecutor(), Executors.newSingleThreadScheduledExecutor());
+                Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
         final Configuration configuration;
         final ApplicationStateConfig config;
         final BlockNodeContext context;
@@ -428,25 +426,52 @@ class ApplicationStateFacilityPluginTest {
     }
 
     @Test
-    @DisplayName("update runs its sync inline when the dispatcher executor has already been shut down")
-    void updateSyncsInlineWhenDispatcherRejects() throws Exception {
+    @DisplayName("an update after stop is kept in memory and does not throw")
+    void updateAfterStopIsKeptInMemory() {
         final Fixture f = newFixture();
+        final RecordingHandler handler = new RecordingHandler();
+        f.register(handler);
+        f.initAndStart();
+        f.plugin.stop();
+
+        final TssData tssData = buildTssData(100, "040506");
+        assertThatCode(() -> f.plugin.updateTssData(tssData)).doesNotThrowAnyException();
+        assertThatCode(() -> f.plugin.addStoredBlockRange(new LongRange(0, 9))).doesNotThrowAnyException();
+
+        assertThat(f.plugin.tssData()).isEqualTo(tssData);
+        assertThat(handler.tssDataNotifications).isEmpty();
+    }
+
+    @Test
+    @DisplayName("updates racing with stop never throw, and the last notification matches the value held")
+    void updatesRacingWithStopNeverThrow() throws Exception {
+        final Fixture f = newFixture();
+        final RecordingHandler handler = new RecordingHandler();
+        f.register(handler);
         f.initAndStart();
 
-        final Field executorField = ApplicationStateFacilityPlugin.class.getDeclaredField("applicationStateExecutor");
-        executorField.setAccessible(true);
-        final ScheduledExecutorService dispatcher = (ScheduledExecutorService) executorField.get(f.plugin);
-        final ScheduledExecutorService stopped = Executors.newSingleThreadScheduledExecutor();
-        stopped.shutdownNow();
-        executorField.set(f.plugin, stopped);
-        try {
-            final TssData tssData = buildTssData(100, "040506");
-            assertThatCode(() -> f.plugin.updateTssData(tssData)).doesNotThrowAnyException();
-            assertThat(TssData.JSON.parse(Bytes.wrap(Files.readAllBytes(f.config.tssBootstrapFilePath()))))
-                    .isEqualTo(tssData);
-        } finally {
-            executorField.set(f.plugin, dispatcher);
-            f.plugin.stop();
+        final AtomicBoolean failed = new AtomicBoolean();
+        final CountDownLatch startLine = new CountDownLatch(1);
+        final Thread writer = Thread.ofVirtual().start(() -> {
+            try {
+                startLine.await();
+                for (long block = 1; block <= 500; block++) {
+                    f.plugin.updateTssData(buildTssData(block, "0a0b"));
+                }
+            } catch (final Throwable t) {
+                failed.set(true);
+            }
+        });
+        startLine.countDown();
+        f.plugin.stop();
+        writer.join();
+
+        assertThat(failed).isFalse();
+        final List<TssData> seen = handler.tssDataNotifications;
+        // notifications are never out of order, whatever was dropped at shutdown
+        for (int i = 1; i < seen.size(); i++) {
+            assertThat(seen.get(i).validFromBlock())
+                    .isGreaterThan(seen.get(i - 1).validFromBlock());
         }
     }
 
@@ -740,7 +765,11 @@ class ApplicationStateFacilityPluginTest {
         f.historical.available.add(20, 30);
         f.init();
         // a provider reporting from its own init(), before the facility has started
+        handler.expect(2);
         f.plugin.updateAvailableBlocks();
+        handler.await();
+        handler.lastAvailableBlocks = null;
+        handler.lastStoredBlocks = null;
         handler.expect(2);
 
         f.plugin.start();

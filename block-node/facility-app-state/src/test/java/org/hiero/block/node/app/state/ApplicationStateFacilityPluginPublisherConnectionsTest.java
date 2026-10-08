@@ -14,10 +14,13 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.Executors;
 import org.hiero.block.api.NetworkConnection;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.node.app.fixtures.TestUtils;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -93,8 +96,15 @@ class ApplicationStateFacilityPluginPublisherConnectionsTest {
                                             "app.state.rsaBootstrapFilePath",
                                             tempDir.resolve("rsa.json").toString())
                                     .build(),
-                            null),
+                            new TestThreadPoolManager<>(
+                                    Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor())),
                     null);
+        }
+
+        @AfterEach
+        void tearDown() {
+            // drain the dispatcher so no write is still in flight when the temp directory is deleted
+            app.stop();
         }
 
         @Test
