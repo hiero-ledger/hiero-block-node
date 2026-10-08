@@ -81,6 +81,8 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private final BlockReadBulkhead blockReadBulkhead;
     /** The throttle mechanism's shared, once-registered metrics — see {@link ThrottleMetrics}. */
     private final ThrottleMetrics throttleMetrics;
+    /** Shared across every throttled registration — see its own constructor for why. */
+    private final RemoteAddressKeyExtractor keyExtractor;
 
     public ServiceBuilderImpl(
             final ServerConfig serverConfig,
@@ -98,6 +100,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         this.threadPoolManager = threadPoolManager;
         this.blockReadBulkhead = new BlockReadBulkhead(blockReadBulkheadConfig.permits(), metricRegistry);
         this.throttleMetrics = new ThrottleMetrics(metricRegistry);
+        this.keyExtractor = new RemoteAddressKeyExtractor(metricRegistry);
         additionalWebservers = new LinkedHashSet<>();
     }
 
@@ -165,7 +168,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
                     service,
                     perClientSettings,
                     globalConcurrencyCeilings,
-                    new RemoteAddressKeyExtractor(),
+                    keyExtractor,
                     weigher.get(),
                     throttleMetrics,
                     Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
@@ -179,7 +182,7 @@ public class ServiceBuilderImpl implements ServiceBuilder {
                     perClientSettings,
                     spec.defaultPerClientSettings(),
                     maxConcurrentGlobal,
-                    new RemoteAddressKeyExtractor(),
+                    keyExtractor,
                     throttleMetrics,
                     Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
             throttledServices.add(simpleThrottled);
