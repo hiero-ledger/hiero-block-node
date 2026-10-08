@@ -73,34 +73,41 @@ final class SingleWeightThrottle implements StaleClientSweepable {
         // Atomic per-key compute: either reuse a live/still-fresh entry, or replace a stale,
         // currently-unused one with a fresh limiter. A client that hasn't been seen in a while
         // deserves a clean rate-limit history, not one artificially constrained by ancient calls.
+        // lastSeenNanos is stamped inside this same compute() callback, not after it returns, so a
+        // concurrent sweepStaleClients() can never observe a freshly-created entry before it's
+        // stamped and mistake it for one that's been idle since the epoch.
         final ClientState state = clientStates.compute(clientKey, (ignoredKey, existing) -> {
-            if (existing != null && !(isStale(existing, nowNanos) && existing.inFlight.get() == 0)) {
-                return existing;
-            }
-            return new ClientState(new GcraLimiter(settings.ratePerSecond(), settings.burstTolerance()));
+            final ClientState current =
+                    (existing != null && !(isStale(existing, nowNanos) && existing.inFlight.get() == 0))
+                            ? existing
+                            : new ClientState(new GcraLimiter(settings.ratePerSecond(), settings.burstTolerance()));
+            current.lastSeenNanos = nowNanos;
+            return current;
         });
-        state.lastSeenNanos = nowNanos;
 
         final String description = service + "." + method;
-        if (!globalGate.hasCapacity()) {
+        // Each check below reserves atomically (not check-then-increment) so concurrent callers
+        // can never collectively overshoot a ceiling; a check that rejects rolls back whatever
+        // this call already reserved, since it runs after the checks it could invalidate.
+        if (!globalGate.tryReserve()) {
             throttleMetrics.recordCall(
                     service, method, weightClass, ThrottleMetrics.Outcome.REJECTED_GLOBAL_CONCURRENCY);
             return AdmissionResult.rejected("node-wide concurrency limit reached for " + description);
         }
-        if (state.inFlight.get() >= settings.maxConcurrentPerClient()) {
+        if (!tryReserve(state.inFlight, settings.maxConcurrentPerClient())) {
+            globalGate.release();
             throttleMetrics.recordCall(
                     service, method, weightClass, ThrottleMetrics.Outcome.REJECTED_CLIENT_CONCURRENCY);
             return AdmissionResult.rejected("per-client concurrency limit reached for " + description);
         }
         if (!state.limiter.tryAcquire(nowNanos)) {
+            globalGate.release();
+            state.inFlight.decrementAndGet();
             throttleMetrics.recordCall(service, method, weightClass, ThrottleMetrics.Outcome.REJECTED_RATE);
             return AdmissionResult.rejected("rate limit exceeded for " + description);
         }
 
-        globalGate.acquire();
-        state.inFlight.incrementAndGet();
         throttleMetrics.recordCall(service, method, weightClass, ThrottleMetrics.Outcome.ADMITTED);
-
         final AtomicBoolean released = new AtomicBoolean(false);
         final Runnable releasePermit = () -> {
             if (released.compareAndSet(false, true)) {
@@ -109,6 +116,20 @@ final class SingleWeightThrottle implements StaleClientSweepable {
             }
         };
         return AdmissionResult.admitted(releasePermit);
+    }
+
+    /// Atomically reserves a slot on `counter` if it is below `max` — the per-client-counter
+    /// equivalent of [GlobalConcurrencyGate#tryReserve], which has no gate class of its own.
+    private static boolean tryReserve(@NonNull final AtomicInteger counter, final int max) {
+        while (true) {
+            final int current = counter.get();
+            if (current >= max) {
+                return false;
+            }
+            if (counter.compareAndSet(current, current + 1)) {
+                return true;
+            }
+        }
     }
 
     /// {@inheritDoc}

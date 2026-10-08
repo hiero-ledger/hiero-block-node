@@ -12,11 +12,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 /// opts into per-client settings carry its own independent copy would silently multiply that
 /// allocation by however many methods are configured.
 ///
-/// Exposes a pure-read check ([#hasCapacity]) separate from the commit ([#acquire]) so
-/// [SingleWeightThrottle] can preserve its existing admission-decision order: a call that is
-/// going to be rejected by a later check must not mutate this counter first. [#tryAdmit] is a
-/// convenience for the simpler case — a method with *no* per-client gate at all, where this is
-/// the only check and there is nothing later to roll back for.
+/// [#tryReserve] atomically checks and commits in one step (a lock-free CAS loop, the same
+/// pattern [GcraLimiter] uses), so concurrent callers can never collectively overshoot the
+/// ceiling the way a separate check-then-increment would allow. [SingleWeightThrottle] reserves
+/// this gate first — before its own per-client and rate checks — and rolls the reservation back
+/// via [#release] if either of those later checks goes on to reject the call; this gate does not
+/// need to know whether that happens. [#tryAdmit] is a convenience for the simpler case — a
+/// method with *no* per-client gate at all, where this is the only check.
 final class GlobalConcurrencyGate {
     private final int maxConcurrentGlobal;
     private final AtomicInteger inFlight = new AtomicInteger();
@@ -26,18 +28,24 @@ final class GlobalConcurrencyGate {
         this.maxConcurrentGlobal = maxConcurrentGlobal;
     }
 
-    /// @return {@code true} if the ceiling has not yet been reached (a pure read)
-    boolean hasCapacity() {
-        return inFlight.get() < maxConcurrentGlobal;
+    /// Atomically reserves a permit if the ceiling has not been reached.
+    ///
+    /// @return {@code true} if a permit was reserved (the caller must [#release] it exactly once,
+    ///     including rolling it back if a later check goes on to reject the call); {@code false}
+    ///     if the ceiling was already reached
+    boolean tryReserve() {
+        while (true) {
+            final int current = inFlight.get();
+            if (current >= maxConcurrentGlobal) {
+                return false;
+            }
+            if (inFlight.compareAndSet(current, current + 1)) {
+                return true;
+            }
+        }
     }
 
-    /// Commits a permit. Callers must only call this after confirming every other check for the
-    /// call has also passed.
-    void acquire() {
-        inFlight.incrementAndGet();
-    }
-
-    /// Releases a permit previously committed via [#acquire].
+    /// Releases a permit previously committed via [#tryReserve].
     void release() {
         inFlight.decrementAndGet();
     }
@@ -50,10 +58,9 @@ final class GlobalConcurrencyGate {
     /// @return the admission result — see [AdmissionResult]
     @NonNull
     AdmissionResult tryAdmit(@NonNull final String description) {
-        if (!hasCapacity()) {
+        if (!tryReserve()) {
             return AdmissionResult.rejected("node-wide concurrency limit reached for " + description);
         }
-        acquire();
         final AtomicBoolean released = new AtomicBoolean(false);
         return AdmissionResult.admitted(() -> {
             if (released.compareAndSet(false, true)) {
