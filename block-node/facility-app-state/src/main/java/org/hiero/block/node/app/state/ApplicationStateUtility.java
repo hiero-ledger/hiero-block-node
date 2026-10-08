@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.app;
+package org.hiero.block.node.app.state;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
@@ -29,7 +29,6 @@ import org.hiero.block.api.NetworkConnection.ConnectionReference;
 import org.hiero.block.api.NetworkConnection.IpProtocol;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
-import org.hiero.block.node.app.config.state.ApplicationStateConfig;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 

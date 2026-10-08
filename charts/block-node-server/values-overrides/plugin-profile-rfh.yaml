@@ -5,5 +5,5 @@
 # No stream-publisher/stream-subscriber either: such a node takes no live stream from a
 # Consensus Node and serves no downstream client. Blocks arrive solely via backfill.
 plugins:
-  names: "backfill,block-verification,cloud-storage-archive,cloud-storage-expanded,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status"
+  names: "backfill,block-verification,cloud-storage-archive,cloud-storage-expanded,facility-app-state,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status"
 

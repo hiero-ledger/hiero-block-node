@@ -3,4 +3,4 @@
 # Blocks arrive via stream-publisher, land in blocks-file-recent/historic, and are served
 # to downstream clients via stream-subscriber and block-access-service. No cloud archiving.
 plugins:
-  names: "backfill,block-access-service,block-verification,blocks-file-historic,blocks-file-recent,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber"
+  names: "backfill,block-access-service,block-verification,blocks-file-historic,blocks-file-recent,facility-app-state,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber"

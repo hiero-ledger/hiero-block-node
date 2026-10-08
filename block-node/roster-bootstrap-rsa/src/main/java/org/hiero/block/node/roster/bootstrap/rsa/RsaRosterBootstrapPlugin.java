@@ -48,7 +48,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /// Loads the RSA address-book history at Block Node startup and publishes it to all plugins via
 /// {@link ApplicationStateFacility#updateAddressBookHistory}.
 ///
-/// File loading is handled by {@code BlockNodeApp}: it reads the history file (or the legacy
+/// File loading is handled by the {@code ApplicationStateFacility} plugin: it reads the history file (or the legacy
 /// single-book file, wrapped into a single open-ended era) in {@code loadApplicationState()} and
 /// stores it in the {@link ApplicationStateFacility}. This plugin's sole responsibility is to check
 /// whether {@link ApplicationStateFacility#rangedAddressBookHistory()} already holds a history and,

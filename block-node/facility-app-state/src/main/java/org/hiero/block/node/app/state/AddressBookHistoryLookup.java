@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.app;
+package org.hiero.block.node.app.state;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import edu.umd.cs.findbugs.annotations.NonNull;

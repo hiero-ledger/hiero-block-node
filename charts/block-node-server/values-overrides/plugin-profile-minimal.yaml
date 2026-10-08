@@ -3,4 +3,4 @@
 # No block provider at all, and no stream-publisher/stream-subscriber, so this node can never
 # receive or serve a block by any path -- it exists to prove the four-plugin core starts.
 plugins:
-  names: "facility-messaging,block-access-service,health,server-status"
+  names: "facility-app-state,facility-messaging,block-access-service,health,server-status"

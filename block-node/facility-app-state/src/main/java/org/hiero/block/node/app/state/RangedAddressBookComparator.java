@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.app;
+package org.hiero.block.node.app.state;
 
 import java.util.Comparator;
 import org.hiero.block.api.RangedNodeAddressBook;

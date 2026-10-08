@@ -28,8 +28,8 @@ import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
-/// A block node plugin that tries to get the latest TssData and makes it available to the `BlockNodeApp` and
-/// to the `ServerStatusServicePlugin`
+/// A block node plugin that tries to get the latest TssData and makes it available to the
+/// `ApplicationStateFacility` and to the `ServerStatusServicePlugin`
 ///
 /// The TssData is retrieved from TssData sources in the following order:
 ///  - `RosterBootstrapTssConfig` TssData fields (ledgerId, wrapsVerificationKey, etc)

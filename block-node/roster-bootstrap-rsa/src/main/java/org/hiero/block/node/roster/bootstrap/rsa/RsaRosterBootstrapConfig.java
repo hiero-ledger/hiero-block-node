@@ -10,9 +10,9 @@ import org.hiero.block.node.base.Loggable;
 /// Configuration for the RSA roster bootstrap plugin.
 ///
 /// The RSA bootstrap file path is configured via `app.state.rsaBootstrapFilePath` in
-/// `ApplicationStateConfig`; file loading and persistence are handled by `BlockNodeApp`.
+/// `ApplicationStateConfig`; file loading and persistence are handled by the `ApplicationStateFacility` plugin.
 /// **Startup sequence:**
-/// 1. Bootstrap file (loaded by BlockNodeApp before plugins start)
+/// 1. Bootstrap file (loaded by the ApplicationStateFacility before plugins start)
 /// 2. Peer block node gRPC query (if `blockNodeSourcesPath` is set)
 /// 3. Mirror Node REST API fallback (if `mirrorNodeBaseUrl` is set)
 ///
