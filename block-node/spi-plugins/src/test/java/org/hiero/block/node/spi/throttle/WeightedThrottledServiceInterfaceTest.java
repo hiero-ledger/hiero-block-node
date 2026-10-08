@@ -38,6 +38,7 @@ class WeightedThrottledServiceInterfaceTest {
 
     private RecordingWeightedService recordingService;
     private ThrottleMetrics throttleMetrics;
+    private RemoteAddressKeyExtractor keyExtractor;
 
     @BeforeEach
     void setUp() {
@@ -46,6 +47,7 @@ class WeightedThrottledServiceInterfaceTest {
                 .setMetricsExporter(new NoOpMetricsExporter())
                 .build();
         throttleMetrics = new ThrottleMetrics(metricRegistry);
+        keyExtractor = new RemoteAddressKeyExtractor(metricRegistry);
     }
 
     @Test
@@ -156,7 +158,7 @@ class WeightedThrottledServiceInterfaceTest {
                 recordingService,
                 Map.of(),
                 Map.of(WeightClass.STANDARD, 5, WeightClass.HEAVY, 1),
-                new RemoteAddressKeyExtractor(),
+                keyExtractor,
                 WEIGHER,
                 throttleMetrics,
                 Duration.ofDays(1));
@@ -188,7 +190,7 @@ class WeightedThrottledServiceInterfaceTest {
                 recordingService,
                 perClientSettings,
                 globalConcurrencyCeilings,
-                new RemoteAddressKeyExtractor(),
+                keyExtractor,
                 WEIGHER,
                 throttleMetrics,
                 Duration.ofDays(1));

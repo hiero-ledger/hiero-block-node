@@ -37,6 +37,7 @@ class ThrottledServiceInterfaceTest {
 
     private RecordingService recordingService;
     private ThrottleMetrics throttleMetrics;
+    private RemoteAddressKeyExtractor keyExtractor;
 
     @BeforeEach
     void setUp() {
@@ -45,6 +46,7 @@ class ThrottledServiceInterfaceTest {
                 .setMetricsExporter(new NoOpMetricsExporter())
                 .build();
         throttleMetrics = new ThrottleMetrics(metricRegistry);
+        keyExtractor = new RemoteAddressKeyExtractor(metricRegistry);
     }
 
     @Test
@@ -231,7 +233,7 @@ class ThrottledServiceInterfaceTest {
                         new PerClientThrottleSettings(100, 10, 1)),
                 Optional.empty(),
                 100,
-                new RemoteAddressKeyExtractor(),
+                keyExtractor,
                 throttleMetrics,
                 Duration.ofDays(1));
 
@@ -280,7 +282,7 @@ class ThrottledServiceInterfaceTest {
                         new PerClientThrottleSettings(100, 10, 5)),
                 Optional.of(new PerClientThrottleSettings(100, 10, 1)), // default: 1 concurrent per client
                 100,
-                new RemoteAddressKeyExtractor(),
+                keyExtractor,
                 throttleMetrics,
                 Duration.ofDays(1));
 
@@ -311,7 +313,7 @@ class ThrottledServiceInterfaceTest {
                                 tier.ratePerSecond(), tier.burstTolerance(), tier.maxConcurrentPerClient())),
                 Optional.empty(),
                 tier.maxConcurrentGlobal(),
-                new RemoteAddressKeyExtractor(),
+                keyExtractor,
                 throttleMetrics,
                 clientStateTtl);
     }
@@ -324,7 +326,7 @@ class ThrottledServiceInterfaceTest {
                 Map.of(),
                 Optional.empty(),
                 maxConcurrentGlobal,
-                new RemoteAddressKeyExtractor(),
+                keyExtractor,
                 throttleMetrics,
                 Duration.ofDays(1));
     }
