@@ -203,14 +203,14 @@ For every call, in order — the first check that rejects wins, and no later che
 1. **Global concurrency check** — is the node-wide concurrency ceiling for this weight class already reached? (a
    pure read of shared state, via [`GlobalConcurrencyGate`](#globalconcurrencygate)) Always runs, regardless of
    whether this method has any per-client configuration.
-2. **Per-client concurrency check** — has this client already reached its own concurrency ceiling for this method?
-   (a pure read of per-client state) **Skipped entirely** for a method with no
+2. **Per-client concurrency check** — has this client already reached its own concurrency ceiling for this method and
+   weight class? (a pure read of per-client state) **Skipped entirely** for a method with no
    [`PerClientThrottleSettings`](#perclientthrottlesettings) configured — see
    ["Configuration ownership"](#configuration-ownership).
-3. **Rate check (leaky bucket, via GCRA)** — is this client calling faster than its allowed rate? This check is the only
-   one that mutates state (it advances the client's theoretical-arrival-time marker), so it deliberately runs last.
-   A call that's going to be rejected by a cheaper check must not be allowed to consume a rate-limiting slot first.
-   Also skipped for an unconfigured method, for the same reason as check 2.
+3. **Rate check (leaky bucket, via GCRA)** — is this client calling faster than its allowed rate for this method and
+   weight class? This check is the only one that mutates state (it advances the client's theoretical-arrival-time
+   marker), so it deliberately runs last. A call that's going to be rejected by a cheaper check must not be allowed
+   to consume a rate-limiting slot first. Also skipped for an unconfigured method, for the same reason as check 2.
 
 If every check passes, the call is admitted: both concurrency counters are incremented, and the real service's
 business logic is invoked. If any check fails, the call is rejected immediately (see [Exceptions](#exceptions)) and
@@ -434,8 +434,8 @@ Three extension points are designed in from the start, since all three are antic
 - **Splitting the weighted admission decision — reject on global/per-client concurrency in `open()`, and defer
   only the rate check to `onNext` once classified.** Rejected: there's no weight-agnostic version of the
   concurrency checks to split off in the first place. `maxConcurrentPerClient` is a field on each weight class's own
-  `PerClientThrottleSettings`, and even `maxConcurrentGlobal` — shared across weight classes as it is — is keyed by
-  weight class, not a single service-wide ceiling underneath them, so which ceiling applies is unknown until
+  `PerClientThrottleSettings`, and even `maxConcurrentGlobal` is keyed by weight class — shared across every method
+  within that class, but never pooled across different weight classes — so which ceiling applies is unknown until
   classification happens in `onNext` regardless — there's nothing coherent to check
   earlier. Doing this anyway would mean inventing a new policy value with no counterpart elsewhere in this
   design, plus a provisional-admit-then-reconcile step once the real class is known: a release-then-reacquire
