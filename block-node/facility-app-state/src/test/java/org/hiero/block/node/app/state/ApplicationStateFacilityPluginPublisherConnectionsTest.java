@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.app;
+package org.hiero.block.node.app.state;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -9,22 +9,27 @@ import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.ServiceEndpoint;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.io.IOException;
+import com.swirlds.config.api.ConfigurationBuilder;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.Executors;
 import org.hiero.block.api.NetworkConnection;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
-import org.hiero.block.node.spi.ServiceLoaderFunction;
+import org.hiero.block.node.app.fixtures.TestUtils;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-/// Tests that verify [BlockNodeApp#updateAddressBookHistory] correctly derives and propagates
-/// publisher connections to [BlockNodeApp#knownPublishers].
-class BlockNodeAppPublisherConnectionsTest {
+/// Tests that verify [ApplicationStateFacilityPlugin#updateAddressBookHistory] correctly derives and propagates
+/// publisher connections to [ApplicationStateFacilityPlugin#knownPublishers].
+class ApplicationStateFacilityPluginPublisherConnectionsTest {
 
     // ---- builders -------------------------------------------------------------------------------
 
@@ -74,11 +79,32 @@ class BlockNodeAppPublisherConnectionsTest {
     @Nested
     @DisplayName("verify that updateAddressBookHistory propagates to knownPublishers")
     class TestKnownPublishersFromAddressBookUpdate {
-        private BlockNodeApp app;
+        @TempDir
+        Path tempDir;
+
+        private ApplicationStateFacilityPlugin app;
 
         @BeforeEach
-        void setUp() throws IOException {
-            app = new BlockNodeApp(new ServiceLoaderFunction(), false);
+        void setUp() {
+            // No start(): updates persist and dispatch inline, which is all these tests need.
+            app = new ApplicationStateFacilityPlugin();
+            app.init(
+                    TestUtils.testContext(
+                            ConfigurationBuilder.create()
+                                    .withConfigDataType(ApplicationStateConfig.class)
+                                    .withValue(
+                                            "app.state.rsaBootstrapFilePath",
+                                            tempDir.resolve("rsa.json").toString())
+                                    .build(),
+                            new TestThreadPoolManager<>(
+                                    Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor())),
+                    null);
+        }
+
+        @AfterEach
+        void tearDown() {
+            // drain the dispatcher so no write is still in flight when the temp directory is deleted
+            app.stop();
         }
 
         @Test

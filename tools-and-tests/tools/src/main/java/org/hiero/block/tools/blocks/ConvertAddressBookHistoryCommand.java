@@ -272,7 +272,7 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
      * fall back to a non-atomic replace with a warning. Some filesystems (tmpfs on Docker,
      * certain NFS mounts, jimfs in tests) do not implement {@code ATOMIC_MOVE} and raise
      * {@link AtomicMoveNotSupportedException}; the destination is still overwritten, just not
-     * atomically. Mirrors the pattern used in {@code BlockNodeApp.persistNodeAddressBookHistory}.
+     * atomically. Mirrors the pattern used in {@code ApplicationStateFacilityPlugin.persistNodeAddressBookHistory}.
      */
     private static void atomicMoveWithFallback(Path src, Path dest) throws IOException {
         try {

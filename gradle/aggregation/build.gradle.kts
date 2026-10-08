@@ -11,6 +11,7 @@ dependencies {
     published(project(":cloud-storage-archive"))
     published(project(":cloud-storage-expanded"))
     published(project(":health"))
+    published(project(":facility-app-state"))
     published(project(":facility-messaging"))
     published(project(":server-status"))
     published(project(":spi-plugins"))

@@ -115,6 +115,7 @@ dependencies {
     blockNodePlugins(platform(project(":hiero-dependency-versions")))
 
     // Facilities
+    blockNodePlugins(project(":facility-app-state"))
     blockNodePlugins(project(":facility-messaging"))
 
     // Services
@@ -191,6 +192,7 @@ tasks.register<JavaExec>("runWithCleanStorage") {
 }
 
 testModuleInfo {
+    requires("org.hiero.block.node.app.state")
     requires("org.hiero.block.node.app.test.fixtures")
     requires("org.assertj.core")
     requires("org.junit.jupiter.api")

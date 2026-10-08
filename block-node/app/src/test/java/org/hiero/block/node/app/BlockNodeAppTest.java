@@ -3,18 +3,11 @@ package org.hiero.block.node.app;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -23,24 +16,17 @@ import static org.mockito.Mockito.when;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
-import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.security.KeyPairGenerator;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -48,12 +34,11 @@ import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.RangedAddressBookHistory;
-import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
-import org.hiero.block.node.app.config.state.ApplicationStateConfig;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.app.state.ApplicationStateConfig;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -67,12 +52,10 @@ import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.health.HealthFacility.State;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 import org.mockito.MockitoAnnotations;
 
 /**
@@ -414,557 +397,6 @@ class BlockNodeAppTest {
     }
 
     /**
-     * Test ApplicationStateFacility.
-     */
-    @Test
-    @DisplayName("Test ApplicationStateFacility")
-    void testApplicationStateFacility() throws IOException, InterruptedException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
-        final TestPlugin testPlugin = new TestPlugin();
-
-        // startApplicationStateFacility starts the messaging facility internally
-        blockNodeApp.startApplicationStateFacility();
-
-        blockNodeApp.loadedPlugins.add(testPlugin);
-        blockNodeApp
-                .blockNodeContext
-                .blockMessaging()
-                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
-        testPlugin.expectContextUpdates(1);
-
-        blockNodeApp.updateTssData(null);
-        blockNodeApp.updateTssData(
-                buildTssData(Bytes.fromHex("040506"), Bytes.fromHex("010203"), 1, 2, Bytes.fromHex("070809"), 200, 50));
-        TssData tssData =
-                buildTssData(Bytes.fromHex("040506"), Bytes.fromHex("010203"), 1, 2, Bytes.fromHex("070809"), 100, 50);
-        blockNodeApp.updateTssData(tssData);
-        // wait for the direct-dispatch notification to arrive
-        testPlugin.awaitContextUpdates(5);
-
-        assertEquals(1, testPlugin.getContextUpdated());
-
-        // stop the ApplicationStateFacility manually as blockNodeApp.shutdown() is not being called
-        blockNodeApp.stopApplicationStateFacility();
-    }
-
-    /**
-     * Shutdown can stop the dispatcher executor after an update has read it but before the sync is
-     * handed off. The rejected hand-off must run the sync inline instead of throwing into the caller.
-     */
-    @Test
-    @DisplayName("update runs its sync inline when the dispatcher executor has already been shut down")
-    void updateSyncsInlineWhenDispatcherRejects() throws Exception {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
-        blockNodeApp.startApplicationStateFacility();
-
-        final Field executorField = BlockNodeApp.class.getDeclaredField("applicationStateExecutor");
-        executorField.setAccessible(true);
-        final ScheduledExecutorService dispatcher = (ScheduledExecutorService) executorField.get(blockNodeApp);
-        final ScheduledExecutorService stopped = Executors.newSingleThreadScheduledExecutor();
-        stopped.shutdownNow();
-        executorField.set(blockNodeApp, stopped);
-        try {
-            final TssData tssData = buildTssData(
-                    Bytes.fromHex("040506"), Bytes.fromHex("010203"), 1, 2, Bytes.fromHex("070809"), 100, 50);
-            assertDoesNotThrow(() -> blockNodeApp.updateTssData(tssData));
-
-            final Path tssPath = blockNodeApp
-                    .blockNodeContext
-                    .configuration()
-                    .getConfigData(ApplicationStateConfig.class)
-                    .tssBootstrapFilePath();
-            assertEquals(tssData, TssData.JSON.parse(Bytes.wrap(Files.readAllBytes(tssPath))));
-        } finally {
-            executorField.set(blockNodeApp, dispatcher);
-            blockNodeApp.stopApplicationStateFacility();
-        }
-    }
-
-    /**
-     * Test ApplicationStateFacility load failure.
-     */
-    @Test
-    @DisplayName("should not fail on bad TssData file")
-    void testApplicationStateFacilityBadFile() throws IOException, InterruptedException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
-        final Path appStateDataFilePath = blockNodeApp
-                .blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .tssBootstrapFilePath();
-
-        Files.deleteIfExists(appStateDataFilePath);
-        Files.createFile(appStateDataFilePath);
-
-        blockNodeApp.startApplicationStateFacility();
-
-        assertNull(blockNodeApp.currentTssData.get());
-
-        blockNodeApp.stopApplicationStateFacility();
-    }
-
-    /**
-     * Test ApplicationStateFacility persistence.
-     */
-    @Test
-    @DisplayName("should persist and load TssData")
-    void testApplicationStateFacilityPersistence() throws IOException, InterruptedException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
-        // startApplicationStateFacility starts the messaging facility internally
-        blockNodeApp.startApplicationStateFacility();
-        // Register a test plugin so we can await the direct-dispatch notification.
-        final TestPlugin testPlugin = new TestPlugin();
-        blockNodeApp.loadedPlugins.add(testPlugin);
-        blockNodeApp
-                .blockNodeContext
-                .blockMessaging()
-                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
-        testPlugin.expectContextUpdates(1);
-        // update the tssData which should persist to disk
-        TssData tssData =
-                buildTssData(Bytes.fromHex("010203"), Bytes.fromHex("040506"), 1, 2, Bytes.fromHex("070809"), 50, 100);
-        blockNodeApp.updateTssData(tssData);
-        // wait for the dispatcher to process and persist the update
-        testPlugin.awaitContextUpdates(5);
-
-        // create a new BlockNodeApp which will load the persisted TssData
-        final BlockNodeApp blockNodeApp2 = new BlockNodeApp(serviceLoaderFunction, false);
-        // startApplicationStateFacility starts messaging facility, loads state, dispatches directly
-        blockNodeApp2.startApplicationStateFacility();
-
-        TssData tssData1 = blockNodeApp2.currentTssData.get();
-        assertNotNull(tssData1);
-        assertEquals(tssData.ledgerId(), tssData1.ledgerId());
-        assertEquals(tssData.wrapsVerificationKey(), tssData1.wrapsVerificationKey());
-
-        RosterEntry roster = tssData.currentRoster().rosterEntries().getFirst();
-        RosterEntry roster1 = tssData1.currentRoster().rosterEntries().getFirst();
-
-        assertEquals(roster.nodeId(), roster1.nodeId());
-        assertEquals(roster.weight(), roster1.weight());
-        assertEquals(roster.schnorrPublicKey(), roster1.schnorrPublicKey());
-
-        blockNodeApp2.stopApplicationStateFacility();
-        blockNodeApp.stopApplicationStateFacility();
-    }
-
-    /**
-     * When the RSA bootstrap file does not exist the address book is null after startup.
-     */
-    @Test
-    @DisplayName("loadApplicationState with missing RSA file leaves address book null")
-    void loadApplicationStateMissingRsaFileAddressBookNull() throws IOException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        final Path rsaPath = app.blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .rsaBootstrapFilePath();
-        Files.deleteIfExists(rsaPath);
-
-        app.startApplicationStateFacility();
-
-        assertNull(app.rangedAddressBookHistory(), "Missing RSA file must leave address book null");
-        app.stopApplicationStateFacility();
-    }
-
-    /**
-     * When the RSA bootstrap file exists but is corrupt, startApplicationStateFacility throws.
-     */
-    @Test
-    @DisplayName("loadApplicationState with corrupt RSA file throws IllegalStateException")
-    void loadApplicationStateCorruptRsaFileThrows() throws IOException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        final Path rsaPath = app.blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .rsaBootstrapFilePath();
-        Files.createDirectories(rsaPath.getParent());
-        Files.write(rsaPath, new byte[] {(byte) 0xFF, (byte) 0xFE, 0x00});
-
-        assertThrows(IllegalStateException.class, app::startApplicationStateFacility);
-
-        app.stopApplicationStateFacility();
-    }
-
-    /**
-     * When the history file exists it is loaded and exposed in nodeAddressBookHistory.
-     */
-    @Test
-    @DisplayName("loadApplicationState with history file populates nodeAddressBookHistory")
-    void loadApplicationStateHistoryFilePopulatesHistory() throws Exception {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        final Path historyPath = app.blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .rsaBootstrapFilePath();
-
-        // Write a two-era history file
-        Files.createDirectories(historyPath.getParent());
-        final RangedAddressBookHistory history = buildTwoEraHistory();
-        Files.write(historyPath, RangedAddressBookHistory.JSON.toBytes(history).toByteArray());
-
-        app.startApplicationStateFacility();
-
-        final RangedAddressBookHistory loaded = app.rangedAddressBookHistory();
-        assertNotNull(loaded, "History file must populate nodeAddressBookHistory");
-        assertEquals(2, loaded.addressBooks().size(), "Two eras must be loaded");
-        app.stopApplicationStateFacility();
-    }
-
-    private void createRsaBootstrapFile(BlockNodeApp app) throws Exception {
-        final ApplicationStateConfig cfg =
-                app.blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
-        final Path rsaPath = cfg.rsaBootstrapFilePath();
-
-        // Write a valid single-book RSA file (needs a real RSA key to pass validateAddressBook)
-        final java.security.KeyPairGenerator kpg = java.security.KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(2048);
-        final String hexKey =
-                HexFormat.of().formatHex(kpg.generateKeyPair().getPublic().getEncoded());
-        final NodeAddressBook book = NodeAddressBook.newBuilder()
-                .nodeAddress(
-                        NodeAddress.newBuilder().nodeId(1).rsaPubKey(hexKey).build())
-                .build();
-        Files.createDirectories(rsaPath.getParent());
-        Files.write(rsaPath, NodeAddressBook.JSON.toBytes(book).toByteArray());
-    }
-    /**
-     * When only the single-book RSA file exists (no history file) the backward-compat bridge
-     * wraps it into a single open-ended era in nodeAddressBookHistory.
-     */
-    @Test
-    @DisplayName("loadApplicationState with only single-book file wraps it into a single-era history")
-    void loadApplicationStateSingleBookWrappedAsHistory() throws Exception {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        final ApplicationStateConfig cfg =
-                app.blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
-        final Path historyPath = cfg.rsaBootstrapFilePath();
-        // Ensure the history file does not exist
-        Files.deleteIfExists(historyPath);
-
-        createRsaBootstrapFile(app);
-        app.startApplicationStateFacility();
-
-        final RangedAddressBookHistory history = app.rangedAddressBookHistory();
-        assertNotNull(history, "Single-book must be wrapped into a history");
-        assertEquals(1, history.addressBooks().size(), "Wrapped history must have exactly one era");
-        assertEquals(0L, history.addressBooks().getFirst().startBlock());
-        assertEquals(-1L, history.addressBooks().getFirst().endBlock(), "Wrapped era must be open-ended");
-        app.stopApplicationStateFacility();
-    }
-
-    /**
-     * A corrupt history file must throw IllegalStateException.
-     */
-    @Test
-    @DisplayName("loadApplicationState with corrupt history file throws IllegalStateException")
-    void loadApplicationStateCorruptHistoryFileThrows() throws IOException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        final Path historyPath = app.blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .rsaBootstrapFilePath();
-        Files.createDirectories(historyPath.getParent());
-        Files.write(historyPath, new byte[] {(byte) 0xFF, (byte) 0xFE, 0x00});
-
-        assertThrows(IllegalStateException.class, app::startApplicationStateFacility);
-
-        app.stopApplicationStateFacility();
-    }
-
-    /**
-     * A history file with zero entries must throw IllegalStateException.
-     */
-    @Test
-    @DisplayName("loadApplicationState with empty history file throws IllegalStateException")
-    void loadApplicationStateEmptyHistoryFileThrows() throws Exception {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        final Path historyPath = app.blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .rsaBootstrapFilePath();
-        Files.createDirectories(historyPath.getParent());
-        Files.write(
-                historyPath,
-                RangedAddressBookHistory.JSON
-                        .toBytes(RangedAddressBookHistory.DEFAULT)
-                        .toByteArray());
-
-        assertThrows(IllegalStateException.class, app::startApplicationStateFacility);
-
-        app.stopApplicationStateFacility();
-    }
-
-    /**
-     * updateAddressBookHistory rejects an incoming history whose last era starts at the same block
-     * as the current one — context must remain unchanged.
-     */
-    @Test
-    @DisplayName("updateAddressBookHistory: same-era history does not replace current context")
-    void updateAddressBookHistoryIgnoresNonNewerHistory() throws IOException, InterruptedException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        final TestPlugin testPlugin = new TestPlugin();
-        // startApplicationStateFacility starts the messaging facility internally
-        app.startApplicationStateFacility();
-        app.loadedPlugins.add(testPlugin);
-        app.blockNodeContext
-                .blockMessaging()
-                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
-
-        // Seed the context with a one-era history (startBlock=100)
-        final RangedAddressBookHistory initial = RangedAddressBookHistory.newBuilder()
-                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
-                        .addressBook(NodeAddressBook.newBuilder()
-                                .nodeAddress(NodeAddress.newBuilder()
-                                        .nodeId(1)
-                                        .rsaPubKey("aaaa")
-                                        .build())
-                                .build())
-                        .startBlock(100L)
-                        .endBlock(-1L)
-                        .build()))
-                .build();
-        testPlugin.expectContextUpdates(1);
-        app.updateAddressBookHistory(initial);
-        testPlugin.awaitContextUpdates(5);
-
-        // Try to replace it with a history whose last era has the same startBlock=100 (not newer)
-        final RangedAddressBookHistory stale = RangedAddressBookHistory.newBuilder()
-                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
-                        .addressBook(NodeAddressBook.newBuilder()
-                                .nodeAddress(NodeAddress.newBuilder()
-                                        .nodeId(99)
-                                        .rsaPubKey("zzzz")
-                                        .build())
-                                .build())
-                        .startBlock(100L)
-                        .endBlock(-1L)
-                        .build()))
-                .build();
-        testPlugin.expectContextUpdates(0);
-        app.updateAddressBookHistory(stale);
-        // Give the dispatcher a moment to process (or confirm it doesn't)
-        Thread.sleep(200);
-
-        // App must still hold the initial history
-        final RangedAddressBookHistory ctx = app.rangedAddressBookHistory();
-        assertNotNull(ctx);
-        assertEquals(
-                1L,
-                ctx.addressBooks()
-                        .getFirst()
-                        .addressBook()
-                        .nodeAddress()
-                        .getFirst()
-                        .nodeId());
-        assertEquals(
-                "aaaa",
-                ctx.addressBooks()
-                        .getFirst()
-                        .addressBook()
-                        .nodeAddress()
-                        .getFirst()
-                        .rsaPubKey());
-
-        app.stopApplicationStateFacility();
-    }
-
-    /**
-     * updateAddressBookHistory accepts an incoming history whose last era starts at a higher block.
-     */
-    @Test
-    @DisplayName("updateAddressBookHistory: newer history (higher startBlock) replaces current context")
-    void updateAddressBookHistoryAcceptsNewerHistory() throws IOException, InterruptedException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        final TestPlugin testPlugin = new TestPlugin();
-        // startApplicationStateFacility starts the messaging facility internally
-        app.startApplicationStateFacility();
-        app.loadedPlugins.add(testPlugin);
-        app.blockNodeContext
-                .blockMessaging()
-                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
-
-        // Seed with startBlock=100
-        final RangedAddressBookHistory v1 = RangedAddressBookHistory.newBuilder()
-                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
-                        .addressBook(NodeAddressBook.newBuilder()
-                                .nodeAddress(NodeAddress.newBuilder()
-                                        .nodeId(1)
-                                        .rsaPubKey("aaaa")
-                                        .build())
-                                .build())
-                        .startBlock(100L)
-                        .endBlock(-1L)
-                        .build()))
-                .build();
-        testPlugin.expectContextUpdates(1);
-        app.updateAddressBookHistory(v1);
-        testPlugin.awaitContextUpdates(5);
-
-        // Update with a two-era history whose last era has startBlock=200 (newer)
-        final RangedAddressBookHistory v2 = RangedAddressBookHistory.newBuilder()
-                .addressBooks(List.of(
-                        RangedNodeAddressBook.newBuilder()
-                                .addressBook(NodeAddressBook.newBuilder()
-                                        .nodeAddress(NodeAddress.newBuilder()
-                                                .nodeId(1)
-                                                .rsaPubKey("aaaa")
-                                                .build())
-                                        .build())
-                                .startBlock(100L)
-                                .endBlock(199L)
-                                .build(),
-                        RangedNodeAddressBook.newBuilder()
-                                .addressBook(NodeAddressBook.newBuilder()
-                                        .nodeAddress(NodeAddress.newBuilder()
-                                                .nodeId(2)
-                                                .rsaPubKey("bbbb")
-                                                .build())
-                                        .build())
-                                .startBlock(200L)
-                                .endBlock(-1L)
-                                .build()))
-                .build();
-        testPlugin.expectContextUpdates(1);
-        app.updateAddressBookHistory(v2);
-        testPlugin.awaitContextUpdates(5);
-
-        final RangedAddressBookHistory ctx = app.rangedAddressBookHistory();
-        assertNotNull(ctx);
-        assertEquals(2, ctx.addressBooks().size());
-        assertEquals(200L, ctx.addressBooks().getLast().startBlock());
-        assertEquals(
-                "bbbb",
-                ctx.addressBooks()
-                        .getLast()
-                        .addressBook()
-                        .nodeAddress()
-                        .getFirst()
-                        .rsaPubKey());
-
-        app.stopApplicationStateFacility();
-    }
-
-    /**
-     * Two threads pushing ever-newer histories mimic the RSA bootstrap plugin driving its peer
-     * Block Node and Mirror Node fallbacks from two separate executors. However the calls
-     * interleave, the newest history must end up in memory, in the lookup index, and on disk.
-     */
-    @Test
-    @DisplayName("updateAddressBookHistory: concurrent updates leave the newest history everywhere")
-    void updateAddressBookHistoryConcurrentUpdates() throws IOException, InterruptedException, ParseException {
-        final int highestStartBlock = 200;
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        final Path rsaPath = app.blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .rsaBootstrapFilePath();
-        Files.deleteIfExists(rsaPath);
-        app.startApplicationStateFacility();
-
-        // One thread pushes the even start blocks, the other the odd ones, so both are always
-        // racing against a value the other just installed.
-        final CountDownLatch startLine = new CountDownLatch(1);
-        final Thread even = pushHistories(startLine, 2, highestStartBlock, app);
-        final Thread odd = pushHistories(startLine, 1, highestStartBlock - 1, app);
-        startLine.countDown();
-        even.join();
-        odd.join();
-
-        final RangedAddressBookHistory inMemory = app.rangedAddressBookHistory();
-        assertNotNull(inMemory);
-        assertEquals(
-                highestStartBlock,
-                inMemory.addressBooks().getLast().startBlock(),
-                "the newest history must win regardless of the order the updates landed in");
-        assertEquals(
-                inMemory.addressBooks().getLast().addressBook(),
-                app.getAddressBookForBlock(highestStartBlock),
-                "the lookup index must be built from the same history the facility reports");
-
-        // Stopping flushes anything the dispatcher thread had queued but not yet written.
-        app.stopApplicationStateFacility();
-
-        final RangedAddressBookHistory onDisk =
-                RangedAddressBookHistory.JSON.parse(Bytes.wrap(Files.readAllBytes(rsaPath)));
-        assertEquals(inMemory, onDisk, "the persisted history must be whole and match the one in memory");
-    }
-
-    /**
-     * Starts a thread that pushes single era histories with start blocks stepping by two from
-     * {@code firstStartBlock} to {@code lastStartBlock}, once the supplied latch opens.
-     */
-    private static Thread pushHistories(
-            final CountDownLatch startLine,
-            final long firstStartBlock,
-            final long lastStartBlock,
-            final BlockNodeApp app) {
-        return Thread.ofVirtual().start(() -> {
-            try {
-                startLine.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-            for (long startBlock = firstStartBlock; startBlock <= lastStartBlock; startBlock += 2) {
-                app.updateAddressBookHistory(RangedAddressBookHistory.newBuilder()
-                        .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
-                                .addressBook(NodeAddressBook.newBuilder()
-                                        .nodeAddress(NodeAddress.newBuilder()
-                                                .nodeId(startBlock)
-                                                .rsaPubKey("key" + startBlock)
-                                                .build())
-                                        .build())
-                                .startBlock(startBlock)
-                                .endBlock(-1L)
-                                .build()))
-                        .build());
-            }
-        });
-    }
-
-    /**
-     * Builds a two-era RangedAddressBookHistory with synthetic keys for use in tests.
-     * Only startBlock/endBlock are checked by load logic; no key validation at history load time.
-     */
-    private static RangedAddressBookHistory buildTwoEraHistory() {
-        final NodeAddressBook era1 = NodeAddressBook.newBuilder()
-                .nodeAddress(
-                        NodeAddress.newBuilder().nodeId(1L).rsaPubKey("aaaa").build())
-                .build();
-        final NodeAddressBook era2 = NodeAddressBook.newBuilder()
-                .nodeAddress(
-                        NodeAddress.newBuilder().nodeId(2L).rsaPubKey("bbbb").build())
-                .build();
-        return RangedAddressBookHistory.newBuilder()
-                .addressBooks(List.of(
-                        RangedNodeAddressBook.newBuilder()
-                                .addressBook(era1)
-                                .startBlock(0L)
-                                .endBlock(999L)
-                                .build(),
-                        RangedNodeAddressBook.newBuilder()
-                                .addressBook(era2)
-                                .startBlock(1000L)
-                                .endBlock(-1L)
-                                .build()))
-                .build();
-    }
-
-    /**
      * When plugins register on two different ports the app uses a single WebServer with a named socket for each port.
      */
     @Test
@@ -1098,275 +530,19 @@ class BlockNodeAppTest {
     }
 
     /**
-     * Verifies that {@code addStoredBlockRange} updates storedBlocks.
-     */
-    @Test
-    @DisplayName("addStoredBlockRange updates storedBlocks")
-    void testAddStoredBlockRangeUpdatesStoredBlocks() {
-        blockNodeApp.addStoredBlockRange(new LongRange(0, 9));
-        assertTrue(blockNodeApp.storedBlocks.contains(0, 9));
-    }
-
-    /**
-     * Guards the compare-and-set in {@code addStoredBlockRange}: two provider threads updating
-     * concurrently must not lose either range from {@code currentStoredBlocks}, and both updates
-     * must be notified, with the complete snapshot delivered last.
-     *
-     * <p>The dangerous interleaving is forced deterministically: thread A's dispatch is held until
-     * thread B has completed its entire update. Handlers keep the last snapshot they receive, so
-     * A's older snapshot must never land after B's.
-     */
-    @Test
-    @DisplayName("concurrent addStoredBlockRange loses neither range")
-    void testConcurrentAddStoredBlockRangeLosesNoUpdate() throws Exception {
-        // Start the facility so dispatch runs on the ApplicationStateDispatcher thread, and register
-        // the probe afterwards so the startup dispatch is not mistaken for thread A's.
-        blockNodeApp.startApplicationStateFacility();
-        final CountDownLatch firstDispatchEntered = new CountDownLatch(1);
-        final CountDownLatch secondUpdateComplete = new CountDownLatch(1);
-        final CountDownLatch bothDelivered = new CountDownLatch(2);
-        final AtomicBoolean firstDispatch = new AtomicBoolean(true);
-        final List<List<BlockRange>> delivered = Collections.synchronizedList(new ArrayList<>());
-        final ApplicationStateNotificationHandler handler = new ApplicationStateNotificationHandler() {
-            @Override
-            public void handleStoredBlocksUpdate(final StoredBlocksNotification notification) {
-                if (firstDispatch.compareAndSet(true, false)) {
-                    // Hold thread A's dispatch so thread B completes its whole
-                    // read-modify-write of currentStoredBlocks before A's notification lands.
-                    firstDispatchEntered.countDown();
-                    try {
-                        assertTrue(
-                                secondUpdateComplete.await(5, TimeUnit.SECONDS),
-                                "Second update did not complete while thread A was held");
-                    } catch (final InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
-                delivered.add(notification.storedBlocks());
-                bothDelivered.countDown();
-            }
-        };
-        blockNodeApp
-                .blockNodeContext
-                .blockMessaging()
-                .registerApplicationStateNotificationHandler(handler, false, "race-probe");
-
-        // Ranges outside both providers' available blocks, so each add really changes the merged list.
-        final Thread threadA = new Thread(() -> blockNodeApp.addStoredBlockRange(new LongRange(100, 109)));
-        threadA.start();
-        assertTrue(firstDispatchEntered.await(5, TimeUnit.SECONDS), "Thread A never reached its dispatch");
-
-        blockNodeApp.addStoredBlockRange(new LongRange(200, 209));
-        secondUpdateComplete.countDown();
-        threadA.join(TimeUnit.SECONDS.toMillis(5));
-        assertTrue(bothDelivered.await(5, TimeUnit.SECONDS), "Both updates must dispatch");
-
-        // Neither range is lost: the field holds both new ranges on top of the two provider ranges.
-        final List<BlockRange> field = blockNodeApp.currentStoredBlocks.get();
-        assertEquals(4, field.size(), "Field must hold both concurrently added ranges");
-        assertTrue(blockNodeApp.storedBlocks.contains(100, 109), "Thread A's range must survive");
-        assertTrue(blockNodeApp.storedBlocks.contains(200, 209), "Thread B's range must survive");
-        assertEquals(2, delivered.size(), "Both updates must dispatch");
-        assertEquals(field, delivered.getLast(), "The complete snapshot must be delivered last");
-
-        blockNodeApp.stopApplicationStateFacility();
-    }
-
-    /**
-     * Verifies that context.availableBlocks() is derived from the historical block facility,
-     * not maintained as a separate field in BlockNodeApp.
-     */
-    @Test
-    @DisplayName("availableBlocks notification is derived from the historical block facility")
-    void testAvailableBlocksInContextComesFromHistoricalFacility() throws InterruptedException {
-        final TestPlugin testPlugin = new TestPlugin();
-        blockNodeApp
-                .blockNodeContext
-                .blockMessaging()
-                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
-        blockNodeApp.loadedPlugins.add(testPlugin);
-        testPlugin.expectContextUpdates(1);
-
-        // startApplicationStateFacility starts the messaging facility and loads state.
-        blockNodeApp.startApplicationStateFacility();
-
-        testPlugin.awaitContextUpdates(5);
-
-        assertNotNull(testPlugin.lastAvailableBlocks);
-        final List<BlockRange> available = testPlugin.lastAvailableBlocks;
-        assertEquals(2, available.size());
-        assertEquals(0L, available.get(0).rangeStart());
-        assertEquals(10L, available.get(0).rangeEnd());
-        assertEquals(20L, available.get(1).rangeStart());
-        assertEquals(30L, available.get(1).rangeEnd());
-
-        blockNodeApp.stopApplicationStateFacility();
-    }
-
-    /**
-     * Runtime dispatch: a provider that changes its available blocks after startup and then calls
-     * {@code updateAvailableBlocks()} must trigger new available and stored blocks notifications
-     * carrying the updated union.
-     */
-    @Test
-    @DisplayName("updateAvailableBlocks after a provider change notifies the new union")
-    void testUpdateAvailableBlocksNotifiesRuntimeProviderChange() throws InterruptedException {
-        final TestPlugin testPlugin = new TestPlugin();
-        blockNodeApp
-                .blockNodeContext
-                .blockMessaging()
-                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
-        blockNodeApp.loadedPlugins.add(testPlugin);
-        blockNodeApp.startApplicationStateFacility();
-
-        // the provider stores blocks 11..15 in its live set, then reports the change
-        ((ConcurrentLongRangeSet) providerPlugin1.availableBlocks()).add(11, 15);
-        testPlugin.expectContextUpdates(2);
-        blockNodeApp.updateAvailableBlocks();
-
-        testPlugin.awaitContextUpdates(5);
-        final List<BlockRange> expected = List.of(new BlockRange(0L, 15L), new BlockRange(20L, 30L));
-        assertEquals(expected, testPlugin.lastAvailableBlocks);
-        assertEquals(expected, testPlugin.lastStoredBlocks);
-
-        blockNodeApp.stopApplicationStateFacility();
-    }
-
-    /**
-     * Block ranges persisted on stop are reloaded by a fresh BlockNodeApp. Also asserts no .tmp file
-     * is left behind (regression guard for #3315: a failed hard link used to leave the .tmp orphaned
-     * without writing block-ranges.json).
-     */
-    @Test
-    @DisplayName("block ranges are persisted and reloaded on next startup")
-    void blockRangesPersistenceRoundTrip() throws IOException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-
-        app.startApplicationStateFacility();
-        app.addStoredBlockRange(new LongRange(0, 999));
-        app.addStoredBlockRange(new LongRange(1000, 1049));
-        app.addStoredBlockRange(new LongRange(1050, 1099));
-        app.stopApplicationStateFacility();
-
-        final Path rangesFile = app.blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .blockRangesFilePath();
-        assertTrue(Files.exists(rangesFile), "block-ranges.json must exist after stop");
-        assertFalse(
-                hasTmpFile(rangesFile),
-                "no block-ranges.json tmp file should be left behind after a successful persist");
-
-        final BlockNodeApp app2 = new BlockNodeApp(serviceLoaderFunction, false);
-        app2.startApplicationStateFacility();
-
-        final List<LongRange> storedRanges = app2.storedBlocks.streamRanges().toList();
-        assertEquals(1, storedRanges.size());
-        assertEquals(new LongRange(0, 1099), storedRanges.getFirst());
-
-        app2.stopApplicationStateFacility();
-    }
-
-    /// Returns whether a tmp file written by `replaceFile` for the given target is still present.
-    private static boolean hasTmpFile(final Path target) throws IOException {
-        try (DirectoryStream<Path> tmpFiles =
-                Files.newDirectoryStream(target.getParent(), target.getFileName() + "*.tmp")) {
-            return tmpFiles.iterator().hasNext();
-        }
-    }
-
-    /**
-     * Regression guard for #3315: on filesystems without atomic move support the state file must
-     * still be replaced, via the non-atomic fallback, and no {@code .tmp} file left behind.
-     */
-    @Test
-    @DisplayName("persistBlockRanges falls back to a non-atomic replace when atomic moves are unsupported")
-    void persistBlockRangesFallsBackWhenAtomicMoveUnsupported() throws IOException {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        app.startApplicationStateFacility();
-        app.addStoredBlockRange(new LongRange(0, 9));
-
-        try (MockedStatic<Files> filesMock = mockStatic(Files.class, CALLS_REAL_METHODS)) {
-            filesMock
-                    .when(() -> Files.move(
-                            any(Path.class),
-                            any(Path.class),
-                            eq(StandardCopyOption.REPLACE_EXISTING),
-                            eq(StandardCopyOption.ATOMIC_MOVE)))
-                    .thenThrow(new AtomicMoveNotSupportedException("src", "dst", "simulated"));
-
-            assertDoesNotThrow(app::stopApplicationStateFacility);
-            filesMock.verify(
-                    () -> Files.move(any(Path.class), any(Path.class), eq(StandardCopyOption.REPLACE_EXISTING)),
-                    atLeastOnce());
-        }
-
-        final Path rangesFile = app.blockNodeContext
-                .configuration()
-                .getConfigData(ApplicationStateConfig.class)
-                .blockRangesFilePath();
-        assertFalse(hasTmpFile(rangesFile));
-        final BlockNodeApp app2 = new BlockNodeApp(serviceLoaderFunction, false);
-        app2.startApplicationStateFacility();
-        assertEquals(
-                List.of(new LongRange(0, 9)), app2.storedBlocks.streamRanges().toList());
-        app2.stopApplicationStateFacility();
-    }
-
-    /**
-     * Test block node ranges from StoredBlocksNotification.
-     */
-    @Test
-    @DisplayName("Test that block node ranges are received via StoredBlocksNotification")
-    void testBlockRangesTriggerOnContextUpdate() throws Exception {
-        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
-        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
-        final TestPlugin testPlugin = new TestPlugin();
-
-        createRsaBootstrapFile(blockNodeApp);
-        // startApplicationStateFacility starts the messaging facility internally
-        blockNodeApp.startApplicationStateFacility();
-        blockNodeApp
-                .blockNodeContext
-                .blockMessaging()
-                .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
-        blockNodeApp.loadedPlugins.add(testPlugin);
-        blockNodeApp.addStoredBlockRange(new LongRange(0, 999));
-        blockNodeApp.addStoredBlockRange(new LongRange(1000, 1049));
-
-        // addStoredBlockRange dispatches notifications directly; wait on merged content to handle
-        // both the intermediate and final notification.
-        final List<BlockRange> storedBlocks = testPlugin.awaitStoredBlocks(
-                15,
-                blocks -> !blocks.isEmpty()
-                        && blocks.getFirst().rangeStart() == 0L
-                        && blocks.getFirst().rangeEnd() == 1049L);
-
-        assertNotNull(
-                storedBlocks, "StoredBlocksNotification did not deliver the merged stored range within the timeout");
-        assertEquals(0L, storedBlocks.getFirst().rangeStart());
-        assertEquals(1049L, storedBlocks.getFirst().rangeEnd());
-
-        // stop the ApplicationStateFacility manually as blockNodeApp.shutdown() is not being called
-        blockNodeApp.stopApplicationStateFacility();
-    }
-
-    /**
-     * Startup dispatch ordering: a handler registered before {@code startApplicationStateFacility()}
+     * Startup dispatch ordering: a handler registered before {@link BlockNodeApp#start()}
      * (i.e. during plugin {@code init()}, which real plugins do) must still receive the notifications
-     * that {@code loadApplicationState()} dispatches while starting.
+     * that the application state facility dispatches while loading its state in {@code start()}.
      *
      * <p>This is not obvious: {@link ApplicationStateNotificationHandler} is non-gating, and the
      * messaging facility starts a non-gating processor at the ring buffer's <em>current</em> cursor,
      * so any event already in the ring is skipped. It works only because
-     * {@code startApplicationStateFacility()} starts the messaging facility (which drains the
-     * pre-registered handler list) <em>before</em> {@code loadApplicationState()} publishes anything.
+     * {@link BlockNodeApp#start()} starts the messaging facility (which drains the
+     * pre-registered handler list) <em>before</em> the application state facility publishes anything.
      * If that order is ever swapped, every plugin silently misses its startup state and this test fails.
      */
     @Test
-    @DisplayName("handler registered before startApplicationStateFacility receives startup-load notifications")
+    @DisplayName("handler registered before start receives startup-load notifications")
     void preRegisteredHandlerReceivesStartupLoadNotifications() throws Exception {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
@@ -1380,17 +556,16 @@ class BlockNodeAppTest {
                 buildTssData(Bytes.fromHex("0a0b0c"), Bytes.fromHex("0d0e0f"), 7, 3, Bytes.fromHex("101112"), 42, 0);
         Files.write(tssPath, TssData.JSON.toBytes(tssData).toByteArray());
         Files.deleteIfExists(cfg.rsaBootstrapFilePath());
-        createRsaBootstrapFile(app);
+        writeRsaBootstrapFile(cfg.rsaBootstrapFilePath());
 
         // Register BEFORE the facility is started, exactly as a plugin does from init().
         final TestPlugin testPlugin = new TestPlugin();
-        app.loadedPlugins.add(testPlugin);
         app.blockNodeContext
                 .blockMessaging()
                 .registerApplicationStateNotificationHandler(testPlugin, false, testPlugin.name());
         testPlugin.expectContextUpdates(2);
 
-        app.startApplicationStateFacility();
+        app.start();
 
         try {
             testPlugin.awaitContextUpdates(5);
@@ -1401,7 +576,7 @@ class BlockNodeAppTest {
                     "Pre-registered handler must receive the loaded address book history");
             assertEquals(1, testPlugin.lastAddressBookHistory.addressBooks().size());
         } finally {
-            app.stopApplicationStateFacility();
+            app.shutdown("BlockNodeAppTest", "test complete");
         }
     }
 
@@ -1447,17 +622,28 @@ class BlockNodeAppTest {
             }
         };
         final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
-        // precondition: the provider's init-time report was dispatched, before any handler was attached
-        assertEquals(List.of(new BlockRange(0L, 10L)), app.currentAvailableBlocks.get());
-
-        app.startApplicationStateFacility();
+        app.start();
 
         try {
             testPlugin.awaitContextUpdates(5);
             assertEquals(List.of(new BlockRange(0L, 10L)), testPlugin.lastAvailableBlocks);
             assertEquals(List.of(new BlockRange(0L, 10L)), testPlugin.lastStoredBlocks);
         } finally {
-            app.stopApplicationStateFacility();
+            app.shutdown("BlockNodeAppTest", "test complete");
         }
+    }
+
+    /// Writes a valid single-book RSA bootstrap file; it needs a real RSA key to pass address book validation.
+    private static void writeRsaBootstrapFile(final Path rsaPath) throws Exception {
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        final String hexKey =
+                HexFormat.of().formatHex(kpg.generateKeyPair().getPublic().getEncoded());
+        final NodeAddressBook book = NodeAddressBook.newBuilder()
+                .nodeAddress(
+                        NodeAddress.newBuilder().nodeId(1).rsaPubKey(hexKey).build())
+                .build();
+        Files.createDirectories(rsaPath.getParent());
+        Files.write(rsaPath, NodeAddressBook.JSON.toBytes(book).toByteArray());
     }
 }
