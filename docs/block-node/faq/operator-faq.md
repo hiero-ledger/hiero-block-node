@@ -341,9 +341,8 @@ Both paths are configurable via `blockNode.health.liveness.endpoint` and
 Set `org.hiero.block.level = INFO` in production. Use `FINE` only when actively
 debugging — it generates significant volume.
 
-> **Note:** The current chart default in `values.yaml` is `FINE` with a comment
-> "temporarily while testing is ongoing." Override this to `INFO` in your production
-> Helm values.
+> **Note:** The chart default in `values.yaml` is `INFO`. If your deployment still shows
+> `FINE`, override it to `INFO` in your production Helm values.
 
 Also: **do not schedule maintenance tasks (log rotation, cron jobs, tmpwatch) at UTC
 midnight.** Block Node I/O load peaks at midnight when network processing is highest.
