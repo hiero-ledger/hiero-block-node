@@ -23,7 +23,8 @@ import org.hiero.metrics.core.MetricRegistry;
 /// a given service/method sums one metric name rather than enumerating every outcome's own metric
 /// name — and stays correct if a new rejection reason is ever added, where a hardcoded list of
 /// metric names would not. Labels are resolved fresh on every call via [#recordCall], using the
-/// specific [ServiceInterface.Method] that call hit — including for a method with no
+/// specific [com.hedera.pbj.runtime.grpc.ServiceInterface.Method] that call hit — including for a
+/// method with no
 /// [SingleWeightThrottle] of its own, admitted only via the shared [GlobalConcurrencyGate].
 ///
 /// The client-state-count gauge reflects one [SingleWeightThrottle] instance's own table size —

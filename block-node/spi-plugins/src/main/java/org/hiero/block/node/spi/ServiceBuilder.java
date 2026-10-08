@@ -67,8 +67,9 @@ public interface ServiceBuilder {
     /// Registers a gRPC service on the given port, or on the default port
     /// if `port` is `null`. This service is added to the "General" webserver.
     ///
-    /// If `service` also implements [ThrottleSpec], per-client rate/concurrency admission control is
-    /// applied automatically: the registration point merges the spec's settings with the node-wide
+    /// If `service` also implements [org.hiero.block.node.spi.throttle.ThrottleSpec], per-client
+    /// rate/concurrency admission control is applied automatically: the registration point merges
+    /// the spec's settings with the node-wide
     /// concurrency ceiling for this service (resolved internally) into a full throttle policy before
     /// wrapping the service. A plugin never chooses between a throttled and unthrottled registration
     /// call — whether a service is throttled, and how, is entirely a property of the service object
@@ -76,7 +77,8 @@ public interface ServiceBuilder {
     ///
     /// @param port the port number to bind this service to, or `null` to
     /// use the default port
-    /// @param service the gRPC service to register, optionally also implementing [ThrottleSpec]
+    /// @param service the gRPC service to register, optionally also implementing
+    ///     [org.hiero.block.node.spi.throttle.ThrottleSpec]
     void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service);
 
     /// The single, shared [BlockReadBulkhead] protecting block storage from combined read load
