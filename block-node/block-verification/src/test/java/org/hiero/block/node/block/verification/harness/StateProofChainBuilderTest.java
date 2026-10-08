@@ -13,6 +13,7 @@ import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.hasher.BlockHasher;
 import org.hiero.block.node.block.verification.hasher.HashingResult;
@@ -74,6 +75,7 @@ class StateProofChainBuilderTest {
                     signed.block().number(),
                     stateProof,
                     signed.rootHash(),
+                    hashing.hashAlgorithm(),
                     verificationDataProvider);
             final SessionFailureType result = verifier.verify();
             assertThat(result)
@@ -87,6 +89,7 @@ class StateProofChainBuilderTest {
     private HashingResult runHashing(final TestBlock block) {
         final ConcurrentLinkedDeque<BlockItems> deque = new ConcurrentLinkedDeque<>();
         final BlockHasher hasher = new BlockHasher(
+                TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                 new AtomicBoolean(false),
                 deque,
                 metricsHolder.hashingMetrics(),

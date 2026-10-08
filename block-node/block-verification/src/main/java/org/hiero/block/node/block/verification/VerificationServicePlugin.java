@@ -6,6 +6,7 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.net.InetAddress;
@@ -16,6 +17,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.base.ParseHelper;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
@@ -199,11 +201,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
         final BlockSource source = BlockSource.PUBLISHER;
         try {
             if (blockItems != null) {
-                if (validateStartOfBlock(blockItems)) {
-                    sessionHandler.processBlockItems(blockItems, source);
-                } else {
-                    safeSendNotification(blockItems.blockNumber(), source, SessionFailureType.MISSING_MANDATORY_ITEM);
-                }
+                validateAndProcess(blockItems, source);
             } else {
                 LOGGER.log(INFO, "Received null block items on live items ring buffer");
             }
@@ -235,11 +233,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                     && !notification.block().blockItems().isEmpty()) {
                 final BlockItems blockItems =
                         new BlockItems(notification.block().blockItems(), notification.blockNumber(), true, true);
-                if (validateStartOfBlock(blockItems)) {
-                    sessionHandler.processBlockItems(blockItems, source);
-                } else {
-                    safeSendNotification(blockItems.blockNumber(), source, SessionFailureType.MISSING_MANDATORY_ITEM);
-                }
+                validateAndProcess(blockItems, source);
             } else {
                 LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);
             }
@@ -299,34 +293,86 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
         }
     }
 
-    /// Validate the start of a block. When the supplied items mark the start of a
-    /// new block, the first item must be a block header and the header's number
-    /// must match the block number announced with the items. Items that do not
-    /// mark the start of a block are always considered valid here.
+    /// Validate the supplied items and hand them to the session handler. Items that
+    /// start a new block are validated first, and the algorithm the block is hashed
+    /// with is resolved from the block header: the session started for the block
+    /// hashes with it. Items that continue a block are handed over as they are, the
+    /// session of that block already knows its algorithm. Items that fail validation
+    /// end in a failure notification and no session is started for them.
     ///
-    /// @param blockItems the block items to validate
-    /// @return `true` if the items are valid to process, `false` otherwise
-    private boolean validateStartOfBlock(final BlockItems blockItems) {
-        try {
-            final boolean result;
-            if (blockItems.isStartOfNewBlock()) {
-                final BlockItemUnparsed first = blockItems.blockItems().getFirst();
-                if (first != null && first.hasBlockHeader()) {
-                    final Bytes bytes = first.blockHeaderOrThrow();
-                    final BlockHeader header = ParseHelper.standardParse(BlockHeader.PROTOBUF, bytes);
-                    result = header.number() == blockItems.blockNumber();
+    /// @param blockItems the block items to validate and process
+    /// @param source the source the items were received from
+    private void validateAndProcess(final BlockItems blockItems, final BlockSource source) {
+        if (blockItems.isStartOfNewBlock()) {
+            final BlockHeader header = validateStartOfBlock(blockItems);
+            if (header == null) {
+                safeSendNotification(blockItems.blockNumber(), source, SessionFailureType.MISSING_MANDATORY_ITEM);
+            } else {
+                final HashAlgorithm hashAlgorithm = resolveHashAlgorithm(header.hashAlgorithm());
+                if (hashAlgorithm == null) {
+                    LOGGER.log(
+                            INFO,
+                            "Block {0} from {1} declares hash algorithm {2}, which this node cannot compute with",
+                            blockItems.blockNumber(),
+                            source,
+                            header.hashAlgorithm());
+                    safeSendNotification(
+                            blockItems.blockNumber(), source, SessionFailureType.UNSUPPORTED_STREAM_FORMAT);
                 } else {
-                    result = false;
+                    sessionHandler.processBlockItems(blockItems, source, hashAlgorithm);
+                }
+            }
+        } else {
+            sessionHandler.processBlockItems(blockItems, source, null);
+        }
+    }
+
+    /// Validate the start of a block. The first item must be a block header and the
+    /// header's number must match the block number announced with the items. The parsed
+    /// header is returned so the caller can read the hash algorithm the block declares
+    /// without parsing the header a second time.
+    ///
+    /// @param blockItems the block items starting a block
+    /// @return the parsed block header when the items are valid to process, `null` otherwise
+    private BlockHeader validateStartOfBlock(final BlockItems blockItems) {
+        try {
+            final BlockHeader result;
+            final BlockItemUnparsed first = blockItems.blockItems().getFirst();
+            if (first != null && first.hasBlockHeader()) {
+                final Bytes bytes = first.blockHeaderOrThrow();
+                final BlockHeader header = ParseHelper.standardParse(BlockHeader.PROTOBUF, bytes);
+                if (header.number() == blockItems.blockNumber()) {
+                    result = header;
+                } else {
+                    result = null;
                 }
             } else {
-                result = true;
+                result = null;
             }
             return result;
         } catch (final ParseException e) {
             final String message = "Failed to parse block header";
             LOGGER.log(DEBUG, message, e);
-            return false;
+            return null;
         }
+    }
+
+    /// Resolve the algorithm a block is hashed with from the algorithm its header declares.
+    /// This is the single place deciding which declared algorithms the node computes with:
+    /// every value the header can declare is mapped here, so a value added to the header
+    /// enumeration fails compilation instead of being hashed with a wrong algorithm. A block
+    /// declaring an algorithm the node does not recognize cannot be hashed into a meaningful
+    /// root and is refused before a session is started.
+    ///
+    /// @param declared the algorithm declared by the block header
+    /// @return the algorithm to hash the block with, or `null` when the declared algorithm
+    ///     is not recognized
+    private static HashAlgorithm resolveHashAlgorithm(final BlockHashAlgorithm declared) {
+        return switch (declared) {
+            case SHA2_256 -> HashAlgorithm.SHA2_256;
+            case SHA2_384 -> HashAlgorithm.SHA2_384;
+            case UNRECOGNIZED -> null;
+        };
     }
 
     /// Resolve the local hostname, used as the Block Node identity in bad block dumps.

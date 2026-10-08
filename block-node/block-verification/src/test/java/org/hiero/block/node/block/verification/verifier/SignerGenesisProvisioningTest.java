@@ -95,6 +95,7 @@ class SignerGenesisProvisioningTest {
     private HashingResult hash(final BlockItems blockItems, final long blockNumber) {
         final ConcurrentLinkedDeque<BlockItems> deque = new ConcurrentLinkedDeque<>();
         final BlockHasher hasher = new BlockHasher(
+                TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                 new AtomicBoolean(false),
                 deque,
                 metricsHolder.hashingMetrics(),

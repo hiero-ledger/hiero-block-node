@@ -125,6 +125,7 @@ public final class BlockVerifier implements Function<HashingResult, BlockVerific
                         hashingResult.blockNumber(),
                         proof.blockStateProof(),
                         hashingResult.rootHash(),
+                        hashingResult.hashAlgorithm(),
                         verificationDataProvider));
             } else {
                 // No recognized proof type found

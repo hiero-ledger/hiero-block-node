@@ -5,13 +5,14 @@ import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.output.BlockFooter;
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.hiero.block.common.hasher.HashingUtilities;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -28,9 +29,10 @@ import org.hiero.block.signing.TssBlockSigner;
  * Builds a chain of TSS-signed {@link TestBlock}s that pass end-to-end verification
  * against the real {@link org.hiero.block.node.block.verification.verifier.TSSVerifier}.
  *
- * <p>Each call to {@link #next(long)} — or {@link #genesisWithPublication()} for block 0 —
- * emits a block whose {@code previousBlockRootHash} chains to the previous emission,
- * whose {@code rootHashOfAllBlockHashesTree} matches the running all-previous-blocks tree,
+ * <p>Each call to {@link #next(long)}, or {@link #genesisWithPublication()} for block 0,
+ * emits a block whose header declares the algorithm the chain is hashed with, whose
+ * {@code previousBlockRootHash} chains to the previous emission, whose
+ * {@code rootHashOfAllBlockHashesTree} matches the running all-previous-blocks tree,
  * and whose {@link BlockProof} carries a real signature over the computed block root hash.
  *
  * <p>Not thread safe. Reusing the same builder across tests is fine, but tests that expect
@@ -41,21 +43,35 @@ public final class HarnessChainBuilder {
     private final TssBlockSigner signer;
     private final VerificationDataProvider verificationDataProvider;
     private final MetricsHolder metricsHolder;
+    /** The algorithm every hash of the emitted chain is computed with. */
+    private final HashAlgorithm algorithm;
+
     private final StreamingHasher allBlocksHasher;
     private byte[] previousBlockRootHash;
 
+    /** Builds a chain hashed with {@link TestBlockBuilder#BLOCK_HASH_ALGORITHM}, the algorithm the test blocks declare. */
     public HarnessChainBuilder(
             final TssBlockSigner signer,
             final VerificationDataProvider verificationDataProvider,
             final MetricsHolder metricsHolder) {
+        this(signer, verificationDataProvider, metricsHolder, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
+    }
+
+    /**
+     * Builds a chain hashed with the given algorithm. Every emitted header declares it, so a node
+     * resolving the algorithm from the block header hashes the chain with it. A chain built for
+     * {@link HashAlgorithm#SHA2_384} is what a release from before the move to SHA-256 verifies.
+     */
+    public HarnessChainBuilder(
+            final TssBlockSigner signer,
+            final VerificationDataProvider verificationDataProvider,
+            final MetricsHolder metricsHolder,
+            final HashAlgorithm algorithm) {
         this.signer = signer;
         this.verificationDataProvider = verificationDataProvider;
         this.metricsHolder = metricsHolder;
-        try {
-            this.allBlocksHasher = new StreamingHasher();
-        } catch (final Exception e) {
-            throw new IllegalStateException("SHA-384 unavailable", e);
-        }
+        this.algorithm = algorithm;
+        this.allBlocksHasher = new StreamingHasher(algorithm);
     }
 
     /**
@@ -70,6 +86,11 @@ public final class HarnessChainBuilder {
      * genesis-block {@link com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody}.
      */
     public static HarnessChainBuilder create(final TssBlockSigner signer) {
+        return create(signer, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
+    }
+
+    /** Same as {@link #create(TssBlockSigner)} but hashing the chain with the given algorithm. */
+    public static HarnessChainBuilder create(final TssBlockSigner signer, final HashAlgorithm algorithm) {
         final org.hiero.block.node.spi.BlockNodeContext isolated =
                 org.hiero.block.node.app.fixtures.TestUtils.testContext(
                         new org.hiero.block.node.app.fixtures.TestConfigurationBuilder().getOrCreateConfig(),
@@ -79,7 +100,10 @@ public final class HarnessChainBuilder {
                                 new org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor(
                                         new java.util.concurrent.LinkedBlockingQueue<>())));
         return new HarnessChainBuilder(
-                signer, new VerificationDataProvider(isolated), MetricsHolder.create(isolated.metricRegistry()));
+                signer,
+                new VerificationDataProvider(isolated),
+                MetricsHolder.create(isolated.metricRegistry()),
+                algorithm);
     }
 
     /**
@@ -109,7 +133,8 @@ public final class HarnessChainBuilder {
     }
 
     private Signed finalize(final long blockNumber, final TestBlock draft) {
-        final TestBlock chained = withChainedFooter(draft);
+        final TestBlock declared = withDeclaredAlgorithm(draft);
+        final TestBlock chained = withChainedFooter(declared);
         final Bytes rootHash = computeRootHash(chained, blockNumber);
         final TestBlock signed = withSignedProof(chained, blockNumber, rootHash);
         previousBlockRootHash = rootHash.toByteArray();
@@ -117,14 +142,25 @@ public final class HarnessChainBuilder {
         return new Signed(signed, rootHash);
     }
 
+    /** Rewrites the header of the draft so it declares the algorithm this chain is hashed with. */
+    private TestBlock withDeclaredAlgorithm(final TestBlock draft) {
+        final BlockHeader header = draft.header()
+                .copyBuilder()
+                .hashAlgorithm(TestBlockBuilder.declaredHashAlgorithm(algorithm))
+                .build();
+        final BlockItemUnparsed headerItem = BlockItemUnparsed.newBuilder()
+                .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                .build();
+        return replace(draft, HarnessChainBuilder::isHeader, headerItem);
+    }
+
     private TestBlock withChainedFooter(final TestBlock draft) {
-        final byte[] prev = previousBlockRootHash != null ? previousBlockRootHash : HashingUtilities.EMPTY_TREE_HASH;
-        final byte[] allBlocksRoot =
-                allBlocksHasher.leafCount() > 0 ? allBlocksHasher.computeRootHash() : HashingUtilities.EMPTY_TREE_HASH;
+        final Bytes emptyTreeHash = algorithm.emptyTreeHash();
+        final Bytes prev = previousBlockRootHash != null ? Bytes.wrap(previousBlockRootHash) : emptyTreeHash;
         final BlockFooter footer = BlockFooter.newBuilder()
-                .previousBlockRootHash(Bytes.wrap(prev))
-                .rootHashOfAllBlockHashesTree(Bytes.wrap(allBlocksRoot))
-                .startOfBlockStateRootHash(Bytes.wrap(HashingUtilities.EMPTY_TREE_HASH))
+                .previousBlockRootHash(prev)
+                .rootHashOfAllBlockHashesTree(Bytes.wrap(allBlocksHasher.computeRootHash()))
+                .startOfBlockStateRootHash(emptyTreeHash)
                 .build();
         final BlockItemUnparsed footerItem = BlockItemUnparsed.newBuilder()
                 .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
@@ -143,6 +179,7 @@ public final class HarnessChainBuilder {
     private Bytes computeRootHash(final TestBlock block, final long blockNumber) {
         final ConcurrentLinkedDeque<BlockItems> deque = new ConcurrentLinkedDeque<>();
         final BlockHasher hasher = new BlockHasher(
+                algorithm,
                 new AtomicBoolean(false),
                 deque,
                 metricsHolder.hashingMetrics(),
@@ -169,6 +206,10 @@ public final class HarnessChainBuilder {
         }
         return new TestBlock(
                 draft.number(), BlockUnparsed.newBuilder().blockItems(items).build());
+    }
+
+    private static boolean isHeader(final BlockItemUnparsed item) {
+        return item.item().kind() == BlockItemUnparsed.ItemOneOfType.BLOCK_HEADER;
     }
 
     private static boolean isFooter(final BlockItemUnparsed item) {

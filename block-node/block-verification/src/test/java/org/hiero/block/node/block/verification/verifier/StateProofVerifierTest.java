@@ -23,6 +23,7 @@ import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.harness.StateProofChainBuilder;
 import org.hiero.block.node.block.verification.hasher.BlockHasher;
@@ -228,6 +229,7 @@ class StateProofVerifierTest {
                 signed.block().number(),
                 hashing.blockProofs().getFirst().blockStateProof(),
                 hashing.rootHash(),
+                hashing.hashAlgorithm(),
                 verificationDataProvider);
         isCanceled.set(true);
         assertThat(toTest.verify()).isEqualTo(SessionFailureType.CANCELLED);
@@ -278,6 +280,7 @@ class StateProofVerifierTest {
                 signed.block().number(),
                 hashing.blockProofs().getFirst().blockStateProof(),
                 hashing.rootHash(),
+                hashing.hashAlgorithm(),
                 verificationDataProvider);
         assertThat(toTest.verify()).isNull();
     }
@@ -290,6 +293,7 @@ class StateProofVerifierTest {
                 tampered.number(),
                 hashing.blockProofs().getFirst().blockStateProof(),
                 hashing.rootHash(),
+                hashing.hashAlgorithm(),
                 verificationDataProvider);
         assertThat(toTest.verify()).isNotNull().isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
     }
@@ -297,6 +301,7 @@ class StateProofVerifierTest {
     private HashingResult runHashing(final TestBlock block) {
         final ConcurrentLinkedDeque<BlockItems> deque = new ConcurrentLinkedDeque<>();
         final BlockHasher hasher = new BlockHasher(
+                TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                 new AtomicBoolean(false),
                 deque,
                 metricsHolder.hashingMetrics(),

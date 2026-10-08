@@ -8,6 +8,7 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.Objects;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
@@ -16,6 +17,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 /// @param blockSource the source of the block, cannot be null
 /// @param block the whole block, cannot be null
 /// @param rootHash the root hash of the block, cannot be null
+/// @param hashAlgorithm the algorithm the root hash was computed with, cannot be null
 /// @param blockHeader the parsed header of the block, cannot be null
 /// @param blockFooter the parsed footer of the block, cannot be null
 /// @param blockProofs all block proofs of the block, parsed, cannot be null
@@ -25,6 +27,7 @@ public record HashingResult(
         BlockSource blockSource,
         BlockUnparsed block,
         Bytes rootHash,
+        HashAlgorithm hashAlgorithm,
         BlockHeader blockHeader,
         BlockFooter blockFooter,
         List<BlockProof> blockProofs,
@@ -33,6 +36,7 @@ public record HashingResult(
         Objects.requireNonNull(blockSource, "Block source cannot be null");
         Objects.requireNonNull(block, "Block cannot be null");
         Objects.requireNonNull(rootHash, "Block root hash cannot be null");
+        Objects.requireNonNull(hashAlgorithm, "Hash algorithm cannot be null");
         Objects.requireNonNull(blockHeader, "Block header cannot be null");
         Objects.requireNonNull(blockFooter, "Block footer cannot be null");
         Objects.requireNonNull(hapiProtoVersion, "HapiVersion cannot be null");

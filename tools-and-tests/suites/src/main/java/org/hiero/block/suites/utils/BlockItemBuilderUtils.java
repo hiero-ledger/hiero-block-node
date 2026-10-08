@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -36,6 +37,11 @@ import org.hiero.block.signing.TssBlockSigner;
  * Inspired by BlockItemBuilderUtils in block-node-app testFixtures.
  */
 public final class BlockItemBuilderUtils {
+    /// The algorithm the blocks built here are hashed with. It must match the algorithm of the Block Node
+    /// image under test (`BlockHasher.HASH_ALGORITHM` in the block-verification module). The headers built
+    /// here declare the matching `BlockHashAlgorithm.SHA2_256`; the hasher never reads that field.
+    private static final HashAlgorithm HASH_ALGORITHM = HashAlgorithm.SHA2_256;
+
     private static final Bytes RANDOM_HALF_MB;
 
     static {
@@ -83,7 +89,7 @@ public final class BlockItemBuilderUtils {
                 new SemanticVersion(4, 5, 6, "c", "d"),
                 blockNumber,
                 new Timestamp(123L, 456),
-                BlockHashAlgorithm.SHA2_384);
+                BlockHashAlgorithm.SHA2_256);
     }
 
     public static Bytes createBlockHeaderUnparsed(final long blockNumber) {
@@ -145,7 +151,7 @@ public final class BlockItemBuilderUtils {
                         new SemanticVersion(4, 5, 6, "c", "d"),
                         blockNumber,
                         new Timestamp(consensusTime.getEpochSecond(), consensusTime.getNano()),
-                        BlockHashAlgorithm.SHA2_384)));
+                        BlockHashAlgorithm.SHA2_256)));
     }
 
     /**
@@ -429,46 +435,47 @@ public final class BlockItemBuilderUtils {
         final BlockItemUnparsed blockHeaderUnparsed = sampleBlockHeaderUnparsed(blockNumber);
         final BlockItemUnparsed roundHeaderUnparsed = sampleRoundHeaderUnparsed(blockNumber * 10L);
 
-        final NaiveStreamingTreeHasher outputHasher = new NaiveStreamingTreeHasher();
-        outputHasher.addLeaf(HashingUtilities.getBlockItemHash(blockHeaderUnparsed));
-        final NaiveStreamingTreeHasher consensusHasher = new NaiveStreamingTreeHasher();
-        consensusHasher.addLeaf(HashingUtilities.getBlockItemHash(roundHeaderUnparsed));
-        final NaiveStreamingTreeHasher inputHasher = new NaiveStreamingTreeHasher();
-        final NaiveStreamingTreeHasher stateHasher = new NaiveStreamingTreeHasher();
-        final NaiveStreamingTreeHasher traceHasher = new NaiveStreamingTreeHasher();
+        final NaiveStreamingTreeHasher outputHasher = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        outputHasher.addLeaf(HashingUtilities.getBlockItemHash(HASH_ALGORITHM, blockHeaderUnparsed));
+        final NaiveStreamingTreeHasher consensusHasher = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        consensusHasher.addLeaf(HashingUtilities.getBlockItemHash(HASH_ALGORITHM, roundHeaderUnparsed));
+        final NaiveStreamingTreeHasher inputHasher = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        final NaiveStreamingTreeHasher stateHasher = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
+        final NaiveStreamingTreeHasher traceHasher = new NaiveStreamingTreeHasher(HASH_ALGORITHM);
 
         final Bytes prevHashInput =
-                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]);
+                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]);
 
         return HashingUtilities.computeFinalBlockHash(
+                HASH_ALGORITHM,
                 new Timestamp(123L, 456),
                 prevHashInput,
-                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]), // allPrevBlocksRoot = zeros (hasher disabled)
-                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]), // startOfBlockStateRootHash = zeros (matches footer)
+                Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]), // allPrevBlocksRoot = zeros (hasher disabled)
+                Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]), // startOfBlockStateRootHash = zeros (matches footer)
                 inputHasher,
                 outputHasher,
                 consensusHasher,
                 stateHasher,
                 traceHasher,
-                new NaiveStreamingTreeHasher(),
-                new NaiveStreamingTreeHasher(),
-                new NaiveStreamingTreeHasher(),
-                new NaiveStreamingTreeHasher(),
-                new NaiveStreamingTreeHasher(),
-                new NaiveStreamingTreeHasher(),
-                new NaiveStreamingTreeHasher(),
-                new NaiveStreamingTreeHasher());
+                new NaiveStreamingTreeHasher(HASH_ALGORITHM),
+                new NaiveStreamingTreeHasher(HASH_ALGORITHM),
+                new NaiveStreamingTreeHasher(HASH_ALGORITHM),
+                new NaiveStreamingTreeHasher(HASH_ALGORITHM),
+                new NaiveStreamingTreeHasher(HASH_ALGORITHM),
+                new NaiveStreamingTreeHasher(HASH_ALGORITHM),
+                new NaiveStreamingTreeHasher(HASH_ALGORITHM),
+                new NaiveStreamingTreeHasher(HASH_ALGORITHM));
     }
 
     private static BlockItem sampleBlockFooter(final Bytes previousBlockHash) {
         final Bytes prevHash =
-                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]);
+                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]);
         // startOfBlockStateRootHash must be non-empty: the block-verification hasher rejects an empty
-        // value with MISSING_MANDATORY_FIELD. computeBlockHash below uses the same 48 zero bytes.
+        // value with MISSING_MANDATORY_FIELD. computeBlockHash below uses the same zero filled digest.
         final BlockFooter footer = new BlockFooter(
                 prevHash,
-                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]),
-                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]));
+                Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]),
+                Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]));
         return new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, footer));
     }
 

@@ -143,6 +143,7 @@ class SignerTssVerificationTest {
     private HashingResult runHashing(final TestBlock block) {
         final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
         final BlockHasher hasher = new BlockHasher(
+                TestBlockBuilder.BLOCK_HASH_ALGORITHM,
                 new AtomicBoolean(false),
                 blockItemsDeque,
                 metricsHolder.hashingMetrics(),

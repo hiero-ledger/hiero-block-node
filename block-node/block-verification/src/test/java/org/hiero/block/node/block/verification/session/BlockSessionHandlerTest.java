@@ -76,12 +76,14 @@ class BlockSessionHandlerTest {
         // but modify the BlockItems record to mark this as not a start of new block, even if we have a full complete
         // block
         toTest.processBlockItems(
-                new BlockItems(block.blockUnparsed().blockItems(), block.number(), false, true), BlockSource.PUBLISHER);
+                new BlockItems(block.blockUnparsed().blockItems(), block.number(), false, true),
+                BlockSource.PUBLISHER,
+                TestBlockBuilder.BLOCK_HASH_ALGORITHM);
         // Assert no session started
         assertThat(executor.wasAnyTaskSubmitted()).isFalse();
         // Now, send the block to the handler, which is in a state that it is expecting the start of a new block,
         // but this time mark the BlockItems record as a start of new block
-        toTest.processBlockItems(block.asBlockItems(), BlockSource.PUBLISHER);
+        toTest.processBlockItems(block.asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
         // Assert a session started
         assertThat(executor.wasAnyTaskSubmitted()).isTrue();
     }
@@ -99,9 +101,9 @@ class BlockSessionHandlerTest {
         final TestBlock block3 = blocks.get(1);
         final TestBlock block4 = blocks.get(2);
         // Supply blocks in order
-        toTest.processBlockItems(block2.asBlockItems(), BlockSource.PUBLISHER);
-        toTest.processBlockItems(block3.asBlockItems(), BlockSource.PUBLISHER);
-        toTest.processBlockItems(block4.asBlockItems(), BlockSource.PUBLISHER);
+        toTest.processBlockItems(block2.asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
+        toTest.processBlockItems(block3.asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
+        toTest.processBlockItems(block4.asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
         // Assert that the buffer is full and the lowest active session is canceled
         assertThat(activeSessions).hasSize(2).containsKeys(new SessionKey(3, 1), new SessionKey(4, 2));
     }
@@ -119,9 +121,9 @@ class BlockSessionHandlerTest {
         final TestBlock block3 = blocks.get(1);
         final TestBlock block2 = blocks.get(0);
         // Supply blocks in reverse order
-        toTest.processBlockItems(block4.asBlockItems(), BlockSource.PUBLISHER);
-        toTest.processBlockItems(block3.asBlockItems(), BlockSource.PUBLISHER);
-        toTest.processBlockItems(block2.asBlockItems(), BlockSource.PUBLISHER);
+        toTest.processBlockItems(block4.asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
+        toTest.processBlockItems(block3.asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
+        toTest.processBlockItems(block2.asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
         // Assert that the buffer is full and the lowest active session is canceled
         assertThat(activeSessions)
                 .hasSize(3)
@@ -141,10 +143,12 @@ class BlockSessionHandlerTest {
             // Create two blocks, matching the buffer size configured in setup
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 3);
             // Supply the first block and assert the gauge reflects one active session
-            toTest.processBlockItems(blocks.get(0).asBlockItems(), BlockSource.PUBLISHER);
+            toTest.processBlockItems(
+                    blocks.get(0).asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
             assertThat(currentGaugeValue()).isEqualTo(1L);
             // Supply the second block and assert the gauge reflects two active sessions
-            toTest.processBlockItems(blocks.get(1).asBlockItems(), BlockSource.PUBLISHER);
+            toTest.processBlockItems(
+                    blocks.get(1).asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
             assertThat(currentGaugeValue()).isEqualTo(2L);
         }
 
@@ -157,9 +161,12 @@ class BlockSessionHandlerTest {
             // Create three blocks, one more than the buffer size configured in setup
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 4);
             // Supply blocks in order so the third activation evicts the lowest session
-            toTest.processBlockItems(blocks.get(0).asBlockItems(), BlockSource.PUBLISHER);
-            toTest.processBlockItems(blocks.get(1).asBlockItems(), BlockSource.PUBLISHER);
-            toTest.processBlockItems(blocks.get(2).asBlockItems(), BlockSource.PUBLISHER);
+            toTest.processBlockItems(
+                    blocks.get(0).asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
+            toTest.processBlockItems(
+                    blocks.get(1).asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
+            toTest.processBlockItems(
+                    blocks.get(2).asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
             // Assert the gauge matches the buffer, capped at the configured size
             assertThat(currentGaugeValue()).isEqualTo(2L).isEqualTo(activeSessions.size());
         }
@@ -174,9 +181,12 @@ class BlockSessionHandlerTest {
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 4);
             // Supply blocks in reverse order so the lowest session is always the last
             // activated and no eviction happens
-            toTest.processBlockItems(blocks.get(2).asBlockItems(), BlockSource.PUBLISHER);
-            toTest.processBlockItems(blocks.get(1).asBlockItems(), BlockSource.PUBLISHER);
-            toTest.processBlockItems(blocks.get(0).asBlockItems(), BlockSource.PUBLISHER);
+            toTest.processBlockItems(
+                    blocks.get(2).asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
+            toTest.processBlockItems(
+                    blocks.get(1).asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
+            toTest.processBlockItems(
+                    blocks.get(0).asBlockItems(), BlockSource.PUBLISHER, TestBlockBuilder.BLOCK_HASH_ALGORITHM);
             // Assert the gauge matches the overfull buffer
             assertThat(currentGaugeValue()).isEqualTo(3L).isEqualTo(activeSessions.size());
         }

@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
-import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.signing.TssBlockSigner;
+import org.hiero.block.simulator.Constants;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -19,7 +19,7 @@ class BlockProofHandlerTest {
 
     private static TssBlockSigner signer;
 
-    private final byte[] currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
+    private final byte[] currentBlockHash = new byte[Constants.BLOCK_HASH_ALGORITHM.hashSize()];
     private final long blockNumber = 1L;
 
     @BeforeAll

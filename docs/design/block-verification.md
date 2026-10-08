@@ -158,7 +158,13 @@ sources today:
 Before any session is started, the plugin validates the start of the block: the
 first item must be a block header and the header's number must match the block
 number announced with the items. If this validation fails, a failure
-notification is sent immediately and no session is created.
+notification is sent immediately and no session is created. The plugin then
+resolves the algorithm the block is hashed with from the algorithm the header
+declares, and the session is started with it. This mapping, from the values a
+header can declare to the algorithms the node computes with, is the single place
+deciding which algorithms the node accepts. A block declaring an algorithm the
+node does not recognize cannot be hashed into a meaningful root; it is refused
+with a failure notification and no session is created.
 
 ### The Session Stages
 
@@ -168,10 +174,15 @@ stage skips the remaining work and goes straight to result handling.
 
 1. **Hashing.** The `BlockHasher` consumes the block's item batches as they
    arrive and incrementally hashes them into the block's subtrees, producing the
-   block root hash together with the collected block data and proofs. The block
-   root tree has a fixed 16-leaf shape — every position always contributes,
-   using `EMPTY_TREE_HASH` when a subtree, state root, or extension slot is
-   absent — so Merkle proof paths are stable across presence patterns. How
+   block root hash together with the collected block data and proofs. Every hash
+   of the block root tree is computed with the algorithm the block header
+   declares, SHA-256 for current networks; the state proof verifier reconstructs
+   its paths with the same algorithm. The record file signatures of a wrapped
+   record block are verified over SHA-384 payloads by the RSA proof verifier,
+   independently of the algorithm the block declares. The
+   block root tree has a fixed 16-leaf shape: every position always contributes,
+   using the empty tree hash when a subtree, state root, or extension slot is
+   absent, so Merkle proof paths are stable across presence patterns. How
    items map to subtrees, and how this stage remains forward compatible with
    future item types, is described in
    [Block Stream Forward Compatibility](./block-stream-forward-compatibility.md).
@@ -460,6 +471,9 @@ ends in a verification notification, and the plugin keeps running.
 - **Invalid start of block.** The first item of a new block is not a header, or
   the header's number does not match. A `MISSING_MANDATORY_ITEM` failure
   notification is sent and no session is started.
+- **Unrecognized hash algorithm.** The header of a new block declares a hash
+  algorithm the node does not compute with. An `UNSUPPORTED_STREAM_FORMAT`
+  failure notification is sent and no session is started.
 - **Stage failure.** A stage that cannot continue (parse failure, missing item
   or field, bad proof, missing verification data) raises a session failure
   carrying the block number, source, and failure type. The result handling

@@ -6,7 +6,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.zip.GZIPOutputStream;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.signing.TssBlockSigner;
 
 /**
@@ -14,7 +16,11 @@ import org.hiero.block.signing.TssBlockSigner;
  * {@code <n>.blk.gz} files on disk — used by the E2E lifecycle workflow to obtain valid
  * TSS-signed blocks without a committed fixture set.
  *
- * <p>Usage: {@code java ... GenerateHarnessBlocksMain <outputDir> <count>}
+ * <p>Usage: {@code java ... GenerateHarnessBlocksMain <outputDir> <count> [algorithm]}, where the
+ * optional algorithm is a {@link HashAlgorithm} constant name and defaults to
+ * {@link TestBlockBuilder#BLOCK_HASH_ALGORITHM}. Every emitted header declares the algorithm the
+ * chain is hashed with; {@code SHA2_384} produces blocks a release from before the move to
+ * SHA-256 verifies.
  *
  * <p>Emits {@code <outputDir>/0.blk.gz}..{@code <outputDir>/<count-1>.blk.gz}. Block 0 carries
  * a {@code LedgerIdPublicationTransactionBody} so the receiving Block Node self-provisions its
@@ -26,12 +32,14 @@ public final class GenerateHarnessBlocksMain {
     private GenerateHarnessBlocksMain() {}
 
     public static void main(final String[] args) throws IOException {
-        if (args.length != 2) {
-            System.err.println("Usage: GenerateHarnessBlocksMain <outputDir> <count>");
+        if (args.length < 2 || args.length > 3) {
+            System.err.println("Usage: GenerateHarnessBlocksMain <outputDir> <count> [algorithm]");
             System.exit(2);
         }
         final Path outputDir = Path.of(args[0]);
         final int count = Integer.parseInt(args[1]);
+        final HashAlgorithm algorithm =
+                args.length == 3 ? HashAlgorithm.valueOf(args[2]) : TestBlockBuilder.BLOCK_HASH_ALGORITHM;
         if (count < 1) {
             System.err.println("count must be >= 1");
             System.exit(2);
@@ -39,7 +47,7 @@ public final class GenerateHarnessBlocksMain {
         Files.createDirectories(outputDir);
 
         final TssBlockSigner signer = TssBlockSigner.createDeterministic();
-        final HarnessChainBuilder builder = HarnessChainBuilder.create(signer);
+        final HarnessChainBuilder builder = HarnessChainBuilder.create(signer, algorithm);
         for (long n = 0; n < count; n++) {
             final HarnessChainBuilder.Signed signed = n == 0 ? builder.genesisWithPublication() : builder.next(n);
             final Bytes bytes = BlockUnparsed.PROTOBUF.toBytes(signed.block().blockUnparsed());
