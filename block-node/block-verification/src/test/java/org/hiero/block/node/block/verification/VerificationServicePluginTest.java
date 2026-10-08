@@ -3,6 +3,7 @@ package org.hiero.block.node.block.verification;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
+import static org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.consecutiveWRBBlocks;
 
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockProof;
@@ -30,7 +31,6 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlock;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder;
-import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.StateProof;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRB;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestWRBBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
@@ -45,25 +45,18 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.signing.TssBlockSigner;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /// Plugin-level integration test for [VerificationServicePlugin].
 @DisplayName("VerificationServicePlugin Tests")
 class VerificationServicePluginTest {
-    // consecutiveWRAPSBlocks removed — the last WRAPS-fixture consumers were migrated to
-    // HarnessChainBuilder; only WRAPS.BLOCK_0 remains as canary for BlockHasherTest.
-    private static final WRB[] consecutiveWRBBlocks = new WRB[] {
-        WRB.SOLO_4N_BLOCK_0, WRB.SOLO_4N_BLOCK_1, WRB.SOLO_4N_BLOCK_2, WRB.SOLO_4N_BLOCK_3, WRB.SOLO_4N_BLOCK_4
-    };
-    private static final StateProof[] consecutiveStateProofBlocks = new StateProof[] {
-        StateProof.BLOCK_0, StateProof.BLOCK_1, StateProof.BLOCK_2, StateProof.BLOCK_3, StateProof.BLOCK_4
-    };
-
     /// Tests for WRAPS verification
     @Nested
     @DisplayName("WRAPS Verification Tests")
@@ -657,6 +650,8 @@ class VerificationServicePluginTest {
                 value = WRB.class,
                 names = {"V2_BLOCK_0", "V5_BLOCK_26591040"})
         @DisplayName("Successful WRB Verification - real V2/V5 blocks")
+        @Disabled("Disabled until v2/v5 blocks after sha256 migration are available")
+        // @todo(3800) re-enable when test v2/v5 blocks after sha256 migration are available
         void testSuccessfulWRBVerificationRealLegacyVersions(final WRB fixture) throws IOException, ParseException {
             final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
             // First, we update the node address book with the era keys
@@ -943,6 +938,68 @@ class VerificationServicePluginTest {
                     .first()
                     .returns(false, VerificationNotification::success)
                     .returns(block1.number(), VerificationNotification::blockNumber);
+        }
+    }
+
+    /// Tests running the real captured block fixtures through the plugin, one fixture family per
+    /// case: wrapped record blocks from the four node Solo network, state proof blocks and WRAPS
+    /// TSS blocks captured from consensus nodes. The harness based tests above cover the plugin
+    /// behaviour in depth with generated blocks; this class keeps the plugin honest against
+    /// genuine consensus node output, so a drift between the harness and the real block format,
+    /// or a fixture that no longer matches the current hashing rules, is caught here.
+    @Nested
+    @DisplayName("Real Blocks Tests")
+    class RealBlocksTests extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        RealBlocksTests() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility());
+        }
+
+        /// This test aims to assert that a chain of real captured blocks, pushed consecutively
+        /// to the live items RB starting from block 0, passes verification in full: every block
+        /// is reported as a success, in order, with the block root hash recorded for the fixture.
+        /// For wrapped record blocks the network address book is loaded first so the RSA
+        /// signatures can be checked; TSS blocks need no setup because the genesis block
+        /// publishes the TSS parameters in band.
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder#realBlockChains")
+        @DisplayName("Successful consecutive verification of real blocks - Live RB")
+        void testSuccessfulConsecutiveRealBlocksVerificationLiveRB(
+                final String family, final List<? extends ResourceTestBlock> blocks) {
+            // Because when we have no data at the start the plugin accepts the first valid block,
+            // push block 0 alone and await its notification, then the rest in order.
+            final ResourceTestBlock block0 = blocks.getFirst();
+            prepareFor(block0);
+            plugin.handleBlockItemsReceived(block0.asBlockItems());
+            blockMessaging.getSentVerificationNotifications(1);
+            for (final ResourceTestBlock block : blocks.subList(1, blocks.size())) {
+                prepareFor(block);
+                plugin.handleBlockItemsReceived(block.asBlockItems());
+            }
+            final List<VerificationNotification> notifications =
+                    blockMessaging.getSentVerificationNotifications(blocks.size());
+            assertThat(notifications).hasSize(blocks.size());
+            for (int i = 0; i < notifications.size(); i++) {
+                final ResourceTestBlock block = blocks.get(i);
+                assertThat(notifications.get(i))
+                        .returns(true, VerificationNotification::success)
+                        .returns(null, VerificationNotification::failureInfo)
+                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                        .returns(block.blockUnparsed(), VerificationNotification::block)
+                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+            }
+        }
+
+        /// Wrapped record blocks are verified against the RSA keys of the network address book,
+        /// which the plugin learns from the application state. TSS proof blocks carry everything
+        /// they need in band, so there is nothing to prepare for them.
+        private void prepareFor(final ResourceTestBlock block) {
+            if (block instanceof ResourceTestWRBBlock wrbBlock) {
+                updateAddressBook(wrbBlock.nodeAddressBook());
+            }
         }
     }
 

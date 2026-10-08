@@ -36,8 +36,6 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlock;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder;
-import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.StateProof;
-import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRAPS;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRB;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestWRBBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
@@ -68,8 +66,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 @Timeout(unit = TimeUnit.SECONDS, value = 5)
 @DisplayName("Block Hasher Tests")
 class BlockHasherTest {
-    private static final String ALL_RESOURCE_BLOCKS_SOURCE =
-            "org.hiero.block.node.block.verification.hasher.BlockHasherTest#allResourceBlocks";
+    private static final String REAL_BLOCKS_SOURCE =
+            "org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder#realBlocks";
     private static final String FOOTER_WITH_MISSING_VALUES =
             "org.hiero.block.node.block.verification.hasher.BlockHasherTest#footerWithMissingValues";
     private static final String UNSUPPORTED_ITEM_TYPES =
@@ -113,10 +111,10 @@ class BlockHasherTest {
     class PositiveBlockHasherTests {
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected block number of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block number")
-        void testSuccessfulHashingProducesExpectedBlockNumber(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedBlockNumber(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -137,10 +135,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected root hash of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block hash")
-        void testSuccessfulHashingProducesExpectedHash(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedHash(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -161,10 +159,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected source of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block source")
-        void testSuccessfulHashingProducesExpectedSource(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedSource(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final Random random = new Random();
@@ -188,10 +186,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected block unparsed of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block unparsed")
-        void testSuccessfulHashingProducesExpectedBlockUnparsed(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedBlockUnparsed(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -212,10 +210,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected header of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block header")
-        void testSuccessfulHashingProducesExpectedHeader(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedHeader(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -236,10 +234,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected footer of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block footer")
-        void testSuccessfulHashingProducesExpectedFooter(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedFooter(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -260,10 +258,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected proofs of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block proofs")
-        void testSuccessfulHashingProducesExpectedProofs(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedProofs(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -287,10 +285,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected Hapi Version of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block hapi version")
-        void testSuccessfulHashingProducesExpectedHapiVersion(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedHapiVersion(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -1528,14 +1526,6 @@ class BlockHasherTest {
                 BlockItemUnparsed.newBuilder()
                         .blockProof(BlockProof.PROTOBUF.toBytes(proof))
                         .build());
-    }
-
-    /// All available resource blocks.
-    private static Stream<Arguments> allResourceBlocks() throws IOException, ParseException {
-        final List<ResourceTestBlock> wraps = ResourceTestBlockBuilder.loadMultiple(WRAPS.values());
-        final List<ResourceTestWRBBlock> wrb = ResourceTestBlockBuilder.loadMultiple(WRB.values());
-        final List<ResourceTestBlock> stateProof = ResourceTestBlockBuilder.loadMultiple(StateProof.values());
-        return Stream.of(wraps, wrb, stateProof).flatMap(List::stream).map(Arguments::of);
     }
 
     private static Stream<Arguments> footerWithMissingValues() throws ParseException {

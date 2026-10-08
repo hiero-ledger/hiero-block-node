@@ -53,6 +53,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -819,8 +820,9 @@ class RSAProofVerifierTest {
 
     /// Tests running real wrapped record blocks, carrying their original RSA
     /// signatures, through the hashing stage and the verifier with the era address book keys.
-    /// These fixtures are the ultimate oracle for the legacy payload reconstructions: the
-    /// signatures were produced by the consensus nodes over the original v2/v5 files.
+    /// These fixtures are the ultimate oracle for the signed payload computations: the
+    /// signatures were produced by the consensus nodes over the original v2/v5/v6 record
+    /// files, so any drift in the payload reconstruction fails signature verification.
     @Nested
     @DisplayName("Real Data Tests")
     class RealDataTests {
@@ -848,6 +850,8 @@ class RSAProofVerifierTest {
                 value = WRB.class,
                 names = {"V2_BLOCK_0", "V5_BLOCK_26591040"})
         @DisplayName("real V2/V5 block with original signatures is accepted")
+        @Disabled("Disabled until v2/v5 blocks after sha256 migration are available")
+        // @todo(3800) re-enable when test v2/v5 blocks after sha256 migration are available
         void realBlock_accepted(final WRB fixture) throws Exception {
             final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
             final BlockNodeContext context = TestUtils.testContext();
@@ -862,6 +866,39 @@ class RSAProofVerifierTest {
             final SessionFailureType result =
                     verifyProof(hashingResult, proof, eraKeyMap(block.nodeAddressBook()), metricsHolder);
             assertThat(result).isNull();
+        }
+
+        /// This test aims to assert that a real wrapped record block of the current v6
+        /// record file format (blocks 0 to 5 captured from a four node Solo network) is
+        /// accepted by the verifier: the hashing stage computes the block root hash declared
+        /// by the fixture, the v6 signed payload is derived from the record file contents
+        /// carried in the block, and every original consensus node signature verifies against
+        /// the network address book keys.
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("consecutiveWRBBlocks")
+        @DisplayName("real V6 block with original signatures is accepted")
+        void realV6Block_accepted(final WRB fixture) throws Exception {
+            final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
+            final BlockNodeContext context = TestUtils.testContext();
+            final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockHasher hasher = createHasher(blockItemsDeque, block.number(), context, metricsHolder);
+            blockItemsDeque.offer(block.asBlockItems());
+            final HashingResult hashingResult = hasher.get();
+            assertThat(hashingResult.rootHash()).isEqualTo(block.blockRootHash());
+            assertThat(hashingResult.blockProofs()).hasSize(1);
+            final SignedRecordFileProof proof =
+                    hashingResult.blockProofs().getFirst().signedRecordFileProofOrThrow();
+            assertThat(proof.version()).isEqualTo(6);
+            assertThat(proof.recordFileSignatures()).isNotEmpty();
+            final SessionFailureType result =
+                    verifyProof(hashingResult, proof, eraKeyMap(block.nodeAddressBook()), metricsHolder);
+            assertThat(result).isNull();
+        }
+
+        /// The real v6 wrapped record block chain, from the shared fixture definition.
+        static Stream<WRB> consecutiveWRBBlocks() {
+            return Arrays.stream(ResourceTestBlockBuilder.consecutiveWRBBlocks);
         }
     }
 

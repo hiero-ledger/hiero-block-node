@@ -29,4 +29,5 @@ module org.hiero.block.node.app.test.fixtures {
     requires io.helidon.webserver;
     requires java.logging;
     requires org.junit.jupiter.api;
+    requires org.junit.jupiter.params;
 }
