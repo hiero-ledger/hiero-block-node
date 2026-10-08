@@ -167,15 +167,18 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     /// {@inheritDoc}
     /// ---
     /// Cancels the stage chain and raises the shared cancellation flag so that any
-    /// stage currently running can observe it and stop.
+    /// stage currently running can observe it and stop. Cancelling the chain
+    /// runs the result handling stage on the calling thread, so the notification
+    /// for the cancelled session has been sent when this method returns.
     ///
     /// @throws IllegalStateException if the session was never started
     @Override
-    public void cancel() {
+    public boolean cancel() {
         final CompletableFuture<BlockVerificationResult> localChain = sessionCompletionChain;
+        final boolean cancelled;
         try {
             if (localChain != null) {
-                localChain.cancel(true);
+                cancelled = localChain.cancel(true);
             } else {
                 final String message = "Session with id %d for block %d with source %s canceled before it was started"
                         .formatted(sessionKey.uniqueId(), blockNumber, blockSource);
@@ -184,6 +187,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         } finally {
             isCancelled.set(true);
         }
+        return cancelled;
     }
 
     /// {@inheritDoc}
