@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -95,7 +96,7 @@ import picocli.CommandLine.Parameters;
         name = "validate",
         description = "Validates a wrapped block stream (hash chain, signatures, and state files)",
         mixinStandardHelpOptions = true)
-public class ValidateBlocksCommand implements Runnable {
+public class ValidateBlocksCommand implements Callable<Integer> {
 
     /** Read buffer size for ZipInputStream — tunes sequential HDD I/O. */
     private static final int ZIP_READ_BUFFER = 1 << 20; // 1 MiB
@@ -252,18 +253,18 @@ public class ValidateBlocksCommand implements Runnable {
     }
 
     @Override
-    public void run() {
+    public Integer call() {
         if (files == null || files.length == 0) {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ No files to validate"));
-            return;
+            return 1;
         }
         if (threads <= 0) {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ --threads must be >= 1"));
-            return;
+            return 1;
         }
         if (prefetch <= 0) {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ --prefetch must be >= 1"));
-            return;
+            return 1;
         }
 
         // Auto-detect addressBookHistory.json if not explicitly provided
@@ -301,7 +302,7 @@ public class ValidateBlocksCommand implements Runnable {
                 System.err.println(
                         Ansi.AUTO.string("@|red Error:|@ No address book found. Provide --address-book, place "
                                 + "addressBookHistory.json in the input directory, or set --network."));
-                return;
+                return 1;
             }
         }
 
@@ -309,7 +310,7 @@ public class ValidateBlocksCommand implements Runnable {
         List<BlockSource> sources = BlockZipsUtilities.findBlockSources(files, corruptZipCount);
         if (sources.isEmpty()) {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ No block files found"));
-            return;
+            return 1;
         }
         final long estimatedTotalBlocks = BlockZipsUtilities.estimateTotalBlocks(sources);
 
@@ -494,7 +495,7 @@ public class ValidateBlocksCommand implements Runnable {
                 }
             } catch (IOException e) {
                 System.err.println(Ansi.AUTO.string("@|red Error loading balance checkpoints:|@ " + e.getMessage()));
-                return;
+                return 1;
             }
         }
 
@@ -551,7 +552,7 @@ public class ValidateBlocksCommand implements Runnable {
                             + "starting from block 0. Delete the checkpoint directory and re-run "
                             + "validation from the beginning, or use --no-resume to ignore the checkpoint."));
                 }
-                return;
+                return 1;
             }
             if (treeValidation.getStreamingHasher().leafCount() > 0) {
                 System.out.println(Ansi.AUTO.string("@|yellow Restored streaming hasher:|@ leafCount = "
@@ -1101,6 +1102,7 @@ public class ValidateBlocksCommand implements Runnable {
                     "  Commit:              %,d ms (%.1f us/block)%n",
                     totalCommitNanosRef[0] / 1_000_000L, totalCommitNanosRef[0] / 1000.0 / blocksValidated);
         }
+        return validationFailed ? 1 : 0;
     }
 
     /**

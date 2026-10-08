@@ -111,19 +111,14 @@ function do_validate {
         "${LOCAL_BLOCKS_DIR}/live" 2>&1) || rc=$?
 
     # A large write hitting EAGAIN on a slow CI stdout pipe must not fail the test:
-    # the status that matters is in rc, and the VALIDATION FAILED check below reads
-    # the variable, not the terminal. printf is for not mangling backslashes.
+    # the status that matters is in rc. printf is for not mangling backslashes.
     printf '%s\n' "$output" || true
 
     # Clean up extracted blocks
     log "Cleaning up extracted blocks..."
     rm -rf "${LOCAL_BLOCKS_DIR}"
 
-    # Check for validation failure in output (ValidateBlocksCommand returns 0 even on failure)
-    if echo "$output" | grep -q "VALIDATION FAILED"; then
-        log "VALIDATION FAILED (detected in output)"
-        return 1
-    elif [[ ${rc} -ne 0 ]]; then
+    if [[ ${rc} -ne 0 ]]; then
         log "VALIDATION FAILED (exit code: ${rc})"
         return ${rc}
     else
