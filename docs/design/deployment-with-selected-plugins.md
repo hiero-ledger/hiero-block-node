@@ -66,7 +66,7 @@ in their values file:
 ```yaml
 plugins:
   enabled: true
-  names: "facility-messaging,health,server-status,block-access-service,verification"
+  names: "facility-messaging,health,server-status,block-access-service,block-verification"
 ```
 
 See the [Helm chart README](../../charts/block-node-server/README.md#plugin-configuration) for
