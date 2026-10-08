@@ -215,7 +215,7 @@ class ThrottledServiceInterfaceTest {
                 Map.of(ONLY_METHOD.name(), new PerClientThrottleSettings(100, 10, 1)),
                 Optional.empty(),
                 5,
-                new RemoteAddressKeyExtractor(),
+                new RemoteAddressKeyExtractor(metricRegistry),
                 throttleMetrics,
                 Duration.ofDays(1));
 
@@ -239,7 +239,7 @@ class ThrottledServiceInterfaceTest {
                         OTHER_METHOD.name(), new PerClientThrottleSettings(100, 10, 1)),
                 Optional.empty(),
                 1,
-                new RemoteAddressKeyExtractor(),
+                new RemoteAddressKeyExtractor(metricRegistry),
                 throttleMetrics,
                 Duration.ofDays(1));
 
@@ -261,7 +261,7 @@ class ThrottledServiceInterfaceTest {
                 Map.of(),
                 Optional.of(new PerClientThrottleSettings(100, 10, 1)),
                 5,
-                new RemoteAddressKeyExtractor(),
+                new RemoteAddressKeyExtractor(metricRegistry),
                 throttleMetrics,
                 Duration.ofDays(1));
 
@@ -298,7 +298,7 @@ class ThrottledServiceInterfaceTest {
                         new PerClientThrottleSettings(ratePerSecond, burstTolerance, maxConcurrentPerClient)),
                 Optional.empty(),
                 maxConcurrentGlobal,
-                new RemoteAddressKeyExtractor(),
+                new RemoteAddressKeyExtractor(metricRegistry),
                 throttleMetrics,
                 clientStateTtl);
     }
