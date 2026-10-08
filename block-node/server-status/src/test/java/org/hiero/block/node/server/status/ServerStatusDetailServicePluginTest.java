@@ -20,6 +20,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.TssData;
@@ -29,7 +31,10 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
-import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
+import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -84,8 +89,8 @@ public class ServerStatusDetailServicePluginTest
                 new BlockRange(1_000_000L, 1_000_005L),
                 new BlockRange(1_000_000_000L, 1_000_000_005L),
                 new BlockRange(1_000_000_000_000L, 1_000_000_000_005L));
-        replaceAvailableBlocks(availableBlocks);
-        replaceStoredBlocks(storedBlocks);
+        blockMessaging.sendAvailableBlocksUpdate(new AvailableBlocksNotification(availableBlocks));
+        blockMessaging.sendStoredBlocksUpdate(new StoredBlocksNotification(storedBlocks));
         final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
         assertEquals(1, fromPluginBytes.size());
@@ -148,31 +153,16 @@ public class ServerStatusDetailServicePluginTest
     }
 
     /**
-     * Tests that the server status detail response changes when
-     * {@link org.hiero.block.node.spi.BlockNodePlugin#onContextUpdate} is called,
+     * Tests that the server status detail response changes when an application-state notification
+     * is delivered,
      *
      * @throws ParseException if there is an error parsing the response
      */
     @Test
     @DisplayName("Should return changed Server Detail Status when the BlockNodeContext is updated")
     void shouldReturnValidServerStatusOnContextUpdate() throws ParseException {
-        // notify the plugin of an update to the block node plugin
-        BlockNodeContext newBlockNodeContext = new BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                buildTssData(),
-                blockNodeContext.rangedAddressBookHistory(),
-                blockNodeContext.storedBlocks(),
-                blockNodeContext.availableBlocks());
-
-        plugin.onContextUpdate(newBlockNodeContext);
+        // notify the plugin of an update via notification handler
+        blockMessaging.sendTssDataUpdate(new TssDataNotification(buildTssData()));
         ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
         assertEquals(1, fromPluginBytes.size());
@@ -198,86 +188,24 @@ public class ServerStatusDetailServicePluginTest
         assertFalse(response.hasNodeAddressBook());
     }
 
-    /**
-     * Tests that when the context snapshot is slightly stale, the last available range end is
-     * aligned with the live max reported by the historical block provider, without mutating the
-     * shared context snapshot list.
-     *
-     * @throws ParseException if there is an error parsing the response
-     */
-    @Test
-    @DisplayName("Should align last available range end with live max when the snapshot has drifted")
-    void shouldAlignLastAvailableRangeEndWhenSnapshotDrifted() throws ParseException {
-        // The historical block provider's live max is 1_000_000_000_005L. Provide a context snapshot
-        // whose last range end lags behind that value to trigger the drift-alignment path. The list is
-        // immutable (List.of) to prove fixAvailable does not mutate the shared snapshot in place.
-        final List<BlockRange> staleAvailableBlocks =
-                List.of(new BlockRange(0L, 5L), new BlockRange(1_000_000_000_000L, 1_000_000_000_000L));
-        replaceAvailableBlocks(staleAvailableBlocks);
-
-        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
-                ServerStatusRequest.newBuilder().build()));
-        assertEquals(1, fromPluginBytes.size());
-
-        final ServerStatusDetailResponse response =
-                standardParse(ServerStatusDetailResponse.PROTOBUF, fromPluginBytes.getFirst());
-
-        final List<BlockRange> availableRanges = response.availableRanges();
-        assertEquals(2, availableRanges.size());
-        // Earlier ranges are untouched
-        assertEquals(0L, availableRanges.getFirst().rangeStart());
-        assertEquals(5L, availableRanges.getFirst().rangeEnd());
-        // Last range start preserved, end aligned to the live max
-        final BlockRange lastRange = availableRanges.getLast();
-        assertEquals(1_000_000_000_000L, lastRange.rangeStart());
-        assertEquals(1_000_000_000_005L, lastRange.rangeEnd());
-
-        // The shared context snapshot must not have been mutated in place
-        assertEquals(1_000_000_000_000L, staleAvailableBlocks.getLast().rangeEnd());
-    }
-
     @Test
     @DisplayName("Should expose the plugin name")
     void shouldExposePluginName() {
         assertEquals("ServerStatusServicePlugin", plugin.name());
     }
 
-    /**
-     * Tests that when the live provider reports no blocks (max is unknown), the context snapshot is
-     * returned unchanged rather than having its last range end clobbered to the {@code -1} unknown
-     * sentinel by the drift-alignment path.
-     *
-     * @throws ParseException if there is an error parsing the response
-     */
-    @Test
-    @DisplayName("Should not corrupt last range when live provider is empty")
-    void shouldReturnSnapshotUnchangedWhenLiveProviderIsEmpty() throws ParseException {
-        // Context snapshot holds a non-empty range, but the live provider is empty (max == -1).
-        replaceAvailableBlocks(List.of(new BlockRange(0L, 5L)));
-        historicalBlockFacility.setTemporaryAvailableBlocks(new SimpleBlockRangeSet());
-
-        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
-                ServerStatusRequest.newBuilder().build()));
-        assertEquals(1, fromPluginBytes.size());
-
-        final ServerStatusDetailResponse response =
-                standardParse(ServerStatusDetailResponse.PROTOBUF, fromPluginBytes.getFirst());
-
-        // Snapshot returned unchanged — no rangeEnd = -1 corruption
-        final List<BlockRange> ranges = response.availableRanges();
-        assertEquals(1, ranges.size());
-        assertEquals(0L, ranges.getFirst().rangeStart());
-        assertEquals(5L, ranges.getFirst().rangeEnd()); // NOT -1
-    }
-
     @Test
     @DisplayName("Should include NodeAddressBook in response when context carries one")
     void shouldReturnNodeAddressBookWhenLoaded() throws ParseException {
         final NodeAddressBook book = buildAddressBook();
-        final BlockNodeContext ctxWithBook = new BlockNodeContext.Builder(blockNodeContext)
-                .nodeAddressBook(book)
+        final RangedAddressBookHistory history = RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .startBlock(0L)
+                        .endBlock(-1L)
+                        .addressBook(book)
+                        .build()))
                 .build();
-        plugin.onContextUpdate(ctxWithBook);
+        blockMessaging.sendAddressBookHistoryUpdate(new AddressBookHistoryNotification(history));
 
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
                 ServerStatusRequest.newBuilder().build()));

@@ -45,8 +45,8 @@ class SessionResultHandlerTest {
     @BeforeEach
     void setUp() {
         blockMessaging = new TestBlockMessagingFacility();
-        final BlockNodeContext context = new BlockNodeContext(
-                null, null, null, blockMessaging, null, null, null, null, null, null, null, null, null);
+        final BlockNodeContext context =
+                new BlockNodeContext(null, null, null, blockMessaging, null, null, null, null, null);
         final MetricsHolder metrics = MetricsHolder.create(TestUtils.createMetrics());
         final VerificationConfig verificationConfig = new TestConfigurationBuilder()
                 .withConfigDataType(VerificationConfig.class)

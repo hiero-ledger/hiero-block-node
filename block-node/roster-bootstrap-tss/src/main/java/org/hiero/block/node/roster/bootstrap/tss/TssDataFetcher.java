@@ -59,7 +59,7 @@ public class TssDataFetcher implements AutoCloseable {
         this.maxIncomingBufferSize = config.maxIncomingBufferSize();
         this.metrics = metrics;
         for (BlockNodeSourceConfig node : blockNodeSource.nodes()) {
-            LOGGER.log(INFO, "Loaded backfill source node: {0}", node);
+            LOGGER.log(INFO, "Loaded TssData peer node: {0}", node);
         }
     }
 

@@ -32,6 +32,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
@@ -810,6 +811,21 @@ class BlockUploadTaskTest {
         }
 
         @Override
+        public TssData tssData() {
+            return null;
+        }
+
+        @Override
+        public RangedAddressBookHistory rangedAddressBookHistory() {
+            return null;
+        }
+
+        @Override
+        public List<BlockRange> storedBlocks() {
+            return List.of();
+        }
+
+        @Override
         public NetworkData knownPublishers() {
             return NetworkData.DEFAULT;
         }
@@ -831,5 +847,8 @@ class BlockUploadTaskTest {
 
         @Override
         public void updateBackfillSources(NetworkData sources) {}
+
+        @Override
+        public void updateAvailableBlocks() {}
     }
 }
