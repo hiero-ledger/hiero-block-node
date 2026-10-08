@@ -24,6 +24,9 @@ import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfType;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
@@ -31,8 +34,10 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -51,6 +56,13 @@ class BlockStreamSubscriberSessionTest {
             response -> response.response().kind();
     private static final Function<SubscribeStreamResponseUnparsed, Code> responseStatusExtractor =
             SubscribeStreamResponseUnparsed::status;
+
+    /** A generously-sized bulkhead shared by every {@link SessionContext#create} call in this file. */
+    private static final BlockReadBulkhead TEST_BLOCK_READ_BULKHEAD = new BlockReadBulkhead(
+            1_000,
+            MetricRegistry.builder()
+                    .setMetricsExporter(new TestMetricsExporter())
+                    .build());
 
     // SESSION FIELDS
     /** Client id of the session. */
@@ -102,7 +114,7 @@ class BlockStreamSubscriberSessionTest {
                     .startBlockNumber(-1L)
                     .endBlockNumber(-1L)
                     .build();
-            sessionContext = SessionContext.create(clientId, validRequest, blockNodeContext);
+            sessionContext = SessionContext.create(clientId, validRequest, blockNodeContext, TEST_BLOCK_READ_BULKHEAD);
         }
 
         /**
@@ -1252,7 +1264,7 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(0L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, request, chunkingContext),
+                    SessionContext.create(clientId, request, chunkingContext, TEST_BLOCK_READ_BULKHEAD),
                     chunkingPipeline,
                     chunkingContext,
                     sessionReadyLatch);
@@ -1297,7 +1309,7 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(0L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, request, chunkingContext),
+                    SessionContext.create(clientId, request, chunkingContext, TEST_BLOCK_READ_BULKHEAD),
                     chunkingPipeline,
                     chunkingContext,
                     sessionReadyLatch);
@@ -1352,7 +1364,7 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(0L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, request, chunkingContext),
+                    SessionContext.create(clientId, request, chunkingContext, TEST_BLOCK_READ_BULKHEAD),
                     chunkingPipeline,
                     chunkingContext,
                     sessionReadyLatch);
@@ -1400,7 +1412,7 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(0L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, request, chunkingContext),
+                    SessionContext.create(clientId, request, chunkingContext, TEST_BLOCK_READ_BULKHEAD),
                     chunkingPipeline,
                     chunkingContext,
                     sessionReadyLatch);
@@ -1452,7 +1464,10 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(-1L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, liveRequest, context), failingPipeline, context, sessionReadyLatch);
+                    SessionContext.create(clientId, liveRequest, context, TEST_BLOCK_READ_BULKHEAD),
+                    failingPipeline,
+                    context,
+                    sessionReadyLatch);
 
             try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
@@ -1472,6 +1487,91 @@ class BlockStreamSubscriberSessionTest {
             }
 
             assertThat(failingPipeline.getOnNextCalls()).hasSize(1);
+        }
+    }
+
+    /**
+     * Tests for the shared block-read bulkhead's interaction with historical catch-up sends.
+     */
+    @Nested
+    @DisplayName("Block Read Bulkhead Tests")
+    class BlockReadBulkheadTests {
+        /** Upper bound for waits, so a regression fails the test instead of hanging it. */
+        private static final long WAIT_TIMEOUT_SECONDS = 10L;
+
+        /**
+         * Confirms the bulkhead permit acquired for a historical block's storage read is
+         * released before the block is sent to the client, not held through the send — a
+         * slow/backpressured send must not tie up a shared, node-wide-capped resource on
+         * network time instead of storage-read time.
+         */
+        @Test
+        @DisplayName("Historical catch-up releases the bulkhead permit before sending, not after")
+        void testHistoricalReadReleasesPermitBeforeSend() throws Exception {
+            historicalBlockFacility.init(blockNodeContext, null);
+            final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
+            historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
+
+            final BlockReadBulkhead singlePermitBulkhead = new BlockReadBulkhead(
+                    1,
+                    MetricRegistry.builder()
+                            .setMetricsExporter(new TestMetricsExporter())
+                            .build());
+            final StallingResponsePipeline stallingPipeline = new StallingResponsePipeline();
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(0L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, blockNodeContext, singlePermitBulkhead),
+                    stallingPipeline,
+                    blockNodeContext,
+                    sessionReadyLatch);
+
+            try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+                try {
+                    assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                            .isTrue();
+                    assertThat(stallingPipeline.firstSendStarted.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                            .isTrue();
+
+                    // The send is now blocked mid-flight. If the storage-read permit were still
+                    // held through it, this single-permit bulkhead would have nothing left to give.
+                    final boolean acquiredWhileSendStalled = singlePermitBulkhead.tryAcquire();
+                    if (acquiredWhileSendStalled) {
+                        singlePermitBulkhead.release();
+                    }
+                    assertThat(acquiredWhileSendStalled)
+                            .as("the storage-read permit must already be released before the send starts")
+                            .isTrue();
+                } finally {
+                    // Always unblock the stalled session thread, even on assertion failure, so the
+                    // try-with-resources executor can close instead of waiting on it forever.
+                    stallingPipeline.releaseSend.countDown();
+                }
+                sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            }
+        }
+    }
+
+    /**
+     * Response pipeline that blocks on its first send until released, without failing it —
+     * simulates a slow/backpressured client mid-send.
+     */
+    private static final class StallingResponsePipeline extends TestResponsePipeline<SubscribeStreamResponseUnparsed> {
+        private final CountDownLatch firstSendStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseSend = new CountDownLatch(1);
+
+        @Override
+        public void onNext(final SubscribeStreamResponseUnparsed item) {
+            super.onNext(item);
+            firstSendStarted.countDown();
+            try {
+                releaseSend.await();
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -1527,7 +1627,7 @@ class BlockStreamSubscriberSessionTest {
      */
     private BlockStreamSubscriberSession generateSession(final SubscribeStreamRequest request) {
         return new BlockStreamSubscriberSession(
-                SessionContext.create(clientId, request, blockNodeContext),
+                SessionContext.create(clientId, request, blockNodeContext, TEST_BLOCK_READ_BULKHEAD),
                 responsePipeline,
                 blockNodeContext,
                 sessionReadyLatch);

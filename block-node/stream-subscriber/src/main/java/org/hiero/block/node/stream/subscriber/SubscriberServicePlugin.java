@@ -31,6 +31,7 @@ import org.hiero.block.internal.SubscribeStreamResponseUnparsed.Builder;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
@@ -56,6 +57,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context, used to provide access to facilities */
     private BlockNodeContext context;
+    /** The shared block-storage read bulkhead; protects storage independent of client identity */
+    private BlockReadBulkhead blockReadBulkhead;
     /** A handler for client requests */
     private SubscribeBlockStreamHandler clientHandler;
 
@@ -67,6 +70,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = requireNonNull(context);
+        this.blockReadBulkhead = serviceBuilder.blockReadBulkhead();
         // register us as a service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(SubscriberConfig.class).port();
@@ -76,7 +80,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     @Override
     public void start() {
         // Create the client handler and wait for it to start and reach a ready state.
-        clientHandler = new SubscribeBlockStreamHandler(context);
+        clientHandler = new SubscribeBlockStreamHandler(context, blockReadBulkhead);
     }
 
     @Override
@@ -137,6 +141,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         private final AtomicLong nextClientId = new AtomicLong(0);
         /** A context that applies to the pipeline this handler supports. */
         private final BlockNodeContext context;
+        /** The shared block-storage read bulkhead; protects storage independent of client identity */
+        private final BlockReadBulkhead blockReadBulkhead;
         /** Set of open client sessions */
         private volatile Map<Long, BlockStreamSubscriberSession> openSessions;
         // Metrics
@@ -148,8 +154,10 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         private final ExecutorService virtualThreadExecutor;
         private volatile CompletionService<BlockStreamSubscriberSession> streamSessions;
 
-        private SubscribeBlockStreamHandler(@NonNull final BlockNodeContext context) {
+        private SubscribeBlockStreamHandler(
+                @NonNull final BlockNodeContext context, @NonNull final BlockReadBulkhead blockReadBulkhead) {
             this.context = requireNonNull(context);
+            this.blockReadBulkhead = requireNonNull(blockReadBulkhead);
             openSessions = new ConcurrentSkipListMap<>();
             virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
             streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
@@ -207,7 +215,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             final CompletionService<BlockStreamSubscriberSession> streams = streamSessions;
             final Map<Long, BlockStreamSubscriberSession> sessions = openSessions;
             if (streams != null && sessions != null) {
-                final SessionContext sessionContext = SessionContext.create(clientId, request, context);
+                final SessionContext sessionContext =
+                        SessionContext.create(clientId, request, context, blockReadBulkhead);
                 final BlockStreamSubscriberSession blockStreamSession =
                         new BlockStreamSubscriberSession(sessionContext, responsePipeline, context, sessionReadyLatch);
                 streams.submit(blockStreamSession);
