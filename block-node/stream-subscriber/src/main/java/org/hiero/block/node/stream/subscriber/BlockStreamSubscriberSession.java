@@ -107,6 +107,18 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private final CountDownLatch sessionReadyLatch;
     /** A flag indicating if the session should be interrupted */
     private final AtomicBoolean interruptedStream = new AtomicBoolean(false);
+
+    /**
+     * Whether this session's work loop should stop. Checks both the explicit
+     * {@link #interruptedStream} flag set by {@link #close(SubscribeStreamResponse.Code)} and the running
+     * thread's real interrupt status, so a future force-cancellation of this session's thread (e.g. via
+     * {@code Future.cancel(true)}) is honored even if nothing ever calls {@code close()} directly. Only
+     * meaningful when called from this session's own worker thread (i.e. from within {@link #call()} or
+     * anything it calls) — {@code close()} itself can run on a different thread and must not use this.
+     */
+    private boolean isClosed() {
+        return interruptedStream.get() || Thread.currentThread().isInterrupted();
+    }
     /** The latest block number seen in the live stream */
     private final AtomicLong latestLiveStreamBlock;
     /** The next block number to send to the client */
@@ -211,7 +223,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                     sessionReadyLatch.countDown();
                     // Send blocks forever if requested, otherwise send until we reach the requested end block
                     // or the stream is interrupted.
-                    while (!(interruptedStream.get() || allRequestedBlocksSent())) {
+                    while (!(isClosed() || allRequestedBlocksSent())) {
                         if (nextBlockToSend.get() < UNKNOWN_BLOCK_NUMBER) {
                             // This should never happen, if it does, this means that we have failed to set
                             // a value for the next block to send, this is most likely a failure in handling.
@@ -277,7 +289,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * thread forever waiting for a live block that may never arrive, leaking the session.
      */
     private void resolveLiveNextBlockToSend() {
-        while (!interruptedStream.get() && nextBlockToSend.get() == UNKNOWN_BLOCK_NUMBER) {
+        while (!isClosed() && nextBlockToSend.get() == UNKNOWN_BLOCK_NUMBER) {
             final BlockItems head = liveBlockQueue.peek();
             if (head != null) {
                 if (!head.isStartOfNewBlock()) {
@@ -500,7 +512,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      *     4. The next block to send is not available from the live stream.
      */
     private boolean isHistoryPermitted() {
-        return !(interruptedStream.get() || hasRunPastLatestLive() || allRequestedBlocksSent() || nextBatchIsLive());
+        return !(isClosed() || hasRunPastLatestLive() || allRequestedBlocksSent() || nextBatchIsLive());
     }
 
     /**
@@ -562,7 +574,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // then we'll also break out of the loop and return to the caller.
         // Stop if the session was closed (e.g. a send failed), as every further
         // send to a failed stream blocks for the full flow control timeout.
-        while (!interruptedStream.get() && !liveBlockQueue.isEmpty()) {
+        while (!isClosed() && !liveBlockQueue.isEmpty()) {
             // Peek at the block item from the queue and _possibly_ process it
             BlockItems blockItems = liveBlockQueue.peek();
             // Live _might_ be ahead or behind the next expected block (particularly if
@@ -835,7 +847,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             sendOneBlockItemSet(allItems.subList(startIndex, currentIndex), isLastChunk);
 
             // If session was closed during send, stop
-            if (interruptedStream.get()) {
+            if (isClosed()) {
                 return;
             }
         }
